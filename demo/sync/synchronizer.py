@@ -45,11 +45,11 @@ class Synchronizer(ast.NodeVisitor):
     visitor = getattr(self, method, default)
     return visitor(node)
 
-  def generic_visit(self, node):
+  def generic_visit(self, node, passIfEmpty=False):
     syncNode = node.__class__()
     for field, value in ast.iter_fields(node):
       if isinstance(value, list):
-          syncValues = self.visit_list(value)
+          syncValues = self.filter_list(value, node, passIfEmpty=passIfEmpty)
           setattr(syncNode, field, syncValues)
       elif isinstance(value, ast.AST):
           syncValue = self.visit(value)
@@ -60,25 +60,25 @@ class Synchronizer(ast.NodeVisitor):
     ast.copy_location(syncNode, node)
     return syncNode
   
-  def visit_body_stmt(self, node):
+  def visit_global_stmt(self, node):
     """Visit stmt. Remove global expressions"""
-    self.generic_visit(node)
+    self.generic_visit(node, passIfEmpty=True)
     print("Remove global expression: {}".format(ast.get_source_segment(self.source, node)))
     return None
 
-  def visit_list(self, list, visitor=None):
+  def filter_list(self, list, parent, visitor=None, passIfEmpty=False):
     syncValues = []
     for val in list:
       if isinstance(val, ast.AST):
-          val = self.visit(val)
+          val = self.visit(val, default=visitor)
           if val is None:
               continue
           elif not isinstance(val, ast.AST):
               syncValues.extend(val)
               continue
       syncValues.append(val)
-    if len(list) > 0 and len(syncValues) == 0:
-      syncValues.append(ast.fix_missing_locations(ast.Pass()))
+    if len(syncValues) == 0 and passIfEmpty:
+      syncValues.append(ast.copy_location(ast.Pass(), parent))
     return syncValues
     
   def visit_Module(self, node):
@@ -86,8 +86,8 @@ class Synchronizer(ast.NodeVisitor):
     print("Entering Module...")
     self.scope.append(node)
     sync_node = ast.Module(
-      self.visit_list(node.body, self.visit_body_stmt),
-      self.visit(node.type_ignores)
+      self.filter_list(node.body, node, visitor=self.visit_global_stmt),
+      node.type_ignores
     )
     self.scope.pop()
     return sync_node
