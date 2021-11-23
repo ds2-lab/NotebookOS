@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
+from foo import Foo
 
 base = os.path.dirname(os.path.realpath(__file__))
 
@@ -15,3 +16,6 @@ for i in range (0, 10):
   a = i
 
 load()
+
+foo = Foo()
+foo.next = "goo"

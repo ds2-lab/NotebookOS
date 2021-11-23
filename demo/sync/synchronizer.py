@@ -107,6 +107,8 @@ class Synchronizer(ast.NodeVisitor):
     return self.generic_visit(node)
 
   def visit_ClassDef(self, node):
+    self.globals[node.name] = None
+    print("Found class \"{}\" and keep declaration".format(node.name))
     return self.generic_visit(node)
 
   def visit_Assign(self, node):

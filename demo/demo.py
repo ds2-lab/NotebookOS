@@ -52,23 +52,29 @@ def demo():
     for path in args.scripts:
       synchronizer, namespace = sync()
       if synchronizer.tree != None:
-        print("loaded history:{}".format(ast.dump(synchronizer.tree)))
+        print("loaded history:\n{}".format(ast.dump(synchronizer.tree)))
 
       print("executing {}".format(path))
       sourceFile = open(path, "r")
       source = sourceFile.read()
       sourceFile.close()
       tree = ast.parse(source, path, "exec")
-      print("exec tree:\n{}".format(ast.dump(tree, indent=2)))
+      # print("exec tree:\n{}".format(ast.dump(tree, indent=2)))
       # print("exec tree:\n{}".format(ast.dump(tree)))
       tree = synchronizer.sync(tree, source)
-      print("merged tree:\n{}".format(ast.dump(tree)))
+      # print("merged tree:\n{}".format(ast.dump(tree)))
       compiled = compile(tree, path, "exec")
+      namespace["__name__"] = "__main__"
+      namespace["__dir__"] = os.path.dirname(path)
       namespace["__file__"] = path
+
+      # Execute
+      sys.path[0] = namespace["__dir__"]
       exec(compiled, namespace)
+      sys.path[0] = base
 
       sync(synchronizer, namespace)
-      print("synced tree:\n{}".format(ast.dump(synchronizer.tree)))
+      # print("synced tree:\n{}".format(ast.dump(synchronizer.tree)))
       synchronizer = None
       namespace = None
 
