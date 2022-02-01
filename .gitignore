@@ -127,4 +127,4 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-demo/store/*.dat
+distributed-notebook/demo/store/*.dat

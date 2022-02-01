@@ -3,9 +3,10 @@ import os
 import pickle
 import sys
 import ast
-from sync.synchronizer import Synchronizer
+from ..sync.synchronizer import Synchronizer
 
 base = os.path.dirname(os.path.realpath(__file__))
+store = base + "/store/"
 
 class SmartFormatter(argparse.HelpFormatter):
   """Add option to split lines in help messages"""
@@ -45,6 +46,8 @@ def demo():
                 help="Python script to be executed")
   if len(sys.argv) == 1:
       sys.argv.append("-h")
+  if os.path.exists(store):
+      os.system("rm -rf " + store)
 
   try:
     args, _ = parser.parse_known_args()
@@ -82,7 +85,6 @@ def demo():
     print(exc)
 
 def sync(synchronizer=None, namespace=None):
-  store = base + "/store/"
   if synchronizer is None:
     synchronizer = Synchronizer()
     # load
@@ -101,6 +103,9 @@ def sync(synchronizer=None, namespace=None):
     ns = {}
     for key in synchronizer.globals.keys():
       ns[key] = namespace[key]
+
+    if not os.path.exists(store):
+      os.mkdir(store, 0o755)
 
     with open(store + "tree.dat", "wb") as file:
       pickle.dump(dumping, file)

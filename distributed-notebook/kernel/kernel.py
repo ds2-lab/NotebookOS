@@ -1,6 +1,6 @@
-from ipykernel.kernelbase import Kernel
+from ipykernel.ipkernel import IPythonKernel
 
-class DistributedKernel(Kernel):
+class DistributedKernel(IPythonKernel):
     implementation = 'Distributed Python 3'
     implementation_version = '0.1'
     language = 'no-op'

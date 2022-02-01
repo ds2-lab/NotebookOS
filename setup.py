@@ -1,13 +1,13 @@
 from distutils.core import setup
 
-with open('README.me') as f:
+with open('README.md') as f:
     readme = f.read()
 
 setup(
-    name='distributed_kernel',
+    name='distributed-notebook',
     version='0.1',
-    packages=['distributed_kernel'],
-    description='Distributed kernel for Jupyter',
+    packages=['distributed-notebook.demo', 'distributed-notebook.sync', 'distributed-notebook.kernel'],
+    description='Distributed notebook for Jupyter',
     long_description=readme,
     author='Tianium',
     author_email='jzhang33@gmu.edu',
