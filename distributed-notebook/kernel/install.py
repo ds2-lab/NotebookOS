@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import sys
+import shutil
 
 from jupyter_client.kernelspec import KernelSpecManager
 from IPython.utils.tempdir import TemporaryDirectory
@@ -18,6 +19,7 @@ def install_my_kernel_spec(user=True, prefix=None):
         with open(os.path.join(td, 'kernel.json'), 'w') as f:
             json.dump(kernel_json, f, sort_keys=True)
         # TODO: Copy any resources
+        shutil.copy(os.path.join(os.path.dirname(__file__), "kernel.js"), os.path.join(td, 'kernel.js'))
 
         print('Installing Jupyter kernel spec')
         KernelSpecManager().install_kernel_spec(td, 'distributed', user=user, prefix=prefix)

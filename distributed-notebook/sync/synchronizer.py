@@ -14,13 +14,14 @@ class Synchronizer(ast.NodeVisitor):
     self.scope = []
     self.globals = {}
 
-  def dump(self):
-    return [self.tree, list(self.globals.keys())]
+  def dump(self, execution_count):
+    return [self.tree, list(self.globals.keys()), execution_count]
 
   def restore(self, dumped):
     self.tree = dumped[0]
     for key in dumped[1]:
       self.globals[key] = None
+    return dumped[2]
 
   def sync(self, tree, source):
     self.source = source
@@ -29,11 +30,11 @@ class Synchronizer(ast.NodeVisitor):
       return tree
     else:
       incremental = self.visit(tree)
-      new_body = []
-      for inherited in self.tree.body:
-        new_body.append(ast.fix_missing_locations(inherited))
-      new_body.extend(tree.body)
-      tree.body[:] = new_body
+      # new_body = []
+      # for inherited in self.tree.body:
+      #   new_body.append(ast.fix_missing_locations(inherited))
+      # new_body.extend(tree.body)
+      # tree.body[:] = new_body
       self.tree.body.extend(incremental.body)
       return tree
 
@@ -107,8 +108,8 @@ class Synchronizer(ast.NodeVisitor):
     return self.generic_visit(node)
 
   def visit_ClassDef(self, node):
-    self.globals[node.name] = None
-    print("Found class \"{}\" and keep declaration".format(node.name))
+    # self.globals[node.name] = None
+    # print("Found class \"{}\" and keep declaration".format(node.name))
     return self.generic_visit(node)
 
   def visit_Assign(self, node):

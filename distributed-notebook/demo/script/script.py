@@ -1,7 +1,11 @@
 import os
 import pandas as pd
 import numpy as np
-from foo import Foo
+# from foo import Foo
+
+class Foo:
+  def __init__(self):
+    self.name = "foo"
 
 base = os.path.dirname(os.path.realpath(__file__))
 
