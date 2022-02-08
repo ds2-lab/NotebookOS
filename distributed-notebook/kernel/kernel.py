@@ -100,14 +100,12 @@ class DistributedKernel(IPythonKernel):
         self.synchronizer = self.sync(self.synchronizer)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):
-        self.log.info("in run_cell: ")
         self.source = raw_cell
         result = self.old_run_cell(raw_cell, store_history=store_history, silent=silent, shell_futures=shell_futures)
         self.source = None
         return result
 
     def transform_ast(self, node):
-        self.log.info("in transform_ast")
         return self.synchronizer.sync(node, self.source)
 
     def sync(self, synchronizer=None):
@@ -144,7 +142,7 @@ class DistributedKernel(IPythonKernel):
                 ns[key] = self.shell.user_global_ns[key]
 
             if not os.path.exists(self.store):
-                os.mkdir(self.store, 0o755)
+                os.makedirs(self.store, 0o755)
 
             with open(os.path.join(self.store, "tree.dat"), "wb") as file:
                 pickle.dump(dumping, file)
