@@ -5,7 +5,7 @@ import sys
 import ast
 import types
 
-from ..sync.synchronizer import Synchronizer
+from ..sync import SyncAST, Synchronizer, FileLog
 
 base = os.path.dirname(os.path.realpath(__file__))
 store = base + "/store/"
@@ -55,88 +55,83 @@ def demo():
     if os.path.exists(store) and not args.resume:
       os.system("rm -rf " + store)
 
-    module = None
-    lastpath = args.scripts[0]
+    execution_count = 0
     for path in args.scripts:
-      synchronizer, module = sync(path = lastpath)
+      synclog = FileLog(store)
+      synchronizer = Synchronizer(synclog)
+      execution_count = synclog.term
 
+      # Load script file
       print("executing {}".format(path))
       sourceFile = open(path, "r")
       source = sourceFile.read()
       sourceFile.close()
+
+      # Parse and compile the script
       tree = ast.parse(source, path, "exec")
       # print("exec tree:\n{}".format(ast.dump(tree, indent=2)))
       # print("exec tree:\n{}".format(ast.dump(tree)))
-      tree = synchronizer.sync(tree, source)
-      # print("merged tree:\n{}".format(ast.dump(tree)))
+      print("compiling tree...\n{}".format(ast.dump(tree, indent=2)))
       compiled = compile(tree, path, "exec")
     
       # Execute
-      module.__dict__.setdefault("__dir__", os.path.dirname(path))
-      module.__dict__.setdefault("__file__", path)
+      synchronizer.global_ns.setdefault("__dir__", os.path.dirname(path))
+      synchronizer.global_ns.setdefault("__file__", path)
       old_main_modules = sys.modules["__main__"]
-      sys.modules["__main__"] = module
+      sys.modules["__main__"] = synchronizer.module
       sys.path[0] = os.path.dirname(path)
-      exec(compiled, module.__dict__, module.__dict__) # use namespace for both global and local namespace
+      exec(compiled, synchronizer.global_ns, synchronizer.global_ns) # use namespace for both global and local namespace
       sys.path[0] = base
       sys.modules["__main__"] = old_main_modules
+      execution_count = execution_count + 1
 
-      sync(synchronizer, module)
-      # print("synced tree:\n{}".format(ast.dump(synchronizer.tree)))
+      synchronizer.sync(execution_count, tree, source)
       synchronizer = None
-      module = None
-      lastpath = path
 
   except RuntimeError as exc:
     print(exc)
 
-class Foo:
-  def __init__(self):
-    self.name = "foo"
+# def sync(synchronizer=None, module=None, path=None):
+#   if synchronizer is None:
+#     synchronizer = SyncAST()
+#     module = types.ModuleType("__main__", doc="Automatically created module for python environment")
+#     # load
+#     if not os.path.exists(store+"tree.dat"):
+#       return synchronizer, module
 
-def sync(synchronizer=None, module=None, path=None):
-  if synchronizer is None:
-    synchronizer = Synchronizer()
-    module = types.ModuleType("__main__", doc="Automatically created module for python environment")
-    # load
-    if not os.path.exists(store+"tree.dat"):
-      return synchronizer, module
+#     with open(store + "tree.dat", "rb") as file:
+#       synchronizer = pickle.load(file)
+#       print("loaded history:\n{}".format(ast.dump(synchronizer.tree)))
 
-    with open(store + "tree.dat", "rb") as file:
-      dumped = pickle.load(file)
-      synchronizer.restore(dumped)
-      print("loaded history:\n{}".format(ast.dump(synchronizer.tree)))
-
-    # Redeclare modules, classes, and functions.
-    compiled = compile(synchronizer.tree, path, "exec")
-    module.__dict__.setdefault("__dir__", os.path.dirname(path))
-    module.__dict__.setdefault("__file__", path)
-    sys.path[0] = os.path.dirname(path)
-    exec(compiled, module.__dict__, module.__dict__)
-    sys.path[0] = base
+#     # Redeclare modules, classes, and functions.
+#     compiled = compile(synchronizer.tree, path, "exec")
+#     module.__dict__.setdefault("__dir__", os.path.dirname(path))
+#     module.__dict__.setdefault("__file__", path)
+#     sys.path[0] = os.path.dirname(path)
+#     exec(compiled, module.__dict__, module.__dict__)
+#     sys.path[0] = base
     
-    with open(store + "data.dat", "rb") as file:
-      old_main_modules = sys.modules["__main__"]
-      sys.modules["__main__"] = module
-      data = pickle.load(file)
-      sys.modules["__main__"] = old_main_modules
-      for key in data.keys():
-        module.__dict__[key] = data[key]
-      return synchronizer, module
-  else:
-    dumping = synchronizer.dump(1)
-    ns = {}
-    for key in synchronizer.globals.keys():
-      ns[key] = module.__dict__[key]
+#     with open(store + "data.dat", "rb") as file:
+#       old_main_modules = sys.modules["__main__"]
+#       sys.modules["__main__"] = module
+#       data = pickle.load(file)
+#       sys.modules["__main__"] = old_main_modules
+#       for key in data.keys():
+#         module.__dict__[key] = data[key]
+#       return synchronizer, module
+#   else:
+#     ns = {}
+#     for key in synchronizer.globals.keys():
+#       ns[key] = module.__dict__[key]
 
-    if not os.path.exists(store):
-      os.mkdir(store, 0o755)
+#     if not os.path.exists(store):
+#       os.mkdir(store, 0o755)
 
-    with open(store + "tree.dat", "wb") as file:
-      pickle.dump(dumping, file)
-    with open(store + "data.dat", "wb") as file:
-      old_main_modules = sys.modules["__main__"]
-      sys.modules["__main__"] = module
-      pickle.dump(ns, file)
-      sys.modules["__main__"] = old_main_modules
-    return synchronizer, module
+#     with open(store + "tree.dat", "wb") as file:
+#       pickle.dump(synchronizer, file)
+#     with open(store + "data.dat", "wb") as file:
+#       old_main_modules = sys.modules["__main__"]
+#       sys.modules["__main__"] = module
+#       pickle.dump(ns, file)
+#       sys.modules["__main__"] = old_main_modules
+#     return synchronizer, module

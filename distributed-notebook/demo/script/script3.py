@@ -1,0 +1,1 @@
+print(list(foo.iterator()))

@@ -1,151 +1,136 @@
+import io
+import pickle
 import ast
-from copy import copy, deepcopy
+import sys
+import types
 
-ExplorerActionCopy = 0
-ExplorerActionPass = 1
+from .log import SyncLog, SyncValue
+from .ast import SyncAST
+from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
+from .referer import SyncReferer
 
-class Synchronizer(ast.NodeVisitor):
-  """Capture Dependencies"""
-  # pylint: disable=too-many-public-methods
-  # pylint: disable=invalid-name
+KEY_SYNC_AST = "_ast_"
+CHECKPOINT_AUTO = 1
+CHECKPOINT_ON_CHANGE = 2
 
-  def __init__(self, tree=None):
-    self.tree = tree
-    self.scope = []
-    self.globals = {}
+class SyncModule(object):
+  """A dummy module used for Synchronizer for customizing __dict__"""
+  __spec__ = None
 
-  def dump(self, execution_count):
-    return [self.tree, list(self.globals.keys()), execution_count]
-
-  def restore(self, dumped):
-    self.tree = dumped[0]
-    for key in dumped[1]:
-      self.globals[key] = None
-    return dumped[2]
-
-  def sync(self, tree, source):
-    self.source = source
-    if self.tree is None:
-      self.tree = self.visit(tree)
-      return tree
+class Synchronizer:
+  def __init__(self, synclog: SyncLog, module=None, ns = None, opts = 0):
+    if module is None and ns is not None:
+      self.module = SyncModule()
+      ns.setdefault("__name__", "__main__")
+      self.module.__dict__ = ns
+    elif module is None:
+      self.module = types.ModuleType("__main__", doc="Automatically created module for python environment")
     else:
-      incremental = self.visit(tree)
-      # new_body = []
-      # for inherited in self.tree.body:
-      #   new_body.append(ast.fix_missing_locations(inherited))
-      # new_body.extend(tree.body)
-      # tree.body[:] = new_body
-      self.tree.body.extend(incremental.body)
-      return tree
+      self.module = module
+    
+    self.tags = {}
+    self.ast = SyncAST()
+    self.referer = SyncReferer()
+    self.synclog = synclog
+    self.synclog.start(self.change_handler)
+    self.opts = opts
 
-  def visit(self, node, default=None):
-    """Visit a node."""
-    if default is None:
-      default = self.generic_visit
-    method = 'visit_' + node.__class__.__name__
-    visitor = getattr(self, method, default)
-    return visitor(node)
+  @property
+  def global_ns(self):
+    return self.module.__dict__
 
-  def generic_visit(self, node, passIfEmpty=False):
-    syncNode = node.__class__()
-    for field, value in ast.iter_fields(node):
-      if isinstance(value, list):
-          syncValues = self.filter_list(value, node, passIfEmpty=passIfEmpty)
-          setattr(syncNode, field, syncValues)
-      elif isinstance(value, ast.AST):
-          syncValue = self.visit(value)
-          if syncValue != None:
-            setattr(syncNode, field, syncValue)
+  def change_handler(self, val: SyncValue):
+    """Change handler"""
+    ## TODO: Buffer changes of one execution and apply changes atomically
+    existed = None
+    if val.key == KEY_SYNC_AST:
+      existed = self.ast
+    elif val.key in self.tags:
+      existed = self.tags[val.key]
+
+    if existed == None: 
+      if isinstance(val.val, SyncObject):
+        existed = val.val
       else:
-        setattr(syncNode, field, value)
-    ast.copy_location(syncNode, node)
-    return syncNode
-  
-  def visit_global_stmt(self, node):
-    """Visit stmt. Remove global expressions"""
-    self.generic_visit(node, passIfEmpty=True)
-    print("Remove global expression: {}".format(ast.get_source_segment(self.source, node)))
-    return None
+        existed = SyncObjectWrapper(self.referer)
 
-  def filter_list(self, list, parent, visitor=None, passIfEmpty=False):
-    syncValues = []
-    for val in list:
-      if isinstance(val, ast.AST):
-          val = self.visit(val, default=visitor)
-          if val is None:
-              continue
-          elif not isinstance(val, ast.AST):
-              syncValues.extend(val)
-              continue
-      syncValues.append(val)
-    if len(syncValues) == 0 and passIfEmpty:
-      syncValues.append(ast.copy_location(ast.Pass(), parent))
-    return syncValues
+    # Switch context
+    old_main_modules = sys.modules["__main__"]
+    sys.modules["__main__"] = self.module
     
-  def visit_Module(self, node):
-    """Visit Module. Initialize scope"""
-    print("Entering Module...")
-    self.scope.append(node)
-    sync_node = ast.Module(
-      self.filter_list(node.body, node, visitor=self.visit_global_stmt),
-      node.type_ignores
-    )
-    self.scope.pop()
-    return sync_node
+    # print("restoring {}...".format(val.key))
+    diff = existed.update(val)
+    # print("{}:{}".format(val.key, type(diff)))
 
-  def visit_FunctionDef(self, node):
-    """Visit Module. Advance to function scope"""
-    print("Entering Function \"{}\"...".format(node.name))
-    self.scope.append(node)
-    sync_node = self.generic_visit(node)
-    self.scope.pop()
-    return sync_node
+    sys.modules["__main__"] = old_main_modules
+    # End of switch context
 
-  def visit_Import(self, node):
-    return self.generic_visit(node)
-    
-  def visit_ImportFrom(self, node):
-    return self.generic_visit(node)
+    if val.key == KEY_SYNC_AST:
+      self.ast = existed
+      # Redeclare modules, classes, and functions.
+      compiled = compile(diff, "sync", "exec")
+      exec(compiled, self.global_ns, self.global_ns)
+    else:
+      self.tags[val.key] = existed
+      self.global_ns[val.key] = existed.object
 
-  def visit_ClassDef(self, node):
-    # self.globals[node.name] = None
-    # print("Found class \"{}\" and keep declaration".format(node.name))
-    return self.generic_visit(node)
+  def sync(self, execution_count, execution_ast, source=None, checkpoint=False):
+    self.referer.module_id = execution_count
+    synclog = self.synclog
+    if checkpoint:
+      synclog = self.synclog.checkpoint()
 
-  def visit_Assign(self, node):
-    """Visit Assign, Only global remains"""
-    if len(self.scope) > 1:
-      return node # Skip non-globals
-    
-    for target in node.targets:
-      if isinstance(target, ast.Name):
-        self.globals[target.id] = None
-        print("Found global \"{}\" and remove assignment".format(target.id))
-      # TODO: deal with other assignments
+    synclog.lead(execution_count)
 
-    return None
+    if checkpoint:
+      sync_val = self.ast.dump(meta=source)
+    else:
+      self.ast.execution_count = execution_count
+      sync_val = self.ast.diff(execution_ast, meta=source)
+    sync_val.term = self.ast.execution_count
+    sync_val.key = KEY_SYNC_AST
+    self.synclog.append(sync_val)
+      
+    keys = self.ast.globals.keys()
+    syncing = 0
+    meta = SyncObjectMeta(batch=(execution_count if not checkpoint else "{}c".format(execution_count)))
+    for key in keys:
+      syncing = syncing + 1
+      self.sync_key(synclog, key, self.global_ns[key], end_execution=syncing==len(keys), checkpoint=checkpoint, meta=meta)
 
-  def visit_AnnAssign(self, node):
-    """Visit AnnAssign, Only global remains"""
-    return self.visit_Assign(node)
+    if self.opts & CHECKPOINT_AUTO and synclog.num_changes > len(self.tags.__dict__.keys()):
+      self.sync(execution_count, execution_ast, source=source, checkpoint=True)
+    elif self.opts & CHECKPOINT_ON_CHANGE and synclog.num_changes > len(self.tags.__dict__.keys()):
+      self.sync(execution_count, execution_ast, source=source, checkpoint=True)
 
-  def visit_Global(self, node):
-    """Visit Global, Noted"""
-    for name in node.names:
-      self.globals[name] = None
-      print("Found global \"{}\" and keep declaration".format(name))
-    return node
+  def sync_key(self, synclog, key, val, end_execution=False, checkpoint=False, meta=None):
+    if isinstance(val, ast.AST):
+      self.start_sync(key, val)
+      return
 
-  def visit_Delete(self, node):
-    """Visit Assign, Only global remains"""
-    if len(self.scope) > 1:
-      return node # Skip non-globals
-    
-    for target in node.targets:
-      if isinstance(target, ast.Name):
-        del self.globals[target.id]
-        print("Remove global \"{}\"".format(target.id))
-      # TODO: deal with other assignments
+    existed = None
+    if key in self.tags:
+      existed = self.tags[key]
+    else:
+      # TODO: Add support to SyncObject factory
+      existed = SyncObjectWrapper(self.referer)
 
-    return None
-  
+    # Switch context
+    old_main_modules = sys.modules["__main__"]
+    sys.modules["__main__"] = self.module
+
+    # print("syncing {}...".format(key))
+    if checkpoint:
+      sync_val = existed.dump(meta=meta)
+    else:
+      # On checkpointing, the syncobject must have been available in tags.
+      sync_val = existed.diff(val, meta=meta)
+
+    sys.modules["__main__"] = old_main_modules
+    # End of switch context
+
+    if sync_val is not None:
+      sync_val.term = self.ast.execution_count
+      sync_val.key = key
+      sync_val.end = end_execution
+      synclog.append(sync_val)

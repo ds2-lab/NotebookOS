@@ -6,7 +6,7 @@ import ast
 import logging
 
 from ipykernel.ipkernel import IPythonKernel
-from ..sync.synchronizer import Synchronizer
+from ..sync import ASTSynchronizer
 
 base = os.path.dirname(os.path.realpath(__file__))
 err_wait_persistent_store = RuntimeError("Persistent store not ready, try again later.")
@@ -26,7 +26,6 @@ class DistributedKernel(IPythonKernel):
     }
     banner = "Distributed kernel - as useful as a parrot"
     synchronizer = None
-    synced = 0
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -110,16 +109,14 @@ class DistributedKernel(IPythonKernel):
 
     def sync(self, synchronizer=None):
         if synchronizer is None:
-            synchronizer = Synchronizer()
-             # load
+            # load
             if not os.path.exists(os.path.join(self.store, "tree.dat")):
-                return synchronizer
+                return ASTSynchronizer()
 
             with open(os.path.join(self.store, "tree.dat"), "rb") as file:
-                dumped = pickle.load(file)
-                self.synced = synchronizer.restore(dumped)
+                synchronizer = pickle.load(file)
                 self.log.info("loaded history:\n{}".format(ast.dump(synchronizer.tree)))
-                self.shell.execution_count = self.synced
+                self.shell.execution_count = synchronizer.execution_count
 
             # Redeclare modules, classes, and functions.
             compiled = compile(synchronizer.tree, "restore", "exec")
@@ -135,8 +132,7 @@ class DistributedKernel(IPythonKernel):
                     self.shell.user_ns[key] = data[key]
                 return synchronizer
 
-        elif self.execution_count != self.synced:
-            dumping = synchronizer.dump(self.execution_count)
+        elif self.execution_count != synchronizer.execution_count:
             ns = {}
             for key in synchronizer.globals.keys():
                 ns[key] = self.shell.user_global_ns[key]
@@ -144,13 +140,14 @@ class DistributedKernel(IPythonKernel):
             if not os.path.exists(self.store):
                 os.makedirs(self.store, 0o755)
 
-            with open(os.path.join(self.store, "tree.dat"), "wb") as file:
-                pickle.dump(dumping, file)
-
             with open(os.path.join(self.store, "data.dat"), "wb") as file:
                 old_main_modules = sys.modules["__main__"]
                 sys.modules["__main__"] = self.shell.user_module
                 pickle.dump(ns, file)
                 sys.modules["__main__"] = old_main_modules
-            self.synced = self.execution_count
+
+            with open(os.path.join(self.store, "tree.dat"), "wb") as file:
+                synchronizer.execution_count = self.execution_count
+                pickle.dump(synchronizer, file)
+
             return synchronizer

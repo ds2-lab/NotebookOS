@@ -1,17 +1,31 @@
 import os
 import pandas as pd
 import numpy as np
+import sys
+import types
+
+from typing import Iterator
 # from foo import Foo
 
 class Foo:
   def __init__(self):
     self.name = "foo"
+    self.dict = {}
+    self.copy = self.dict
+
+  def iterator(self) -> Iterator[int]:
+    for i in range(5):
+      yield i
 
 base = os.path.dirname(os.path.realpath(__file__))
+
+foo = Foo()
 
 def load():
   global data
   data = pd.read_csv(base + "/data1.csv")
+  # Change the attribute of the global variable.
+  foo.next = "goo"
 
 def sum(df):
   return np.sum(df.loc[:,"x"])
@@ -21,5 +35,12 @@ for i in range (0, 10):
 
 load()
 
-foo = Foo()
-foo.next = "goo"
+# # Alias test
+food = foo.dict
+goo = foo
+hoo = Foo()
+
+# # Generator test
+# # goe = (num**2 for num in range(5))
+# # gof = foo.iterator()
+# # print(gof)
