@@ -90,6 +90,7 @@ class SyncReferer:
       # New objects
       prid, rid = pickle_id()
       self.referers[identity] = SyncReference(prid, obj, batch_id = pickle_id.batch_id, pickle_id = pickle_id)
+      self.referers[prid] = self.referers[identity]  # Register PRID for later remote referencing.
       # print("Registered {}:{}, local {}, permanent id: {},{}".format(type(obj), obj, identity, prid, pickle_id.pcnt))
       return _persistent_id(rid, obj), prid
     elif self.referers[identity] is None:
@@ -118,7 +119,7 @@ class SyncReferer:
       rid, obj = self._persistent_load_v2(ref_id)
       prid = prmap[rid]
       self.register(prid, obj)
-      self.referers[id(obj)] = self.referers[prid]
+      self.referers[id(obj)] = self.referers[prid] # Register ID for later local referencing.
       identity = id(obj)
       # print("Restore {}:{}, local {}, permanent id: {}".format(type(obj), obj, identity, self.referers[identity].id))
       return obj

@@ -35,10 +35,19 @@ for i in range (0, 10):
 
 load()
 
-# # Alias test
+# Alias test
 food = foo.dict
 goo = foo
 hoo = Foo()
+
+class Point:
+  def __init__(self):
+    self.nearest_point = None
+
+p1 = Point()
+p2 = Point()
+p1.nearest_point = p2   # cycling
+p2.nearest_point = p1
 
 # # Generator test
 # # goe = (num**2 for num in range(5))
