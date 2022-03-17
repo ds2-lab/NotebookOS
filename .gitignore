@@ -128,3 +128,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 distributed-notebook/demo/store/*.dat
+distributed-notebook/demo/store
+smr/demo/store
+smr/demo/store1
+demo
