@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/raft/v3"
@@ -38,13 +39,16 @@ import (
 	"go.uber.org/zap"
 )
 
-type StateValueCallback func([]byte)
+var ProposalDeadline = 10 * time.Second
+
+type StateValueCallback func([]byte, string)
+type StatesValueCallback func([]byte)
 type ShouldLogNodeCallback func(*LogNode) bool
 type WriteCallback func(WriteCloser)
 
 type LogNodeConfig struct {
 	onChange       StateValueCallback
-	onRestore      StateValueCallback
+	onRestore      StatesValueCallback
 	shouldSnapshot ShouldLogNodeCallback
 	getSnapshot    WriteCallback
 }
@@ -58,7 +62,7 @@ func (conf *LogNodeConfig) WithChangeCallback(cb StateValueCallback) *LogNodeCon
 	return conf
 }
 
-func (conf *LogNodeConfig) WithRestoreCallback(cb StateValueCallback) *LogNodeConfig {
+func (conf *LogNodeConfig) WithRestoreCallback(cb StatesValueCallback) *LogNodeConfig {
 	conf.onRestore = cb
 	return conf
 }
@@ -75,7 +79,7 @@ func (conf *LogNodeConfig) WithSnapshotCallback(cb WriteCallback) *LogNodeConfig
 
 // A SyncLog backed by raft
 type LogNode struct {
-	proposeC    chan []byte            // proposed serialized messages
+	proposeC    chan *proposalContext  // proposed serialized messages
 	confChangeC chan raftpb.ConfChange // proposed cluster config changes
 	errorC      chan error             // errors from raft session
 
@@ -85,10 +89,12 @@ type LogNode struct {
 	waldir  string   // path to WAL directory
 	snapdir string   // path to snapshot directory
 
-	confState     raftpb.ConfState
-	snapshotIndex uint64
-	appliedIndex  uint64
-	num_changes   uint64
+	confState        raftpb.ConfState
+	snapshotIndex    uint64
+	appliedIndex     uint64
+	num_changes      uint64
+	proposalPadding  int
+	proposalRegistry map[string]*proposalContext
 
 	// raft backing for the commit/error channel
 	node        raft.Node
@@ -119,24 +125,28 @@ var defaultSnapshotCount uint64 = 10000
 // current), then new log entries. To shutdown, close proposeC and read errorC.
 func NewLogNode(store_path string, id int, peers []string, join bool) *LogNode {
 	node := &LogNode{
-		proposeC:    make(chan []byte),
-		confChangeC: make(chan raftpb.ConfChange),
-		errorC:      make(chan error),
-		id:          id,
-		peers:       peers,
-		join:        join,
-		waldir:      path.Join(store_path, fmt.Sprintf("dnlog-%d", id)),
-		snapdir:     path.Join(store_path, fmt.Sprintf("dnlog-%d-snap", id)),
-		snapCount:   defaultSnapshotCount,
-		stopc:       make(chan struct{}),
-		httpstopc:   make(chan struct{}),
-		httpdonec:   make(chan struct{}),
+		proposeC:         make(chan *proposalContext),
+		confChangeC:      make(chan raftpb.ConfChange),
+		errorC:           make(chan error),
+		id:               id,
+		peers:            peers,
+		join:             join,
+		waldir:           path.Join(store_path, fmt.Sprintf("dnlog-%d", id)),
+		snapdir:          path.Join(store_path, fmt.Sprintf("dnlog-%d-snap", id)),
+		snapCount:        defaultSnapshotCount,
+		stopc:            make(chan struct{}),
+		httpstopc:        make(chan struct{}),
+		httpdonec:        make(chan struct{}),
+		num_changes:      0,
+		proposalRegistry: make(map[string]*proposalContext),
 
 		logger: zap.NewExample(),
 
 		snapshotterReady: make(chan *snap.Snapshotter, 1),
 		// rest of structure populated after WAL replay
 	}
+	testId, _ := node.generateProposal(nil, 0)
+	node.proposalPadding = len(testId)
 	return node
 }
 
@@ -151,7 +161,12 @@ func (node *LogNode) Start(config *LogNodeConfig) {
 
 //  Append the difference of the value of specified key to the synchronization queue.
 func (node *LogNode) Append(val []byte) {
-	node.proposeC <- val
+	_, ctx := node.generateProposal(val, ProposalDeadline)
+	node.proposeC <- ctx
+	// Wait for committed or retry
+	for !node.waitProposal(ctx) {
+		ctx = ctx.Reset(ProposalDeadline)
+	}
 }
 
 func (node *LogNode) AddNode(id int, addr string) {
@@ -307,7 +322,15 @@ func (node *LogNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool)
 		applyDoneC = make(chan struct{})
 		go func() {
 			for _, d := range data {
-				node.config.onChange(d)
+				realData, ctx := node.doneProposal(d)
+				id := ""
+				if ctx != nil {
+					id = ctx.Id
+				}
+				node.config.onChange(realData, id)
+				if ctx != nil {
+					ctx.Cancel()
+				}
 			}
 			close(applyDoneC)
 		}()
@@ -344,18 +367,17 @@ func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 		}
 
 		w, err := wal.Create(zap.NewExample(), node.waldir, nil)
-		log.Printf("Created wal at %s: %v, %v", node.waldir, w, err)
 		if err != nil {
 			log.Fatalf("LogNode: create wal error (%v)", err)
 		}
 		w.Close()
+		node.logger.Info("Created wal direcotry", zap.String("uri", node.waldir))
 	}
 
 	walsnap := walpb.Snapshot{}
 	if snapshot != nil {
 		walsnap.Index, walsnap.Term = snapshot.Metadata.Index, snapshot.Metadata.Term
 	}
-	log.Printf("loading WAL at term %d and index %d", walsnap.Term, walsnap.Index)
 	w, err := wal.Open(zap.NewExample(), node.waldir, walsnap)
 	if err != nil {
 		log.Fatalf("LogNode: error loading wal (%v)", err)
@@ -366,7 +388,6 @@ func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 
 // replayWAL replays WAL entries into the raft instance.
 func (node *LogNode) replayWAL() *wal.WAL {
-	log.Printf("replaying WAL of member %d", node.id)
 	snapshot := node.loadSnapshot()
 	// Restore kernal from snapshot
 	if snapshot != nil && !raft.IsEmptySnap(*snapshot) {
@@ -388,7 +409,6 @@ func (node *LogNode) replayWAL() *wal.WAL {
 	node.raftStorage.SetHardState(st)
 
 	// append to storage so raft starts at the right place in log
-	log.Printf("Read %d entries on replay wal: %v", len(ents), ents)
 	node.raftStorage.Append(ents)
 
 	return w
@@ -419,8 +439,8 @@ func (node *LogNode) publishSnapshot(snapshotToSave raftpb.Snapshot) {
 		return
 	}
 
-	log.Printf("publishing snapshot at index %d", node.snapshotIndex)
-	defer log.Printf("finished publishing snapshot at index %d", node.snapshotIndex)
+	node.logger.Info("publishing snapshot", zap.Uint64("index", node.snapshotIndex))
+	defer node.logger.Info("finished publishing snapshot", zap.Uint64("index", node.snapshotIndex))
 
 	if snapshotToSave.Metadata.Index <= node.appliedIndex {
 		log.Fatalf("snapshot index [%d] should > progress.appliedIndex [%d]", snapshotToSave.Metadata.Index, node.appliedIndex)
@@ -460,7 +480,7 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	reader, writer := io.Pipe()
 	go node.config.getSnapshot(&writeCloserWrapper{writer: writer})
 
-	log.Printf("start snapshot [applied index: %d | last snapshot index: %d]", node.appliedIndex, node.snapshotIndex)
+	node.logger.Info("start snapshot", zap.Uint64("applied index", node.appliedIndex), zap.Uint64("last index", node.snapshotIndex))
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		log.Panic(err)
@@ -481,7 +501,7 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 		panic(err)
 	}
 
-	log.Printf("compacted log at index %d", compactIndex)
+	node.logger.Info("compacted log", zap.Uint64("index", compactIndex))
 	node.snapshotIndex = node.appliedIndex
 	node.num_changes = 0
 }
@@ -506,12 +526,16 @@ func (node *LogNode) serveChannels() {
 
 		for node.proposeC != nil && node.confChangeC != nil {
 			select {
-			case val, ok := <-node.proposeC:
+			case ctx, ok := <-node.proposeC:
 				if !ok {
 					node.proposeC = nil
 				} else {
 					// blocks until accepted by raft state machine
-					node.node.Propose(context.TODO(), val)
+					node.node.Propose(ctx, ctx.Proposal)
+					if ctx.Err() == nil {
+						// Not timeout yet.
+						node.registerProposal(ctx)
+					}
 				}
 
 			case cc, ok := <-node.confChangeC:
@@ -597,6 +621,40 @@ func (node *LogNode) serveRaft() {
 		log.Fatalf("LogNode: Failed to serve rafthttp (%v)", err)
 	}
 	close(node.httpdonec)
+}
+
+func (node *LogNode) generateProposal(val []byte, timeout time.Duration) ([]byte, *proposalContext) {
+	id := uuid.New().String()
+	if len(val) == 0 {
+		return []byte(id), nil
+	}
+	ret := val
+	if cap(ret) < len(val)+len(id) {
+		ret = make([]byte, 0, len(val)+len(id))
+		copy(ret[:len(val)], val)
+	}
+	copy(ret[len(val):len(val)+len(id)], []byte(id))
+	ret = ret[:len(val)+len(id)]
+	return ret, ProposalContext(id, ret, timeout)
+}
+
+func (node *LogNode) registerProposal(ctx *proposalContext) {
+	node.proposalRegistry[ctx.Id] = ctx
+}
+
+func (node *LogNode) doneProposal(val []byte) ([]byte, *proposalContext) {
+	id := val[len(val)-node.proposalPadding:]
+	ret := val[:len(val)-node.proposalPadding]
+	if ctx, ok := node.proposalRegistry[string(id)]; ok {
+		delete(node.proposalRegistry, ctx.Id)
+		return ret, ctx
+	}
+	return ret, nil
+}
+
+func (node *LogNode) waitProposal(ctx *proposalContext) bool {
+	<-ctx.Done()
+	return ctx.Err() == context.Canceled
 }
 
 func (node *LogNode) Process(ctx context.Context, m raftpb.Message) error {

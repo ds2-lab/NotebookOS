@@ -10,7 +10,8 @@ import (
 	"github.com/zhangjyr/distributed-notebook/smr"
 )
 
-const store = "store1"
+const store = "store"
+const wait = true
 
 type Counter struct {
 	Message string `json:"message"`
@@ -19,7 +20,7 @@ type Counter struct {
 }
 
 func main() {
-	n := 1
+	n := 3
 	port := 19800
 	peers := make([]string, n)
 	for i := 0; i < n; i++ {
@@ -32,13 +33,13 @@ func main() {
 	}
 	var committed chan string
 
-	config := smr.NewConfig().WithChangeCallback(func(val []byte) {
+	config := smr.NewConfig().WithChangeCallback(func(val []byte, id string) {
 		var diff Counter
 		json.Unmarshal(val, &diff)
 		counter.Num += diff.Num
 		counter.Message = diff.Message
 		log.Printf("In change callback, got %v", counter)
-		if committed != nil {
+		if wait && committed != nil {
 			committed <- diff.Id
 		}
 	}).WithRestoreCallback(func(val []byte) {
@@ -59,7 +60,7 @@ func main() {
 		writer.Close()
 	})
 
-	configSlave := smr.NewConfig().WithChangeCallback(func(val []byte) {
+	configSlave := smr.NewConfig().WithChangeCallback(func(val []byte, id string) {
 		var cnt Counter
 		json.Unmarshal(val, &cnt)
 		log.Printf("In change callback of slavers, got %v", cnt)
@@ -91,11 +92,17 @@ func main() {
 		Id:      uuid.New().String(),
 	}
 	val, _ := json.Marshal(&add1)
-	committed = make(chan string)
-	log.Printf("Add 1: %s", add1.Id)
-	nodes[0].Append(val)
-	for id := <-committed; id != add1.Id; id = <-committed {
-		log.Printf("Ignore: %s", id)
+	if wait {
+		committed = make(chan string)
+		log.Printf("Add 1: %s", add1.Id)
+	} else {
+		log.Printf("Add 1")
+	}
+	nodes[1].Append(val)
+	if wait {
+		for id := <-committed; id != add1.Id; id = <-committed {
+			log.Printf("Ignore: %s", id)
+		}
 	}
 
 	for i := 0; i < n; i++ {

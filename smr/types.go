@@ -4,8 +4,6 @@ import (
 	"io"
 )
 
-type contextKey string
-
 type IntRet struct {
 	N   int
 	Err string
