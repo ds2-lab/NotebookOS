@@ -5,7 +5,7 @@ import sys
 import ast
 import types
 
-from ..sync import SyncAST, Synchronizer, FileLog
+from ..sync import SyncAST, Synchronizer, FileLog, CHECKPOINT_AUTO, CHECKPOINT_ON_CHANGE
 
 base = os.path.dirname(os.path.realpath(__file__))
 store = base + "/store/"
@@ -58,7 +58,7 @@ def demo():
     execution_count = 0
     for path in args.scripts:
       synclog = FileLog(store)
-      synchronizer = Synchronizer(synclog)
+      synchronizer = Synchronizer(synclog, opts=CHECKPOINT_ON_CHANGE)
       execution_count = synclog.term
 
       # Load script file

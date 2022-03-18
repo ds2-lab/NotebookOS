@@ -2,9 +2,10 @@ import os
 import pickle
 from typing import Tuple
 
-from .log import SyncLog, SyncValue, CHECKPOINT_ARCHIVE
+from .log import SyncLog, SyncValue
 
 FILELOG_ARCHIVE = "lineage.dat"
+CHECKPOINT_ARCHIVE = "checkpoint.dat"
 
 FILELOG_VERSION = 1
 
@@ -16,8 +17,10 @@ class FileLog:
     self.skip_terms = 0 
     self.logs = []
     self._num_changes = 0 # Number of changes since term 1 or latest checkpoint.
-    
+
     self._handlers = []
+    self.shouldCheckpointCallback = None
+    self.checkpointCallback = None
 
   def __getstate__(self):
     return (FILELOG_VERSION, self.term, self.skip_terms, self.logs, self._num_changes)
@@ -82,7 +85,7 @@ class FileLog:
 
   def save(self, filename=FILELOG_ARCHIVE):
     self.ensure_path(self.store)
-
+    
     with open(os.path.join(self.store, filename), "wb") as file:
       # backup unpersistable variables
       handlers = self._handlers
@@ -93,10 +96,27 @@ class FileLog:
 
       # Restore unpersistable variables
       self._handlers = handlers
+    
+    if (filename == FILELOG_ARCHIVE and 
+        self.shouldCheckpointCallback is not None and self.checkpointCallback is not None and
+        self.shouldCheckpointCallback(self)):
+      checkpointer = self.checkpoint()
+      self.checkpointCallback(checkpointer)
+      checkpointer.close()
+
+  def set_should_checkpoint_callback(self, callback):
+    """Set the callback that will be called when the SyncLog decides if to checkpoint or not.
+      callback will be in the form callback(SyncLog) bool"""
+    self.shouldCheckpointCallback = callback
+
+  def set_checkpoint_callback(self, callback):
+    """Set the callback that will be called when the SyncLog decides to checkpoint.
+      callback will be in the form callback(Checkpointer)."""
+    self.checkpointCallback = callback
 
   def checkpoint(self):
     """Get a SyncLog instance for checkpointing."""
-    return Checkpoint(self.store, self)
+    return FileCheckpoint(self.store, self)
 
   def lead(self, term) -> bool:
     """Request to lead the update of a term. A following append call 
@@ -166,7 +186,7 @@ class FileLog:
     # TODO: Sanitize the key.
     return os.path.join(str(term), val.key)
 
-class Checkpoint(FileLog):
+class FileCheckpoint(FileLog):
   def __init__(self, base_path, sync_log: SyncLog):
     super().__init__(base_path)
     self._sync_log = sync_log

@@ -4,7 +4,7 @@ import ast
 import sys
 import types
 
-from .log import SyncLog, SyncValue
+from .log import Checkpointer, SyncLog, SyncValue
 from .ast import SyncAST
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
@@ -27,6 +27,10 @@ class Synchronizer:
       self.module = types.ModuleType("__main__", doc="Automatically created module for python environment")
     else:
       self.module = module
+
+    # Set callbacks for synclog
+    synclog.set_should_checkpoint_callback(self.should_checkpoint_callback)
+    synclog.set_checkpoint_callback(self.checkpoint_callback)
     
     self.tags = {}
     self.ast = SyncAST()
@@ -74,36 +78,32 @@ class Synchronizer:
       self.tags[val.key] = existed
       self.global_ns[val.key] = existed.object
 
-  def sync(self, execution_count, execution_ast, source=None, checkpoint=False):
+  def sync(self, execution_count, execution_ast, source=None, checkpointer=None):
     self.referer.module_id = execution_count
     synclog = self.synclog
-    if checkpoint:
-      synclog = self.synclog.checkpoint()
+    checkpointing = checkpointer is not None
+    if checkpointing:
+      synclog = checkpointer
 
     synclog.lead(execution_count)
 
-    if checkpoint:
+    if checkpointing:
       sync_val = self.ast.dump(meta=source)
     else:
       self.ast.execution_count = execution_count
       sync_val = self.ast.diff(execution_ast, meta=source)
     sync_val.term = self.ast.execution_count
     sync_val.key = KEY_SYNC_AST
-    self.synclog.append(sync_val)
+    synclog.append(sync_val)
       
     keys = self.ast.globals.keys()
     syncing = 0
-    meta = SyncObjectMeta(batch=(execution_count if not checkpoint else "{}c".format(execution_count)))
+    meta = SyncObjectMeta(batch=(execution_count if not checkpointing else "{}c".format(execution_count)))
     for key in keys:
       syncing = syncing + 1
-      self.sync_key(synclog, key, self.global_ns[key], end_execution=syncing==len(keys), checkpoint=checkpoint, meta=meta)
+      self.sync_key(synclog, key, self.global_ns[key], end_execution=syncing==len(keys), checkpointing=checkpointing, meta=meta)
 
-    if self.opts & CHECKPOINT_AUTO and synclog.num_changes > len(self.tags.__dict__.keys()):
-      self.sync(execution_count, execution_ast, source=source, checkpoint=True)
-    elif self.opts & CHECKPOINT_ON_CHANGE and synclog.num_changes > len(self.tags.__dict__.keys()):
-      self.sync(execution_count, execution_ast, source=source, checkpoint=True)
-
-  def sync_key(self, synclog, key, val, end_execution=False, checkpoint=False, meta=None):
+  def sync_key(self, synclog, key, val, end_execution=False, checkpointing=False, meta=None):
     if isinstance(val, ast.AST):
       self.start_sync(key, val)
       return
@@ -120,7 +120,7 @@ class Synchronizer:
     sys.modules["__main__"] = self.module
 
     # print("syncing {}...".format(key))
-    if checkpoint:
+    if checkpointing:
       sync_val = existed.dump(meta=meta)
     else:
       # On checkpointing, the syncobject must have been available in tags.
@@ -134,3 +134,13 @@ class Synchronizer:
       sync_val.key = key
       sync_val.end = end_execution
       synclog.append(sync_val)
+    elif end_execution:
+      # Synthecize end
+      synclog.append(SyncValue(None, None, term=self.ast.execution_count, end=True))
+
+  def should_checkpoint_callback(self, synclog: SyncLog):
+    return ((self.opts & CHECKPOINT_AUTO and synclog.num_changes > len(self.tags.__dict__.keys())) or
+      (self.opts & CHECKPOINT_ON_CHANGE and synclog.num_changes > 0))
+
+  def checkpoint_callback(self, checkpointer: Checkpointer):
+    self.sync(self.ast.execution_count, self.ast.tree, source="checkpoint", checkpointer=checkpointer)
