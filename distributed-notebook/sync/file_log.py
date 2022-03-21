@@ -180,7 +180,7 @@ class FileLog:
 
   def ensure_path(self, base_path):
     if not os.path.exists(base_path):
-      os.makedirs(base_path, 0o755)
+      os.makedirs(base_path, 0o750)
 
   def get_path(self, term, val: SyncValue):
     # TODO: Sanitize the key.

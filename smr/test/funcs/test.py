@@ -4,8 +4,11 @@
 
 ## py2/py3 compat
 from __future__ import print_function
+import asyncio
 import pickle
 import io
+import time
+from threading import Thread
 
 from out import go, funcs
 
@@ -27,13 +30,26 @@ def cbfunrval(afs, ival, ifval):
     print("in python cbfunrval: FieldI: ", tfs.FieldI, " FieldS: ", tfs.FieldS, " ival: ", ival, " ifval: ", ifval)
     return True
 
-def cbfunbytes(buff, id):
-    val = pickle.load(io.BytesIO(bytes(go.Slice_byte(handle=buff))))
-    print("in python cbbytes: Val: ", val, " Id: ", id)
+def getCbfunbytes(handler):
+    def cbfunbytes(buff, id):
+        val = pickle.load(io.BytesIO(bytes(go.Slice_byte(handle=buff))))
+        print("in python cbbytes: Val: ", val, " Id: ", id)
+        handler()
+
+    return cbfunbytes
 
 def cbfuninterface(v):
     iv = funcs.Verbose(handle=v)
     print("in python cbfuninterface: Output: ", iv.String())
+
+start_outofthread = 0
+def cbfunoutofthread(v):
+    iv = funcs.Verbose(handle=v)
+    end_outofthread = time.time()
+    print("in python cbfunOutOTthread: Output: {}, end: {}, elapsed: {}", iv.String(), end_outofthread, end_outofthread - start_outofthread)
+
+def closureHandler():
+    print("in closureHandler")
     
 class MyClass(go.GoClass):
     def __init__(self, *args, **kwargs):
@@ -45,6 +61,23 @@ class MyClass(go.GoClass):
 
     def CallSelf(self):
         fs.CallBack(77, self.ClassFun)
+
+    def CallBytes(self, handler):
+        print(handler)
+
+        def cbfunbytes(buff, id):
+            val = pickle.load(io.BytesIO(bytes(go.Slice_byte(handle=buff))))
+            print("in python cbbytes: Val: ", val, " Id: ", id)
+            handler()
+
+        fs.CallBackBytes(self.cbfunbytes)
+
+    def cbfunbytes(self, buff, id):
+        val = pickle.load(io.BytesIO(bytes(go.Slice_byte(handle=buff))))
+        print("in python cbbytes: Val: ", val, " Id: ", id)
+
+    def closureHandler(self):
+        print("in instance closureHandler")
    
 print("fs.CallBack(22, cbfun)...")
 fs.CallBack(22, cbfun)
@@ -55,11 +88,62 @@ fs.CallBackIf(22, cbfunif)
 print("fs.CallBackRval(22, cbfunrval)...")
 fs.CallBackRval(22, cbfunrval)
 
-print("fs.CallBackBytes(cbfunbytes)...")
-fs.CallBackBytes(cbfunbytes)
-
 print("fs.CallBackInterface(cbfuninterface)...")
 fs.CallBackInterface(cbfuninterface)
+
+print("fs.CallBackBytes(cbfunbytes)...")
+fs.CallBackBytes(getCbfunbytes(closureHandler))
+
+start_outofthread = time.time()
+print("fs.CallBackOutOfThread(cbfuninterface)...start: {}".format(start_outofthread))
+
+def threadCall():
+    fs.CallBackOutOfThread(cbfunoutofthread)
+    thread = Thread(target=fs.WaitOutOfThread)
+    thread.start()
+    thread.join()
+
+class Promise:
+    def __init__(self, loop=None):
+        if loop is None:
+            loop = asyncio.get_running_loop()
+        self.loop = loop
+        self.future = loop.create_future()
+    
+    def resolve(self, value):
+        # print("wait 10 seconds")
+        # await asyncio.sleep(0)
+        # time.sleep(10)
+
+        print("in resolver")
+        # coro = asyncio.to_thread(self.future.set_result, value)
+        # asyncio.run_coroutine_threadsafe(promise.resolve(value), loop)
+        self.future.set_result(value)
+        print("in resolver: result set")
+
+    async def result(self):
+        return await self.future
+
+async def asyncCall(msg):
+    loop = asyncio.get_running_loop()
+    promise = Promise(loop = loop)
+
+    def dummyResolver(value):
+        # Schedule and run from other threads
+        coro = asyncio.to_thread(promise.resolve, value)
+        asyncio.run_coroutine_threadsafe(coro, loop)
+        
+
+    fs.SetInterfaceCallback(cbfunoutofthread)
+    fs.CallBackOutOfThread(dummyResolver)
+    # dummyResolver()
+    print("wait for 2 seconds")
+    await asyncio.sleep(2)
+    print("waited 2 seconds")
+    return await promise.result()
+
+print(asyncio.run(asyncCall("CallBackOutOfThread executed")))
+# threadCall() #Failed
 
 cls = MyClass()
 
@@ -72,12 +156,14 @@ fs.CallBack(32, cls.ClassFun)
 print("cls.CallSelf...")
 cls.CallSelf()
 
-
 print("fs.ObjArg with nil")
 fs.ObjArg(go.nil)
 
 print("fs.ObjArg with fs")
 fs.ObjArg(fs)
+
+print("fs.CallBackBytes(cbfunbytes)...")
+cls.CallBytes(cls.closureHandler)
 
 # TODO: not currently supported:
 

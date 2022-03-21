@@ -5,7 +5,7 @@ import sys
 import ast
 import types
 
-from ..sync import SyncAST, Synchronizer, FileLog, CHECKPOINT_AUTO, CHECKPOINT_ON_CHANGE
+from ..sync import Synchronizer, FileLog, RaftLog, CHECKPOINT_AUTO, CHECKPOINT_ON_CHANGE
 
 base = os.path.dirname(os.path.realpath(__file__))
 store = base + "/store/"
@@ -40,7 +40,7 @@ class ScriptAction(argparse.Action):                                            
         setattr(namespace, self.dest, scripts)
         setattr(namespace, "argv", values) 
 
-def demo():
+async def demo():
   parser = argparse.ArgumentParser(description=__doc__, formatter_class=SmartFormatter)
   parser.add_argument("-v", "--version", action="version",
                       version="demo {}".format("0.1"))
@@ -57,21 +57,19 @@ def demo():
 
     execution_count = 0
     for path in args.scripts:
-      synclog = FileLog(store)
-      synchronizer = Synchronizer(synclog, opts=CHECKPOINT_ON_CHANGE)
-      execution_count = synclog.term
+      synclog = RaftLog(store, 1, ["http://127.0.0.1:19800"])
+      synchronizer = Synchronizer(synclog, opts=CHECKPOINT_AUTO)
+      execution_count = await synchronizer.ready(synchronizer.execution_count + 1)
 
       # Load script file
-      print("executing {}".format(path))
+      print("executing {}({})".format(path, execution_count))
       sourceFile = open(path, "r")
       source = sourceFile.read()
       sourceFile.close()
 
       # Parse and compile the script
       tree = ast.parse(source, path, "exec")
-      # print("exec tree:\n{}".format(ast.dump(tree, indent=2)))
-      # print("exec tree:\n{}".format(ast.dump(tree)))
-      print("compiling tree...\n{}".format(ast.dump(tree, indent=2)))
+      # print("compiling tree...\n{}".format(ast.dump(tree, indent=2)))
       compiled = compile(tree, path, "exec")
     
       # Execute
@@ -85,7 +83,9 @@ def demo():
       sys.modules["__main__"] = old_main_modules
       execution_count = execution_count + 1
 
-      synchronizer.sync(execution_count, tree, source)
+      await synchronizer.sync(execution_count, tree, source)
+      synclog.close()
+      synclog = None
       synchronizer = None
 
   except RuntimeError as exc:

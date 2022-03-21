@@ -33,17 +33,17 @@ func main() {
 	}
 	var committed chan string
 
-	config := smr.NewConfig().WithChangeCallback(func(val []byte, id string) {
+	config := smr.NewConfig().WithChangeCallback(func(val *[]byte, id string) {
 		var diff Counter
-		json.Unmarshal(val, &diff)
+		json.Unmarshal(*val, &diff)
 		counter.Num += diff.Num
 		counter.Message = diff.Message
 		log.Printf("In change callback, got %v", counter)
 		if wait && committed != nil {
 			committed <- diff.Id
 		}
-	}).WithRestoreCallback(func(val []byte) {
-		json.Unmarshal(val, &counter)
+	}).WithRestoreCallback(func(val *[]byte) {
+		json.Unmarshal(*val, &counter)
 		log.Printf("In restore callback, got %v", counter)
 	}).WithShouldSnapshotCallback(func(node *smr.LogNode) bool {
 		shouldSnap := node.NumChanges() == 3
@@ -60,9 +60,9 @@ func main() {
 		writer.Close()
 	})
 
-	configSlave := smr.NewConfig().WithChangeCallback(func(val []byte, id string) {
+	configSlave := smr.NewConfig().WithChangeCallback(func(val *[]byte, id string) {
 		var cnt Counter
-		json.Unmarshal(val, &cnt)
+		json.Unmarshal(*val, &cnt)
 		log.Printf("In change callback of slavers, got %v", cnt)
 	}).WithShouldSnapshotCallback(func(node *smr.LogNode) bool {
 		// Disable snapshot on slaver.
@@ -98,7 +98,7 @@ func main() {
 	} else {
 		log.Printf("Add 1")
 	}
-	nodes[1].Append(val)
+	nodes[1].Propose(val, nil, "Num")
 	if wait {
 		for id := <-committed; id != add1.Id; id = <-committed {
 			log.Printf("Ignore: %s", id)

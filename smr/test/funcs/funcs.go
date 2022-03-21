@@ -6,18 +6,25 @@ package funcs
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/go-python/gopy/_examples/cpkg"
 )
+
+type ByteCallback func(*[]byte, string)
+type Resolver func(interface{})
 
 type Verbose interface {
 	String() string
 }
 
 type FunStruct struct {
-	FieldI int
-	FieldS string
-	FieldB []byte
+	FieldI      int
+	FieldS      string
+	FieldB      []byte
+	cbBytes     ByteCallback
+	cbInterface func(Verbose)
+	done        chan struct{}
 }
 
 type Reader struct {
@@ -26,6 +33,10 @@ type Reader struct {
 
 func (r *Reader) ReadAll() []byte {
 	return r.buff
+}
+
+func (fs *FunStruct) SetInterfaceCallback(cb func(Verbose)) {
+	fs.cbInterface = cb
 }
 
 func (fs *FunStruct) CallBack(i int, fun func(fs *FunStruct, i int, s string)) {
@@ -43,14 +54,56 @@ func (fs *FunStruct) CallBackRval(i int, fun func(fs *FunStruct, i int, v interf
 	fmt.Printf("got return value: %v\n", rv)
 }
 
-type ByteCallback func(*[]byte, string)
-
 func (fs *FunStruct) CallBackBytes(fun ByteCallback) {
-	fun(&fs.FieldB, "id")
+	fs.cbBytes = fun
+	done := make(chan struct{})
+	cbs := make(chan func())
+	go fs.callBackBytesRouting(cbs, fun, done)
+	select {
+	case cb := <-cbs:
+		cb()
+	case <-done:
+	}
+}
+
+func (fs *FunStruct) callBackBytesRouting(cbs chan func(), fun ByteCallback, done chan struct{}) {
+	cbs <- func() {
+		fs.cbBytes(&fs.FieldB, "id")
+		close(done)
+	}
 }
 
 func (fs *FunStruct) CallBackInterface(fun func(v Verbose)) {
 	fun(fs)
+}
+
+func (fs *FunStruct) CallBackOutOfThread(resolve Resolver) {
+	if fs.done == nil {
+		fs.done = make(chan struct{})
+	}
+	go fs.callBackOutOfThread(resolve)
+}
+
+func (fs *FunStruct) callBackOutOfThread(resolve Resolver) {
+	for i := 0; i < 5; i++ {
+		fs.cbInterface(fs)
+		time.Sleep(1 * time.Second)
+	}
+	fmt.Println("Wait for 5 seconds")
+	time.Sleep(5 * time.Second)
+	close(fs.done)
+	fs.done = nil
+	if resolve != nil {
+		fmt.Println("Calling resolve")
+		resolve("resolved")
+	}
+}
+
+func (fs *FunStruct) WaitOutOfThread() {
+	done := fs.done
+	if done != nil {
+		<-fs.done
+	}
 }
 
 func (fs *FunStruct) OtherMeth(i int, s string) {

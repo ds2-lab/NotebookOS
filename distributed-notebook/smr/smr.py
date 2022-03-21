@@ -181,59 +181,6 @@ class WriteCloser(go.GoClass):
 
 # ---- Structs ---
 
-# Python type for struct smr.LogNodeConfig
-class LogNodeConfig(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_LogNodeConfig_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.LogNodeConfig{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.LogNodeConfig ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def WithChangeCallback(self, cb):
-		"""WithChangeCallback(callable cb) object"""
-		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithChangeCallback(self.handle, cb))
-	def WithRestoreCallback(self, cb):
-		"""WithRestoreCallback(callable cb) object"""
-		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithRestoreCallback(self.handle, cb))
-	def WithShouldSnapshotCallback(self, cb):
-		"""WithShouldSnapshotCallback(callable cb) object"""
-		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithShouldSnapshotCallback(self.handle, cb))
-	def WithSnapshotCallback(self, cb):
-		"""WithSnapshotCallback(callable cb) object"""
-		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithSnapshotCallback(self.handle, cb))
-
 # Python type for struct smr.IntRet
 class IntRet(go.GoClass):
 	""""""
@@ -347,12 +294,12 @@ class LogNode(go.GoClass):
 	def Start(self, config, goRun=False):
 		"""Start(object config) """
 		_smr.smr_LogNode_Start(self.handle, config.handle, goRun)
-	def Append(self, val, goRun=False):
-		"""Append([]int val) 
+	def Propose(self, val, resolve, msg, goRun=False):
+		"""Propose([]int val, callable resolve, str msg) 
 		
 		 Append the difference of the value of specified key to the synchronization queue.
 		"""
-		_smr.smr_LogNode_Append(self.handle, val.handle, goRun)
+		_smr.smr_LogNode_Propose(self.handle, val.handle, resolve, msg, goRun)
 	def AddNode(self, id, addr, goRun=False):
 		"""AddNode(int id, str addr) """
 		_smr.smr_LogNode_AddNode(self.handle, id, addr, goRun)
@@ -378,6 +325,59 @@ class LogNode(go.GoClass):
 		"""ReportSnapshot(long id, int status) """
 		_smr.smr_LogNode_ReportSnapshot(self.handle, id, status, goRun)
 
+# Python type for struct smr.LogNodeConfig
+class LogNodeConfig(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_LogNodeConfig_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.LogNodeConfig{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.LogNodeConfig ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def WithChangeCallback(self, cb):
+		"""WithChangeCallback(callable cb) object"""
+		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithChangeCallback(self.handle, cb))
+	def WithRestoreCallback(self, cb):
+		"""WithRestoreCallback(callable cb) object"""
+		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithRestoreCallback(self.handle, cb))
+	def WithShouldSnapshotCallback(self, cb):
+		"""WithShouldSnapshotCallback(callable cb) object"""
+		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithShouldSnapshotCallback(self.handle, cb))
+	def WithSnapshotCallback(self, cb):
+		"""WithSnapshotCallback(callable cb) object"""
+		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithSnapshotCallback(self.handle, cb))
+
 
 # ---- Slices ---
 
@@ -386,9 +386,6 @@ class LogNode(go.GoClass):
 
 
 # ---- Constructors ---
-def NewConfig():
-	"""NewConfig() object"""
-	return LogNodeConfig(handle=_smr.smr_NewConfig())
 def NewLogNode(store_path, id, peers, join):
 	"""NewLogNode(str store_path, int id, []str peers, bool join) object
 	
@@ -399,6 +396,9 @@ def NewLogNode(store_path, id, peers, join):
 	current), then new log entries. To shutdown, close proposeC and read errorC.
 	"""
 	return LogNode(handle=_smr.smr_NewLogNode(store_path, id, peers.handle, join))
+def NewConfig():
+	"""NewConfig() object"""
+	return LogNodeConfig(handle=_smr.smr_NewConfig())
 
 
 # ---- Functions ---

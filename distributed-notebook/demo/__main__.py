@@ -1,3 +1,5 @@
+import asyncio
+
 from .demo import demo
 
-demo()
+asyncio.run(demo())
