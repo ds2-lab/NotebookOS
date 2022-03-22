@@ -14,31 +14,33 @@ class Pickled(Protocol):
 @runtime_checkable
 class SyncObject(Protocol):
   def dump(self, meta=None) -> SyncValue:
-    """Get pickled state and tag of the object."""
+    """Get a view of the object for checkpoint."""
 
   def diff(self, raw, meta=None) -> SyncValue:
-    """Update with raw object and get difference between the object and specified raw object"""
+    """Update the object with new raw object and get the difference view for synchronization"""
 
   def update(self, val: SyncValue) -> any:
-    """Update difference to the object"""
+    """Apply the difference view to the object"""
 
 
 @runtime_checkable
 class SyncStreamObject(Protocol):
   def dump(self, meta=None) -> Generator[SyncValue, None, None]:
-    """Get pickled state and tag of the object."""
+    """Get a view of the object for checkpoint in the form of a stream."""
 
   def diff(self, raw, meta=None) -> Generator[SyncValue, None, None]:
-    """Update with raw object and get difference between the object and specified raw object"""
+    """Update the object with new raw object and get the difference stream for synchronization"""
 
   def update(self, vals: Tuple[SyncValue]) -> any:
-    """Update difference to the object"""
+    """Apply the difference stream to the object"""
 
 class SyncObjectMeta:
   def __init__(self, batch=None):
     self.batch = batch
 
 class SyncObjectWrapper:
+  """A simple SyncObject implementation that simply return a view of whole object as the difference."""
+  
   def __init__(self, referer, raw=None, tag=None):
     self.raw = raw
     self._hash = tag

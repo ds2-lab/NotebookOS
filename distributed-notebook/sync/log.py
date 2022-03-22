@@ -1,6 +1,8 @@
 from typing import Tuple
 from typing_extensions import Protocol, runtime_checkable
 
+KEY_SYNC_END = "_end_"
+
 class SyncValue:
   def __init__(self, tag, val, term=None, key=None, op=None, prmap=None, end = False):
     self.term = term
@@ -35,11 +37,11 @@ class SyncLog(Protocol):
     """Set the callback that will be called when the SyncLog decides to checkpoint.
       callback will be in the form callback(Checkpointer)."""
 
-  def lead(self, term) -> bool:
+  async def lead(self, term) -> bool:
     """Request to lead the update of a term. A following append call 
        without leading status will fail."""
 
-  def append(self, val: SyncValue):
+  async def append(self, val: SyncValue):
     """Append the difference of the value of specified key to the synchronization queue."""
 
   def sync(self, term):
@@ -53,6 +55,10 @@ class SyncLog(Protocol):
 
 @runtime_checkable
 class Checkpointer(Protocol):
+  @property
+  def num_changes(self) -> int:
+    """The number of values checkpointed."""
+
   def lead(self, term) -> bool:
     """Set the term to checkpoint. False if any error."""
        

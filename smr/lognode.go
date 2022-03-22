@@ -15,6 +15,7 @@ package smr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -41,11 +42,19 @@ import (
 
 var ProposalDeadline = 1 * time.Minute
 
-type StateValueCallback func(*[]byte, string)
-type StatesValueCallback func(*[]byte)
+type StateValueCallback func(*[]byte, string) string
+type StatesValueCallback func(*[]byte) string
 type ShouldLogNodeCallback func(*LogNode) bool
-type WriteCallback func(WriteCloser)
+type WriteCallback func(WriteCloser) string
 type ResolveCallback func(interface{})
+
+func returnError(cbRet string) error {
+	if len(cbRet) == 0 {
+		return nil
+	} else {
+		return errors.New(cbRet)
+	}
+}
 
 type LogNodeConfig struct {
 	onChange       StateValueCallback
@@ -406,7 +415,9 @@ func (node *LogNode) replayWAL() *wal.WAL {
 		if node.config.onRestore == nil {
 			log.Fatalf("no RestoreCallback configured on start.")
 		}
-		node.config.onRestore(&snapshot.Data)
+		if err := returnError(node.config.onRestore(&snapshot.Data)); err != nil {
+			log.Fatalf("LogNode: failed to restore states (%v)", err)
+		}
 	}
 
 	w := node.openWAL(snapshot)
@@ -490,9 +501,18 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 		}
 	}
 
+	// Double confirm the snapshot decision. (e.g. No more values to be proposed before snapshotting)
+	if node.config.shouldSnapshot != nil && !node.config.shouldSnapshot(node) {
+		return
+	}
+
 	// create pipeline and write
 	reader, writer := io.Pipe()
-	go node.config.getSnapshot(&writeCloserWrapper{writer: writer})
+	go func() {
+		if err := returnError(node.config.getSnapshot(&writeCloserWrapper{writer: writer})); err != nil {
+			panic(err)
+		}
+	}()
 
 	node.logger.Info("start snapshot", zap.Uint64("applied index", node.appliedIndex), zap.Uint64("last index", node.snapshotIndex))
 	data, err := io.ReadAll(reader)
@@ -575,13 +595,17 @@ func (node *LogNode) serveChannels() {
 						id = ctx.Id
 						ctx.Trigger(func() {
 							log.Printf("Callbacking onchange %s", id)
-							node.config.onChange(&realData, id)
+							if err := returnError(node.config.onChange(&realData, id)); err != nil {
+								log.Fatalf("LogNode: Error on replay state (%v)", err)
+							}
 							log.Printf("Callbacked onchange %s", id)
 							ctx.Cancel()
 						})
 					} else {
 						log.Printf("Callbacking onchange %s", id)
-						node.config.onChange(&realData, id)
+						if err := returnError(node.config.onChange(&realData, id)); err != nil {
+							log.Fatalf("LogNode: Error on replay state (%v)", err)
+						}
 						log.Printf("Callbacked onchange %s", id)
 					}
 				}

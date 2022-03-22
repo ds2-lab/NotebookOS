@@ -4,11 +4,14 @@ import pickle
 import asyncio
 from typing import Tuple, List
 
+from pexpect import ExceptionPexpect
+
 from ..smr.smr import NewLogNode, NewConfig, WriteCloser
 from ..smr.go import Slice_byte, Slice_string
-from .log import SyncValue
+from .log import SyncValue, KEY_SYNC_END
 from .checkpoint import Checkpoint
 from .future import Future
+from .errors import SyncError, GoError, GoNilError
 
 KEY_LEAD = "_lead_"
 
@@ -17,7 +20,7 @@ class writerCloser:
     self.wc = wc
 
   def write(self, b):
-    self.wc.Write(Slice_byte(b))
+    ret = self.wc.Write(Slice_byte(b))
 
   def close(self):
     self.wc.Close()
@@ -48,61 +51,82 @@ class RaftLog:
     self.restoreCallback = self._restore       # No idea why this walkaround works
     self.shouldSnapshotCallback = None
     self.snapshotCallback = None
+    self._ignore_changes = 0
+    self._async_loop = None
 
   @property
   def num_changes(self) -> int:
     """The number of incremental changes since first term or the latest checkpoint."""
-    return self.node.NumChanges()
+    return self.node.NumChanges() - self._ignore_changes
 
-  def start(self, handler):
+  async def start(self, handler):
     """Register change handler, restore internel states, and start monitoring changes, """
     self.handler = handler
 
     config = NewConfig()
     config = config.WithChangeCallback(self.changeCallback).WithRestoreCallback(self.restoreCallback)
-    # if self.shouldSnapshotCallback is not None:
-    #   config = config.WithShouldSnapshotCallback(self.shouldSnapshotCallback)
-    # if self.snapshotCallback is not None:
-    #   config = config.WithSnapshotCallback(self.snapshotCallback)
+    if self.shouldSnapshotCallback is not None:
+      config = config.WithShouldSnapshotCallback(self.shouldSnapshotCallback)
+    if self.snapshotCallback is not None:
+      config = config.WithSnapshotCallback(self.snapshotCallback)
+
+    self.async_loop = asyncio.get_running_loop()
     self.node.Start(config)
 
-  def _changeHandler(self, buff, id):
+  def _changeHandler(self, buff, id) -> str:
     print("got changed: {}".format(id))
     if id != "":
-        return
+        return GoNilError()
     
     try:
       reader = io.BytesIO(bytes(Slice_byte(handle=buff)))
       syncval = pickle.load(reader)
       if syncval.key == KEY_LEAD:
-        return
+        self._ignore_changes = self._ignore_changes + 1
+        return GoNilError()
+
+      self.term = syncval.term
+      # For values synchronized from other replicas or replayed, count _ignore_changes
+      if syncval.term == 1 or syncval.key == KEY_SYNC_END:
+        self._ignore_changes = self._ignore_changes + 1
+      self.handler(syncval)
+
+      return GoNilError()
     except Exception as e:
       print("Failed to handle change: {}".format(e))
+      return GoError(e)
 
-    self.term = syncval.term
-    self.handler(syncval)
-
-  def _restore(self, buff):
+  def _restore(self, buff) -> str:
     """Restore history"""
     print("Restoring...")
 
     reader = io.BytesIO(bytes(Slice_byte(handle=buff)))
     unpickler = pickle.Unpickler(reader)
-    
+
     try:
       syncval = None
       syncval = unpickler.load()
     except Exception:
       pass
     
+    # Recount _ignore_changes
+    self._ignore_changes = 0
+    restored = 0
     while syncval is not None:
-      self.handler(syncval)
-
       try:
+        self.handler(syncval)
+        restored = restored + 1
+
         syncval = None
         syncval = unpickler.load()
+      except SyncError as se:
+        print("Error on restoreing snapshot: {}".format(se))
+        return GoError(se)
       except Exception:
         pass
+
+    print("Restored {}".format(restored))
+    return GoNilError()
 
   def set_should_checkpoint_callback(self, callback):
     """Set the callback that will be called when the SyncLog decides if to checkpoint or not.
@@ -125,11 +149,18 @@ class RaftLog:
       self.snapshotCallback = None
       return
 
-    def snapshotCallback(wc):
-      print("in direct snapshotCallback")
-      checkpointer = Checkpoint(writerCloser(WriteCloser(handle=wc)))
-      callback(checkpointer)
-      checkpointer.close()
+    def snapshotCallback(wc) -> str:
+      try:
+        checkpointer = Checkpoint(writerCloser(WriteCloser(handle=wc)))
+        # asyncio.run_coroutine_threadsafe(callback(checkpointer), self.async_loop)
+        callback(checkpointer)
+        # checkpointer.close()
+        # Reset _ignore_changes
+        self._ignore_changes = 0
+        return GoNilError()
+      except Exception as e:
+        print("Error on snapshoting: {}".format(e))
+        return GoError(e)
 
     self.snapshotCallback = snapshotCallback
 
@@ -140,6 +171,7 @@ class RaftLog:
       return False
 
     # Append is blocking and ensure to gaining leading status if terms match.
+    self._ignore_changes = self._ignore_changes + 1
     await self.append(SyncValue(None, self.id, term=term, key=KEY_LEAD))
     # term 0 is for single node, or we need to check the term
     if term == 0 or self.term < term:
@@ -149,16 +181,28 @@ class RaftLog:
 
   async def append(self, val: SyncValue):
     """Append the difference of the value of specified key to the synchronization queue"""
-    self.term = val.term
+    if val.key != KEY_LEAD:
+      self.term = val.term
+      if val.term == 1 or val.key == KEY_SYNC_END:
+        # Count _ignore_changes
+        self._ignore_changes = self._ignore_changes + 1
+
+    # Ensure key is specified.
     if val.key is not None:
+      # Serialize the value. 
       dumped = pickle.dumps(val)
       print("Appending {}:{} bytes".format(val.key, len(dumped)))
 
+      # Prepare callback settings. 
+      # Callback can be called from a different thread. Schedule the resolve
+      # of the future object to the await thread.
       loop = asyncio.get_running_loop()
       future = Future(loop=loop)
+      self._async_loop = loop
       def resolve(key):
-        asyncio.run_coroutine_threadsafe(future.resolve(key), loop)
+        asyncio.run_coroutine_threadsafe(future.resolve(key), loop) # must use local variable
 
+      # Propose and wait the future.
       self.node.Propose(Slice_byte(dumped), resolve, val.key)
       await future.result()
 

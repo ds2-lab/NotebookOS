@@ -5,7 +5,7 @@ import ast
 import sys
 import types
 
-from .log import Checkpointer, SyncLog, SyncValue
+from .log import Checkpointer, SyncLog, SyncValue, KEY_SYNC_END
 from .ast import SyncAST
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
@@ -22,24 +22,30 @@ class SyncModule(object):
 class Synchronizer:
   def __init__(self, synclog: SyncLog, module=None, ns = None, opts = 0):
     if module is None and ns is not None:
-      self.module = SyncModule()
+      self._module = SyncModule()
       ns.setdefault("__name__", "__main__")
-      self.module.__dict__ = ns
+      self._module.__dict__ = ns
     elif module is None:
-      self.module = types.ModuleType("__main__", doc="Automatically created module for python environment")
+      self._module = types.ModuleType("__main__", doc="Automatically created module for python environment")
     else:
-      self.module = module
+      self._module = module
 
     # Set callbacks for synclog
     synclog.set_should_checkpoint_callback(self.should_checkpoint_callback)
     synclog.set_checkpoint_callback(self.checkpoint_callback)
     
-    self.tags = {}
-    self.ast = SyncAST()
-    self.referer = SyncReferer()
-    self.synclog = synclog
-    self.synclog.start(self.change_handler)
-    self.opts = opts
+    self._async_loop = None
+    self._tags = {}
+    self._ast = SyncAST()
+    self._referer = SyncReferer()
+    self._opts = opts
+    self._syncing = False
+
+    self._synclog = synclog
+
+  async def start(self):
+    self._async_loop = asyncio.get_running_loop()
+    await self._synclog.start(self.change_handler)
 
   # def _change_handler(self, buff, id):
   #   # Ignore local proposal.
@@ -52,31 +58,41 @@ class Synchronizer:
   #   self.change_handler(syncval)
 
   @property
+  def module(self):
+    return self._module
+
+  @property
   def global_ns(self):
-    return self.module.__dict__
+    return self._module.__dict__
 
   @property
   def execution_count(self):
-    return self.ast.execution_count
+    return self._ast.execution_count
 
   def change_handler(self, val: SyncValue):
     """Change handler"""
     ## TODO: Buffer changes of one execution and apply changes atomically
+    if not val.end:
+      self._syncing = True
+    elif val.key == KEY_SYNC_END:
+      self._syncing = False
+      return
+
     existed = None
     if val.key == KEY_SYNC_AST:
-      existed = self.ast
-    elif val.key in self.tags:
-      existed = self.tags[val.key]
+      existed = self._ast
+    elif val.key in self._tags:
+      existed = self._tags[val.key]
 
     if existed == None: 
       if isinstance(val.val, SyncObject):
         existed = val.val
       else:
-        existed = SyncObjectWrapper(self.referer)
+        existed = SyncObjectWrapper(self._referer)
 
     # Switch context
     old_main_modules = sys.modules["__main__"]
-    sys.modules["__main__"] = self.module
+    sys.modules["__main__"] = self._module
     
     # print("restoring {}...".format(val.key))
     diff = existed.update(val)
@@ -86,31 +102,40 @@ class Synchronizer:
     # End of switch context
 
     if val.key == KEY_SYNC_AST:
-      self.ast = existed
+      self._ast = existed
       # Redeclare modules, classes, and functions.
       compiled = compile(diff, "sync", "exec")
       exec(compiled, self.global_ns, self.global_ns)
     else:
-      self.tags[val.key] = existed
+      self._tags[val.key] = existed
       self.global_ns[val.key] = existed.object
 
-  async def ready(self, execution_count) -> int:
-    while True:
-      # Validate execution_count
-      term = execution_count
-      if term == 1:
-        # execution_count can be uninitialized, reset to 0
-        term = 0
-      
-      if await self.synclog.lead(term):
-        return execution_count
-      
-      # Update execution count
-      execution_count = self.execution_count
+    if val.end:
+      self._syncing = False
 
-  async def sync(self, execution_count, execution_ast, source=None, checkpointer=None):
-    self.referer.module_id = execution_count
-    synclog = self.synclog
+  async def ready(self, execution_count) -> int:
+    """Wait the ready of the synchronization and propose to lead a execution.
+       Returns the execution count that granted to lead or 0 if denied.
+       Note that if the execution_count is 0, the execution is guaranteed to be
+       granted, which may cause duplication execution."""
+    if execution_count < 0:
+      return 0
+    
+    # Propose to lead specified term. 
+    # Term 0 tries to lead the next term whatever and will always success.
+    if await self._synclog.lead(execution_count):
+      # Synchronized, execution_count was updated to last execution.
+      self._async_loop = asyncio.get_running_loop() # Update async_loop.
+      if execution_count == 0:
+        return self.execution_count + 1
+      else:
+        return execution_count
+    
+    # Failed to lead the term
+    return 0
+
+  async def sync(self, execution_ast, source=None, checkpointer: Checkpointer=None):
+    synclog = self._synclog
     checkpointing = checkpointer is not None
     if checkpointing:
       synclog = checkpointer
@@ -119,32 +144,40 @@ class Synchronizer:
     # synclog.lead(execution_count) 
 
     if checkpointing:
-      sync_val = self.ast.dump(meta=source)
+      sync_ast = self._ast.dump(meta=source)
     else:
-      self.ast.execution_count = execution_count
-      sync_val = self.ast.diff(execution_ast, meta=source)
-    sync_val.term = self.ast.execution_count
-    sync_val.key = KEY_SYNC_AST
-    await synclog.append(sync_val)
+      sync_ast = self._ast.diff(execution_ast, meta=source)
+    # execution_count updated.
+    self._referer.module_id = self._ast.execution_count
+    
+    sync_ast.term = self._ast.execution_count
+    sync_ast.key = KEY_SYNC_AST
+    self._syncing = True
+    await synclog.append(sync_ast)
       
-    keys = self.ast.globals.keys()
+    keys = self._ast.globals
+    meta = SyncObjectMeta(batch=(sync_ast.term if not checkpointing else "{}c".format(sync_ast.term)))
+    # TODO: Recalculate the number of expected synchronizations within the execution.
+    expected = len(keys)
     syncing = 0
-    meta = SyncObjectMeta(batch=(execution_count if not checkpointing else "{}c".format(execution_count)))
     for key in keys:
       syncing = syncing + 1
-      await self.sync_key(synclog, key, self.global_ns[key], end_execution=syncing==len(keys), checkpointing=checkpointing, meta=meta)
+      await self.sync_key(synclog, key, self.global_ns[key], end_execution=syncing==expected, checkpointing=checkpointing, meta=meta)
+
+    if checkpointing:
+      checkpointer.close()
 
   async def sync_key(self, synclog, key, val, end_execution=False, checkpointing=False, meta=None):
     existed = None
-    if key in self.tags:
-      existed = self.tags[key]
+    if key in self._tags:
+      existed = self._tags[key]
     else:
       # TODO: Add support to SyncObject factory
-      existed = SyncObjectWrapper(self.referer)
+      existed = SyncObjectWrapper(self._referer)
 
     # Switch context
     old_main_modules = sys.modules["__main__"]
-    sys.modules["__main__"] = self.module
+    sys.modules["__main__"] = self._module
 
     # print("syncing {}...".format(key))
     if checkpointing:
@@ -156,20 +189,33 @@ class Synchronizer:
     sys.modules["__main__"] = old_main_modules
     # End of switch context
 
+    # Because should_checkpoint_callback will be called during final append call, 
+    # set the end of _syncing before the final append call.
+    if end_execution:
+      self._syncing = False
+
     if sync_val is not None:
-      sync_val.term = self.ast.execution_count
+      sync_val.term = self._ast.execution_count
       sync_val.key = key
       sync_val.end = end_execution
       await synclog.append(sync_val)
     elif end_execution:
       # Synthecize end
-      await synclog.append(SyncValue(None, None, term=self.ast.execution_count, end=True))
+      await synclog.append(SyncValue(None, None, term=self._ast.execution_count, end=True, key=KEY_SYNC_END))
 
   def should_checkpoint_callback(self, synclog: SyncLog):
-    print("in should_checkpoint_callback")
-    return ((self.opts & CHECKPOINT_AUTO and synclog.num_changes >= len(self.tags.__dict__.keys())) or
-      (self.opts & CHECKPOINT_ON_CHANGE and synclog.num_changes > 0))
+    print("in should_checkpoint_callback({}): {} changes".format(self.execution_count, synclog.num_changes))
+    if self.execution_count < 2 or self._syncing:
+      return False
+
+    return ((self._opts & CHECKPOINT_AUTO and synclog.num_changes >= len(self._tags.__dict__.keys())) or
+      (self._opts & CHECKPOINT_ON_CHANGE and synclog.num_changes > 0))
 
   def checkpoint_callback(self, checkpointer: Checkpointer):
-    checkpointer.lead(self.ast.execution_count)
-    self.sync(self.ast.execution_count, self.ast.tree, source="checkpoint", checkpointer=checkpointer)
+    print("checkpointing...")
+    checkpointer.lead(self._ast.execution_count)
+    # await self.sync(None, source="checkpoint", checkpointer=checkpointer)
+    # checkpointer.close()
+    asyncio.run_coroutine_threadsafe(
+      self.sync(None, source="checkpoint", checkpointer=checkpointer),
+      self._async_loop)

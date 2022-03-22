@@ -118,7 +118,7 @@ class FileLog:
     """Get a SyncLog instance for checkpointing."""
     return FileCheckpoint(self.store, self)
 
-  def lead(self, term) -> bool:
+  async def lead(self, term) -> bool:
     """Request to lead the update of a term. A following append call 
        without leading status will fail."""
     if self.term == 0:
@@ -132,7 +132,7 @@ class FileLog:
     self.term = term
     return True
 
-  def append(self, val: SyncValue):
+  async def append(self, val: SyncValue):
     """Append the difference of the value of specified key to the synchronization queue"""
 
     if val.term > self.term:

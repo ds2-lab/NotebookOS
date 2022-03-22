@@ -4,6 +4,7 @@
 
 ## py2/py3 compat
 from __future__ import print_function
+from ast import Slice
 import asyncio
 import pickle
 import io
@@ -41,6 +42,10 @@ def getCbfunbytes(handler):
 def cbfuninterface(v):
     iv = funcs.Verbose(handle=v)
     print("in python cbfuninterface: Output: ", iv.String())
+
+def cbret() -> str:
+    print("in python cbret")
+    return str.encode("", "utf-8")
 
 start_outofthread = 0
 def cbfunoutofthread(v):
@@ -110,7 +115,7 @@ class Promise:
         self.loop = loop
         self.future = loop.create_future()
     
-    def resolve(self, value):
+    async def resolve(self, value):
         # print("wait 10 seconds")
         # await asyncio.sleep(0)
         # time.sleep(10)
@@ -130,8 +135,8 @@ async def asyncCall(msg):
 
     def dummyResolver(value):
         # Schedule and run from other threads
-        coro = asyncio.to_thread(promise.resolve, value)
-        asyncio.run_coroutine_threadsafe(coro, loop)
+        # promise.resolve(value)
+        asyncio.run_coroutine_threadsafe(promise.resolve(value), loop)
         
 
     fs.SetInterfaceCallback(cbfunoutofthread)
@@ -144,6 +149,9 @@ async def asyncCall(msg):
 
 print(asyncio.run(asyncCall("CallBackOutOfThread executed")))
 # threadCall() #Failed
+
+print("fs.CallbackWithRet(cbret)...")
+fs.CallbackWithRet(cbret)
 
 cls = MyClass()
 

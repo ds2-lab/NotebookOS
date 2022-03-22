@@ -55,11 +55,13 @@ async def demo():
     if os.path.exists(store) and not args.resume:
       os.system("rm -rf " + store)
 
-    execution_count = 0
     for path in args.scripts:
       synclog = RaftLog(store, 1, ["http://127.0.0.1:19800"])
-      synchronizer = Synchronizer(synclog, opts=CHECKPOINT_AUTO)
-      execution_count = await synchronizer.ready(synchronizer.execution_count + 1)
+      synchronizer = Synchronizer(synclog, opts=CHECKPOINT_ON_CHANGE)
+      await synchronizer.start()
+      execution_count = await synchronizer.ready(0)
+      if execution_count == 0:
+        raise Exception("Failed to lead the exection.")
 
       # Load script file
       print("executing {}({})".format(path, execution_count))
@@ -81,14 +83,13 @@ async def demo():
       exec(compiled, synchronizer.global_ns, synchronizer.global_ns) # use namespace for both global and local namespace
       sys.path[0] = base
       sys.modules["__main__"] = old_main_modules
-      execution_count = execution_count + 1
 
-      await synchronizer.sync(execution_count, tree, source)
+      await synchronizer.sync(tree, source)
       synclog.close()
       synclog = None
       synchronizer = None
 
-  except RuntimeError as exc:
+  except Exception as exc:
     print(exc)
 
 # def sync(synchronizer=None, module=None, path=None):

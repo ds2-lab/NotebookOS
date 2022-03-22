@@ -1539,18 +1539,19 @@ func smr_LogNodeConfig_WithChangeCallback(_handle CGoHandle, cb *C.PyObject) CGo
 	if __err != nil {
 		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
 	}
-	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithChangeCallback(func(arg_0 *[]byte, arg_1 string) {
+	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithChangeCallback(func(arg_0 *[]byte, arg_1 string) string {
 		if C.PyCallable_Check(_fun_arg) == 0 {
-			return
+			return C.GoString(nil)
 		}
 		_gstate := C.PyGILState_Ensure()
 		_fcargs := C.PyTuple_New(2)
 		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_Ptr_Slice_byte(arg_0))))
 		C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-		C.PyObject_CallObject(_fun_arg, _fcargs)
+		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
 		C.gopy_decref(_fcargs)
 		C.gopy_err_handle()
 		C.PyGILState_Release(_gstate)
+		return C.GoString(C.PyBytes_AsString(_fcret))
 	}))
 
 }
@@ -1562,17 +1563,18 @@ func smr_LogNodeConfig_WithRestoreCallback(_handle CGoHandle, cb *C.PyObject) CG
 	if __err != nil {
 		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
 	}
-	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithRestoreCallback(func(arg_0 *[]byte) {
+	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithRestoreCallback(func(arg_0 *[]byte) string {
 		if C.PyCallable_Check(_fun_arg) == 0 {
-			return
+			return C.GoString(nil)
 		}
 		_gstate := C.PyGILState_Ensure()
 		_fcargs := C.PyTuple_New(1)
 		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_Ptr_Slice_byte(arg_0))))
-		C.PyObject_CallObject(_fun_arg, _fcargs)
+		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
 		C.gopy_decref(_fcargs)
 		C.gopy_err_handle()
 		C.PyGILState_Release(_gstate)
+		return C.GoString(C.PyBytes_AsString(_fcret))
 	}))
 
 }
@@ -1607,17 +1609,18 @@ func smr_LogNodeConfig_WithSnapshotCallback(_handle CGoHandle, cb *C.PyObject) C
 	if __err != nil {
 		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
 	}
-	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithSnapshotCallback(func(arg_0 smr.WriteCloser) {
+	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithSnapshotCallback(func(arg_0 smr.WriteCloser) string {
 		if C.PyCallable_Check(_fun_arg) == 0 {
-			return
+			return C.GoString(nil)
 		}
 		_gstate := C.PyGILState_Ensure()
 		_fcargs := C.PyTuple_New(1)
 		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_smr_WriteCloser(arg_0))))
-		C.PyObject_CallObject(_fun_arg, _fcargs)
+		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
 		C.gopy_decref(_fcargs)
 		C.gopy_err_handle()
 		C.PyGILState_Release(_gstate)
+		return C.GoString(C.PyBytes_AsString(_fcret))
 	}))
 
 }

@@ -6,3 +6,6 @@ python-demo-step1:
 
 python-demo-step2:
 	python3 -m distributed-notebook.demo --resume distributed-notebook/demo/script/script2.py
+
+python-demo-step3:
+	python3 -m distributed-notebook.demo --resume distributed-notebook/demo/script/script3.py

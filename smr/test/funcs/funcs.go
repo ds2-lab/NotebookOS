@@ -6,6 +6,7 @@ package funcs
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/go-python/gopy/_examples/cpkg"
@@ -13,6 +14,7 @@ import (
 
 type ByteCallback func(*[]byte, string)
 type Resolver func(interface{})
+type CallbackWithRet func() string
 
 type Verbose interface {
 	String() string
@@ -104,6 +106,10 @@ func (fs *FunStruct) WaitOutOfThread() {
 	if done != nil {
 		<-fs.done
 	}
+}
+
+func (fs *FunStruct) CallbackWithRet(cb CallbackWithRet) {
+	log.Printf("callback ret: %s", cb())
 }
 
 func (fs *FunStruct) OtherMeth(i int, s string) {

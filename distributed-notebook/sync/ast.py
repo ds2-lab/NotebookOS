@@ -3,7 +3,7 @@ from copy import copy, deepcopy
 from typing import Tuple
 
 from .log import SyncValue
-from .object import Pickled
+from .errors import SyncError
 
 ExplorerActionCopy = 0
 ExplorerActionPass = 1
@@ -14,61 +14,87 @@ class SyncAST(ast.NodeVisitor):
   # pylint: disable=invalid-name
 
   def __init__(self, tree=None):
-    self.tree = tree
-    self.scope = []
-    self.globals = {}
-    self.execution_count = 0
+    self._tree = tree
+    self._scope = []
+    self._globals = {}
+    self._executions = 0
 
   def __getstate__(self):
-    return (self.tree, tuple(self.globals.keys()), self.execution_count)
+    return (self._tree, tuple(self._globals.keys()), self._executions)
 
   def __setstate__(self, state):
-    self.tree, keys, self.execution_count = state
-    self.scope = []
-    self.globals = {}
+    self._tree, keys, self._executions = state
+    self._scope = []
+    self._globals = {}
     for key in keys:
-      self.globals[key] = None
+      self._globals[key] = None
+
+  @property
+  def execution_count(self):
+    return self._executions
+
+  @property
+  def tree(self):
+    return self._tree
+
+  @property
+  def globals(self):
+    return self._globals.keys()
 
   def dump(self, meta=None) -> SyncValue:
-    return SyncValue(self.execution_count, (self.tree, tuple(self.globals.keys())))
+    """Return SyncValue for checkpoint"""
+    return SyncValue(self._executions, (self._tree, tuple(self._globals.keys())))
 
-  def diff(self, tree, meta=None) -> Tuple[Pickled, any]:
+  def diff(self, tree, meta=None) -> SyncValue:
+    """Update AST with the AST of incremental execution and return SyncValue 
+       for synchronization. The execution_count will increase by 1."""
     self.source = meta
-    if self.tree is None:
-      self.tree = self.visit(tree)
-      return SyncValue(self.execution_count, (self.tree, tuple(self.globals.keys())))
+    ret = None
+    if self._tree is None:
+      self._tree = self.visit(tree)
+      ret = self._tree
     else:
       incremental = self.visit(tree)
-      self.tree.body.extend(incremental.body)
-      return SyncValue(self.execution_count, (incremental, tuple(self.globals.keys())))
+      self._tree.body.extend(incremental.body)
+      ret = incremental
+
+    self._executions = self._executions+1
+    return SyncValue(self._executions, (ret, tuple(self._globals.keys())))
   
   def update(self, val: SyncValue) -> any:
-    if val.tag <= self.execution_count:
-      return None
-
-    if self.tree is None:
-      self.tree = val.val[0]
+    """Apply the AST of incremental execution to the full AST. 
+       Raising exception if the exection count is not the immediate
+       next execution."""
+    if self._tree is None:
+      # Restore
+      self._tree = val.val[0]
+    elif val.tag != self._executions + 1:
+      # Update but execution count dismatch.
+      raise SyncError("Failed to update AST, expects: {}, but got {}".format(self._executions + 1, val.tag))
     else:
-      self.tree.body.extend(val.val[0].body)
-    self.globals = {}
+      # Update
+      self._tree.body.extend(val.val[0].body)
+      
+    self._globals = {}
     for key in val.val[1]:
-      self.globals[key] = None
-    self.execution_count = val.tag
+      self._globals[key] = None
+    self._executions = val.tag
     return val.val[0]
 
   def sync(self, tree, source):
+    """Legacy method that applies incremental AST to the full AST."""
     self.source = source
-    if self.tree is None:
-      self.tree = self.visit(tree)
+    if self._tree is None:
+      self._tree = self.visit(tree)
       return tree
     else:
       incremental = self.visit(tree)
       # new_body = []
-      # for inherited in self.tree.body:
+      # for inherited in self._tree.body:
       #   new_body.append(ast.fix_missing_locations(inherited))
       # new_body.extend(tree.body)
       # tree.body[:] = new_body
-      self.tree.body.extend(incremental.body)
+      self._tree.body.extend(incremental.body)
       return tree
 
   def visit(self, node, default=None):
@@ -118,21 +144,21 @@ class SyncAST(ast.NodeVisitor):
   def visit_Module(self, node):
     """Visit Module. Initialize scope"""
     print("Entering Module...")
-    self.scope.append(node)
+    self._scope.append(node)
     sync_node = ast.Module(
       self.filter_list(node.body, node, visitor=self.visit_global_stmt),
       node.type_ignores
     )
-    self.scope.pop()
+    self._scope.pop()
     return sync_node
 
   def visit_FunctionDef(self, node):
     """Visit Module. Advance to function scope"""
     # print("Entering Function \"{}\"...".format(node.name))
     # print(ast.dump(node, indent=2))
-    self.scope.append(node)
+    self._scope.append(node)
     sync_node = self.generic_visit(node)
-    self.scope.pop()
+    self._scope.pop()
     return sync_node
 
   def visit_Import(self, node):
@@ -142,18 +168,18 @@ class SyncAST(ast.NodeVisitor):
     return self.generic_visit(node)
 
   def visit_ClassDef(self, node):
-    # self.globals[node.name] = None
+    # self._globals[node.name] = None
     # print("Found class \"{}\" and keep declaration".format(node.name))
     return self.generic_visit(node)
 
   def visit_Assign(self, node):
     """Visit Assign, Only global remains"""
-    if len(self.scope) > 1:
+    if len(self._scope) > 1:
       return node # Skip non-globals
     
     for target in node.targets:
       if isinstance(target, ast.Name):
-        self.globals[target.id] = None
+        self._globals[target.id] = None
         print("Found global \"{}\" and remove assignment".format(target.id))
       # TODO: deal with other assignments
 
@@ -166,18 +192,18 @@ class SyncAST(ast.NodeVisitor):
   def visit_Global(self, node):
     """Visit Global, Noted"""
     for name in node.names:
-      self.globals[name] = None
+      self._globals[name] = None
       print("Found global \"{}\" and keep declaration".format(name))
     return node
 
   def visit_Delete(self, node):
     """Visit Assign, Only global remains"""
-    if len(self.scope) > 1:
+    if len(self._scope) > 1:
       return node # Skip non-globals
     
     for target in node.targets:
       if isinstance(target, ast.Name):
-        del self.globals[target.id]
+        del self._globals[target.id]
         print("Remove global \"{}\"".format(target.id))
       # TODO: deal with other assignments
 
