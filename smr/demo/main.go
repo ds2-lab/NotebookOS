@@ -33,7 +33,7 @@ func main() {
 	}
 	var committed chan string
 
-	config := smr.NewConfig().WithChangeCallback(func(val *[]byte, id string) {
+	config := smr.NewConfig().WithChangeCallback(func(val *[]byte, id string) string {
 		var diff Counter
 		json.Unmarshal(*val, &diff)
 		counter.Num += diff.Num
@@ -42,14 +42,16 @@ func main() {
 		if wait && committed != nil {
 			committed <- diff.Id
 		}
-	}).WithRestoreCallback(func(val *[]byte) {
+		return ""
+	}).WithRestoreCallback(func(val *[]byte) string {
 		json.Unmarshal(*val, &counter)
 		log.Printf("In restore callback, got %v", counter)
+		return ""
 	}).WithShouldSnapshotCallback(func(node *smr.LogNode) bool {
 		shouldSnap := node.NumChanges() == 3
 		log.Printf("In should snapshot callback, changed %d, will snapshot: %v", node.NumChanges(), shouldSnap)
 		return shouldSnap
-	}).WithSnapshotCallback(func(writer smr.WriteCloser) {
+	}).WithSnapshotCallback(func(writer smr.WriteCloser) string {
 		log.Println("Writing snapshot...")
 		snap := Counter{
 			Message: "Snapshot",
@@ -58,12 +60,14 @@ func main() {
 		val, _ := json.Marshal(&snap)
 		writer.Write(val)
 		writer.Close()
+		return ""
 	})
 
-	configSlave := smr.NewConfig().WithChangeCallback(func(val *[]byte, id string) {
+	configSlave := smr.NewConfig().WithChangeCallback(func(val *[]byte, id string) string {
 		var cnt Counter
 		json.Unmarshal(*val, &cnt)
 		log.Printf("In change callback of slavers, got %v", cnt)
+		return ""
 	}).WithShouldSnapshotCallback(func(node *smr.LogNode) bool {
 		// Disable snapshot on slaver.
 		return false
