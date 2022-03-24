@@ -127,10 +127,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-distributed-notebook/demo/store/*.dat
 distributed-notebook/demo/store
+distributed-notebook/smr/_smr.*.h
 smr/demo/store
-smr/demo/store1
-demo
-smr/test/funcs/out
+out
 datasets
