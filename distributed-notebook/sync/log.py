@@ -59,10 +59,10 @@ class Checkpointer(Protocol):
   def num_changes(self) -> int:
     """The number of values checkpointed."""
 
-  def lead(self, term) -> bool:
+  def lead(self, term) -> int:
     """Set the term to checkpoint. False if any error."""
        
-  def append(self, val: SyncValue):
+  async def append(self, val: SyncValue):
     """Append the value of specified key to the writer."""
 
   def close(self):

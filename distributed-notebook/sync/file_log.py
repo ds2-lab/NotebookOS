@@ -36,7 +36,7 @@ class FileLog:
     """The number of incremental changes since first term or the latest checkpoint."""
     return self._num_changes
 
-  def start(self, handler):
+  async def start(self, handler):
     """Register change handler, restore internel states, and start monitoring changes, """
     self.on_change(handler)
 
@@ -124,33 +124,31 @@ class FileLog:
     if self.term == 0:
       self.restore(FILELOG_ARCHIVE)
 
+    # Add support for term dectection: term == 0. Always success.
+    if term == 0:
+      self.logs.append([])
+      return True
+
     if term <= self.skip_terms or term <= len(self.logs) + self.skip_terms:
       return False
 
     while len(self.logs) + self.skip_terms < term:
       self.logs.append([])
-    self.term = term
     return True
 
   async def append(self, val: SyncValue):
     """Append the difference of the value of specified key to the synchronization queue"""
-
-    if val.term > self.term:
-      if self.term > 0:
-        self.append(SyncValue(self.term, end=True))
-      self.lead(val.term)
-
     if val.key is not None:
-      relative_path = self.get_path(self.term, val)
+      relative_path = self.get_path(val.term, val)
       filepath = os.path.join(self.store, relative_path)
       self.ensure_path(os.path.dirname(filepath))
 
       with open(filepath, "wb") as file:
         pickle.dump(val, file)
 
-      self.logs[self.term-self.skip_terms-1].append(relative_path)
+      self.logs[val.term-self.skip_terms-1].append(relative_path)
       # Update if not first term or the checkpoint term: self.term == self.skip_terms + 1
-      if self.term > self.skip_terms + 1:
+      if val.term > self.skip_terms + 1:
         self._num_changes = self._num_changes + 1
 
     if val.end:

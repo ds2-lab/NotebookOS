@@ -1,11 +1,17 @@
 import os
 import pandas as pd
 import numpy as np
-import sys
-import types
+from enum import Enum
 
 from typing import Iterator
 # from foo import Foo
+
+# enum test
+class Fruit(Enum):
+  Apple = 4
+  Orange = 5
+  Pear = 6
+apple = Fruit.Apple
 
 class Foo:
   def __init__(self):

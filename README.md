@@ -26,4 +26,4 @@ their command line arguments.
 
 ## ARM
 
-pip3 install torch==1.10.0 torchvision==0.11.0 -f https://torch.kmtea.eu/whl/stable.html
+python3 -m pip install torch==1.10.0 torchvision==0.11.0 -f https://torch.kmtea.eu/whl/stable.html

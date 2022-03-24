@@ -6,19 +6,20 @@ import ast
 import logging
 
 from ipykernel.ipkernel import IPythonKernel
-from ..sync import ASTSynchronizer
+from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 
 base = os.path.dirname(os.path.realpath(__file__))
 err_wait_persistent_store = RuntimeError("Persistent store not ready, try again later.")
+err_failed_to_lead_execution = RuntimeError("Failed to lead the exectuion.")
 key_persistent_id = "persistent_id"
 
 logging.basicConfig(level=logging.INFO)
 
 class DistributedKernel(IPythonKernel):
     implementation = 'Distributed Python 3'
-    implementation_version = '0.1'
+    implementation_version = '0.2'
     language = 'no-op'
-    language_version = '0.1'
+    language_version = '0.2'
     language_info = {
         'name': 'Any text',
         'mimetype': 'text/plain',
@@ -39,6 +40,8 @@ class DistributedKernel(IPythonKernel):
 
     async def init_persistent_store(self, code):
         if self.store == None:
+            # By executing code, we can get persistent id later.
+            # The execution_count should not be counted and will reset later.
             execution_count = self.shell.execution_count
             await asyncio.ensure_future(super().do_execute(code, True, store_history=False))
 
@@ -48,7 +51,7 @@ class DistributedKernel(IPythonKernel):
             # Reset execution_count, override_shell may update again.
             self.shell.execution_count = execution_count
             # Override shell hooks
-            self.override_shell()
+            await self.override_shell()
         
         return self.gen_simple_response()
 
@@ -64,14 +67,24 @@ class DistributedKernel(IPythonKernel):
         # Ensure persistent store is ready
         self.check_persistent_store()
 
+        # Pass 0 to lead the next execution based on history, which should be 
+        # passed only if a duplicated execution is acceptable.
+        # Pass value > 0 to lead a specific execution.
+        # In either case, the execution will wait until states are synchornized.
+        self.shell.execution_count = await self.synchronizer.ready(0)
+        if self.shell.execution_count == 0:
+            raise err_failed_to_lead_execution
+
         reply_routing = super().do_execute(
             code, silent, store_history=store_history,
             user_expressions=user_expressions, allow_stdin=allow_stdin)
 
-        reply_content = await asyncio.ensure_future(reply_routing)
+        # Wait for the settlement of variables.
+        reply_content = await reply_routing
         
-        self.sync(self.synchronizer)
-        self.log.info("synced tree:\n{}".format(ast.dump(self.synchronizer.tree)))
+        # Synchronize
+        # self.log.info("synced tree:\n{}".format(ast.dump(self.synchronizer._ast.tree)))
+        await self.synchronizer.sync(self.execution_ast, self.source)
 
         return reply_content
 
@@ -91,63 +104,28 @@ class DistributedKernel(IPythonKernel):
                 'user_expressions': {},
                }
 
-    def override_shell(self):
+    async def override_shell(self):
         """Override IPython Core"""
         self.old_run_cell = self.shell.run_cell
         self.shell.run_cell = self.run_cell
         self.shell.transform_ast = self.transform_ast
-        self.synchronizer = self.sync(self.synchronizer)
+        
+        # Get synclog for synchronization.
+        synclog = await self.get_synclog()
+
+        # Start the synchronizer. Starting can be non-blocking, call 
+        # synchronizer.ready() later to confirm the actual execution_count.
+        self.synchronizer = Synchronizer(synclog, module = self.shell.user_module, opts=CHECKPOINT_AUTO)
+        await self.synchronizer.start()
+
+    async def get_synclog(self):
+        return RaftLog(self.store, 1, ["http://127.0.0.1:19800"])
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):
         self.source = raw_cell
         result = self.old_run_cell(raw_cell, store_history=store_history, silent=silent, shell_futures=shell_futures)
-        self.source = None
         return result
 
     def transform_ast(self, node):
-        return self.synchronizer.sync(node, self.source)
-
-    def sync(self, synchronizer=None):
-        if synchronizer is None:
-            # load
-            if not os.path.exists(os.path.join(self.store, "tree.dat")):
-                return ASTSynchronizer()
-
-            with open(os.path.join(self.store, "tree.dat"), "rb") as file:
-                synchronizer = pickle.load(file)
-                self.log.info("loaded history:\n{}".format(ast.dump(synchronizer.tree)))
-                self.shell.execution_count = synchronizer.execution_count
-
-            # Redeclare modules, classes, and functions.
-            compiled = compile(synchronizer.tree, "restore", "exec")
-            exec(compiled, self.shell.user_global_ns, self.shell.user_ns)
-            
-            with open(os.path.join(self.store, "data.dat"), "rb") as file:
-                # overwrite self.shell.user_global_ns
-                old_main_modules = sys.modules["__main__"]
-                sys.modules["__main__"] = self.shell.user_module
-                data = pickle.load(file)
-                sys.modules["__main__"] = old_main_modules
-                for key in data.keys():
-                    self.shell.user_ns[key] = data[key]
-                return synchronizer
-
-        elif self.execution_count != synchronizer.execution_count:
-            ns = {}
-            for key in synchronizer.globals.keys():
-                ns[key] = self.shell.user_global_ns[key]
-
-            if not os.path.exists(self.store):
-                os.makedirs(self.store, 0o755)
-
-            with open(os.path.join(self.store, "data.dat"), "wb") as file:
-                old_main_modules = sys.modules["__main__"]
-                sys.modules["__main__"] = self.shell.user_module
-                pickle.dump(ns, file)
-                sys.modules["__main__"] = old_main_modules
-
-            with open(os.path.join(self.store, "tree.dat"), "wb") as file:
-                synchronizer.execution_count = self.execution_count
-                pickle.dump(synchronizer, file)
-
-            return synchronizer
+        self.execution_ast = node
+        return node

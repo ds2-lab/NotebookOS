@@ -1,9 +1,3 @@
-import io
-import pickle
-import hashlib
-import sys
-import types
-
 EMPTY_TUPLE = ()
 
 class SyncReference:
@@ -63,7 +57,14 @@ class SyncReferer:
     _reference = self._reference
 
     def persistent_id(obj):
+      # print("pickling {}:{}".format(obj, type(obj)))
       ret, _ = _reference(obj, pickle_id=pickle_id)
+      # if ret is None:
+      #   print("pickle as original")
+      # elif len(ret) == 2:
+      #   print("pickle as {}:{}".format(ret[1], type(ret[1])))
+      # else:
+      #   print("pickle as {}".format(ret))
       return ret
 
     return persistent_id, pickle_id
@@ -79,7 +80,7 @@ class SyncReferer:
     """persistent_id implementation for Pickler. Return permanent reference id on case 2 and 4. Return None on case 1."""
     t = type(obj)
     # Exclude constant variables
-    if obj is None or t is int or t is float or t is bool or obj is EMPTY_TUPLE or t is type or t is types.FunctionType:
+    if obj is None or t is int or t is float or t is bool or obj is EMPTY_TUPLE or isinstance(t, type):
       return None, None
     elif t is str and len(obj) < 100:
       return None, None

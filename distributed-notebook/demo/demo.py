@@ -56,7 +56,8 @@ async def demo():
       os.system("rm -rf " + store)
 
     for path in args.scripts:
-      synclog = RaftLog(store, 1, ["http://127.0.0.1:19800"])
+      # synclog = RaftLog(store, 1, ["http://127.0.0.1:19800"])
+      synclog = FileLog(store)
       synchronizer = Synchronizer(synclog, opts=CHECKPOINT_ON_CHANGE)
       await synchronizer.start()
       execution_count = await synchronizer.ready(0)

@@ -33,14 +33,3 @@ build:
 	# generated smr.py python wrapper imports this c-code package
 	
 	$(GCC) smr.c -dynamiclib smr_go$(LIBEXT) -o _smr$(LIBEXT) $(CFLAGS) $(LDFLAGS) -fPIC --shared -w
-	
-
-
-
-build-smr-linux-arm64:
-	goimports -w smr_linux_arm64.go
-	go build -mod=mod -buildmode=c-shared -o smr_go.so .
-	/usr/bin/python3 build.py
-	export CGO_CFLAGS="-I/usr/include/python3.9 -fPIC -Ofast"
-	export CGO_LDFLAGS="-L/usr/lib -lpython3.9 -lcrypt -lpthread -ldl -lutil -lm -lm"
-	go build -mod=mod -buildmode=c-shared -o _smr.cpython-39-aarch64-linux-gnu.so .

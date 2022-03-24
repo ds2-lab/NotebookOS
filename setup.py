@@ -1,12 +1,13 @@
-from distutils.core import setup
+import setuptools
 
-with open('README.md') as f:
+with open('README.md', "r") as f:
     readme = f.read()
 
-setup(
+setuptools.setup(
     name='distributed-notebook',
-    version='0.1',
-    packages=['distributed-notebook.demo', 'distributed-notebook.sync', 'distributed-notebook.kernel'],
+    version='0.2',
+    packages=setuptools.find_packages(".", exclude=["distributed-notebook.demo"]),
+    # packages=['distributed-notebook.demo', 'distributed-notebook.sync', 'distributed-notebook.kernel', 'distributed-notebook.smr'],
     description='Distributed notebook for Jupyter',
     long_description=readme,
     author='Tianium',
@@ -20,4 +21,5 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
     ],
+    include_package_data=True,
 )

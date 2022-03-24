@@ -14,6 +14,7 @@ from ..smr.go import Slice_byte
 KEY_SYNC_AST = "_ast_"
 CHECKPOINT_AUTO = 1
 CHECKPOINT_ON_CHANGE = 2
+MIN_CHECKPOINT_LOGS = 10
 
 class SyncModule(object):
   """A dummy module used for Synchronizer for customizing __dict__"""
@@ -126,6 +127,7 @@ class Synchronizer:
     if await self._synclog.lead(execution_count):
       # Synchronized, execution_count was updated to last execution.
       self._async_loop = asyncio.get_running_loop() # Update async_loop.
+      
       if execution_count == 0:
         return self.execution_count + 1
       else:
@@ -143,6 +145,8 @@ class Synchronizer:
     # Moved to ready
     # synclog.lead(execution_count) 
 
+    # print("Syncing {}...".format(KEY_SYNC_AST))
+
     if checkpointing:
       sync_ast = self._ast.dump(meta=source)
     else:
@@ -154,7 +158,7 @@ class Synchronizer:
     sync_ast.key = KEY_SYNC_AST
     self._syncing = True
     await synclog.append(sync_ast)
-      
+  
     keys = self._ast.globals
     meta = SyncObjectMeta(batch=(sync_ast.term if not checkpointing else "{}c".format(sync_ast.term)))
     # TODO: Recalculate the number of expected synchronizations within the execution.
@@ -175,11 +179,12 @@ class Synchronizer:
       # TODO: Add support to SyncObject factory
       existed = SyncObjectWrapper(self._referer)
 
+    # print("Syncing {}...".format(key))
+
     # Switch context
     old_main_modules = sys.modules["__main__"]
     sys.modules["__main__"] = self._module
 
-    # print("syncing {}...".format(key))
     if checkpointing:
       sync_val = existed.dump(meta=meta)
     else:
@@ -205,10 +210,10 @@ class Synchronizer:
 
   def should_checkpoint_callback(self, synclog: SyncLog):
     print("in should_checkpoint_callback({}): {} changes".format(self.execution_count, synclog.num_changes))
-    if self.execution_count < 2 or self._syncing:
+    if self.execution_count < 2 or self._syncing or synclog.num_changes < MIN_CHECKPOINT_LOGS:
       return False
 
-    return ((self._opts & CHECKPOINT_AUTO and synclog.num_changes >= len(self._tags.__dict__.keys())) or
+    return ((self._opts & CHECKPOINT_AUTO and synclog.num_changes >= len(self._tags.keys())) or
       (self._opts & CHECKPOINT_ON_CHANGE and synclog.num_changes > 0))
 
   def checkpoint_callback(self, checkpointer: Checkpointer):

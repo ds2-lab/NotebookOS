@@ -95,8 +95,10 @@ class SyncObjectWrapper:
       pickler.persistent_id, pickle_id = self._referer.reference(batch)
       pickler.dump(raw)
       pickled = buff.getvalue()
+      prmap = pickle_id.dump()
+      # prmap = None
       # Should work in the case the pickled is a reference.
-      return pickled, pickle_id.dump(), hashlib.md5(pickled).digest()
+      return pickled, prmap, hashlib.md5(pickled).digest()
 
   def batch_from_meta(self, meta:SyncObjectMeta):
     if meta is None:

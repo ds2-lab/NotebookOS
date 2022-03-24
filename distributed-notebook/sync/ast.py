@@ -153,7 +153,7 @@ class SyncAST(ast.NodeVisitor):
     return sync_node
 
   def visit_FunctionDef(self, node):
-    """Visit Module. Advance to function scope"""
+    """Visit Function. Advance to function scope to skip local variables"""
     # print("Entering Function \"{}\"...".format(node.name))
     # print(ast.dump(node, indent=2))
     self._scope.append(node)
@@ -168,9 +168,13 @@ class SyncAST(ast.NodeVisitor):
     return self.generic_visit(node)
 
   def visit_ClassDef(self, node):
+    """Visit Class. Advance to class scope to skip class variables"""
     # self._globals[node.name] = None
     # print("Found class \"{}\" and keep declaration".format(node.name))
-    return self.generic_visit(node)
+    self._scope.append(node)
+    sync_node = self.generic_visit(node)
+    self._scope.pop()
+    return sync_node
 
   def visit_Assign(self, node):
     """Visit Assign, Only global remains"""
