@@ -33,3 +33,6 @@ build:
 	# generated smr.py python wrapper imports this c-code package
 	
 	$(GCC) smr.c -dynamiclib smr_go$(LIBEXT) -o _smr$(LIBEXT) $(CFLAGS) $(LDFLAGS) -fPIC --shared -w
+	
+
+

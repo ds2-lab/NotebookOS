@@ -87,7 +87,7 @@ class RaftLog:
 
       self.term = syncval.term
       # For values synchronized from other replicas or replayed, count _ignore_changes
-      if syncval.term == 1 or syncval.key == KEY_SYNC_END:
+      if syncval.op is None or syncval.op == "":
         self._ignore_changes = self._ignore_changes + 1
       self.handler(syncval)
 
@@ -171,7 +171,6 @@ class RaftLog:
       return False
 
     # Append is blocking and ensure to gaining leading status if terms match.
-    self._ignore_changes = self._ignore_changes + 1
     await self.append(SyncValue(None, self.id, term=term, key=KEY_LEAD))
     # term 0 is for single node, or we need to check the term
     if term == 0 or self.term < term:
@@ -183,9 +182,10 @@ class RaftLog:
     """Append the difference of the value of specified key to the synchronization queue"""
     if val.key != KEY_LEAD:
       self.term = val.term
-      if val.term == 1 or val.key == KEY_SYNC_END:
-        # Count _ignore_changes
-        self._ignore_changes = self._ignore_changes + 1
+
+    if val.op is None or val.op == "":
+      # Count _ignore_changes
+      self._ignore_changes = self._ignore_changes + 1
 
     # Ensure key is specified.
     if val.key is not None:

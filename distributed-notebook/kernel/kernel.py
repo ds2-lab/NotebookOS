@@ -1,9 +1,7 @@
 import asyncio
 import os
-import pickle
-import sys
-import ast
 import logging
+import random
 
 from ipykernel.ipkernel import IPythonKernel
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO

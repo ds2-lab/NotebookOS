@@ -325,7 +325,6 @@ func (node *LogNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool)
 				break
 			}
 			data = append(data, ents[i].Data)
-			log.Printf("Publishing %d-%d", ents[i].Term, ents[i].Index)
 		case raftpb.EntryConfChange:
 			var cc raftpb.ConfChange
 			cc.Unmarshal(ents[i].Data)
@@ -490,7 +489,7 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 		return
 	}
 
-	log.Println("should snapshot passed")
+	node.logger.Debug("should snapshot passed")
 
 	// wait until all committed entries are applied (or server is closed)
 	if applyDoneC != nil {
@@ -566,7 +565,6 @@ func (node *LogNode) serveChannels() {
 				} else {
 					// blocks until accepted by raft state machine
 					node.node.Propose(ctx, ctx.Proposal)
-					log.Println("Proposed")
 				}
 
 			case cc, ok := <-node.confChangeC:
@@ -594,19 +592,15 @@ func (node *LogNode) serveChannels() {
 					if ctx != nil {
 						id = ctx.Id
 						ctx.Trigger(func() {
-							log.Printf("Callbacking onchange %s", id)
 							if err := returnError(node.config.onChange(&realData, id)); err != nil {
 								log.Fatalf("LogNode: Error on replay state (%v)", err)
 							}
-							log.Printf("Callbacked onchange %s", id)
 							ctx.Cancel()
 						})
 					} else {
-						log.Printf("Callbacking onchange %s", id)
 						if err := returnError(node.config.onChange(&realData, id)); err != nil {
 							log.Fatalf("LogNode: Error on replay state (%v)", err)
 						}
-						log.Printf("Callbacked onchange %s", id)
 					}
 				}
 				close(commit.applyDoneC)
@@ -624,9 +618,6 @@ func (node *LogNode) serveChannels() {
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-node.node.Ready():
-			if len(rd.CommittedEntries) > 0 {
-				log.Printf("ready commited: %d", len(rd.CommittedEntries[0].Data))
-			}
 			node.wal.Save(rd.HardState, rd.Entries)
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				node.saveSnap(rd.Snapshot)
@@ -640,9 +631,7 @@ func (node *LogNode) serveChannels() {
 				node.stop()
 				return
 			}
-			log.Println("before try snap")
 			node.maybeTriggerSnapshot(applyDoneC)
-			log.Println("before advance")
 			node.node.Advance()
 
 		case err := <-node.transport.ErrorC:

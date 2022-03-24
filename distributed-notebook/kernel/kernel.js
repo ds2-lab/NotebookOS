@@ -12,7 +12,12 @@ define([
       Jupyter.notebook.save_notebook()
     }
 
-    Jupyter.notebook.kernel.execute("persistent_id=\"" + Jupyter.notebook.metadata.persistent_id + "\"")
+    evalcode = "persistent_id=\"" + Jupyter.notebook.metadata.persistent_id + "\""
+    if (Jupyter.notebook.metadata.hasOwnProperty("replica_id")) {
+      evalcode += "\nreplica_id=\"" + Jupyter.notebook.metadata.replica_id + "\""
+    }
+
+    Jupyter.notebook.kernel.execute(evalcode)
   }}
 });
 

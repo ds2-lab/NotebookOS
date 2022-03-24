@@ -2,6 +2,9 @@ from typing import Tuple
 from typing_extensions import Protocol, runtime_checkable
 
 KEY_SYNC_END = "_end_"
+OP_SYNC_ADD = "add"
+OP_SYNC_PUT = "put"
+OP_SYNC_DEL = "del"
 
 class SyncValue:
   def __init__(self, tag, val, term=None, key=None, op=None, prmap=None, end = False):

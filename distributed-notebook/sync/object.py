@@ -4,7 +4,7 @@ import hashlib
 from typing import Generator, Tuple
 from typing_extensions import Protocol, runtime_checkable
 
-from .log import SyncValue
+from .log import SyncValue, OP_SYNC_PUT
 from .referer import EMPTY_TUPLE
 
 @runtime_checkable
@@ -55,10 +55,13 @@ class SyncObjectWrapper:
   def diff(self, raw, meta=None) -> SyncValue:
     pickled, prmap, hash = self.get_hash(raw, self.batch_from_meta(meta))
     # print("old {}:{}, new {}:{}, match:{}".format(self.raw, self._hash, raw, hash, hash == self._hash))
+    op = None
     if hash != self._hash:
+      if self._hash is not None:
+        op = OP_SYNC_PUT
       self._hash = hash
       self.raw = raw
-      return SyncValue(hash, pickled, prmap=prmap)
+      return SyncValue(hash, pickled, prmap=prmap, op=op)
 
     return None
 

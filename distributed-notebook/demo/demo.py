@@ -59,10 +59,10 @@ async def demo():
     synclog = None
     synchronizer = None
     for path in args.scripts:
-      # synclog = RaftLog(store, 1, ["http://127.0.0.1:19800"])
       if synclog is None or synchronizer is None:
-        synclog = FileLog(store)
-        synchronizer = Synchronizer(synclog, opts=CHECKPOINT_ON_CHANGE)
+        synclog = RaftLog(store, 1, ["http://127.0.0.1:19800"])
+        # synclog = FileLog(store)
+        synchronizer = Synchronizer(synclog, opts=CHECKPOINT_AUTO)
         await synchronizer.start()
 
       execution_count = await synchronizer.ready(execution_count)
