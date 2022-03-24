@@ -55,12 +55,17 @@ async def demo():
     if os.path.exists(store) and not args.resume:
       os.system("rm -rf " + store)
 
+    execution_count = 0
+    synclog = None
+    synchronizer = None
     for path in args.scripts:
       # synclog = RaftLog(store, 1, ["http://127.0.0.1:19800"])
-      synclog = FileLog(store)
-      synchronizer = Synchronizer(synclog, opts=CHECKPOINT_ON_CHANGE)
-      await synchronizer.start()
-      execution_count = await synchronizer.ready(0)
+      if synclog is None or synchronizer is None:
+        synclog = FileLog(store)
+        synchronizer = Synchronizer(synclog, opts=CHECKPOINT_ON_CHANGE)
+        await synchronizer.start()
+
+      execution_count = await synchronizer.ready(execution_count)
       if execution_count == 0:
         raise Exception("Failed to lead the exection.")
 
@@ -85,10 +90,14 @@ async def demo():
       sys.path[0] = base
       sys.modules["__main__"] = old_main_modules
 
+      # Increase execution_count
+      execution_count = execution_count + 1
+
       await synchronizer.sync(tree, source)
-      synclog.close()
-      synclog = None
-      synchronizer = None
+
+    synclog.close()
+    synclog = None
+    synchronizer = None
 
   except Exception as exc:
     print(exc)

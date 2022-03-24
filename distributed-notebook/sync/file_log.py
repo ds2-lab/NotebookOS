@@ -146,6 +146,7 @@ class FileLog:
       with open(filepath, "wb") as file:
         pickle.dump(val, file)
 
+      self.term = val.term
       self.logs[val.term-self.skip_terms-1].append(relative_path)
       # Update if not first term or the checkpoint term: self.term == self.skip_terms + 1
       if val.term > self.skip_terms + 1:

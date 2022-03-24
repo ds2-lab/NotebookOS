@@ -3,8 +3,14 @@ PIP=$(PYTHON) -m pip
 
 all: install
 
+debug-training-all:
+	python3 -m distributed-notebook.demo distributed-notebook/demo/script/training.py distributed-notebook/demo/script/training1.py
+
 debug-training:
 	python3 -m distributed-notebook.demo distributed-notebook/demo/script/training.py
+
+debug-training1:
+	python3 -m distributed-notebook.demo --resume distributed-notebook/demo/script/training1.py
 
 python-demo-all:
 	python3 -m distributed-notebook.demo distributed-notebook/demo/script/script.py distributed-notebook/demo/script/script2.py

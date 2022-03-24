@@ -178,6 +178,7 @@ class Synchronizer:
     else:
       # TODO: Add support to SyncObject factory
       existed = SyncObjectWrapper(self._referer)
+      self._tags[key] = existed
 
     # print("Syncing {}...".format(key))
 
