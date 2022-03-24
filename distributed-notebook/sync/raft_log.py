@@ -64,6 +64,8 @@ class RaftLog:
     self.handler = handler
 
     config = NewConfig()
+    config.ElectionTick = 1000
+    config.HeartbeatTick = 100
     config = config.WithChangeCallback(self.changeCallback).WithRestoreCallback(self.restoreCallback)
     if self.shouldSnapshotCallback is not None:
       config = config.WithShouldSnapshotCallback(self.shouldSnapshotCallback)
@@ -74,7 +76,7 @@ class RaftLog:
     self.node.Start(config)
 
   def _changeHandler(self, buff, id) -> str:
-    print("got changed: {}".format(id))
+    # print("got changed: {}".format(id))
     if id != "":
         return GoNilError()
     
@@ -137,7 +139,7 @@ class RaftLog:
     
     def shouldSnapshotCallback(logNode):
       # Initialize object using LogNode(handle=logNode) if neccessary.
-      print("in direct shouldSnapshotCallback")
+      # print("in direct shouldSnapshotCallback")
       return callback(self)
     
     self.shouldSnapshotCallback = shouldSnapshotCallback
@@ -191,7 +193,6 @@ class RaftLog:
     if val.key is not None:
       # Serialize the value. 
       dumped = pickle.dumps(val)
-      print("Appending {}:{} bytes".format(val.key, len(dumped)))
 
       # Prepare callback settings. 
       # Callback can be called from a different thread. Schedule the resolve

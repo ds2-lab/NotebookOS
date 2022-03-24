@@ -10,6 +10,8 @@ base = os.path.dirname(os.path.realpath(__file__))
 err_wait_persistent_store = RuntimeError("Persistent store not ready, try again later.")
 err_failed_to_lead_execution = RuntimeError("Failed to lead the exectuion.")
 key_persistent_id = "persistent_id"
+key_replica_id = "replica_id"
+base_port = 10000
 
 logging.basicConfig(level=logging.INFO)
 
@@ -117,7 +119,17 @@ class DistributedKernel(IPythonKernel):
         await self.synchronizer.start()
 
     async def get_synclog(self):
-        return RaftLog(self.store, 1, ["http://127.0.0.1:19800"])
+        port = base_port
+        node_id = 1
+        random.seed(self.shell.user_ns[key_persistent_id])
+        port = port + random.randint(0, 10000)
+        if key_replica_id in self.shell.user_ns:
+            node_id = int(self.shell.user_ns[key_replica_id])
+
+        self.log.info("Confirmed node {} at port {}".format(node_id, port + node_id - 1))
+        
+        # Implement dynamic later
+        return RaftLog(self.store, node_id, ["http://127.0.0.1:{}".format(port), "http://127.0.0.1:{}".format(port + 1)])
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):
         self.source = raw_cell

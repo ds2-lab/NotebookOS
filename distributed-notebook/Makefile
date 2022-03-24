@@ -1,3 +1,5 @@
+all: build-smr-linux-arm64 clean
+
 from-go:
 	cd ../smr && make go-python
 

@@ -2453,6 +2453,80 @@ PyObject * _wrap__smr_smr_LogNodeConfig_CTor(PyObject *PYBINDGEN_UNUSED(_args), 
 
 
 PyObject *
+_wrap__smr_smr_LogNodeConfig_ElectionTick_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t handle;
+    const char *keywords[] = {"handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &handle)) {
+        return NULL;
+    }
+    retval = smr_LogNodeConfig_ElectionTick_Get(handle);
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNodeConfig_ElectionTick_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNodeConfig_ElectionTick_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t handle;
+    int64_t val;
+    const char *keywords[] = {"handle", "val", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LL", (char **) keywords, &handle, &val)) {
+        return NULL;
+    }
+    smr_LogNodeConfig_ElectionTick_Set(handle, val);
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNodeConfig_ElectionTick_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNodeConfig_HeartbeatTick_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t handle;
+    const char *keywords[] = {"handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &handle)) {
+        return NULL;
+    }
+    retval = smr_LogNodeConfig_HeartbeatTick_Get(handle);
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNodeConfig_HeartbeatTick_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNodeConfig_HeartbeatTick_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t handle;
+    int64_t val;
+    const char *keywords[] = {"handle", "val", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LL", (char **) keywords, &handle, &val)) {
+        return NULL;
+    }
+    smr_LogNodeConfig_HeartbeatTick_Set(handle, val);
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNodeConfig_HeartbeatTick_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
 _wrap__smr_smr_LogNodeConfig_WithChangeCallback(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
 {
     PyObject *py_retval;
@@ -2710,6 +2784,10 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_LogNode_ReportUnreachable", (PyCFunction) _wrap__smr_smr_LogNode_ReportUnreachable, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ReportUnreachable(_handle, id, goRun)\n\ntype: _handle: int64_t\ntype: id: uint64_t\ntype: goRun: bool" },
     {(char *) "smr_LogNode_ReportSnapshot", (PyCFunction) _wrap__smr_smr_LogNode_ReportSnapshot, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ReportSnapshot(_handle, id, status, goRun)\n\ntype: _handle: int64_t\ntype: id: uint64_t\ntype: status: int64_t\ntype: goRun: bool" },
     {(char *) "smr_LogNodeConfig_CTor", (PyCFunction) _wrap__smr_smr_LogNodeConfig_CTor, METH_NOARGS, "smr_LogNodeConfig_CTor()\n\n" },
+    {(char *) "smr_LogNodeConfig_ElectionTick_Get", (PyCFunction) _wrap__smr_smr_LogNodeConfig_ElectionTick_Get, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_ElectionTick_Get(handle)\n\ntype: handle: int64_t" },
+    {(char *) "smr_LogNodeConfig_ElectionTick_Set", (PyCFunction) _wrap__smr_smr_LogNodeConfig_ElectionTick_Set, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_ElectionTick_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: int64_t" },
+    {(char *) "smr_LogNodeConfig_HeartbeatTick_Get", (PyCFunction) _wrap__smr_smr_LogNodeConfig_HeartbeatTick_Get, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_HeartbeatTick_Get(handle)\n\ntype: handle: int64_t" },
+    {(char *) "smr_LogNodeConfig_HeartbeatTick_Set", (PyCFunction) _wrap__smr_smr_LogNodeConfig_HeartbeatTick_Set, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_HeartbeatTick_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: int64_t" },
     {(char *) "smr_LogNodeConfig_WithChangeCallback", (PyCFunction) _wrap__smr_smr_LogNodeConfig_WithChangeCallback, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_WithChangeCallback(_handle, cb)\n\ntype: _handle: int64_t\ntype: cb: PyObject *" },
     {(char *) "smr_LogNodeConfig_WithRestoreCallback", (PyCFunction) _wrap__smr_smr_LogNodeConfig_WithRestoreCallback, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_WithRestoreCallback(_handle, cb)\n\ntype: _handle: int64_t\ntype: cb: PyObject *" },
     {(char *) "smr_LogNodeConfig_WithShouldSnapshotCallback", (PyCFunction) _wrap__smr_smr_LogNodeConfig_WithShouldSnapshotCallback, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_WithShouldSnapshotCallback(_handle, cb)\n\ntype: _handle: int64_t\ntype: cb: PyObject *" },

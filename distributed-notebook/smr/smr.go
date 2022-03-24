@@ -1532,6 +1532,30 @@ func smr_LogNodeConfig_CTor() CGoHandle {
 	return CGoHandle(handleFromPtr_smr_LogNodeConfig(&smr.LogNodeConfig{}))
 }
 
+//export smr_LogNodeConfig_ElectionTick_Get
+func smr_LogNodeConfig_ElectionTick_Get(handle CGoHandle) C.longlong {
+	op := ptrFromHandle_smr_LogNodeConfig(handle)
+	return C.longlong(op.ElectionTick)
+}
+
+//export smr_LogNodeConfig_ElectionTick_Set
+func smr_LogNodeConfig_ElectionTick_Set(handle CGoHandle, val C.longlong) {
+	op := ptrFromHandle_smr_LogNodeConfig(handle)
+	op.ElectionTick = int(val)
+}
+
+//export smr_LogNodeConfig_HeartbeatTick_Get
+func smr_LogNodeConfig_HeartbeatTick_Get(handle CGoHandle) C.longlong {
+	op := ptrFromHandle_smr_LogNodeConfig(handle)
+	return C.longlong(op.HeartbeatTick)
+}
+
+//export smr_LogNodeConfig_HeartbeatTick_Set
+func smr_LogNodeConfig_HeartbeatTick_Set(handle CGoHandle, val C.longlong) {
+	op := ptrFromHandle_smr_LogNodeConfig(handle)
+	op.HeartbeatTick = int(val)
+}
+
 //export smr_LogNodeConfig_WithChangeCallback
 func smr_LogNodeConfig_WithChangeCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
 	_fun_arg := cb

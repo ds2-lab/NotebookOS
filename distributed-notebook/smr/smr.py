@@ -343,6 +343,14 @@ class LogNodeConfig(go.GoClass):
 		else:
 			self.handle = _smr.smr_LogNodeConfig_CTor()
 			_smr.IncRef(self.handle)
+			if  0 < len(args):
+				self.ElectionTick = args[0]
+			if "ElectionTick" in kwargs:
+				self.ElectionTick = kwargs["ElectionTick"]
+			if  1 < len(args):
+				self.HeartbeatTick = args[1]
+			if "HeartbeatTick" in kwargs:
+				self.HeartbeatTick = kwargs["HeartbeatTick"]
 	def __del__(self):
 		_smr.DecRef(self.handle)
 	def __str__(self):
@@ -365,6 +373,24 @@ class LogNodeConfig(go.GoClass):
 			if not callable(v[1]):
 				sv += v[0] + '=' + str(v[1]) + ', '
 		return sv + ')'
+	@property
+	def ElectionTick(self):
+		return _smr.smr_LogNodeConfig_ElectionTick_Get(self.handle)
+	@ElectionTick.setter
+	def ElectionTick(self, value):
+		if isinstance(value, go.GoClass):
+			_smr.smr_LogNodeConfig_ElectionTick_Set(self.handle, value.handle)
+		else:
+			_smr.smr_LogNodeConfig_ElectionTick_Set(self.handle, value)
+	@property
+	def HeartbeatTick(self):
+		return _smr.smr_LogNodeConfig_HeartbeatTick_Get(self.handle)
+	@HeartbeatTick.setter
+	def HeartbeatTick(self, value):
+		if isinstance(value, go.GoClass):
+			_smr.smr_LogNodeConfig_HeartbeatTick_Set(self.handle, value.handle)
+		else:
+			_smr.smr_LogNodeConfig_HeartbeatTick_Set(self.handle, value)
 	def WithChangeCallback(self, cb):
 		"""WithChangeCallback(callable cb) object"""
 		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithChangeCallback(self.handle, cb))

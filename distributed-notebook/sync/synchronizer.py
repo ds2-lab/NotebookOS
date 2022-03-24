@@ -210,7 +210,7 @@ class Synchronizer:
       await synclog.append(SyncValue(None, None, term=self._ast.execution_count, end=True, key=KEY_SYNC_END))
 
   def should_checkpoint_callback(self, synclog: SyncLog):
-    print("in should_checkpoint_callback({}): {} changes".format(self.execution_count, synclog.num_changes))
+    # print("in should_checkpoint_callback({}): {} changes".format(self.execution_count, synclog.num_changes))
     if self.execution_count < 2 or self._syncing or synclog.num_changes < MIN_CHECKPOINT_LOGS:
       return False
 

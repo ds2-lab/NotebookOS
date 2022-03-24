@@ -289,6 +289,10 @@ extern void smr_LogNode_ReportSnapshot(long long int _handle, long long unsigned
 
 // --- wrapping struct: smr.LogNodeConfig ---
 extern long long int smr_LogNodeConfig_CTor();
+extern long long int smr_LogNodeConfig_ElectionTick_Get(long long int handle);
+extern void smr_LogNodeConfig_ElectionTick_Set(long long int handle, long long int val);
+extern long long int smr_LogNodeConfig_HeartbeatTick_Get(long long int handle);
+extern void smr_LogNodeConfig_HeartbeatTick_Set(long long int handle, long long int val);
 extern long long int smr_LogNodeConfig_WithChangeCallback(long long int _handle, PyObject* cb);
 extern long long int smr_LogNodeConfig_WithRestoreCallback(long long int _handle, PyObject* cb);
 extern long long int smr_LogNodeConfig_WithShouldSnapshotCallback(long long int _handle, PyObject* cb);

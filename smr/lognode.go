@@ -57,6 +57,9 @@ func returnError(cbRet string) error {
 }
 
 type LogNodeConfig struct {
+	ElectionTick  int
+	HeartbeatTick int
+
 	onChange       StateValueCallback
 	onRestore      StatesValueCallback
 	shouldSnapshot ShouldLogNodeCallback
@@ -64,7 +67,10 @@ type LogNodeConfig struct {
 }
 
 func NewConfig() *LogNodeConfig {
-	return &LogNodeConfig{}
+	return &LogNodeConfig{
+		ElectionTick:  10,
+		HeartbeatTick: 1,
+	}
 }
 
 func (conf *LogNodeConfig) WithChangeCallback(cb StateValueCallback) *LogNodeConfig {
@@ -242,8 +248,8 @@ func (node *LogNode) start() {
 	}
 	c := &raft.Config{
 		ID:                        uint64(node.id),
-		ElectionTick:              10,
-		HeartbeatTick:             1,
+		ElectionTick:              node.config.ElectionTick,
+		HeartbeatTick:             node.config.HeartbeatTick,
 		Storage:                   node.raftStorage,
 		MaxSizePerMsg:             1024 * 1024,
 		MaxInflightMsgs:           256,
