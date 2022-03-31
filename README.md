@@ -1,8 +1,8 @@
-# distributed-notebook
+# distributed_notebook
 
 ## Demo
 
-    python3 -m distributed-notebook.demo distributed-notebook/demo/script/script.py distributed-notebook/demo/script/script2.py
+    python3 -m distributed_notebook.demo distributed_notebook/demo/script/script.py distributed_notebook/demo/script/script2.py
 
 ## Jupyter Kernel
 
@@ -13,7 +13,7 @@
 To install ``distributed_kernel`` from PyPI::
 
     pip3 install .
-    python3 -m distributed-notebook.kernel.install
+    python3 -m distributed_notebook.kernel.install
 
 ### Using the Distributed Kernel
 

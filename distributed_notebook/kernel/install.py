@@ -8,9 +8,9 @@ from jupyter_client.kernelspec import KernelSpecManager
 from IPython.utils.tempdir import TemporaryDirectory
 
 kernel_json = {
-    "argv": [sys.executable, "-m", "distributed-notebook.kernel", "-f", "{connection_file}"],
+    "argv": [sys.executable, "-m", "distributed_notebook.kernel", "-f", "{connection_file}"],
     "display_name": "Distrbuted Python 3",
-    "language": "text",
+    "language": "text"
 }
 
 def install_my_kernel_spec(user=True, prefix=None):

@@ -26,7 +26,7 @@ class SyncValue:
 class SyncLog(Protocol):
   @property
   def num_changes(self) -> int:
-    """The number of incremental changes since first term or the latest checkpoint."""
+    """The number of incremental changes since first set or the latest checkpoint."""
 
   def start(self, handler):
     """Register change handler, restore internel states, and start monitoring changes. 

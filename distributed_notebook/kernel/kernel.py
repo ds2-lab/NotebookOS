@@ -2,8 +2,10 @@ import asyncio
 import os
 import logging
 import random
+import sys
 
 from ipykernel.ipkernel import IPythonKernel
+from .iostream import OutStream
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 
 base = os.path.dirname(os.path.realpath(__file__))
@@ -64,6 +66,8 @@ class DistributedKernel(IPythonKernel):
         if code[:len(key_persistent_id)] == key_persistent_id:
             return await asyncio.ensure_future(self.init_persistent_store(code))
 
+        self.toggle_outstream(override=True, enable=False)
+
         # Ensure persistent store is ready
         self.check_persistent_store()
 
@@ -81,20 +85,19 @@ class DistributedKernel(IPythonKernel):
 
         # Wait for the settlement of variables.
         reply_content = await reply_routing
+
+        # Disable stdout and stderr forwarding.
+        self.toggle_outstream(override=True, enable=False)
         
         # Synchronize
-        # self.log.info("synced tree:\n{}".format(ast.dump(self.synchronizer._ast.tree)))
-        await self.synchronizer.sync(self.execution_ast, self.source)
+        # self.log.info("synced tree:\n{}".format(ast.dump(self.execution_ast)))
+        coro = self.synchronizer.sync(self.execution_ast, self.source)
+        self.execution_ast = None
+        self.source = None
+        await coro
 
+        self.log.info("End of sync execution {}".format(self.execution_count - 1))
         return reply_content
-
-    # def do_complete(self, code, cursor_pos):
-    #     ret = super(DistributedKernel, self).do_complete(code, cursor_pos)
-
-    #     self.sync(self.synchronizer)
-    #     self.log.info("synced tree:\n{}".format(ast.dump(self.synchronizer.tree)))
-
-    #     return ret
 
     def gen_simple_response(self, execution_count = 0):
         return {'status': 'ok',
@@ -116,7 +119,12 @@ class DistributedKernel(IPythonKernel):
         # Start the synchronizer. Starting can be non-blocking, call 
         # synchronizer.ready() later to confirm the actual execution_count.
         self.synchronizer = Synchronizer(synclog, module = self.shell.user_module, opts=CHECKPOINT_AUTO)
-        await self.synchronizer.start()
+
+        if self.control_thread:
+            control_loop = self.control_thread.io_loop
+        else:
+            control_loop = self.io_loop
+        asyncio.run_coroutine_threadsafe(self.synchronizer.start(), control_loop.asyncio_loop)
 
     async def get_synclog(self):
         port = base_port
@@ -129,13 +137,28 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Confirmed node {} at port {}".format(node_id, port + node_id - 1))
         
         # Implement dynamic later
-        return RaftLog(self.store, node_id, ["http://127.0.0.1:{}".format(port), "http://127.0.0.1:{}".format(port + 1)])
+        addrs = ["http://127.0.0.1:{}".format(port), "http://127.0.0.1:{}".format(port + 1), "http://127.0.0.1:{}".format(port + 2)]
+        published = [1, 2, 3]
+        return RaftLog(self.store, node_id, addrs[:published[node_id-1]])
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):
         self.source = raw_cell
+        self.toggle_outstream(override=True, enable=True)
         result = self.old_run_cell(raw_cell, store_history=store_history, silent=silent, shell_futures=shell_futures)
         return result
 
     def transform_ast(self, node):
         self.execution_ast = node
         return node
+
+    def toggle_outstream(self, override=False, enable=True):
+        # Is sys.stdout has attribute 'disable'?
+        if not hasattr(sys.stdout, 'disable'):
+            self.log.error("sys.stdout didn't initialized with kernel.OutStream.")
+            return
+
+        if override:
+            sys.stdout.disable = not enable
+        else:
+            sys.stdout.disable = not sys.stdout.disable
+

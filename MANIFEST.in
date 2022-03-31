@@ -1,3 +1,3 @@
 include README.md
-global-include *.*linux*.so *.py
+global-include *.*linux*.so *.py *.json
 global-exclude build.py

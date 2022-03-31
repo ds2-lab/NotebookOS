@@ -4,10 +4,10 @@ with open('README.md', "r") as f:
     readme = f.read()
 
 setuptools.setup(
-    name='distributed-notebook',
+    name='distributed_notebook',
     version='0.2',
-    packages=setuptools.find_packages(".", exclude=["distributed-notebook.demo"]),
-    # packages=['distributed-notebook.demo', 'distributed-notebook.sync', 'distributed-notebook.kernel', 'distributed-notebook.smr'],
+    packages=setuptools.find_packages(".", exclude=["distributed_notebook.demo"]),
+    # packages=['distributed_notebook.demo', 'distributed_notebook.sync', 'distributed_notebook.kernel', 'distributed_notebook.smr'],
     description='Distributed notebook for Jupyter',
     long_description=readme,
     author='Tianium',
