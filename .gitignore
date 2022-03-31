@@ -128,7 +128,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 distributed_notebook/demo/store
-distributed-notebook/smr/_smr.*.h
+distributed_notebook/smr/_smr.*.h
 smr/demo/store
 out
 datasets

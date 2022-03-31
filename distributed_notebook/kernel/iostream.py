@@ -4,7 +4,6 @@ from ipykernel.iostream import OutStream as OutStreamBase
 
 class OutStream(OutStreamBase):
   def __init__(self, *args, **kwargs):
-    print("In OutStream.__init__")
     super().__init__(*args, **kwargs)
     self.disable = False
 

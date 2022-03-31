@@ -8,7 +8,7 @@ from jupyter_client.kernelspec import KernelSpecManager
 from IPython.utils.tempdir import TemporaryDirectory
 
 kernel_json = {
-    "argv": [sys.executable, "-m", "distributed_notebook.kernel", "-f", "{connection_file}"],
+    "argv": [sys.executable, "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"],
     "display_name": "Distrbuted Python 3",
     "language": "text"
 }
