@@ -3,28 +3,73 @@ import os
 import pickle
 import asyncio
 import logging
+import time
+import sys
+import traceback
+import ctypes
 from typing import Tuple, List
 
-from pexpect import ExceptionPexpect
-
-from ..smr.smr import NewLogNode, NewConfig, WriteCloser
-from ..smr.go import Slice_byte, Slice_string
+from ..smr.smr import NewLogNode, NewConfig, NewBytes, Bytes, WriteCloser, ReadCloser
+from ..smr.go import Slice_string
 from .log import SyncValue, KEY_SYNC_END
 from .checkpoint import Checkpoint
 from .future import Future
 from .errors import SyncError, GoError, GoNilError
+from .reader import readCloser
 
 KEY_LEAD = "_lead_"
 
-class writerCloser:
+def print_trace():
+  _, _, exc_traceback = sys.exc_info()
+  traceback.print_tb(exc_traceback, limit=5, file=sys.stdout)
+
+class writeCloser:
   def __init__(self, wc: WriteCloser):
     self.wc = wc
 
   def write(self, b):
-    ret = self.wc.Write(Slice_byte(b))
+    self.wc.Write(NewBytes(b))
 
   def close(self):
     self.wc.Close()
+
+# class buffer:
+#   def __init__(self, raw: bytes):
+#     self.handle = raw
+#     self.goHandle = NewBytes(bytes)
+
+#   def __call__(self):
+#     return self.goHandle
+
+# class rawReader(io.RawIOBase):
+#   def __init__(self, rc: ReadCloser):
+#     self.rc = rc
+#     self.buffer = None
+
+#   def readinto(self, b):
+#     if self.buffer is None or b is not self.buffer.raw:
+#       self.buffer = buffer(b)
+    
+#     ret = self.rc.Read(self.buffer())
+#     return ret.N
+
+#   def readable(self):
+#     return True
+
+#   def close(self):
+#     self.rc.Close()
+
+# class readCloser(io.BufferedReader):
+#   def __init__(self, rc: ReadCloser, size = io.DEFAULT_BUFFER_SIZE):
+#     self.rc = rc
+#     # The size is passed to prevent allocating a large buffer for fixed sized data.
+#     # No bigger than DEFAULT_BUFFER_SIZE buffer is allowed.
+#     if size > io.DEFAULT_BUFFER_SIZE:
+#       size = io.DEFAULT_BUFFER_SIZE
+#     super().__init__(rawReader(rc), size)
+
+#   def close(self):
+#     self.rc.Close()
 
 class RaftLog:
   def __init__(self, base_path: str, id: int, peers: List[str], join: bool = False):
@@ -43,19 +88,20 @@ class RaftLog:
     self._start_loop = None
     self._log = logging.getLogger(__class__.__name__ + str(id))
     self._log.setLevel(logging.DEBUG)
+    self._closed = None
 
   @property
   def num_changes(self) -> int:
     """The number of incremental changes since first term or the latest checkpoint."""
     return self._node.NumChanges() - self._ignore_changes
 
-  async def start(self, handler):
+  def start(self, handler):
     """Register change handler, restore internel states, and start monitoring changes, """
     self._handler = handler
 
     config = NewConfig()
-    config.ElectionTick = 100
-    config.HeartbeatTick = 10
+    config.ElectionTick = 10
+    config.HeartbeatTick = 1
     config = config.WithChangeCallback(self._changeCallback).WithRestoreCallback(self._restoreCallback)
     if self._shouldSnapshotCallback is not None:
       config = config.WithShouldSnapshotCallback(self._shouldSnapshotCallback)
@@ -64,21 +110,25 @@ class RaftLog:
 
     self._async_loop = asyncio.get_running_loop()
     self._start_loop = self._async_loop
+    # self._node.StartWait(config)
     self._node.Start(config)
+    self._log.debug("Started")
+    # self._closed = Future(self._start_loop)
+    # return self._closed.future
 
-  def _changeHandler(self, buff, id) -> str:
+  def _changeHandler(self, rc, sz, id) -> bytes:
     if id != "":
       self._log.debug("Confirm committed: {}".format(id))
       return GoNilError()
     else:
       self._log.debug("Get remote update")
     
-    future = asyncio.run_coroutine_threadsafe(self._changeImpl(buff, id), self._start_loop)
-    return future.result()
+  #   future = asyncio.run_coroutine_threadsafe(self._changeImpl(buff, id), self._start_loop)
+  #   return future.result()
 
-  async def _changeImpl(self, buff, id) -> str:
+  # async def _changeImpl(self, buff, id) -> str:
+    reader = readCloser(ReadCloser(handle=rc), sz)
     try:
-      reader = io.BytesIO(bytes(Slice_byte(handle=buff)))
       syncval = pickle.load(reader)
       if syncval.key == KEY_LEAD:
         self._ignore_changes = self._ignore_changes + 1
@@ -93,17 +143,20 @@ class RaftLog:
       return GoNilError()
     except Exception as e:
       self._log.error("Failed to handle change: {}".format(e))
+      print_trace()
       return GoError(e)
+    finally:
+      reader.close()
 
-  def _restore(self, buff) -> str:
-    future = asyncio.run_coroutine_threadsafe(self._restoreImpl(buff), self._start_loop)
-    return future.result()
+  def _restore(self, rc, sz) -> bytes:
+  #   future = asyncio.run_coroutine_threadsafe(self._restoreImpl(buff), self._start_loop)
+  #   return future.result()
 
-  async def _restoreImpl(self, buff) -> str:
-    """Restore history"""
+  # async def _restoreImpl(self, buff) -> bytes:
+  #   """Restore history"""
     self._log.debug("Restoring...")
 
-    reader = io.BytesIO(bytes(Slice_byte(handle=buff)))
+    reader = readCloser(ReadCloser(handle=rc), sz)
     unpickler = pickle.Unpickler(reader)
 
     try:
@@ -111,6 +164,8 @@ class RaftLog:
       syncval = unpickler.load()
     except Exception:
       pass
+    finally:
+      reader.close()
     
     # Recount _ignore_changes
     self._ignore_changes = 0
@@ -154,7 +209,7 @@ class RaftLog:
 
     def snapshotCallback(wc) -> str:
       try:
-        checkpointer = Checkpoint(writerCloser(WriteCloser(handle=wc)))
+        checkpointer = Checkpoint(writeCloser(WriteCloser(handle=wc)))
         # asyncio.run_coroutine_threadsafe(callback(checkpointer), self._async_loop)
         callback(checkpointer)
         # checkpointer.close()
@@ -193,7 +248,9 @@ class RaftLog:
     # Ensure key is specified.
     if val.key is not None:
       # Serialize the value. 
+      # start_time = time.time()
       dumped = pickle.dumps(val)
+      # self._log.debug("Time elapsed in dump syncValue: {}".format(time.time() - start_time))
 
       # Prepare callback settings. 
       # Callback can be called from a different thread. Schedule the resolve
@@ -205,7 +262,11 @@ class RaftLog:
         asyncio.run_coroutine_threadsafe(future.resolve(key), loop) # must use local variable
 
       # Propose and wait the future.
-      self._node.Propose(Slice_byte(dumped), resolve, val.key)
+      
+      # self._log.debug("Time elapsed in python before appending: {}, {}".format(time.time() - start_time, len(dumped)))
+      # converted = Slice_byte(handle=id(dumped))
+      # self._log.debug("Time elapsed in after converted: {}, {}".format(time.time() - start_time, len(converted)))
+      self._node.Propose(NewBytes(dumped), resolve, val.key)
       await future.result()
 
   def sync(self, term):
@@ -219,6 +280,9 @@ class RaftLog:
   def close(self):
     """Ensure all async coroutines end and clean up."""
     self._node.Close()
+    if self._closed is not None:
+      asyncio.run_coroutine_threadsafe(self._closed.resolve(None), self._start_loop)
+      self._closed = None
 
   def ensure_path(self, base_path):
     if not os.path.exists(base_path):

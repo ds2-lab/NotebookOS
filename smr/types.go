@@ -1,8 +1,31 @@
 package smr
 
+import "C"
 import (
-	"io"
+	"unsafe"
 )
+
+// Wrapper of python bytes for buffered stream.
+type Bytes struct {
+	bytes []byte
+}
+
+// Create a new bytes wrapper object.
+func NewBytes(p unsafe.Pointer, len int) *Bytes {
+	return &Bytes{
+		bytes: unsafe.Slice((*byte)(p), len),
+	}
+}
+
+// Return the underlying byte slice as buffer.
+func (b *Bytes) Bytes() []byte {
+	return b.bytes
+}
+
+// Get the length of the underlying byte slice.
+func (b *Bytes) Len() int {
+	return len(b.bytes)
+}
 
 type IntRet struct {
 	N   int
@@ -10,31 +33,11 @@ type IntRet struct {
 }
 
 type WriteCloser interface {
-	Write(p []byte) *IntRet
+	Write(p Bytes) *IntRet
 	Close() string
 }
 
-type writeCloserWrapper struct {
-	writer io.WriteCloser
-}
-
-func (wc *writeCloserWrapper) Write(p []byte) *IntRet {
-	n, err := wc.writer.Write(p)
-	msg := ""
-	if err != nil {
-		msg = err.Error()
-	}
-	return &IntRet{
-		N:   n,
-		Err: msg,
-	}
-}
-
-func (wc *writeCloserWrapper) Close() string {
-	err := wc.writer.Close()
-	msg := ""
-	if err != nil {
-		msg = err.Error()
-	}
-	return msg
+type ReadCloser interface {
+	Read(p Bytes) *IntRet
+	Close() string
 }

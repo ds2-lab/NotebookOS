@@ -130,6 +130,10 @@ func (fs *FunStruct) String() string {
 	return fs.FieldS
 }
 
+func (fs *FunStruct) Byte() []byte {
+	return []byte(fs.FieldS)
+}
+
 var (
 	F1 func()
 	F2 Func

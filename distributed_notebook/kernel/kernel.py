@@ -38,7 +38,21 @@ class DistributedKernel(IPythonKernel):
 
         # Delay persistent store initialization to kernel.js
         self.store = None
-        
+
+    def start(self):
+        super().start()
+
+        self.shell.user_ns[key_persistent_id] = "6d1e4d69-3a21-4a1e-86f4-5790fe8b52ae"
+        self.store = os.path.join(base, "store", self.shell.user_ns[key_persistent_id]) # Default perisistent id for testing.
+        self.log.info("persistent store assumption confirmed: " + self.store)
+
+        asyncio.run_coroutine_threadsafe(self.override_shell(), self.io_loop.asyncio_loop)
+
+    #     asyncio.run_coroutine_threadsafe(self.wait_and_close(), self.io_loop.asyncio_loop)
+
+    # async def wait_and_close(self):
+    #     await asyncio.sleep(30)
+    #     self.synchronizer.close()
 
     async def init_persistent_store(self, code):
         if self.store == None:
@@ -98,6 +112,12 @@ class DistributedKernel(IPythonKernel):
 
         self.log.info("End of sync execution {}".format(self.execution_count - 1))
         return reply_content
+    
+    def do_shutdown(self, restart):
+        if self.synchronizer:
+            self.synchronizer.close()
+
+        return super().do_shutdown(restart)
 
     def gen_simple_response(self, execution_count = 0):
         return {'status': 'ok',
@@ -120,11 +140,12 @@ class DistributedKernel(IPythonKernel):
         # synchronizer.ready() later to confirm the actual execution_count.
         self.synchronizer = Synchronizer(synclog, module = self.shell.user_module, opts=CHECKPOINT_AUTO)
 
-        if self.control_thread:
-            control_loop = self.control_thread.io_loop
-        else:
-            control_loop = self.io_loop
-        asyncio.run_coroutine_threadsafe(self.synchronizer.start(), control_loop.asyncio_loop)
+        # if self.control_thread:
+        #     control_loop = self.control_thread.io_loop
+        # else:
+        #     control_loop = self.io_loop
+        # asyncio.run_coroutine_threadsafe(self.synchronizer.start(), control_loop.asyncio_loop)
+        self.synchronizer.start()
 
     async def get_synclog(self):
         port = base_port
@@ -138,7 +159,7 @@ class DistributedKernel(IPythonKernel):
         
         # Implement dynamic later
         addrs = ["http://127.0.0.1:{}".format(port), "http://127.0.0.1:{}".format(port + 1), "http://127.0.0.1:{}".format(port + 2)]
-        published = [1, 2, 3]
+        published = [3, 3, 3]
         return RaftLog(self.store, node_id, addrs[:published[node_id-1]])
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):

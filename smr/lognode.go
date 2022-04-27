@@ -14,6 +14,7 @@
 package smr
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -40,10 +41,13 @@ import (
 	"go.uber.org/zap"
 )
 
-var ProposalDeadline = 1 * time.Minute
+var (
+	ProposalDeadline = 1 * time.Minute
+	ErrEOF           = io.EOF.Error() // For python module to check if io.EOF is returned
+)
 
-type StateValueCallback func(*[]byte, string) string
-type StatesValueCallback func(*[]byte) string
+type StateValueCallback func(ReadCloser, int, string) string
+type StatesValueCallback func(ReadCloser, int) string
 type ShouldLogNodeCallback func(*LogNode) bool
 type WriteCallback func(WriteCloser) string
 type ResolveCallback func(interface{})
@@ -115,6 +119,7 @@ type LogNode struct {
 	snapshotIndex    uint64
 	appliedIndex     uint64
 	num_changes      uint64
+	denied_changes   uint64
 	proposalPadding  int
 	proposalRegistry map[string]*proposalContext
 
@@ -161,6 +166,7 @@ func NewLogNode(store_path string, id int, peers []string, join bool) *LogNode {
 		httpstopc:        make(chan struct{}),
 		httpdonec:        make(chan struct{}),
 		num_changes:      0,
+		denied_changes:   0,
 		proposalRegistry: make(map[string]*proposalContext),
 
 		logger: zap.NewExample(),
@@ -182,9 +188,14 @@ func (node *LogNode) Start(config *LogNodeConfig) {
 	go node.start()
 }
 
+func (node *LogNode) StartAndWait(config *LogNodeConfig) {
+	node.Start(config)
+	node.WaitToClose()
+}
+
 //  Append the difference of the value of specified key to the synchronization queue.
-func (node *LogNode) Propose(val []byte, resolve ResolveCallback, msg string) {
-	go node.propose(val, resolve, msg)
+func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
+	go node.propose(val.Bytes(), resolve, msg)
 }
 
 func (node *LogNode) propose(val []byte, resolve ResolveCallback, msg string) {
@@ -231,7 +242,7 @@ func (node *LogNode) Close() error {
 func (node *LogNode) start() {
 	if !fileutil.Exist(node.snapdir) {
 		if err := os.Mkdir(node.snapdir, 0750); err != nil {
-			log.Fatalf("LogNode: cannot create dir for snapshot (%v)", err)
+			node.logFatalf("LogNode: cannot create dir for snapshot (%v)", err)
 		}
 	}
 	node.snapshotter = snap.New(zap.NewExample(), node.snapdir)
@@ -280,7 +291,7 @@ func (node *LogNode) start() {
 	}
 
 	go node.serveRaft()
-	go node.serveChannels()
+	node.serveChannels()
 }
 
 func (node *LogNode) saveSnap(snap raftpb.Snapshot) error {
@@ -307,7 +318,7 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 	}
 	firstIdx := ents[0].Index
 	if firstIdx > node.appliedIndex+1 {
-		log.Fatalf("first index of committed entry[%d] should <= progress.appliedIndex[%d]+1", firstIdx, node.appliedIndex)
+		node.logFatalf("first index of committed entry[%d] should <= progress.appliedIndex[%d]+1", firstIdx, node.appliedIndex)
 	}
 	if node.appliedIndex-firstIdx+1 < uint64(len(ents)) {
 		nents = ents[node.appliedIndex-firstIdx+1:]
@@ -374,11 +385,11 @@ func (node *LogNode) loadSnapshot() *raftpb.Snapshot {
 	if wal.Exist(node.waldir) {
 		walSnaps, err := wal.ValidSnapshotEntries(node.logger, node.waldir)
 		if err != nil {
-			log.Fatalf("LogNode: error listing snapshots (%v)", err)
+			node.logFatalf("LogNode: error listing snapshots (%v)", err)
 		}
 		snapshot, err := node.snapshotter.LoadNewestAvailable(walSnaps)
 		if err != nil && err != snap.ErrNoSnapshot {
-			log.Fatalf("LogNode: error loading snapshot (%v)", err)
+			node.logFatalf("LogNode: error loading snapshot (%v)", err)
 		}
 		return snapshot
 	}
@@ -389,12 +400,12 @@ func (node *LogNode) loadSnapshot() *raftpb.Snapshot {
 func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 	if !wal.Exist(node.waldir) {
 		if err := os.Mkdir(node.waldir, 0750); err != nil {
-			log.Fatalf("LogNode: cannot create dir for wal (%v)", err)
+			node.logFatalf("LogNode: cannot create dir for wal (%v)", err)
 		}
 
 		w, err := wal.Create(zap.NewExample(), node.waldir, nil)
 		if err != nil {
-			log.Fatalf("LogNode: create wal error (%v)", err)
+			node.logFatalf("LogNode: create wal error (%v)", err)
 		}
 		w.Close()
 		node.logger.Info("Created wal direcotry", zap.String("uri", node.waldir))
@@ -406,7 +417,7 @@ func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 	}
 	w, err := wal.Open(zap.NewExample(), node.waldir, walsnap)
 	if err != nil {
-		log.Fatalf("LogNode: error loading wal (%v)", err)
+		node.logFatalf("LogNode: error loading wal (%v)", err)
 	}
 
 	return w
@@ -418,17 +429,17 @@ func (node *LogNode) replayWAL() *wal.WAL {
 	// Restore kernal from snapshot
 	if snapshot != nil && !raft.IsEmptySnap(*snapshot) {
 		if node.config.onRestore == nil {
-			log.Fatalf("no RestoreCallback configured on start.")
+			node.logFatalf("no RestoreCallback configured on start.")
 		}
-		if err := returnError(node.config.onRestore(&snapshot.Data)); err != nil {
-			log.Fatalf("LogNode: failed to restore states (%v)", err)
+		if err := returnError(node.config.onRestore(&readerWrapper{reader: bytes.NewBuffer(snapshot.Data)}, len(snapshot.Data))); err != nil {
+			node.logFatalf("LogNode: failed to restore states (%v)", err)
 		}
 	}
 
 	w := node.openWAL(snapshot)
 	_, st, ents, err := w.ReadAll()
 	if err != nil {
-		log.Fatalf("LogNode: failed to read WAL (%v)", err)
+		node.logFatalf("LogNode: failed to read WAL (%v)", err)
 	}
 	node.raftStorage = raft.NewMemoryStorage()
 	if snapshot != nil {
@@ -471,14 +482,14 @@ func (node *LogNode) publishSnapshot(snapshotToSave raftpb.Snapshot) {
 	defer node.logger.Info("finished publishing snapshot", zap.Uint64("index", node.snapshotIndex))
 
 	if snapshotToSave.Metadata.Index <= node.appliedIndex {
-		log.Fatalf("snapshot index [%d] should > progress.appliedIndex [%d]", snapshotToSave.Metadata.Index, node.appliedIndex)
+		node.logFatalf("snapshot index [%d] should > progress.appliedIndex [%d]", snapshotToSave.Metadata.Index, node.appliedIndex)
 	}
 
 	// Restore kernal from snapshot
 	if node.config.onRestore == nil {
-		log.Fatalf("no RestoreCallback configured on start.")
+		node.logFatalf("no RestoreCallback configured on start.")
 	}
-	node.config.onRestore(&snapshotToSave.Data)
+	node.config.onRestore(&readerWrapper{reader: bytes.NewBuffer(snapshotToSave.Data)}, len(snapshotToSave.Data))
 
 	node.confState = snapshotToSave.Metadata.ConfState
 	node.snapshotIndex = snapshotToSave.Metadata.Index
@@ -490,8 +501,11 @@ var snapshotCatchUpEntriesN uint64 = 1000
 
 func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	if node.config.getSnapshot == nil || // No snapshotCallback
-		(node.config.shouldSnapshot == nil && node.appliedIndex-node.snapshotIndex <= node.snapCount) || // No shouldSnapshot and failed default test.
-		(node.config.shouldSnapshot != nil && (node.num_changes == 0 || !node.config.shouldSnapshot(node))) { // Failed shouldSnapshot test
+		(node.config.shouldSnapshot == nil && node.appliedIndex-node.snapshotIndex <= node.snapCount) { // No shouldSnapshot and failed default test.
+		return
+	} else if node.config.shouldSnapshot != nil && (node.num_changes == node.denied_changes || !node.config.shouldSnapshot(node)) { // Failed shouldSnapshot test
+		// Update denied_changes to avoid triggering snapshot too frequently.
+		node.denied_changes = node.num_changes
 		return
 	}
 
@@ -514,7 +528,7 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	// create pipeline and write
 	reader, writer := io.Pipe()
 	go func() {
-		if err := returnError(node.config.getSnapshot(&writeCloserWrapper{writer: writer})); err != nil {
+		if err := returnError(node.config.getSnapshot(&writerWrapper{writer: writer})); err != nil {
 			panic(err)
 		}
 	}()
@@ -598,14 +612,14 @@ func (node *LogNode) serveChannels() {
 					if ctx != nil {
 						id = ctx.Id
 						ctx.Trigger(func() {
-							if err := returnError(node.config.onChange(&realData, id)); err != nil {
-								log.Fatalf("LogNode: Error on replay state (%v)", err)
+							if err := returnError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
+								node.logFatalf("LogNode: Error on replay state (%v)", err)
 							}
 							ctx.Cancel()
 						})
 					} else {
-						if err := returnError(node.config.onChange(&realData, id)); err != nil {
-							log.Fatalf("LogNode: Error on replay state (%v)", err)
+						if err := returnError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
+							node.logFatalf("LogNode: Error on replay state (%v)", err)
 						}
 					}
 				}
@@ -624,6 +638,7 @@ func (node *LogNode) serveChannels() {
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-node.node.Ready():
+			// node.logger.Info("ready", zap.Int("entries", len(rd.CommittedEntries)), zap.Uint64("commit", rd.HardState.Commit))
 			node.wal.Save(rd.HardState, rd.Entries)
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				node.saveSnap(rd.Snapshot)
@@ -666,19 +681,19 @@ func (node *LogNode) processMessages(ms []raftpb.Message) []raftpb.Message {
 func (node *LogNode) serveRaft() {
 	url, err := url.Parse(node.peers[node.id-1])
 	if err != nil {
-		log.Fatalf("LogNode: Failed parsing URL (%v)", err)
+		node.logFatalf("LogNode: Failed parsing URL (%v)", err)
 	}
 
 	ln, err := newStoppableListener(url.Host, node.httpstopc)
 	if err != nil {
-		log.Fatalf("LogNode: Failed to listen rafthttp (%v)", err)
+		node.logFatalf("LogNode: Failed to listen rafthttp (%v)", err)
 	}
 
 	err = (&http.Server{Handler: node.transport.Handler()}).Serve(ln)
 	select {
 	case <-node.httpstopc:
 	default:
-		log.Fatalf("LogNode: Failed to serve rafthttp (%v)", err)
+		node.logFatalf("LogNode: Failed to serve rafthttp (%v)", err)
 	}
 	close(node.httpdonec)
 }
@@ -723,6 +738,11 @@ func (node *LogNode) waitProposal(ctx *proposalContext) bool {
 			return ctx.Err() == context.Canceled
 		}
 	}
+}
+
+func (node *LogNode) logFatalf(format string, args ...interface{}) {
+	log.Printf(format, args...)
+	node.Close()
 }
 
 func (node *LogNode) Process(ctx context.Context, m raftpb.Message) error {

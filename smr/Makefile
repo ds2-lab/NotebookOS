@@ -1,13 +1,49 @@
-all: go-python
+DEST = ../distributed_notebook/smr
+PATCHS = $(shell ls patch/*.py)
+PATCH_TARGETS = $(PATCHS:patch/%=patch.%)
+RESTORE_TARGETS = $(PATCHS:patch/%=restore.%)
+CC = gcc
 
-go-python:
-	gopy build -output=smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
+prepare:
+	@mkdir -p $(DEST)/bak
 
-build-smr-linux-arm64:
-	cp -f smr/Makefile smr/Makefile_origin
-	cat Makefile_linux_arm64 >> smr/Makefile
-	cd smr && make build-smr-linux-arm64
-	mv -f smr/Makefile_origin smr/Makefile
+all: gen-python patch build
+
+restore: $(RESTORE_TARGETS)
+
+restore.%:
+	@echo "restoring $(DEST)/bak/$*"
+	-@cp $(DEST)/bak/$* $(DEST)/$*
+
+patch: prepare $(PATCH_TARGETS)
+	@echo "patching go files"
+	cp -f patch/*.go $(DEST)/
+
+patch.build.py: patch/build.py restore.build.py prepare
+ifeq (,$(wildcard $(DEST)/bak/build.py))
+	@echo "backuping $(DEST)/bak/build.py"
+	@cp $(DEST)/build.py $(DEST)/bak/build.py 
+endif
+	@echo "patching $(DEST)/build.py"
+	@sed -Ei '' '/^mod\.generate\(/d' $(DEST)/build.py
+	cat $< >> $(DEST)/build.py
+	
+patch.%: patch/% restore.% prepare
+	@echo "backuping $(DEST)/bak/$*"
+	@cp $(DEST)/$* $(DEST)/bak/$*
+	@echo "patching $(DEST)/$*"
+	cat $< >> $(DEST)/$*
+
+gen-python: clean
+	gopy gen -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
+
+build-python: clean
+	gopy build -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
+
+build: build-common build-darwin
+
+build-%:
+	cd $(dir $(DEST)) && make build-smr-$*
 
 clean:
-	rm -rf smr
+	rm -rf $(DEST)/bak

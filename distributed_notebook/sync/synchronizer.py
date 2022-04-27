@@ -1,16 +1,13 @@
-import io
-import pickle
 import asyncio
-import ast
 import sys
 import types
 import logging
+import time
 
 from .log import Checkpointer, SyncLog, SyncValue, KEY_SYNC_END
 from .ast import SyncAST
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
-from ..smr.go import Slice_byte
 
 KEY_SYNC_AST = "_ast_"
 CHECKPOINT_AUTO = 1
@@ -48,9 +45,12 @@ class Synchronizer:
     self._synclog = synclog
 
 
-  async def start(self):
+  def start(self):
     self._async_loop = asyncio.get_running_loop()
-    await self._synclog.start(self.change_handler)
+    self._synclog.start(self.change_handler)
+
+  def close(self):
+    self._synclog.close()
 
   # def _change_handler(self, buff, id):
   #   # Ignore local proposal.
@@ -78,8 +78,9 @@ class Synchronizer:
     """Change handler"""
     ## TODO: Buffer changes of one execution and apply changes atomically
     if not val.end:
-      self._log.debug("enter execution syncing...")
-      self._syncing = True
+      if not self._syncing:
+        self._log.debug("enter execution syncing...")
+        self._syncing = True
     elif val.key == KEY_SYNC_END:
       self._syncing = False
       self._log.debug("exit execution syncing")
@@ -204,7 +205,11 @@ class Synchronizer:
       sync_val = existed.dump(meta=meta)
     else:
       # On checkpointing, the syncobject must have been available in tags.
+      # Get start time of the execution.
+      start_time = time.time()
       sync_val = existed.diff(val, meta=meta)
+      # Print time elapsed.
+      self._log.debug("Time elapsed in diff: {}".format(time.time() - start_time))
 
     sys.modules["__main__"] = old_main_modules
     # End of switch context
@@ -224,12 +229,14 @@ class Synchronizer:
       await synclog.append(SyncValue(None, None, term=self._ast.execution_count, end=True, key=KEY_SYNC_END))
 
   def should_checkpoint_callback(self, synclog: SyncLog):
-    # print("in should_checkpoint_callback({}): {} changes".format(self.execution_count, synclog.num_changes))
+    cp = False
     if self.execution_count < 2 or self._syncing or synclog.num_changes < MIN_CHECKPOINT_LOGS:
-      return False
-
-    return ((self._opts & CHECKPOINT_AUTO and synclog.num_changes >= len(self._tags.keys())) or
-      (self._opts & CHECKPOINT_ON_CHANGE and synclog.num_changes > 0))
+      pass
+    else:
+      cp = ((self._opts & CHECKPOINT_AUTO and synclog.num_changes >= len(self._tags.keys())) or
+            (self._opts & CHECKPOINT_ON_CHANGE and synclog.num_changes > 0))
+    self._log.debug("in should_checkpoint_callback: {}".format(cp))
+    return cp
 
   def checkpoint_callback(self, checkpointer: Checkpointer):
     self._log.debug("checkpointing...")

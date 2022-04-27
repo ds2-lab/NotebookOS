@@ -56,3 +56,5 @@ val_loader = torch.utils.data.DataLoader(val, batch_size=batch_size, shuffle=Tru
 
 assert num_classes == len(train_loader.dataset.classes)
 
+pre_trained_model = models.alexnet(pretrained=True)
+

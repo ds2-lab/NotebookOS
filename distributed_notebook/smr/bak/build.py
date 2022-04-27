@@ -188,7 +188,5 @@ add_checked_function(mod, 'smr_LogNodeConfig_WithSnapshotCallback', retval('int6
 add_checked_function(mod, 'smr_NewLogNode', retval('int64_t'), [param('char*', 'store_path'), param('int64_t', 'id'), param('int64_t', 'peers'), param('bool', 'join')])
 add_checked_function(mod, 'smr_NewConfig', retval('int64_t'), [])
 
-
-add_checked_function(mod, 'smr_NewBytes', retval('uint64_t'), [param('char*', 'bytes', transfer_ownership=False), param('int', 'len')])
-
 mod.generate(open('smr.c', 'w'))
+

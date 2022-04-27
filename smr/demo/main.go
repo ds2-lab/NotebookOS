@@ -102,7 +102,7 @@ func main() {
 	} else {
 		log.Printf("Add 1")
 	}
-	nodes[1].Propose(val, nil, "Num")
+	nodes[1].Propose(NewBytes(string(val)), nil, "Num")
 	if wait {
 		for id := <-committed; id != add1.Id; id = <-committed {
 			log.Printf("Ignore: %s", id)

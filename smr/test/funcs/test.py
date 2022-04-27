@@ -18,6 +18,9 @@ fs.FieldS = "str field"
 fs.FieldI = 42
 fs.FieldB = go.Slice_byte(pickle.dumps("val"))
 
+print(fs.Byte())
+exit()
+
 def cbfun(afs, ival, sval):
     tfs = funcs.FunStruct(handle=afs)
     print("in python cbfun: FieldI: ", tfs.FieldI, " FieldS: ", tfs.FieldS, " ival: ", ival, " sval: ", sval)
@@ -43,9 +46,10 @@ def cbfuninterface(v):
     iv = funcs.Verbose(handle=v)
     print("in python cbfuninterface: Output: ", iv.String())
 
-def cbret() -> str:
+def cbret() -> bytes:
     print("in python cbret")
-    return str.encode("", "utf-8")
+    ret = "result of cbret"
+    return str.encode(ret, "utf-8")
 
 start_outofthread = 0
 def cbfunoutofthread(v):

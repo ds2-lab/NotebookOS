@@ -1,11 +1,12 @@
 import argparse
 import os
-import pickle
 import sys
 import ast
-import types
+import logging
 
 from ..sync import Synchronizer, FileLog, RaftLog, CHECKPOINT_AUTO, CHECKPOINT_ON_CHANGE
+
+logging.basicConfig(level=logging.INFO)
 
 base = os.path.dirname(os.path.realpath(__file__))
 store = base + "/store/"
@@ -63,7 +64,7 @@ async def demo():
         synclog = RaftLog(store, 1, ["http://127.0.0.1:19800"])
         # synclog = FileLog(store)
         synchronizer = Synchronizer(synclog, opts=CHECKPOINT_AUTO)
-        await synchronizer.start()
+        synchronizer.start()
 
       execution_count = await synchronizer.ready(execution_count)
       if execution_count == 0:
@@ -95,7 +96,8 @@ async def demo():
 
       await synchronizer.sync(tree, source)
 
-    synclog.close()
+    synchronizer.close()
+    # await future
     synclog = None
     synchronizer = None
 
