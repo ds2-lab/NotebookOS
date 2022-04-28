@@ -1,4 +1,3 @@
-PyObject *
 _wrap__smr_smr_NewBytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
 {
     PyObject *py_retval;

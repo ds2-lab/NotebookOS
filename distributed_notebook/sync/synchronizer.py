@@ -8,6 +8,7 @@ from .log import Checkpointer, SyncLog, SyncValue, KEY_SYNC_END
 from .ast import SyncAST
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
+from .errors import SyncError
 
 KEY_SYNC_AST = "_ast_"
 CHECKPOINT_AUTO = 1
@@ -131,16 +132,19 @@ class Synchronizer:
     if execution_count < 0:
       return 0
     
-    # Propose to lead specified term. 
-    # Term 0 tries to lead the next term whatever and will always success.
-    if await self._synclog.lead(execution_count):
-      # Synchronized, execution_count was updated to last execution.
-      self._async_loop = asyncio.get_running_loop() # Update async_loop.
-      
-      if execution_count == 0:
-        return self.execution_count + 1
-      else:
-        return execution_count
+    try:
+      # Propose to lead specified term. 
+      # Term 0 tries to lead the next term whatever and will always success.
+      if await self._synclog.lead(execution_count):
+        # Synchronized, execution_count was updated to last execution.
+        self._async_loop = asyncio.get_running_loop() # Update async_loop.
+        
+        if execution_count == 0:
+          return self.execution_count + 1
+        else:
+          return execution_count
+    except SyncError as se:
+      self._log.warning("SyncError: {}".format(se))
     
     # Failed to lead the term
     return 0
@@ -155,36 +159,38 @@ class Synchronizer:
     # synclog.lead(execution_count) 
 
     # print("Syncing {}...".format(KEY_SYNC_AST))
+    try:
+      if checkpointing:
+        sync_ast = self._ast.dump(meta=source)
+      else:
+        sync_ast = self._ast.diff(execution_ast, meta=source)
+      # execution_count updated.
+      self._referer.module_id = self._ast.execution_count
+      
+      keys = self._ast.globals
+      meta = SyncObjectMeta(batch=(sync_ast.term if not checkpointing else "{}c".format(sync_ast.term)))
+      # TODO: Recalculate the number of expected synchronizations within the execution.
+      expected = len(keys) # globals + the ast
+      synced = 0
 
-    if checkpointing:
-      sync_ast = self._ast.dump(meta=source)
-    else:
-      sync_ast = self._ast.diff(execution_ast, meta=source)
-    # execution_count updated.
-    self._referer.module_id = self._ast.execution_count
-    
-    keys = self._ast.globals
-    meta = SyncObjectMeta(batch=(sync_ast.term if not checkpointing else "{}c".format(sync_ast.term)))
-    # TODO: Recalculate the number of expected synchronizations within the execution.
-    expected = len(keys) # globals + the ast
-    synced = 0
+      self._syncing = True
+      sync_ast.term = self._ast.execution_count
+      sync_ast.key = KEY_SYNC_AST
+      if expected == 0:
+        sync_ast.end = expected == 0
+        # Because should_checkpoint_callback will be called during final append call, 
+        # set the end of _syncing before the final append call.
+        self._syncing = False
 
-    self._syncing = True
-    sync_ast.term = self._ast.execution_count
-    sync_ast.key = KEY_SYNC_AST
-    if expected == 0:
-      sync_ast.end = expected == 0
-      # Because should_checkpoint_callback will be called during final append call, 
-      # set the end of _syncing before the final append call.
-      self._syncing = False
-
-    await synclog.append(sync_ast)
-    for key in keys:
-      synced = synced + 1
-      await self.sync_key(synclog, key, self.global_ns[key], end_execution=synced==expected, checkpointing=checkpointing, meta=meta)
-    
-    if checkpointing:
-      checkpointer.close()
+      await synclog.append(sync_ast)
+      for key in keys:
+        synced = synced + 1
+        await self.sync_key(synclog, key, self.global_ns[key], end_execution=synced==expected, checkpointing=checkpointing, meta=meta)
+      
+      if checkpointing:
+        checkpointer.close()
+    except SyncError as se:
+      self._log.warning("SyncError: {}".format(se))
 
   async def sync_key(self, synclog, key, val, end_execution=False, checkpointing=False, meta=None):
     existed = None

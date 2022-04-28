@@ -10,9 +10,6 @@ require (
 	go.etcd.io/etcd/server/v3 v3.5.2
 	go.uber.org/zap v1.21.0
 	google.golang.org/protobuf v1.26.0
-)
-
-require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect

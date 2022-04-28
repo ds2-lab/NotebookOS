@@ -34,13 +34,21 @@ patch.%: patch/% restore.% prepare
 	@echo "patching $(DEST)/$*"
 	cat $< >> $(DEST)/$*
 
+patch.smr.c: patch/smr.c restore.smr.c prepare
+ifeq (,$(wildcard $(DEST)/bak/smr.c))
+	@echo "backuping $(DEST)/bak/smr.c"
+	@cp $(DEST)/smr.c $(DEST)/bak/smr.c 
+endif
+	@echo "patching $(DEST)/smr.c"
+	@sed -Ei '' -e '/^_wrap__smr_smr_NewBytes\(/r $<' -e '/^_wrap__smr_smr_NewBytes\(/,/^\}/d' $(DEST)/smr.c
+
 gen-python: clean
 	gopy gen -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
 
 build-python: clean
 	gopy build -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
 
-build: build-common build-darwin
+build: build-common patch.smr.c build-darwin
 
 build-%:
 	cd $(dir $(DEST)) && make build-smr-$*

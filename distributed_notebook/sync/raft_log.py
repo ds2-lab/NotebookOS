@@ -227,7 +227,7 @@ class RaftLog:
        without leading status will fail."""
     if term > 0 and term <= self._term:
       return False
-
+    
     # Append is blocking and ensure to gaining leading status if terms match.
     await self.append(SyncValue(None, self._id, term=term, key=KEY_LEAD))
     # term 0 is for single node, or we need to check the term
@@ -258,8 +258,8 @@ class RaftLog:
       loop = asyncio.get_running_loop()
       future = Future(loop=loop)
       self._async_loop = loop
-      def resolve(key):
-        asyncio.run_coroutine_threadsafe(future.resolve(key), loop) # must use local variable
+      def resolve(key, err):
+        asyncio.run_coroutine_threadsafe(future.resolve(key, err), loop) # must use local variable
 
       # Propose and wait the future.
       
@@ -281,7 +281,7 @@ class RaftLog:
     """Ensure all async coroutines end and clean up."""
     self._node.Close()
     if self._closed is not None:
-      asyncio.run_coroutine_threadsafe(self._closed.resolve(None), self._start_loop)
+      asyncio.run_coroutine_threadsafe(self._closed.resolve(None, None), self._start_loop)
       self._closed = None
 
   def ensure_path(self, base_path):

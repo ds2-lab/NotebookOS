@@ -12,3 +12,9 @@ def GoError(err):
 
 def GoNilError():
   return GoError(None)
+
+def FromGoError(err):
+  if err == "":
+    return None
+  else:
+    return SyncError(err)

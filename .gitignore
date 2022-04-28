@@ -133,3 +133,4 @@ smr/demo/store
 out
 datasets
 distributed_notebook/kernel/store
+distributed_notebook/smr/bak

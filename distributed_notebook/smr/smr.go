@@ -1482,26 +1482,28 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 		return
 	}
 	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				return
 			}
 			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(1)
+			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate)
 		}, C.GoString(msg))
 	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}) {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				return
 			}
 			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(1)
+			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()

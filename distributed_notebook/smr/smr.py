@@ -402,7 +402,7 @@ class LogNode(go.GoClass):
 		"""RemoveNode(int id) """
 		_smr.smr_LogNode_RemoveNode(self.handle, id, goRun)
 	def WaitToClose(self):
-		"""WaitToClose() str"""
+		"""WaitToClose() str lastErr"""
 		return _smr.smr_LogNode_WaitToClose(self.handle)
 	def Close(self):
 		"""Close() str"""

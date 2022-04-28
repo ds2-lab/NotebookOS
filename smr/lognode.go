@@ -43,6 +43,7 @@ import (
 
 var (
 	ProposalDeadline = 1 * time.Minute
+	ErrClosed        = errors.New("node closed")
 	ErrEOF           = io.EOF.Error() // For python module to check if io.EOF is returned
 )
 
@@ -50,13 +51,21 @@ type StateValueCallback func(ReadCloser, int, string) string
 type StatesValueCallback func(ReadCloser, int) string
 type ShouldLogNodeCallback func(*LogNode) bool
 type WriteCallback func(WriteCloser) string
-type ResolveCallback func(interface{})
+type ResolveCallback func(interface{}, string)
 
-func returnError(cbRet string) error {
+func fromCError(cbRet string) error {
 	if len(cbRet) == 0 {
 		return nil
 	} else {
 		return errors.New(cbRet)
+	}
+}
+
+func toCError(err error) string {
+	if err == nil {
+		return ""
+	} else {
+		return err.Error()
 	}
 }
 
@@ -104,8 +113,8 @@ type commit struct {
 
 // A SyncLog backed by raft
 type LogNode struct {
-	proposeC    chan *proposalContext  // proposed serialized messages
-	confChangeC chan raftpb.ConfChange // proposed cluster config changes
+	proposeC    chan *proposalContext   // proposed serialized messages
+	confChangeC chan *raftpb.ConfChange // proposed cluster config changes
 	commitC     chan *commit
 	errorC      chan error // errors from raft session
 
@@ -133,6 +142,7 @@ type LogNode struct {
 
 	snapCount uint64
 	transport *rafthttp.Transport
+	started   bool
 	stopc     chan struct{} // signals proposal channel closed
 	httpstopc chan struct{} // signals http server to shutdown
 	httpdonec chan struct{} // signals http server shutdown complete
@@ -153,9 +163,9 @@ var defaultSnapshotCount uint64 = 10000
 func NewLogNode(store_path string, id int, peers []string, join bool) *LogNode {
 	node := &LogNode{
 		proposeC:         make(chan *proposalContext),
-		confChangeC:      make(chan raftpb.ConfChange),
+		confChangeC:      make(chan *raftpb.ConfChange),
 		commitC:          make(chan *commit),
-		errorC:           make(chan error),
+		errorC:           make(chan error, 1),
 		id:               id,
 		peers:            peers,
 		join:             join,
@@ -201,54 +211,104 @@ func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
 func (node *LogNode) propose(val []byte, resolve ResolveCallback, msg string) {
 	_, ctx := node.generateProposal(val, ProposalDeadline)
 	node.logger.Debug("Appending value", zap.String("key", msg), zap.String("id", ctx.Id))
-	node.proposeC <- ctx
+	if err := node.sendProposal(ctx); err != nil {
+		resolve(msg, toCError(err))
+		return
+	}
 	// Wait for committed or retry
 	for !node.waitProposal(ctx) {
 		node.logger.Debug("Retry appending value", zap.String("key", msg), zap.String("id", ctx.Id))
 		ctx = ctx.Reset(ProposalDeadline)
-		node.proposeC <- ctx
+		if err := node.sendProposal(ctx); err != nil {
+			resolve(msg, toCError(err))
+			return
+		}
 	}
 	node.logger.Debug("Value appended", zap.String("key", msg), zap.String("id", ctx.Id))
 	if resolve != nil {
-		resolve(msg)
+		resolve(msg, toCError(nil))
 	}
 }
 
 func (node *LogNode) AddNode(id int, addr string) {
-	node.confChangeC <- raftpb.ConfChange{
+	node.manageNode(&raftpb.ConfChange{
 		Type:    raftpb.ConfChangeAddNode,
 		NodeID:  uint64(id),
 		Context: []byte(addr),
-	}
+	})
 }
 
 func (node *LogNode) RemoveNode(id int) {
-	node.confChangeC <- raftpb.ConfChange{
+	node.manageNode(&raftpb.ConfChange{
 		Type:   raftpb.ConfChangeRemoveNode,
 		NodeID: uint64(id),
+	})
+}
+
+func (node *LogNode) manageNode(change *raftpb.ConfChange) error {
+	select {
+	case node.confChangeC <- change:
+		return nil
+	case <-node.stopc:
+		return ErrClosed
 	}
 }
 
-func (node *LogNode) WaitToClose() error {
-	return <-node.errorC
+func (node *LogNode) WaitToClose() (lastErr error) {
+	for {
+		err, ok := <-node.errorC
+		if !ok {
+			return
+		} else {
+			lastErr = err
+		}
+	}
 }
 
 func (node *LogNode) Close() error {
-	close(node.proposeC)
-	close(node.confChangeC)
+	node.close()
+
+	// Wait for the goroutine to stop.
 	return node.WaitToClose()
+}
+
+func (node *LogNode) close() {
+	if !node.started {
+		close(node.stopc)
+	}
+	// Clear node channels
+	proposeC, confChangeC := node.proposeC, node.confChangeC
+	node.proposeC, node.confChangeC = nil, nil
+	// Signal the routine that depends on input channels to stop.
+	// Will trigger the close(stopc).
+	if proposeC != nil {
+		select {
+		case proposeC <- nil:
+		default:
+		}
+	}
+	if confChangeC != nil {
+		select {
+		case confChangeC <- nil:
+		default:
+		}
+	}
 }
 
 func (node *LogNode) start() {
 	if !fileutil.Exist(node.snapdir) {
 		if err := os.Mkdir(node.snapdir, 0750); err != nil {
 			node.logFatalf("LogNode: cannot create dir for snapshot (%v)", err)
+			return
 		}
 	}
 	node.snapshotter = snap.New(zap.NewExample(), node.snapdir)
 
 	oldwal := wal.Exist(node.waldir)
 	node.wal = node.replayWAL()
+	if node.wal == nil {
+		return
+	}
 
 	// signal replay has finished
 	node.snapshotterReady <- node.snapshotter
@@ -319,6 +379,7 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 	firstIdx := ents[0].Index
 	if firstIdx > node.appliedIndex+1 {
 		node.logFatalf("first index of committed entry[%d] should <= progress.appliedIndex[%d]+1", firstIdx, node.appliedIndex)
+		return nil
 	}
 	if node.appliedIndex-firstIdx+1 < uint64(len(ents)) {
 		nents = ents[node.appliedIndex-firstIdx+1:]
@@ -385,15 +446,16 @@ func (node *LogNode) loadSnapshot() *raftpb.Snapshot {
 	if wal.Exist(node.waldir) {
 		walSnaps, err := wal.ValidSnapshotEntries(node.logger, node.waldir)
 		if err != nil {
-			node.logFatalf("LogNode: error listing snapshots (%v)", err)
+			node.logWarnf("LogNode: error listing snapshots (%v)", err)
+			return nil
 		}
 		snapshot, err := node.snapshotter.LoadNewestAvailable(walSnaps)
 		if err != nil && err != snap.ErrNoSnapshot {
-			node.logFatalf("LogNode: error loading snapshot (%v)", err)
+			node.logWarnf("LogNode: error loading snapshot (%v)", err)
 		}
 		return snapshot
 	}
-	return &raftpb.Snapshot{}
+	return nil
 }
 
 // openWAL returns a WAL ready for reading.
@@ -401,11 +463,13 @@ func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 	if !wal.Exist(node.waldir) {
 		if err := os.Mkdir(node.waldir, 0750); err != nil {
 			node.logFatalf("LogNode: cannot create dir for wal (%v)", err)
+			return nil
 		}
 
 		w, err := wal.Create(zap.NewExample(), node.waldir, nil)
 		if err != nil {
 			node.logFatalf("LogNode: create wal error (%v)", err)
+			return nil
 		}
 		w.Close()
 		node.logger.Info("Created wal direcotry", zap.String("uri", node.waldir))
@@ -430,16 +494,22 @@ func (node *LogNode) replayWAL() *wal.WAL {
 	if snapshot != nil && !raft.IsEmptySnap(*snapshot) {
 		if node.config.onRestore == nil {
 			node.logFatalf("no RestoreCallback configured on start.")
+			return nil
 		}
-		if err := returnError(node.config.onRestore(&readerWrapper{reader: bytes.NewBuffer(snapshot.Data)}, len(snapshot.Data))); err != nil {
+		if err := fromCError(node.config.onRestore(&readerWrapper{reader: bytes.NewBuffer(snapshot.Data)}, len(snapshot.Data))); err != nil {
 			node.logFatalf("LogNode: failed to restore states (%v)", err)
+			return nil
 		}
 	}
 
 	w := node.openWAL(snapshot)
+	if w == nil {
+		return w
+	}
 	_, st, ents, err := w.ReadAll()
 	if err != nil {
 		node.logFatalf("LogNode: failed to read WAL (%v)", err)
+		return nil
 	}
 	node.raftStorage = raft.NewMemoryStorage()
 	if snapshot != nil {
@@ -454,16 +524,34 @@ func (node *LogNode) replayWAL() *wal.WAL {
 }
 
 func (node *LogNode) writeError(err error) {
-	node.stopHTTP()
-	node.errorC <- err
-	close(node.errorC)
-	node.node.Stop()
+	select {
+	case node.errorC <- err:
+		return
+	default:
+	}
+
+	// Block or closed?
+	select {
+	case _, ok := <-node.errorC:
+		if !ok {
+			return // errorC closed
+		}
+	default:
+		return // errorC closed and set nil
+	}
+
+	// Retry or abandon
+	select {
+	case node.errorC <- err:
+	default:
+	}
 }
 
 // stop closes http, closes all channels, and stops raft.
-func (node *LogNode) stop() {
+func (node *LogNode) stopServing() {
 	node.stopHTTP()
 	close(node.errorC)
+	node.errorC = nil
 	node.node.Stop()
 }
 
@@ -483,11 +571,13 @@ func (node *LogNode) publishSnapshot(snapshotToSave raftpb.Snapshot) {
 
 	if snapshotToSave.Metadata.Index <= node.appliedIndex {
 		node.logFatalf("snapshot index [%d] should > progress.appliedIndex [%d]", snapshotToSave.Metadata.Index, node.appliedIndex)
+		return
 	}
 
 	// Restore kernal from snapshot
 	if node.config.onRestore == nil {
 		node.logFatalf("no RestoreCallback configured on start.")
+		return
 	}
 	node.config.onRestore(&readerWrapper{reader: bytes.NewBuffer(snapshotToSave.Data)}, len(snapshotToSave.Data))
 
@@ -528,7 +618,7 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	// create pipeline and write
 	reader, writer := io.Pipe()
 	go func() {
-		if err := returnError(node.config.getSnapshot(&writerWrapper{writer: writer})); err != nil {
+		if err := fromCError(node.config.getSnapshot(&writerWrapper{writer: writer})); err != nil {
 			panic(err)
 		}
 	}()
@@ -577,29 +667,33 @@ func (node *LogNode) serveChannels() {
 	go func() {
 		confChangeCount := uint64(0)
 
-		for node.proposeC != nil && node.confChangeC != nil {
+		// Save local channel variables to avoid closing node channels.
+		proposeC := node.proposeC
+		confChangeC := node.confChangeC
+		for proposeC != nil || confChangeC != nil {
 			select {
-			case ctx, ok := <-node.proposeC:
-				if !ok {
-					node.proposeC = nil
+			case ctx, ok := <-proposeC:
+				if !ok || ctx == nil {
+					proposeC = nil // Clear local channel.
 				} else {
 					// blocks until accepted by raft state machine
 					node.node.Propose(ctx, ctx.Proposal)
 				}
 
-			case cc, ok := <-node.confChangeC:
-				if !ok {
-					node.confChangeC = nil
+			case cc, ok := <-confChangeC:
+				if !ok || cc == nil {
+					confChangeC = nil // Clear local channel.
 				} else {
 					confChangeCount++
 					cc.ID = confChangeCount
-					node.node.ProposeConfChange(context.TODO(), cc)
+					node.node.ProposeConfChange(context.TODO(), *cc)
 				}
 			}
 		}
 		// client closed channel; shutdown raft if not already
 		close(node.stopc)
 	}()
+	node.started = true
 
 	// apply commits to state machine
 	go func() {
@@ -612,13 +706,13 @@ func (node *LogNode) serveChannels() {
 					if ctx != nil {
 						id = ctx.Id
 						ctx.Trigger(func() {
-							if err := returnError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
+							if err := fromCError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
 								node.logFatalf("LogNode: Error on replay state (%v)", err)
 							}
 							ctx.Cancel()
 						})
 					} else {
-						if err := returnError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
+						if err := fromCError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
 							node.logFatalf("LogNode: Error on replay state (%v)", err)
 						}
 					}
@@ -649,18 +743,19 @@ func (node *LogNode) serveChannels() {
 			node.transport.Send(node.processMessages(rd.Messages))
 			applyDoneC, ok := node.publishEntries(node.entriesToApply(rd.CommittedEntries))
 			if !ok {
-				node.stop()
-				return
+				node.close()
+				break
 			}
 			node.maybeTriggerSnapshot(applyDoneC)
 			node.node.Advance()
 
 		case err := <-node.transport.ErrorC:
+			// Write errors and close.
 			node.writeError(err)
-			return
+			node.close()
 
 		case <-node.stopc:
-			node.stop()
+			node.stopServing()
 			return
 		}
 	}
@@ -679,14 +774,18 @@ func (node *LogNode) processMessages(ms []raftpb.Message) []raftpb.Message {
 }
 
 func (node *LogNode) serveRaft() {
+	defer close(node.httpdonec)
+
 	url, err := url.Parse(node.peers[node.id-1])
 	if err != nil {
 		node.logFatalf("LogNode: Failed parsing URL (%v)", err)
+		return
 	}
 
 	ln, err := newStoppableListener(url.Host, node.httpstopc)
 	if err != nil {
 		node.logFatalf("LogNode: Failed to listen rafthttp (%v)", err)
+		return
 	}
 
 	err = (&http.Server{Handler: node.transport.Handler()}).Serve(ln)
@@ -695,7 +794,6 @@ func (node *LogNode) serveRaft() {
 	default:
 		node.logFatalf("LogNode: Failed to serve rafthttp (%v)", err)
 	}
-	close(node.httpdonec)
 }
 
 func (node *LogNode) generateProposal(val []byte, timeout time.Duration) ([]byte, *proposalContext) {
@@ -715,8 +813,18 @@ func (node *LogNode) generateProposal(val []byte, timeout time.Duration) ([]byte
 	return ret, ctx
 }
 
-func (node *LogNode) registerProposal(ctx *proposalContext) {
-	node.proposalRegistry[ctx.Id] = ctx
+func (node *LogNode) registerProposal(proposal *proposalContext) {
+	node.proposalRegistry[proposal.Id] = proposal
+}
+
+func (node *LogNode) sendProposal(proposal *proposalContext) error {
+	// Save local channel for thread-safe access.
+	select {
+	case node.proposeC <- proposal:
+		return nil
+	case <-node.stopc:
+		return ErrClosed
+	}
 }
 
 func (node *LogNode) doneProposal(val []byte) ([]byte, *proposalContext) {
@@ -740,9 +848,14 @@ func (node *LogNode) waitProposal(ctx *proposalContext) bool {
 	}
 }
 
+func (node *LogNode) logWarnf(format string, args ...interface{}) {
+	log.Printf(format, args...)
+}
+
 func (node *LogNode) logFatalf(format string, args ...interface{}) {
 	log.Printf(format, args...)
-	node.Close()
+	node.writeError(fmt.Errorf(format, args...))
+	node.close()
 }
 
 func (node *LogNode) Process(ctx context.Context, m raftpb.Message) error {
