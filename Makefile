@@ -24,6 +24,9 @@ python-demo-step2:
 python-demo-step3:
 	python3 -m distributed_notebook.demo --resume distributed_notebook/demo/script/script3.py
 
+build-smr-linux-arm64:
+	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out go-python/gopy /bin/bash -c "cd /go/src/in/distributed_notebook && make all"
+
 install:
 	# this does a local install of the package, building the sdist and then directly installing it
 	rm -rf dist build */*.egg-info *.egg-info
