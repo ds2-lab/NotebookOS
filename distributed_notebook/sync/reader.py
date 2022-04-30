@@ -27,9 +27,7 @@ class readCloser(io.IOBase):
     return bytes(self.buf[self.r:])
 
   def readinto(self, b):
-    buf = memoryview(b)
-    ret = self.rd.Read(NewBytes(buf))
-    buf.release()
+    ret = self.rd.Read(NewBytes(b))
     return ret.N
 
   def readline(self, size=-1) -> bytes:
@@ -82,6 +80,9 @@ class readCloser(io.IOBase):
     buf = self.buf[self.w:]
     ret = self.rd.Read(NewBytes(buf))
     self.w += ret.N
+
+    # print("before release sub buffer")
+    # buf.release()
     return min(self.buffered(), sz)
 
   # compact moves the unread chunk to the beginning of the buffer

@@ -201,7 +201,7 @@ class Synchronizer:
       existed = SyncObjectWrapper(self._referer)
       self._tags[key] = existed
 
-    self._log.debug("Syncing {}...".format(key))
+    # self._log.debug("Syncing {}...".format(key))
 
     # Switch context
     old_main_modules = sys.modules["__main__"]
@@ -212,10 +212,10 @@ class Synchronizer:
     else:
       # On checkpointing, the syncobject must have been available in tags.
       # Get start time of the execution.
-      start_time = time.time()
+      # start_time = time.time()
       sync_val = existed.diff(val, meta=meta)
       # Print time elapsed.
-      self._log.debug("Time elapsed in diff: {}".format(time.time() - start_time))
+      # self._log.debug("Time elapsed in diff: {}".format(time.time() - start_time))
 
     sys.modules["__main__"] = old_main_modules
     # End of switch context
@@ -241,7 +241,7 @@ class Synchronizer:
     else:
       cp = ((self._opts & CHECKPOINT_AUTO and synclog.num_changes >= len(self._tags.keys())) or
             (self._opts & CHECKPOINT_ON_CHANGE and synclog.num_changes > 0))
-    self._log.debug("in should_checkpoint_callback: {}".format(cp))
+    # self._log.debug("in should_checkpoint_callback: {}".format(cp))
     return cp
 
   def checkpoint_callback(self, checkpointer: Checkpointer):

@@ -33,44 +33,6 @@ class writeCloser:
   def close(self):
     self.wc.Close()
 
-# class buffer:
-#   def __init__(self, raw: bytes):
-#     self.handle = raw
-#     self.goHandle = NewBytes(bytes)
-
-#   def __call__(self):
-#     return self.goHandle
-
-# class rawReader(io.RawIOBase):
-#   def __init__(self, rc: ReadCloser):
-#     self.rc = rc
-#     self.buffer = None
-
-#   def readinto(self, b):
-#     if self.buffer is None or b is not self.buffer.raw:
-#       self.buffer = buffer(b)
-    
-#     ret = self.rc.Read(self.buffer())
-#     return ret.N
-
-#   def readable(self):
-#     return True
-
-#   def close(self):
-#     self.rc.Close()
-
-# class readCloser(io.BufferedReader):
-#   def __init__(self, rc: ReadCloser, size = io.DEFAULT_BUFFER_SIZE):
-#     self.rc = rc
-#     # The size is passed to prevent allocating a large buffer for fixed sized data.
-#     # No bigger than DEFAULT_BUFFER_SIZE buffer is allowed.
-#     if size > io.DEFAULT_BUFFER_SIZE:
-#       size = io.DEFAULT_BUFFER_SIZE
-#     super().__init__(rawReader(rc), size)
-
-#   def close(self):
-#     self.rc.Close()
-
 class RaftLog:
   def __init__(self, base_path: str, id: int, peers: List[str], join: bool = False):
     self._store = base_path
@@ -121,7 +83,7 @@ class RaftLog:
       self._log.debug("Confirm committed: {}".format(id))
       return GoNilError()
     else:
-      self._log.debug("Get remote update")
+      self._log.debug("Get remote update {} bytes".format(sz))
     
   #   future = asyncio.run_coroutine_threadsafe(self._changeImpl(buff, id), self._start_loop)
   #   return future.result()
@@ -145,8 +107,9 @@ class RaftLog:
       self._log.error("Failed to handle change: {}".format(e))
       print_trace()
       return GoError(e)
-    finally:
-      reader.close()
+    # pickle will close the reader
+    # finally:
+    #   reader.close()
 
   def _restore(self, rc, sz) -> bytes:
   #   future = asyncio.run_coroutine_threadsafe(self._restoreImpl(buff), self._start_loop)
@@ -164,8 +127,9 @@ class RaftLog:
       syncval = unpickler.load()
     except Exception:
       pass
-    finally:
-      reader.close()
+    # unpickler will close the reader
+    # finally:
+    #   reader.close()
     
     # Recount _ignore_changes
     self._ignore_changes = 0
@@ -280,6 +244,7 @@ class RaftLog:
   def close(self):
     """Ensure all async coroutines end and clean up."""
     self._node.Close()
+    self._log.debug("closed")
     if self._closed is not None:
       asyncio.run_coroutine_threadsafe(self._closed.resolve(None, None), self._start_loop)
       self._closed = None

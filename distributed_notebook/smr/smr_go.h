@@ -271,10 +271,10 @@ extern char* smr_ErrEOF();
 extern void smr_Set_ErrEOF(char* val);
 extern long long int smr_ProposalDeadline();
 extern void smr_Set_ProposalDeadline(long long int val);
-extern char* smr_WriteCloser_Close(long long int _handle);
-extern long long int smr_WriteCloser_Write(long long int _handle, long long int p);
 extern char* smr_ReadCloser_Close(long long int _handle);
 extern long long int smr_ReadCloser_Read(long long int _handle, long long int p);
+extern char* smr_WriteCloser_Close(long long int _handle);
+extern long long int smr_WriteCloser_Write(long long int _handle, long long int p);
 
 // --- wrapping struct: smr.Bytes ---
 extern long long int smr_Bytes_CTor();

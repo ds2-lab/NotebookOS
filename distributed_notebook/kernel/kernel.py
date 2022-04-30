@@ -39,20 +39,20 @@ class DistributedKernel(IPythonKernel):
         # Delay persistent store initialization to kernel.js
         self.store = None
 
-    def start(self):
-        super().start()
+    # def start(self):
+    #     super().start()
 
-        self.shell.user_ns[key_persistent_id] = "6d1e4d69-3a21-4a1e-86f4-5790fe8b52ae"
-        self.store = os.path.join(base, "store", self.shell.user_ns[key_persistent_id]) # Default perisistent id for testing.
-        self.log.info("persistent store assumption confirmed: " + self.store)
+    #     self.shell.user_ns[key_persistent_id] = "6d1e4d69-3a21-4a1e-86f4-5790fe8b52ae"
+    #     self.store = os.path.join(base, "store", self.shell.user_ns[key_persistent_id]) # Default perisistent id for testing.
+    #     self.log.info("persistent store assumption confirmed: " + self.store)
 
-        asyncio.run_coroutine_threadsafe(self.override_shell(), self.io_loop.asyncio_loop)
+    #     asyncio.run_coroutine_threadsafe(self.override_shell(), self.io_loop.asyncio_loop)
 
-    #     asyncio.run_coroutine_threadsafe(self.wait_and_close(), self.io_loop.asyncio_loop)
+    # #     asyncio.run_coroutine_threadsafe(self.wait_and_close(), self.io_loop.asyncio_loop)
 
-    # async def wait_and_close(self):
-    #     await asyncio.sleep(30)
-    #     self.synchronizer.close()
+    # # async def wait_and_close(self):
+    # #     await asyncio.sleep(30)
+    # #     self.synchronizer.close()
 
     async def init_persistent_store(self, code):
         if self.store == None:

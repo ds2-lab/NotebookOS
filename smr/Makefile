@@ -7,8 +7,6 @@ CC = gcc
 prepare:
 	@mkdir -p $(DEST)/bak
 
-all: gen-python patch build
-
 restore: $(RESTORE_TARGETS)
 
 restore.%:
@@ -48,9 +46,15 @@ gen-python: clean
 build-python: clean
 	gopy build -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
 
-build: build-common patch.smr.c build-darwin
+build-common:
+	cd $(dir $(DEST)) && make build-smr-common
 
-build-%:
+gen-darwin: gen-python patch
+	-rm $(DEST)/smr_darwin.go
+
+gen-%: gen-python patch
+
+build-%: gen-% build-common patch.smr.c
 	cd $(dir $(DEST)) && make build-smr-$*
 
 clean:

@@ -255,14 +255,17 @@ func (node *LogNode) manageNode(change *raftpb.ConfChange) error {
 }
 
 func (node *LogNode) WaitToClose() (lastErr error) {
-	for {
-		err, ok := <-node.errorC
-		if !ok {
+	// Save local variables to avoid node.errorC being set to Nil.
+	errorC := node.errorC
+	for errorC != nil {
+		err, ok := <-errorC
+		if !ok || err == nil {
 			return
 		} else {
 			lastErr = err
 		}
 	}
+	return
 }
 
 func (node *LogNode) Close() error {
@@ -273,24 +276,31 @@ func (node *LogNode) Close() error {
 }
 
 func (node *LogNode) close() {
-	if !node.started {
-		close(node.stopc)
-	}
 	// Clear node channels
 	proposeC, confChangeC := node.proposeC, node.confChangeC
 	node.proposeC, node.confChangeC = nil, nil
-	// Signal the routine that depends on input channels to stop.
-	// Will trigger the close(stopc).
-	if proposeC != nil {
-		select {
-		case proposeC <- nil:
-		default:
+
+	if !node.started {
+		close(node.stopc)
+	} else {
+		// Signal the routine that depends on input channels to stop.
+		// Will trigger the close(stopc).
+		if proposeC != nil {
+			select {
+			case proposeC <- nil:
+				// Handler routing is still active
+				if confChangeC != nil {
+					confChangeC <- nil
+					confChangeC = nil
+				}
+			default:
+			}
 		}
-	}
-	if confChangeC != nil {
-		select {
-		case confChangeC <- nil:
-		default:
+		if confChangeC != nil {
+			select {
+			case confChangeC <- nil:
+			default:
+			}
 		}
 	}
 }
@@ -525,7 +535,7 @@ func (node *LogNode) replayWAL() *wal.WAL {
 
 func (node *LogNode) writeError(err error) {
 	select {
-	case node.errorC <- err:
+	case node.errorC <- err: // node.errorC will be set to nil immediately after closed.
 		return
 	default:
 	}
@@ -550,15 +560,16 @@ func (node *LogNode) writeError(err error) {
 // stop closes http, closes all channels, and stops raft.
 func (node *LogNode) stopServing() {
 	node.stopHTTP()
+	node.node.Stop()
 	close(node.errorC)
 	node.errorC = nil
-	node.node.Stop()
 }
 
 func (node *LogNode) stopHTTP() {
 	node.transport.Stop()
 	close(node.httpstopc)
 	<-node.httpdonec
+
 }
 
 func (node *LogNode) publishSnapshot(snapshotToSave raftpb.Snapshot) {
