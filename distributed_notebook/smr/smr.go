@@ -57,10 +57,12 @@ import (
 
 	"context"
 	"time"
+	"unsafe"
 
 	"github.com/zhangjyr/distributed-notebook/smr"
 	raft "go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
+	"go.etcd.io/etcd/server/v3/wal/walpb"
 	"google.golang.org/protobuf/runtime/protoiface"
 )
 
@@ -139,6 +141,18 @@ func complex128PyToGo(o *C.PyObject) complex128 {
 
 // ---- External Types Outside of Targeted Packages ---
 
+// Converters for pointer handles for type: *raftpb.ConfState
+func ptrFromHandle_Ptr_raftpb_ConfState(h CGoHandle) *raftpb.ConfState {
+	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "*raftpb.ConfState")
+	if p == nil {
+		return nil
+	}
+	return gopyh.Embed(p, reflect.TypeOf(raftpb.ConfState{})).(*raftpb.ConfState)
+}
+func handleFromPtr_Ptr_raftpb_ConfState(p interface{}) CGoHandle {
+	return CGoHandle(gopyh.Register("*raftpb.ConfState", p))
+}
+
 // Converters for pointer handles for type: *raftpb.EntryType
 func ptrFromHandle_Ptr_raftpb_EntryType(h CGoHandle) *raftpb.EntryType {
 	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "*raftpb.EntryType")
@@ -161,6 +175,18 @@ func ptrFromHandle_Ptr_raftpb_MessageType(h CGoHandle) *raftpb.MessageType {
 }
 func handleFromPtr_Ptr_raftpb_MessageType(p interface{}) CGoHandle {
 	return CGoHandle(gopyh.Register("*raftpb.MessageType", p))
+}
+
+// Converters for pointer handles for type: *raftpb.Snapshot
+func ptrFromHandle_Ptr_raftpb_Snapshot(h CGoHandle) *raftpb.Snapshot {
+	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "*raftpb.Snapshot")
+	if p == nil {
+		return nil
+	}
+	return gopyh.Embed(p, reflect.TypeOf(raftpb.Snapshot{})).(*raftpb.Snapshot)
+}
+func handleFromPtr_Ptr_raftpb_Snapshot(p interface{}) CGoHandle {
+	return CGoHandle(gopyh.Register("*raftpb.Snapshot", p))
 }
 
 // Converters for pointer handles for type: context.Context
@@ -199,6 +225,18 @@ func handleFromPtr_raftpb_Entry(p interface{}) CGoHandle {
 	return CGoHandle(gopyh.Register("raftpb.Entry", p))
 }
 
+// Converters for non-pointer handles for type: raftpb.HardState
+func ptrFromHandle_raftpb_HardState(h CGoHandle) *raftpb.HardState {
+	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "raftpb.HardState")
+	if p == nil {
+		return nil
+	}
+	return gopyh.Embed(p, reflect.TypeOf(raftpb.HardState{})).(*raftpb.HardState)
+}
+func handleFromPtr_raftpb_HardState(p interface{}) CGoHandle {
+	return CGoHandle(gopyh.Register("raftpb.HardState", p))
+}
+
 // Converters for non-pointer handles for type: raftpb.Message
 func ptrFromHandle_raftpb_Message(h CGoHandle) *raftpb.Message {
 	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "raftpb.Message")
@@ -233,6 +271,18 @@ func ptrFromHandle_raftpb_SnapshotMetadata(h CGoHandle) *raftpb.SnapshotMetadata
 }
 func handleFromPtr_raftpb_SnapshotMetadata(p interface{}) CGoHandle {
 	return CGoHandle(gopyh.Register("raftpb.SnapshotMetadata", p))
+}
+
+// Converters for non-pointer handles for type: walpb.Snapshot
+func ptrFromHandle_walpb_Snapshot(h CGoHandle) *walpb.Snapshot {
+	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "walpb.Snapshot")
+	if p == nil {
+		return nil
+	}
+	return gopyh.Embed(p, reflect.TypeOf(walpb.Snapshot{})).(*walpb.Snapshot)
+}
+func handleFromPtr_walpb_Snapshot(p interface{}) CGoHandle {
+	return CGoHandle(gopyh.Register("walpb.Snapshot", p))
 }
 
 // Converters for pointer handles for type: protoiface.MessageV1
@@ -1238,6 +1288,61 @@ func Slice_raftpb_Entry_append(handle CGoHandle, _vl CGoHandle) {
 	*s = append(*s, *ptrFromHandle_raftpb_Entry(_vl))
 }
 
+// Converters for implicit pointer handles for type: []walpb.Snapshot
+func ptrFromHandle_Slice_walpb_Snapshot(h CGoHandle) *[]walpb.Snapshot {
+	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "[]walpb.Snapshot")
+	if p == nil {
+		return nil
+	}
+	return p.(*[]walpb.Snapshot)
+}
+func deptrFromHandle_Slice_walpb_Snapshot(h CGoHandle) []walpb.Snapshot {
+	p := ptrFromHandle_Slice_walpb_Snapshot(h)
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+func handleFromPtr_Slice_walpb_Snapshot(p interface{}) CGoHandle {
+	return CGoHandle(gopyh.Register("[]walpb.Snapshot", p))
+}
+
+// --- wrapping slice: []walpb.Snapshot ---
+//export Slice_walpb_Snapshot_CTor
+func Slice_walpb_Snapshot_CTor() CGoHandle {
+	return CGoHandle(handleFromPtr_Slice_walpb_Snapshot(&[]walpb.Snapshot{}))
+}
+
+//export Slice_walpb_Snapshot_len
+func Slice_walpb_Snapshot_len(handle CGoHandle) int {
+	return len(deptrFromHandle_Slice_walpb_Snapshot(handle))
+}
+
+//export Slice_walpb_Snapshot_elem
+func Slice_walpb_Snapshot_elem(handle CGoHandle, _idx int) CGoHandle {
+	s := deptrFromHandle_Slice_walpb_Snapshot(handle)
+	return handleFromPtr_walpb_Snapshot(&(s[_idx]))
+}
+
+//export Slice_walpb_Snapshot_subslice
+func Slice_walpb_Snapshot_subslice(handle CGoHandle, _st, _ed int) CGoHandle {
+	s := deptrFromHandle_Slice_walpb_Snapshot(handle)
+	ss := s[_st:_ed]
+	return CGoHandle(handleFromPtr_Slice_walpb_Snapshot(&ss))
+}
+
+//export Slice_walpb_Snapshot_set
+func Slice_walpb_Snapshot_set(handle CGoHandle, _idx int, _vl CGoHandle) {
+	s := deptrFromHandle_Slice_walpb_Snapshot(handle)
+	s[_idx] = *ptrFromHandle_walpb_Snapshot(_vl)
+}
+
+//export Slice_walpb_Snapshot_append
+func Slice_walpb_Snapshot_append(handle CGoHandle, _vl CGoHandle) {
+	s := ptrFromHandle_Slice_walpb_Snapshot(handle)
+	*s = append(*s, *ptrFromHandle_walpb_Snapshot(_vl))
+}
+
 // Converters for non-pointer handles for type: smr.Bytes
 func ptrFromHandle_smr_Bytes(h CGoHandle) *smr.Bytes {
 	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "smr.Bytes")
@@ -1284,6 +1389,30 @@ func ptrFromHandle_smr_LogNodeConfig(h CGoHandle) *smr.LogNodeConfig {
 }
 func handleFromPtr_smr_LogNodeConfig(p interface{}) CGoHandle {
 	return CGoHandle(gopyh.Register("smr.LogNodeConfig", p))
+}
+
+// Converters for pointer handles for type: smr.LogSnapshotter
+func ptrFromHandle_smr_LogSnapshotter(h CGoHandle) smr.LogSnapshotter {
+	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "smr.LogSnapshotter")
+	if p == nil {
+		return nil
+	}
+	return p.(smr.LogSnapshotter)
+}
+func handleFromPtr_smr_LogSnapshotter(p interface{}) CGoHandle {
+	return CGoHandle(gopyh.Register("smr.LogSnapshotter", p))
+}
+
+// Converters for pointer handles for type: smr.LogStorage
+func ptrFromHandle_smr_LogStorage(h CGoHandle) smr.LogStorage {
+	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "smr.LogStorage")
+	if p == nil {
+		return nil
+	}
+	return p.(smr.LogStorage)
+}
+func handleFromPtr_smr_LogStorage(p interface{}) CGoHandle {
+	return CGoHandle(gopyh.Register("smr.LogStorage", p))
 }
 
 // Converters for pointer handles for type: smr.ReadCloser
@@ -1333,6 +1462,67 @@ func smr_Set_ProposalDeadline(val C.longlong) {
 
 // ---- Interfaces ---
 
+//export smr_LogStorage_Close
+func smr_LogStorage_Close(_handle CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
+	if __err != nil {
+		return C.CString("")
+	}
+	__err = vifc.(smr.LogStorage).Close()
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
+//export smr_LogStorage_ReleaseLockTo
+func smr_LogStorage_ReleaseLockTo(_handle CGoHandle, arg_0 C.ulonglong) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
+	if __err != nil {
+		return C.CString("")
+	}
+	__err = vifc.(smr.LogStorage).ReleaseLockTo(uint64(arg_0))
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
+//export smr_LogStorage_Save
+func smr_LogStorage_Save(_handle CGoHandle, arg_0 CGoHandle, arg_1 CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
+	if __err != nil {
+		return C.CString("")
+	}
+	__err = vifc.(smr.LogStorage).Save(*ptrFromHandle_raftpb_HardState(arg_0), deptrFromHandle_Slice_raftpb_Entry(arg_1))
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
+//export smr_LogStorage_SaveSnapshot
+func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.char) {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go vifc.(smr.LogStorage).SaveSnapshot(*ptrFromHandle_walpb_Snapshot(arg_0))
+	} else {
+		vifc.(smr.LogStorage).SaveSnapshot(*ptrFromHandle_walpb_Snapshot(arg_0))
+	}
+}
+
 //export smr_ReadCloser_Close
 func smr_ReadCloser_Close(_handle CGoHandle) *C.char {
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
@@ -1371,6 +1561,56 @@ func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
 	}
 	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.WriteCloser).Write(*ptrFromHandle_smr_Bytes(p)))
 
+}
+
+//export smr_LogSnapshotter_Load
+func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
+	if __err != nil {
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	cret, __err := vifc.(smr.LogSnapshotter).Load()
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		C.free(unsafe.Pointer(estr))
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	return handleFromPtr_Ptr_raftpb_Snapshot(cret)
+}
+
+//export smr_LogSnapshotter_LoadNewestAvailable
+func smr_LogSnapshotter_LoadNewestAvailable(_handle CGoHandle, arg_0 CGoHandle) CGoHandle {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
+	if __err != nil {
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	cret, __err := vifc.(smr.LogSnapshotter).LoadNewestAvailable(deptrFromHandle_Slice_walpb_Snapshot(arg_0))
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		C.free(unsafe.Pointer(estr))
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	return handleFromPtr_Ptr_raftpb_Snapshot(cret)
+}
+
+//export smr_LogSnapshotter_SaveSnap
+func smr_LogSnapshotter_SaveSnap(_handle CGoHandle, arg_0 CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
+	if __err != nil {
+		return C.CString("")
+	}
+	__err = vifc.(smr.LogSnapshotter).SaveSnap(*ptrFromHandle_raftpb_Snapshot(arg_0))
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
 }
 
 // ---- Structs ---

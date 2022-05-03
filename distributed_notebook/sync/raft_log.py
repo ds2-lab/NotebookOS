@@ -250,5 +250,5 @@ class RaftLog:
       self._closed = None
 
   def ensure_path(self, base_path):
-    if not os.path.exists(base_path):
+    if base_path != "" and not os.path.exists(base_path):
       os.makedirs(base_path, 0o750)

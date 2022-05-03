@@ -1384,6 +1384,50 @@ class Slice_uint8(GoClass):
 
 # ---- External Types Outside of Targeted Packages ---
 
+# Python type for *raftpb.ConfState
+class Ptr_raftpb_ConfState(GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], int):
+			self.handle = args[0]
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	
+
+# Python type for *raftpb.Snapshot
+class Ptr_raftpb_Snapshot(GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], int):
+			self.handle = args[0]
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	
+
 # Python type for context.Context
 class context_Context(GoClass):
 	""""""
@@ -1450,6 +1494,28 @@ class raftpb_Entry(GoClass):
 		_smr.DecRef(self.handle)
 	
 
+# Python type for raftpb.HardState
+class raftpb_HardState(GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], int):
+			self.handle = args[0]
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	
+
 # Python type for raftpb.Message
 class raftpb_Message(GoClass):
 	""""""
@@ -1496,6 +1562,28 @@ class raftpb_Snapshot(GoClass):
 
 # Python type for raftpb.SnapshotMetadata
 class raftpb_SnapshotMetadata(GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], int):
+			self.handle = args[0]
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	
+
+# Python type for walpb.Snapshot
+class walpb_Snapshot(GoClass):
 	""""""
 	def __init__(self, *args, **kwargs):
 		"""

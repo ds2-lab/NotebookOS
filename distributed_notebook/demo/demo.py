@@ -3,6 +3,7 @@ import os
 import sys
 import ast
 import logging
+import asyncio
 
 from ..sync import Synchronizer, FileLog, RaftLog, CHECKPOINT_AUTO, CHECKPOINT_ON_CHANGE
 
@@ -46,6 +47,8 @@ async def demo():
   parser.add_argument("-v", "--version", action="version",
                       version="demo {}".format("0.1"))
   parser.add_argument("--resume", action=argparse.BooleanOptionalAction, help="Resume last execution.")
+  parser.add_argument("--replica", action=argparse.BooleanOptionalAction, help="Add 1 replica.")
+  parser.add_argument("--replicas", action='store', type=int, help="The number of replicas to add.")
   parser.add_argument("scripts", nargs=argparse.REMAINDER, action=ScriptAction,
                 help="Python script to be executed.")
   if len(sys.argv) == 1:
@@ -59,9 +62,15 @@ async def demo():
     execution_count = 0
     synclog = None
     synchronizer = None
+    replicas = ["http://127.0.0.1:19800"]
+    if args.replica:
+      replicas.append("http://127.0.0.1:19801")
+    for i in range(args.replicas):
+      replicas.append("http://127.0.0.1:{}".format(19800+i+1))
+
     for path in args.scripts:
       if synclog is None or synchronizer is None:
-        synclog = RaftLog(store, 1, ["http://127.0.0.1:19800"])
+        synclog = RaftLog("", 1, replicas)
         # synclog = FileLog(store)
         synchronizer = Synchronizer(synclog, opts=CHECKPOINT_AUTO)
         synchronizer.start()
@@ -95,6 +104,8 @@ async def demo():
       execution_count = execution_count + 1
 
       await synchronizer.sync(tree, source)
+
+    await asyncio.Future()
 
     synchronizer.close()
     # await future

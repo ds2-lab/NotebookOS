@@ -266,15 +266,30 @@ extern long long int Slice_raftpb_Entry_subslice(long long int handle, GoInt _st
 extern void Slice_raftpb_Entry_set(long long int handle, GoInt _idx, long long int _vl);
 extern void Slice_raftpb_Entry_append(long long int handle, long long int _vl);
 
+// --- wrapping slice: []walpb.Snapshot ---
+extern long long int Slice_walpb_Snapshot_CTor();
+extern GoInt Slice_walpb_Snapshot_len(long long int handle);
+extern long long int Slice_walpb_Snapshot_elem(long long int handle, GoInt _idx);
+extern long long int Slice_walpb_Snapshot_subslice(long long int handle, GoInt _st, GoInt _ed);
+extern void Slice_walpb_Snapshot_set(long long int handle, GoInt _idx, long long int _vl);
+extern void Slice_walpb_Snapshot_append(long long int handle, long long int _vl);
+
 // ---- Global Variables: can only use functions to access ---
 extern char* smr_ErrEOF();
 extern void smr_Set_ErrEOF(char* val);
 extern long long int smr_ProposalDeadline();
 extern void smr_Set_ProposalDeadline(long long int val);
+extern char* smr_LogStorage_Close(long long int _handle);
+extern char* smr_LogStorage_ReleaseLockTo(long long int _handle, long long unsigned int arg_0);
+extern char* smr_LogStorage_Save(long long int _handle, long long int arg_0, long long int arg_1);
+extern void smr_LogStorage_SaveSnapshot(long long int _handle, long long int arg_0, char goRun);
 extern char* smr_ReadCloser_Close(long long int _handle);
 extern long long int smr_ReadCloser_Read(long long int _handle, long long int p);
 extern char* smr_WriteCloser_Close(long long int _handle);
 extern long long int smr_WriteCloser_Write(long long int _handle, long long int p);
+extern long long int smr_LogSnapshotter_Load(long long int _handle);
+extern long long int smr_LogSnapshotter_LoadNewestAvailable(long long int _handle, long long int arg_0);
+extern char* smr_LogSnapshotter_SaveSnap(long long int _handle, long long int arg_0);
 
 // --- wrapping struct: smr.Bytes ---
 extern long long int smr_Bytes_CTor();

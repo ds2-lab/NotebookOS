@@ -56,5 +56,28 @@ val_loader = torch.utils.data.DataLoader(val, batch_size=batch_size, shuffle=Tru
 
 assert num_classes == len(train_loader.dataset.classes)
 
-# pre_trained_model = models.alexnet(pretrained=True)
+def initialize_weights(m):
+    weight_shape = list(m.weight.data.size())
+    fan_in = weight_shape[1]
+    fan_out = weight_shape[0]
+    w_bound = np.sqrt(6. / (fan_in + fan_out))
+    m.weight.data.uniform_(-w_bound, w_bound)
+    m.bias.data.fill_(0)
+
+pre_trained_model = models.alexnet(pretrained=True)
+state_dict = pre_trained_model.state_dict()
+state_dict.pop("classifier.6.weight")
+state_dict.pop("classifier.6.bias")
+model = models.alexnet(num_classes=num_classes)
+model.load_state_dict(state_dict, strict=False)
+
+# parameters = model.classifier[6].parameters()
+parameters = list(model.classifier[6].parameters())
+initialize_weights(model.classifier[6])
+
+model = model.cpu()
+# model = model.cuda()
+
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.SGD(parameters, lr=0.001, momentum=0.9)
 

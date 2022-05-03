@@ -3,14 +3,17 @@ PIP=$(PYTHON) -m pip
 
 all: build
 
+replica:
+	python3 -Xfaulthandler -m distributed_notebook.demo_replica $(PARAMS)
+
 debug-training-all:
 	python3 -m distributed_notebook.demo distributed_notebook/demo/script/training.py distributed_notebook/demo/script/training1.py
 
 debug-training:
-	python3 -m distributed_notebook.demo distributed_notebook/demo/script/training.py
+	python3 -Xfaulthandler -m distributed_notebook.demo $(PARAMS) distributed_notebook/demo/script/training.py
 
 debug-training1:
-	python3 -m distributed_notebook.demo --resume distributed_notebook/demo/script/training1.py
+	python3 -Xfaulthandler -m distributed_notebook.demo --resume $(PARAMS) distributed_notebook/demo/script/training1.py
 
 python-demo-all:
 	python3 -m distributed_notebook.demo distributed_notebook/demo/script/script.py distributed_notebook/demo/script/script2.py

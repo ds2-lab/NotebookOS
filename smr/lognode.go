@@ -137,8 +137,8 @@ type LogNode struct {
 	raftStorage *raft.MemoryStorage
 	wal         *wal.WAL
 
-	snapshotter      *snap.Snapshotter
-	snapshotterReady chan *snap.Snapshotter // signals when snapshotter is ready
+	snapshotter      LogSnapshotter
+	snapshotterReady chan LogSnapshotter // signals when snapshotter is ready
 
 	snapCount uint64
 	transport *rafthttp.Transport
@@ -169,8 +169,6 @@ func NewLogNode(store_path string, id int, peers []string, join bool) *LogNode {
 		id:               id,
 		peers:            peers,
 		join:             join,
-		waldir:           path.Join(store_path, fmt.Sprintf("dnlog-%d", id)),
-		snapdir:          path.Join(store_path, fmt.Sprintf("dnlog-%d-snap", id)),
 		snapCount:        defaultSnapshotCount,
 		stopc:            make(chan struct{}),
 		httpstopc:        make(chan struct{}),
@@ -181,8 +179,12 @@ func NewLogNode(store_path string, id int, peers []string, join bool) *LogNode {
 
 		logger: zap.NewExample(),
 
-		snapshotterReady: make(chan *snap.Snapshotter, 1),
+		snapshotterReady: make(chan LogSnapshotter, 1),
 		// rest of structure populated after WAL replay
+	}
+	if store_path != "" {
+		node.waldir = path.Join(store_path, fmt.Sprintf("dnlog-%d", id))
+		node.snapdir = path.Join(store_path, fmt.Sprintf("dnlog-%d-snap", id))
 	}
 	testId, _ := node.generateProposal(nil, 0)
 	node.proposalPadding = len(testId)
@@ -276,6 +278,7 @@ func (node *LogNode) Close() error {
 }
 
 func (node *LogNode) close() {
+	node.logger.Debug("Closing nodes...")
 	// Clear node channels
 	proposeC, confChangeC := node.proposeC, node.confChangeC
 	node.proposeC, node.confChangeC = nil, nil
@@ -306,18 +309,24 @@ func (node *LogNode) close() {
 }
 
 func (node *LogNode) start() {
-	if !fileutil.Exist(node.snapdir) {
-		if err := os.Mkdir(node.snapdir, 0750); err != nil {
-			node.logFatalf("LogNode: cannot create dir for snapshot (%v)", err)
+	if node.isSnapEnabled() {
+		if !fileutil.Exist(node.snapdir) {
+			if err := os.Mkdir(node.snapdir, 0750); err != nil {
+				node.logFatalf("LogNode: cannot create dir for snapshot (%v)", err)
+				return
+			}
+		}
+		node.snapshotter = snap.New(zap.NewExample(), node.snapdir)
+	}
+
+	oldwal := false
+	node.raftStorage = raft.NewMemoryStorage()
+	if node.isWALEnabled() {
+		oldwal = wal.Exist(node.waldir)
+		node.wal = node.replayWAL()
+		if node.wal == nil {
 			return
 		}
-	}
-	node.snapshotter = snap.New(zap.NewExample(), node.snapdir)
-
-	oldwal := wal.Exist(node.waldir)
-	node.wal = node.replayWAL()
-	if node.wal == nil {
-		return
 	}
 
 	// signal replay has finished
@@ -364,7 +373,15 @@ func (node *LogNode) start() {
 	node.serveChannels()
 }
 
+func (node *LogNode) isSnapEnabled() bool {
+	return node.snapdir != ""
+}
+
 func (node *LogNode) saveSnap(snap raftpb.Snapshot) error {
+	if node.snapshotter == nil || node.wal == nil {
+		return nil
+	}
+
 	walSnap := walpb.Snapshot{
 		Index:     snap.Metadata.Index,
 		Term:      snap.Metadata.Term,
@@ -453,7 +470,7 @@ func (node *LogNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool)
 }
 
 func (node *LogNode) loadSnapshot() *raftpb.Snapshot {
-	if wal.Exist(node.waldir) {
+	if node.snapshotter != nil && node.isWALEnabled() && wal.Exist(node.waldir) {
 		walSnaps, err := wal.ValidSnapshotEntries(node.logger, node.waldir)
 		if err != nil {
 			node.logWarnf("LogNode: error listing snapshots (%v)", err)
@@ -466,6 +483,10 @@ func (node *LogNode) loadSnapshot() *raftpb.Snapshot {
 		return snapshot
 	}
 	return nil
+}
+
+func (node *LogNode) isWALEnabled() bool {
+	return node.waldir != ""
 }
 
 // openWAL returns a WAL ready for reading.
@@ -521,7 +542,6 @@ func (node *LogNode) replayWAL() *wal.WAL {
 		node.logFatalf("LogNode: failed to read WAL (%v)", err)
 		return nil
 	}
-	node.raftStorage = raft.NewMemoryStorage()
 	if snapshot != nil {
 		node.raftStorage.ApplySnapshot(*snapshot)
 	}
@@ -601,7 +621,8 @@ func (node *LogNode) publishSnapshot(snapshotToSave raftpb.Snapshot) {
 var snapshotCatchUpEntriesN uint64 = 1000
 
 func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
-	if node.config.getSnapshot == nil || // No snapshotCallback
+	if !node.isSnapEnabled() ||
+		node.config.getSnapshot == nil || // No snapshotCallback
 		(node.config.shouldSnapshot == nil && node.appliedIndex-node.snapshotIndex <= node.snapCount) { // No shouldSnapshot and failed default test.
 		return
 	} else if node.config.shouldSnapshot != nil && (node.num_changes == node.denied_changes || !node.config.shouldSnapshot(node)) { // Failed shouldSnapshot test
@@ -630,21 +651,24 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	reader, writer := io.Pipe()
 	go func() {
 		if err := fromCError(node.config.getSnapshot(&writerWrapper{writer: writer})); err != nil {
-			panic(err)
+			writer.CloseWithError(err)
 		}
 	}()
 
 	node.logger.Info("start snapshot", zap.Uint64("applied index", node.appliedIndex), zap.Uint64("last index", node.snapshotIndex))
 	data, err := io.ReadAll(reader)
 	if err != nil {
-		log.Panic(err)
+		node.panic(err)
+		return
 	}
 	snap, err := node.raftStorage.CreateSnapshot(node.appliedIndex, &node.confState, data)
 	if err != nil {
-		panic(err)
+		node.panic(err)
+		return
 	}
 	if err := node.saveSnap(snap); err != nil {
-		panic(err)
+		node.panic(err)
+		return
 	}
 
 	compactIndex := node.appliedIndex
@@ -652,7 +676,8 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 		compactIndex = node.appliedIndex - snapshotCatchUpEntriesN
 	}
 	if err := node.raftStorage.Compact(compactIndex); err != nil {
-		panic(err)
+		node.panic(err)
+		return
 	}
 
 	node.logger.Info("compacted log", zap.Uint64("index", compactIndex))
@@ -663,13 +688,16 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 func (node *LogNode) serveChannels() {
 	snap, err := node.raftStorage.Snapshot()
 	if err != nil {
-		panic(err)
+		node.panic(err)
+		return
 	}
 	node.confState = snap.Metadata.ConfState
 	node.snapshotIndex = snap.Metadata.Index
 	node.appliedIndex = snap.Metadata.Index
 
-	defer node.wal.Close()
+	if node.wal != nil {
+		defer node.wal.Close()
+	}
 
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -744,8 +772,10 @@ func (node *LogNode) serveChannels() {
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-node.node.Ready():
 			// node.logger.Info("ready", zap.Int("entries", len(rd.CommittedEntries)), zap.Uint64("commit", rd.HardState.Commit))
-			node.wal.Save(rd.HardState, rd.Entries)
-			if !raft.IsEmptySnap(rd.Snapshot) {
+			if node.wal != nil {
+				node.wal.Save(rd.HardState, rd.Entries)
+			}
+			if node.snapshotter != nil && !raft.IsEmptySnap(rd.Snapshot) {
 				node.saveSnap(rd.Snapshot)
 				node.raftStorage.ApplySnapshot(rd.Snapshot)
 				node.publishSnapshot(rd.Snapshot)
@@ -866,6 +896,12 @@ func (node *LogNode) logWarnf(format string, args ...interface{}) {
 func (node *LogNode) logFatalf(format string, args ...interface{}) {
 	log.Printf(format, args...)
 	node.writeError(fmt.Errorf(format, args...))
+	node.close()
+}
+
+func (node *LogNode) panic(err error) {
+	log.Println(err)
+	node.writeError(err)
 	node.close()
 }
 

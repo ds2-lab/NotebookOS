@@ -127,6 +127,89 @@ class Slice_raftpb_Entry(go.GoClass):
 		for i in range(mx):
 			self[i] = src[i]
 
+# Python type for slice []walpb.Snapshot
+class Slice_walpb_Snapshot(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameter is a python list that we copy from
+		"""
+		self.index = 0
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.Slice_walpb_Snapshot_CTor()
+			_smr.IncRef(self.handle)
+			if len(args) > 0:
+				if not isinstance(args[0], _collections_abc.Iterable):
+					raise TypeError('Slice_walpb_Snapshot.__init__ takes a sequence as argument')
+				for elt in args[0]:
+					self.append(elt)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		s = 'smr.Slice_walpb_Snapshot len: ' + str(len(self)) + ' handle: ' + str(self.handle) + ' ['
+		if len(self) < 120:
+			s += ', '.join(map(str, self)) + ']'
+		return s
+	def __repr__(self):
+		return 'smr.Slice_walpb_Snapshot([' + ', '.join(map(str, self)) + '])'
+	def __len__(self):
+		return _smr.Slice_walpb_Snapshot_len(self.handle)
+	def __getitem__(self, key):
+		if isinstance(key, slice):
+			if key.step == None or key.step == 1:
+				st = key.start
+				ed = key.stop
+				if st == None:
+					st = 0
+				if ed == None:
+					ed = _smr.Slice_walpb_Snapshot_len(self.handle)
+				return Slice_walpb_Snapshot(handle=_smr.Slice_walpb_Snapshot_subslice(self.handle, st, ed))
+			return [self[ii] for ii in range(*key.indices(len(self)))]
+		elif isinstance(key, int):
+			if key < 0:
+				key += len(self)
+			if key < 0 or key >= len(self):
+				raise IndexError('slice index out of range')
+			return go.walpb_Snapshot(handle=_smr.Slice_walpb_Snapshot_elem(self.handle, key))
+		else:
+			raise TypeError('slice index invalid type')
+	def __setitem__(self, idx, value):
+		if idx < 0:
+			idx += len(self)
+		if idx < len(self):
+			_smr.Slice_walpb_Snapshot_set(self.handle, idx, value.handle)
+			return
+		raise IndexError('slice index out of range')
+	def __iadd__(self, value):
+		if not isinstance(value, _collections_abc.Iterable):
+			raise TypeError('Slice_walpb_Snapshot.__iadd__ takes a sequence as argument')
+		for elt in value:
+			self.append(elt)
+		return self
+	def __iter__(self):
+		self.index = 0
+		return self
+	def __next__(self):
+		if self.index < len(self):
+			rv = _smr.Slice_walpb_Snapshot_elem(self.handle, self.index)
+			self.index = self.index + 1
+			return rv
+		raise StopIteration
+	def append(self, value):
+		_smr.Slice_walpb_Snapshot_append(self.handle, value.handle)
+	def copy(self, src):
+		""" copy emulates the go copy function, copying elements into this list from source list, up to min of size of each list """
+		mx = min(len(self), len(src))
+		for i in range(mx):
+			self[i] = src[i]
+
 
 #---- Enums from Go (collections of consts with same type) ---
 
@@ -173,6 +256,34 @@ def Set_ProposalDeadline(value):
 
 # ---- Interfaces ---
 
+# Python type for interface smr.LogStorage
+class LogStorage(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_LogStorage_Close(self.handle)
+	def ReleaseLockTo(self, arg_0):
+		"""ReleaseLockTo(long) str"""
+		return _smr.smr_LogStorage_ReleaseLockTo(self.handle, arg_0)
+	def Save(self, arg_0, arg_1):
+		"""Save(object, []object) str"""
+		return _smr.smr_LogStorage_Save(self.handle, arg_0.handle, arg_1.handle)
+	def SaveSnapshot(self, arg_0, goRun=False):
+		"""SaveSnapshot(object) """
+		_smr.smr_LogStorage_SaveSnapshot(self.handle, arg_0.handle, goRun)
+
 # Python type for interface smr.ReadCloser
 class ReadCloser(go.GoClass):
 	""""""
@@ -216,6 +327,31 @@ class WriteCloser(go.GoClass):
 	def Write(self, p):
 		"""Write(object p) object"""
 		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
+
+# Python type for interface smr.LogSnapshotter
+class LogSnapshotter(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Load(self):
+		"""Load() object, str"""
+		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_Load(self.handle))
+	def LoadNewestAvailable(self, arg_0):
+		"""LoadNewestAvailable([]object) object, str"""
+		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_LoadNewestAvailable(self.handle, arg_0.handle))
+	def SaveSnap(self, arg_0):
+		"""SaveSnap(object) str"""
+		return _smr.smr_LogSnapshotter_SaveSnap(self.handle, arg_0.handle)
 
 
 # ---- Structs ---

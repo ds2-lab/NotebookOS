@@ -14,6 +14,7 @@ err_failed_to_lead_execution = RuntimeError("Failed to lead the exectuion.")
 key_persistent_id = "persistent_id"
 key_replica_id = "replica_id"
 base_port = 10000
+enable_storage = False
 
 logging.basicConfig(level=logging.INFO)
 
@@ -160,7 +161,10 @@ class DistributedKernel(IPythonKernel):
         # Implement dynamic later
         addrs = ["http://127.0.0.1:{}".format(port), "http://127.0.0.1:{}".format(port + 1), "http://127.0.0.1:{}".format(port + 2)]
         published = [3, 3, 3]
-        return RaftLog(self.store, node_id, addrs[:published[node_id-1]])
+        store = ""
+        if enable_storage:
+            store = self.store
+        return RaftLog(store, node_id, addrs[:published[node_id-1]])
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):
         self.source = raw_cell
@@ -180,6 +184,8 @@ class DistributedKernel(IPythonKernel):
 
         if override:
             sys.stdout.disable = not enable
+            sys.stderr.disable = not enable
         else:
             sys.stdout.disable = not sys.stdout.disable
+            sys.stderr.disable = not sys.stderr.disable
 

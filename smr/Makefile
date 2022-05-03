@@ -58,4 +58,5 @@ build-%: gen-% build-common patch.smr.c
 	cd $(dir $(DEST)) && make build-smr-$*
 
 clean:
-	rm -rf $(DEST)/bak
+	rm -rf $(DEST)
+#	rm -rf $(DEST)/bak
