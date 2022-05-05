@@ -14,7 +14,7 @@ err_failed_to_lead_execution = RuntimeError("Failed to lead the exectuion.")
 key_persistent_id = "persistent_id"
 key_replica_id = "replica_id"
 base_port = 10000
-enable_storage = False
+enable_storage = True
 
 logging.basicConfig(level=logging.INFO)
 

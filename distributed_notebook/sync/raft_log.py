@@ -4,8 +4,6 @@ import pickle
 import asyncio
 import logging
 import time
-import sys
-import traceback
 import ctypes
 from typing import Tuple, List
 
@@ -14,14 +12,12 @@ from ..smr.go import Slice_string
 from .log import SyncValue, KEY_SYNC_END
 from .checkpoint import Checkpoint
 from .future import Future
-from .errors import SyncError, GoError, GoNilError
+from .errors import print_trace, SyncError, GoError, GoNilError
 from .reader import readCloser
+from .file_log import FileLog
 
 KEY_LEAD = "_lead_"
-
-def print_trace():
-  _, _, exc_traceback = sys.exc_info()
-  traceback.print_tb(exc_traceback, limit=5, file=sys.stdout)
+MAX_MEMORY_OBJECT = 1024 * 1024
 
 class writeCloser:
   def __init__(self, wc: WriteCloser):
@@ -33,12 +29,20 @@ class writeCloser:
   def close(self):
     self.wc.Close()
 
+class OffloadPath:
+  def __init__(self, path: str):
+    self.path = path
+
+  def __str__(self):
+    return self.path
+
 class RaftLog:
   def __init__(self, base_path: str, id: int, peers: List[str], join: bool = False):
     self._store = base_path
     self._id = id
     self._term = 0   # Term will only change if we got value update from the term. Leading status will not change it.
     self.ensure_path(self._store)
+    self._offloader = FileLog(self._store)
     self._node = NewLogNode(self._store, id, Slice_string(peers), join)
     self._handler = None
     self._changeCallback = self._changeHandler  # No idea why this walkaround works
@@ -100,7 +104,7 @@ class RaftLog:
       # For values synchronized from other replicas or replayed, count _ignore_changes
       if syncval.op is None or syncval.op == "":
         self._ignore_changes = self._ignore_changes + 1
-      self._handler(syncval)
+      self._handler(self._load(syncval))
 
       return GoNilError()
     except Exception as e:
@@ -136,7 +140,7 @@ class RaftLog:
     restored = 0
     while syncval is not None:
       try:
-        self._handler(syncval)
+        self._handler(self._load(syncval))
         restored = restored + 1
 
         syncval = None
@@ -211,6 +215,9 @@ class RaftLog:
 
     # Ensure key is specified.
     if val.key is not None:
+      if val.val is not None and type(val.val) is bytes and len(val.val) > MAX_MEMORY_OBJECT:
+        val = await self._offload(val)
+        
       # Serialize the value. 
       # start_time = time.time()
       dumped = pickle.dumps(val)
@@ -252,3 +259,23 @@ class RaftLog:
   def ensure_path(self, base_path):
     if base_path != "" and not os.path.exists(base_path):
       os.makedirs(base_path, 0o750)
+
+  async def _offload(self, val: SyncValue) -> SyncValue:
+    """Offload the buffer to the storage server."""
+    # Ensure path exists.
+    valEnd = val.end
+    val.end = False
+    val.val = OffloadPath(await self._offloader.append(val))
+    val.prmap = None
+    val.end = valEnd
+    return val
+
+  def _load(self, val: SyncValue) -> SyncValue:
+    """Onload the buffer from the storage server."""
+    if type(val.val) is not OffloadPath:
+      return val
+
+    valEnd = val.end
+    val = self._offloader._load(val.val.path)
+    val.end = valEnd
+    return val

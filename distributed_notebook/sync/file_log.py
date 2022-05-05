@@ -71,15 +71,13 @@ class FileLog:
     for term in range(term+1, self.term+1):
       print("apply term: {}".format(term))
       for filepath in self.logs[term-self.skip_terms-1]:
-        with open(os.path.join(self.store, filepath), "rb") as file:
-          # Backup unpersistable variables.
-          val = pickle.load(file)
-          # Update for incremental changes only.
-          if incremental:
-            self._num_changes = self._num_changes + 1
-          # Call change handlers
-          for handlers in self._handlers:
-            handlers(val)
+        val = self.load(os.path.join(self.store, filepath))
+        # Update for incremental changes only.
+        if incremental:
+          self._num_changes = self._num_changes + 1
+        # Call change handlers
+        for handlers in self._handlers:
+          handlers(val)
     
     return True
 
@@ -147,7 +145,9 @@ class FileLog:
         pickle.dump(val, file)
 
       self.term = val.term
-      self.logs[val.term-self.skip_terms-1].append(relative_path)
+      # In some cases, log slot may not be allocated, so we don't need to update the number of changes.
+      if len(self.logs) > val.term-self.skip_terms-1:
+        self.logs[val.term-self.skip_terms-1].append(relative_path)
       # Update if not first term or the checkpoint term: self.term == self.skip_terms + 1
       if val.term > self.skip_terms + 1:
         self._num_changes = self._num_changes + 1
@@ -155,6 +155,13 @@ class FileLog:
     if val.end:
       # Call save without filename, so inherited classes may customize default value of save().
       self.save()
+
+    return relative_path
+
+  def _load(self, filepath: str) -> SyncValue:
+    """Load the value of the specified filepath."""
+    with open(os.path.join(self.store, filepath), "rb") as file:
+      return pickle.load(file)
 
   def on_change(self, handler):
     """Register handler function that will be callbacked on changing of value. handler will be in the form listerner(key, val: SyncValue)"""
@@ -183,7 +190,7 @@ class FileLog:
 
   def get_path(self, term, val: SyncValue):
     # TODO: Sanitize the key.
-    return os.path.join(str(term), val.key)
+    return os.path.join("t{}".format(term), val.key)
 
 class FileCheckpoint(FileLog):
   def __init__(self, base_path, sync_log: SyncLog):

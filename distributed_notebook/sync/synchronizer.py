@@ -8,7 +8,7 @@ from .log import Checkpointer, SyncLog, SyncValue, KEY_SYNC_END
 from .ast import SyncAST
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
-from .errors import SyncError
+from .errors import print_trace, SyncError
 
 KEY_SYNC_AST = "_ast_"
 CHECKPOINT_AUTO = 1
@@ -87,42 +87,45 @@ class Synchronizer:
       self._log.debug("exit execution syncing")
       return
 
-    self._log.debug("Updating: {}, ended: {}".format(val.key, val.end))
-    existed = None
-    if val.key == KEY_SYNC_AST:
-      existed = self._ast
-    elif val.key in self._tags:
-      existed = self._tags[val.key]
+    try:
+      self._log.debug("Updating: {}, ended: {}".format(val.key, val.end))
+      existed = None
+      if val.key == KEY_SYNC_AST:
+        existed = self._ast
+      elif val.key in self._tags:
+        existed = self._tags[val.key]
 
-    if existed == None: 
-      if isinstance(val.val, SyncObject):
-        existed = val.val
+      if existed == None: 
+        if isinstance(val.val, SyncObject):
+          existed = val.val
+        else:
+          existed = SyncObjectWrapper(self._referer)
+
+      # Switch context
+      old_main_modules = sys.modules["__main__"]
+      sys.modules["__main__"] = self._module
+
+      # print("restoring {}...".format(val.key))
+      diff = existed.update(val)
+      # print("{}:{}".format(val.key, type(diff)))
+
+      sys.modules["__main__"] = old_main_modules
+      # End of switch context
+
+      if val.key == KEY_SYNC_AST:
+        self._ast = existed
+        # Redeclare modules, classes, and functions.
+        compiled = compile(diff, "sync", "exec")
+        exec(compiled, self.global_ns, self.global_ns)
       else:
-        existed = SyncObjectWrapper(self._referer)
+        self._tags[val.key] = existed
+        self.global_ns[val.key] = existed.object
 
-    # Switch context
-    old_main_modules = sys.modules["__main__"]
-    sys.modules["__main__"] = self._module
-    
-    # print("restoring {}...".format(val.key))
-    diff = existed.update(val)
-    # print("{}:{}".format(val.key, type(diff)))
-
-    sys.modules["__main__"] = old_main_modules
-    # End of switch context
-
-    if val.key == KEY_SYNC_AST:
-      self._ast = existed
-      # Redeclare modules, classes, and functions.
-      compiled = compile(diff, "sync", "exec")
-      exec(compiled, self.global_ns, self.global_ns)
-    else:
-      self._tags[val.key] = existed
-      self.global_ns[val.key] = existed.object
-
-    if val.end:
-      self._syncing = False
-      self._log.debug("exit execution syncing")
+      if val.end:
+        self._syncing = False
+        self._log.debug("exit execution syncing")
+    except Exception as e:
+      print_trace()
 
   async def ready(self, execution_count) -> int:
     """Wait the ready of the synchronization and propose to lead a execution.
@@ -145,6 +148,8 @@ class Synchronizer:
           return execution_count
     except SyncError as se:
       self._log.warning("SyncError: {}".format(se))
+    except Exception as e:
+      print_trace()
     
     # Failed to lead the term
     return 0
@@ -191,6 +196,8 @@ class Synchronizer:
         checkpointer.close()
     except SyncError as se:
       self._log.warning("SyncError: {}".format(se))
+    except Exception as e:
+      print_trace()
 
   async def sync_key(self, synclog, key, val, end_execution=False, checkpointing=False, meta=None):
     existed = None

@@ -33,7 +33,7 @@ class ScriptAction(argparse.Action):                                            
 
 async def replica():
   parser = argparse.ArgumentParser(description=__doc__, formatter_class=SmartFormatter)
-  parser.add_argument("--replicas", action='store', type=int, help="The number of replicas to add.")
+  parser.add_argument("--replicas", action='store', type=int, help="The number of replicas to add.", default=1)
   parser.add_argument("-v", "--version", action="version", version="replica {}".format("0.1"))
   parser.add_argument("replica", nargs=argparse.REMAINDER, action=ScriptAction, type=int, help="Replica ID.")
 
