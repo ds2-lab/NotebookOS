@@ -29,6 +29,3 @@ RUN add-apt-repository -y ppa:deadsnakes/ppa \
 RUN wget -q -O /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py \
     && /usr/bin/python3.9 /tmp/get-pip.py \
     && python3 -m pip install --upgrade pip setuptools wheel
-
-# # Install python3 packages
-RUN python3 -m pip install numpy cupy
