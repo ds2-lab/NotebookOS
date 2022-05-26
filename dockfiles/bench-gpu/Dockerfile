@@ -6,4 +6,4 @@ RUN python3 -m pip install numpy cupy
 
 ADD test.py test.py
 
-ENTRYPOINT [ "python3", "test.py" ]
+CMD [ "python3", "test.py" ]

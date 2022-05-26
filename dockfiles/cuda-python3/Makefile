@@ -5,3 +5,6 @@ all: build
 
 build:
 	docker build --build-arg CUDA_VERSION=$(CUDA_VERSION) ${PARAMS} -t $(DOCKER_USER)cuda-python3 .
+
+clean:
+	docker builder prune
