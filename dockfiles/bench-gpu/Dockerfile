@@ -1,5 +1,5 @@
 ARG DOCKER_USER
-FROM ${DOCKER_USER}bench-gpu
+FROM ${DOCKER_USER}cuda-python3
 
 # # Install python3 packages
 RUN python3 -m pip install numpy cupy
