@@ -1,8 +1,16 @@
 import numpy as np
-import cupy as gnp
-
+import time
 # to measure exec time
 from timeit import default_timer as timer
+
+for i in range(1000):
+    # Try importing cupy   
+    try:
+        import cupy as gnp
+        break
+    except:
+        print("Failed to import cupy, retry after 1 second")
+        time.sleep(1)
 
 # normal function to run on cpu
 def func(a, b):
