@@ -8,22 +8,52 @@
 
 ``distributed_kernel`` is a Jupyter kernel that can execute distributedly. 
 
+### Preparation
+
+Start jupyter container.
+
+    cd dockfiles/jupyter
+    docker-compose up -d  # docker compose up -d for new docker version on Mac.
+
+I have prepared built SMR for mac running on ARM. To build SMR for different arch, we may need to build a local "go-python/gopy" image first.
+
+    # In other folder.
+    git clone https://github.com/zhangjyr/gopy.git
+    docker build -t go-python/gopy .
+    # Go back to this folder.
+
+    # For mac using ARM
+    make build-smr-linux-arm64
+
+    # For other using x86
+    make build-smr-linux-amd64
+
 ### Installation
 
-To install ``distributed_kernel`` from PyPI::
+Login to container
 
-    pip3 install .
-    python3 -m distributed_notebook.kernel.install
+    docker-compose exec Python /bin/bash  # "docker compose" again for new docker version on Mac.
+
+Install Pytorch
+
+    # For mac using ARM
+    python3 -m pip install torch==1.10.0 torchvision==0.11.0 -f https://torch.kmtea.eu/whl/stable.html
+
+    # For x86
+    python3 -m pip install torch torchvision
+
+Install ``distributed_kernel`` from PyPI::
+
+    cd distributed-notebook
+    ./install-kernel.sh
 
 ### Using the Distributed Kernel
 
-**Notebook**: The *New* menu in the notebook should show an option for an distributed notebook.
+**Notebook**: Go to http://localhost:8888/ , log in. The *New* menu in the notebook should show an option for an distributed notebook.
 
 **Console frontends**: To use it with the console frontends, add ``--kernel distributed`` to
 their command line arguments.
 
-## Jupyter docker
+### Try Demo
 
-## ARM
-
-python3 -m pip install torch==1.10.0 torchvision==0.11.0 -f https://torch.kmtea.eu/whl/stable.html
+In http://localhost:8888/, open training-test.ipynb, training-test2.ipynb, training-test3.ipynb. If any of the opened notebooks shows "loading" in browser, refresh that notebook page. Now it is ready to play.

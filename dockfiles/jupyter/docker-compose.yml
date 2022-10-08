@@ -1,0 +1,18 @@
+version: '2'
+services:
+  Python:
+    image: jupyter/scipy-notebook:latest
+#    environment:
+#     - GRANT_SUDO=yes
+#    user: root
+    ports:
+     - "8888:8888"
+    volumes:
+     - ../../demo_notebook:/home/jovyan
+     - ../..:/home/jovyan/distibuted-notebook
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
