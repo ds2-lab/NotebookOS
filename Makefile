@@ -40,3 +40,26 @@ build-smr-linux-amd64:
 
 install-kernel:
 	./install_kernel.sh
+
+build-grpc-go:
+	protoc --go_out=. --go_opt=paths=source_relative \
+  	--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+    common/gateway/gateway.proto
+
+build-grpc-python:
+	python3 -m grpc_tools.protoc -Icommon/gateway \
+  	--python_out=distributed_notebook/gateway \
+		--grpc_python_out=distributed_notebook/gateway \
+    common/gateway/gateway.proto
+	@sed -Ei '' 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
+
+build-grpc: build-grpc-go build-grpc-python
+
+build-scheduler:
+	go build -o bin/scheduler ./scheduler
+
+scheduler: build-scheduler
+	bin/scheduler
+	
+test:
+	cd distributed_notebook && pytest

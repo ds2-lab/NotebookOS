@@ -21,5 +21,10 @@ setuptools.setup(
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
     ],
+    entry_points={
+        'jupyter_client.kernel_provisioners': [
+            'gateway-provisioner = distributed_notebook.provisioner:GatewayProvisioner',
+        ],
+    },
     include_package_data=True,
 )

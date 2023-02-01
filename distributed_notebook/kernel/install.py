@@ -10,7 +10,15 @@ from IPython.utils.tempdir import TemporaryDirectory
 kernel_json = {
     "argv": [sys.executable, "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"],
     "display_name": "Distrbuted Python 3",
-    "language": "text"
+    "language": "python",
+    "metadata": {
+        "kernel_provisioner": {
+            "provisioner_name": "gateway-provisioner",
+            "config": {
+                "gateway": "tcp://127.0.0.1:8888"
+            }
+        }
+    }
 }
 
 def install_my_kernel_spec(user=True, prefix=None):

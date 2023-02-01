@@ -137,3 +137,4 @@ distributed_notebook/smr/bak
 demo_notebook/.jupyter
 .bash_history
 demo_notebook/.local
+bin
