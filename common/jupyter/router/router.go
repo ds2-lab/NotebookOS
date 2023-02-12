@@ -68,7 +68,7 @@ func (g *Router) Start() error {
 			continue
 		}
 
-		go g.server.Serve(types.MessageType(i), g.handleMsg)
+		go g.server.Serve(types.MessageType(i), socket, g.handleMsg)
 	}
 
 	<-g.server.Ctx.Done()

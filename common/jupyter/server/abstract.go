@@ -46,9 +46,10 @@ func (s *AbstractServer) Server() *BaseServer {
 	return &BaseServer{s}
 }
 
-func (s *AbstractServer) Serve(typ types.MessageType, handler MessageHandler) {
+func (s *AbstractServer) Serve(typ types.MessageType, socket *types.Socket, handler MessageHandler) {
 	chMsg := make(chan interface{})
-	go s.poll(s.Sockets.All[typ], chMsg)
+	s.Log.Debug("Start serving %v messages", typ)
+	go s.poll(typ, socket, chMsg)
 
 	for {
 		select {
@@ -67,18 +68,30 @@ func (s *AbstractServer) Serve(typ types.MessageType, handler MessageHandler) {
 				err = handler(typ, v)
 			}
 			if err != nil {
-				s.Log.Warn(err.Error())
+				s.Log.Warn("Error on handle %v message: %v", typ, err)
 			}
 		}
 	}
 }
 
-func (s *AbstractServer) poll(socket zmq4.Socket, chMsg chan<- interface{}) {
+func (s *AbstractServer) ServeOnce(typ types.MessageType, socket *types.Socket, handler MessageHandler) {
+	msg, err := socket.Recv()
+	if err == nil {
+		err = handler(typ, &msg)
+	}
+
+	if err != nil {
+		s.Log.Warn("Error on handle %v message: %v", typ, err)
+	}
+}
+
+func (s *AbstractServer) poll(typ types.MessageType, socket zmq4.Socket, chMsg chan<- interface{}) {
 	defer close(chMsg)
 
 	var msg interface{}
 	for {
 		got, err := socket.Recv()
+		s.Log.Debug("Incoming %v message: %v.", typ, got)
 		if err != nil {
 			msg = err
 		} else {

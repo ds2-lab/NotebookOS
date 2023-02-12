@@ -1,0 +1,7 @@
+ip: "daemon"
+hb_port: 9000
+control_port: 9001
+shell_port: 9002
+stdin_port: 9003
+iopub_port: 9004
+debug: true

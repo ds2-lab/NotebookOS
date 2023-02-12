@@ -9,6 +9,7 @@ import (
 
 var (
 	ErrHandlerNotImplemented = fmt.Errorf("handler not implemented")
+	ErrIOPubNotStarted       = fmt.Errorf("IOPub not started")
 )
 
 // API defines the interface of messages that a JupyterRouter can intercept and handle.
@@ -16,5 +17,7 @@ type MessageHandler func(ClientInfo, *zmq4.Msg) error
 
 // Router defines the interface to provider infos of a JupyterRouter.
 type ClientInfo interface {
+	ID() string
+
 	Socket(types.MessageType) *types.Socket
 }

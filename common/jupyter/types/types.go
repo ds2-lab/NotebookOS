@@ -4,6 +4,8 @@ import "fmt"
 
 var (
 	ErrKernelNotLaunched = fmt.Errorf("kernel not launched")
+	ErrKernelReady       = fmt.Errorf("kernel not ready")
+	ErrKernelClosed      = fmt.Errorf("kernel closed")
 )
 
 const (
@@ -32,8 +34,8 @@ type ConnectionInfo struct {
 	ShellPort       int    `json:"shell_port" name:"shell_port" description:"The port for shell messages."`
 	StdinPort       int    `json:"stdin_port" name:"stdin_port" description:"The port for stdin messages."`
 	HBPort          int    `json:"hb_port" name:"hb_port" description:"The port for heartbeat messages."`
-	IOPubPort       int
-	Transport       string
-	SignatureScheme string
-	Key             string
+	IOPubPort       int    `json:"iopub_port" name:"iopub_port" description:"The port for iopub messages."`
+	Transport       string `json:"transport"`
+	SignatureScheme string `json:"signature_scheme"`
+	Key             string `json:"key"`
 }

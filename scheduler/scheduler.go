@@ -34,8 +34,8 @@ var (
 			IP: "127.0.0.1",
 		},
 	}
-	logger  = config.GetLogger("")
-	sig     = make(chan os.Signal, 1)
+	logger = config.GetLogger("")
+	sig    = make(chan os.Signal, 1)
 )
 
 type Options struct {
@@ -51,6 +51,7 @@ func init() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 	// Set default options.
 	options.Port = 8080
+	options.ConnectionInfo.Transport = "tcp"
 }
 
 func main() {
@@ -136,11 +137,19 @@ func main() {
 		done.Done()
 	}()
 
-	// Start serving
+	// Start gRPC server
 	go func() {
 		defer finalize(true)
 		if err := srv.Serve(lis); err != nil {
 			log.Fatalf("Failed to serve: %v", err)
+		}
+	}()
+
+	// Start daemon
+	go func() {
+		defer finalize(true)
+		if err := daemon.Start(); err != nil {
+			log.Fatalf("Error during daemon serving: %v", err)
 		}
 	}()
 

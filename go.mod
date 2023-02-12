@@ -2,6 +2,8 @@ module github.com/zhangjyr/distributed-notebook
 
 go 1.18
 
+replace github.com/go-zeromq/zmq4 => ../zmq4
+
 require (
 	github.com/go-python/gopy v0.4.0
 	github.com/go-zeromq/zmq4 v0.15.0
@@ -11,7 +13,9 @@ require (
 	github.com/mason-leap-lab/go-utils v1.3.1
 	github.com/opentracing-contrib/go-stdlib v1.0.0
 	github.com/opentracing/opentracing-go v1.1.0
+	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/uber/jaeger-client-go v2.30.0+incompatible
+	github.com/zhangjyr/hashmap v1.0.2
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2
 	go.etcd.io/etcd/raft/v3 v3.5.2
 	go.etcd.io/etcd/server/v3 v3.5.2
@@ -49,8 +53,6 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e // indirect
-	github.com/orcaman/concurrent-map v1.0.0 // indirect
-	github.com/orcaman/concurrent-map/v2 v2.0.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.11.0 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
@@ -58,7 +60,6 @@ require (
 	github.com/prometheus/procfs v0.6.0 // indirect
 	github.com/uber/jaeger-lib v2.4.1+incompatible // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
-	github.com/zhangjyr/hashmap v1.0.2 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.2 // indirect
 	go.etcd.io/etcd/pkg/v3 v3.5.2 // indirect
 	go.uber.org/atomic v1.7.0 // indirect

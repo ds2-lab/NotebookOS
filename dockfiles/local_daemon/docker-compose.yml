@@ -1,0 +1,57 @@
+version: "2"
+services:
+  # consul:
+  #   image: consul:latest
+  #   ports:
+  #     - "8300:8300"
+  #     - "8400:8400"
+  #     - "8500:8500"
+  #     - "8600:53/udp"
+  #   restart: always
+
+  jupyter:
+    # environment:
+    #   - TLS
+    #   - JAEGER_SAMPLE_RATIO
+    #   - LOG_LEVEL
+    build: 
+      context: ../..
+      dockerfile: dockfiles/cpu-python3-arm64/Dockerfile
+    image: zhangjyr/jupyter
+    container_name: 'jupyter'
+    ports:
+      - "8888:8888"
+    depends_on:
+      - daemon
+    restart: always
+
+  daemon:
+    environment:
+      - KERNEL_TEMP_BASE=/tmp/kernel
+      - KERNEL_IMAGE=zhangjyr/jupyter
+      - KERNEL_NETWORK=local_daemon_default
+    build:
+      context: ../..
+      dockerfile: dockfiles/local-daemon/Dockerfile
+    image: zhangjyr/daemon
+    container_name: 'daemon'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/kernel:/tmp/kernel
+    # depends_on:
+    #   - consul
+    restart: always
+
+  # jaeger:
+  #   image: jaegertracing/all-in-one:latest
+  #   container_name: 'gateway_jaeger'
+  #   ports:
+  #     - "14269"
+  #     - "5778:5778"
+  #     - "14268:14268"
+  #     - "14267"
+  #     - "16686:16686"
+  #     - "5775:5775/udp"
+  #     - "6831:6831/udp"
+  #     - "6832:6832/udp"
+  #   restart: always

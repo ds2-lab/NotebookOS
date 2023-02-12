@@ -45,7 +45,7 @@ Install Pytorch
 Install ``distributed_kernel`` from PyPI::
 
     cd distributed-notebook
-    ./install-kernel.sh
+    ./install_kernel.sh
 
 ### Using the Distributed Kernel
 

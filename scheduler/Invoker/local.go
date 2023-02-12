@@ -23,32 +23,29 @@ import (
 // Use container to simulate Lambda resouce limit
 type LocalInvoker struct {
 	cmd      *exec.Cmd
+	spec     *gateway.KernelSpec
 	closedAt time.Time
 	closed   chan struct{}
 }
 
 func (ivk *LocalInvoker) InvokeWithContext(ctx context.Context, spec *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	ivk.closed = make(chan struct{})
+	ivk.spec = spec
 
+	// Looking for available port
 	connectionInfo, err := ivk.prepareConnectionFile(spec)
 	if err != nil {
 		return nil, err
 	}
 
-	// Replace placeholders within in command line
-	jsonContent, err := json.Marshal(connectionInfo)
+	// Write connection file and replace placeholders within in command line
+	path, err := ivk.writeConnectionFile("", spec.Id, connectionInfo)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.CreateTemp("", fmt.Sprintf("kernel-%s.json", spec.Id))
-	if err != nil {
-		return nil, err
-	}
-	f.Write(jsonContent)
 	for i, arg := range spec.Argv {
-		spec.Argv[i] = strings.ReplaceAll(arg, "{connection_file}", f.Name())
+		spec.Argv[i] = strings.ReplaceAll(arg, "{connection_file}", path)
 	}
-	f.Close()
 
 	// Start kernel process
 	log.Printf("Launching kernel \"%s\"\n", strings.Join(spec.Argv, " "))
@@ -69,17 +66,21 @@ func (ivk *LocalInvoker) Status() (jupyter.KernelStatus, error) {
 }
 
 func (ivk *LocalInvoker) Shutdown() error {
-	if ivk.cmd != nil {
-		ivk.cmd.Process.Signal(syscall.SIGINT)
+	if ivk.cmd == nil {
+		return jupyter.ErrKernelNotLaunched
 	}
 
-	return nil
+	log.Printf("Signaling  kernel %s...\n", ivk.spec.Id)
+	return ivk.cmd.Process.Signal(syscall.SIGINT)
 }
 
 func (ivk *LocalInvoker) Close() error {
-	if ivk.cmd != nil {
-		ivk.cmd.Process.Kill()
+	if ivk.cmd == nil {
+		return jupyter.ErrKernelNotLaunched
 	}
+
+	log.Printf("Killing  kernel %s...\n", ivk.spec.Id)
+	ivk.cmd.Process.Kill()
 	return nil
 }
 
@@ -89,12 +90,12 @@ func (ivk *LocalInvoker) Wait() (jupyter.KernelStatus, error) {
 	}
 
 	<-ivk.closed
-	ivk.closedAt = time.Time{}
+	ivk.closedAt = time.Time{} // Update closedAt to extend expriation time
 	return ivk.Status()
 }
 
 func (ivk *LocalInvoker) Expired(timeout time.Duration) bool {
-	return ivk.closedAt.Add(timeout).Before(time.Now())
+	return ivk.closedAt != time.Time{} && ivk.closedAt.Add(timeout).Before(time.Now())
 }
 
 func (ivk *LocalInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
@@ -127,8 +128,23 @@ func (ivk *LocalInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupyt
 	return connectionInfo, nil
 }
 
+func (ivk *LocalInvoker) writeConnectionFile(dir string, id string, info *jupyter.ConnectionInfo) (string, error) {
+	jsonContent, err := json.Marshal(info)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, fmt.Sprintf("kernel-%s-*.json", id))
+	if err != nil {
+		return "", err
+	}
+	f.Write(jsonContent)
+	defer f.Close()
+
+	return f.Name(), nil
+}
+
 func (ivk *LocalInvoker) launchKernel(ctx context.Context, id string, argv []string) error {
-	log.Printf("Start kernel %s...\n", id)
+	log.Printf("Starting kernel %s...\n", id)
 	ivk.cmd = exec.CommandContext(ctx, argv[0], argv[1:]...)
 	ivk.cmd.Stdout = os.Stdout
 	ivk.cmd.Stderr = os.Stderr
@@ -139,7 +155,7 @@ func (ivk *LocalInvoker) launchKernel(ctx context.Context, id string, argv []str
 
 	go func() {
 		if err := ivk.cmd.Wait(); err != nil {
-			log.Printf("kernel %s exited with error: %v\n", id, err)
+			log.Printf("Kernel %s exited with error: %v\n", id, err)
 		}
 		ivk.closedAt = time.Now()
 		close(ivk.closed)

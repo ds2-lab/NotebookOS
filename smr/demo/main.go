@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"unsafe"
 
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/smr"
@@ -33,9 +34,14 @@ func main() {
 	}
 	var committed chan string
 
-	config := smr.NewConfig().WithChangeCallback(func(val *[]byte, id string) string {
+	config := smr.NewConfig().WithChangeCallback(func(reader smr.ReadCloser, len int, id string) string {
 		var diff Counter
-		json.Unmarshal(*val, &diff)
+
+		buff := make([]byte, len)
+		val := smr.NewBytes(unsafe.Pointer(&buff), len)
+		reader.Read(*val)
+
+		json.Unmarshal(buff, &diff)
 		counter.Num += diff.Num
 		counter.Message = diff.Message
 		log.Printf("In change callback, got %v", counter)
@@ -43,8 +49,12 @@ func main() {
 			committed <- diff.Id
 		}
 		return ""
-	}).WithRestoreCallback(func(val *[]byte) string {
-		json.Unmarshal(*val, &counter)
+	}).WithRestoreCallback(func(reader smr.ReadCloser, len int) string {
+		buff := make([]byte, len)
+		val := smr.NewBytes(unsafe.Pointer(&buff), len)
+		reader.Read(*val)
+
+		json.Unmarshal(buff, &counter)
 		log.Printf("In restore callback, got %v", counter)
 		return ""
 	}).WithShouldSnapshotCallback(func(node *smr.LogNode) bool {
@@ -58,14 +68,19 @@ func main() {
 			Num:     counter.Num,
 		}
 		val, _ := json.Marshal(&snap)
-		writer.Write(val)
+		writer.Write(*smr.NewBytes(unsafe.Pointer(&val), len(val)))
 		writer.Close()
 		return ""
 	})
 
-	configSlave := smr.NewConfig().WithChangeCallback(func(val *[]byte, id string) string {
+	configSlave := smr.NewConfig().WithChangeCallback(func(reader smr.ReadCloser, len int, id string) string {
 		var cnt Counter
-		json.Unmarshal(*val, &cnt)
+
+		buff := make([]byte, len)
+		val := smr.NewBytes(unsafe.Pointer(&buff), len)
+		reader.Read(*val)
+
+		json.Unmarshal(buff, &cnt)
 		log.Printf("In change callback of slavers, got %v", cnt)
 		return ""
 	}).WithShouldSnapshotCallback(func(node *smr.LogNode) bool {
@@ -102,7 +117,7 @@ func main() {
 	} else {
 		log.Printf("Add 1")
 	}
-	nodes[1].Propose(NewBytes(string(val)), nil, "Num")
+	nodes[1].Propose(*smr.NewBytes(unsafe.Pointer(&val), len(val)), nil, "Num")
 	if wait {
 		for id := <-committed; id != add1.Id; id = <-committed {
 			log.Printf("Ignore: %s", id)

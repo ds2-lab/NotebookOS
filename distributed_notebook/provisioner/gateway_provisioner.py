@@ -3,7 +3,7 @@ from lib2to3.pgen2.token import OP
 from jupyter_client.provisioning import KernelProvisionerBase
 from jupyter_client.connect import KernelConnectionInfo
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from traitlets.config import Unicode
 
@@ -14,13 +14,16 @@ from ..gateway.gateway_pb2_grpc import LocalGatewayStub
 
 class GatewayProvisioner(KernelProvisionerBase):
   # The properties read from the config of the kernel spec: "metadata.kernel_provisioner.config"
-  gateway: str = Unicode(None, allow_none=False)
+  gateway: Union[str, Unicode] = Unicode(None, allow_none=True)
 
   # Local properties
   gatewayChannel = None
   gatewayStub: LocalGatewayStub
   launched = False
   autoclose = True
+
+  # Our version of kernel_id
+  _kernel_id: Union[str, Unicode] = Unicode(None, allow_none=True)
 
   @property
   def has_process(self) -> bool:
@@ -38,7 +41,7 @@ class GatewayProvisioner(KernelProvisionerBase):
     This method is called from :meth:`KernelManager.is_alive`.
     """
     try:
-      kernelId = gateway_pb2.KernelId(id=self.kernel_id)
+      kernelId = gateway_pb2.KernelId(id=self._kernel_id)
       status = self._get_stub().GetKernelStatus(kernelId)
 
       if status.status < 0:
@@ -59,8 +62,9 @@ class GatewayProvisioner(KernelProvisionerBase):
     immediately, respectively.
     """
     try:
-      kernelId = gateway_pb2.KernelId(id=self.kernel_id)
+      kernelId = gateway_pb2.KernelId(id=self._kernel_id)
       status = self._get_stub().WaitKernel(kernelId)
+      self.log.info(f"Stopped kernel {self._kernel_id}")
 
       if status.status < 0:
         return None
@@ -96,9 +100,10 @@ class GatewayProvisioner(KernelProvisionerBase):
     restart is True if this operation will precede a subsequent launch_kernel request.
     """
     try:
-      kernelId = gateway_pb2.KernelId(id=self.kernel_id)
+      kernelId = gateway_pb2.KernelId(id=self._kernel_id)
       self._get_stub().KillKernel(kernelId)
       self.launched = False
+      self.log.info(f"Killed kernel {self._kernel_id}")
     except grpc.RpcError as e:
       self._try_close()
       raise RuntimeError(f"Failed to kill kernel: {e}")
@@ -113,8 +118,9 @@ class GatewayProvisioner(KernelProvisionerBase):
     restart is True if this operation precedes a start launch_kernel request.
     """
     try:
-      kernelId = gateway_pb2.KernelId(id=self.kernel_id)
+      kernelId = gateway_pb2.KernelId(id=self._kernel_id)
       self._get_stub().StopKernel(kernelId)
+      self.log.info(f"Stopping kernel {self._kernel_id}")
     except grpc.RpcError as e:
       self._try_close()
       raise RuntimeError(f"Failed to kill kernel: {e}")
@@ -127,13 +133,15 @@ class GatewayProvisioner(KernelProvisionerBase):
     """
     try:
       spec = gateway_pb2.KernelSpec(
-        id=self.kernel_id, 
+        id=self._kernel_id, 
         argv=cmd, 
         signatureScheme=self.parent.session.signature_scheme,
         key=self.parent.session.key)
       connectionInfo = self._get_stub().StartKernel(spec)
       self.launched = True
 
+      self.log.info(f"Launched kernel {self._kernel_id}: {connectionInfo}")
+      
       return dict(
         key = connectionInfo.key,
         ip = connectionInfo.ip,
@@ -182,6 +190,7 @@ class GatewayProvisioner(KernelProvisionerBase):
     Returns the (potentially updated) keyword arguments that are passed to
     :meth:`launch_kernel()`.
     """
+    self._kernel_id = self.kernel_id
 
     # cmd is a must key to return.
     return await super().pre_launch(cmd=self.kernel_spec.argv, **kwargs)
@@ -219,13 +228,12 @@ class GatewayProvisioner(KernelProvisionerBase):
 
   def _get_stub(self) -> LocalGatewayStub:
     if self.gatewayChannel == None:
-      self.gatewayChannel =grpc.insecure_channel(self.gateway)
+      self.gatewayChannel = grpc.insecure_channel(self.gateway)
       self.gatewayStub = LocalGatewayStub(self.gatewayChannel)
 
     return self.gatewayStub
 
   def _try_close(self) -> None:
     if self.autoclose and self.gatewayChannel != None:
-      self.gatewayStub = None
       self.gatewayChannel.close()
       self.gatewayChannel = None

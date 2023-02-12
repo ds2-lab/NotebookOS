@@ -15,7 +15,7 @@ kernel_json = {
         "kernel_provisioner": {
             "provisioner_name": "gateway-provisioner",
             "config": {
-                "gateway": "tcp://127.0.0.1:8888"
+                "gateway": "daemon:8080"
             }
         }
     }
