@@ -22,15 +22,21 @@ const (
 	DockerNetworkName        = "KERNEL_NETWORK"
 	DockerNetworkNameDefault = "local_daemon_default"
 
+	DockerStorageVolume        = "STORAGE"
+	DockerStorageVolumeDefault = "storage"
+
 	DockerKernelName    = "kernel-%s"
 	VarContainerImage   = "{image}"
 	VarConnectionFile   = "{connection_file}"
 	VarContainerName    = "{container_name}"
 	VarContainerNetwork = "{network}"
+	VarStorageVolume    = "{storage}"
+	VarConfigFile       = "{config_file}"
 )
 
 var (
-	dockerInvokerCmd  = "docker run -d --rm --name {container_name} -v {connection_file}:{connection_file} --net {network} {image}"
+	dockerStorageBase = "/storage"
+	dockerInvokerCmd  = "docker run -d --rm --name {container_name} -v {connection_file}:{connection_file} -v {storage}:/storage -v {config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 )
 
@@ -50,6 +56,7 @@ func NewDockerInvoker(opts *jupyter.ConnectionInfo) *DockerInvoker {
 	}
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, GetEnv(DockerImageName, DockerImageNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerNetwork, GetEnv(DockerNetworkName, DockerNetworkNameDefault))
+	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarStorageVolume, GetEnv(DockerStorageVolume, DockerStorageVolumeDefault))
 	return invoker
 }
 
@@ -61,28 +68,32 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *gateway.K
 	// Looking for available port
 	connectionInfo, err := ivk.prepareConnectionFile(spec)
 	if err != nil {
-		return nil, ivk.reportLaucnError(err)
+		return nil, ivk.reportLaunchError(err)
 	}
 
 	// Write connection file and replace placeholders within in command line
-	path, err := ivk.writeConnectionFile(ivk.tempBase, spec.Id, connectionInfo)
+	connectionFile, err := ivk.writeConnectionFile(ivk.tempBase, spec.Id, connectionInfo)
 	if err != nil {
-		return nil, ivk.reportLaucnError(err)
+		return nil, ivk.reportLaunchError(err)
 	}
+
+	configInfo, _ := ivk.prepareConfigFile(spec)
+	configFile, err := ivk.writeConfigFile(ivk.tempBase, spec.Id, configInfo)
 
 	ivk.containerName = fmt.Sprintf(DockerKernelName, spec.Id)
 	connectionInfo.IP = ivk.containerName // Overwrite IP with container name
 	cmd := strings.ReplaceAll(ivk.invokerCmd, VarContainerName, ivk.containerName)
-	cmd = strings.ReplaceAll(cmd, VarConnectionFile, path)
+	cmd = strings.ReplaceAll(cmd, VarConnectionFile, connectionFile)
+	cmd = strings.ReplaceAll(cmd, VarConfigFile, configFile)
 	for i, arg := range spec.Argv {
-		spec.Argv[i] = strings.ReplaceAll(arg, VarConnectionFile, path)
+		spec.Argv[i] = strings.ReplaceAll(arg, VarConnectionFile, connectionFile)
 	}
 	argv := append(strings.Split(cmd, " "), spec.Argv...)
 
 	// Start kernel process
 	log.Printf("Launch kernel \"%v\"\n", argv)
 	if err := ivk.launchKernel(ctx, spec.Id, argv); err != nil {
-		return nil, ivk.reportLaucnError(err)
+		return nil, ivk.reportLaunchError(err)
 	}
 	return connectionInfo, nil
 }
@@ -152,6 +163,14 @@ func (ivk *DockerInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupy
 	return connectionInfo, nil
 }
 
+func (ivk *DockerInvoker) prepareConfigFile(spec *gateway.KernelSpec) (*jupyter.ConfigFile, error) {
+	return &jupyter.ConfigFile{
+		DistributedKernelConfig: jupyter.DistributedKernelConfig{
+			StorageBase: dockerStorageBase,
+		},
+	}, nil
+}
+
 func (ivk *DockerInvoker) launchKernel(ctx context.Context, id string, argv []string) error {
 	fmt.Printf("Starting kernel %s......", id)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -165,7 +184,7 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, id string, argv []st
 	return nil
 }
 
-func (ivk *DockerInvoker) reportLaucnError(err error) error {
+func (ivk *DockerInvoker) reportLaunchError(err error) error {
 	ivk.status = jupyter.KernelStatusAbnormal
 	return err
 }

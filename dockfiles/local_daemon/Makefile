@@ -20,3 +20,8 @@ clean:
 	docker-compose rm
 	./clean.sh
 	docker builder prune
+
+clean-all: clean
+	docker-compose down -v
+	docker rmi $(DOCKER_USER)daemon
+	docker rmi $(DOCKER_USER)jupyter

@@ -7,8 +7,14 @@ ENV LANG=C.UTF-8 \
 RUN python3 -m pip install torch==1.10.0 torchvision==0.11.0 -f https://torch.kmtea.eu/whl/stable.html
 RUN python3 -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0
 
+# Prepare directories to have them owned by the user jovyan
+RUN mkdir -p /home/jovyan/.ipython/profile_default
+
 # Switch to root to install the kernel
 USER root:root
+
+# Prepare directories to have them owned by the user jovyan
+RUN mkdir -p /storage && chown jovyan:users /storage
 
 # Add files
 ADD common/gateway /distributed_notebook/common/gateway

@@ -30,6 +30,7 @@ services:
       - KERNEL_TEMP_BASE=/tmp/kernel
       - KERNEL_IMAGE=zhangjyr/jupyter
       - KERNEL_NETWORK=local_daemon_default
+      - STORAGE=local_daemon_storage
     build:
       context: ../..
       dockerfile: dockfiles/local-daemon/Dockerfile
@@ -38,6 +39,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/kernel:/tmp/kernel
+      - storage:/storage
     # depends_on:
     #   - consul
     restart: always
@@ -55,3 +57,6 @@ services:
   #     - "6831:6831/udp"
   #     - "6832:6832/udp"
   #   restart: always
+
+volumes:
+  storage:

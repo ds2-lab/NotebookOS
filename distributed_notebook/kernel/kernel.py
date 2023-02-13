@@ -4,21 +4,39 @@ import logging
 import random
 import sys
 
+from typing import Union
+from traitlets import List, Integer, Unicode
 from ipykernel.ipkernel import IPythonKernel
 from .iostream import OutStream
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 
-base = os.path.dirname(os.path.realpath(__file__))
+storage_base_default = os.path.dirname(os.path.realpath(__file__))
+smr_port_default = 10000
 err_wait_persistent_store = RuntimeError("Persistent store not ready, try again later.")
 err_failed_to_lead_execution = RuntimeError("Failed to lead the exectuion.")
 key_persistent_id = "persistent_id"
-key_replica_id = "replica_id"
-base_port = 10000
 enable_storage = True
 
 logging.basicConfig(level=logging.INFO)
 
 class DistributedKernel(IPythonKernel):
+    # Configurable properties
+    storage_base: Union[str, Unicode] = Unicode(storage_base_default,
+        help="""Base directory for storage"""
+    ).tag(config=True)
+
+    smr_port = Integer(smr_port_default, 
+        help="""Port for SMR"""
+    ).tag(config=True)
+
+    smr_node_id = Integer(1,
+        help="""Node id for SMR"""
+    ).tag(config=True)
+
+    smr_nodes = List([], 
+        help="""Nodes in the SMR cluster"""
+    ).tag(config=True)
+
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
     language = 'no-op'
@@ -39,6 +57,8 @@ class DistributedKernel(IPythonKernel):
 
         # Delay persistent store initialization to kernel.js
         self.store = None
+        if len(self.smr_nodes) == 0:
+            self.smr_nodes = [f"{self.parent.ip}:{self.smr_port}"]
 
     # def start(self):
     #     super().start()
@@ -62,7 +82,7 @@ class DistributedKernel(IPythonKernel):
             execution_count = self.shell.execution_count
             await asyncio.ensure_future(super().do_execute(code, True, store_history=False))
 
-            self.store = os.path.join(base, "store", self.shell.user_ns[key_persistent_id])
+            self.store = os.path.join(self.storage_base, "store", self.shell.user_ns[key_persistent_id])
             self.log.info("persistent store confirmed: " + self.store)
 
             # Reset execution_count, override_shell may update again.
@@ -149,22 +169,14 @@ class DistributedKernel(IPythonKernel):
         self.synchronizer.start()
 
     async def get_synclog(self):
-        port = base_port
-        node_id = 1
-        random.seed(self.shell.user_ns[key_persistent_id])
-        port = port + random.randint(0, 10000)
-        if key_replica_id in self.shell.user_ns:
-            node_id = int(self.shell.user_ns[key_replica_id])
-
-        self.log.info("Confirmed node {} at port {}".format(node_id, port + node_id - 1))
+        self.log.info("Confirmed node {}".format(self.smr_nodes[self.smr_node_id-1]))
         
         # Implement dynamic later
-        addrs = ["http://127.0.0.1:{}".format(port), "http://127.0.0.1:{}".format(port + 1), "http://127.0.0.1:{}".format(port + 2)]
-        published = [3, 3, 3]
+        addrs = map(lambda x: "http://" + x, self.smr_nodes)
         store = ""
         if enable_storage:
             store = self.store
-        return RaftLog(store, node_id, addrs[:published[node_id-1]])
+        return RaftLog(store, self.smr_node_id, addrs)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):
         self.source = raw_cell

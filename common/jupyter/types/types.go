@@ -39,3 +39,11 @@ type ConnectionInfo struct {
 	SignatureScheme string `json:"signature_scheme"`
 	Key             string `json:"key"`
 }
+
+type DistributedKernelConfig struct {
+	StorageBase string `json:"storage_base"`
+}
+
+type ConfigFile struct {
+	DistributedKernelConfig `json:"DistributedKernel"`
+}

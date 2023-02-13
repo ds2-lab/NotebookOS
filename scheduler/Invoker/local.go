@@ -16,6 +16,11 @@ import (
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
+const (
+	ConnectionFileFormat = "connection-%s-*.json" // "*" is a placeholder for random string
+	ConfigFileFormat     = "config-%s-*.json"     // "*" is a placeholder for random string
+)
+
 // LocalInvoker Invoke local lambda function simulation
 // Use throttle to simulate Lambda network: https://github.com/sitespeedio/throttle
 // throttle --up 800000 --down 800000 --rtt 1 (800MB/s, 1ms)
@@ -128,12 +133,31 @@ func (ivk *LocalInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupyt
 	return connectionInfo, nil
 }
 
+func (ivk *LocalInvoker) prepareConfigFile(spec *gateway.KernelSpec) (*jupyter.ConfigFile, error) {
+	return &jupyter.ConfigFile{}, nil
+}
+
 func (ivk *LocalInvoker) writeConnectionFile(dir string, id string, info *jupyter.ConnectionInfo) (string, error) {
 	jsonContent, err := json.Marshal(info)
 	if err != nil {
 		return "", err
 	}
-	f, err := os.CreateTemp(dir, fmt.Sprintf("kernel-%s-*.json", id))
+	f, err := os.CreateTemp(dir, fmt.Sprintf(ConnectionFileFormat, id))
+	if err != nil {
+		return "", err
+	}
+	f.Write(jsonContent)
+	defer f.Close()
+
+	return f.Name(), nil
+}
+
+func (ivk *LocalInvoker) writeConfigFile(dir string, id string, info *jupyter.ConfigFile) (string, error) {
+	jsonContent, err := json.Marshal(info)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, fmt.Sprintf(ConfigFileFormat, id))
 	if err != nil {
 		return "", err
 	}
