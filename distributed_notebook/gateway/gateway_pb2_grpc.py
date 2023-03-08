@@ -5,6 +5,68 @@ import grpc
 from . import gateway_pb2 as gateway__pb2
 
 
+class ClusterGatewayStub(object):
+    """Missing associated documentation comment in .proto file."""
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.RemoveHost = channel.unary_unary(
+                '/gateway.ClusterGateway/RemoveHost',
+                request_serializer=gateway__pb2.HostId.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
+
+
+class ClusterGatewayServicer(object):
+    """Missing associated documentation comment in .proto file."""
+
+    def RemoveHost(self, request, context):
+        """RemoveHost removes a local gateway from the cluster.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_ClusterGatewayServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'RemoveHost': grpc.unary_unary_rpc_method_handler(
+                    servicer.RemoveHost,
+                    request_deserializer=gateway__pb2.HostId.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'gateway.ClusterGateway', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+
+
+ # This class is part of an EXPERIMENTAL API.
+class ClusterGateway(object):
+    """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def RemoveHost(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/RemoveHost',
+            gateway__pb2.HostId.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+
 class LocalGatewayStub(object):
     """The juypter gateway service for host local kernels.
     """
@@ -15,9 +77,19 @@ class LocalGatewayStub(object):
         Args:
             channel: A grpc.Channel.
         """
+        self.SetID = channel.unary_unary(
+                '/gateway.LocalGateway/SetID',
+                request_serializer=gateway__pb2.HostId.SerializeToString,
+                response_deserializer=gateway__pb2.HostId.FromString,
+                )
         self.StartKernel = channel.unary_unary(
                 '/gateway.LocalGateway/StartKernel',
                 request_serializer=gateway__pb2.KernelSpec.SerializeToString,
+                response_deserializer=gateway__pb2.KernelConnectionInfo.FromString,
+                )
+        self.StartKernelReplica = channel.unary_unary(
+                '/gateway.LocalGateway/StartKernelReplica',
+                request_serializer=gateway__pb2.KernelReplicaSpec.SerializeToString,
                 response_deserializer=gateway__pb2.KernelConnectionInfo.FromString,
                 )
         self.GetKernelStatus = channel.unary_unary(
@@ -40,14 +112,33 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.KernelId.SerializeToString,
                 response_deserializer=gateway__pb2.KernelStatus.FromString,
                 )
+        self.SetClose = channel.unary_unary(
+                '/gateway.LocalGateway/SetClose',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
 
 
 class LocalGatewayServicer(object):
     """The juypter gateway service for host local kernels.
     """
 
+    def SetID(self, request, context):
+        """SetID sets the local gatway id and return old id for failure tolerance.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StartKernel(self, request, context):
-        """Start a kernel or kernel replica.
+        """StartKernel a kernel or kernel replica.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StartKernelReplica(self, request, context):
+        """StartKernelReplica starts a kernel replica on the local host.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -81,12 +172,29 @@ class LocalGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SetClose(self, request, context):
+        """SetClose request the gateway to close all kernels and stop.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_LocalGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'SetID': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetID,
+                    request_deserializer=gateway__pb2.HostId.FromString,
+                    response_serializer=gateway__pb2.HostId.SerializeToString,
+            ),
             'StartKernel': grpc.unary_unary_rpc_method_handler(
                     servicer.StartKernel,
                     request_deserializer=gateway__pb2.KernelSpec.FromString,
+                    response_serializer=gateway__pb2.KernelConnectionInfo.SerializeToString,
+            ),
+            'StartKernelReplica': grpc.unary_unary_rpc_method_handler(
+                    servicer.StartKernelReplica,
+                    request_deserializer=gateway__pb2.KernelReplicaSpec.FromString,
                     response_serializer=gateway__pb2.KernelConnectionInfo.SerializeToString,
             ),
             'GetKernelStatus': grpc.unary_unary_rpc_method_handler(
@@ -109,6 +217,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.KernelId.FromString,
                     response_serializer=gateway__pb2.KernelStatus.SerializeToString,
             ),
+            'SetClose': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetClose,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'gateway.LocalGateway', rpc_method_handlers)
@@ -119,6 +232,23 @@ def add_LocalGatewayServicer_to_server(servicer, server):
 class LocalGateway(object):
     """The juypter gateway service for host local kernels.
     """
+
+    @staticmethod
+    def SetID(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/SetID',
+            gateway__pb2.HostId.SerializeToString,
+            gateway__pb2.HostId.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
     def StartKernel(request,
@@ -133,6 +263,23 @@ class LocalGateway(object):
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/StartKernel',
             gateway__pb2.KernelSpec.SerializeToString,
+            gateway__pb2.KernelConnectionInfo.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def StartKernelReplica(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/StartKernelReplica',
+            gateway__pb2.KernelReplicaSpec.SerializeToString,
             gateway__pb2.KernelConnectionInfo.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
@@ -202,5 +349,22 @@ class LocalGateway(object):
         return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/WaitKernel',
             gateway__pb2.KernelId.SerializeToString,
             gateway__pb2.KernelStatus.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def SetClose(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/SetClose',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.Void.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

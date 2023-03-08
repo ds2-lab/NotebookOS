@@ -27,46 +27,52 @@ const (
 // throttle stop
 // Use container to simulate Lambda resouce limit
 type LocalInvoker struct {
-	cmd      *exec.Cmd
-	spec     *gateway.KernelSpec
-	closedAt time.Time
-	closed   chan struct{}
+	cmd           *exec.Cmd
+	spec          *gateway.KernelReplicaSpec
+	closedAt      time.Time
+	closed        chan struct{}
+	status        jupyter.KernelStatus
+	statusChanged StatucChangedHandler
 }
 
-func (ivk *LocalInvoker) InvokeWithContext(ctx context.Context, spec *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
+func (ivk *LocalInvoker) InvokeWithContext(ctx context.Context, spec *gateway.KernelReplicaSpec) (*jupyter.ConnectionInfo, error) {
 	ivk.closed = make(chan struct{})
 	ivk.spec = spec
+	ivk.status = jupyter.KernelStatusInitializing
+	if ivk.statusChanged == nil {
+		ivk.statusChanged = ivk.defaultStatusChangedHandler
+	}
 
 	// Looking for available port
-	connectionInfo, err := ivk.prepareConnectionFile(spec)
+	connectionInfo, err := ivk.prepareConnectionFile(spec.Kernel)
 	if err != nil {
-		return nil, err
+		return nil, ivk.reportLaunchError(err)
 	}
 
 	// Write connection file and replace placeholders within in command line
-	path, err := ivk.writeConnectionFile("", spec.Id, connectionInfo)
+	path, err := ivk.writeConnectionFile("", spec.Kernel.Id, connectionInfo)
 	if err != nil {
-		return nil, err
+		return nil, ivk.reportLaunchError(err)
 	}
-	for i, arg := range spec.Argv {
-		spec.Argv[i] = strings.ReplaceAll(arg, "{connection_file}", path)
+	for i, arg := range spec.Kernel.Argv {
+		spec.Kernel.Argv[i] = strings.ReplaceAll(arg, "{connection_file}", path)
 	}
 
 	// Start kernel process
-	log.Printf("Launching kernel \"%s\"\n", strings.Join(spec.Argv, " "))
-	if err := ivk.launchKernel(ctx, spec.Id, spec.Argv); err != nil {
-		return nil, err
+	log.Printf("Launching kernel \"%s\"\n", strings.Join(spec.Kernel.Argv, " "))
+	if err := ivk.launchKernel(ctx, spec.Kernel.Id, spec.Kernel.Argv); err != nil {
+		return nil, ivk.reportLaunchError(err)
 	}
+
+	ivk.setStatus(jupyter.KernelStatusRunning)
 	return connectionInfo, nil
 }
 
 func (ivk *LocalInvoker) Status() (jupyter.KernelStatus, error) {
 	if ivk.cmd == nil {
 		return 0, jupyter.ErrKernelNotLaunched
-	} else if ivk.cmd.ProcessState.Exited() {
-		return jupyter.KernelStatus(ivk.cmd.ProcessState.ExitCode()), nil
 	} else {
-		return jupyter.KernelStatusRunning, nil
+		return ivk.status, nil
 	}
 }
 
@@ -75,7 +81,7 @@ func (ivk *LocalInvoker) Shutdown() error {
 		return jupyter.ErrKernelNotLaunched
 	}
 
-	log.Printf("Signaling  kernel %s...\n", ivk.spec.Id)
+	log.Printf("Signaling  kernel %s...\n", ivk.spec.Kernel.Id)
 	return ivk.cmd.Process.Signal(syscall.SIGINT)
 }
 
@@ -84,7 +90,7 @@ func (ivk *LocalInvoker) Close() error {
 		return jupyter.ErrKernelNotLaunched
 	}
 
-	log.Printf("Killing  kernel %s...\n", ivk.spec.Id)
+	log.Printf("Killing  kernel %s...\n", ivk.spec.Kernel.Id)
 	ivk.cmd.Process.Kill()
 	return nil
 }
@@ -101,6 +107,10 @@ func (ivk *LocalInvoker) Wait() (jupyter.KernelStatus, error) {
 
 func (ivk *LocalInvoker) Expired(timeout time.Duration) bool {
 	return ivk.closedAt != time.Time{} && ivk.closedAt.Add(timeout).Before(time.Now())
+}
+
+func (ivk *LocalInvoker) OnStatusChanged(handler StatucChangedHandler) {
+	ivk.statusChanged = handler
 }
 
 func (ivk *LocalInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
@@ -133,16 +143,12 @@ func (ivk *LocalInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupyt
 	return connectionInfo, nil
 }
 
-func (ivk *LocalInvoker) prepareConfigFile(spec *gateway.KernelSpec) (*jupyter.ConfigFile, error) {
-	return &jupyter.ConfigFile{}, nil
-}
-
-func (ivk *LocalInvoker) writeConnectionFile(dir string, id string, info *jupyter.ConnectionInfo) (string, error) {
+func (ivk *LocalInvoker) writeConnectionFile(dir string, name string, info *jupyter.ConnectionInfo) (string, error) {
 	jsonContent, err := json.Marshal(info)
 	if err != nil {
 		return "", err
 	}
-	f, err := os.CreateTemp(dir, fmt.Sprintf(ConnectionFileFormat, id))
+	f, err := os.CreateTemp(dir, fmt.Sprintf(ConnectionFileFormat, name))
 	if err != nil {
 		return "", err
 	}
@@ -152,12 +158,12 @@ func (ivk *LocalInvoker) writeConnectionFile(dir string, id string, info *jupyte
 	return f.Name(), nil
 }
 
-func (ivk *LocalInvoker) writeConfigFile(dir string, id string, info *jupyter.ConfigFile) (string, error) {
+func (ivk *LocalInvoker) writeConfigFile(dir string, name string, info *jupyter.ConfigFile) (string, error) {
 	jsonContent, err := json.Marshal(info)
 	if err != nil {
 		return "", err
 	}
-	f, err := os.CreateTemp(dir, fmt.Sprintf(ConfigFileFormat, id))
+	f, err := os.CreateTemp(dir, fmt.Sprintf(ConfigFileFormat, name))
 	if err != nil {
 		return "", err
 	}
@@ -183,7 +189,29 @@ func (ivk *LocalInvoker) launchKernel(ctx context.Context, id string, argv []str
 		}
 		ivk.closedAt = time.Now()
 		close(ivk.closed)
+		ivk.setStatus(jupyter.KernelStatus(ivk.cmd.ProcessState.ExitCode()))
+		// Status will not change anymore, reset the handler.
+		ivk.statusChanged = ivk.defaultStatusChangedHandler
 	}()
 
 	return nil
+}
+
+func (ivk *LocalInvoker) reportLaunchError(err error) error {
+	ivk.setStatus(jupyter.KernelStatusAbnormal)
+	// Status will not change anymore, reset the handler.
+	ivk.statusChanged = ivk.defaultStatusChangedHandler
+	return err
+}
+
+func (ivk *LocalInvoker) defaultStatusChangedHandler(_ jupyter.KernelStatus, _ jupyter.KernelStatus) {
+	// Do nothing
+}
+
+func (ivk *LocalInvoker) setStatus(status jupyter.KernelStatus) {
+	var old jupyter.KernelStatus
+	old, ivk.status = ivk.status, status
+	if old != ivk.status {
+		ivk.statusChanged(old, ivk.status)
+	}
 }

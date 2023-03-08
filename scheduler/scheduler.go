@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
+	"github.com/hashicorp/yamux"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/opentracing/opentracing-go"
 	"google.golang.org/grpc"
@@ -29,22 +30,21 @@ const (
 )
 
 var (
-	options Options = Options{
-		ConnectionInfo: types.ConnectionInfo{
-			IP: "127.0.0.1",
-		},
-	}
-	logger = config.GetLogger("")
-	sig    = make(chan os.Signal, 1)
+	options           Options = Options{}
+	logger                    = config.GetLogger("")
+	sig                       = make(chan os.Signal, 1)
+	connectionTimeout         = time.Second
 )
 
 type Options struct {
 	config.LoggerOptions
 	types.ConnectionInfo
+	daemon.SchedulerDaemonOptions
 
-	Port       int    `name:"port" usage:"Port the gRPC service listen on."`
-	JaegerAddr string `name:"jaegerAddress" description:"Jaeger agent address."`
-	Consuladdr string `name:"consulAddress" description:"Consul agent address."`
+	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
+	ProvisionerAddr string `name:"provisioner" description:"Provisioner address."`
+	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
+	Consuladdr      string `name:"consul" description:"Consul agent address."`
 }
 
 func init() {
@@ -88,11 +88,25 @@ func main() {
 		logger.Info("Consul agent initialized")
 	}
 
+	// Initialize connection to the provisioner
+	provisioner, err := net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
+	if err != nil {
+		log.Fatalf("Failed to connect to provisioner: %v", err)
+	}
+	mux, err := yamux.Server(provisioner, yamux.DefaultConfig())
+	if err != nil {
+		provisioner.Close()
+		log.Fatalf("Failed to initialize yamux server: %v", err)
+	}
+	logger.Info("Scheduler connected to %v", provisioner.RemoteAddr())
+
 	// Initialize listener
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
 	if err != nil {
+		mux.Close()
 		log.Fatalf("Failed to listen: %v", err)
 	}
+	logger.Info("Scheduler listening at %v", lis.Addr())
 
 	// Build grpc options
 	gOpts := []grpc.ServerOption{
@@ -112,9 +126,10 @@ func main() {
 
 	// Initialize grpc server
 	srv := grpc.NewServer(gOpts...)
-	daemon := daemon.New(&options.ConnectionInfo)
-	gateway.RegisterLocalGatewayServer(srv, daemon)
-	logger.Info("Server listening at %v", lis.Addr())
+	scheduler := daemon.New(&options.ConnectionInfo, func(scheduler *daemon.SchedulerDaemon) {
+		scheduler.Options = options.SchedulerDaemonOptions
+	})
+	gateway.RegisterLocalGatewayServer(srv, scheduler)
 
 	// Register services in consul
 	if consulClient != nil {
@@ -131,10 +146,18 @@ func main() {
 		<-sig
 		logger.Info("Shutting down...")
 		srv.Stop()
-		daemon.Close()
+		scheduler.Close()
 
 		lis.Close()
 		done.Done()
+	}()
+
+	// Start serving requests from the provisioner
+	go func() {
+		defer finalize(true)
+		if err := srv.Serve(mux); err != nil {
+			log.Fatalf("Failed to serve provisioner: %v", err)
+		}
 	}()
 
 	// Start gRPC server
@@ -148,7 +171,7 @@ func main() {
 	// Start daemon
 	go func() {
 		defer finalize(true)
-		if err := daemon.Start(); err != nil {
+		if err := scheduler.Start(); err != nil {
 			log.Fatalf("Error during daemon serving: %v", err)
 		}
 	}()

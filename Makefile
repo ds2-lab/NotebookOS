@@ -55,8 +55,14 @@ build-grpc-python:
 
 build-grpc: build-grpc-go build-grpc-python
 
+build-gateway:
+	go build -o bin/gateway ./gateway
+
 build-scheduler:
 	go build -o bin/scheduler ./scheduler
+
+gateway: build-gateway
+	bin/gateway
 
 scheduler: build-scheduler
 	bin/scheduler

@@ -41,14 +41,18 @@ class GatewayProvisioner(KernelProvisionerBase):
     This method is called from :meth:`KernelManager.is_alive`.
     """
     try:
-      kernelId = gateway_pb2.KernelId(id=self._kernel_id)
-      status = self._get_stub().GetKernelStatus(kernelId)
+      if self.launched:
+        kernelId = gateway_pb2.KernelId(id=self._kernel_id)
+        status = self._get_stub().GetKernelStatus(kernelId)
 
-      if status.status < 0:
-        return None
-      
-      self.launched = False
-      return status.status
+        if status.status < 0:
+          return None
+        
+        self.launched = False
+        self.log.info(f"Kernel stopped on polling kernel {self._kernel_id}")
+        return status.status
+      else:
+        return 0
 
     except grpc.RpcError as e:
       self._try_close()
@@ -62,15 +66,15 @@ class GatewayProvisioner(KernelProvisionerBase):
     immediately, respectively.
     """
     try:
-      kernelId = gateway_pb2.KernelId(id=self._kernel_id)
-      status = self._get_stub().WaitKernel(kernelId)
-      self.log.info(f"Stopped kernel {self._kernel_id}")
+      if self.launched:
+        kernelId = gateway_pb2.KernelId(id=self._kernel_id)
+        status = self._get_stub().WaitKernel(kernelId)
 
-      if status.status < 0:
-        return None
-      
-      self.launched = False
-      return status.status
+        self.launched = False
+        self.log.info(f"Stopped kernel {self._kernel_id}")
+        return status.status
+      else:
+        return 0
 
     except grpc.RpcError as e:
       self._try_close()
@@ -83,11 +87,13 @@ class GatewayProvisioner(KernelProvisionerBase):
     kernel process a signal.
     """
     if signum == 0:
-      return await self.poll()
+      await self.poll()
+      return 
     elif signum == signal.SIGKILL:
       return await self.kill()
     elif signum == signal.SIGTERM or signum == signal.SIGINT:
-      return await self.terminate()
+      # Shutdown requested, delay and wait for restart flag.
+      return
     else:
       return await super().send_signal(signum)
 
@@ -100,10 +106,12 @@ class GatewayProvisioner(KernelProvisionerBase):
     restart is True if this operation will precede a subsequent launch_kernel request.
     """
     try:
-      kernelId = gateway_pb2.KernelId(id=self._kernel_id)
-      self._get_stub().KillKernel(kernelId)
-      self.launched = False
-      self.log.info(f"Killed kernel {self._kernel_id}")
+      if self.launched:
+        self.log.info(f"Killing kernel {self._kernel_id}, will restart: {restart} ...")
+        kernelId = gateway_pb2.KernelId(id=self._kernel_id, restart=restart)
+        self._get_stub().KillKernel(kernelId)
+        self.launched = False
+        self.log.info(f"Killed kernel {self._kernel_id}")
     except grpc.RpcError as e:
       self._try_close()
       raise RuntimeError(f"Failed to kill kernel: {e}")
@@ -118,9 +126,10 @@ class GatewayProvisioner(KernelProvisionerBase):
     restart is True if this operation precedes a start launch_kernel request.
     """
     try:
-      kernelId = gateway_pb2.KernelId(id=self._kernel_id)
-      self._get_stub().StopKernel(kernelId)
-      self.log.info(f"Stopping kernel {self._kernel_id}")
+      if self.launched:
+        self.log.info(f"Stopping kernel {self._kernel_id}, will restart: {restart} ...")
+        kernelId = gateway_pb2.KernelId(id=self._kernel_id, restart=restart)
+        self._get_stub().StopKernel(kernelId)
     except grpc.RpcError as e:
       self._try_close()
       raise RuntimeError(f"Failed to kill kernel: {e}")
@@ -134,6 +143,7 @@ class GatewayProvisioner(KernelProvisionerBase):
     try:
       spec = gateway_pb2.KernelSpec(
         id=self._kernel_id, 
+        session=self.parent.session.session,
         argv=cmd, 
         signatureScheme=self.parent.session.signature_scheme,
         key=self.parent.session.key)
@@ -174,7 +184,8 @@ class GatewayProvisioner(KernelProvisionerBase):
     This method is optional and is primarily used in scenarios where the provisioner
     may need to perform other operations in preparation for a kernel's shutdown.
     """
-    pass
+    await self.terminate(restart=restart)
+    return
 
   async def pre_launch(self, **kwargs: Any) -> Dict[str, Any]:
     """

@@ -7,10 +7,30 @@ option java_outer_classname = "GatewayProto";
 
 package gateway;
 
+service ClusterGateway {
+  // RemoveHost removes a local gateway from the cluster.
+  rpc RemoveHost(HostId) returns (Void) {}
+}
+
+message HostSpec {
+  string ip = 1;
+  int32 port = 2;
+}
+
+message HostId {
+  string id = 1;
+}
+
 // The juypter gateway service for host local kernels.
 service LocalGateway {
-  // Start a kernel or kernel replica.
+  // SetID sets the local gatway id and return old id for failure tolerance.
+  rpc SetID(HostId) returns (HostId) {}
+
+  // StartKernel a kernel or kernel replica.
   rpc StartKernel(KernelSpec) returns (KernelConnectionInfo) {}
+
+  // StartKernelReplica starts a kernel replica on the local host.
+  rpc StartKernelReplica(KernelReplicaSpec) returns (KernelConnectionInfo) {}
 
   // GetKernelStatus returns the status of a kernel.
   rpc GetKernelStatus(KernelId) returns (KernelStatus) {}
@@ -23,26 +43,39 @@ service LocalGateway {
 
   // WaitKernel waits for a kernel to stop and return status.
   rpc WaitKernel(KernelId) returns (KernelStatus) {}
+
+  // SetClose request the gateway to close all kernels and stop.
+  rpc SetClose(Void) returns (Void) {}
 }
 
 // The input for starting a kernel replica.
-message LocalKernelSpec {
-  string replicaId = 1;
-  repeated string replicas = 2;
-  KernelSpec spec = 3;
+message KernelReplicaSpec {
+  KernelSpec kernel = 1;
+  int32 replicaId = 2;
+  int32 numReplicas = 3;
+  repeated string replicas = 4;
+}
+
+message ResourceSpec {
+  int32 cpu = 1;  // In 1/100 core.
+  int32 memory = 2; // In MB.
+  int32 gpu = 3; // In 1/100 core.
 }
 
 // The kernel id.
 message KernelId {
   string id = 1;
+  optional bool restart = 2;
 }
 
 // The kernel spec.
 message KernelSpec {
   string id = 1;  // The kernel id.
-  repeated string argv = 2;
-	string signatureScheme = 3; // The signature scheme to use.
-  string key = 4; // The key to use for signing messages.
+  string session = 2; // The id of session associated with the kernel manager.
+  repeated string argv = 3;
+	string signatureScheme = 4; // The signature scheme to use.
+  string key = 5; // The key to use for signing messages.
+  ResourceSpec resource = 6;
 }
 
 // The connection info for a kernel.

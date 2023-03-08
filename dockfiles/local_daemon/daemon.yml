@@ -1,7 +1,9 @@
-ip: "daemon"
-hb_port: 9000
-control_port: 9001
-shell_port: 9002
-stdin_port: 9003
-iopub_port: 9004
+port: 8080
+provisioner: "gateway:8081"
+hb-port: 9000
+control-port: 9001
+shell-port: 9002
+stdin-port: 9003
+iopub-port: 9004
 debug: true
+direct: false

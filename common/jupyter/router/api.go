@@ -16,6 +16,8 @@ type MessageHandler func(RouterInfo, *zmq4.Msg) error
 
 // Router defines the interface to provider infos of a JupyterRouter.
 type RouterInfo interface {
+	fmt.Stringer
+
 	Socket(types.MessageType) *types.Socket
 }
 

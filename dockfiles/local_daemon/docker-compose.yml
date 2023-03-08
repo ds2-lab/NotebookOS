@@ -11,18 +11,25 @@ services:
 
   jupyter:
     # environment:
-    #   - TLS
-    #   - JAEGER_SAMPLE_RATIO
-    #   - LOG_LEVEL
+    #   - NOTEBOOK_ARGS="--log-level='DEBUG'"
     build: 
       context: ../..
       dockerfile: dockfiles/cpu-python3-arm64/Dockerfile
     image: zhangjyr/jupyter
     container_name: 'jupyter'
+    command: start-notebook.sh --NotebookApp.token='' --log-level='DEBUG'
     ports:
       - "8888:8888"
     depends_on:
-      - daemon
+      - gateway
+    restart: always
+
+  gateway:
+    build: 
+      context: ../..
+      dockerfile: dockfiles/gateway/Dockerfile
+    image: zhangjyr/gateway
+    container_name: 'gateway'
     restart: always
 
   daemon:
@@ -35,13 +42,13 @@ services:
       context: ../..
       dockerfile: dockfiles/local-daemon/Dockerfile
     image: zhangjyr/daemon
-    container_name: 'daemon'
+    # container_name: 'daemon'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/kernel:/tmp/kernel
       - storage:/storage
-    # depends_on:
-    #   - consul
+    depends_on:
+      - gateway
     restart: always
 
   # jaeger:

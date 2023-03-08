@@ -9,7 +9,7 @@ type BaseHashMap[K any, V any] interface {
 	Load(K) (val V, loaded bool)
 	LoadAndDelete(K) (val V, exists bool)
 	LoadOrStore(K, V) (val V, loaded bool)
-	CompareAndSwap(K, V, V) (val interface{}, swapped bool)
+	CompareAndSwap(K, V, V) (val V, swapped bool)
 
 	// Range iterates over the map's key/value pairs, if the callback function returns false, iteration stops.
 	Range(func(K, V) (contd bool))

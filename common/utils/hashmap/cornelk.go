@@ -68,7 +68,7 @@ func (m *CornelkMap[K, V]) LoadOrStore(key K, value V) (ret V, loaded bool) {
 	return ret, loaded
 }
 
-func (m *CornelkMap[K, V]) CompareAndSwap(key K, oldVal V, newVal V) (val interface{}, swapped bool) {
+func (m *CornelkMap[K, V]) CompareAndSwap(key K, oldVal V, newVal V) (val V, swapped bool) {
 	if m.hashmap.Cas(key, oldVal, newVal) {
 		return newVal, true
 	} else {

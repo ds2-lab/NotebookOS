@@ -1,0 +1,10 @@
+port: 8080
+provisioner-port: 8081
+num-replicas: 1
+max-subscribed-ratio: 7.0
+hb-port: 9000
+control-port: 9001
+shell-port: 9002
+stdin-port: 9003
+iopub-port: 9004
+debug: true

@@ -2,16 +2,17 @@ package invoker
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
+type StatucChangedHandler func(old jupyter.KernelStatus, new jupyter.KernelStatus)
+
 type KernelInvoker interface {
 	// InvokeWithContext starts a kernel with the given context.
-	InvokeWithContext(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
+	InvokeWithContext(context.Context, *gateway.KernelReplicaSpec) (*jupyter.ConnectionInfo, error)
 
 	// Status returns the status of the kernel.
 	Status() (jupyter.KernelStatus, error)
@@ -28,13 +29,8 @@ type KernelInvoker interface {
 	// Expired returns true if the kernel has been stopped before the given timeout.
 	// If the Wait() has been called, the kernel is considered expired.
 	Expired(timeout time.Duration) bool
-}
 
-func GetEnv(name string, def string) string {
-	val := os.Getenv(name)
-	if len(val) > 0 {
-		return val
-	} else {
-		return def
-	}
+	// OnStatusChanged registers a callback function to be called when the kernel status changes.
+	// The callback function is invocation sepcific and will be cleared after the kernel exits.
+	OnStatusChanged(StatucChangedHandler)
 }

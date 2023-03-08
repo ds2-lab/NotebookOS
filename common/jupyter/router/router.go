@@ -11,10 +11,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
-const (
-	AllInterfaces = "0.0.0.0"
-)
-
 type Router struct {
 	*server.BaseServer
 	server *server.AbstractServer
@@ -26,6 +22,7 @@ type Router struct {
 func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider) *Router {
 	router := &Router{
 		server: server.New(ctx, opts, func(s *server.AbstractServer) {
+			// We do not set handlers of the sockets here. Server routine will be started using a shared handler.
 			s.Sockets.HB = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.HBPort}
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ControlPort}
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ShellPort}
@@ -45,16 +42,20 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 	return router
 }
 
-// start initializes the zmq sockets and starts the service.
+// String returns the information for logging.
+func (g *Router) String() string {
+	return "router"
+}
+
+// Start initializes the zmq sockets and starts the service.
 func (g *Router) Start() error {
 	// Start listening on all sockets.
-	address := fmt.Sprintf("%v://%v:%%v", g.server.Meta.Transport, AllInterfaces)
 	for _, socket := range g.server.Sockets.All {
 		if socket == nil {
 			continue
 		}
 
-		err := socket.Socket.Listen(fmt.Sprintf(address, socket.Port))
+		err := g.server.Listen(socket)
 		if err != nil {
 			return fmt.Errorf("could not listen on router socket(port:%d): %w", socket.Port, err)
 		}
@@ -63,12 +64,13 @@ func (g *Router) Start() error {
 	}
 
 	// Now listeners are ready, start servering.
-	for i, socket := range g.server.Sockets.All {
+	for _, socket := range g.server.Sockets.All {
 		if socket == nil {
 			continue
 		}
 
-		go g.server.Serve(types.MessageType(i), socket, g.handleMsg)
+		// socket.Handler has not been set, use shared handler.
+		go g.server.Serve(socket, g.handleMsg)
 	}
 
 	<-g.server.Ctx.Done()
@@ -80,7 +82,7 @@ func (g *Router) AddHandler(typ types.MessageType, handler MessageHandler) {
 		handler = func(oldHandler MessageHandler, newHandler MessageHandler) MessageHandler {
 			return func(sockets RouterInfo, msg *zmq4.Msg) error {
 				err := newHandler(sockets, msg)
-				if err != nil {
+				if err == nil {
 					return oldHandler(sockets, msg)
 				} else if err == ErrStopPropagation {
 					return nil
@@ -91,6 +93,12 @@ func (g *Router) AddHandler(typ types.MessageType, handler MessageHandler) {
 		}(g.handlers[typ], handler)
 	}
 	g.handlers[typ] = handler
+}
+
+func (g *Router) Close() error {
+	g.BaseServer.Close()
+	// Sockets will be closed on Start() existing.
+	return nil
 }
 
 func (g *Router) handleMsg(typ types.MessageType, msg *zmq4.Msg) error {

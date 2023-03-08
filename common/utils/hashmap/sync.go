@@ -37,7 +37,7 @@ func (m *SyncMap[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 }
 
 // Just a dummy implementation to that will fail always.
-func (m *SyncMap[K, V]) CompareAndSwap(key K, old V, new V) (interface{}, bool) {
+func (m *SyncMap[K, V]) CompareAndSwap(key K, old V, new V) (V, bool) {
 	v, _ := m.Load(key)
 	return v, false
 }

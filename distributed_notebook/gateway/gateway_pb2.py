@@ -13,7 +13,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rgateway.proto\x12\x07gateway\"Y\n\x0fLocalKernelSpec\x12\x11\n\treplicaId\x18\x01 \x01(\t\x12\x10\n\x08replicas\x18\x02 \x03(\t\x12!\n\x04spec\x18\x03 \x01(\x0b\x32\x13.gateway.KernelSpec\"\x16\n\x08KernelId\x12\n\n\x02id\x18\x01 \x01(\t\"L\n\nKernelSpec\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0c\n\x04\x61rgv\x18\x02 \x03(\t\x12\x17\n\x0fsignatureScheme\x18\x03 \x01(\t\x12\x0b\n\x03key\x18\x04 \x01(\t\"\xb9\x01\n\x14KernelConnectionInfo\x12\n\n\x02ip\x18\x01 \x01(\t\x12\x11\n\ttransport\x18\x02 \x01(\t\x12\x13\n\x0b\x63ontrolPort\x18\x03 \x01(\x05\x12\x11\n\tshellPort\x18\x04 \x01(\x05\x12\x11\n\tstdinPort\x18\x05 \x01(\x05\x12\x0e\n\x06hbPort\x18\x06 \x01(\x05\x12\x11\n\tiopubPort\x18\x07 \x01(\x05\x12\x17\n\x0fsignatureScheme\x18\x08 \x01(\t\x12\x0b\n\x03key\x18\t \x01(\t\"\x1e\n\x0cKernelStatus\x12\x0e\n\x06status\x18\x01 \x01(\x05\"\x06\n\x04Void2\xb0\x02\n\x0cLocalGateway\x12\x43\n\x0bStartKernel\x12\x13.gateway.KernelSpec\x1a\x1d.gateway.KernelConnectionInfo\"\x00\x12=\n\x0fGetKernelStatus\x12\x11.gateway.KernelId\x1a\x15.gateway.KernelStatus\"\x00\x12\x30\n\nKillKernel\x12\x11.gateway.KernelId\x1a\r.gateway.Void\"\x00\x12\x30\n\nStopKernel\x12\x11.gateway.KernelId\x1a\r.gateway.Void\"\x00\x12\x38\n\nWaitKernel\x12\x11.gateway.KernelId\x1a\x15.gateway.KernelStatus\"\x00\x42\x82\x01\n7com.github.zhangjyr.distributed-notebook.common.gatewayB\x0cGatewayProtoP\x01Z7github.com/zhangjyr/distributed-notebook/common/gatewayb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rgateway.proto\x12\x07gateway\"$\n\x08HostSpec\x12\n\n\x02ip\x18\x01 \x01(\t\x12\x0c\n\x04port\x18\x02 \x01(\x05\"\x14\n\x06HostId\x12\n\n\x02id\x18\x01 \x01(\t\"r\n\x11KernelReplicaSpec\x12#\n\x06kernel\x18\x01 \x01(\x0b\x32\x13.gateway.KernelSpec\x12\x11\n\treplicaId\x18\x02 \x01(\x05\x12\x13\n\x0bnumReplicas\x18\x03 \x01(\x05\x12\x10\n\x08replicas\x18\x04 \x03(\t\"8\n\x0cResourceSpec\x12\x0b\n\x03\x63pu\x18\x01 \x01(\x05\x12\x0e\n\x06memory\x18\x02 \x01(\x05\x12\x0b\n\x03gpu\x18\x03 \x01(\x05\"8\n\x08KernelId\x12\n\n\x02id\x18\x01 \x01(\t\x12\x14\n\x07restart\x18\x02 \x01(\x08H\x00\x88\x01\x01\x42\n\n\x08_restart\"\x86\x01\n\nKernelSpec\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0f\n\x07session\x18\x02 \x01(\t\x12\x0c\n\x04\x61rgv\x18\x03 \x03(\t\x12\x17\n\x0fsignatureScheme\x18\x04 \x01(\t\x12\x0b\n\x03key\x18\x05 \x01(\t\x12\'\n\x08resource\x18\x06 \x01(\x0b\x32\x15.gateway.ResourceSpec\"\xb9\x01\n\x14KernelConnectionInfo\x12\n\n\x02ip\x18\x01 \x01(\t\x12\x11\n\ttransport\x18\x02 \x01(\t\x12\x13\n\x0b\x63ontrolPort\x18\x03 \x01(\x05\x12\x11\n\tshellPort\x18\x04 \x01(\x05\x12\x11\n\tstdinPort\x18\x05 \x01(\x05\x12\x0e\n\x06hbPort\x18\x06 \x01(\x05\x12\x11\n\tiopubPort\x18\x07 \x01(\x05\x12\x17\n\x0fsignatureScheme\x18\x08 \x01(\t\x12\x0b\n\x03key\x18\t \x01(\t\"\x1e\n\x0cKernelStatus\x12\x0e\n\x06status\x18\x01 \x01(\x05\"\x06\n\x04Void2@\n\x0e\x43lusterGateway\x12.\n\nRemoveHost\x12\x0f.gateway.HostId\x1a\r.gateway.Void\"\x00\x32\xdc\x03\n\x0cLocalGateway\x12+\n\x05SetID\x12\x0f.gateway.HostId\x1a\x0f.gateway.HostId\"\x00\x12\x43\n\x0bStartKernel\x12\x13.gateway.KernelSpec\x1a\x1d.gateway.KernelConnectionInfo\"\x00\x12Q\n\x12StartKernelReplica\x12\x1a.gateway.KernelReplicaSpec\x1a\x1d.gateway.KernelConnectionInfo\"\x00\x12=\n\x0fGetKernelStatus\x12\x11.gateway.KernelId\x1a\x15.gateway.KernelStatus\"\x00\x12\x30\n\nKillKernel\x12\x11.gateway.KernelId\x1a\r.gateway.Void\"\x00\x12\x30\n\nStopKernel\x12\x11.gateway.KernelId\x1a\r.gateway.Void\"\x00\x12\x38\n\nWaitKernel\x12\x11.gateway.KernelId\x1a\x15.gateway.KernelStatus\"\x00\x12*\n\x08SetClose\x12\r.gateway.Void\x1a\r.gateway.Void\"\x00\x42\x82\x01\n7com.github.zhangjyr.distributed-notebook.common.gatewayB\x0cGatewayProtoP\x01Z7github.com/zhangjyr/distributed-notebook/common/gatewayb\x06proto3')
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'gateway_pb2', globals())
@@ -21,18 +21,26 @@ if _descriptor._USE_C_DESCRIPTORS == False:
 
   DESCRIPTOR._options = None
   DESCRIPTOR._serialized_options = b'\n7com.github.zhangjyr.distributed-notebook.common.gatewayB\014GatewayProtoP\001Z7github.com/zhangjyr/distributed-notebook/common/gateway'
-  _LOCALKERNELSPEC._serialized_start=26
-  _LOCALKERNELSPEC._serialized_end=115
-  _KERNELID._serialized_start=117
-  _KERNELID._serialized_end=139
-  _KERNELSPEC._serialized_start=141
-  _KERNELSPEC._serialized_end=217
-  _KERNELCONNECTIONINFO._serialized_start=220
-  _KERNELCONNECTIONINFO._serialized_end=405
-  _KERNELSTATUS._serialized_start=407
-  _KERNELSTATUS._serialized_end=437
-  _VOID._serialized_start=439
-  _VOID._serialized_end=445
-  _LOCALGATEWAY._serialized_start=448
-  _LOCALGATEWAY._serialized_end=752
+  _HOSTSPEC._serialized_start=26
+  _HOSTSPEC._serialized_end=62
+  _HOSTID._serialized_start=64
+  _HOSTID._serialized_end=84
+  _KERNELREPLICASPEC._serialized_start=86
+  _KERNELREPLICASPEC._serialized_end=200
+  _RESOURCESPEC._serialized_start=202
+  _RESOURCESPEC._serialized_end=258
+  _KERNELID._serialized_start=260
+  _KERNELID._serialized_end=316
+  _KERNELSPEC._serialized_start=319
+  _KERNELSPEC._serialized_end=453
+  _KERNELCONNECTIONINFO._serialized_start=456
+  _KERNELCONNECTIONINFO._serialized_end=641
+  _KERNELSTATUS._serialized_start=643
+  _KERNELSTATUS._serialized_end=673
+  _VOID._serialized_start=675
+  _VOID._serialized_end=681
+  _CLUSTERGATEWAY._serialized_start=683
+  _CLUSTERGATEWAY._serialized_end=747
+  _LOCALGATEWAY._serialized_start=750
+  _LOCALGATEWAY._serialized_end=1226
 # @@protoc_insertion_point(module_scope)

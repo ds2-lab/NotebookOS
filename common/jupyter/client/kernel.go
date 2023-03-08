@@ -3,12 +3,15 @@ package client
 import (
 	"context"
 	"fmt"
-	"net"
 	"sync"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/zhangjyr/distributed-notebook/common/core"
+	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
@@ -21,31 +24,45 @@ var (
 // All sockets except IOPub are connected on dialing.
 type KernelClient struct {
 	*server.BaseServer
-	server  *server.AbstractServer
-	id      string
-	status  types.KernelStatus
-	iopub   *types.Socket
-	session string
+	*SessionManager
+	router router.RouterInfo
+	client *server.AbstractServer
 
-	mu sync.Mutex
+	id        string
+	replicaId int32
+	status    types.KernelStatus
+	shell     *types.Socket
+	iopub     *types.Socket
+
+	log logger.Logger
+	mu  sync.Mutex
 }
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(id string, ctx context.Context, info *types.ConnectionInfo) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, router router.RouterInfo) *KernelClient {
 	client := &KernelClient{
-		id: id,
-		server: server.New(ctx, info, func(s *server.AbstractServer) {
+		id:        spec.Kernel.Id,
+		replicaId: spec.ReplicaId,
+		router:    router,
+		client: server.New(ctx, info, func(s *server.AbstractServer) {
+			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ControlPort}
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ShellPort}
 			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.StdinPort}
 			s.Sockets.HB = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.HBPort}
 			// IOPub is lazily initialized for different subclasses.
+			if spec.ReplicaId == 0 {
+				config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Kernel.Id))
+			} else {
+				config.InitLogger(&s.Log, fmt.Sprintf("Replica %s:%d ", spec.Kernel.Id, spec.ReplicaId))
+			}
 		}),
 		status: types.KernelStatusInitializing,
 	}
-	client.BaseServer = client.server.Server()
-	client.server.Log = config.GetLogger(fmt.Sprintf("Kernel %s ", id))
+	client.BaseServer = client.client.Server()
+	client.SessionManager = NewSessionManager(spec.Kernel.Session)
+	client.log = client.client.Log
 
 	return client
 }
@@ -55,44 +72,74 @@ func (c *KernelClient) ID() string {
 	return c.id
 }
 
+// String returns a string representation of the client.
+func (c *KernelClient) String() string {
+	if c.replicaId == 0 {
+		return fmt.Sprintf("kernel(%s)", c.id)
+	} else {
+		return fmt.Sprintf("replica(%s:%d)", c.id, c.replicaId)
+	}
+}
+
+// Socket implements router.RouterInfo interface.
+func (c *KernelClient) Socket(typ types.MessageType) *types.Socket {
+	switch typ {
+	case types.IOMessage:
+		return c.iopub
+	case types.ShellMessage:
+		if c.shell != nil {
+			return c.shell
+		} else {
+			break
+		}
+	}
+
+	return c.router.Socket(typ)
+}
+
+// ConnectionInfo returns the connection info.
+func (c *KernelClient) ConnectionInfo() *types.ConnectionInfo {
+	return c.client.Meta
+}
+
 // Status returns the kernel status.
 func (c *KernelClient) Status() types.KernelStatus {
 	return c.status
 }
 
-// Session returns the associated session ID.
-func (c *KernelClient) Session() string {
-	return c.session
-}
-
 // BindSession binds a session ID to the client.
 func (c *KernelClient) BindSession(sess string) {
-	c.session = sess
-	c.server.Log.Info("Binded session %s", sess)
+	c.SessionManager.BindSession(sess)
+	c.log.Info("Binded session %s", sess)
 }
 
 // Validate validates the kernel connections. If IOPub has been initialized, it will also validate the IOPub connection and start the IOPub forwarder.
 func (c *KernelClient) Validate() error {
+	if c.status >= types.KernelStatusRunning {
+		return nil
+	}
 	timer := time.NewTimer(0)
 
 	for {
 		select {
-		case <-c.server.Ctx.Done():
+		case <-c.client.Ctx.Done():
 			c.status = types.KernelStatusExited
 			return types.ErrKernelClosed
 		case <-timer.C:
 			c.mu.Lock()
 			// Wait for heartbeat connection to
-			if err := c.dial(c.server.Sockets.HB); err != nil {
-				c.server.Log.Warn("Failed to dial heartbeat (%v:%v), retrying...", c.server.Sockets.HB.Addr(), err)
+			if err := c.dial(nil, c.client.Sockets.HB); err != nil {
+				c.client.Log.Warn("Failed to dial heartbeat (%v:%v), retrying...", c.client.Sockets.HB.Addr(), err)
 				timer.Reset(heartbeatInterval)
 				c.mu.Unlock()
 				break // break select
 			}
-			c.server.Log.Debug("Heartbeat connected")
+			c.client.Log.Debug("Heartbeat connected")
 
-			if err := c.dial(c.server.Sockets.All[types.HBMessage+1:]...); err != nil {
-				c.server.Log.Warn(err.Error())
+			// Dial all other sockets. If IO socket is set previously and has not been dialed
+			// because kernel is not ready, dial it now.
+			if err := c.dial(c.client.Sockets.All[types.HBMessage+1:]...); err != nil {
+				c.client.Log.Warn(err.Error())
 				c.Close()
 				c.status = types.KernelStatusExited
 				c.mu.Unlock()
@@ -107,37 +154,60 @@ func (c *KernelClient) Validate() error {
 }
 
 // InitializeIOForwarder initializes the IOPub serving.
-func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
-	iopub, err := c.listenIO()
-	if err != nil {
+func (c *KernelClient) InitializeShellForwarder(handler types.MessageHandler) (*types.Socket, error) {
+	shell := &types.Socket{
+		Socket: zmq4.NewRouter(c.client.Ctx),
+		Type:   types.ShellMessage,
+	}
+
+	if err := c.client.Listen(shell); err != nil {
 		return nil, err
 	}
-	c.iopub = iopub
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.shell = shell
+	go c.client.Serve(shell, func(typ types.MessageType, msg *zmq4.Msg) error {
+		msg.Frames = c.BaseServer.AddKernelFrame(msg.Frames, c.id)
+		return handler(typ, msg)
+	})
 
-	c.server.Sockets.IOPub = &types.Socket{Socket: zmq4.NewSub(c.server.Ctx), Port: c.server.Meta.IOPubPort} // Though named IOPub, it is a sub socket for a client.
-	c.server.Sockets.IOPub.SetOption(zmq4.OptionSubscribe, "")                                               // Subscribe to all messages.
-	c.server.Sockets.All[types.IOPubMessage] = c.server.Sockets.IOPub
-	// Dial our self if the client is running and serving heartbeat.
-	if c.status == types.KernelStatusRunning {
-		// Try dial, ignore failure.
-		if err := c.dial(c.server.Sockets.IOPub); err != nil {
-			return nil, err
-		}
+	return shell, nil
+}
+
+// InitializeIOForwarder initializes the IOPub serving.
+func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
+	iopub := &types.Socket{
+		Socket: zmq4.NewPub(c.client.Ctx),
+		Type:   types.IOMessage,
 	}
 
+	if err := c.client.Listen(iopub); err != nil {
+		return nil, err
+	}
+
+	// Though named IOPub, it is a sub socket for a client.
+	// Subscribe to all messages.
+	// Dial our self if the client is running and serving heartbeat.
+	// Try dial, ignore failure.
+	if err := c.initializeIOPub(c.handleMsg); err != nil {
+		iopub.Close()
+		return nil, err
+	}
+
+	c.iopub = iopub
 	return iopub, nil
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *KernelClient) RequestWithHandler(typ types.MessageType, msg *zmq4.Msg, handler MessageHandler) error {
+func (c *KernelClient) RequestWithHandler(typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler) error {
+	return c.requestWithHandler(typ, msg, c.shell != nil, handler)
+}
+
+func (c *KernelClient) requestWithHandler(typ types.MessageType, msg *zmq4.Msg, removeKernelFrame bool, handler core.KernelMessageHandler) error {
 	if c.status < types.KernelStatusRunning {
-		return types.ErrKernelReady
+		return types.ErrKernelNotReady
 	}
 
-	socket := c.server.Sockets.All[typ]
+	socket := c.client.Sockets.All[typ]
 	if socket == nil {
 		return types.ErrSocketNotAvailable
 	}
@@ -146,30 +216,55 @@ func (c *KernelClient) RequestWithHandler(typ types.MessageType, msg *zmq4.Msg, 
 		return err
 	}
 
-	go c.server.ServeOnce(typ, socket, func(typ types.MessageType, msg *zmq4.Msg) error {
+	// Add timeout if necessary.
+	go c.client.ServeOnce(context.Background(), socket, msg, removeKernelFrame, func(typ types.MessageType, msg *zmq4.Msg) error {
+		// Kernel frame is automatically removed.
 		return handler(c, msg)
 	})
 	return nil
 }
 
 // Close closes the zmq sockets.
-func (c *KernelClient) Close() {
+func (c *KernelClient) Close() error {
 	c.BaseServer.Close()
-	for _, socket := range c.server.Sockets.All {
+	for _, socket := range c.client.Sockets.All {
 		if socket != nil {
 			socket.Close()
 		}
 	}
 	if c.iopub != nil {
 		c.iopub.Close()
+		c.iopub = nil
 	}
+	return nil
+}
+
+func (c *KernelClient) initializeIOPub(handler types.MessageHandler) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Handler is set, so server routing will be started on dialing.
+	c.client.Sockets.IO = &types.Socket{
+		Socket:  zmq4.NewSub(c.client.Ctx), // Sub socket for client.
+		Port:    c.client.Meta.IOPubPort,
+		Type:    types.IOMessage,
+		Handler: handler,
+	}
+	c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, "")
+	c.client.Sockets.All[types.IOMessage] = c.client.Sockets.IO
+
+	if c.status == types.KernelStatusRunning {
+		if err := c.dial(c.client.Sockets.IO); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // dial connects to specified sockets
 func (c *KernelClient) dial(sockets ...*types.Socket) error {
 	// Start listening on all specified sockets.
-	address := fmt.Sprintf("%v://%v:%%v", c.server.Meta.Transport, c.server.Meta.IP)
-	tbserved := make([]types.MessageType, 0, len(sockets))
+	address := fmt.Sprintf("%v://%v:%%v", c.client.Meta.Transport, c.client.Meta.IP)
 	for _, socket := range sockets {
 		if socket == nil {
 			continue
@@ -179,36 +274,23 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 		if err != nil {
 			return fmt.Errorf("could not connect to kernel socket(port:%d): %w", socket.Port, err)
 		}
-
-		// IOPub is the only socket that needs to be served for a client.
-		if socket == c.server.Sockets.IOPub {
-			tbserved = append(tbserved, types.IOPubMessage)
-		}
 	}
 
 	// Using a second loop to start serving after all sockets are connected.
-	for _, typ := range tbserved {
-		go c.server.Serve(typ, c.server.Sockets.All[typ], c.handleMsg)
+	for _, socket := range sockets {
+		if socket != nil && socket.Handler != nil {
+			go c.client.Serve(socket, socket.Handler)
+		}
 	}
 
 	return nil
 }
 
-func (c *KernelClient) listenIO() (*types.Socket, error) {
-	iopub := zmq4.NewPub(c.server.Ctx)
-	err := iopub.Listen("tcp://:0")
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.Socket{Socket: iopub, Port: iopub.Addr().(*net.TCPAddr).Port}, nil
-}
-
 func (c *KernelClient) handleMsg(typ types.MessageType, msg *zmq4.Msg) error {
 	switch typ {
-	case types.IOPubMessage:
+	case types.IOMessage:
 		if c.iopub != nil {
-			c.server.Log.Debug("Forwarding %v message: %v", typ, msg)
+			c.client.Log.Debug("Forwarding %v message: %v", typ, msg)
 			return c.iopub.Socket.Send(*msg)
 		} else {
 			return ErrIOPubNotStarted
