@@ -1,7 +1,7 @@
 package core
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
@@ -10,10 +10,11 @@ import (
 )
 
 // API defines the interface of messages that a JupyterRouter can intercept and handle.
-type KernelMessageHandler func(router.RouterInfo, *zmq4.Msg) error
+type KernelMessageHandler func(KernelInfo, jupyter.MessageType, *zmq4.Msg) error
 
 type KernelInfo interface {
-	fmt.Stringer
+	// Provides kernel specific routing information.
+	router.RouterInfo
 
 	// ID returns kernel id.
 	ID() string
@@ -24,8 +25,8 @@ type Kernel interface {
 	KernelInfo
 	types.Contextable
 
-	// ConnectionInfo returns the connection info of the kernel.
-	ConnectionInfo() *jupyter.ConnectionInfo
+	// // ConnectionInfo returns the connection info of the kernel.
+	// ConnectionInfo() *jupyter.ConnectionInfo
 
 	// Status returns the kernel status.
 	// Including simulator features:
@@ -39,7 +40,7 @@ type Kernel interface {
 	Validate() error
 
 	// InitializeShellForwarder initializes the shell forwarder.
-	InitializeShellForwarder(handler jupyter.MessageHandler) (*jupyter.Socket, error)
+	InitializeShellForwarder(handler KernelMessageHandler) (*jupyter.Socket, error)
 
 	// InitializeIOForwarder initializes the io forwarder.
 	InitializeIOForwarder() (*jupyter.Socket, error)
@@ -51,7 +52,7 @@ type Kernel interface {
 	// 	entity.Container.StopTrain()
 	// 	entity.Container.Suspend()
 	// 	entity.Container.Resume()
-	RequestWithHandler(typ jupyter.MessageType, msg *zmq4.Msg, handler KernelMessageHandler) error
+	RequestWithHandler(ctx context.Context, typ jupyter.MessageType, msg *zmq4.Msg, handler KernelMessageHandler, done func()) error
 
 	// Close cleans up kernel resource.
 	// Including simulator features:

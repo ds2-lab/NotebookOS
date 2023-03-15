@@ -53,6 +53,10 @@ type GatewayDaemonConfig func(*GatewayDaemon)
 // 1. A jupyter remote kernel gateway.
 // 2. A global scheduler that coordinate host schedulers.
 // 3. Implemented net.Listener interface to bi-directional gRPC calls.
+//
+// Some useful resources for jupyter protocol:
+// https://jupyter-client.readthedocs.io/en/stable/messaging.html
+// https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
 type GatewayDaemon struct {
 	id string
 
@@ -186,7 +190,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		// Initialize kernel with new context.
-		kernel = client.NewDistributedKernel(context.Background(), in, d.router)
+		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas)
 		_, err := kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {
 			kernel.Close()
@@ -229,7 +233,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 			}
 
 			// Initialize kernel client
-			replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo(), d.router)
+			replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
 			err = replica.Validate()
 			if err != nil {
 				d.closeKernel(host, kernel, replica, replicaId, "validation error")
@@ -373,8 +377,8 @@ func (d *GatewayDaemon) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	return d.forwardRequest(nil, jupyter.ControlMessage, msg)
 }
 
-func (d *GatewayDaemon) kernelShellHandler(typ jupyter.MessageType, msg *zmq4.Msg) error {
-	return d.ShellHandler(d.router, msg)
+func (d *GatewayDaemon) kernelShellHandler(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+	return d.ShellHandler(kernel, msg)
 }
 
 func (d *GatewayDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
@@ -424,12 +428,12 @@ func (d *GatewayDaemon) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
 func (d *GatewayDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
-	kernelId, _, frames := d.router.ExtractKernelFrames(msg.Frames)
+	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
 	if kernelId != "" {
 		return kernelId, false, nil
 	}
 
-	header, err := d.headerFromFrames(frames)
+	header, err := d.headerFromFrames(msg.Frames[offset:])
 	if err != nil {
 		return "", false, err
 	}
@@ -452,53 +456,54 @@ func (d *GatewayDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHeade
 }
 
 func (d *GatewayDaemon) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, err error) {
-	kernelId, _, frames := d.router.ExtractKernelFrames(msg.Frames)
+	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
 
-	header, err = d.headerFromFrames(frames)
+	header, err = d.headerFromFrames(msg.Frames[offset:])
 
 	return kernelId, header, err
 }
 
-func (d *GatewayDaemon) sessionFromMsg(msg *zmq4.Msg) (*client.DistributedKernelClient, error) {
+func (d *GatewayDaemon) kernelFromMsg(msg *zmq4.Msg) (*client.DistributedKernelClient, error) {
 	id, _, err := d.idFromMsg(msg)
 	if err != nil {
 		return nil, err
 	}
 
-	session, ok := d.kernels.Load(id)
+	kernel, ok := d.kernels.Load(id)
 	if !ok {
 		return nil, ErrKernelNotFound
 	}
 
-	if session.Status() != jupyter.KernelStatusRunning {
-		return session, ErrKernelNotReady
+	if kernel.Status() != jupyter.KernelStatusRunning {
+		return kernel, ErrKernelNotReady
 	}
 
-	return session, nil
+	return kernel, nil
 }
 
-func (d *GatewayDaemon) forwardRequest(session *client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
-	if session == nil {
-		session, err = d.sessionFromMsg(msg)
+func (d *GatewayDaemon) forwardRequest(kernel *client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
+	if kernel == nil {
+		kernel, err = d.kernelFromMsg(msg)
 		if err != nil {
 			return err
 		}
 	}
 
-	d.log.Debug("Forwarding %v request to all kernels: %s: %v", typ, session.ID(), msg)
-	return session.RequestWithHandler(typ, msg, d.getKernelResponseForwarder(typ))
+	d.log.Debug("Forwarding %v request(%p) to all replicas of %v: %v", typ, msg, kernel, msg)
+	return kernel.RequestWithHandler(context.Background(), typ, msg, d.kernelResponseForwarder, func() {})
 }
 
-func (d *GatewayDaemon) getKernelResponseForwarder(typ jupyter.MessageType) core.KernelMessageHandler {
-	return func(router router.RouterInfo, msg *zmq4.Msg) error {
-		socket := router.Socket(typ)
-		if socket == nil {
-			d.log.Warn("Unable to forward %v response: socket unavailable", typ)
-			return nil
-		}
-		d.log.Debug("Forwarding %v response from %v: %v", socket, router, msg)
-		return socket.Send(*msg)
+func (d *GatewayDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+	socket := from.Socket(typ)
+	if socket == nil {
+		socket = d.router.Socket(typ)
 	}
+	if socket == nil {
+		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
+		return nil
+	}
+	d.log.Debug("Forwarding %v response from %v: %v", socket, from, msg)
+	return socket.Send(*msg)
 }
 
 func (d *GatewayDaemon) errorf(err error) error {

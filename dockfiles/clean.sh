@@ -11,3 +11,13 @@ while read -r image; do
     docker rmi $id
   fi
 done <<< "$images"
+
+# Get a list of all exited Docker containers
+containers=$(docker ps -a --format "{{.ID}}:{{.Status}}" | grep Exited | cut -d ":" -f 1)
+
+# Loop through each container and remove it
+while read -r container; do
+  if [ -n "$container" ]; then
+    docker rm $container
+  fi
+done <<< "$containers"

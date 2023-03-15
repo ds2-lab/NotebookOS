@@ -2,15 +2,17 @@ package server
 
 import (
 	"context"
-	"regexp"
+	"fmt"
 
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
-var (
-	ZMQKernelIDFrameFormatter  = "kernel.%s.req.%s" // kernel.<kernel-id>.<req-id>
-	ZMQKernelIDFrameRecognizer = regexp.MustCompile(`^kernel\.([0-9a-f-]+)\.req\.([0-9a-f-]+)$`)
-)
+// Router defines the interface to provider infos of a JupyterRouter.
+type ServerInfo interface {
+	fmt.Stringer
+
+	Socket(types.MessageType) *types.Socket
+}
 
 // BaseServer exposes the basic operations of a Jupyter server. Get BaseServer from AbstractServer.Server().
 type BaseServer struct {
@@ -33,16 +35,16 @@ func (s *BaseServer) SetContext(ctx context.Context) {
 }
 
 // Expose abstract server methods.
-func (s *BaseServer) AddKernelFrame(frames [][]byte, kernelID string) [][]byte {
-	return s.server.AddKernelFrame(frames, kernelID)
+func (s *BaseServer) ExtractDestFrame(frames [][]byte) (kernelID string, reqID string, jOffset int) {
+	return s.server.ExtractDestFrame(frames)
 }
 
-func (s *BaseServer) ExtractKernelFrames(frames [][]byte) (kernelID string, reqID string, jFrames [][]byte) {
-	return s.server.ExtractKernelFrames(frames)
+func (s *BaseServer) AddDestFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte, reqID string) {
+	return s.server.AddDestFrame(frames, kernelID, jOffset)
 }
 
-func (s *BaseServer) RemoveKernelFrame(frames [][]byte) (kernelID string, reqID string, removed [][]byte) {
-	return s.server.RemoveKernelFrame(frames)
+func (s *BaseServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {
+	return s.server.RemoveDestFrame(frames, jOffset)
 }
 
 func (s *BaseServer) SkipIdentities(frames [][]byte) ([][]byte, int) {

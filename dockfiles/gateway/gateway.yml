@@ -1,6 +1,6 @@
 port: 8080
 provisioner-port: 8081
-num-replicas: 1
+num-replicas: 3
 max-subscribed-ratio: 7.0
 hb-port: 9000
 control-port: 9001

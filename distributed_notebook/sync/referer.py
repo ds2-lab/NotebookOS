@@ -1,3 +1,5 @@
+from typing import Any, Optional, Union
+
 EMPTY_TUPLE = ()
 
 class SyncReference:
@@ -8,7 +10,9 @@ class SyncReference:
     self.pickle_id = pickle_id  # Distinguish pickle barrier.
 
 class SyncPickleId:
-  def __init__(self, batch_id, pickle_count):
+  prmap: list[str]
+
+  def __init__(self, batch_id: Optional[str], pickle_count: int):
     self.batch_id = batch_id
     self.pcnt = pickle_count
     self.prmap = [] # A map to permanent reference id (PRID)
@@ -45,12 +49,12 @@ class SyncReferer:
     """Register deserialized obj with permanent reference id. Called on case 5, required for case 6."""
     self.referers[ref_id] = SyncReference(ref_id, obj)
 
-  def prid(self, obj):
-    """Query permanent reference id for first time serialized object. Called after case 1 for sychronizing."""
-    _, prid = self._reference(obj)
-    return prid
+  # def prid(self, obj):
+  #   """Query permanent reference id for first time serialized object. Called after case 1 for sychronizing."""
+  #   _, prid = self._reference(obj)
+  #   return prid
 
-  def reference(self, batch_id):
+  def reference(self, batch_id:Optional[str]):
     pickle_id = SyncPickleId(batch_id, self.last_pickle + 1)
     # print("start pickling {}...".format(pickle_id))
     self.last_pickle = pickle_id.pcnt
@@ -69,14 +73,14 @@ class SyncReferer:
 
     return persistent_id, pickle_id
 
-  def dereference(self, prmap):
+  def dereference(self, prmap:Optional[list[str]]):
     _dereference = self._dereference
-    def persistent_load(ref_id):
-      return _dereference(ref_id, prmap)
+    def persistent_load(pid):
+      return _dereference(pid, prmap)
 
     return persistent_load
 
-  def _reference(self, obj, pickle_id=None):
+  def _reference(self, obj, pickle_id:SyncPickleId) -> tuple[Any, Any]:
     """persistent_id implementation for Pickler. Return permanent reference id on case 2 and 4. Return None on case 1."""
     t = type(obj)
     # Exclude constant variables
@@ -114,10 +118,12 @@ class SyncReferer:
         # print(obj)
       return self.referers[identity].id, self.referers[identity].id
 
-  def _dereference(self, ref_id, prmap):
+  def _dereference(self, ref_id:Union[tuple, str], prmap: Optional[list[str]]):
     """persistent_load implementation for Unpickler. Register permanent refReturn obj on case 6."""
     if isinstance(ref_id, tuple):
       rid, obj = self._persistent_load_v2(ref_id)
+      if prmap is None:
+        raise ValueError("prmap is required for ref_id = tuple(rid, __class__, value).")
       prid = prmap[rid]
       self.register(prid, obj)
       self.referers[id(obj)] = self.referers[prid] # Register ID for later local referencing.

@@ -1,11 +1,11 @@
 import io
 import pickle
 import hashlib
-from typing import Generator, Tuple
+from typing import Generator, Tuple, Optional, Any
 from typing_extensions import Protocol, runtime_checkable
 
 from .log import SyncValue, OP_SYNC_PUT
-from .referer import EMPTY_TUPLE
+from .referer import EMPTY_TUPLE, SyncReferer
 
 @runtime_checkable
 class Pickled(Protocol):
@@ -13,25 +13,25 @@ class Pickled(Protocol):
 
 @runtime_checkable
 class SyncObject(Protocol):
-  def dump(self, meta=None) -> SyncValue:
+  def dump(self, meta=None) -> SyncValue: # type: ignore
     """Get a view of the object for checkpoint."""
 
-  def diff(self, raw, meta=None) -> SyncValue:
+  def diff(self, raw, meta=None) -> Optional[SyncValue]: # type: ignore
     """Update the object with new raw object and get the difference view for synchronization"""
 
-  def update(self, val: SyncValue) -> any:
+  def update(self, val: SyncValue) -> Any:
     """Apply the difference view to the object"""
 
 
 @runtime_checkable
 class SyncStreamObject(Protocol):
-  def dump(self, meta=None) -> Generator[SyncValue, None, None]:
+  def dump(self, meta=None) -> Generator[SyncValue, None, None]: # type: ignore
     """Get a view of the object for checkpoint in the form of a stream."""
 
-  def diff(self, raw, meta=None) -> Generator[SyncValue, None, None]:
+  def diff(self, raw, meta=None) -> Generator[SyncValue, None, None]: # type: ignore
     """Update the object with new raw object and get the difference stream for synchronization"""
 
-  def update(self, vals: Tuple[SyncValue]) -> any:
+  def update(self, vals: Tuple[SyncValue]) -> Any:
     """Apply the difference stream to the object"""
 
 class SyncObjectMeta:
@@ -41,18 +41,18 @@ class SyncObjectMeta:
 class SyncObjectWrapper:
   """A simple SyncObject implementation that simply return a view of whole object as the difference."""
   
-  def __init__(self, referer, raw=None, tag=None):
+  def __init__(self, referer:SyncReferer, raw:Any=None, tag:Any=None):
     self.raw = raw
     self._hash = tag
     self._referer = referer
     if self.raw is not None and tag is None:
-      _, self._hash = self.get_tag(raw)
+      _, _, self._hash = self.get_hash(raw, None)
 
   def dump(self, meta=None) -> SyncValue:
     pickled, prmap, hash = self.get_hash(self.raw, self.batch_from_meta(meta))
     return SyncValue(hash, pickled, prmap=prmap)
   
-  def diff(self, raw, meta=None) -> SyncValue:
+  def diff(self, raw, meta=None) -> Optional[SyncValue]:
     pickled, prmap, hash = self.get_hash(raw, self.batch_from_meta(meta))
     # print("old {}:{}, new {}:{}, match:{}".format(self.raw, self._hash, raw, hash, hash == self._hash))
     op = None
@@ -65,7 +65,7 @@ class SyncObjectWrapper:
 
     return None
 
-  def update(self, val: SyncValue) -> any:
+  def update(self, val: SyncValue) -> Any:
     if val.tag == self._hash:
       return self.raw
 
@@ -86,7 +86,7 @@ class SyncObjectWrapper:
     self.raw = diff
     return self.raw
 
-  def get_hash(self, raw, batch) -> Tuple[any, tuple, any]:
+  def get_hash(self, raw, batch: Optional[str]) -> Tuple[Any, Optional[list[str]], Any]:
     t = type(raw)
     if raw is None or t is int or t is float or t is bool or raw is EMPTY_TUPLE:
       return raw, None, raw
@@ -103,7 +103,7 @@ class SyncObjectWrapper:
       # Should work in the case the pickled is a reference.
       return pickled, prmap, hashlib.md5(pickled).digest()
 
-  def batch_from_meta(self, meta:SyncObjectMeta):
+  def batch_from_meta(self, meta:Optional[SyncObjectMeta]=None) -> Optional[str]:
     if meta is None:
       return None
     

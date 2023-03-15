@@ -3,10 +3,11 @@ package types
 import "fmt"
 
 var (
-	ErrNotSupported      = fmt.Errorf("not supported")
-	ErrKernelNotLaunched = fmt.Errorf("kernel not launched")
-	ErrKernelNotReady    = fmt.Errorf("kernel not ready")
-	ErrKernelClosed      = fmt.Errorf("kernel closed")
+	ErrNotSupported          = fmt.Errorf("not supported")
+	ErrKernelNotLaunched     = fmt.Errorf("kernel not launched")
+	ErrKernelNotReady        = fmt.Errorf("kernel not ready")
+	ErrKernelClosed          = fmt.Errorf("kernel closed")
+	ErrInvalidJupyterMessage = fmt.Errorf("invalid jupyter message")
 )
 
 const (

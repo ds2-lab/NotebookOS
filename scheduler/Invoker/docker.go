@@ -42,7 +42,8 @@ const (
 
 var (
 	dockerStorageBase = "/storage"
-	dockerInvokerCmd  = "docker run -d --rm --name {container_name} -v {connection_file}:{connection_file} -v {storage}:/storage -v {config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
+	// dockerInvokerCmd  = "docker run -d --rm --name {container_name} -v {connection_file}:{connection_file} -v {storage}:/storage -v {config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
+	dockerInvokerCmd  = "docker run -d --name {container_name} -v {connection_file}:{connection_file} -v {storage}:/storage -v {config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 
 	ErrUnexpectedReplicaExpression = fmt.Errorf("unexpected replica expression, expected url")

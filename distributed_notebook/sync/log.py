@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Optional, Any
 from typing_extensions import Protocol, runtime_checkable
 
 KEY_SYNC_END = "_end_"
@@ -7,7 +7,7 @@ OP_SYNC_PUT = "put"
 OP_SYNC_DEL = "del"
 
 class SyncValue:
-  def __init__(self, tag, val, term=None, key=None, op=None, prmap=None, end = False):
+  def __init__(self, tag, val: Any, term:int=0, key:Optional[str]=None, op:Optional[str]=None, prmap:Optional[list[str]]=None, end:bool=False):
     self.term = term
     self.key = key
     self.prmap = prmap
@@ -25,8 +25,12 @@ class SyncValue:
 @runtime_checkable
 class SyncLog(Protocol):
   @property
-  def num_changes(self) -> int:
+  def num_changes(self) -> int: # type: ignore
     """The number of incremental changes since first set or the latest checkpoint."""
+
+  @property
+  def term(self) -> int: # type: ignore
+    """Current term."""
 
   def start(self, handler):
     """Register change handler, restore internel states, and start monitoring changes. 
@@ -43,6 +47,7 @@ class SyncLog(Protocol):
   async def lead(self, term) -> bool:
     """Request to lead the update of a term. A following append call 
        without leading status will fail."""
+    return False
 
   async def append(self, val: SyncValue):
     """Append the difference of the value of specified key to the synchronization queue."""
@@ -61,9 +66,11 @@ class Checkpointer(Protocol):
   @property
   def num_changes(self) -> int:
     """The number of values checkpointed."""
+    return 0
 
-  def lead(self, term) -> int:
+  def lead(self, term) -> bool:
     """Set the term to checkpoint. False if any error."""
+    return False
        
   async def append(self, val: SyncValue):
     """Append the value of specified key to the writer."""

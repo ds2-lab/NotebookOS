@@ -8,6 +8,23 @@
 
 ``distributed_kernel`` is a Jupyter kernel that can execute distributedly. 
 
+### Build
+
+Follow https://github.com/zhangjyr/gopy and execute:
+
+~~~bash
+$ python3 -m pip install pybindgen
+$ go install golang.org/x/tools/cmd/goimports@latest
+$ go install github.com/go-python/gopy@v0.4.0
+$ make 
+~~~
+
+Gopy compatibility:
+
+- Mac Intel: **OK**
+- Mac ARM: **FAIL**
+- Other: **UNKNOWN**
+
 ### Preparation
 
 Start jupyter container.

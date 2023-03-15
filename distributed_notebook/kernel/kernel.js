@@ -1,26 +1,4 @@
-define([
-  'base/js/namespace'
-], function(
-  Jupyter
-) {
-  return {onload: function(){
-    console.info('Kernel specific javascript loaded');
-
-    // do more things here, like define a codemirror mode
-    if (!Jupyter.notebook.metadata.hasOwnProperty("persistent_id")) {
-      Jupyter.notebook.metadata.persistent_id = generateUUID()
-      Jupyter.notebook.save_notebook()
-    }
-
-    evalcode = "persistent_id=\"" + Jupyter.notebook.metadata.persistent_id + "\""
-    if (Jupyter.notebook.metadata.hasOwnProperty("replica_id")) {
-      evalcode += "\nreplica_id=\"" + Jupyter.notebook.metadata.replica_id + "\""
-    }
-
-    Jupyter.notebook.kernel.execute(evalcode)
-  }}
-});
-
+var moduleName = "distributedKernel";
 function generateUUID() { // Public Domain/MIT
   var d = new Date().getTime();//Timestamp
   var d2 = ((typeof performance !== 'undefined') && performance.now && (performance.now()*1000)) || 0;//Time in microseconds since page-load or 0 if unsupported
@@ -36,3 +14,28 @@ function generateUUID() { // Public Domain/MIT
       return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
   });
 }
+
+define([
+  'base/js/namespace'
+], function(
+  Jupyter
+) {
+  function init_persistent_id() {
+    console.info('Kernel specific javascript loaded');
+
+    // do more things here, like define a codemirror mode
+    if (!Jupyter.notebook.metadata.hasOwnProperty("persistent_id")) {
+      Jupyter.notebook.metadata.persistent_id = generateUUID()
+      Jupyter.notebook.save_notebook()
+    }
+
+    evalcode = "persistent_id=\"" + Jupyter.notebook.metadata.persistent_id + "\""
+    if (Jupyter.notebook.metadata.hasOwnProperty("replica_id")) {
+      evalcode += "\nreplica_id=\"" + Jupyter.notebook.metadata.replica_id + "\""
+    }
+
+    Jupyter.notebook.kernel.execute(evalcode)
+  }
+
+  return {onload: init_persistent_id};
+});

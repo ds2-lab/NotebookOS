@@ -3,17 +3,23 @@ import os
 import logging
 import random
 import sys
+import ast
 
-from typing import Union
+from typing import Union, Optional
 from traitlets import List, Integer, Unicode
 from ipykernel.ipkernel import IPythonKernel
 from .iostream import OutStream
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 
+class ExecutionYieldError(Exception):
+    """Exception raised when execution is yielded."""
+    def __init__(self, message):
+        super().__init__(message)
+
 storage_base_default = os.path.dirname(os.path.realpath(__file__))
 smr_port_default = 10000
 err_wait_persistent_store = RuntimeError("Persistent store not ready, try again later.")
-err_failed_to_lead_execution = RuntimeError("Failed to lead the exectuion.")
+err_failed_to_lead_execution = ExecutionYieldError("Failed to lead the exectuion.")
 key_persistent_id = "persistent_id"
 enable_storage = True
 
@@ -46,8 +52,8 @@ class DistributedKernel(IPythonKernel):
         'mimetype': 'text/plain',
         'file_extension': '.txt',
     }
-    banner = "Distributed kernel - as useful as a parrot"
-    synchronizer = None
+    # banner = "Distributed kernel - as useful as a parrot"
+    synchronizer: Synchronizer
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -101,38 +107,44 @@ class DistributedKernel(IPythonKernel):
         if code[:len(key_persistent_id)] == key_persistent_id:
             return await asyncio.ensure_future(self.init_persistent_store(code))
 
-        self.toggle_outstream(override=True, enable=False)
+        try:
+            self.toggle_outstream(override=True, enable=False)
 
-        # Ensure persistent store is ready
-        self.check_persistent_store()
+            # Ensure persistent store is ready
+            self.check_persistent_store()
 
-        # Pass 0 to lead the next execution based on history, which should be 
-        # passed only if a duplicated execution is acceptable.
-        # Pass value > 0 to lead a specific execution.
-        # In either case, the execution will wait until states are synchornized.
-        self.shell.execution_count = await self.synchronizer.ready(0)
-        if self.shell.execution_count == 0:
-            raise err_failed_to_lead_execution
+            # Pass 0 to lead the next execution based on history, which should be 
+            # passed only if a duplicated execution is acceptable.
+            # Pass value > 0 to lead a specific execution.
+            # In either case, the execution will wait until states are synchornized.
+            self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1)
+            if self.shell.execution_count == 0:
+                raise err_failed_to_lead_execution
 
-        reply_routing = super().do_execute(
-            code, silent, store_history=store_history,
-            user_expressions=user_expressions, allow_stdin=allow_stdin)
+            reply_routing = super().do_execute(
+                code, silent, store_history=store_history,
+                user_expressions=user_expressions, allow_stdin=allow_stdin)
 
-        # Wait for the settlement of variables.
-        reply_content = await reply_routing
+            # Wait for the settlement of variables.
+            reply_content = await reply_routing
 
-        # Disable stdout and stderr forwarding.
-        self.toggle_outstream(override=True, enable=False)
-        
-        # Synchronize
-        # self.log.info("synced tree:\n{}".format(ast.dump(self.execution_ast)))
-        coro = self.synchronizer.sync(self.execution_ast, self.source)
-        self.execution_ast = None
-        self.source = None
-        await coro
+            # Disable stdout and stderr forwarding.
+            self.toggle_outstream(override=True, enable=False)
+            
+            # Synchronize
+            coro = self.synchronizer.sync(self.execution_ast, self.source)
+            self.execution_ast = None
+            self.source = None
+            await coro
 
-        self.log.info("End of sync execution {}".format(self.execution_count - 1))
-        return reply_content
+            self.log.info("End of sync execution {}".format(self.execution_count - 1))
+            return reply_content
+        except ExecutionYieldError as eye:
+            self.log.info("Execution yielded: {}".format(eye))
+            return self.gen_error_response(eye)
+        except Exception as e:
+            self.log.error("Execution error: {}...".format(e))
+            return self.gen_error_response(e)
     
     def do_shutdown(self, restart):
         if self.synchronizer:
@@ -146,6 +158,13 @@ class DistributedKernel(IPythonKernel):
                 'execution_count': self.execution_count,
                 'payload': [],
                 'user_expressions': {},
+               }
+    
+    def gen_error_response(self, err):
+        return {'status': 'error',
+                'ename': str(type(err).__name__),
+                'evalue': str(err),
+                'traceback': [],
                }
 
     async def override_shell(self):
@@ -172,7 +191,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Confirmed node {}".format(self.smr_nodes[self.smr_node_id-1]))
         
         # Implement dynamic later
-        addrs = map(lambda x: "http://" + x, self.smr_nodes)
+        addrs = map(lambda x: "http://{}".format(x), self.smr_nodes)
         store = ""
         if enable_storage:
             store = self.store

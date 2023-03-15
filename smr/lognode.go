@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -205,7 +205,7 @@ func (node *LogNode) StartAndWait(config *LogNodeConfig) {
 	node.WaitToClose()
 }
 
-//  Append the difference of the value of specified key to the synchronization queue.
+// Append the difference of the value of specified key to the synchronization queue.
 func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
 	go node.propose(val.Bytes(), resolve, msg)
 }
@@ -744,16 +744,12 @@ func (node *LogNode) serveChannels() {
 					id := ""
 					if ctx != nil {
 						id = ctx.Id
-						ctx.Trigger(func() {
-							if err := fromCError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
-								node.logFatalf("LogNode: Error on replay state (%v)", err)
-							}
-							ctx.Cancel()
-						})
-					} else {
-						if err := fromCError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
-							node.logFatalf("LogNode: Error on replay state (%v)", err)
-						}
+					}
+					if err := fromCError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
+						node.logFatalf("LogNode: Error on replay state (%v)", err)
+					}
+					if ctx != nil {
+						ctx.Cancel()
 					}
 				}
 				close(commit.applyDoneC)
@@ -879,14 +875,8 @@ func (node *LogNode) doneProposal(val []byte) ([]byte, *proposalContext) {
 }
 
 func (node *LogNode) waitProposal(ctx *proposalContext) bool {
-	for {
-		select {
-		case cb := <-ctx.Callbacks():
-			cb()
-		case <-ctx.Done():
-			return ctx.Err() == context.Canceled
-		}
-	}
+	<-ctx.Done()
+	return ctx.Err() == context.Canceled
 }
 
 func (node *LogNode) logWarnf(format string, args ...interface{}) {

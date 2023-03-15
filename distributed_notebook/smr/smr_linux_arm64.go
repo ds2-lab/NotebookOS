@@ -8,8 +8,8 @@ package main
 
 /*
 
-#cgo CFLAGS: -I/usr/local/opt/python@3.9/Frameworks/Python.framework/Versions/3.9/include/python3.9 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion
-#cgo LDFLAGS: -L/usr/local/opt/python@3.9/Frameworks/Python.framework/Versions/3.9/lib -lpython3.9 -ldl   -framework CoreFoundation
+#cgo CFLAGS: -I/usr/include/python3.9 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion
+#cgo LDFLAGS: -L/usr/lib -lpython3.9 -lcrypt -lpthread -ldl  -lutil -lm -lm
 
 // #define Py_LIMITED_API // need full API for PyRun*
 #include <Python.h>

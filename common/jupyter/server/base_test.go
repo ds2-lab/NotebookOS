@@ -14,7 +14,7 @@ func genKernelFrame(kernelID string, ids ...string) []byte {
 		reqId = ids[0]
 	}
 
-	return []byte(fmt.Sprintf(ZMQKernelIDFrameFormatter, kernelID, reqId))
+	return []byte(fmt.Sprintf(ZMQDestFrameFormatter, kernelID, reqId))
 }
 
 var _ = Describe("BaseServer", func() {
@@ -24,16 +24,16 @@ var _ = Describe("BaseServer", func() {
 		srv = &BaseServer{}
 	}
 
-	It("should AddKernelFrame add kernel frame just before <IDS|MSG>.", func() {
+	It("should AddDestFrame add kernel frame just before <IDS|MSG>.", func() {
 		setup()
 
 		frames := [][]byte{
 			[]byte("<IDS|MSG>"),
 		}
 
-		added := srv.AddKernelFrame(frames, "d5d29f07-bbdb-485a-a98c-1a1a5e21b824")
+		added, _ := srv.AddDestFrame(frames, "d5d29f07-bbdb-485a-a98c-1a1a5e21b824", JOffsetAutoDetect)
 		Expect(len(added)).To(Equal(2))
-		match := ZMQKernelIDFrameRecognizer.FindStringSubmatch(string(added[0]))
+		match := ZMQDestFrameRecognizer.FindStringSubmatch(string(added[0]))
 		Expect(len(match)).To(Equal(3))
 		Expect(match[1]).To(Equal("d5d29f07-bbdb-485a-a98c-1a1a5e21b824"))
 		Expect(string(added[1])).To(Equal("<IDS|MSG>"))
@@ -43,17 +43,17 @@ var _ = Describe("BaseServer", func() {
 			[]byte("<IDS|MSG>"),
 			[]byte("body"),
 		}
-		added = srv.AddKernelFrame(frames, "d5d29f07-bbdb-485a-a98c-1a1a5e21b824")
+		added, _ = srv.AddDestFrame(frames, "d5d29f07-bbdb-485a-a98c-1a1a5e21b824", JOffsetAutoDetect)
 		Expect(len(added)).To(Equal(4))
 		Expect(added[0]).To(Equal(frames[0]))
-		match = ZMQKernelIDFrameRecognizer.FindStringSubmatch(string(added[1]))
+		match = ZMQDestFrameRecognizer.FindStringSubmatch(string(added[1]))
 		Expect(len(match)).To(Equal(3))
 		Expect(match[1]).To(Equal("d5d29f07-bbdb-485a-a98c-1a1a5e21b824"))
 		Expect(string(added[2])).To(Equal("<IDS|MSG>"))
 		Expect(string(added[3])).To(Equal("body"))
 	})
 
-	It("should ExtractKernelFrames extract kernel id and jupyter frames.", func() {
+	It("should ExtractDestFrame extract kernel id and jupyter frames.", func() {
 		setup()
 
 		frames := [][]byte{
@@ -62,37 +62,35 @@ var _ = Describe("BaseServer", func() {
 			[]byte("<IDS|MSG>"),
 		}
 
-		kernelId, reqId, jFrames := srv.ExtractKernelFrames(frames)
+		kernelId, reqId, offset := srv.ExtractDestFrame(frames)
 		Expect(kernelId).To(Equal("d5d29f07-bbdb-485a-a98c-1a1a5e21b824"))
 		Expect(reqId).To(Equal("a98c"))
-		Expect(jFrames).To(Equal(frames[2:]))
+		Expect(offset).To(Equal(2))
 
 		frames = [][]byte{
 			[]byte("some identities"),
 			[]byte("<IDS|MSG>"),
 		}
-		kernelId, _, jFrames = srv.ExtractKernelFrames(frames)
+		kernelId, _, offset = srv.ExtractDestFrame(frames)
 		Expect(kernelId).To(Equal(""))
-		Expect(jFrames).To(Equal(frames[1:]))
+		Expect(offset).To(Equal(1))
 
 		frames = [][]byte{
 			[]byte("<IDS|MSG>"),
 		}
-		kernelId, _, jFrames = srv.ExtractKernelFrames(frames)
+		kernelId, _, offset = srv.ExtractDestFrame(frames)
 		Expect(kernelId).To(Equal(""))
-		Expect(jFrames).To(Equal(frames))
+		Expect(offset).To(Equal(0))
 	})
 
-	It("should RemoveKernelFrame remove kernel frame.", func() {
+	It("should RemoveDestFrame remove kernel frame.", func() {
 		setup()
 
 		frames := [][]byte{
 			[]byte("<IDS|MSG>"),
 		}
 
-		kernelId, reqId, removed := srv.RemoveKernelFrame(frames)
-		Expect(kernelId).To(Equal(""))
-		Expect(reqId).To(Equal(""))
+		removed := srv.RemoveDestFrame(frames, JOffsetAutoDetect)
 		Expect(len(removed)).To(Equal(1))
 		Expect(string(removed[0])).To(Equal("<IDS|MSG>"))
 
@@ -100,9 +98,7 @@ var _ = Describe("BaseServer", func() {
 			genKernelFrame("d5d29f07-bbdb-485a-a98c-1a1a5e21b824", "a98c"),
 			[]byte("<IDS|MSG>"),
 		}
-		kernelId, reqId, removed = srv.RemoveKernelFrame(frames)
-		Expect(kernelId).To(Equal("d5d29f07-bbdb-485a-a98c-1a1a5e21b824"))
-		Expect(reqId).To(Equal("a98c"))
+		removed = srv.RemoveDestFrame(frames, JOffsetAutoDetect)
 		Expect(len(removed)).To(Equal(1))
 		Expect(string(removed[0])).To(Equal("<IDS|MSG>"))
 
@@ -112,7 +108,7 @@ var _ = Describe("BaseServer", func() {
 			[]byte("<IDS|MSG>"),
 			[]byte("body"),
 		}
-		_, _, removed = srv.RemoveKernelFrame(frames)
+		removed = srv.RemoveDestFrame(frames, JOffsetAutoDetect)
 		Expect(len(removed)).To(Equal(3))
 		Expect(string(removed[0])).To(Equal("some identities"))
 		Expect(string(removed[1])).To(Equal("<IDS|MSG>"))
@@ -122,7 +118,7 @@ var _ = Describe("BaseServer", func() {
 			[]byte("some identities"),
 			[]byte("<IDS|MSG>"),
 		}
-		_, _, removed = srv.RemoveKernelFrame(frames)
+		removed = srv.RemoveDestFrame(frames, JOffsetAutoDetect)
 		Expect(len(removed)).To(Equal(2))
 		Expect(string(removed[0])).To(Equal("some identities"))
 		Expect(string(removed[1])).To(Equal("<IDS|MSG>"))
@@ -133,7 +129,7 @@ var _ = Describe("BaseServer", func() {
 			[]byte("<IDS|MSG>"),
 			[]byte("adc6e220ddc8d4184576e72f8ca96bca363ecdeab43b136a7917e93afc6bc5e0"),
 		}
-		_, _, removed = srv.RemoveKernelFrame(frames)
+		removed = srv.RemoveDestFrame(frames, JOffsetAutoDetect)
 		Expect(len(removed)).To(Equal(3))
 		Expect(string(removed[0])).To(Equal("3c6669b1-5208-42a1-bf66-4af54cc9000b"))
 		Expect(string(removed[1])).To(Equal("<IDS|MSG>"))

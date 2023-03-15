@@ -45,7 +45,7 @@ func (m *CornelkMap[K, V]) LoadAndDelete(key K) (ret V, retExists bool) {
 	}
 
 	for !m.hashmap.Cas(key, v, deleted) {
-		v, retExists := m.get(key)
+		v, retExists = m.get(key)
 		if !retExists {
 			return ret, retExists
 		} else if v == deleted {

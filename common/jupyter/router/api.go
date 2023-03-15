@@ -12,13 +12,10 @@ var (
 )
 
 // API defines the interface of messages that a JupyterRouter can intercept and handle.
-type MessageHandler func(RouterInfo, *zmq4.Msg) error
+type RouterMessageHandler func(RouterInfo, *zmq4.Msg) error
 
-// Router defines the interface to provider infos of a JupyterRouter.
 type RouterInfo interface {
-	fmt.Stringer
-
-	Socket(types.MessageType) *types.Socket
+	types.JupyterServerInfo
 }
 
 // RouterProvider defines the interface to provide handlers for a JupyterRouter.

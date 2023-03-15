@@ -134,7 +134,7 @@ func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.Ke
 
 	// Initialize kernel client with new context.
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	kernel := client.NewKernelClient(kernelCtx, in, connInfo, d.router)
+	kernel := client.NewKernelClient(kernelCtx, in, connInfo)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.Options.DirectServer {
 		var err error
@@ -266,7 +266,7 @@ func (d *SchedulerDaemon) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) 
 		return ErrKernelNotFound
 	}
 
-	if err := d.forwardRequest(kernel, jupyter.ControlMessage, msg); err != nil {
+	if err := d.forwardRequest(context.Background(), kernel, jupyter.ControlMessage, msg, nil); err != nil {
 		return err
 	}
 
@@ -281,8 +281,8 @@ func (d *SchedulerDaemon) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) 
 	return nil
 }
 
-func (d *SchedulerDaemon) kernelShellHandler(typ jupyter.MessageType, msg *zmq4.Msg) error {
-	return d.ShellHandler(d.router, msg)
+func (d *SchedulerDaemon) kernelShellHandler(info core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+	return d.ShellHandler(info, msg)
 }
 
 func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
@@ -316,7 +316,8 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 		return ErrKernelNotReady
 	}
 
-	if err := d.forwardRequest(kernel, jupyter.ShellMessage, msg); err != nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := d.forwardRequest(ctx, kernel, jupyter.ShellMessage, msg, cancel); err != nil {
 		return err
 	}
 
@@ -324,21 +325,21 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 }
 
 func (d *SchedulerDaemon) StdinHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	return d.forwardRequest(nil, jupyter.StdinMessage, msg)
+	return d.forwardRequest(context.Background(), nil, jupyter.StdinMessage, msg, nil)
 }
 
 func (d *SchedulerDaemon) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	return d.forwardRequest(nil, jupyter.HBMessage, msg)
+	return d.forwardRequest(context.Background(), nil, jupyter.HBMessage, msg, nil)
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
 func (d *SchedulerDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
-	kernelId, _, frames := d.router.ExtractKernelFrames(msg.Frames)
+	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
 	if kernelId != "" {
 		return kernelId, false, nil
 	}
 
-	header, err := d.headerFromFrames(frames)
+	header, err := d.headerFromFrames(msg.Frames[offset:])
 	if err != nil {
 		return "", false, err
 	}
@@ -361,9 +362,9 @@ func (d *SchedulerDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHea
 }
 
 func (d *SchedulerDaemon) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, err error) {
-	kernelId, _, frames := d.router.ExtractKernelFrames(msg.Frames)
+	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
 
-	header, err = d.headerFromFrames(frames)
+	header, err = d.headerFromFrames(msg.Frames[offset:])
 
 	return kernelId, header, err
 }
@@ -386,7 +387,7 @@ func (d *SchedulerDaemon) kernelFromMsg(msg *zmq4.Msg) (kernel *client.KernelCli
 	return kernel, nil
 }
 
-func (d *SchedulerDaemon) forwardRequest(kernel *client.KernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
+func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel *client.KernelClient, typ jupyter.MessageType, msg *zmq4.Msg, done func()) (err error) {
 	if kernel == nil {
 		kernel, err = d.kernelFromMsg(msg)
 		if err != nil {
@@ -394,20 +395,24 @@ func (d *SchedulerDaemon) forwardRequest(kernel *client.KernelClient, typ jupyte
 		}
 	}
 
-	d.log.Debug("Forwarding %v request to kernel: %s: %v", typ, kernel.ID(), msg)
-	return kernel.RequestWithHandler(typ, msg, d.getKernelResponseForwarder(typ))
+	d.log.Debug("Forwarding %v request(%p) to %v: %v", typ, msg, kernel, msg)
+	if done == nil {
+		done = func() {}
+	}
+	return kernel.RequestWithHandler(ctx, typ, msg, d.kernelResponseForwarder, done)
 }
 
-func (d *SchedulerDaemon) getKernelResponseForwarder(typ jupyter.MessageType) core.KernelMessageHandler {
-	return func(router router.RouterInfo, msg *zmq4.Msg) error {
-		socket := router.Socket(typ)
-		if socket == nil {
-			d.log.Warn("Unable to forward %v response: socket unavailable", typ)
-			return nil
-		}
-		d.log.Debug("Forwarding %v response from %v: %v", socket, router, msg)
-		return socket.Send(*msg)
+func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+	socket := from.Socket(typ)
+	if socket == nil {
+		socket = d.router.Socket(typ)
 	}
+	if socket == nil {
+		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
+		return nil
+	}
+	d.log.Debug("Forwarding %v response from %v: %v", socket, from, msg)
+	return socket.Send(*msg)
 }
 
 func (d *SchedulerDaemon) errorf(err error) error {

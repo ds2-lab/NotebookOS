@@ -16,7 +16,7 @@ type Router struct {
 	server *server.AbstractServer
 
 	// handlers
-	handlers []MessageHandler
+	handlers []RouterMessageHandler
 }
 
 func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider) *Router {
@@ -31,7 +31,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 		}),
 	}
 	router.BaseServer = router.server.Server()
-	router.handlers = make([]MessageHandler, len(router.server.Sockets.All))
+	router.handlers = make([]RouterMessageHandler, len(router.server.Sockets.All))
 	config.InitLogger(&router.server.Log, router)
 	if provider != nil {
 		router.AddHandler(types.ControlMessage, provider.ControlHandler)
@@ -70,16 +70,16 @@ func (g *Router) Start() error {
 		}
 
 		// socket.Handler has not been set, use shared handler.
-		go g.server.Serve(socket, g.handleMsg)
+		go g.server.Serve(g, socket, g.handleMsg)
 	}
 
 	<-g.server.Ctx.Done()
 	return nil
 }
 
-func (g *Router) AddHandler(typ types.MessageType, handler MessageHandler) {
+func (g *Router) AddHandler(typ types.MessageType, handler RouterMessageHandler) {
 	if g.handlers[typ] != nil {
-		handler = func(oldHandler MessageHandler, newHandler MessageHandler) MessageHandler {
+		handler = func(oldHandler RouterMessageHandler, newHandler RouterMessageHandler) RouterMessageHandler {
 			return func(sockets RouterInfo, msg *zmq4.Msg) error {
 				err := newHandler(sockets, msg)
 				if err == nil {
@@ -101,7 +101,7 @@ func (g *Router) Close() error {
 	return nil
 }
 
-func (g *Router) handleMsg(typ types.MessageType, msg *zmq4.Msg) error {
+func (g *Router) handleMsg(_ types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 	handler := g.handlers[typ]
 	if handler != nil {
 		return handler(g, msg)

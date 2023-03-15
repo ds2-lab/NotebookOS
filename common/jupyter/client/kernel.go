@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
@@ -25,14 +25,15 @@ var (
 type KernelClient struct {
 	*server.BaseServer
 	*SessionManager
-	router router.RouterInfo
 	client *server.AbstractServer
 
-	id        string
-	replicaId int32
-	status    types.KernelStatus
-	shell     *types.Socket
-	iopub     *types.Socket
+	id             string
+	replicaId      int32
+	status         types.KernelStatus
+	busyStatus     string
+	lastBStatusMsg *zmq4.Msg
+	shell          *types.Socket
+	iopub          *types.Socket
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -40,11 +41,10 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, router router.RouterInfo) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo) *KernelClient {
 	client := &KernelClient{
 		id:        spec.Kernel.Id,
 		replicaId: spec.ReplicaId,
-		router:    router,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ControlPort}
@@ -72,6 +72,16 @@ func (c *KernelClient) ID() string {
 	return c.id
 }
 
+// ReplicaID returns the replica ID.
+func (c *KernelClient) ReplicaID() int32 {
+	return c.replicaId
+}
+
+// Address returns the address of the kernel.
+func (c *KernelClient) Address() string {
+	return c.client.Meta.IP
+}
+
 // String returns a string representation of the client.
 func (c *KernelClient) String() string {
 	if c.replicaId == 0 {
@@ -81,20 +91,16 @@ func (c *KernelClient) String() string {
 	}
 }
 
-// Socket implements router.RouterInfo interface.
+// Socket returns the serve socket the kernel is listening on.
 func (c *KernelClient) Socket(typ types.MessageType) *types.Socket {
 	switch typ {
 	case types.IOMessage:
 		return c.iopub
 	case types.ShellMessage:
-		if c.shell != nil {
-			return c.shell
-		} else {
-			break
-		}
+		return c.shell
 	}
 
-	return c.router.Socket(typ)
+	return nil
 }
 
 // ConnectionInfo returns the connection info.
@@ -105,6 +111,11 @@ func (c *KernelClient) ConnectionInfo() *types.ConnectionInfo {
 // Status returns the kernel status.
 func (c *KernelClient) Status() types.KernelStatus {
 	return c.status
+}
+
+// BusyStatus returns the kernel busy status.
+func (c *KernelClient) BusyStatus() (string, *zmq4.Msg) {
+	return c.busyStatus, c.lastBStatusMsg
 }
 
 // BindSession binds a session ID to the client.
@@ -154,7 +165,7 @@ func (c *KernelClient) Validate() error {
 }
 
 // InitializeIOForwarder initializes the IOPub serving.
-func (c *KernelClient) InitializeShellForwarder(handler types.MessageHandler) (*types.Socket, error) {
+func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandler) (*types.Socket, error) {
 	shell := &types.Socket{
 		Socket: zmq4.NewRouter(c.client.Ctx),
 		Type:   types.ShellMessage,
@@ -165,9 +176,9 @@ func (c *KernelClient) InitializeShellForwarder(handler types.MessageHandler) (*
 	}
 
 	c.shell = shell
-	go c.client.Serve(shell, func(typ types.MessageType, msg *zmq4.Msg) error {
-		msg.Frames = c.BaseServer.AddKernelFrame(msg.Frames, c.id)
-		return handler(typ, msg)
+	go c.client.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.id, server.JOffsetAutoDetect)
+		return handler(c, typ, msg)
 	})
 
 	return shell, nil
@@ -198,11 +209,11 @@ func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *KernelClient) RequestWithHandler(typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler) error {
-	return c.requestWithHandler(typ, msg, c.shell != nil, handler)
+func (c *KernelClient) RequestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
+	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
 
-func (c *KernelClient) requestWithHandler(typ types.MessageType, msg *zmq4.Msg, removeKernelFrame bool, handler core.KernelMessageHandler) error {
+func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
 	}
@@ -217,10 +228,14 @@ func (c *KernelClient) requestWithHandler(typ types.MessageType, msg *zmq4.Msg, 
 	}
 
 	// Add timeout if necessary.
-	go c.client.ServeOnce(context.Background(), socket, msg, removeKernelFrame, func(typ types.MessageType, msg *zmq4.Msg) error {
+	go c.client.WaitResponse(ctx, c, socket, msg, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 		// Kernel frame is automatically removed.
-		return handler(c, msg)
-	})
+		err := handler(server.(*KernelClient), typ, msg)
+		if done != nil {
+			done()
+		}
+		return err
+	}, getOption)
 	return nil
 }
 
@@ -279,17 +294,21 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 	// Using a second loop to start serving after all sockets are connected.
 	for _, socket := range sockets {
 		if socket != nil && socket.Handler != nil {
-			go c.client.Serve(socket, socket.Handler)
+			go c.client.Serve(c, socket, socket.Handler)
 		}
 	}
 
 	return nil
 }
 
-func (c *KernelClient) handleMsg(typ types.MessageType, msg *zmq4.Msg) error {
+func (c *KernelClient) handleMsg(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 	switch typ {
 	case types.IOMessage:
 		if c.iopub != nil {
+			topic, jFrames := c.extractIOTopicFrame(msg.Frames)
+			if topic == types.IOTopicStatus {
+				c.handleIOKernelStatus(jFrames, msg)
+			}
 			c.client.Log.Debug("Forwarding %v message: %v", typ, msg)
 			return c.iopub.Socket.Send(*msg)
 		} else {
@@ -298,4 +317,43 @@ func (c *KernelClient) handleMsg(typ types.MessageType, msg *zmq4.Msg) error {
 	}
 
 	return ErrHandlerNotImplemented
+}
+
+func (c *KernelClient) getWaitResponseOption(key string) interface{} {
+	switch key {
+	case server.WROptionRemoveDestFrame:
+		return c.shell != nil
+	}
+
+	return nil
+}
+
+func (c *KernelClient) extractIOTopicFrame(frames [][]byte) (topic string, jFrames [][]byte) {
+	_, jOffset := c.SkipIdentities(frames)
+	if jOffset == 0 {
+		return "", frames[jOffset:]
+	}
+
+	topic = string(frames[jOffset-1])
+	if types.IOTopicStatusRecognizer.MatchString(topic) {
+		return types.IOTopicStatus, frames[jOffset:]
+	}
+
+	return topic, frames[jOffset:]
+}
+
+func (c *KernelClient) handleIOKernelStatus(frames [][]byte, msg *zmq4.Msg) (string, error) {
+	var status types.MessageKernelStatus
+	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
+	if len(frames) < 5 {
+		return "", types.ErrInvalidJupyterMessage
+	}
+	err := json.Unmarshal(frames[5], &status)
+	if err != nil {
+		return "", err
+	}
+
+	c.busyStatus = status.Status
+	c.lastBStatusMsg = msg
+	return status.Status, nil
 }
