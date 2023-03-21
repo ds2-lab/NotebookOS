@@ -5,7 +5,7 @@ import asyncio
 import logging
 import time
 import ctypes
-from typing import Tuple, List, Callable, Optional, Any
+from typing import Tuple, List, Callable, Optional, Any, Iterable
 
 from ..smr.smr import NewLogNode, NewConfig, NewBytes, Bytes, WriteCloser, ReadCloser
 from ..smr.go import Slice_string
@@ -48,7 +48,7 @@ class RaftLog:
   _shouldSnapshotCallback: Optional[Callable[[SyncLog], bool]] = None # The callback to be called when a snapshot is needed.
   _snapshotCallback: Optional[Callable[[Any], bytes]] = None # The callback to be called when a snapshot is needed.
 
-  def __init__(self, base_path: str, id: int, peers: List[str], join: bool = False):
+  def __init__(self, base_path: str, id: int, peers: Iterable[str], join: bool = False):
     self._store = base_path
     self._id = id
     self.ensure_path(self._store)
@@ -266,20 +266,12 @@ class RaftLog:
       dumped = pickle.dumps(val)
       # self._log.debug("Time elapsed in dump syncValue: {}".format(time.time() - start_time))
 
-      # Prepare callback settings. 
-      # Callback can be called from a different thread. Schedule the resolve
-      # of the future object to the await thread.
-      loop = asyncio.get_running_loop()
-      future = Future(loop=loop)
-      self._async_loop = loop
-      def resolve(key, err):
-        asyncio.run_coroutine_threadsafe(future.resolve(key, err), loop) # must use local variable
-
-      # Propose and wait the future.
-      
       # self._log.debug("Time elapsed in python before appending: {}, {}".format(time.time() - start_time, len(dumped)))
       # converted = Slice_byte(handle=id(dumped))
       # self._log.debug("Time elapsed in after converted: {}, {}".format(time.time() - start_time, len(converted)))
+
+      # Propose and wait the future.
+      future, resolve = self._get_callback()
       self._node.Propose(NewBytes(dumped), resolve, val.key)
       await future.result()
 
@@ -290,6 +282,18 @@ class RaftLog:
   def reset(self, term, logs: Tuple[SyncValue]):
     """Clear logs equal and before specified term and replaced with specified logs"""
     pass
+
+  async def add_node(self, node_id, address):
+    """Add a node to the cluster."""
+    future, resolve = self._get_callback()
+    self._node.AddNode(node_id, address, resolve)
+    await future.result()
+
+  async def remove_node(self, node_id):
+    """Remove a node from the cluster."""
+    future, resolve = self._get_callback()
+    self._node.RemoveNode(node_id, resolve)
+    await future.result()
 
   def close(self):
     """Ensure all async coroutines end and clean up."""
@@ -322,3 +326,15 @@ class RaftLog:
     val = self._offloader._load(val.val.path)
     val.end = valEnd
     return val
+  
+  def _get_callback(self):
+    """Get the future object for the specified key."""
+    # Prepare callback settings. 
+    # Callback can be called from a different thread. Schedule the result of the future object to the await thread.
+    loop = asyncio.get_running_loop()
+    future = Future(loop=loop)
+    self._async_loop = loop
+    def resolve(key, err):
+      asyncio.run_coroutine_threadsafe(future.resolve(key, err), loop) # must use local variable
+
+    return future, resolve

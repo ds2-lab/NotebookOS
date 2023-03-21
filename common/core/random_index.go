@@ -124,16 +124,18 @@ func (index *RandomClusterIndex) Seek(metrics ...[]float64) (ret Host, pos inter
 			index.perm = rand.Perm(len(index.hosts))
 			index.seekStart = 0
 		}
-		pos = index.seekStart
-		ret = index.hosts[index.perm[pos.(int32)]]
+		ret = index.hosts[index.perm[index.seekStart]]
 		index.seekStart++
+		pos = index.seekStart
 	}
 	return
 }
 
 // SeekFrom seeks from the given position. Pass nil as pos to reset the seek.
 func (index *RandomClusterIndex) SeekFrom(pos interface{}, metrics ...[]float64) (ret Host, newPos interface{}) {
-	if pos == nil {
+	if start, ok := pos.(int32); ok {
+		index.seekStart = start
+	} else {
 		index.seekStart = 0
 	}
 	return index.Seek(metrics...)

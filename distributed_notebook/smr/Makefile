@@ -5,13 +5,13 @@
 GOCMD=go
 GOBUILD=$(GOCMD) build -mod=mod
 GOIMPORTS=goimports
-PYTHON=/usr/local/bin/python3
+PYTHON=/usr/bin/python3
 LIBEXT=.so
 
 # get the CC and flags used to build python:
 GCC = $(shell $(GOCMD) env CC)
-CFLAGS = -I/usr/local/opt/python@3.9/Frameworks/Python.framework/Versions/3.9/include/python3.9
-LDFLAGS = -L/usr/local/opt/python@3.9/Frameworks/Python.framework/Versions/3.9/lib -lpython3.9 -ldl   -framework CoreFoundation 
+CFLAGS = -I/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/include/python3.9
+LDFLAGS = -L/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib -lpython3.9 -ldl -lSystem -framework CoreFoundation
 
 all: gen build
 

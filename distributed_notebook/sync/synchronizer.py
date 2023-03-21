@@ -56,7 +56,7 @@ class Synchronizer:
     self._synclog.start(self.change_handler)
 
   def close(self):
-    self._synclog.close()
+    pass
 
   # def _change_handler(self, buff, id):
   #   # Ignore local proposal.

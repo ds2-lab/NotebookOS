@@ -40,3 +40,9 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []Host {
 	}
 	return hosts
 }
+
+// FindHost returns a single host that can satisfy the spec.
+func (placer *RandomPlacer) FindHost(spec types.Spec) Host {
+	host, _ := placer.index.Seek()
+	return host
+}

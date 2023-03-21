@@ -17,7 +17,11 @@ func (placer *AbstractPlacer) Place(host Host, sess MetaSession) (*gateway.Kerne
 }
 
 // Reclaim atomically reclaims a replica from a host.
-func (placer *AbstractPlacer) Reclaim(host Host, sess MetaSession) error {
+// If noop is specified, it is the caller's responsibility to stop the replica.
+func (placer *AbstractPlacer) Reclaim(host Host, sess MetaSession, noop bool) error {
+	if noop {
+		return nil
+	}
 	_, err := host.StopKernel(context.Background(), &gateway.KernelId{Id: sess.ID()})
 	return err
 }

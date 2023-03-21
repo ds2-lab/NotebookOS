@@ -3,11 +3,16 @@ package types
 import "fmt"
 
 var (
-	ErrNotSupported          = fmt.Errorf("not supported")
-	ErrKernelNotLaunched     = fmt.Errorf("kernel not launched")
-	ErrKernelNotReady        = fmt.Errorf("kernel not ready")
-	ErrKernelClosed          = fmt.Errorf("kernel closed")
-	ErrInvalidJupyterMessage = fmt.Errorf("invalid jupyter message")
+	ErrNotSupported                = fmt.Errorf("not supported")
+	ErrKernelNotLaunched           = fmt.Errorf("kernel not launched")
+	ErrKernelNotReady              = fmt.Errorf("kernel not ready")
+	ErrKernelClosed                = fmt.Errorf("kernel closed")
+	ErrInvalidJupyterMessage       = fmt.Errorf("invalid jupyter message")
+	ErrNotSupportedSignatureScheme = fmt.Errorf("not supported signature scheme")
+	ErrInvalidJupyterSignature     = fmt.Errorf("invalid jupyter signature")
+
+	ErrStopPropagation = fmt.Errorf("stop propagation")
+	ErrNoHandler       = fmt.Errorf("no handler")
 )
 
 const (
@@ -43,10 +48,12 @@ type ConnectionInfo struct {
 }
 
 type DistributedKernelConfig struct {
-	StorageBase string   `json:"storage_base"`
-	SMRPort     int      `json:"smr_port"`
-	SMRNodeID   int      `json:"smr_node_id"`
-	SMRNodes    []string `json:"smr_nodes"`
+	StorageBase  string   `json:"storage_base"`
+	SMRPort      int      `json:"smr_port"`
+	SMRNodeID    int      `json:"smr_node_id"`
+	SMRNodes     []string `json:"smr_nodes"`
+	SMRJoin      bool     `json:"smr_join"`
+	PersistentID string   `json:"persistent_id,omitempty"`
 }
 
 type ConfigFile struct {

@@ -1,5 +1,11 @@
 package types
 
+const (
+	MessageHeaderDefaultUsername = "username"
+
+	MessageTypeShutdownRequest = "shutdown_request"
+)
+
 // Message represents an entire message in a high-level structure.
 type Message struct {
 	Header       MessageHeader
@@ -9,6 +15,7 @@ type Message struct {
 }
 
 // http://jupyter-client.readthedocs.io/en/latest/messaging.html#general-message-format
+// https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
 type MessageHeader struct {
 	MsgID    string `json:"msg_id"`
 	Username string `json:"username"`
@@ -39,3 +46,7 @@ const (
 	MessageStatusError       = "error"
 	MessageErrYieldExecution = "ExecutionYieldError"
 )
+
+type MessageShutdownRequest struct {
+	Restart bool `json:"restart"`
+}

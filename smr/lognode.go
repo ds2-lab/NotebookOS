@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/raft/v3"
@@ -39,6 +40,7 @@ import (
 	"go.etcd.io/etcd/server/v3/wal/walpb"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var (
@@ -72,6 +74,7 @@ func toCError(err error) string {
 type LogNodeConfig struct {
 	ElectionTick  int
 	HeartbeatTick int
+	Debug         bool
 
 	onChange       StateValueCallback
 	onRestore      StatesValueCallback
@@ -114,15 +117,15 @@ type commit struct {
 // A SyncLog backed by raft
 type LogNode struct {
 	proposeC    chan *proposalContext   // proposed serialized messages
-	confChangeC chan *raftpb.ConfChange // proposed cluster config changes
+	confChangeC chan *confChangeContext // proposed cluster config changes
 	commitC     chan *commit
 	errorC      chan error // errors from raft session
 
-	id      int      // client ID for raft session
-	peers   []string // raft peer URLs
-	join    bool     // node is joining an existing cluster
-	waldir  string   // path to WAL directory
-	snapdir string   // path to snapshot directory
+	id      int      // Client ID for raft session
+	peers   []string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1.
+	join    bool     // Node is joining an existing cluster
+	waldir  string   // Path to WAL directory
+	snapdir string   // Path to snapshot directory
 
 	confState        raftpb.ConfState
 	snapshotIndex    uint64
@@ -130,7 +133,7 @@ type LogNode struct {
 	num_changes      uint64
 	denied_changes   uint64
 	proposalPadding  int
-	proposalRegistry map[string]*proposalContext
+	proposalRegistry hashmap.BaseHashMap[string, smrContext]
 
 	// raft backing for the commit/error channel
 	node        raft.Node
@@ -163,7 +166,7 @@ var defaultSnapshotCount uint64 = 10000
 func NewLogNode(store_path string, id int, peers []string, join bool) *LogNode {
 	node := &LogNode{
 		proposeC:         make(chan *proposalContext),
-		confChangeC:      make(chan *raftpb.ConfChange),
+		confChangeC:      make(chan *confChangeContext),
 		commitC:          make(chan *commit),
 		errorC:           make(chan error, 1),
 		id:               id,
@@ -175,9 +178,9 @@ func NewLogNode(store_path string, id int, peers []string, join bool) *LogNode {
 		httpdonec:        make(chan struct{}),
 		num_changes:      0,
 		denied_changes:   0,
-		proposalRegistry: make(map[string]*proposalContext),
+		proposalRegistry: hashmap.NewConcurrentMap[smrContext](32),
 
-		logger: zap.NewExample(),
+		logger: zap.NewExample(zap.IncreaseLevel(zapcore.DebugLevel)),
 
 		snapshotterReady: make(chan LogSnapshotter, 1),
 		// rest of structure populated after WAL replay
@@ -186,7 +189,7 @@ func NewLogNode(store_path string, id int, peers []string, join bool) *LogNode {
 		node.waldir = path.Join(store_path, fmt.Sprintf("dnlog-%d", id))
 		node.snapdir = path.Join(store_path, fmt.Sprintf("dnlog-%d-snap", id))
 	}
-	testId, _ := node.generateProposal(nil, 0)
+	testId, _ := node.patchPropose(nil)
 	node.proposalPadding = len(testId)
 	return node
 }
@@ -197,6 +200,9 @@ func (node *LogNode) NumChanges() int {
 
 func (node *LogNode) Start(config *LogNodeConfig) {
 	node.config = config
+	if !config.Debug {
+		node.logger = node.logger.WithOptions(zap.IncreaseLevel(zapcore.InfoLevel))
+	}
 	go node.start()
 }
 
@@ -207,49 +213,77 @@ func (node *LogNode) StartAndWait(config *LogNodeConfig) {
 
 // Append the difference of the value of specified key to the synchronization queue.
 func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
-	go node.propose(val.Bytes(), resolve, msg)
+	_, ctx := node.generateProposal(val.Bytes(), ProposalDeadline)
+	go node.propose(ctx, node.sendProposal, resolve, msg)
 }
 
-func (node *LogNode) propose(val []byte, resolve ResolveCallback, msg string) {
-	_, ctx := node.generateProposal(val, ProposalDeadline)
-	node.logger.Debug("Appending value", zap.String("key", msg), zap.String("id", ctx.Id))
-	if err := node.sendProposal(ctx); err != nil {
+// func (node *LogNode) propose(val []byte, resolve ResolveCallback, msg string) {
+// 	_, ctx := node.generateProposal(val, ProposalDeadline)
+// 	node.logger.Debug("Appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
+// 	if err := node.sendProposal(ctx); err != nil {
+// 		resolve(msg, toCError(err))
+// 		return
+// 	}
+// 	// Wait for committed or retry
+// 	for !node.waitProposal(ctx) {
+// 		node.logger.Debug("Retry appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
+// 		ctx.Reset(ProposalDeadline)
+// 		if err := node.sendProposal(ctx); err != nil {
+// 			resolve(msg, toCError(err))
+// 			return
+// 		}
+// 	}
+// 	node.logger.Debug("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
+// 	if resolve != nil {
+// 		resolve(msg, toCError(nil))
+// 	}
+// }
+
+func (node *LogNode) AddNode(id int, addr string, resolve ResolveCallback) {
+	ctx := node.generateConfChange(&raftpb.ConfChange{
+		Type:    raftpb.ConfChangeAddNode,
+		NodeID:  uint64(id),
+		Context: []byte(addr),
+	}, ProposalDeadline)
+	go node.propose(ctx, node.manageNode, resolve, "add node")
+}
+
+func (node *LogNode) RemoveNode(id int, resolve ResolveCallback) {
+	ctx := node.generateConfChange(&raftpb.ConfChange{
+		Type:   raftpb.ConfChangeRemoveNode,
+		NodeID: uint64(id),
+	}, ProposalDeadline)
+	go node.propose(ctx, node.manageNode, resolve, "remove node")
+}
+
+func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, resolve ResolveCallback, msg string) {
+	if resolve == nil {
+		resolve = node.defaultResolveCallback
+	}
+
+	node.logger.Debug("Appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
+	if err := proposer(ctx); err != nil {
 		resolve(msg, toCError(err))
 		return
 	}
 	// Wait for committed or retry
 	for !node.waitProposal(ctx) {
-		node.logger.Debug("Retry appending value", zap.String("key", msg), zap.String("id", ctx.Id))
-		ctx = ctx.Reset(ProposalDeadline)
-		if err := node.sendProposal(ctx); err != nil {
+		node.logger.Debug("Retry appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
+		ctx.Reset(ProposalDeadline)
+		if err := proposer(ctx); err != nil {
 			resolve(msg, toCError(err))
 			return
 		}
 	}
-	node.logger.Debug("Value appended", zap.String("key", msg), zap.String("id", ctx.Id))
+	node.logger.Debug("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if resolve != nil {
 		resolve(msg, toCError(nil))
 	}
 }
 
-func (node *LogNode) AddNode(id int, addr string) {
-	node.manageNode(&raftpb.ConfChange{
-		Type:    raftpb.ConfChangeAddNode,
-		NodeID:  uint64(id),
-		Context: []byte(addr),
-	})
-}
-
-func (node *LogNode) RemoveNode(id int) {
-	node.manageNode(&raftpb.ConfChange{
-		Type:   raftpb.ConfChangeRemoveNode,
-		NodeID: uint64(id),
-	})
-}
-
-func (node *LogNode) manageNode(change *raftpb.ConfChange) error {
+func (node *LogNode) manageNode(ctx smrContext) error {
 	select {
-	case node.confChangeC <- change:
+	case node.confChangeC <- ctx.(*confChangeContext):
 		return nil
 	case <-node.stopc:
 		return ErrClosed
@@ -332,9 +366,11 @@ func (node *LogNode) start() {
 	// signal replay has finished
 	node.snapshotterReady <- node.snapshotter
 
-	rpeers := make([]raft.Peer, len(node.peers))
-	for i := range rpeers {
-		rpeers[i] = raft.Peer{ID: uint64(i + 1)}
+	rpeers := make([]raft.Peer, 0, len(node.peers))
+	for i, peer := range node.peers {
+		if peer != "" {
+			rpeers = append(rpeers, raft.Peer{ID: uint64(i + 1)})
+		}
 	}
 	c := &raft.Config{
 		ID:                        uint64(node.id),
@@ -363,9 +399,10 @@ func (node *LogNode) start() {
 	}
 
 	node.transport.Start()
-	for i := range node.peers {
-		if i+1 != node.id {
-			node.transport.AddPeer(types.ID(i+1), []string{node.peers[i]})
+	for i, peer := range node.peers {
+		// Allow holes in the peer list
+		if peer != "" && i+1 != node.id {
+			node.transport.AddPeer(types.ID(i+1), []string{peer})
 		}
 	}
 
@@ -433,6 +470,12 @@ func (node *LogNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool)
 		case raftpb.EntryConfChange:
 			var cc raftpb.ConfChange
 			cc.Unmarshal(ents[i].Data)
+
+			node.logger.Debug(fmt.Sprintf("incoming conf change: %v", &cc), zap.Int32("type", int32(cc.Type)), zap.Int("context length", len(cc.Context)))
+
+			// Call immidiately to restore valid cc.Context
+			ctx := node.doneConfChange(&cc)
+
 			node.confState = *node.node.ApplyConfChange(cc)
 			switch cc.Type {
 			case raftpb.ConfChangeAddNode:
@@ -442,9 +485,16 @@ func (node *LogNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool)
 			case raftpb.ConfChangeRemoveNode:
 				if cc.NodeID == uint64(node.id) {
 					log.Println("I've been removed from the cluster! Shutting down.")
+					if ctx != nil {
+						ctx.Cancel()
+					}
 					return nil, false
 				}
 				node.transport.RemovePeer(types.ID(cc.NodeID))
+			}
+
+			if ctx != nil {
+				ctx.Cancel()
 			}
 		}
 	}
@@ -724,8 +774,8 @@ func (node *LogNode) serveChannels() {
 					confChangeC = nil // Clear local channel.
 				} else {
 					confChangeCount++
-					cc.ID = confChangeCount
-					node.node.ProposeConfChange(context.TODO(), *cc)
+					cc.ConfChange.ID = confChangeCount
+					node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
 				}
 			}
 		}
@@ -743,7 +793,7 @@ func (node *LogNode) serveChannels() {
 					realData, ctx := node.doneProposal(d)
 					id := ""
 					if ctx != nil {
-						id = ctx.Id
+						id = ctx.ID()
 					}
 					if err := fromCError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
 						node.logFatalf("LogNode: Error on replay state (%v)", err)
@@ -833,48 +883,67 @@ func (node *LogNode) serveRaft() {
 	}
 }
 
-func (node *LogNode) generateProposal(val []byte, timeout time.Duration) ([]byte, *proposalContext) {
-	id := uuid.New().String()
+func (node *LogNode) patchPropose(val []byte) (ret []byte, id string) {
+	uuid := uuid.New()
+	binary, _ := uuid.MarshalBinary()
+	id = uuid.String()
 	if len(val) == 0 {
-		return []byte(id), nil
+		ret = binary
+	} else {
+		ret = append(val, binary...)
 	}
-	ret := val
-	if cap(ret) < len(val)+len(id) {
-		ret = make([]byte, 0, len(val)+len(id))
-		copy(ret[:len(val)], val)
-	}
-	copy(ret[len(val):len(val)+len(id)], []byte(id))
-	ret = ret[:len(val)+len(id)]
-	ctx := ProposalContext(id, ret, timeout)
+	return
+}
+
+func (node *LogNode) generateProposal(val []byte, timeout time.Duration) ([]byte, *proposalContext) {
+	ret, id := node.patchPropose(val)
+	ctx := NewProposalContext(id, ret, timeout)
 	node.registerProposal(ctx)
 	return ret, ctx
 }
 
-func (node *LogNode) registerProposal(proposal *proposalContext) {
-	node.proposalRegistry[proposal.Id] = proposal
+func (node *LogNode) generateConfChange(cc *raftpb.ConfChange, timeout time.Duration) *confChangeContext {
+	var id string
+	cc.Context, id = node.patchPropose(cc.Context)
+	ctx := NewConfChangeContext(id, cc, timeout)
+	node.registerProposal(ctx)
+	return ctx
 }
 
-func (node *LogNode) sendProposal(proposal *proposalContext) error {
+func (node *LogNode) registerProposal(proposal smrContext) {
+	node.proposalRegistry.Store(proposal.ID(), proposal)
+}
+
+func (node *LogNode) sendProposal(proposal smrContext) error {
 	// Save local channel for thread-safe access.
 	select {
-	case node.proposeC <- proposal:
+	case node.proposeC <- proposal.(*proposalContext):
 		return nil
 	case <-node.stopc:
 		return ErrClosed
 	}
 }
 
-func (node *LogNode) doneProposal(val []byte) ([]byte, *proposalContext) {
-	id := val[len(val)-node.proposalPadding:]
-	ret := val[:len(val)-node.proposalPadding]
-	if ctx, ok := node.proposalRegistry[string(id)]; ok {
-		delete(node.proposalRegistry, ctx.Id)
-		return ret, ctx
+func (node *LogNode) doneProposal(val []byte) ([]byte, smrContext) {
+	if len(val) < node.proposalPadding {
+		return val, nil
 	}
-	return ret, nil
+
+	binary := val[len(val)-node.proposalPadding:]
+	var id uuid.UUID
+	id.UnmarshalBinary(binary)
+
+	ret := val[:len(val)-node.proposalPadding]
+	ctx, _ := node.proposalRegistry.LoadAndDelete(id.String())
+	return ret, ctx
 }
 
-func (node *LogNode) waitProposal(ctx *proposalContext) bool {
+func (node *LogNode) doneConfChange(cc *raftpb.ConfChange) (ctx smrContext) {
+	cc.Context, ctx = node.doneProposal(cc.Context)
+	return ctx
+}
+
+func (node *LogNode) waitProposal(ctx smrContext) bool {
 	<-ctx.Done()
 	return ctx.Err() == context.Canceled
 }
@@ -893,6 +962,10 @@ func (node *LogNode) panic(err error) {
 	log.Println(err)
 	node.writeError(err)
 	node.close()
+}
+
+func (node *LogNode) defaultResolveCallback(interface{}, string) {
+	// Ignore
 }
 
 func (node *LogNode) Process(ctx context.Context, m raftpb.Message) error {

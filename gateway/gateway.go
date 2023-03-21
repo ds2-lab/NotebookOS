@@ -110,20 +110,26 @@ func main() {
 	// 	opts = append(opts, tlsopt)
 	// }
 
-	// Initialize grpc server
-	registrar := grpc.NewServer(gOpts...)
+	// Initialize daemon
 	srv := daemon.New(&options.ConnectionInfo, func(srv *daemon.GatewayDaemon) {
 		srv.ClusterOptions = options.CoreOptions
 	})
-	gateway.RegisterLocalGatewayServer(registrar, srv)
-	gateway.RegisterClusterGatewayServer(registrar, srv)
-	logger.Info("Server listening at %v", lis.Addr())
 
 	// Listen on provisioner port
-	provisioner, err := srv.Listen("tcp", fmt.Sprintf(":%d", options.ProvisionerPort))
+	lisHost, err := srv.Listen("tcp", fmt.Sprintf(":%d", options.ProvisionerPort))
 	if err != nil {
 		log.Fatalf("Failed to listen on provisioner port: %v", err)
 	}
+
+	// Initialize internel grpc server
+	provisioner := grpc.NewServer(gOpts...)
+	gateway.RegisterClusterGatewayServer(provisioner, srv)
+	logger.Info("Provisioning server listening at %v", lisHost.Addr())
+
+	// Initialize Jupyter grpc server
+	registrar := grpc.NewServer(gOpts...)
+	gateway.RegisterLocalGatewayServer(registrar, srv)
+	logger.Info("Jupyter server listening at %v", lis.Addr())
 
 	// Register services in consul
 	if consulClient != nil {
@@ -140,8 +146,9 @@ func main() {
 		<-sig
 		logger.Info("Shutting down...")
 		registrar.Stop()
+		provisioner.Stop()
 		srv.Close()
-		provisioner.Close()
+		lisHost.Close()
 		lis.Close()
 
 		// logger.Info("listern closed...")
@@ -152,15 +159,15 @@ func main() {
 	go func() {
 		defer finalize(true)
 		if err := registrar.Serve(lis); err != nil {
-			log.Fatalf("Failed to serve: %v", err)
+			log.Fatalf("Error on serving jupyter connections: %v", err)
 		}
 	}()
 
 	// Start provisioning server
 	go func() {
 		defer finalize(true)
-		if err := registrar.Serve(provisioner); err != nil {
-			log.Fatalf("Failed to serve provisioner: %v", err)
+		if err := provisioner.Serve(lisHost); err != nil {
+			log.Fatalf("Error on serving host scheduler connections: %v", err)
 		}
 	}()
 

@@ -9,4 +9,4 @@ ADD daemon.yml daemon.yml
 
 EXPOSE 8080/tcp
 
-ENTRYPOINT [ "./scheduler", "-yaml", "daemon.yml", "-debug"]
+ENTRYPOINT [ "./scheduler", "-yaml", "daemon.yml", "-debug", "-v"]

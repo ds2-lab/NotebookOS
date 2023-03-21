@@ -47,7 +47,7 @@ func (s *BaseServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]
 	return s.server.RemoveDestFrame(frames, jOffset)
 }
 
-func (s *BaseServer) SkipIdentities(frames [][]byte) ([][]byte, int) {
+func (s *BaseServer) SkipIdentities(frames [][]byte) (types.JupyterFrames, int) {
 	return s.server.SkipIdentities(frames)
 }
 

@@ -8,12 +8,14 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 
 const (
@@ -21,12 +23,14 @@ const (
 	ConfigFileFormat     = "config-%s-*.json"     // "*" is a placeholder for random string
 )
 
-// LocalInvoker Invoke local lambda function simulation
+// LocalInvoker invokes local jupyter kernel
 // Use throttle to simulate Lambda network: https://github.com/sitespeedio/throttle
 // throttle --up 800000 --down 800000 --rtt 1 (800MB/s, 1ms)
 // throttle stop
-// Use container to simulate Lambda resouce limit
+// Kernel replica is not supported so far. Add if needed.
 type LocalInvoker struct {
+	SMRPort int
+
 	cmd           *exec.Cmd
 	spec          *gateway.KernelReplicaSpec
 	closedAt      time.Time
@@ -111,6 +115,21 @@ func (ivk *LocalInvoker) Expired(timeout time.Duration) bool {
 
 func (ivk *LocalInvoker) OnStatusChanged(handler StatucChangedHandler) {
 	ivk.statusChanged = handler
+}
+
+func (ivk *LocalInvoker) GetReplicaAddress(spec *gateway.KernelSpec, replicaId int32) string {
+	ivk.initSMRPort()
+	return fmt.Sprintf("127.0.0.1:%d", ivk.SMRPort)
+}
+
+// initSMRPort initialize SMR port with environment variable
+func (ivk *LocalInvoker) initSMRPort() {
+	if ivk.SMRPort == 0 {
+		ivk.SMRPort, _ = strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
+	}
+	if ivk.SMRPort == 0 {
+		ivk.SMRPort = KernelSMRPortDefault
+	}
 }
 
 func (ivk *LocalInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {

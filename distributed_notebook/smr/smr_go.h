@@ -5,7 +5,7 @@
 
 #line 1 "cgo-builtin-export-prolog"
 
-#include <stddef.h> /* for ptrdiff_t below */
+#include <stddef.h>
 
 #ifndef GO_CGO_EXPORT_PROLOGUE_H
 #define GO_CGO_EXPORT_PROLOGUE_H
@@ -90,11 +90,17 @@ typedef long long GoInt64;
 typedef unsigned long long GoUint64;
 typedef GoInt64 GoInt;
 typedef GoUint64 GoUint;
-typedef __SIZE_TYPE__ GoUintptr;
+typedef size_t GoUintptr;
 typedef float GoFloat32;
 typedef double GoFloat64;
+#ifdef _MSC_VER
+#include <complex.h>
+typedef _Fcomplex GoComplex64;
+typedef _Dcomplex GoComplex128;
+#else
 typedef float _Complex GoComplex64;
 typedef double _Complex GoComplex128;
+#endif
 
 /*
   static assertion to make sure the file is being used on architecture
@@ -122,15 +128,19 @@ extern void GoPyInit();
 
 // DecRef decrements the reference count for the specified handle
 // and deletes it it goes to zero.
+//
 extern void DecRef(long long handle);
 
 // IncRef increments the reference count for the specified handle.
+//
 extern void IncRef(long long handle);
 
 // NumHandles returns the number of handles currently in use.
+//
 extern GoInt NumHandles();
 
 // --- wrapping slice: []bool ---
+//
 extern long long Slice_bool_CTor();
 extern GoInt Slice_bool_len(long long handle);
 extern char Slice_bool_elem(long long handle, GoInt _idx);
@@ -139,6 +149,7 @@ extern void Slice_bool_set(long long handle, GoInt _idx, char _vl);
 extern void Slice_bool_append(long long handle, char _vl);
 
 // --- wrapping slice: []byte ---
+//
 extern long long Slice_byte_CTor();
 extern GoInt Slice_byte_len(long long handle);
 extern char Slice_byte_elem(long long handle, GoInt _idx);
@@ -147,6 +158,7 @@ extern void Slice_byte_set(long long handle, GoInt _idx, char _vl);
 extern void Slice_byte_append(long long handle, char _vl);
 
 // --- wrapping slice: []float32 ---
+//
 extern long long Slice_float32_CTor();
 extern GoInt Slice_float32_len(long long handle);
 extern float Slice_float32_elem(long long handle, GoInt _idx);
@@ -155,6 +167,7 @@ extern void Slice_float32_set(long long handle, GoInt _idx, float _vl);
 extern void Slice_float32_append(long long handle, float _vl);
 
 // --- wrapping slice: []float64 ---
+//
 extern long long Slice_float64_CTor();
 extern GoInt Slice_float64_len(long long handle);
 extern double Slice_float64_elem(long long handle, GoInt _idx);
@@ -163,6 +176,7 @@ extern void Slice_float64_set(long long handle, GoInt _idx, double _vl);
 extern void Slice_float64_append(long long handle, double _vl);
 
 // --- wrapping slice: []int ---
+//
 extern long long Slice_int_CTor();
 extern GoInt Slice_int_len(long long handle);
 extern long long Slice_int_elem(long long handle, GoInt _idx);
@@ -171,6 +185,7 @@ extern void Slice_int_set(long long handle, GoInt _idx, long long _vl);
 extern void Slice_int_append(long long handle, long long _vl);
 
 // --- wrapping slice: []int16 ---
+//
 extern long long Slice_int16_CTor();
 extern GoInt Slice_int16_len(long long handle);
 extern short Slice_int16_elem(long long handle, GoInt _idx);
@@ -179,6 +194,7 @@ extern void Slice_int16_set(long long handle, GoInt _idx, short _vl);
 extern void Slice_int16_append(long long handle, short _vl);
 
 // --- wrapping slice: []int32 ---
+//
 extern long long Slice_int32_CTor();
 extern GoInt Slice_int32_len(long long handle);
 extern long Slice_int32_elem(long long handle, GoInt _idx);
@@ -187,6 +203,7 @@ extern void Slice_int32_set(long long handle, GoInt _idx, long _vl);
 extern void Slice_int32_append(long long handle, long _vl);
 
 // --- wrapping slice: []int64 ---
+//
 extern long long Slice_int64_CTor();
 extern GoInt Slice_int64_len(long long handle);
 extern long long Slice_int64_elem(long long handle, GoInt _idx);
@@ -195,6 +212,7 @@ extern void Slice_int64_set(long long handle, GoInt _idx, long long _vl);
 extern void Slice_int64_append(long long handle, long long _vl);
 
 // --- wrapping slice: []int8 ---
+//
 extern long long Slice_int8_CTor();
 extern GoInt Slice_int8_len(long long handle);
 extern char Slice_int8_elem(long long handle, GoInt _idx);
@@ -203,6 +221,7 @@ extern void Slice_int8_set(long long handle, GoInt _idx, char _vl);
 extern void Slice_int8_append(long long handle, char _vl);
 
 // --- wrapping slice: []rune ---
+//
 extern long long Slice_rune_CTor();
 extern GoInt Slice_rune_len(long long handle);
 extern long Slice_rune_elem(long long handle, GoInt _idx);
@@ -211,6 +230,7 @@ extern void Slice_rune_set(long long handle, GoInt _idx, long _vl);
 extern void Slice_rune_append(long long handle, long _vl);
 
 // --- wrapping slice: []string ---
+//
 extern long long Slice_string_CTor();
 extern GoInt Slice_string_len(long long handle);
 extern char* Slice_string_elem(long long handle, GoInt _idx);
@@ -219,6 +239,7 @@ extern void Slice_string_set(long long handle, GoInt _idx, char* _vl);
 extern void Slice_string_append(long long handle, char* _vl);
 
 // --- wrapping slice: []uint ---
+//
 extern long long Slice_uint_CTor();
 extern GoInt Slice_uint_len(long long handle);
 extern unsigned long long Slice_uint_elem(long long handle, GoInt _idx);
@@ -227,6 +248,7 @@ extern void Slice_uint_set(long long handle, GoInt _idx, unsigned long long _vl)
 extern void Slice_uint_append(long long handle, unsigned long long _vl);
 
 // --- wrapping slice: []uint16 ---
+//
 extern long long Slice_uint16_CTor();
 extern GoInt Slice_uint16_len(long long handle);
 extern unsigned short Slice_uint16_elem(long long handle, GoInt _idx);
@@ -235,6 +257,7 @@ extern void Slice_uint16_set(long long handle, GoInt _idx, unsigned short _vl);
 extern void Slice_uint16_append(long long handle, unsigned short _vl);
 
 // --- wrapping slice: []uint32 ---
+//
 extern long long Slice_uint32_CTor();
 extern GoInt Slice_uint32_len(long long handle);
 extern unsigned long Slice_uint32_elem(long long handle, GoInt _idx);
@@ -243,6 +266,7 @@ extern void Slice_uint32_set(long long handle, GoInt _idx, unsigned long _vl);
 extern void Slice_uint32_append(long long handle, unsigned long _vl);
 
 // --- wrapping slice: []uint64 ---
+//
 extern long long Slice_uint64_CTor();
 extern GoInt Slice_uint64_len(long long handle);
 extern unsigned long long Slice_uint64_elem(long long handle, GoInt _idx);
@@ -251,6 +275,7 @@ extern void Slice_uint64_set(long long handle, GoInt _idx, unsigned long long _v
 extern void Slice_uint64_append(long long handle, unsigned long long _vl);
 
 // --- wrapping slice: []uint8 ---
+//
 extern long long Slice_uint8_CTor();
 extern GoInt Slice_uint8_len(long long handle);
 extern unsigned char Slice_uint8_elem(long long handle, GoInt _idx);
@@ -258,7 +283,17 @@ extern long long Slice_uint8_subslice(long long handle, GoInt _st, GoInt _ed);
 extern void Slice_uint8_set(long long handle, GoInt _idx, unsigned char _vl);
 extern void Slice_uint8_append(long long handle, unsigned char _vl);
 
+// --- wrapping slice: []raftpb.ConfChangeSingle ---
+//
+extern long long Slice_raftpb_ConfChangeSingle_CTor();
+extern GoInt Slice_raftpb_ConfChangeSingle_len(long long handle);
+extern long long Slice_raftpb_ConfChangeSingle_elem(long long handle, GoInt _idx);
+extern long long Slice_raftpb_ConfChangeSingle_subslice(long long handle, GoInt _st, GoInt _ed);
+extern void Slice_raftpb_ConfChangeSingle_set(long long handle, GoInt _idx, long long _vl);
+extern void Slice_raftpb_ConfChangeSingle_append(long long handle, long long _vl);
+
 // --- wrapping slice: []raftpb.Entry ---
+//
 extern long long Slice_raftpb_Entry_CTor();
 extern GoInt Slice_raftpb_Entry_len(long long handle);
 extern long long Slice_raftpb_Entry_elem(long long handle, GoInt _idx);
@@ -267,6 +302,7 @@ extern void Slice_raftpb_Entry_set(long long handle, GoInt _idx, long long _vl);
 extern void Slice_raftpb_Entry_append(long long handle, long long _vl);
 
 // --- wrapping slice: []walpb.Snapshot ---
+//
 extern long long Slice_walpb_Snapshot_CTor();
 extern GoInt Slice_walpb_Snapshot_len(long long handle);
 extern long long Slice_walpb_Snapshot_elem(long long handle, GoInt _idx);
@@ -275,10 +311,13 @@ extern void Slice_walpb_Snapshot_set(long long handle, GoInt _idx, long long _vl
 extern void Slice_walpb_Snapshot_append(long long handle, long long _vl);
 
 // ---- Global Variables: can only use functions to access ---
+//
 extern char* smr_ErrEOF();
 extern void smr_Set_ErrEOF(char* val);
 extern long long smr_ProposalDeadline();
 extern void smr_Set_ProposalDeadline(long long val);
+extern char* smr_WriteCloser_Close(long long _handle);
+extern long long smr_WriteCloser_Write(long long _handle, long long p);
 extern long long smr_LogSnapshotter_Load(long long _handle);
 extern long long smr_LogSnapshotter_LoadNewestAvailable(long long _handle, long long arg_0);
 extern char* smr_LogSnapshotter_SaveSnap(long long _handle, long long arg_0);
@@ -288,10 +327,21 @@ extern char* smr_LogStorage_Save(long long _handle, long long arg_0, long long a
 extern void smr_LogStorage_SaveSnapshot(long long _handle, long long arg_0, char goRun);
 extern char* smr_ReadCloser_Close(long long _handle);
 extern long long smr_ReadCloser_Read(long long _handle, long long p);
-extern char* smr_WriteCloser_Close(long long _handle);
-extern long long smr_WriteCloser_Write(long long _handle, long long p);
+
+// --- wrapping struct: smr.SMRContext ---
+//
+extern long long smr_SMRContext_CTor();
+extern char* smr_SMRContext_ID(long long _handle);
+extern void smr_SMRContext_Cancel(long long _handle, char goRun);
+
+// --- wrapping struct: smr.Bytes ---
+//
+extern long long smr_Bytes_CTor();
+extern long long smr_Bytes_Bytes(long long _handle);
+extern long long smr_Bytes_Len(long long _handle);
 
 // --- wrapping struct: smr.IntRet ---
+//
 extern long long smr_IntRet_CTor();
 extern long long smr_IntRet_N_Get(long long handle);
 extern void smr_IntRet_N_Set(long long handle, long long val);
@@ -299,13 +349,14 @@ extern char* smr_IntRet_Err_Get(long long handle);
 extern void smr_IntRet_Err_Set(long long handle, char* val);
 
 // --- wrapping struct: smr.LogNode ---
+//
 extern long long smr_LogNode_CTor();
 extern long long smr_LogNode_NumChanges(long long _handle);
 extern void smr_LogNode_Start(long long _handle, long long config, char goRun);
 extern void smr_LogNode_StartAndWait(long long _handle, long long config, char goRun);
 extern void smr_LogNode_Propose(long long _handle, long long val, PyObject* resolve, char* msg, char goRun);
-extern void smr_LogNode_AddNode(long long _handle, long long id, char* addr, char goRun);
-extern void smr_LogNode_RemoveNode(long long _handle, long long id, char goRun);
+extern void smr_LogNode_AddNode(long long _handle, long long id, char* addr, PyObject* resolve, char goRun);
+extern void smr_LogNode_RemoveNode(long long _handle, long long id, PyObject* resolve, char goRun);
 extern char* smr_LogNode_WaitToClose(long long _handle);
 extern char* smr_LogNode_Close(long long _handle);
 extern char* smr_LogNode_Process(long long _handle, long long ctx, long long m);
@@ -314,20 +365,18 @@ extern void smr_LogNode_ReportUnreachable(long long _handle, unsigned long long 
 extern void smr_LogNode_ReportSnapshot(long long _handle, unsigned long long id, long long status, char goRun);
 
 // --- wrapping struct: smr.LogNodeConfig ---
+//
 extern long long smr_LogNodeConfig_CTor();
 extern long long smr_LogNodeConfig_ElectionTick_Get(long long handle);
 extern void smr_LogNodeConfig_ElectionTick_Set(long long handle, long long val);
 extern long long smr_LogNodeConfig_HeartbeatTick_Get(long long handle);
 extern void smr_LogNodeConfig_HeartbeatTick_Set(long long handle, long long val);
+extern char smr_LogNodeConfig_Debug_Get(long long handle);
+extern void smr_LogNodeConfig_Debug_Set(long long handle, char val);
 extern long long smr_LogNodeConfig_WithChangeCallback(long long _handle, PyObject* cb);
 extern long long smr_LogNodeConfig_WithRestoreCallback(long long _handle, PyObject* cb);
 extern long long smr_LogNodeConfig_WithShouldSnapshotCallback(long long _handle, PyObject* cb);
 extern long long smr_LogNodeConfig_WithSnapshotCallback(long long _handle, PyObject* cb);
-
-// --- wrapping struct: smr.Bytes ---
-extern long long smr_Bytes_CTor();
-extern long long smr_Bytes_Bytes(long long _handle);
-extern long long smr_Bytes_Len(long long _handle);
 extern long long smr_NewLogNode(char* store_path, long long id, long long peers, char join);
 extern long long smr_NewConfig();
 extern long long smr_NewBytes(char* bytes, GoInt len);

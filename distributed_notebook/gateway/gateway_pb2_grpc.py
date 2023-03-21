@@ -14,15 +14,32 @@ class ClusterGatewayStub(object):
         Args:
             channel: A grpc.Channel.
         """
+        self.ID = channel.unary_unary(
+                '/gateway.ClusterGateway/ID',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.ProvisionerId.FromString,
+                )
         self.RemoveHost = channel.unary_unary(
                 '/gateway.ClusterGateway/RemoveHost',
                 request_serializer=gateway__pb2.HostId.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
+        self.MigrateKernelReplica = channel.unary_unary(
+                '/gateway.ClusterGateway/MigrateKernelReplica',
+                request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
+                response_deserializer=gateway__pb2.ReplicaId.FromString,
+                )
 
 
 class ClusterGatewayServicer(object):
     """Missing associated documentation comment in .proto file."""
+
+    def ID(self, request, context):
+        """ID returns the cluster gateway id and can be used to test connectivity.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def RemoveHost(self, request, context):
         """RemoveHost removes a local gateway from the cluster.
@@ -31,13 +48,32 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def MigrateKernelReplica(self, request, context):
+        """MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
+        Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
+        need to start immediately after replica started, e.g., preempting a training task.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'ID': grpc.unary_unary_rpc_method_handler(
+                    servicer.ID,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.ProvisionerId.SerializeToString,
+            ),
             'RemoveHost': grpc.unary_unary_rpc_method_handler(
                     servicer.RemoveHost,
                     request_deserializer=gateway__pb2.HostId.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'MigrateKernelReplica': grpc.unary_unary_rpc_method_handler(
+                    servicer.MigrateKernelReplica,
+                    request_deserializer=gateway__pb2.ReplicaInfo.FromString,
+                    response_serializer=gateway__pb2.ReplicaId.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -48,6 +84,23 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class ClusterGateway(object):
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def ID(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/ID',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.ProvisionerId.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
     def RemoveHost(request,
@@ -63,6 +116,23 @@ class ClusterGateway(object):
         return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/RemoveHost',
             gateway__pb2.HostId.SerializeToString,
             gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def MigrateKernelReplica(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/MigrateKernelReplica',
+            gateway__pb2.ReplicaInfo.SerializeToString,
+            gateway__pb2.ReplicaId.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

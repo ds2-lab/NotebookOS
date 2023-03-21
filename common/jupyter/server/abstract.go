@@ -174,9 +174,10 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 	}
 }
 
-// ServeOnce serves the socket once until receiving the response corresponding to the given request or timeout.
+// Request sends the request and wait until receiving the response corresponding to the given request or timeout.
 // On being called, the function
 //
+//  0. Sends the request.
 //  1. Queues the request.
 //  2. A serve routine is started to wait on the socket for response. The serve routing will quit after a response is received and
 //     the response matches the request. Specifically:
@@ -196,21 +197,21 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 //   - dest: The info of request destination that the WaitResponse can use to track individual request.
 //   - handler: The handler to handle the response.
 //   - getOption: The function to get the options.
-func (s *AbstractServer) WaitResponse(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, req *zmq4.Msg, dest RequestDest, handler types.MessageHandler, getOption WaitResponseOptionGetter) {
+func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, req *zmq4.Msg, dest RequestDest, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter) error {
 	socket.InitPendingReq()
 	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
 	_, reqId, jOffset := dest.ExtractDestFrame(req.Frames)
 	if reqId == "" {
 		req.Frames, reqId = dest.AddDestFrame(req.Frames, dest.ID(), jOffset)
 	}
-	// Track the pending request.
-	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(handler))
 
-	// Use Serve to support timeout;
-	// Late response will be ignored and serve routing will be stopped if no request is pending.
-	if atomic.LoadInt32(&socket.Serving) == 0 {
-		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, dest, getOption, handler))
+	// Send request.
+	if err := socket.Send(*req); err != nil {
+		return err
 	}
+
+	// Track the pending request.
+	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(handler, done))
 
 	// Apply a default timeout
 	var cancel context.CancelFunc
@@ -218,18 +219,27 @@ func (s *AbstractServer) WaitResponse(ctx context.Context, server types.JupyterS
 		ctx, cancel = context.WithTimeout(ctx, DefaultRequestTimeout)
 	}
 
-	// Wait for timeout.
-	<-ctx.Done()
-	err := ctx.Err()
-	if cancel != nil {
-		cancel()
+	// Use Serve to support timeout;
+	// Late response will be ignored and serve routing will be stopped if no request is pending.
+	if atomic.LoadInt32(&socket.Serving) == 0 {
+		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, dest, getOption, nil)) // Pass nil as handler to discard any response without dest frame.
 	}
 
-	// Clear pending request.
-	if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
-		pending.Release()
-		s.Log.Debug("Request(%p) %v", req, err)
-	}
+	// Wait for timeout.
+	go func() {
+		<-ctx.Done()
+		err := ctx.Err()
+		if cancel != nil {
+			cancel()
+		}
+
+		// Clear pending request.
+		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
+			pending.Release()
+			s.Log.Debug("Request(%p) %v", req, err)
+		}
+	}()
+	return nil
 }
 
 func (s *AbstractServer) ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int) {
@@ -283,7 +293,7 @@ func (s *AbstractServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed 
 	return frames
 }
 
-func (s *AbstractServer) SkipIdentities(frames [][]byte) ([][]byte, int) {
+func (s *AbstractServer) SkipIdentities(frames [][]byte) (types.JupyterFrames, int) {
 	if len(frames) == 0 {
 		return frames, 0
 	}
@@ -354,8 +364,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 
 				// Remove pending request and return registered handler. If timeout, the handler will be nil.
 				if pending, exist := pendings.LoadAndDelete(rspId); exist {
-					handler = pending.Handle
-					pending.Release()
+					handler = pending.Handle // Handle will release the pending request once called.
 				}
 				// Continue serving if there are pending requests.
 				if pendings.Len() > 0 {

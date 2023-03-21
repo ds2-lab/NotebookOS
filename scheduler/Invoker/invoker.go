@@ -33,4 +33,7 @@ type KernelInvoker interface {
 	// OnStatusChanged registers a callback function to be called when the kernel status changes.
 	// The callback function is invocation sepcific and will be cleared after the kernel exits.
 	OnStatusChanged(StatucChangedHandler)
+
+	// GetReplicaAddress
+	GetReplicaAddress(spec *gateway.KernelSpec, replicaId int32) string
 }

@@ -90,9 +90,9 @@ func (s *AggregateKernelStatus) Collect(ctx context.Context, num_replicas int, r
 		s.expectingMatches = 1
 		s.allowViolation = true
 	}
-	// Reset the collected map.
+	// Reset the collected map. Note we need replice_slots+1 because the first element is the number of collected status.
 	s.collecting = int32(num_replicas)
-	if replica_slots > cap(s.collected) {
+	if replica_slots >= cap(s.collected) {
 		resetEmptyCollectedMap(replica_slots + 1)
 		s.collected = make([]int32, int(math.Pow(2, math.Ceil(math.Log2(float64(replica_slots+1)))))) // Round up to the nearest power of 2.
 	}
@@ -146,7 +146,8 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 	} else if s.sampleMsg != nil {
 		// TODO: Not working here, need to regenerate the signature.
 		jFrames, _ := s.kernel.SkipIdentities(s.sampleMsg.Frames)
-		jFrames[4] = []byte(fmt.Sprintf(KernelStatusFrameTemplate, status))
+		jFrames.ContentFrame().Set([]byte(fmt.Sprintf(KernelStatusFrameTemplate, status)))
+		jFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 		publish(s.sampleMsg, status, "Synthesized status")
 	}
 
@@ -160,7 +161,7 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 func (s *AggregateKernelStatus) match(replicaId int32, status string, msg *zmq4.Msg) (how string, retStatus string, resolved bool) {
 	// Check if the status has been collected.
 	// ReplicaID should not exceed the size of the collected map, ignore if it does.
-	if replicaId > int32(len(s.collected)) || !atomic.CompareAndSwapInt32(&s.collected[replicaId], 0, 1) {
+	if replicaId >= int32(len(s.collected)) || !atomic.CompareAndSwapInt32(&s.collected[replicaId], 0, 1) {
 		return
 	}
 

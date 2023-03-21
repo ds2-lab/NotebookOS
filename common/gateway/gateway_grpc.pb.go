@@ -22,8 +22,14 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ClusterGatewayClient interface {
+	// ID returns the cluster gateway id and can be used to test connectivity.
+	ID(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ProvisionerId, error)
 	// RemoveHost removes a local gateway from the cluster.
 	RemoveHost(ctx context.Context, in *HostId, opts ...grpc.CallOption) (*Void, error)
+	// MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
+	// Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
+	// need to start immediately after replica started, e.g., preempting a training task.
+	MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*ReplicaId, error)
 }
 
 type clusterGatewayClient struct {
@@ -32,6 +38,15 @@ type clusterGatewayClient struct {
 
 func NewClusterGatewayClient(cc grpc.ClientConnInterface) ClusterGatewayClient {
 	return &clusterGatewayClient{cc}
+}
+
+func (c *clusterGatewayClient) ID(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ProvisionerId, error) {
+	out := new(ProvisionerId)
+	err := c.cc.Invoke(ctx, "/gateway.ClusterGateway/ID", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *clusterGatewayClient) RemoveHost(ctx context.Context, in *HostId, opts ...grpc.CallOption) (*Void, error) {
@@ -43,12 +58,27 @@ func (c *clusterGatewayClient) RemoveHost(ctx context.Context, in *HostId, opts 
 	return out, nil
 }
 
+func (c *clusterGatewayClient) MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*ReplicaId, error) {
+	out := new(ReplicaId)
+	err := c.cc.Invoke(ctx, "/gateway.ClusterGateway/MigrateKernelReplica", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterGatewayServer is the server API for ClusterGateway service.
 // All implementations must embed UnimplementedClusterGatewayServer
 // for forward compatibility
 type ClusterGatewayServer interface {
+	// ID returns the cluster gateway id and can be used to test connectivity.
+	ID(context.Context, *Void) (*ProvisionerId, error)
 	// RemoveHost removes a local gateway from the cluster.
 	RemoveHost(context.Context, *HostId) (*Void, error)
+	// MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
+	// Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
+	// need to start immediately after replica started, e.g., preempting a training task.
+	MigrateKernelReplica(context.Context, *ReplicaInfo) (*ReplicaId, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -56,8 +86,14 @@ type ClusterGatewayServer interface {
 type UnimplementedClusterGatewayServer struct {
 }
 
+func (UnimplementedClusterGatewayServer) ID(context.Context, *Void) (*ProvisionerId, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ID not implemented")
+}
 func (UnimplementedClusterGatewayServer) RemoveHost(context.Context, *HostId) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveHost not implemented")
+}
+func (UnimplementedClusterGatewayServer) MigrateKernelReplica(context.Context, *ReplicaInfo) (*ReplicaId, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MigrateKernelReplica not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 
@@ -70,6 +106,24 @@ type UnsafeClusterGatewayServer interface {
 
 func RegisterClusterGatewayServer(s grpc.ServiceRegistrar, srv ClusterGatewayServer) {
 	s.RegisterService(&ClusterGateway_ServiceDesc, srv)
+}
+
+func _ClusterGateway_ID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterGatewayServer).ID(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gateway.ClusterGateway/ID",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterGatewayServer).ID(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _ClusterGateway_RemoveHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -90,6 +144,24 @@ func _ClusterGateway_RemoveHost_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterGateway_MigrateKernelReplica_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReplicaInfo)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterGatewayServer).MigrateKernelReplica(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gateway.ClusterGateway/MigrateKernelReplica",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterGatewayServer).MigrateKernelReplica(ctx, req.(*ReplicaInfo))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterGateway_ServiceDesc is the grpc.ServiceDesc for ClusterGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -98,8 +170,16 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*ClusterGatewayServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "ID",
+			Handler:    _ClusterGateway_ID_Handler,
+		},
+		{
 			MethodName: "RemoveHost",
 			Handler:    _ClusterGateway_RemoveHost_Handler,
+		},
+		{
+			MethodName: "MigrateKernelReplica",
+			Handler:    _ClusterGateway_MigrateKernelReplica_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

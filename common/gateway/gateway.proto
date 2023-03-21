@@ -8,8 +8,23 @@ option java_outer_classname = "GatewayProto";
 package gateway;
 
 service ClusterGateway {
+  // ID returns the cluster gateway id and can be used to test connectivity.
+  rpc ID(Void) returns (ProvisionerId) {}
+
   // RemoveHost removes a local gateway from the cluster.
   rpc RemoveHost(HostId) returns (Void) {}
+
+  // MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
+  // Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
+  // need to start immediately after replica started, e.g., preempting a training task.
+  // 
+  // The function will simply remove the replica from the kernel without stopping it.
+  // The caller should stop the replica after confirmed that the new replica is ready.
+  rpc MigrateKernelReplica(ReplicaInfo) returns (ReplicaId) {}
+}
+
+message ProvisionerId {
+  string id = 1;
 }
 
 message HostSpec {
@@ -54,6 +69,8 @@ message KernelReplicaSpec {
   int32 replicaId = 2;
   int32 numReplicas = 3;
   repeated string replicas = 4;
+  bool join = 5;
+  optional string persistentId = 6;
 }
 
 message ResourceSpec {
@@ -66,6 +83,19 @@ message ResourceSpec {
 message KernelId {
   string id = 1;
   optional bool restart = 2;
+  optional string persistentId = 3;
+}
+
+// The paramters for migration
+message ReplicaInfo {
+  string kernelId = 1;
+  int32 replicaId = 2;
+  string persistentId = 3;
+}
+
+// The replica id.
+message ReplicaId {
+  int32 id = 1;
 }
 
 // The kernel spec.

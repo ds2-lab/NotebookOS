@@ -1384,6 +1384,28 @@ class Slice_uint8(GoClass):
 
 # ---- External Types Outside of Targeted Packages ---
 
+# Python type for *raftpb.ConfChange
+class Ptr_raftpb_ConfChange(GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], int):
+			self.handle = args[0]
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	
+
 # Python type for *raftpb.ConfState
 class Ptr_raftpb_ConfState(GoClass):
 	""""""
@@ -1430,6 +1452,72 @@ class Ptr_raftpb_Snapshot(GoClass):
 
 # Python type for context.Context
 class context_Context(GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], int):
+			self.handle = args[0]
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	
+
+# Python type for raftpb.ConfChange
+class raftpb_ConfChange(GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], int):
+			self.handle = args[0]
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	
+
+# Python type for raftpb.ConfChangeSingle
+class raftpb_ConfChangeSingle(GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], int):
+			self.handle = args[0]
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	
+
+# Python type for raftpb.ConfChangeV2
+class raftpb_ConfChangeV2(GoClass):
 	""""""
 	def __init__(self, *args, **kwargs):
 		"""

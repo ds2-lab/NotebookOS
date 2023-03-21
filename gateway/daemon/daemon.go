@@ -2,13 +2,13 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
 
 	"github.com/go-zeromq/zmq4"
+	"github.com/google/uuid"
 	"github.com/hashicorp/yamux"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
@@ -86,6 +86,7 @@ type GatewayDaemon struct {
 
 func New(opts *jupyter.ConnectionInfo, configs ...GatewayDaemonConfig) *GatewayDaemon {
 	daemon := &GatewayDaemon{
+		id:                uuid.New().String(),
 		connectionOptions: opts,
 		transport:         "tcp",
 		ip:                opts.IP,
@@ -131,23 +132,33 @@ func (d *GatewayDaemon) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	conn := incoming
 
 	// Initialize yamux session for bi-directional gRPC calls
-	session, err := yamux.Client(incoming, yamux.DefaultConfig())
+	// At gateway side, we first wait a incoming replacement connection, then create a reverse provisioner connection to the host scheduler.
+	cliSession, err := yamux.Client(incoming, yamux.DefaultConfig())
 	if err != nil {
-		return nil, err
+		d.log.Error("Failed to create yamux client session: %v", err)
+		return incoming, nil
 	}
 
-	// Dial to create a gRPC connection with existing mux connection
-	var mux net.Conn
+	// Create a new session to replace the incoming connection.
+	conn, err = cliSession.Accept()
+	if err != nil {
+		d.log.Error("Failed to wait for the replacement of host scheduler connection: %v", err)
+		return incoming, nil
+	}
+
+	// Dial to create a reversion connection with dummy dialer.
 	gConn, err := grpc.Dial(":0",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			mux, err = session.Open()
-			return mux, err
+			return cliSession.Open()
+			// return conn, err
 		}))
 	if err != nil {
-		return nil, err
+		d.log.Error("Failed to open reverse provisioner connection: %v", err)
+		return conn, nil
 	}
 
 	// Create a host scheduler client and register it.
@@ -164,13 +175,12 @@ func (d *GatewayDaemon) Accept() (net.Conn, error) {
 			// TODO: Notify scheduler to restore?
 		}
 	} else {
-		d.log.Warn("Failed to create host scheduler client: %s", err.Error())
-		mux.Close()
-		return nil, err
+		d.log.Error("Failed to create host scheduler client: %v", err)
+		return conn, nil
 	}
 
 	d.log.Info("Incomming host scheduler %v connected", host)
-	return mux, nil
+	return conn, nil
 }
 
 // Close are compatible with GatewayDaemon.Close().
@@ -180,8 +190,7 @@ func (d *GatewayDaemon) Addr() net.Addr {
 }
 
 func (d *GatewayDaemon) SetID(ctx context.Context, hostId *gateway.HostId) (*gateway.HostId, error) {
-	d.id = hostId.Id
-	return hostId, nil
+	return nil, ErrNotImplemented
 }
 
 // StartKernel launches a new kernel.
@@ -206,7 +215,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 		kernel.BindSession(in.Session)
 	}
 
-	hosts := d.placer.FindHosts(nil)
+	hosts := d.placer.FindHosts(in.Resource)
 
 	var created sync.WaitGroup
 	created.Add(len(hosts))
@@ -236,13 +245,13 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 			replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
 			err = replica.Validate()
 			if err != nil {
-				d.closeKernel(host, kernel, replica, replicaId, "validation error")
+				d.closeReplica(host, kernel, replica, replicaId, "validation error")
 				return
 			}
 
 			err = kernel.AddReplica(replica, host)
 			if err != nil {
-				d.closeKernel(host, kernel, replica, replicaId, "failed adding to the kernel")
+				d.closeReplica(host, kernel, replica, replicaId, "failed adding to the kernel")
 				return
 			}
 
@@ -305,10 +314,14 @@ func (d *GatewayDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (r
 		return nil, ErrKernelNotFound
 	}
 
-	d.log.Info("Stopping %v, will restart %v", kernel, *in.Restart)
-	ret = &gateway.Void{}
+	restart := false
+	if in.Restart != nil {
+		restart = *in.Restart
+	}
+	d.log.Info("Stopping %v, will restart %v", kernel, restart)
+	ret = gateway.VOID
 	go func() {
-		err = d.errorf(kernel.Shutdown(d.placer.Reclaim, *in.Restart))
+		err = d.errorf(kernel.Shutdown(d.placer.Reclaim, restart))
 		if err != nil {
 			d.log.Warn("Failed to close kernel: %s", err.Error())
 			return
@@ -319,7 +332,7 @@ func (d *GatewayDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (r
 			d.kernels.Delete(sess)
 		}
 		d.log.Debug("Cleaned sessions %v after replicas stopped.", kernel.Sessions())
-		if *in.Restart {
+		if restart {
 			// Keep kernel records if restart is requested.
 			kernel.ClearSessions()
 		} else {
@@ -338,6 +351,65 @@ func (d *GatewayDaemon) WaitKernel(ctx context.Context, in *gateway.KernelId) (*
 	}
 
 	return d.statusErrorf(kernel.WaitClosed(), nil)
+}
+
+// ClusterGateway implementation.
+func (d *GatewayDaemon) ID(ctx context.Context, in *gateway.Void) (*gateway.ProvisionerId, error) {
+	return &gateway.ProvisionerId{Id: d.id}, nil
+}
+
+func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*gateway.Void, error) {
+	d.cluster.GetHostManager().Delete(in.Id)
+	return gateway.VOID, nil
+}
+
+func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.ReplicaId, error) {
+	kernel, ok := d.kernels.Load(in.KernelId)
+	if !ok {
+		return nil, d.errorf(ErrKernelNotFound)
+	}
+
+	d.log.Debug("Migrating kernel(%s:%d)...", kernel.ID(), in.ReplicaId)
+	replicaSpec := kernel.PerpareNewReplica(in.PersistentId)
+
+	// TODO: Pass decision to the cluster scheduler.
+	host := d.placer.FindHost(replicaSpec.Kernel.Resource)
+
+	var err error
+	defer func() {
+		if err != nil {
+			d.log.Warn("Failed to start replica(%s:%d): %v", kernel.KernelSpec().Id, replicaSpec.ReplicaId, err)
+		}
+	}()
+
+	replicaConnInfo, err := d.placer.Place(host, replicaSpec)
+	if err != nil {
+		return nil, d.errorf(err)
+	}
+
+	// Initialize kernel client
+	replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
+	err = replica.Validate()
+	if err != nil {
+		d.closeReplica(host, kernel, replica, int(replicaSpec.ReplicaId), "validation error")
+		return nil, d.errorf(err)
+	}
+
+	err = kernel.AddReplica(replica, host)
+	if err != nil {
+		d.closeReplica(host, kernel, replica, int(replicaSpec.ReplicaId), "failed adding to the kernel")
+		return nil, d.errorf(err)
+	}
+
+	// Simply remove the replica from the kernel, the caller should stop the replica after confirmed that the new replica is ready.
+	go func() {
+		_, err := kernel.RemoveReplicaByID(in.ReplicaId, d.placer.Reclaim, true)
+		if err != nil {
+			d.log.Warn("Failed to remove replica(%s:%d): %v", kernel.ID(), in.ReplicaId, err)
+		}
+	}()
+
+	return &gateway.ReplicaId{Id: replicaSpec.ReplicaId}, nil
 }
 
 func (d *GatewayDaemon) Start() error {
@@ -442,13 +514,13 @@ func (d *GatewayDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err er
 }
 
 func (d *GatewayDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
-	var header jupyter.MessageHeader
-	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
-	if len(frames) < 6 {
-		return nil, ErrInvalidJupyterMessage
+	jFrames := jupyter.JupyterFrames(frames)
+	if err := jFrames.Validate(); err != nil {
+		return nil, err
 	}
-	err := json.Unmarshal(frames[2], &header)
-	if err != nil {
+
+	var header jupyter.MessageHeader
+	if err := jFrames.DecodeHeader(&header); err != nil {
 		return nil, err
 	}
 
@@ -489,8 +561,7 @@ func (d *GatewayDaemon) forwardRequest(kernel *client.DistributedKernelClient, t
 		}
 	}
 
-	d.log.Debug("Forwarding %v request(%p) to all replicas of %v: %v", typ, msg, kernel, msg)
-	return kernel.RequestWithHandler(context.Background(), typ, msg, d.kernelResponseForwarder, func() {})
+	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 
 func (d *GatewayDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
@@ -526,10 +597,10 @@ func (d *GatewayDaemon) cleanUp() {
 	close(d.cleaned)
 }
 
-func (d *GatewayDaemon) closeKernel(host core.Host, session *client.DistributedKernelClient, kernel *client.KernelClient, replicaId int, reason string) {
-	defer kernel.Close()
+func (d *GatewayDaemon) closeReplica(host core.Host, kernel *client.DistributedKernelClient, replica *client.KernelClient, replicaId int, reason string) {
+	defer replica.Close()
 
-	if err := d.placer.Reclaim(host, session); err != nil {
+	if err := d.placer.Reclaim(host, kernel, false); err != nil {
 		d.log.Warn("Failed to close kernel(%s:%d) after %s, failure: %v", kernel.ID(), replicaId, reason, err)
 	}
 }

@@ -2,10 +2,9 @@ include ./env.mk
 
 all: build-smr-linux-arm64
 
-PYTHON3_ESCAPED_PATH:=$(subst /,\/,$(PYTHON3_PATH))
-
 # Verify the value of PYTHON3_PATH and PYTHON3_VERSION.
 test-env:
+	@echo $(PYTHON3)
 	@echo $(PYTHON3_PATH)
 	@echo $(PYTHON3_VERSION)
 	@echo $(PYTHON3_ESCAPED_PATH)

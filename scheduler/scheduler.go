@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
-	"github.com/hashicorp/yamux"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/opentracing/opentracing-go"
 	"google.golang.org/grpc"
@@ -88,26 +87,6 @@ func main() {
 		logger.Info("Consul agent initialized")
 	}
 
-	// Initialize connection to the provisioner
-	provisioner, err := net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
-	if err != nil {
-		log.Fatalf("Failed to connect to provisioner: %v", err)
-	}
-	mux, err := yamux.Server(provisioner, yamux.DefaultConfig())
-	if err != nil {
-		provisioner.Close()
-		log.Fatalf("Failed to initialize yamux server: %v", err)
-	}
-	logger.Info("Scheduler connected to %v", provisioner.RemoteAddr())
-
-	// Initialize listener
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
-	if err != nil {
-		mux.Close()
-		log.Fatalf("Failed to listen: %v", err)
-	}
-	logger.Info("Scheduler listening at %v", lis.Addr())
-
 	// Build grpc options
 	gOpts := []grpc.ServerOption{
 		grpc.KeepaliveParams(keepalive.ServerParameters{
@@ -131,6 +110,41 @@ func main() {
 	})
 	gateway.RegisterLocalGatewayServer(srv, scheduler)
 
+	// Initialize listener
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
+	if err != nil {
+		log.Fatalf("Failed to listen: %v", err)
+	}
+	defer lis.Close()
+	logger.Info("Scheduler listening at %v", lis.Addr())
+
+	// Initialize connection to the provisioner
+	provConn, err := net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
+	if err != nil {
+		lis.Close()
+		log.Fatalf("Failed to connect to provisioner: %v", err)
+	}
+	defer provConn.Close()
+
+	// Initialize provisioner and wait for ready
+	provisioner, err := daemon.NewProvisioner(provConn)
+	if err != nil {
+		log.Fatalf("Failed to initialize the provisioner: %v", err)
+	}
+	// Wait for reverse connection
+	go func() {
+		defer finalize(true)
+		if err := srv.Serve(provisioner); err != nil {
+			log.Fatalf("Failed to serve provisioner: %v", err)
+		}
+	}()
+	<-provisioner.Ready()
+	if err := provisioner.Validate(); err != nil {
+		log.Fatalf("Failed to validate reverse provisioner connection: %v", err)
+	}
+	scheduler.Provisioner = provisioner
+	logger.Info("Scheduler connected to %v", provConn.RemoteAddr())
+
 	// Register services in consul
 	if consulClient != nil {
 		err = consulClient.Register(ServiceName, uuid.New().String(), "", options.Port)
@@ -147,17 +161,7 @@ func main() {
 		logger.Info("Shutting down...")
 		srv.Stop()
 		scheduler.Close()
-
-		lis.Close()
 		done.Done()
-	}()
-
-	// Start serving requests from the provisioner
-	go func() {
-		defer finalize(true)
-		if err := srv.Serve(mux); err != nil {
-			log.Fatalf("Failed to serve provisioner: %v", err)
-		}
 	}()
 
 	// Start gRPC server

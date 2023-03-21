@@ -17,7 +17,8 @@ build: build-scheduler-linux
 	../clean.sh
 
 local-daemon: build-image-cpu-jupyter-arm64 build-image-gateway build
-	docker-compose up -d --scale daemon=`grep num-replicas ../gateway/gateway.yml | cut -d ':' -f 2 | sed 's/^[ \t]*//'`
+# use scale = num-replicas + 1 for membership tests.
+	docker-compose up -d --scale daemon=`./load-num-replicas.sh 1`
 
 clean:
 	docker-compose stop

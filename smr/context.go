@@ -3,28 +3,82 @@ package smr
 import (
 	"context"
 	"time"
+
+	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
-type proposalContext struct {
+type smrContext interface {
 	context.Context
-	Id       string
-	Proposal []byte
-	Cancel   context.CancelFunc
+
+	// ID returns the context ID.
+	ID() string
+
+	// Reset resets the context with a new timeout.
+	Reset(timeout time.Duration) smrContext
+
+	// Cancel cancels the context.
+	Cancel()
 }
 
-func ProposalContext(id string, proposal []byte, timeout time.Duration) *proposalContext {
+type SMRContext struct {
+	context.Context
+	id     string
+	cancel context.CancelFunc
+}
+
+func (ctx *SMRContext) ID() string {
+	return ctx.id
+}
+
+func (ctx *SMRContext) Reset(timeout time.Duration) smrContext {
+	context, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx.Context = context
+	ctx.cancel = cancel
+	return ctx
+}
+
+func (ctx *SMRContext) Cancel() {
+	ctx.cancel()
+}
+
+type proposalContext struct {
+	SMRContext
+	Proposal []byte
+}
+
+func NewProposalContext(id string, proposal []byte, timeout time.Duration) *proposalContext {
 	context, cancel := context.WithTimeout(context.Background(), timeout)
 	return &proposalContext{
-		Context:  context,
-		Id:       id,
+		SMRContext: SMRContext{
+			Context: context,
+			id:      id,
+			cancel:  cancel,
+		},
 		Proposal: proposal,
-		Cancel:   cancel,
 	}
 }
 
-func (ctx *proposalContext) Reset(timeout time.Duration) *proposalContext {
+type confChangeContext struct {
+	SMRContext
+	*raftpb.ConfChange
+}
+
+func NewConfChangeContext(id string, cc *raftpb.ConfChange, timeout time.Duration) *confChangeContext {
 	context, cancel := context.WithTimeout(context.Background(), timeout)
-	ctx.Context = context
-	ctx.Cancel = cancel
-	return ctx
+	return &confChangeContext{
+		SMRContext: SMRContext{
+			Context: context,
+			id:      id,
+			cancel:  cancel,
+		},
+		ConfChange: cc,
+	}
+}
+
+func (ctx *confChangeContext) ID() string {
+	return ctx.SMRContext.id
+}
+
+func (ctx *confChangeContext) Reset(timeout time.Duration) smrContext {
+	return ctx.SMRContext.Reset(timeout)
 }

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
@@ -29,7 +30,7 @@ const (
 	DockerStorageVolumeDefault = "storage"
 
 	KernelSMRPort        = "SMR_PORT"
-	KernelSMRPortDefault = "8080"
+	KernelSMRPortDefault = 8080
 
 	DockerKernelName    = "kernel-%s"
 	VarContainerImage   = "{image}"
@@ -56,12 +57,13 @@ type DockerInvoker struct {
 	invokerCmd    string
 	containerName string
 	smrPort       int
+	closing       int32
 }
 
 func NewDockerInvoker(opts *jupyter.ConnectionInfo) *DockerInvoker {
-	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, KernelSMRPortDefault))
+	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
 	if smrPort == 0 {
-		smrPort = 8080
+		smrPort = KernelSMRPortDefault
 	}
 	invoker := &DockerInvoker{
 		dockerOpts: opts,
@@ -151,6 +153,12 @@ func (ivk *DockerInvoker) Close() error {
 		return jupyter.ErrKernelNotLaunched
 	}
 
+	if !atomic.CompareAndSwapInt32(&ivk.closing, 0, 1) {
+		// Wait for the closing to be done.
+		<-ivk.closed
+		return nil
+	}
+
 	argv := strings.Split(strings.ReplaceAll(dockerShutdownCmd, VarContainerName, ivk.containerName), " ")
 	fmt.Printf("Stopping kernel %s......", argv)
 	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
@@ -182,6 +190,10 @@ func (ivk *DockerInvoker) Wait() (jupyter.KernelStatus, error) {
 
 	ivk.closedAt = time.Time{} // Update closedAt to extend expriation time
 	return ivk.status, nil
+}
+
+func (ivk *DockerInvoker) GetReplicaAddress(kernel *gateway.KernelSpec, replicaId int32) string {
+	return fmt.Sprintf("%s:%d", ivk.generateKernelName(kernel, replicaId), ivk.smrPort)
 }
 
 func (ivk *DockerInvoker) generateKernelName(kernel *gateway.KernelSpec, replica_id int32) string {
@@ -221,13 +233,18 @@ func (ivk *DockerInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupy
 }
 
 func (ivk *DockerInvoker) prepareConfigFile(spec *gateway.KernelReplicaSpec) (*jupyter.ConfigFile, error) {
-	return &jupyter.ConfigFile{
+	file := &jupyter.ConfigFile{
 		DistributedKernelConfig: jupyter.DistributedKernelConfig{
 			StorageBase: dockerStorageBase,
 			SMRNodeID:   int(spec.ReplicaId),
 			SMRNodes:    spec.Replicas,
+			SMRJoin:     spec.Join,
 		},
-	}, nil
+	}
+	if spec.PersistentId != nil {
+		file.DistributedKernelConfig.PersistentID = *spec.PersistentId
+	}
+	return file, nil
 }
 
 func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []string) error {

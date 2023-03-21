@@ -1,6 +1,7 @@
+include ../env.mk
 
 build-smr-common:
 	goimports -w *.go
 	go build -mod=mod -buildmode=c-shared -o smr_go.so .
-	/usr/local/bin/python3 build.py
+	$(PYTHON3) build.py
 	rm smr_go.so

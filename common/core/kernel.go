@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/go-zeromq/zmq4"
+	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/types"
@@ -18,6 +19,12 @@ type KernelInfo interface {
 
 	// ID returns kernel id.
 	ID() string
+
+	// Spec returns resource spec.
+	Spec() types.Spec
+
+	// KernelSpec returns kernel spec.
+	KernelSpec() *gateway.KernelSpec
 }
 
 // Kernel defines the interface for a jupyter kernel.
@@ -25,8 +32,8 @@ type Kernel interface {
 	KernelInfo
 	types.Contextable
 
-	// // ConnectionInfo returns the connection info of the kernel.
-	// ConnectionInfo() *jupyter.ConnectionInfo
+	// ConnectionInfo returns the connection info of the kernel.
+	ConnectionInfo() *jupyter.ConnectionInfo
 
 	// Status returns the kernel status.
 	// Including simulator features:
@@ -52,10 +59,21 @@ type Kernel interface {
 	// 	entity.Container.StopTrain()
 	// 	entity.Container.Suspend()
 	// 	entity.Container.Resume()
-	RequestWithHandler(ctx context.Context, typ jupyter.MessageType, msg *zmq4.Msg, handler KernelMessageHandler, done func()) error
+	RequestWithHandler(ctx context.Context, prompt string, typ jupyter.MessageType, msg *zmq4.Msg, handler KernelMessageHandler, done func()) error
 
 	// Close cleans up kernel resource.
 	// Including simulator features:
 	// 	entity.Container.Stop(), Stop() will be implemented outside kernel abstraction. Close() cleans up the kernel resource after kernel stopped.
 	Close() error
+}
+
+// KernelReplica defines the interface for a jupyter kernel replica.
+type KernelReplica interface {
+	Kernel
+
+	// ReplicaID returns the replica id.
+	ReplicaID() int32
+
+	// InitializeIOSub initializes the io subscriber of the replica with customized handler.
+	InitializeIOSub(handler jupyter.MessageHandler) error
 }

@@ -4,6 +4,12 @@ PATCH_TARGETS = $(PATCHS:patch/%=patch.%)
 RESTORE_TARGETS = $(PATCHS:patch/%=restore.%)
 CC = gcc
 
+include ../distributed_notebook/env.mk
+
+
+
+all: build-darwin
+
 prepare:
 	@mkdir -p $(DEST)/bak
 
@@ -40,6 +46,12 @@ endif
 	@echo "patching $(DEST)/smr.c"
 	@sed -Ei '' -e '/^_wrap__smr_smr_NewBytes\(/r $<' -e '/^_wrap__smr_smr_NewBytes\(/,/^\}/d' $(DEST)/smr.c
 
+patch.darwin:
+	sed -Ei '' 's/^CFLAGS =(.*)/CFLAGS = -I$(PYTHON3_ESCAPED_PATH)\/include\/python$(PYTHON3_VERSION)/' ../distributed_notebook/smr/Makefile
+	sed -Ei '' 's/^LDFLAGS =(.*)/LDFLAGS = -L$(PYTHON3_ESCAPED_PATH)\/lib -lpython$(PYTHON3_VERSION) -ldl -lSystem -framework CoreFoundation/' ../distributed_notebook/smr/Makefile
+	sed -Ei '' 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_ESCAPED_PATH)\/include\/python$(PYTHON3_VERSION) -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' ../distributed_notebook/smr/smr.go
+	sed -Ei '' 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_ESCAPED_PATH)\/lib -lpython$(PYTHON3_VERSION) -ldl -framework CoreFoundation/' ../distributed_notebook/smr/smr.go
+
 gen-python: clean
 	gopy gen -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
 
@@ -49,7 +61,7 @@ build-python: clean
 build-common:
 	cd $(dir $(DEST)) && make build-smr-common
 
-gen-darwin: gen-python patch
+gen-darwin: gen-python patch patch.darwin
 	-rm $(DEST)/smr_darwin.go
 
 gen-%: gen-python patch

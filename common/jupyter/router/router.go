@@ -84,7 +84,7 @@ func (g *Router) AddHandler(typ types.MessageType, handler RouterMessageHandler)
 				err := newHandler(sockets, msg)
 				if err == nil {
 					return oldHandler(sockets, msg)
-				} else if err == ErrStopPropagation {
+				} else if err == types.ErrStopPropagation {
 					return nil
 				} else {
 					return err

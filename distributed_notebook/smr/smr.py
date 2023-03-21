@@ -44,6 +44,89 @@ os.chdir(cwd)
 
 # ---- Types ---
 
+# Python type for slice []raftpb.ConfChangeSingle
+class Slice_raftpb_ConfChangeSingle(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameter is a python list that we copy from
+		"""
+		self.index = 0
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.Slice_raftpb_ConfChangeSingle_CTor()
+			_smr.IncRef(self.handle)
+			if len(args) > 0:
+				if not isinstance(args[0], _collections_abc.Iterable):
+					raise TypeError('Slice_raftpb_ConfChangeSingle.__init__ takes a sequence as argument')
+				for elt in args[0]:
+					self.append(elt)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		s = 'smr.Slice_raftpb_ConfChangeSingle len: ' + str(len(self)) + ' handle: ' + str(self.handle) + ' ['
+		if len(self) < 120:
+			s += ', '.join(map(str, self)) + ']'
+		return s
+	def __repr__(self):
+		return 'smr.Slice_raftpb_ConfChangeSingle([' + ', '.join(map(str, self)) + '])'
+	def __len__(self):
+		return _smr.Slice_raftpb_ConfChangeSingle_len(self.handle)
+	def __getitem__(self, key):
+		if isinstance(key, slice):
+			if key.step == None or key.step == 1:
+				st = key.start
+				ed = key.stop
+				if st == None:
+					st = 0
+				if ed == None:
+					ed = _smr.Slice_raftpb_ConfChangeSingle_len(self.handle)
+				return Slice_raftpb_ConfChangeSingle(handle=_smr.Slice_raftpb_ConfChangeSingle_subslice(self.handle, st, ed))
+			return [self[ii] for ii in range(*key.indices(len(self)))]
+		elif isinstance(key, int):
+			if key < 0:
+				key += len(self)
+			if key < 0 or key >= len(self):
+				raise IndexError('slice index out of range')
+			return go.raftpb_ConfChangeSingle(handle=_smr.Slice_raftpb_ConfChangeSingle_elem(self.handle, key))
+		else:
+			raise TypeError('slice index invalid type')
+	def __setitem__(self, idx, value):
+		if idx < 0:
+			idx += len(self)
+		if idx < len(self):
+			_smr.Slice_raftpb_ConfChangeSingle_set(self.handle, idx, value.handle)
+			return
+		raise IndexError('slice index out of range')
+	def __iadd__(self, value):
+		if not isinstance(value, _collections_abc.Iterable):
+			raise TypeError('Slice_raftpb_ConfChangeSingle.__iadd__ takes a sequence as argument')
+		for elt in value:
+			self.append(elt)
+		return self
+	def __iter__(self):
+		self.index = 0
+		return self
+	def __next__(self):
+		if self.index < len(self):
+			rv = _smr.Slice_raftpb_ConfChangeSingle_elem(self.handle, self.index)
+			self.index = self.index + 1
+			return rv
+		raise StopIteration
+	def append(self, value):
+		_smr.Slice_raftpb_ConfChangeSingle_append(self.handle, value.handle)
+	def copy(self, src):
+		""" copy emulates the go copy function, copying elements into this list from source list, up to min of size of each list """
+		mx = min(len(self), len(src))
+		for i in range(mx):
+			self[i] = src[i]
+
 # Python type for slice []raftpb.Entry
 class Slice_raftpb_Entry(go.GoClass):
 	""""""
@@ -256,6 +339,28 @@ def Set_ProposalDeadline(value):
 
 # ---- Interfaces ---
 
+# Python type for interface smr.WriteCloser
+class WriteCloser(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_WriteCloser_Close(self.handle)
+	def Write(self, p):
+		"""Write(object p) object"""
+		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
+
 # Python type for interface smr.LogSnapshotter
 class LogSnapshotter(go.GoClass):
 	""""""
@@ -331,12 +436,17 @@ class ReadCloser(go.GoClass):
 		"""Read(object p) object"""
 		return IntRet(handle=_smr.smr_ReadCloser_Read(self.handle, p.handle))
 
-# Python type for interface smr.WriteCloser
-class WriteCloser(go.GoClass):
+
+# ---- Structs ---
+
+# Python type for struct smr.SMRContext
+class SMRContext(go.context_Context):
 	""""""
 	def __init__(self, *args, **kwargs):
 		"""
 		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
 		"""
 		if len(kwargs) == 1 and 'handle' in kwargs:
 			self.handle = kwargs['handle']
@@ -345,16 +455,89 @@ class WriteCloser(go.GoClass):
 			self.handle = args[0].handle
 			_smr.IncRef(self.handle)
 		else:
-			self.handle = 0
-	def Close(self):
-		"""Close() str"""
-		return _smr.smr_WriteCloser_Close(self.handle)
-	def Write(self, p):
-		"""Write(object p) object"""
-		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
+			self.handle = _smr.smr_SMRContext_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.SMRContext{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.SMRContext ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def ID(self):
+		"""ID() str"""
+		return _smr.smr_SMRContext_ID(self.handle)
+	def Cancel(self, goRun=False):
+		"""Cancel() """
+		_smr.smr_SMRContext_Cancel(self.handle, goRun)
 
-
-# ---- Structs ---
+# Python type for struct smr.Bytes
+class Bytes(go.GoClass):
+	"""Wrapper of python bytes for buffered stream.\n"""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_Bytes_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.Bytes{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.Bytes ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def Bytes(self):
+		"""Bytes() []int
+		
+		Return the underlying byte slice as buffer.
+		"""
+		return go.Slice_byte(handle=_smr.smr_Bytes_Bytes(self.handle))
+	def Len(self):
+		"""Len() int
+		
+		Get the length of the underlying byte slice.
+		"""
+		return _smr.smr_Bytes_Len(self.handle)
 
 # Python type for struct smr.IntRet
 class IntRet(go.GoClass):
@@ -478,12 +661,12 @@ class LogNode(go.GoClass):
 		Append the difference of the value of specified key to the synchronization queue.
 		"""
 		_smr.smr_LogNode_Propose(self.handle, val.handle, resolve, msg, goRun)
-	def AddNode(self, id, addr, goRun=False):
-		"""AddNode(int id, str addr) """
-		_smr.smr_LogNode_AddNode(self.handle, id, addr, goRun)
-	def RemoveNode(self, id, goRun=False):
-		"""RemoveNode(int id) """
-		_smr.smr_LogNode_RemoveNode(self.handle, id, goRun)
+	def AddNode(self, id, addr, resolve, goRun=False):
+		"""AddNode(int id, str addr, callable resolve) """
+		_smr.smr_LogNode_AddNode(self.handle, id, addr, resolve, goRun)
+	def RemoveNode(self, id, resolve, goRun=False):
+		"""RemoveNode(int id, callable resolve) """
+		_smr.smr_LogNode_RemoveNode(self.handle, id, resolve, goRun)
 	def WaitToClose(self):
 		"""WaitToClose() str lastErr"""
 		return _smr.smr_LogNode_WaitToClose(self.handle)
@@ -529,6 +712,10 @@ class LogNodeConfig(go.GoClass):
 				self.HeartbeatTick = args[1]
 			if "HeartbeatTick" in kwargs:
 				self.HeartbeatTick = kwargs["HeartbeatTick"]
+			if  2 < len(args):
+				self.Debug = args[2]
+			if "Debug" in kwargs:
+				self.Debug = kwargs["Debug"]
 	def __del__(self):
 		_smr.DecRef(self.handle)
 	def __str__(self):
@@ -569,6 +756,15 @@ class LogNodeConfig(go.GoClass):
 			_smr.smr_LogNodeConfig_HeartbeatTick_Set(self.handle, value.handle)
 		else:
 			_smr.smr_LogNodeConfig_HeartbeatTick_Set(self.handle, value)
+	@property
+	def Debug(self):
+		return _smr.smr_LogNodeConfig_Debug_Get(self.handle)
+	@Debug.setter
+	def Debug(self, value):
+		if isinstance(value, go.GoClass):
+			_smr.smr_LogNodeConfig_Debug_Set(self.handle, value.handle)
+		else:
+			_smr.smr_LogNodeConfig_Debug_Set(self.handle, value)
 	def WithChangeCallback(self, cb):
 		"""WithChangeCallback(callable cb) object"""
 		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithChangeCallback(self.handle, cb))
@@ -581,59 +777,6 @@ class LogNodeConfig(go.GoClass):
 	def WithSnapshotCallback(self, cb):
 		"""WithSnapshotCallback(callable cb) object"""
 		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithSnapshotCallback(self.handle, cb))
-
-# Python type for struct smr.Bytes
-class Bytes(go.GoClass):
-	"""Wrapper of python bytes for buffered stream.\n"""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_Bytes_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.Bytes{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.Bytes ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def Bytes(self):
-		"""Bytes() []int
-		
-		Return the underlying byte slice as buffer.
-		"""
-		return go.Slice_byte(handle=_smr.smr_Bytes_Bytes(self.handle))
-	def Len(self):
-		"""Len() int
-		
-		Get the length of the underlying byte slice.
-		"""
-		return _smr.smr_Bytes_Len(self.handle)
 
 
 # ---- Slices ---

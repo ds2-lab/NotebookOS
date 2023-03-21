@@ -1893,6 +1893,115 @@ PyObject * _wrap__smr_Slice_uint8_append(PyObject * PYBINDGEN_UNUSED(dummy), PyO
 
 
 PyObject *
+_wrap__smr_Slice_raftpb_ConfChangeSingle_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs))
+{
+    PyObject *py_retval;
+    int64_t retval;
+
+    retval = Slice_raftpb_ConfChangeSingle_CTor();
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_Slice_raftpb_ConfChangeSingle_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs));
+
+
+PyObject *
+_wrap__smr_Slice_raftpb_ConfChangeSingle_len(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int retval;
+    int64_t handle;
+    const char *keywords[] = {"handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &handle)) {
+        return NULL;
+    }
+    retval = Slice_raftpb_ConfChangeSingle_len(handle);
+    py_retval = Py_BuildValue((char *) "i", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_Slice_raftpb_ConfChangeSingle_len(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_Slice_raftpb_ConfChangeSingle_elem(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t handle;
+    int idx;
+    const char *keywords[] = {"handle", "idx", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "Li", (char **) keywords, &handle, &idx)) {
+        return NULL;
+    }
+    retval = Slice_raftpb_ConfChangeSingle_elem(handle, idx);
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_Slice_raftpb_ConfChangeSingle_elem(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_Slice_raftpb_ConfChangeSingle_subslice(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t handle;
+    int st;
+    int ed;
+    const char *keywords[] = {"handle", "st", "ed", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "Lii", (char **) keywords, &handle, &st, &ed)) {
+        return NULL;
+    }
+    retval = Slice_raftpb_ConfChangeSingle_subslice(handle, st, ed);
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_Slice_raftpb_ConfChangeSingle_subslice(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_Slice_raftpb_ConfChangeSingle_set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t handle;
+    int idx;
+    int64_t value;
+    const char *keywords[] = {"handle", "idx", "value", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LiL", (char **) keywords, &handle, &idx, &value)) {
+        return NULL;
+    }
+    Slice_raftpb_ConfChangeSingle_set(handle, idx, value);
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_Slice_raftpb_ConfChangeSingle_set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_Slice_raftpb_ConfChangeSingle_append(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t handle;
+    int64_t value;
+    const char *keywords[] = {"handle", "value", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LL", (char **) keywords, &handle, &value)) {
+        return NULL;
+    }
+    Slice_raftpb_ConfChangeSingle_append(handle, value);
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_Slice_raftpb_ConfChangeSingle_append(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
 _wrap__smr_Slice_raftpb_Entry_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs))
 {
     PyObject *py_retval;
@@ -2173,6 +2282,51 @@ PyObject * _wrap__smr_smr_Set_ProposalDeadline(PyObject * PYBINDGEN_UNUSED(dummy
 
 
 PyObject *
+_wrap__smr_smr_WriteCloser_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    char *retval;
+    int64_t _handle;
+    const char *keywords[] = {"_handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
+        return NULL;
+    }
+    retval = smr_WriteCloser_Close(_handle);
+    if (PyErr_Occurred()) {
+        if (retval != NULL) free(retval);
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "s", retval);
+    free(retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_WriteCloser_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_WriteCloser_Write(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t _handle;
+    int64_t p;
+    const char *keywords[] = {"_handle", "p", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LL", (char **) keywords, &_handle, &p)) {
+        return NULL;
+    }
+    retval = smr_WriteCloser_Write(_handle, p);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_WriteCloser_Write(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
 _wrap__smr_smr_LogSnapshotter_Load(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
 {
     PyObject *py_retval;
@@ -2374,7 +2528,20 @@ PyObject * _wrap__smr_smr_ReadCloser_Read(PyObject * PYBINDGEN_UNUSED(dummy), Py
 
 
 PyObject *
-_wrap__smr_smr_WriteCloser_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+_wrap__smr_smr_SMRContext_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs))
+{
+    PyObject *py_retval;
+    int64_t retval;
+
+    retval = smr_SMRContext_CTor();
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_SMRContext_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs));
+
+
+PyObject *
+_wrap__smr_smr_SMRContext_ID(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
 {
     PyObject *py_retval;
     char *retval;
@@ -2384,7 +2551,7 @@ _wrap__smr_smr_WriteCloser_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *a
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
         return NULL;
     }
-    retval = smr_WriteCloser_Close(_handle);
+    retval = smr_SMRContext_ID(_handle);
     if (PyErr_Occurred()) {
         if (retval != NULL) free(retval);
         return NULL;
@@ -2393,29 +2560,86 @@ _wrap__smr_smr_WriteCloser_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *a
     free(retval);
     return py_retval;
 }
-PyObject * _wrap__smr_smr_WriteCloser_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+PyObject * _wrap__smr_smr_SMRContext_ID(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
 
 
 PyObject *
-_wrap__smr_smr_WriteCloser_Write(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+_wrap__smr_smr_SMRContext_Cancel(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LO", (char **) keywords, &_handle, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_SMRContext_Cancel(_handle, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_SMRContext_Cancel(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_Bytes_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs))
+{
+    PyObject *py_retval;
+    int64_t retval;
+
+    retval = smr_Bytes_CTor();
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_Bytes_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs));
+
+
+PyObject *
+_wrap__smr_smr_Bytes_Bytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
 {
     PyObject *py_retval;
     int64_t retval;
     int64_t _handle;
-    int64_t p;
-    const char *keywords[] = {"_handle", "p", NULL};
+    const char *keywords[] = {"_handle", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LL", (char **) keywords, &_handle, &p)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
         return NULL;
     }
-    retval = smr_WriteCloser_Write(_handle, p);
+    retval = smr_Bytes_Bytes(_handle);
     if (PyErr_Occurred()) {
         return NULL;
     }
     py_retval = Py_BuildValue((char *) "L", retval);
     return py_retval;
 }
-PyObject * _wrap__smr_smr_WriteCloser_Write(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+PyObject * _wrap__smr_smr_Bytes_Bytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_Bytes_Len(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t _handle;
+    const char *keywords[] = {"_handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
+        return NULL;
+    }
+    retval = smr_Bytes_Len(_handle);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_Bytes_Len(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
 
 
 PyObject *
@@ -2623,15 +2847,16 @@ _wrap__smr_smr_LogNode_AddNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *arg
     int64_t _handle;
     int64_t id;
     char *addr;
+    PyObject *resolve;
     bool goRun;
     PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "id", "addr", "goRun", NULL};
+    const char *keywords[] = {"_handle", "id", "addr", "resolve", "goRun", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLsO", (char **) keywords, &_handle, &id, &addr, &py_goRun)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLsOO", (char **) keywords, &_handle, &id, &addr, &resolve, &py_goRun)) {
         return NULL;
     }
     goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_AddNode(_handle, id, addr, goRun);
+    smr_LogNode_AddNode(_handle, id, addr, resolve, goRun);
     if (PyErr_Occurred()) {
         return NULL;
     }
@@ -2648,15 +2873,16 @@ _wrap__smr_smr_LogNode_RemoveNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *
     PyObject *py_retval;
     int64_t _handle;
     int64_t id;
+    PyObject *resolve;
     bool goRun;
     PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "id", "goRun", NULL};
+    const char *keywords[] = {"_handle", "id", "resolve", "goRun", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLO", (char **) keywords, &_handle, &id, &py_goRun)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLOO", (char **) keywords, &_handle, &id, &resolve, &py_goRun)) {
         return NULL;
     }
     goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_RemoveNode(_handle, id, goRun);
+    smr_LogNode_RemoveNode(_handle, id, resolve, goRun);
     if (PyErr_Occurred()) {
         return NULL;
     }
@@ -2893,6 +3119,45 @@ PyObject * _wrap__smr_smr_LogNodeConfig_HeartbeatTick_Set(PyObject * PYBINDGEN_U
 
 
 PyObject *
+_wrap__smr_smr_LogNodeConfig_Debug_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    bool retval;
+    int64_t handle;
+    const char *keywords[] = {"handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &handle)) {
+        return NULL;
+    }
+    retval = smr_LogNodeConfig_Debug_Get(handle);
+    py_retval = Py_BuildValue((char *) "N", PyBool_FromLong(retval));
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNodeConfig_Debug_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNodeConfig_Debug_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t handle;
+    bool val;
+    PyObject *py_val;
+    const char *keywords[] = {"handle", "val", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LO", (char **) keywords, &handle, &py_val)) {
+        return NULL;
+    }
+    val = (bool) PyObject_IsTrue(py_val);
+    smr_LogNodeConfig_Debug_Set(handle, val);
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNodeConfig_Debug_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
 _wrap__smr_smr_LogNodeConfig_WithChangeCallback(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
 {
     PyObject *py_retval;
@@ -2978,61 +3243,6 @@ _wrap__smr_smr_LogNodeConfig_WithSnapshotCallback(PyObject * PYBINDGEN_UNUSED(du
     return py_retval;
 }
 PyObject * _wrap__smr_smr_LogNodeConfig_WithSnapshotCallback(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_Bytes_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs))
-{
-    PyObject *py_retval;
-    int64_t retval;
-
-    retval = smr_Bytes_CTor();
-    py_retval = Py_BuildValue((char *) "L", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_Bytes_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs));
-
-
-PyObject *
-_wrap__smr_smr_Bytes_Bytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t retval;
-    int64_t _handle;
-    const char *keywords[] = {"_handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
-        return NULL;
-    }
-    retval = smr_Bytes_Bytes(_handle);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "L", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_Bytes_Bytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_Bytes_Len(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t retval;
-    int64_t _handle;
-    const char *keywords[] = {"_handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
-        return NULL;
-    }
-    retval = smr_Bytes_Len(_handle);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "L", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_Bytes_Len(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
 
 
 PyObject *
@@ -3201,6 +3411,12 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "Slice_uint8_subslice", (PyCFunction) _wrap__smr_Slice_uint8_subslice, METH_KEYWORDS|METH_VARARGS, "Slice_uint8_subslice(handle, st, ed)\n\ntype: handle: int64_t\ntype: st: int\ntype: ed: int" },
     {(char *) "Slice_uint8_set", (PyCFunction) _wrap__smr_Slice_uint8_set, METH_KEYWORDS|METH_VARARGS, "Slice_uint8_set(handle, idx, value)\n\ntype: handle: int64_t\ntype: idx: int\ntype: value: uint8_t" },
     {(char *) "Slice_uint8_append", (PyCFunction) _wrap__smr_Slice_uint8_append, METH_KEYWORDS|METH_VARARGS, "Slice_uint8_append(handle, value)\n\ntype: handle: int64_t\ntype: value: uint8_t" },
+    {(char *) "Slice_raftpb_ConfChangeSingle_CTor", (PyCFunction) _wrap__smr_Slice_raftpb_ConfChangeSingle_CTor, METH_NOARGS, "Slice_raftpb_ConfChangeSingle_CTor()\n\n" },
+    {(char *) "Slice_raftpb_ConfChangeSingle_len", (PyCFunction) _wrap__smr_Slice_raftpb_ConfChangeSingle_len, METH_KEYWORDS|METH_VARARGS, "Slice_raftpb_ConfChangeSingle_len(handle)\n\ntype: handle: int64_t" },
+    {(char *) "Slice_raftpb_ConfChangeSingle_elem", (PyCFunction) _wrap__smr_Slice_raftpb_ConfChangeSingle_elem, METH_KEYWORDS|METH_VARARGS, "Slice_raftpb_ConfChangeSingle_elem(handle, idx)\n\ntype: handle: int64_t\ntype: idx: int" },
+    {(char *) "Slice_raftpb_ConfChangeSingle_subslice", (PyCFunction) _wrap__smr_Slice_raftpb_ConfChangeSingle_subslice, METH_KEYWORDS|METH_VARARGS, "Slice_raftpb_ConfChangeSingle_subslice(handle, st, ed)\n\ntype: handle: int64_t\ntype: st: int\ntype: ed: int" },
+    {(char *) "Slice_raftpb_ConfChangeSingle_set", (PyCFunction) _wrap__smr_Slice_raftpb_ConfChangeSingle_set, METH_KEYWORDS|METH_VARARGS, "Slice_raftpb_ConfChangeSingle_set(handle, idx, value)\n\ntype: handle: int64_t\ntype: idx: int\ntype: value: int64_t" },
+    {(char *) "Slice_raftpb_ConfChangeSingle_append", (PyCFunction) _wrap__smr_Slice_raftpb_ConfChangeSingle_append, METH_KEYWORDS|METH_VARARGS, "Slice_raftpb_ConfChangeSingle_append(handle, value)\n\ntype: handle: int64_t\ntype: value: int64_t" },
     {(char *) "Slice_raftpb_Entry_CTor", (PyCFunction) _wrap__smr_Slice_raftpb_Entry_CTor, METH_NOARGS, "Slice_raftpb_Entry_CTor()\n\n" },
     {(char *) "Slice_raftpb_Entry_len", (PyCFunction) _wrap__smr_Slice_raftpb_Entry_len, METH_KEYWORDS|METH_VARARGS, "Slice_raftpb_Entry_len(handle)\n\ntype: handle: int64_t" },
     {(char *) "Slice_raftpb_Entry_elem", (PyCFunction) _wrap__smr_Slice_raftpb_Entry_elem, METH_KEYWORDS|METH_VARARGS, "Slice_raftpb_Entry_elem(handle, idx)\n\ntype: handle: int64_t\ntype: idx: int" },
@@ -3217,6 +3433,8 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_Set_ErrEOF", (PyCFunction) _wrap__smr_smr_Set_ErrEOF, METH_KEYWORDS|METH_VARARGS, "smr_Set_ErrEOF(val)\n\ntype: val: char *" },
     {(char *) "smr_ProposalDeadline", (PyCFunction) _wrap__smr_smr_ProposalDeadline, METH_NOARGS, "smr_ProposalDeadline()\n\n" },
     {(char *) "smr_Set_ProposalDeadline", (PyCFunction) _wrap__smr_smr_Set_ProposalDeadline, METH_KEYWORDS|METH_VARARGS, "smr_Set_ProposalDeadline(val)\n\ntype: val: int64_t" },
+    {(char *) "smr_WriteCloser_Close", (PyCFunction) _wrap__smr_smr_WriteCloser_Close, METH_KEYWORDS|METH_VARARGS, "smr_WriteCloser_Close(_handle)\n\ntype: _handle: int64_t" },
+    {(char *) "smr_WriteCloser_Write", (PyCFunction) _wrap__smr_smr_WriteCloser_Write, METH_KEYWORDS|METH_VARARGS, "smr_WriteCloser_Write(_handle, p)\n\ntype: _handle: int64_t\ntype: p: int64_t" },
     {(char *) "smr_LogSnapshotter_Load", (PyCFunction) _wrap__smr_smr_LogSnapshotter_Load, METH_KEYWORDS|METH_VARARGS, "smr_LogSnapshotter_Load(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_LogSnapshotter_LoadNewestAvailable", (PyCFunction) _wrap__smr_smr_LogSnapshotter_LoadNewestAvailable, METH_KEYWORDS|METH_VARARGS, "smr_LogSnapshotter_LoadNewestAvailable(_handle, arg_0)\n\ntype: _handle: int64_t\ntype: arg_0: int64_t" },
     {(char *) "smr_LogSnapshotter_SaveSnap", (PyCFunction) _wrap__smr_smr_LogSnapshotter_SaveSnap, METH_KEYWORDS|METH_VARARGS, "smr_LogSnapshotter_SaveSnap(_handle, arg_0)\n\ntype: _handle: int64_t\ntype: arg_0: int64_t" },
@@ -3226,8 +3444,12 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_LogStorage_SaveSnapshot", (PyCFunction) _wrap__smr_smr_LogStorage_SaveSnapshot, METH_KEYWORDS|METH_VARARGS, "smr_LogStorage_SaveSnapshot(_handle, arg_0, goRun)\n\ntype: _handle: int64_t\ntype: arg_0: int64_t\ntype: goRun: bool" },
     {(char *) "smr_ReadCloser_Close", (PyCFunction) _wrap__smr_smr_ReadCloser_Close, METH_KEYWORDS|METH_VARARGS, "smr_ReadCloser_Close(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_ReadCloser_Read", (PyCFunction) _wrap__smr_smr_ReadCloser_Read, METH_KEYWORDS|METH_VARARGS, "smr_ReadCloser_Read(_handle, p)\n\ntype: _handle: int64_t\ntype: p: int64_t" },
-    {(char *) "smr_WriteCloser_Close", (PyCFunction) _wrap__smr_smr_WriteCloser_Close, METH_KEYWORDS|METH_VARARGS, "smr_WriteCloser_Close(_handle)\n\ntype: _handle: int64_t" },
-    {(char *) "smr_WriteCloser_Write", (PyCFunction) _wrap__smr_smr_WriteCloser_Write, METH_KEYWORDS|METH_VARARGS, "smr_WriteCloser_Write(_handle, p)\n\ntype: _handle: int64_t\ntype: p: int64_t" },
+    {(char *) "smr_SMRContext_CTor", (PyCFunction) _wrap__smr_smr_SMRContext_CTor, METH_NOARGS, "smr_SMRContext_CTor()\n\n" },
+    {(char *) "smr_SMRContext_ID", (PyCFunction) _wrap__smr_smr_SMRContext_ID, METH_KEYWORDS|METH_VARARGS, "smr_SMRContext_ID(_handle)\n\ntype: _handle: int64_t" },
+    {(char *) "smr_SMRContext_Cancel", (PyCFunction) _wrap__smr_smr_SMRContext_Cancel, METH_KEYWORDS|METH_VARARGS, "smr_SMRContext_Cancel(_handle, goRun)\n\ntype: _handle: int64_t\ntype: goRun: bool" },
+    {(char *) "smr_Bytes_CTor", (PyCFunction) _wrap__smr_smr_Bytes_CTor, METH_NOARGS, "smr_Bytes_CTor()\n\n" },
+    {(char *) "smr_Bytes_Bytes", (PyCFunction) _wrap__smr_smr_Bytes_Bytes, METH_KEYWORDS|METH_VARARGS, "smr_Bytes_Bytes(_handle)\n\ntype: _handle: int64_t" },
+    {(char *) "smr_Bytes_Len", (PyCFunction) _wrap__smr_smr_Bytes_Len, METH_KEYWORDS|METH_VARARGS, "smr_Bytes_Len(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_IntRet_CTor", (PyCFunction) _wrap__smr_smr_IntRet_CTor, METH_NOARGS, "smr_IntRet_CTor()\n\n" },
     {(char *) "smr_IntRet_N_Get", (PyCFunction) _wrap__smr_smr_IntRet_N_Get, METH_KEYWORDS|METH_VARARGS, "smr_IntRet_N_Get(handle)\n\ntype: handle: int64_t" },
     {(char *) "smr_IntRet_N_Set", (PyCFunction) _wrap__smr_smr_IntRet_N_Set, METH_KEYWORDS|METH_VARARGS, "smr_IntRet_N_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: int64_t" },
@@ -3238,8 +3460,8 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_LogNode_Start", (PyCFunction) _wrap__smr_smr_LogNode_Start, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Start(_handle, config, goRun)\n\ntype: _handle: int64_t\ntype: config: int64_t\ntype: goRun: bool" },
     {(char *) "smr_LogNode_StartAndWait", (PyCFunction) _wrap__smr_smr_LogNode_StartAndWait, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_StartAndWait(_handle, config, goRun)\n\ntype: _handle: int64_t\ntype: config: int64_t\ntype: goRun: bool" },
     {(char *) "smr_LogNode_Propose", (PyCFunction) _wrap__smr_smr_LogNode_Propose, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Propose(_handle, val, resolve, msg, goRun)\n\ntype: _handle: int64_t\ntype: val: int64_t\ntype: resolve: PyObject *\ntype: msg: char *\ntype: goRun: bool" },
-    {(char *) "smr_LogNode_AddNode", (PyCFunction) _wrap__smr_smr_LogNode_AddNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_AddNode(_handle, id, addr, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: addr: char *\ntype: goRun: bool" },
-    {(char *) "smr_LogNode_RemoveNode", (PyCFunction) _wrap__smr_smr_LogNode_RemoveNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_RemoveNode(_handle, id, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_AddNode", (PyCFunction) _wrap__smr_smr_LogNode_AddNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_AddNode(_handle, id, addr, resolve, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: addr: char *\ntype: resolve: PyObject *\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_RemoveNode", (PyCFunction) _wrap__smr_smr_LogNode_RemoveNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_RemoveNode(_handle, id, resolve, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: resolve: PyObject *\ntype: goRun: bool" },
     {(char *) "smr_LogNode_WaitToClose", (PyCFunction) _wrap__smr_smr_LogNode_WaitToClose, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_WaitToClose(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_LogNode_Close", (PyCFunction) _wrap__smr_smr_LogNode_Close, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Close(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_LogNode_Process", (PyCFunction) _wrap__smr_smr_LogNode_Process, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Process(_handle, ctx, m)\n\ntype: _handle: int64_t\ntype: ctx: int64_t\ntype: m: int64_t" },
@@ -3251,13 +3473,12 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_LogNodeConfig_ElectionTick_Set", (PyCFunction) _wrap__smr_smr_LogNodeConfig_ElectionTick_Set, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_ElectionTick_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: int64_t" },
     {(char *) "smr_LogNodeConfig_HeartbeatTick_Get", (PyCFunction) _wrap__smr_smr_LogNodeConfig_HeartbeatTick_Get, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_HeartbeatTick_Get(handle)\n\ntype: handle: int64_t" },
     {(char *) "smr_LogNodeConfig_HeartbeatTick_Set", (PyCFunction) _wrap__smr_smr_LogNodeConfig_HeartbeatTick_Set, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_HeartbeatTick_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: int64_t" },
+    {(char *) "smr_LogNodeConfig_Debug_Get", (PyCFunction) _wrap__smr_smr_LogNodeConfig_Debug_Get, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_Debug_Get(handle)\n\ntype: handle: int64_t" },
+    {(char *) "smr_LogNodeConfig_Debug_Set", (PyCFunction) _wrap__smr_smr_LogNodeConfig_Debug_Set, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_Debug_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: bool" },
     {(char *) "smr_LogNodeConfig_WithChangeCallback", (PyCFunction) _wrap__smr_smr_LogNodeConfig_WithChangeCallback, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_WithChangeCallback(_handle, cb)\n\ntype: _handle: int64_t\ntype: cb: PyObject *" },
     {(char *) "smr_LogNodeConfig_WithRestoreCallback", (PyCFunction) _wrap__smr_smr_LogNodeConfig_WithRestoreCallback, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_WithRestoreCallback(_handle, cb)\n\ntype: _handle: int64_t\ntype: cb: PyObject *" },
     {(char *) "smr_LogNodeConfig_WithShouldSnapshotCallback", (PyCFunction) _wrap__smr_smr_LogNodeConfig_WithShouldSnapshotCallback, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_WithShouldSnapshotCallback(_handle, cb)\n\ntype: _handle: int64_t\ntype: cb: PyObject *" },
     {(char *) "smr_LogNodeConfig_WithSnapshotCallback", (PyCFunction) _wrap__smr_smr_LogNodeConfig_WithSnapshotCallback, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_WithSnapshotCallback(_handle, cb)\n\ntype: _handle: int64_t\ntype: cb: PyObject *" },
-    {(char *) "smr_Bytes_CTor", (PyCFunction) _wrap__smr_smr_Bytes_CTor, METH_NOARGS, "smr_Bytes_CTor()\n\n" },
-    {(char *) "smr_Bytes_Bytes", (PyCFunction) _wrap__smr_smr_Bytes_Bytes, METH_KEYWORDS|METH_VARARGS, "smr_Bytes_Bytes(_handle)\n\ntype: _handle: int64_t" },
-    {(char *) "smr_Bytes_Len", (PyCFunction) _wrap__smr_smr_Bytes_Len, METH_KEYWORDS|METH_VARARGS, "smr_Bytes_Len(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_NewLogNode", (PyCFunction) _wrap__smr_smr_NewLogNode, METH_KEYWORDS|METH_VARARGS, "smr_NewLogNode(store_path, id, peers, join)\n\ntype: store_path: char *\ntype: id: int64_t\ntype: peers: int64_t\ntype: join: bool" },
     {(char *) "smr_NewConfig", (PyCFunction) _wrap__smr_smr_NewConfig, METH_NOARGS, "smr_NewConfig()\n\n" },
     {(char *) "smr_NewBytes", (PyCFunction) _wrap__smr_smr_NewBytes, METH_KEYWORDS|METH_VARARGS, "smr_NewBytes(bytes, len)\n\ntype: bytes: char *\ntype: len: int" },

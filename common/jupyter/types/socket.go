@@ -5,18 +5,20 @@ import (
 	"fmt"
 	"regexp"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )
 
 const (
-	IOTopicStatus = "status"
+	IOTopicStatus   = "status"
+	IOTopicShutdown = "shutdown"
 )
 
 var (
 	ErrSocketNotAvailable   = errors.New("socket not available")
-	IOTopicStatusRecognizer = regexp.MustCompile(`^kernel\.([0-9a-f-]+)\.status$`)
+	IOTopicStatusRecognizer = regexp.MustCompile(`^kernel\.([0-9a-f-]+)\.([^.]+)$`)
 
 	mhwPool = sync.Pool{
 		New: func() interface{} {
@@ -41,18 +43,35 @@ func (t MessageType) String() string {
 
 type MessageHandler func(JupyterServerInfo, MessageType, *zmq4.Msg) error
 
+type MessageDone func()
+
 type MessageHandlerWrapper struct {
-	Handle MessageHandler
+	handle MessageHandler
+	done   MessageDone
+	once   int32
 }
 
-func GetMessageHandlerWrapper(h MessageHandler) *MessageHandlerWrapper {
+func GetMessageHandlerWrapper(h MessageHandler, done MessageDone) *MessageHandlerWrapper {
 	m := mhwPool.Get().(*MessageHandlerWrapper)
-	m.Handle = h
+	m.handle = h
+	m.done = done
+	m.once = 0
 	return m
 }
 
+func (m *MessageHandlerWrapper) Handle(info JupyterServerInfo, t MessageType, msg *zmq4.Msg) error {
+	err := m.handle(info, t, msg)
+	m.Release()
+	return err
+}
+
 func (m *MessageHandlerWrapper) Release() {
-	m.Handle = nil
+	done := m.done
+	if done != nil && atomic.CompareAndSwapInt32(&m.once, 0, 1) {
+		done()
+	}
+	m.handle = nil
+	m.done = nil
 	mhwPool.Put(m)
 }
 

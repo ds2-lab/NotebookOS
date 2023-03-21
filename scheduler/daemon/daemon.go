@@ -2,8 +2,8 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
@@ -36,11 +36,10 @@ var (
 	ErrInvalidParameter = status.Errorf(codes.InvalidArgument, "invalid parameter")
 
 	// Internal errors
-	ErrHeaderNotFound        = errors.New("message header not found")
-	ErrKernelNotFound        = errors.New("kernel not found")
-	ErrKernelNotReady        = errors.New("kernel not ready")
-	ErrInvalidJupyterMessage = errors.New("invalid jupter message")
-	ErrKernelIDRequired      = errors.New("kernel id frame is required for kernel_info_request")
+	ErrHeaderNotFound   = errors.New("message header not found")
+	ErrKernelNotFound   = errors.New("kernel not found")
+	ErrKernelNotReady   = errors.New("kernel not ready")
+	ErrKernelIDRequired = errors.New("kernel id frame is required for kernel_info_request")
 
 	// Context keys
 	ctxKernelInvoker = utils.ContextKey("invoker")
@@ -55,16 +54,25 @@ type SchedulerDaemonOptions struct {
 	DirectServer bool `name:"direct" usage:"True if the scheduler serves jupyter notebook directly."`
 }
 
+// SchedulerDaemon is the daemon that proxy requests to kernel replicas on local-host.
+//
+// WIP: Replica membership change.
+// TODO: Distinguish reachable host list from replica list.
+// TODO: Synchronize resource status using replica network (e.g., control socket). Synchoronization message should load-balance between replicas mapped the same host.
 type SchedulerDaemon struct {
 	// Options
 	id string
 
 	gateway.UnimplementedLocalGatewayServer
-	router *router.Router
+	router    *router.Router
+	scheduler core.HostScheduler
 
 	// Options
 	connectionOptions *jupyter.ConnectionInfo
 	Options           SchedulerDaemonOptions
+
+	// Cluster client
+	Provisioner gateway.ClusterGatewayClient
 
 	// members
 	transport string
@@ -91,6 +99,7 @@ func New(opts *jupyter.ConnectionInfo, configs ...SchedulerDaemonConfig) *Schedu
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon)
+	daemon.scheduler = NewMembershipScheduler(daemon)
 
 	if daemon.ip == "" {
 		ip, err := utils.GetIP()
@@ -154,7 +163,8 @@ func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.Ke
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
-	// TODO: Handle kernel response.
+	// Handle kernel response.
+	kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
 
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
@@ -197,7 +207,7 @@ func (d *SchedulerDaemon) KillKernel(ctx context.Context, in *gateway.KernelId) 
 		return nil, ErrKernelNotFound
 	}
 
-	ret = &gateway.Void{}
+	ret = gateway.VOID
 	err = d.errorf(d.getInvoker(kernel).Close())
 	return
 }
@@ -209,9 +219,38 @@ func (d *SchedulerDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) 
 		return nil, ErrKernelNotFound
 	}
 
-	ret = &gateway.Void{}
-	err = d.errorf(d.getInvoker(kernel).Shutdown())
-	return
+	err = d.stopKernel(ctx, kernel, false)
+	if err != nil {
+		return nil, d.errorf(err)
+	}
+	return gateway.VOID, nil
+}
+
+func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel *client.KernelClient, ignoreReply bool) (err error) {
+	if ignoreReply {
+		kernel.AddIOHandler(jupyter.IOTopicShutdown, d.handleIgnoreMsg)
+	}
+
+	var msg zmq4.Msg
+	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeShutdownRequest, kernel.Sessions()[0])
+	frames.EncodeContent(&jupyter.MessageShutdownRequest{
+		Restart: false,
+	})
+	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
+	if err != nil {
+		return err
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done)
+	if err != nil {
+		return err
+	}
+
+	wg.Wait()
+	d.getInvoker(kernel).Close()
+	return nil
 }
 
 // WaitKernel waits for a kernel to exit.
@@ -227,7 +266,7 @@ func (d *SchedulerDaemon) WaitKernel(ctx context.Context, in *gateway.KernelId) 
 
 func (d *SchedulerDaemon) SetClose(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
 	d.Close()
-	return &gateway.Void{}, nil
+	return gateway.VOID, nil
 }
 
 func (d *SchedulerDaemon) Start() error {
@@ -348,13 +387,13 @@ func (d *SchedulerDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err 
 }
 
 func (d *SchedulerDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
-	var header jupyter.MessageHeader
-	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
-	if len(frames) < 6 {
-		return nil, ErrInvalidJupyterMessage
+	jFrames := jupyter.JupyterFrames(frames)
+	if err := jFrames.Validate(); err != nil {
+		return nil, err
 	}
-	err := json.Unmarshal(frames[2], &header)
-	if err != nil {
+
+	var header jupyter.MessageHeader
+	if err := jFrames.DecodeHeader(&header); err != nil {
 		return nil, err
 	}
 
@@ -395,11 +434,10 @@ func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel *client.Ker
 		}
 	}
 
-	d.log.Debug("Forwarding %v request(%p) to %v: %v", typ, msg, kernel, msg)
 	if done == nil {
 		done = func() {}
 	}
-	return kernel.RequestWithHandler(ctx, typ, msg, d.kernelResponseForwarder, done)
+	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done)
 }
 
 func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
@@ -413,6 +451,22 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 	}
 	d.log.Debug("Forwarding %v response from %v: %v", socket, from, msg)
 	return socket.Send(*msg)
+}
+
+func (d *SchedulerDaemon) handleSMRLeadTask(kernel core.Kernel, frames jupyter.JupyterFrames, raw *zmq4.Msg) error {
+	var leadMessage jupyter.MessageSMRLeadTask
+	if err := frames.DecodeContent(&leadMessage); err != nil {
+		return err
+	}
+
+	d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
+	go d.scheduler.OnTaskStart(kernel, &leadMessage)
+	return jupyter.ErrStopPropagation
+}
+
+func (d *SchedulerDaemon) handleIgnoreMsg(kernel core.Kernel, frames jupyter.JupyterFrames, raw *zmq4.Msg) error {
+	d.log.Debug("%v ignores %v", kernel, raw)
+	return jupyter.ErrStopPropagation
 }
 
 func (d *SchedulerDaemon) errorf(err error) error {
@@ -438,7 +492,7 @@ func (d *SchedulerDaemon) statusErrorf(kernel *client.KernelClient, status jupyt
 	return &gateway.KernelStatus{Status: int32(status)}, nil
 }
 
-func (d *SchedulerDaemon) getInvoker(kernel *client.KernelClient) invoker.KernelInvoker {
+func (d *SchedulerDaemon) getInvoker(kernel core.Kernel) invoker.KernelInvoker {
 	return kernel.Context().Value(ctxKernelInvoker).(invoker.KernelInvoker)
 }
 

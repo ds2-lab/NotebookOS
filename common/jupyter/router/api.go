@@ -1,14 +1,8 @@
 package router
 
 import (
-	"fmt"
-
 	"github.com/go-zeromq/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-)
-
-var (
-	ErrStopPropagation = fmt.Errorf("stop propagation")
 )
 
 // API defines the interface of messages that a JupyterRouter can intercept and handle.
