@@ -1,55 +1,29 @@
 import io
-from .log_pickler import SyncLogPickler as Pickler
-from .offset_unpickler import OffsetUnpickler as Unpickler
+from pickle import Pickler as Pickler
+from pickle import Unpickler as Unpickler
 import hashlib
 import logging
 from typing import Generator, Tuple, Optional, Any, Callable
 from typing_extensions import Protocol, runtime_checkable
 
 from .log import SyncValue, OP_SYNC_PUT, OP_SYNC_ADD
-from .referer import EMPTY_TUPLE, SyncReferer, SyncRID, _T
-from .profiler import PickleProfiler
+from .referer import EMPTY_TUPLE, SyncReferer, SyncRID
+from .profiler import PickleProfile, PickleProfiler
+from .object import SyncObjectMeta
 
 @runtime_checkable
-class Pickled(Protocol):
-	"""Placeholder picklable protocol"""
+class SyncLogObject:
+  """A object wrapper that implemented SyncObject and support incremental synchronization."""
 
-@runtime_checkable
-class SyncObject(Protocol):
-  def dump(self, meta=None) -> SyncValue: # type: ignore
-    """Get a view of the object for checkpoint."""
-
-  def diff(self, raw, meta=None) -> Optional[SyncValue]: # type: ignore
-    """Update the object with new raw object and get the difference view for synchronization"""
-
-  def update(self, val: SyncValue) -> Any:
-    """Apply the difference view to the object"""
-
-
-@runtime_checkable
-class SyncStreamObject(Protocol):
-  def dump(self, meta=None) -> Generator[SyncValue, None, None]: # type: ignore
-    """Get a view of the object for checkpoint in the form of a stream."""
-
-  def diff(self, raw, meta=None) -> Generator[SyncValue, None, None]: # type: ignore
-    """Update the object with new raw object and get the difference stream for synchronization"""
-
-  def update(self, vals: Tuple[SyncValue]) -> Any:
-    """Apply the difference stream to the object"""
-
-class SyncObjectMeta:
-  def __init__(self, batch:Optional[str]=None):
-    self.batch: Optional[str] = batch
-
-class SyncObjectWrapper:
-  """A simple object wrapper that implemented SyncObject, which returns a view of whole object as the difference."""
-  
   def __init__(self, referer:SyncReferer, raw:Any=None, tag:Any=None):
     self.raw: Any = raw
     """The raw object"""
 
     self._hash: Any = tag
     """The hash of the raw object. For simple objects, it can be the raw object itself, otherwise it is of type bytes."""
+
+    self._obj_tree: Any = tag
+    """The object hierarchy tree. For simple objects, it can be the raw object itself."""
 
     self._referer: SyncReferer = referer
     """The referer to resolve persistent references"""
@@ -94,10 +68,9 @@ class SyncObjectWrapper:
 
     if type(val.val) == bytes:
       buff = io.BytesIO(val.val)
-      unpickler = self._unpickler(buff)
-      unpickler.persistent_load = self._referer.dereference(buff, val.prmap, unpickler=unpickler)
+      unpickler = Unpickler(buff)
+      unpickler.persistent_load = self._referer.dereference(val.prmap)
       diff = unpickler.load()
-      logging.info("Unpickled: {}".format(diff))
       # Verify tags
       # _, tag = self.get_hash(diff, val.term)
       # if tag != val.tag:
@@ -121,25 +94,21 @@ class SyncObjectWrapper:
 
       # Instaniate pickler
       reference_id_provider: Optional[Callable[[Any, int], SyncRID]] = None
-      pickler = self._pickler(buff)
       if self._profiling:
-        pickler = PickleProfiler(buff, pickler=pickler)
+        pickler = PickleProfiler(buff)
         reference_id_provider = pickler.get_reference_id
-
+      else:
+        pickler = self._pickler(buff)
+      
       # Pickle
-      pickler.persistent_id, pickle_id = self._referer.reference(batch, rid_provider = reference_id_provider, pickler=pickler)
+      pickler.persistent_id, pickle_id = self._referer.reference(batch, rid_provider = reference_id_provider)
       pickler.dump(raw)
       pickled = buff.getvalue()
-      if hasattr(pickler, "get_polifiller"):
-        logging.info("Polyfilling")
-        pickle_id.polyfill(pickler.get_polifiller(self._referer.id_from_prid))
-      else:
-        logging.info("No polyfilling")
       prmap = pickle_id.dump()
       if self._profiling:
         assert isinstance(pickler, PickleProfiler)
         logging.info("Total bytes {}".format(len(pickled)))
-        pickler.print_profile(self._referer.id_from_prid, pickle_id.load(prmap))
+        pickler.print_profile(lambda x: id(self._referer._dereference(x)), prmap)
 
         logging.info(pickled)
         
@@ -161,5 +130,5 @@ class SyncObjectWrapper:
   def tag(self):
     return self._hash
 
-class SyncObjectUnpickler(Unpickler):
-  """Customized unpickler"""
+  def _rebuild_obj_tree(self, raw: Any, batch: Optional[str], profiling: bool = False):
+    """Compare raw object with the current object and incorporated into the object tree"""

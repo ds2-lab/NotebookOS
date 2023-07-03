@@ -9,6 +9,11 @@ from .errors import SyncError
 ExplorerActionCopy = 0
 ExplorerActionPass = 1
 
+# SyncAST tries to capture runtime states of a Jupyter notebook by visiting AST to find all global variables.
+# Corner cases: [A] not implemented yet [B] hard to implement [C] will not implement
+# * General file descriptor [A]
+# * General network connection [A]
+# * Configurations to packages or package managed global variables [C]
 class SyncAST(ast.NodeVisitor):
   """Capture Dependencies"""
   # pylint: disable=too-many-public-methods

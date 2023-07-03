@@ -104,7 +104,7 @@ class Synchronizer:
         if isinstance(val.val, SyncObject):
           existed = val.val
         else:
-          existed = SyncObjectWrapper(self._referer)
+          existed = SyncObjectWrapper(self._referer) # Initialize an empty object wrapper.
 
       # Switch context
       old_main_modules = sys.modules["__main__"]
@@ -207,6 +207,7 @@ class Synchronizer:
     if key in self._tags:
       existed = self._tags[key]
     else:
+      assert not checkpointing
       # TODO: Add support to SyncObject factory
       existed = SyncObjectWrapper(self._referer)
       self._tags[key] = existed

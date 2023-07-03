@@ -7,6 +7,8 @@ OP_SYNC_PUT = "put"
 OP_SYNC_DEL = "del"
 
 class SyncValue:
+  """A value for log proposal."""
+
   def __init__(self, tag, val: Any, term:int=0, key:Optional[str]=None, op:Optional[str]=None, prmap:Optional[list[str]]=None, end:bool=False):
     self.term = term
     self.key = key

@@ -18,9 +18,9 @@ from jupyter_client.kernelspec import KernelSpecManager
 from jupyter_client.kernelspec import NoSuchKernel
 from jupyter_client.launcher import launch_kernel
 from jupyter_client.manager import AsyncKernelManager
-from jupyter_client.provisioning import KernelProvisionerFactory
+from jupyter_client.provisioning.factory import KernelProvisionerFactory
 
-from ..provisioner import GatewayProvisioner
+from distributed_notebook.provisioner import GatewayProvisioner
 
 pjoin = os.path.join
 
@@ -150,7 +150,7 @@ class TestRuntime:
         await async_km.shutdown_kernel(now=True)
         is_alive = await async_km.is_alive()
         assert is_alive is False
-        assert async_km.context.closed
+        assert async_km.context.closed # type: ignore
 
     @staticmethod
     def validate_provisioner(akm: AsyncKernelManager):
