@@ -18,8 +18,8 @@ CMD /go/bin/gopy
 Build in gopy
 
 ~~~
-cd $GOPATH/src/github.com/go-python/gopy
-docker build -t go-python/gopy .
+cd $GOPATH/src/github.com/zhangjyr/gopy
+docker build -t zhangjyr/gopy .
 ~~~
 
 Build in docker

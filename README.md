@@ -32,11 +32,11 @@ Start jupyter container.
     cd dockfiles/jupyter
     docker-compose up -d  # docker compose up -d for new docker version on Mac.
 
-I have prepared built SMR for mac running on ARM. To build SMR for different arch, we may need to build a local "go-python/gopy" image first.
+I have prepared built SMR for mac running on ARM. To build SMR for different arch, we may need to build a local "zhangjyr/gopy" image first.
 
     # In other folder.
     git clone https://github.com/zhangjyr/gopy.git
-    docker build -t go-python/gopy .
+    docker build -t zhangjyr/gopy .
     # Go back to this folder.
 
     # For mac using ARM

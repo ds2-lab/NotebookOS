@@ -5,7 +5,7 @@ go 1.20
 replace github.com/go-zeromq/zmq4 => ../zmq4
 
 require (
-	github.com/go-python/gopy v0.4.0
+	github.com/zhangjyr/gopy v0.4.2
 	github.com/go-zeromq/zmq4 v0.15.0
 	github.com/google/uuid v1.1.2
 	github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20180507213350-8e809c8a8645

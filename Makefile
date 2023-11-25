@@ -33,10 +33,10 @@ build-darwin:
 	cd smr && make build-darwin
 
 build-smr-linux-arm64:
-	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out go-python/gopy /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-arm64"
+	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out zhangjyr/gopy /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-arm64"
 
 build-smr-linux-amd64:
-	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out go-python/gopy /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-amd64"
+	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out zhangjyr/gopy /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-amd64"
 
 install-kernel:
 	./install_kernel.sh
