@@ -2,7 +2,7 @@ include ../env.mk
 
 all: local-daemon
 
-all-amd64: local-daemon-amd
+all-amd64: local-daemon-amd64
 
 build-image-cpu-jupyter-arm64:
 	cd ../cpu-python3-arm64 && make
