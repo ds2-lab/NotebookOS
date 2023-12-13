@@ -1,7 +1,7 @@
 version: '2'
 services:
   Python:
-    image: jupyter/scipy-notebook:python3.9
+    image: jupyter/scipy-notebook:python-3.9
     environment:
       GRANT_SUDO: "yes"
       CHOWN_HOME: "yes"

@@ -1,4 +1,4 @@
-FROM jupyter/scipy-notebook:python3.9
+FROM jupyter/scipy-notebook:python-3.9
 
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC
