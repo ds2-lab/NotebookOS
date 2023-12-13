@@ -1,10 +1,12 @@
 version: '2'
 services:
   Python:
-    image: jupyter/scipy-notebook:latest
-#    environment:
-#     - GRANT_SUDO=yes
-#    user: root
+    image: jupyter/scipy-notebook:python3.9
+    environment:
+      GRANT_SUDO: "yes"
+      CHOWN_HOME: "yes"
+      CHOWN_HOME_OPTS: -R
+    user: root
     ports:
      - "8888:8888"
     volumes:
