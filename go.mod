@@ -5,8 +5,7 @@ go 1.20
 replace github.com/go-zeromq/zmq4 => ../zmq4
 
 require (
-	github.com/zhangjyr/gopy v0.4.2
-	github.com/go-zeromq/zmq4 v0.15.0
+	github.com/go-zeromq/zmq4 v0.16.0
 	github.com/google/uuid v1.1.2
 	github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20180507213350-8e809c8a8645
 	github.com/hashicorp/consul/api v1.15.2
@@ -18,6 +17,7 @@ require (
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/uber/jaeger-client-go v2.30.0+incompatible
+	github.com/zhangjyr/gopy v0.4.2
 	github.com/zhangjyr/hashmap v1.0.2
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2
 	go.etcd.io/etcd/raft/v3 v3.5.2
@@ -68,10 +68,10 @@ require (
 	go.etcd.io/etcd/pkg/v3 v3.5.2 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	golang.org/x/net v0.0.0-20211216030914-fe4d6282115f // indirect
-	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f // indirect
-	golang.org/x/sys v0.0.0-20220728004956-3c1f35247d10 // indirect
-	golang.org/x/text v0.3.7 // indirect
+	golang.org/x/net v0.8.0 // indirect
+	golang.org/x/sync v0.1.0 // indirect
+	golang.org/x/sys v0.6.0 // indirect
+	golang.org/x/text v0.8.0 // indirect
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba // indirect
 	google.golang.org/genproto v0.0.0-20210602131652-f16073e35f0c // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
