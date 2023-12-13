@@ -1,13 +1,8 @@
 # Building
 
-In order to build the `local-daemon` component, you must have the [pebbe/zmq4](https://github.com/pebbe/zmq4) repository cloned in your `$GOPATH`. 
+In order to build the `local-daemon` component, you must have the [go-zeromq/zmq4](https://github.com/go-zeromq/zmq4) repository cloned in your `$GOPATH`. 
 
-The `pebbe/zmq4` go module as well as the `local_daemon` itself require [ZeroMQ](https://zeromq.org/download/) be installed:
-``` sh
-apt-get install libzmq3-dev
-```
-
-You also must intsall the `pkg-config` utility:
+You also must install the `pkg-config` utility:
 ``` sh
 apt-get install pkg-config
 ```
