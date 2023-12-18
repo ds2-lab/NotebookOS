@@ -4,6 +4,9 @@ all: local-daemon
 
 all-amd64: local-daemon-amd64
 
+build-base-image:
+	cd ../base-image && make 
+
 build-image-cpu-jupyter-arm64:
 	cd ../cpu-python3-arm64 && make
 
@@ -14,14 +17,14 @@ build-image-gateway:
 	cd ../gateway && make
 
 build-scheduler-linux:
-	GOOS=linux go build -o scheduler ../../scheduler
+	GOOS=linux go build -buildvcs=false -o scheduler ../../scheduler
 
 build: build-scheduler-linux
 	docker build ${PARAMS} -t $(DOCKER_USER)daemon .
 	rm scheduler
 	../clean.sh
 
-local-daemon-amd64: build-image-cpu-jupyter-amd64 build-image-gateway build
+local-daemon-amd64: build-base-image build-image-cpu-jupyter-amd64 build-image-gateway build
 # use scale = num-replicas + 1 for membership tests.
 	docker compose up -d --scale daemon=`./load-num-replicas.sh 1`
 

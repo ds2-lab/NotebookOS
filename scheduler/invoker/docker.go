@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -39,12 +41,15 @@ const (
 	VarContainerNetwork = "{network}"
 	VarStorageVolume    = "{storage}"
 	VarConfigFile       = "{config_file}"
+	HostMountDir        = "{host_mount_dir}"
+	TargetMountDir      = "{target_mount_dir}"
 )
 
 var (
 	dockerStorageBase = "/storage"
 	// dockerInvokerCmd  = "docker run -d --rm --name {container_name} -v {connection_file}:{connection_file} -v {storage}:/storage -v {config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
-	dockerInvokerCmd  = "docker run -d --name {container_name} -v {connection_file}:{connection_file} -v {storage}:/storage -v {config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
+	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
+	dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 
 	ErrUnexpectedReplicaExpression = fmt.Errorf("unexpected replica expression, expected url")
@@ -82,6 +87,8 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *gateway.K
 	ivk.spec = spec
 	ivk.status = jupyter.KernelStatusInitializing
 
+	log.Printf("[DockerInvoker] Invoking with context now.\n")
+
 	kernelName, port, err := ivk.extractKernelNamePort(spec)
 	if err != nil {
 		return nil, ivk.reportLaunchError(err)
@@ -97,37 +104,67 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *gateway.K
 		}
 	}
 
+	log.Printf("[DockerInvoker] Kernel Name: \"%s\". Port: %d.\n", kernelName, port)
+
 	// Looking for available port
 	connectionInfo, err := ivk.prepareConnectionFile(spec.Kernel)
 	if err != nil {
+		log.Printf("Error while preparing connection file: %v.\n", err)
 		return nil, ivk.reportLaunchError(err)
 	}
+
+	hostMountDir := os.Getenv("HOST_MOUNT_DIR")
+	targetMountDir := os.Getenv("TARGET_MOUNT_DIR")
+
+	log.Printf("hostMountDir = \"%v\"\n", hostMountDir)
+	log.Printf("targetMountDir = \"%v\"\n", hostMountDir)
+
+	log.Printf("Prepared connection info: %v\n", connectionInfo)
 
 	// Write connection file and replace placeholders within in command line
 	connectionFile, err := ivk.writeConnectionFile(ivk.tempBase, kernelName, connectionInfo)
 	if err != nil {
+		log.Printf("Error while writing connection file: %v.\n", err)
+		log.Printf("Connection info: %v\n", connectionInfo)
 		return nil, ivk.reportLaunchError(err)
 	}
+
+	log.Printf("Wrote connection file: %v\n", connectionFile)
 
 	configInfo, _ := ivk.prepareConfigFile(spec)
 	configInfo.SMRPort = port
 	configFile, err := ivk.writeConfigFile(ivk.tempBase, kernelName, configInfo)
 	if err != nil {
+		log.Printf("Error while writing config file: %v.\n", err)
+		log.Printf("Config info: %v\n", configInfo)
 		return nil, ivk.reportLaunchError(err)
 	}
+
+	log.Printf("Wrote config file: %v\n", configFile)
+
+	log.Printf("filepath.Base(connectionFile)=\"%v\"\n", filepath.Base(connectionFile))
+	log.Printf("filepath.Base(configFile)=\"%v\"\n", filepath.Base(configFile))
+
+	log.Printf("{hostMountDir}/{connectionFile}\"%v\"\n", hostMountDir+"/"+filepath.Base(connectionFile))
+	log.Printf("{hostMountDir}/{configFile}=\"%v\"\n", hostMountDir+"/"+filepath.Base(configFile))
+
+	log.Printf("{targetMountDir}/{connectionFile}\"%v\"\n", targetMountDir+"/"+filepath.Base(connectionFile))
+	log.Printf("{targetMountDir}/{configFile}=\"%v\"\n", targetMountDir+"/"+filepath.Base(configFile))
 
 	ivk.containerName = kernelName
 	connectionInfo.IP = ivk.containerName // Overwrite IP with container name
 	cmd := strings.ReplaceAll(ivk.invokerCmd, VarContainerName, ivk.containerName)
-	cmd = strings.ReplaceAll(cmd, VarConnectionFile, connectionFile)
-	cmd = strings.ReplaceAll(cmd, VarConfigFile, configFile)
+	cmd = strings.ReplaceAll(cmd, TargetMountDir, targetMountDir)
+	cmd = strings.ReplaceAll(cmd, HostMountDir, hostMountDir)
+	cmd = strings.ReplaceAll(cmd, VarConnectionFile, filepath.Base(connectionFile))
+	cmd = strings.ReplaceAll(cmd, VarConfigFile, filepath.Base(configFile))
 	for i, arg := range spec.Kernel.Argv {
 		spec.Kernel.Argv[i] = strings.ReplaceAll(arg, VarConnectionFile, connectionFile)
 	}
 	argv := append(strings.Split(cmd, " "), spec.Kernel.Argv...)
 
 	// Start kernel process
-	log.Printf("Launch kernel \"%v\"\n", argv)
+	log.Printf("Launch kernel: \"%v\"\n", argv)
 	if err := ivk.launchKernel(ctx, kernelName, argv); err != nil {
 		return nil, ivk.reportLaunchError(err)
 	}

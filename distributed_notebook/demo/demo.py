@@ -51,6 +51,7 @@ async def demo():
   parser.add_argument("--replicas", action='store', type=int, help="The number of replicas to add.", default=0)
   parser.add_argument("scripts", nargs=argparse.REMAINDER, action=ScriptAction,
                 help="Python script to be executed.")
+  
   if len(sys.argv) == 1:
       sys.argv.append("-h")
 

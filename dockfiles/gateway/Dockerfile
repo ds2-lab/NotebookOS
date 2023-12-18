@@ -1,4 +1,5 @@
-FROM debian:bullseye
+FROM scusemua/dist-notebook-base:latest
+#FROM debian:bullseye
 
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC

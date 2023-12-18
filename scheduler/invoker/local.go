@@ -47,15 +47,20 @@ func (ivk *LocalInvoker) InvokeWithContext(ctx context.Context, spec *gateway.Ke
 		ivk.statusChanged = ivk.defaultStatusChangedHandler
 	}
 
+	log.Printf("[LocalInvoker] Invoking with context now.\n")
+
 	// Looking for available port
 	connectionInfo, err := ivk.prepareConnectionFile(spec.Kernel)
 	if err != nil {
+		log.Printf("Error while preparing connection file: %v.\n", err)
 		return nil, ivk.reportLaunchError(err)
 	}
 
 	// Write connection file and replace placeholders within in command line
 	path, err := ivk.writeConnectionFile("", spec.Kernel.Id, connectionInfo)
 	if err != nil {
+		log.Printf("Error while writing connection file: %v.\n", err)
+		log.Printf("Connection info: %v\n", connectionInfo)
 		return nil, ivk.reportLaunchError(err)
 	}
 	for i, arg := range spec.Kernel.Argv {
@@ -171,8 +176,16 @@ func (ivk *LocalInvoker) writeConnectionFile(dir string, name string, info *jupy
 	if err != nil {
 		return "", err
 	}
+
+	log.Printf("Created connection file \"%s\"\n", f.Name())
+	log.Printf("Writing the following contents to connection file \"%s\": \"%v\"\n", f.Name(), jsonContent)
 	f.Write(jsonContent)
 	defer f.Close()
+
+	log.Printf("Changing permissions of connection file \"%s\" now\n", f.Name())
+	if err := os.Chmod(f.Name(), 0777); err != nil {
+		log.Fatal(err)
+	}
 
 	return f.Name(), nil
 }
@@ -186,8 +199,15 @@ func (ivk *LocalInvoker) writeConfigFile(dir string, name string, info *jupyter.
 	if err != nil {
 		return "", err
 	}
+	log.Printf("Created config file \"%s\"\n", f.Name())
+	log.Printf("Writing the following contents to config file \"%s\": \"%v\"\n", f.Name(), jsonContent)
 	f.Write(jsonContent)
 	defer f.Close()
+
+	log.Printf("Changing permissions of config file \"%s\" now\n", f.Name())
+	if err := os.Chmod(f.Name(), 0777); err != nil {
+		log.Fatal(err)
+	}
 
 	return f.Name(), nil
 }

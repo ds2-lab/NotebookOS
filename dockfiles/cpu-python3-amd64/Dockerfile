@@ -1,7 +1,8 @@
 FROM jupyter/scipy-notebook:python-3.9
 
 ENV LANG=C.UTF-8 \
-    TZ=Etc/UTC
+    TZ=Etc/UTC \
+    JUPYTER_ALLOW_INSECURE_WRITES=1
 
 # Install amd version of pytorch and torchvision
 RUN python3 -m pip install torch torchvision

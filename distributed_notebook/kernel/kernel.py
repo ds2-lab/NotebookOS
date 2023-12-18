@@ -149,12 +149,21 @@ class DistributedKernel(IPythonKernel):
         """Initialize persistent store with persistent id. Return store path."""
         assert isinstance(self.storage_base, str)
         store = os.path.join(self.storage_base, "store", persistent_id)
+        
+        self.log.info("Initializing the Persistent Store with Persistent ID: \"%s\"" % persistent_id)
+        self.log.info("Full path of Persistent Store: \"%s\"" % store)
+        self.log.info("Disabling `outstream` now.")
 
         # Disable outstream
         self.toggle_outstream(override=True, enable=False)
 
+        self.log.info("Disabled `outstream`.")
+        self.log.info("Overriding shell hooks now.")
+
         # Override shell hooks
         await self.override_shell(store)
+        
+        self.log.info("Overrode shell hooks.")
 
         return store
 

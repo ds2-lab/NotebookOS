@@ -68,6 +68,8 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 	client.SessionManager = NewSessionManager(spec.Kernel.Session)
 	client.log = client.client.Log
 
+	client.log.Debug("Created new Kernel Client.")
+
 	return client
 }
 

@@ -15,7 +15,7 @@ services:
     build: 
       context: ../..
       dockerfile: dockfiles/cpu-python3-arm64/Dockerfile
-    image: zhangjyr/jupyter
+    image: scusemua/jupyter
     container_name: 'jupyter'
     command: start-notebook.sh --NotebookApp.token='' --log-level='DEBUG'
     ports:
@@ -28,24 +28,26 @@ services:
     build: 
       context: ../..
       dockerfile: dockfiles/gateway/Dockerfile
-    image: zhangjyr/gateway
+    image: scusemua/gateway
     container_name: 'gateway'
     restart: always
 
   daemon:
     environment:
-      - KERNEL_TEMP_BASE=/tmp/kernel
-      - KERNEL_IMAGE=zhangjyr/jupyter
+      - KERNEL_TEMP_BASE=/kernel_base
+      - KERNEL_IMAGE=scusemua/jupyter
       - KERNEL_NETWORK=local_daemon_default
+      - HOST_MOUNT_DIR=/home/bcarver2/kernel_base
+      - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=local_daemon_storage
     build:
       context: ../..
       dockerfile: dockfiles/local-daemon/Dockerfile
-    image: zhangjyr/daemon
+    image: scusemua/daemon
     # container_name: 'daemon'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp/kernel:/tmp/kernel
+      - /home/bcarver2/kernel_base:/kernel_base
       - storage:/storage
     depends_on:
       - gateway
