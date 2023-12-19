@@ -57,6 +57,7 @@ build-smr-linux-arm64: build-init prepare-smr-linux-arm64
 	make reset
 
 build-smr-linux-amd64: build-init prepare-smr-linux-amd64
+	@echo "Building SMR for Linux AMD64"
 	cat Makefile_linux_amd64 >> smr/Makefile
 	cd smr && make build-smr-linux-amd64
 	make reset

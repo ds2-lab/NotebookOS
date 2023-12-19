@@ -15,7 +15,7 @@ services:
     build: 
       context: ../..
       dockerfile: dockfiles/cpu-python3-arm64/Dockerfile
-    image: scusemua/jupyter
+    image: scusemua/jupyter:latest
     container_name: 'jupyter'
     command: start-notebook.sh --NotebookApp.token='' --log-level='DEBUG'
     ports:
@@ -35,7 +35,7 @@ services:
   daemon:
     environment:
       - KERNEL_TEMP_BASE=/kernel_base
-      - KERNEL_IMAGE=scusemua/jupyter
+      - KERNEL_IMAGE=scusemua/jupyter:latest
       - KERNEL_NETWORK=local_daemon_default
       - HOST_MOUNT_DIR=/home/bcarver2/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base

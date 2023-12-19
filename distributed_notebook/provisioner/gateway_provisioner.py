@@ -1,4 +1,6 @@
+import pprint 
 import signal
+
 from lib2to3.pgen2.token import OP
 from jupyter_client.provisioning import KernelProvisionerBase
 from jupyter_client.connect import KernelConnectionInfo
@@ -43,6 +45,7 @@ class GatewayProvisioner(KernelProvisionerBase):
     try:
       if self.launched:
         kernelId = gateway_pb2.KernelId(id=self._kernel_id)
+        self.log.info(f"Checking status of kernel {self._kernel_id} ({kernelId})")
         status = self._get_stub().GetKernelStatus(kernelId)
 
         if status.status < 0:
@@ -152,17 +155,27 @@ class GatewayProvisioner(KernelProvisionerBase):
 
       self.log.info(f"Launched kernel {self._kernel_id}: {connectionInfo}")
       
-      return dict(
-        key = connectionInfo.key,
-        ip = connectionInfo.ip,
-        control_port = connectionInfo.controlPort,
-        shell_port = connectionInfo.shellPort,
-        stdin_port = connectionInfo.stdinPort,
-        hb_port = connectionInfo.hbPort,
-        iopub_port = connectionInfo.iopubPort,
-        transport = connectionInfo.transport,
-        signature_scheme = connectionInfo.signatureScheme,
+      conn_info = dict(
+        key               = connectionInfo.key,
+        ip                = connectionInfo.ip,
+        control_port      = connectionInfo.controlPort,
+        shell_port        = connectionInfo.shellPort,
+        stdin_port        = connectionInfo.stdinPort,
+        hb_port           = connectionInfo.hbPort,
+        iopub_port        = connectionInfo.iopubPort,
+        transport         = connectionInfo.transport,
+        signature_scheme  = connectionInfo.signatureScheme,
       )
+      
+      pprinter = pprint.PrettyPrinter()
+      conn_info_formatted = pprinter.pformat(conn_info)
+      
+      self.log.info(f"Returning connection info:\n{conn_info_formatted}")
+      
+      if type(conn_info["key"]) is str:
+        conn_info["key"] = conn_info["key"].encode()
+      
+      return conn_info
     except grpc.RpcError as e:
       self._try_close()
       raise RuntimeError(f"Failed to launch kernel: {e}")
