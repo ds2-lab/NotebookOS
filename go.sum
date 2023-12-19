@@ -382,6 +382,8 @@ github.com/rogpeppe/go-internal v1.3.0/go.mod h1:M8bDsm7K2OlrFYOpmOWEs/qY81heoFR
 github.com/russross/blackfriday/v2 v2.0.1/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/ryanuber/columnize v0.0.0-20160712163229-9b3edd62028f/go.mod h1:sm1tb6uqfes/u+d4ooFouqFdy9/2g9QGwK3SQygK0Ts=
 github.com/ryanuber/columnize v2.1.0+incompatible/go.mod h1:sm1tb6uqfes/u+d4ooFouqFdy9/2g9QGwK3SQygK0Ts=
+github.com/scusemua/gopy v0.4.3 h1:qYZLIx1VXCzzr6z5D8q2uI1rTLSwiwXAyFQagrjOWQU=
+github.com/scusemua/gopy v0.4.3/go.mod h1:jmDHjhX6Nwg0/BWd/EIdMheknx7YvTKIafQ0z9HxzSE=
 github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 h1:nn5Wsu0esKSJiIVhscUtVbo7ada43DJhG55ua/hjS5I=
 github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg65j358z/aeFdxmN0P9QXhEzd20vsDc=
 github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=
@@ -436,8 +438,6 @@ github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5t
 github.com/zclconf/go-cty v1.2.0/go.mod h1:hOPWgoHbaTUnI5k4D2ld+GRpFJSCe6bCM7m1q/N4PQ8=
 github.com/zclconf/go-cty v1.8.0/go.mod h1:vVKLxnk3puL4qRAv72AO+W99LUD4da90g3uUAzyuvAk=
 github.com/zclconf/go-cty-debug v0.0.0-20191215020915-b22d67c1ba0b/go.mod h1:ZRKQfBXbGkpdV6QMzT3rU1kSTAnfu1dO8dPKjYprgj8=
-github.com/zhangjyr/gopy v0.4.2 h1:5ZV9uQ0weSMjqMISKjRKIFZW4ODLB1Qra4y7Xf3Mf0Y=
-github.com/zhangjyr/gopy v0.4.2/go.mod h1:olrQV5s52RGdk6z0gQvanlADdmvLXtydWGkSbkJCXHc=
 github.com/zhangjyr/hashmap v1.0.2 h1:jgjuyeFEGSBb8mF7RcM8l/ePZcjfn9VyB3Ij3at9hIc=
 github.com/zhangjyr/hashmap v1.0.2/go.mod h1:vD/zJm+xWRZh6sf8rB1RhizARGLrwMCegQ6ZsDZJbI4=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=

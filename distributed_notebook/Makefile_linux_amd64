@@ -1,5 +1,5 @@
 
 build-smr-linux-amd64:
-	export CGO_CFLAGS="-I/usr/include/python3.9 -fPIC -Ofast"
-	export CGO_LDFLAGS="-L/usr/lib -lpython3.9 -lcrypt -lpthread -ldl -lutil -lm -lm"
-	go build -mod=mod -buildmode=c-shared -buildvcs=false -o _smr.cpython-39-x86_64-linux-gnu.so .
+	export CGO_CFLAGS="-I/usr/local/include/python3.10/ -fPIC -Ofast"
+	export CGO_LDFLAGS="-L/usr/local/lib/ -lpython3.10 -lcrypt -lpthread -ldl -lutil -lm -lm"
+	go build -mod=mod -buildmode=c-shared -buildvcs=false -o _smr.cpython-310-x86_64-linux-gnu.so .

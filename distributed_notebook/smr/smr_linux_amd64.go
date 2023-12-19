@@ -8,8 +8,8 @@ package main
 
 /*
 
-#cgo CFLAGS: -I/usr/include/python3.9 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion
-#cgo LDFLAGS: -L/usr/lib -lpython3.9 -lcrypt -lpthread -ldl  -lutil -lm -lm
+#cgo CFLAGS: -I/usr/local/include/python3.11 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion
+#cgo LDFLAGS: -L/usr/local/lib -lpython3.11 -lcrypt -lpthread -ldl  -lutil -lm -lm
 
 // #define Py_LIMITED_API // need full API for PyRun*
 #include <Python.h>
@@ -53,7 +53,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/zhangjyr/gopy/gopyh" // handler
+	"github.com/scusemua/gopy/gopyh" // handler
 
 	"context"
 	"time"

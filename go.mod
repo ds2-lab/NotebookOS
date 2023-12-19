@@ -16,8 +16,8 @@ require (
 	github.com/opentracing-contrib/go-stdlib v1.0.0
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/orcaman/concurrent-map/v2 v2.0.1
+	github.com/scusemua/gopy v0.4.3
 	github.com/uber/jaeger-client-go v2.30.0+incompatible
-	github.com/zhangjyr/gopy v0.4.2
 	github.com/zhangjyr/hashmap v1.0.2
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2
 	go.etcd.io/etcd/raft/v3 v3.5.2

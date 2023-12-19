@@ -8,7 +8,7 @@ build-gateway-linux:
 build: build-gateway-linux
 	docker build ${PARAMS} -t $(DOCKER_USER)gateway .
 	rm gateway
-	../clean.sh
+# ../clean.sh
 
 clean:
 	docker builder prune

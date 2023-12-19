@@ -10,12 +10,12 @@
 
 ### Build
 
-Follow https://github.com/zhangjyr/gopy and execute:
+Follow https://github.com/scusemua/gopy and execute:
 
 ~~~bash
 $ python3 -m pip install pybindgen
 $ go install golang.org/x/tools/cmd/goimports@latest
-$ go install github.com/zhangjyr/gopy@v0.4.1
+$ go install github.com/scusemua/gopy@v0.4.3
 $ make 
 ~~~
 
@@ -32,11 +32,11 @@ Start jupyter container.
     cd dockfiles/jupyter
     docker-compose up -d  # docker compose up -d for new docker version on Mac.
 
-I have prepared built SMR for mac running on ARM. To build SMR for different arch, we may need to build a local "zhangjyr/gopy" image first.
+I have prepared built SMR for mac running on ARM. To build SMR for different arch, we may need to build a local "scusemua/gopy" image first.
 
     # In other folder.
-    git clone https://github.com/zhangjyr/gopy.git
-    docker build -t zhangjyr/gopy .
+    git clone https://github.com/scusemua/gopy.git
+    docker build -t scusemua/gopy .
     # Go back to this folder.
 
     # For mac using ARM

@@ -24,16 +24,16 @@ prepare-smr-darwin: prepare-smr_darwin.go
 
 prepare-smr-linux-arm64: prepare-smr_linux_arm64.go
 # We don't use -i because it may cause permission problem with created temporary file.
-	sed -E 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I\/usr\/include\/python3.9 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_arm64.go > smr/smr_linux_arm64.go.tmp
+	sed -E 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I\/usr\/include\/python3. -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_arm64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
 	sed -E 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L\/usr\/lib -lpython3.9 -lcrypt -lpthread -ldl  -lutil -lm -lm/' smr/smr_linux_arm64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
 
 prepare-smr-linux-amd64: prepare-smr_linux_amd64.go
 # We don't use -i because it may cause permission problem with created temporary file.
-	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I\/usr\/include\/python3.9 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
+	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I\/usr\/local\/include\/python3.11 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
-	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L\/usr\/lib -lpython3.9 -lcrypt -lpthread -ldl  -lutil -lm -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
+	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L\/usr\/local\/lib -lpython3.11 -lcrypt -lpthread -ldl  -lutil -lm -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
 
 build-init:
