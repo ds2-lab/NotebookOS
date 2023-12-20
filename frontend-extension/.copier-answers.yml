@@ -1,0 +1,21 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: v4.2.4
+_src_path: https://github.com/jupyterlab/extension-template
+author_email: bcarver2@gmu.edu
+author_name: Benjamin Carver
+data_format: string
+file_extension: ''
+has_binder: false
+has_settings: false
+kind: frontend
+labextension_name: distributedKernel
+mimetype: ''
+mimetype_name: ''
+project_short_description: Provides an ID that is associated with a given IPYNB file.
+    This enables the restoration of runtime states when the associated notebook is
+    opened.
+python_name: distributedKernel
+repository: https://github.com/Scusemua/DistributedKernelFrontendExtension
+test: true
+viewer_name: ''
+

@@ -1,0 +1,5 @@
+{
+  "packageManager": "python",
+  "packageName": "distributedKernel",
+  "uninstallInstructions": "Use your Python package manager (pip, conda, etc.) to uninstall the package distributedKernel"
+}
