@@ -4,6 +4,11 @@ ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
     JUPYTER_ALLOW_INSECURE_WRITES=1
 
+RUN apt-get install -y locales locales-all
+ENV LC_ALL en_US.UTF-8
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US.UTF-8
+
 # Install amd version of pytorch and torchvision
 RUN python3 -m pip install torch torchvision
 RUN python3 -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0
@@ -34,6 +39,12 @@ RUN cd /distributed_notebook \
     common/gateway/gateway.proto \
 	&& sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
 RUN cd /distributed_notebook && ./install_kernel.sh
+
+# Install frontend extension.
+RUN cd /home/jovyan \
+    && git clone https://github.com/Scusemua/DistributedKernelFrontendExtension.git \
+    && cd ./DistributedKernelFrontendExtension \
+    && pip install .
 
 # Switch back to jovyan
 USER jovyan:users
