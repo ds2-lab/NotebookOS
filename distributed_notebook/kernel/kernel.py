@@ -190,8 +190,7 @@ class DistributedKernel(IPythonKernel):
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
-            # Pass 0 to lead the next execution based on history, which should be 
-            # passed only if a duplicated execution is acceptable.
+            # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchornized.
             self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1) # type: ignore
@@ -208,6 +207,8 @@ class DistributedKernel(IPythonKernel):
 
             # Wait for the settlement of variables.
             reply_content = await reply_routing
+            
+            self.log.info("Returning the following message for do_execute: \"%s\"" % str(reply_content))
 
             # Disable stdout and stderr forwarding.
             self.toggle_outstream(override=True, enable=False)
@@ -288,8 +289,8 @@ class DistributedKernel(IPythonKernel):
         # Get synclog for synchronization.
         synclog = await self.get_synclog(store_path)
 
-        # Start the synchronizer. Starting can be non-blocking, call 
-        # synchronizer.ready() later to confirm the actual execution_count.
+        # Start the synchronizer. 
+        # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
         self.synchronizer = Synchronizer(synclog, module = self.shell.user_module, opts=CHECKPOINT_AUTO) # type: ignore
 
         # if self.control_thread:
@@ -314,10 +315,10 @@ class DistributedKernel(IPythonKernel):
         self.synclog = RaftLog(store, self.smr_node_id, addrs, join=self.smr_join)
         return self.synclog
 
-    def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):
+    def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):
         self.source = raw_cell
         self.toggle_outstream(override=True, enable=True)
-        result = self.old_run_cell(raw_cell, store_history=store_history, silent=silent, shell_futures=shell_futures)
+        result = self.old_run_cell(raw_cell, store_history=store_history, silent=silent, shell_futures=shell_futures, cell_id=cell_id)
         return result
 
     def transform_ast(self, node):

@@ -4,11 +4,6 @@ ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
     JUPYTER_ALLOW_INSECURE_WRITES=1
 
-RUN apt-get install -y locales locales-all
-ENV LC_ALL en_US.UTF-8
-ENV LANG en_US.UTF-8
-ENV LANGUAGE en_US.UTF-8
-
 # Install amd version of pytorch and torchvision
 RUN python3 -m pip install torch torchvision
 RUN python3 -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0

@@ -1,6 +1,6 @@
 # SMR
 
-SMR module leverage etcd's [raft library](https://github.com/etcd-io/etcd/raft) to provide a network SyncLog(../distributed-notebook/sync) implementation.
+SMR module leverage etcd's [raft library](https://github.com/etcd-io/raft) to provide a network SyncLog(../distributed-notebook/sync) implementation.
 
 ## Deploy
 
