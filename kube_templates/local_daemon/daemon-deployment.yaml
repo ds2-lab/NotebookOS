@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: daemon
+  name: daemon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: daemon
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.0 (40646f47)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: daemon
+    spec:
+      containers:
+        - env:
+            - name: HOST_MOUNT_DIR
+              value: /home/bcarver2/kernel_base
+            - name: KERNEL_IMAGE
+              value: scusemua/jupyter:latest
+            - name: KERNEL_NETWORK
+              value: local_daemon_default
+            - name: KERNEL_TEMP_BASE
+              value: /kernel_base
+            - name: STORAGE
+              value: local_daemon_storage
+            - name: TARGET_MOUNT_DIR
+              value: /kernel_base
+          image: scusemua/daemon
+          name: daemon
+          resources: {}
+          volumeMounts:
+            - mountPath: /var/run/docker.sock
+              name: daemon-claim0
+            - mountPath: /kernel_base
+              name: daemon-claim1
+            - mountPath: /storage
+              name: storage
+      restartPolicy: Always
+      volumes:
+        - name: daemon-claim0
+          persistentVolumeClaim:
+            claimName: daemon-claim0
+        - name: daemon-claim1
+          persistentVolumeClaim:
+            claimName: daemon-claim1
+        - name: storage
+          persistentVolumeClaim:
+            claimName: storage
+status: {}

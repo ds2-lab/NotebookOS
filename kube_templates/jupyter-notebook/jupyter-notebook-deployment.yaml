@@ -6,13 +6,13 @@ metadata:
     kompose.version: 1.26.0 (40646f47)
   creationTimestamp: null
   labels:
-    io.kompose.service: jupyter
-  name: jupyter
+    io.kompose.service: jupyter-notebook
+  name: jupyter-notebook
 spec:
   replicas: 1
   selector:
     matchLabels:
-      io.kompose.service: jupyter
+      io.kompose.service: jupyter-notebook
   strategy:
     type: Recreate
   template:
@@ -22,28 +22,28 @@ spec:
         kompose.version: 1.26.0 (40646f47)
       creationTimestamp: null
       labels:
-        io.kompose.service: jupyter
+        io.kompose.service: jupyter-notebook
     spec:
       containers:
         - image: quay.io/jupyter/scipy-notebook:latest
-          name: Jupyter
+          name: JupyterNotebook
           ports:
             - containerPort: 8888
           resources: {}
           volumeMounts:
             - mountPath: /home/jovyan
-              name: jupyter-claim0
+              name: jupyter-notebook-claim0
             - mountPath: /home/jovyan/distibuted-notebook
-              name: jupyter-claim1
+              name: jupyter-notebook-claim1
           env:
             - name: JUPYTER_ALLOW_INSECURE_WRITES
               value: "true"
       restartPolicy: Always
       volumes:
-        - name: jupyter-claim0
+        - name: jupyter-notebook-claim0
           persistentVolumeClaim:
             claimName: jupyter-claim0
-        - name: jupyter-claim1
+        - name: jupyter-notebook-claim1
           persistentVolumeClaim:
-            claimName: jupyter-claim1
+            claimName: jupyter-notebook-claim1
 status: {}

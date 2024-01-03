@@ -3,8 +3,8 @@ kind: PersistentVolumeClaim
 metadata:
   creationTimestamp: null
   labels:
-    io.kompose.service: jupyter-claim1
-  name: jupyter-claim1
+    io.kompose.service: jupyter-notebook-claim1
+  name: jupyter-notebook-claim1
 spec:
   accessModes:
     - ReadWriteOnce
