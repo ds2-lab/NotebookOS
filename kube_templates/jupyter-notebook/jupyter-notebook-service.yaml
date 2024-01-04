@@ -7,7 +7,7 @@ metadata:
   creationTimestamp: null
   labels:
     io.kompose.service: jupyter-notebook
-  name: JupyterNotebook
+  name: jupyter-notebook
 spec:
   ports:
     - name: "8888"

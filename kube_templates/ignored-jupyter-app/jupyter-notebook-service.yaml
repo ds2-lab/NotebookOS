@@ -6,14 +6,14 @@ metadata:
     kompose.version: 1.26.0 (40646f47)
   creationTimestamp: null
   labels:
-    io.kompose.service: jupyter-kernel
-  name: jupyter-kernel
+    io.kompose.service: jupyter-notebook
+  name: JupyterNotebook
 spec:
   ports:
     - name: "8888"
       port: 8888
       targetPort: 8888
   selector:
-    io.kompose.service: jupyter-kernel
+    io.kompose.service: jupyter-notebook
 status:
   loadBalancer: {}

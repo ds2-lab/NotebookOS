@@ -13,7 +13,8 @@ spec:
   selector:
     matchLabels:
       io.kompose.service: jupyter-notebook
-  strategy: {}
+  strategy:
+    type: Recreate
   template:
     metadata:
       annotations:
@@ -24,14 +25,25 @@ spec:
         io.kompose.service: jupyter-notebook
     spec:
       containers:
-        - args:
-            - start-notebook.sh
-            - --NotebookApp.token=
-            - --log-level=DEBUG
-          image: scusemua/jupyter:latest
-          name: jupyter-notebook
+        - image: quay.io/jupyter/scipy-notebook:latest
+          name: JupyterNotebook
           ports:
             - containerPort: 8888
           resources: {}
+          volumeMounts:
+            - mountPath: /home/jovyan
+              name: jupyter-notebook-claim0
+            - mountPath: /home/jovyan/distibuted-notebook
+              name: jupyter-notebook-claim1
+          env:
+            - name: JUPYTER_ALLOW_INSECURE_WRITES
+              value: "true"
       restartPolicy: Always
+      volumes:
+        - name: jupyter-notebook-claim0
+          persistentVolumeClaim:
+            claimName: jupyter-claim0
+        - name: jupyter-notebook-claim1
+          persistentVolumeClaim:
+            claimName: jupyter-notebook-claim1
 status: {}
