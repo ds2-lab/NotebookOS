@@ -1,0 +1,35 @@
+# This defines the basic "structure" of a distributed kernel deployment.
+# Each Session will have its own deployment. The deployments will be created with this template as a starting point.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: kernel-{{ .name }}
+  name: kernel-{{ .name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: kernel
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.0 (40646f47)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: kernel
+    spec:
+      containers:
+          image: scusemua/jupyter:latest
+          name: kernel
+          ports:
+            - containerPort: 8888
+          resources: {}
+      restartPolicy: Always
+status: {}
