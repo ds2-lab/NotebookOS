@@ -15,20 +15,22 @@ import (
 
 type KubeInvoker struct {
 	LocalInvoker
-	dockerOpts    *jupyter.ConnectionInfo
-	containerName string
-	smrPort       int
-	closing       int32
-	kubeClientset *kubernetes.Clientset
+	dockerOpts     *jupyter.ConnectionInfo
+	podName        string // The name of the Pod associated with the KubeInvoker.
+	deploymentName string // The name of the Deployment associated with the KubeInvoker.
+	smrPort        int
+	closing        int32
+	kubeClientset  *kubernetes.Clientset
 }
 
-func NewKubeInvoker(opts *jupyter.ConnectionInfo) *KubeInvoker {
+func NewKubeInvoker(opts *jupyter.ConnectionInfo, deploymentName string) *KubeInvoker {
 	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
 	if smrPort == 0 {
 		smrPort = KernelSMRPortDefault
 	}
 	invoker := &KubeInvoker{
-		smrPort: smrPort,
+		smrPort:        smrPort,
+		deploymentName: deploymentName,
 	}
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
 
@@ -50,6 +52,11 @@ func NewKubeInvoker(opts *jupyter.ConnectionInfo) *KubeInvoker {
 // InvokeWithContext starts a kernel with the given context.
 func (ivk *KubeInvoker) InvokeWithContext(context.Context, *gateway.KernelReplicaSpec) (*jupyter.ConnectionInfo, error) {
 	panic("KubeInvoker::OnStatusChanged has not yet been implemented.")
+
+	// TODO:
+	// Use KubeClient API to communicate with Kubernetes API server.
+	// Create a new Pod in the associated DistributedKernel deployment.
+	// Recall that each Session has its own Deployment.
 }
 
 // Status returns the status of the kernel.
@@ -73,7 +80,7 @@ func (ivk *KubeInvoker) Close() error {
 
 // Wait waits for the kernel to exit.
 func (ivk *KubeInvoker) Wait() (jupyter.KernelStatus, error) {
-	if ivk.containerName == "" {
+	if ivk.podName == "" {
 		return 0, jupyter.ErrKernelNotLaunched
 	}
 
