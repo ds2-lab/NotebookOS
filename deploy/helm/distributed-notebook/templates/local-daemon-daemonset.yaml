@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: daemon
+  name: daemon
+  namespace: default
+spec:
+  replicas: 10
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      io.kompose.service: daemon
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.0 (40646f47)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: daemon
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+              matchExpressions:
+                - key: "distributed-notebook"
+                  operator: In
+                  values:
+                    - distributed-notebook 
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+        - env:
+            - name: HOST_MOUNT_DIR
+              value: /home/bcarver2/kernel_base
+            - name: KERNEL_IMAGE
+              value: scusemua/jupyter:latest
+            - name: KERNEL_NETWORK
+              value: local_daemon_default
+            - name: KERNEL_TEMP_BASE
+              value: /kernel_base
+            # - name: STORAGE
+            #   value: local_daemon_storage
+            # - name: TARGET_MOUNT_DIR
+            #   value: /kernel_base
+          image: scusemua/daemon
+          name: daemon
+          resources: {}
+          volumeMounts:
+            - name: local-daemon-pvc
+              mountPath: /mnt
+            # - mountPath: /storage
+            #   name: local-daemon-pvc-claim1
+      restartPolicy: Always
+  volumeClaimTemplates:                     // this will be used to create PVC
+    - metadata:
+      name: local-daemon-pvc
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 256Mi
+status: {}

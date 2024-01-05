@@ -3,8 +3,8 @@ kind: PersistentVolumeClaim
 metadata:
   creationTimestamp: null
   labels:
-    io.kompose.service: daemon-claim0
-  name: daemon-claim0
+    io.kompose.service: local-daemon-pvc-claim1
+  name: local-daemon-pvc-claim1
 spec:
   accessModes:
     - ReadWriteOnce
