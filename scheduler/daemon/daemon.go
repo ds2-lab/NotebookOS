@@ -168,6 +168,7 @@ func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.Ke
 
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
+
 	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
 	for _, session := range kernel.Sessions() {
 		d.kernels.Store(session, kernel)
