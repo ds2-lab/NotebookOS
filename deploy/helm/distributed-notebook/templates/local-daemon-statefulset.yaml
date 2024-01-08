@@ -6,8 +6,8 @@ metadata:
     kompose.version: 1.26.0 (40646f47)
   creationTimestamp: null
   labels:
-    io.kompose.service: daemon
-  name: daemon
+    io.kompose.service: local-daemon
+  name: local-daemon
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: 10
@@ -15,7 +15,7 @@ spec:
     type: RollingUpdate
   selector:
     matchLabels:
-      io.kompose.service: daemon
+      io.kompose.service: local-daemon
   template:
     metadata:
       annotations:
@@ -23,7 +23,7 @@ spec:
         kompose.version: 1.26.0 (40646f47)
       creationTimestamp: null
       labels:
-        io.kompose.service: daemon
+        io.kompose.service: local-daemon
     spec:
       affinity:
         podAntiAffinity:
@@ -49,8 +49,8 @@ spec:
             #   value: local_daemon_storage
             # - name: TARGET_MOUNT_DIR
             #   value: /kernel_base
-          image: scusemua/daemon
-          name: daemon
+          image: {{ .Values.local_daemon.image }}:{{ .Values.local_daemon.image_tag }}
+          name: local-daemon
           resources: {}
           volumeMounts:
             - name: local-daemon-pvc-claim0
@@ -63,5 +63,5 @@ spec:
         accessModes: [ "ReadWriteOnce" ]
         resources:
           requests:
-            storage: 256Mi
+            storage: {{ .Values.local_daemon.pvc_size }}
 status: {}

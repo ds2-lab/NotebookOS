@@ -1,0 +1,139 @@
+# Here, we define the "local-storage" StorageClass and additional resources, including an external provisioner, to manage/provision PVCs of this type.
+
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: local-storage
+  labels:
+    kubernetes.io/cluster-service: "true"
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-provisioner-config 
+  namespace: default 
+data:
+  storageClassMap: |     
+    {{- range $classConfig := .Values.classes }}
+    {{ $classConfig.name }}:
+      hostDir: {{ $classConfig.hostDir }}
+      mountDir: {{ $classConfig.mountDir | default $classConfig.hostDir }}
+      {{- if $classConfig.blockCleanerCommand }}
+      blockCleanerCommand:
+      {{- range $val := $classConfig.blockCleanerCommand }}
+        - {{ $val | quote }}
+      {{- end}}
+      {{- end }}
+      {{- if $classConfig.volumeMode }}
+      volumeMode: {{ $classConfig.volumeMode }}
+      {{- end }}
+      {{- if $classConfig.fsType }}
+      fsType: {{ $classConfig.fsType }}
+      {{- end }}
+      {{- if $classConfig.namePattern }}
+      namePattern: {{ $classConfig.namePattern | quote }}
+      {{- end }}
+    {{- end }}
+
+---
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: local-volume-provisioner
+  namespace: default
+  labels:
+    app: local-volume-provisioner
+spec:
+  selector:
+    matchLabels:
+      app: local-volume-provisioner 
+  template:
+    metadata:
+      labels:
+        app: local-volume-provisioner
+    spec:
+      serviceAccountName: local-storage-admin
+      containers:
+        - image: "registry.k8s.io/sig-storage/local-volume-provisioner:v2.4.0"
+          imagePullPolicy: "Always"
+          name: provisioner 
+          securityContext:
+            privileged: true
+          env:
+          - name: MY_NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          volumeMounts:
+            - mountPath: /etc/provisioner/config 
+              name: provisioner-config
+              readOnly: true             
+            - mountPath:  /mnt/local-storage 
+              name: local-storage
+              mountPropagation: "HostToContainer"
+            - mountPath: /dev
+              name:  provisioner-dev
+      volumes:
+        - name: provisioner-config
+          configMap:
+            name: local-provisioner-config         
+        - name: local-storage
+          hostPath:
+            path: /mnt/local-storage 
+        - name: provisioner-dev
+          hostPath:
+            path: /dev
+
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: local-storage-admin
+  namespace: default
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: local-storage-provisioner-pv-binding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: local-storage-admin
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: system:persistent-volume-provisioner
+  apiGroup: rbac.authorization.k8s.io
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: local-storage-provisioner-node-clusterrole
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get"]
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: local-storage-provisioner-node-binding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: local-storage-admin
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: local-storage-provisioner-node-clusterrole
+  apiGroup: rbac.authorization.k8s.io
