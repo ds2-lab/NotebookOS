@@ -24,7 +24,7 @@ spec:
         io.kompose.service: gateway
     spec:
       containers:
-        - image: scusemua/gateway
+        - image: {{ .Values.gateway.image }}:{{ .Values.gateway.image_tag }}
           name: gateway
           resources: {}
       restartPolicy: Always

@@ -19,6 +19,16 @@ service:
   type: ClusterIP
   port: 80
 
+gateway:
+  port: 8081
+  image: scusemua/gateway
+  image_tag: latest
+
+notebook_server:
+  port: 8888
+  image: scusemua/jupyter
+  image_tag: latest
+
 ingress:
   enabled: false
   className: ""

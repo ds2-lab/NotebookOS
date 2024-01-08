@@ -40,7 +40,7 @@ spec:
             - name: HOST_MOUNT_DIR
               value: /home/bcarver2/kernel_base
             - name: KERNEL_IMAGE
-              value: scusemua/jupyter:latest
+              value: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag }}
             - name: KERNEL_NETWORK
               value: local_daemon_default
             - name: KERNEL_TEMP_BASE

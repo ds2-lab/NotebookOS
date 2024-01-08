@@ -10,9 +10,9 @@ metadata:
   name: jupyter-notebook
 spec:
   ports:
-    - name: "8888"
-      port: 8888
-      targetPort: 8888
+    - name: "{{ .Values.notebook_server.port }}"
+      port: {{ .Values.notebook_server.port }}
+      targetPort: {{ .Values.notebook_server.port }}
   selector:
     io.kompose.service: jupyter-notebook
 status:

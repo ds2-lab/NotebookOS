@@ -10,9 +10,9 @@ metadata:
   name: gateway
 spec:
   ports:
-    - name: "8081"
-      port: 8081
-      targetPort: 8081
+    - name: "{{ .Values.gateway.port }}"
+      port: {{ .Values.gateway.port }}
+      targetPort: {{ .Values.gateway.port }}
   selector:
     io.kompose.service: gateway
 status:

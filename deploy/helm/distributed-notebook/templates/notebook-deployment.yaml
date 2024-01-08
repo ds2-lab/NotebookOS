@@ -28,10 +28,10 @@ spec:
             - start-notebook.sh
             - --NotebookApp.token=
             - --log-level=DEBUG
-          image: scusemua/jupyter:latest
+          image: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag}}
           name: jupyter-notebook
           ports:
-            - containerPort: 8888
+            - containerPort: {{ .Values.notebook_server.port }}
           resources: {}
       restartPolicy: Always
 status: {}
