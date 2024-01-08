@@ -53,14 +53,15 @@ spec:
           name: local-daemon
           resources: {}
           volumeMounts:
-            - name: local-daemon-pvc-claim0
+            - name: local-daemon-storage
               mountPath: /mnt
       restartPolicy: Always
   volumeClaimTemplates: # This will be used to create a unique PVC for each of the LocalDaemon pods.
     - metadata:
-      name: local-daemon-pvc-claim0
+        name: local-daemon-storage
       spec:
         accessModes: [ "ReadWriteOnce" ]
+        storageClassName: "local-storage"
         resources:
           requests:
             storage: {{ .Values.local_daemon.pvc_size }}
