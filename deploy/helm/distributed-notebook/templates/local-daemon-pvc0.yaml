@@ -10,8 +10,9 @@ spec:
   volumeMode: Filesystem
   accessModes:
     - ReadWriteOnce # The volume can be mounted as read-write by a single node. 
-  capacity:
-    storage: 1Gi
+  resources:
+    requests: 
+      storage: 128Mi
   storageClassName: local-storage
   local:
     path: /mnt/disks/k8s-local-storage

@@ -8,7 +8,7 @@ metadata:
   labels:
     io.kompose.service: daemon
   name: daemon
-  namespace: default
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: 10
   updateStrategy:
@@ -53,14 +53,12 @@ spec:
           name: daemon
           resources: {}
           volumeMounts:
-            - name: local-daemon-pvc
+            - name: local-daemon-pvc-claim0
               mountPath: /mnt
-            # - mountPath: /storage
-            #   name: local-daemon-pvc-claim1
       restartPolicy: Always
   volumeClaimTemplates: # This will be used to create a unique PVC for each of the LocalDaemon pods.
     - metadata:
-      name: local-daemon-pvc
+      name: local-daemon-pvc-claim0
       spec:
         accessModes: [ "ReadWriteOnce" ]
         resources:
