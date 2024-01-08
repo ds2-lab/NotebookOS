@@ -9,13 +9,17 @@ metadata:
   creationTimestamp: null
   labels:
     io.kompose.service: kernel-{{ .name }}
+    session: session-{{ .name }}
   name: kernel-{{ .name }}
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      io.kompose.service: kernel
-  strategy: {}
+  replicas: 3
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - topologyKey: kubernetes.io/hostname           # Anti-affinity scope is host.
+          labelSelector:
+          matchLabels:
+            session: session-{{ .name }}
   template:
     metadata:
       annotations:
@@ -24,6 +28,7 @@ spec:
       creationTimestamp: null
       labels:
         io.kompose.service: kernel
+        session: session-{{ .name }}
     spec:
       containers:
           image: scusemua/jupyter:latest

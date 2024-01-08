@@ -115,6 +115,8 @@ func New(opts *jupyter.ConnectionInfo, configs ...GatewayDaemonConfig) *GatewayD
 
 // Listen listens on the TCP network address addr and returns a net.Listener that intercepts incoming connections.
 func (d *GatewayDaemon) Listen(transport string, addr string) (net.Listener, error) {
+	d.log.Debug("GatewayDaemon is listening on transport %s, addr %s.", transport, addr)
+
 	// Initialize listener
 	lis, err := net.Listen(transport, addr)
 	if err != nil {
@@ -133,6 +135,8 @@ func (d *GatewayDaemon) Accept() (net.Conn, error) {
 		return nil, err
 	}
 	conn := incoming
+
+	d.log.Debug("GatewayDaemon is accepting a new connection.")
 
 	// Initialize yamux session for bi-directional gRPC calls
 	// At gateway side, we first wait a incoming replacement connection, then create a reverse provisioner connection to the host scheduler.
@@ -195,6 +199,8 @@ func (d *GatewayDaemon) SetID(ctx context.Context, hostId *gateway.HostId) (*gat
 
 // StartKernel launches a new kernel.
 func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
+	d.log.Debug("GatewayDaemon has been instructed to StartKernel.")
+
 	// Try to find existing kernel by session id first. The kernel that associated with the session id will not be clear during restart.
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
@@ -215,11 +221,17 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 		kernel.BindSession(in.Session)
 	}
 
+	// TODO(Ben):
+	// This is likely where we'd create the new Deployment for the particular Session, I guess?
+	// (In the Kubernetes version.)
+
 	hosts := d.placer.FindHosts(in.Resource)
 
 	var created sync.WaitGroup
 	created.Add(len(hosts))
 	for i, host := range hosts {
+		d.log.Debug("Launching kernel replica #%d", i)
+
 		// Launch replicas in parallel.
 		go func(replicaId int, host core.Host) {
 			var err error
@@ -289,6 +301,8 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 }
 
 func (d *GatewayDaemon) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
+	d.log.Debug("StartKernelReplica has been instructed to StartKernel. This is actually not supported/implemented.")
+
 	return nil, ErrNotSupported
 }
 
