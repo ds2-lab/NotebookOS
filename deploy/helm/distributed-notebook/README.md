@@ -18,3 +18,26 @@ The `./templates/_helpers.tpl` file is a _template file_, which will help pull m
 The `./templates/tests/` directory contains tests for the deployed artifacts. These tests are the executed last by Helm; as such, they are used by Helm to validate that the deployment of the chart was successful.
 
 The `./values.yaml` file specifies default values to be used within the templates. These default values enable the templates to be consistent while retaining their dynamic, configurable nature. 
+
+# Installation
+
+To install this Helm chart, we must first install a third-party provisioner that supports dynamic provisioning of `local` volumes. 
+
+We are using [Local Path Provisioner](https://github.com/rancher/local-path-provisioner/tree/master). To install this on your Kubernetes cluster, execute the following:
+``` sh
+kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
+```
+
+Next, to install the Helm chart, execute the following command:
+``` sh
+helm install distributed-notebook ./distributed-notebook/ --create-namespace
+```
+
+# Uninstalling
+
+To uninstall the Helm chart, execute the following command:
+``` sh
+helm uninstall distributed-notebook
+```
+
+If you'd like to install [Local Path Provisioner](https://github.com/rancher/local-path-provisioner/tree/master), then please refer to the uninstallation instructions available [here](https://github.com/rancher/local-path-provisioner/tree/master).
