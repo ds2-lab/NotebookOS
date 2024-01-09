@@ -1,40 +1,34 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  annotations:
-    kompose.cmd: kompose convert
-    kompose.version: 1.26.0 (40646f47)
   creationTimestamp: null
-  labels:
-    io.kompose.service: local-daemon
   name: local-daemon
   namespace: {{ .Release.Namespace }}
+  labels:
+    app: local-daemon
 spec:
   replicas: 10
   updateStrategy:
     type: RollingUpdate
   selector:
     matchLabels:
-      io.kompose.service: local-daemon
+      app: local-daemon
   template:
     metadata:
-      annotations:
-        kompose.cmd: kompose convert
-        kompose.version: 1.26.0 (40646f47)
       creationTimestamp: null
       labels:
-        io.kompose.service: local-daemon
+        app: local-daemon
     spec:
       affinity:
-        podAntiAffinity:
+        podAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
+          - labelSelector:
               matchExpressions:
-                - key: "distributed-notebook"
-                  operator: In
-                  values:
-                    - distributed-notebook 
-              topologyKey: "kubernetes.io/hostname"
+              - key: app
+                operator: In
+                values:
+                - local-daemon
+            topologyKey: "kubernetes.io/hostname"
       containers:
         - env:
             - name: HOST_MOUNT_DIR
@@ -53,15 +47,15 @@ spec:
           name: local-daemon
           resources: {}
           volumeMounts:
-            - name: local-daemon-storage
-              mountPath: /mnt
+            - name: daemon-storage
+              mountPath: /data
       restartPolicy: Always
   volumeClaimTemplates: # This will be used to create a unique PVC for each of the LocalDaemon pods.
     - metadata:
-        name: local-daemon-storage
+        name: daemon-storage
       spec:
         accessModes: [ "ReadWriteOnce" ]
-        storageClassName: "local-storage"
+        storageClassName: local-path
         resources:
           requests:
             storage: {{ .Values.local_daemon.pvc_size }}
