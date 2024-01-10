@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"context"
+
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"k8s.io/client-go/kubernetes"
@@ -13,13 +15,19 @@ type KubeClient interface {
 	GenerateKernelName(string) string     // Generate a name to be assigned to a Kernel.
 
 	// Create a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
-	CreateKernelStatefulSet(*gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
+	CreateKernelStatefulSet(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
 }
 
 type SessionDef struct {
 	SessionId           string
 	NodeLocalMountPoint string
 	SharedConfigDir     string
+}
+
+type KernelConfigMapDataSource struct {
+	SessionId      string
+	ConfigFileInfo *jupyter.ConfigFile
+	ConnectionInfo *jupyter.ConnectionInfo
 }
 
 func NewSessionDef(sessionId string, nodeLocalMountPoint string, sharedConfigDir string) SessionDef {

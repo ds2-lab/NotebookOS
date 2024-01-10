@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: connection-file-{{ .SessionId }}
+data:
+  data-a: |
+    name={{ .DataA.Name }}
+    age={{ .DataA.Age }}
+  data-b: |
+    address= {{ .DataB.Address }}

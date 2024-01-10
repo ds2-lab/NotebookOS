@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: connection-config-{{ .SessionId }}
+data:
+  # The following connection-related fields will be available in a configuration file on the node that the kernel Pod is scheduled on:
+  # ip, transport, control port, shell port, stdin port, hb port, iopub port.
+  signaturescheme: "{{ .ConnectionInfo.SignatureScheme }}"
+  key: "{{ .ConnectionInfo.Key }}"
+  # The SMRNodes field can be constructed ahead of time, as the hostnames of the Pods will follow a deterministic format.
+  # The SMRNodeID field will default to -1. The Pod can determine its ID from an environment variable once it starts running.
+  storage-base: "{{ .ConfigFileInfo.StorageBase }}"
+  smr-node-id: "{{ .ConfigFileInfo.SMRNodeID }}"
+  smr-nodes: "{{ .ConfigFileInfo.SMRNodes }}"
+  smr-join: "{{ .ConfigFileInfo.SMRJoin }}"

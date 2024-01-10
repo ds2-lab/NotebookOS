@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"sync"
 	"sync/atomic"
 
 	"github.com/go-zeromq/zmq4"
@@ -232,59 +231,59 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	// TODO(Ben):
 	// This is likely where we'd create the new Deployment for the particular Session, I guess?
 	// (In the Kubernetes version.)
-	go d.kubeClient.CreateKernelStatefulSet(in)
+	d.kubeClient.CreateKernelStatefulSet(ctx, in)
 
-	hosts := d.placer.FindHosts(in.Resource)
+	// hosts := d.placer.FindHosts(in.Resource)
 
-	var created sync.WaitGroup
-	created.Add(len(hosts))
-	for i, host := range hosts {
-		d.log.Debug("Launching kernel replica #%d", i)
+	// var created sync.WaitGroup
+	// created.Add(len(hosts))
+	// for i, host := range hosts {
+	// 	d.log.Debug("Launching kernel replica #%d", i)
 
-		// Launch replicas in parallel.
-		go func(replicaId int, host core.Host) {
-			var err error
-			defer func() {
-				created.Done()
-				if err != nil {
-					d.log.Warn("Failed to start replica(%s:%d): %v", kernel.KernelSpec().Id, replicaId, err)
-				}
-			}()
+	// 	// Launch replicas in parallel.
+	// 	go func(replicaId int, host core.Host) {
+	// 		var err error
+	// 		defer func() {
+	// 			created.Done()
+	// 			if err != nil {
+	// 				d.log.Warn("Failed to start replica(%s:%d): %v", kernel.KernelSpec().Id, replicaId, err)
+	// 			}
+	// 		}()
 
-			var replicaConnInfo *gateway.KernelConnectionInfo
-			replicaSpec := &gateway.KernelReplicaSpec{
-				Kernel:      in,
-				ReplicaId:   int32(replicaId),
-				NumReplicas: int32(len(hosts)),
-			}
-			replicaConnInfo, err = d.placer.Place(host, replicaSpec)
-			if err != nil {
-				return
-			}
+	// 		var replicaConnInfo *gateway.KernelConnectionInfo
+	// 		replicaSpec := &gateway.KernelReplicaSpec{
+	// 			Kernel:      in,
+	// 			ReplicaId:   int32(replicaId),
+	// 			NumReplicas: int32(len(hosts)),
+	// 		}
+	// 		replicaConnInfo, err = d.placer.Place(host, replicaSpec)
+	// 		if err != nil {
+	// 			return
+	// 		}
 
-			// Initialize kernel client
-			replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
-			err = replica.Validate()
-			if err != nil {
-				d.log.Error("KernelClient::Validate call failed: %v", err)
-				d.closeReplica(host, kernel, replica, replicaId, "validation error")
-				return
-			}
+	// 		// Initialize kernel client
+	// 		replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
+	// 		err = replica.Validate()
+	// 		if err != nil {
+	// 			d.log.Error("KernelClient::Validate call failed: %v", err)
+	// 			d.closeReplica(host, kernel, replica, replicaId, "validation error")
+	// 			return
+	// 		}
 
-			err = kernel.AddReplica(replica, host)
-			if err != nil {
-				d.log.Error("KernelClient::AddReplica call failed: %v", err)
-				d.closeReplica(host, kernel, replica, replicaId, "failed adding to the kernel")
-				return
-			}
+	// 		err = kernel.AddReplica(replica, host)
+	// 		if err != nil {
+	// 			d.log.Error("KernelClient::AddReplica call failed: %v", err)
+	// 			d.closeReplica(host, kernel, replica, replicaId, "failed adding to the kernel")
+	// 			return
+	// 		}
 
-		}(i+1, host)
-	}
+	// 	}(i+1, host)
+	// }
 
 	// TODO: Handle replica creation error and ensure enough number of replicas are created.
 
 	// Wait for all replicas to be created.
-	created.Wait()
+	// created.Wait()
 
 	if kernel.Size() == 0 {
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")

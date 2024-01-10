@@ -1,17 +1,26 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"log"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"text/template"
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -80,16 +89,10 @@ func (c *BasicKubeClient) GenerateKernelName(sessionId string) string {
 }
 
 // Create a new Kubernetes StatefulSet for the given Session.
-func (c *BasicKubeClient) CreateKernelStatefulSet(kernel *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
+func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	c.log.Debug("Creating StatefulSet for Session %s.", kernel.Id)
 
-	var templateFile = "./distributed-kernel-deployment-template.yaml"
-	tmpl, err := template.New("distributed-kernel-deployment-template.yaml").ParseFiles(templateFile)
-	if err != nil {
-		panic(err)
-	}
-
-	var kernelName string = c.GenerateKernelName(kernel.Id)
+	// var kernelName string = c.GenerateKernelName(kernel.Id)
 
 	connectionInfo, err := c.prepareConnectionFileContents(kernel)
 	if err != nil {
@@ -98,30 +101,277 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(kernel *gateway.KernelSpec) (*
 	}
 	c.log.Debug("Prepared connection info: %v\n", connectionInfo)
 	// Write connection file and replace placeholders within in command line
-	_, err = c.writeConnectionFile(c.configDir, fmt.Sprintf(ConnectionFileFormat, kernelName), connectionInfo)
-	if err != nil {
-		c.log.Error("Error while writing connection file: %v.\n", err)
-		c.log.Error("Connection info: %v\n", connectionInfo)
-		return nil, err
-	}
+	// connectionFileName, err := c.writeConnectionFile(c.configDir, fmt.Sprintf(ConnectionFileFormat, kernelName), connectionInfo)
+	// if err != nil {
+	// 	c.log.Error("Error while writing connection file: %v.\n", err)
+	// 	c.log.Error("Connection info: %v\n", connectionInfo)
+	// 	return nil, err
+	// }
+	// c.log.Debug("Wrote connection file: \"%s\"", connectionFileName)
 
-	jupyterConfigFileInfo, err := c.prepareConfigFileContents(kernel)
+	jupyterConfigFileInfo, err := c.prepareConfigFileContents(&gateway.KernelReplicaSpec{
+		ReplicaId: 1, // TODO(Ben): Is it okay to put 1 here?
+		Replicas:  nil,
+		Kernel:    kernel,
+	})
 	if err != nil {
 		c.log.Error("Error while preparing config file: %v.\n", err)
 		return nil, err
 	}
-	_, err = c.writeConfigFile(c.configDir, fmt.Sprintf(ConfigFileFormat, kernelName), jupyterConfigFileInfo)
-	if err != nil {
-		c.log.Error("Error while writing config file: %v.\n", err)
-		c.log.Error("Config info: %v\n", jupyterConfigFileInfo)
-		return nil, err
-	}
+
+	// configFileName, err := c.writeConfigFile(c.configDir, fmt.Sprintf(ConfigFileFormat, kernelName), jupyterConfigFileInfo)
+	// if err != nil {
+	// 	c.log.Error("Error while writing config file: %v.\n", err)
+	// 	c.log.Error("Config info: %v\n", jupyterConfigFileInfo)
+	// 	return nil, err
+	// }
+	// c.log.Debug("Wrote configuration file: \"%s\"", configFileName)
 
 	sess := NewSessionDef(kernel.Id, c.nodeLocalMountPoint, c.configDir)
-	err = tmpl.Execute(os.Stdout, sess)
+
+	// TODO(Ben):
+	// - I could read in the template files once at the beginning.
+	// - I may also be able to do this programmatically (i.e., without reading and writing files) using the Kubernetes Golang client API.
+
+	// Create an empty file. We'll write the populated template for the StatefulSet to this file.
+	statefulSetDefinitionFilePath := filepath.Join(c.configDir, fmt.Sprintf("sess-%s-distr-kernel-statefulset.yaml", kernel.Id))
+	statefulSetDefinitionFile, err := os.Create(statefulSetDefinitionFilePath)
+	defer statefulSetDefinitionFile.Close()
+
+	// Fill out the template for the stateful set.
+	var statefulSetTemplateFile = "./distributed-kernel-stateful-set-template.yaml" // TODO(Ben): Don't hardcode this.
+	statefulSetTemplate, err := template.New("distributed-kernel-stateful-set-template.yaml").ParseFiles(statefulSetTemplateFile)
 	if err != nil {
 		panic(err)
 	}
+	err = statefulSetTemplate.Execute(os.Stdout, sess)
+	if err != nil {
+		panic(err)
+	}
+
+	data := KernelConfigMapDataSource{
+		SessionId: kernel.Id, ConfigFileInfo: jupyterConfigFileInfo, ConnectionInfo: connectionInfo,
+	}
+
+	// Create an empty file. We'll write the populated template for the ConfigMap to this file.
+	kernelConfigMapDefinitionFilePath := filepath.Join(c.configDir, fmt.Sprintf("kernel-%s-config-map.yaml", kernel.Id))
+	kernelConfigMapDefinitionFile, err := os.Create(kernelConfigMapDefinitionFilePath)
+	defer kernelConfigMapDefinitionFile.Close()
+
+	// Fill out the template for the ConfigMap.
+	var configMapTemplateFile = "./kernel-configmap.yaml" // TODO(Ben): Don't hardcode this.
+	configMapTemplate, err := template.New("kernel-configmap.yaml").ParseFiles(configMapTemplateFile)
+	if err != nil {
+		panic(err)
+	}
+	err = configMapTemplate.Execute(kernelConfigMapDefinitionFile, data)
+	if err != nil {
+		panic(err)
+	}
+
+	configMap := &corev1.ConfigMap{
+		TypeMeta: v1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name:      fmt.Sprintf("kernel-%s-configmap", kernel.Id),
+			Namespace: "default", // TODO(Ben): Don't hardcode the namespace.
+		},
+		Data: map[string]string{
+			"signature-scheme": connectionInfo.SignatureScheme,
+			"key":              connectionInfo.Key,
+			"storage-base":     jupyterConfigFileInfo.StorageBase,
+			"smr-node-id":      fmt.Sprintf("%d", jupyterConfigFileInfo.SMRNodeID),
+			"smr-nodes":        strings.Join(jupyterConfigFileInfo.SMRNodes, ","),
+			"smr-join":         strconv.FormatBool(jupyterConfigFileInfo.SMRJoin),
+		},
+	}
+
+	// TODO(Ben): Don't hardcode the namespace.
+	_, err = c.kubeClientset.CoreV1().ConfigMaps("default").Create(ctx, configMap, v1.CreateOptions{})
+	if err != nil {
+		c.log.Error("Error creating ConfigMap for Session %s.", kernel.Id)
+		panic(err)
+	}
+
+	svcClient := c.kubeClientset.CoreV1().Services(corev1.NamespaceDefault)
+	svc := &corev1.Service{
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:     "TCP",
+					Protocol: "TCP",
+					Port:     80,
+					TargetPort: intstr.IntOrString{
+						IntVal: 80,
+					},
+				},
+			},
+			Selector: map[string]string{"app": fmt.Sprintf("nginx-%s", kernel.Id)},
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name:   fmt.Sprintf("nginx-%s", kernel.Id),
+			Labels: map[string]string{"app": fmt.Sprintf("nginx-%s", kernel.Id)},
+		},
+		TypeMeta: v1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+	}
+	_, err = svcClient.Create(ctx, svc, v1.CreateOptions{})
+	if err != nil {
+		c.log.Error("Error creating Service for StatefulSet for Session %s.", kernel.Id)
+		panic(err)
+	}
+
+	statefulSetsClient := c.kubeClientset.AppsV1().StatefulSets(v1.NamespaceDefault)
+	var replicas int32 = 3
+	var storageClassName string = "local-path"
+	var affinity corev1.Affinity = corev1.Affinity{
+		PodAntiAffinity: &corev1.PodAntiAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+				{
+					TopologyKey: "kubernetes.io/hostname",
+					LabelSelector: &v1.LabelSelector{
+						MatchLabels: map[string]string{
+							"session": fmt.Sprintf("session-%s", kernel.Id),
+						},
+					},
+				},
+			},
+		},
+	}
+	storage_resource, err := resource.ParseQuantity("128Mi")
+	if err != nil {
+		panic(err)
+	}
+	statefulSet := &appsv1.StatefulSet{
+		TypeMeta: v1.TypeMeta{
+			Kind:       "StatefulSet",
+			APIVersion: "apps/v1",
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Labels: map[string]string{
+				"session": fmt.Sprintf("session-%s", kernel.Id),
+				"app":     fmt.Sprintf("kernel-%s", kernel.Id),
+			},
+			Name: fmt.Sprintf("kernel-%s", kernel.Id),
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas:       &replicas,
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{}},
+			Selector: &v1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": fmt.Sprintf("kernel-%s", kernel.Id),
+				},
+			},
+			ServiceName: fmt.Sprintf("nginx-%s", kernel.Id),
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: v1.ObjectMeta{
+					Labels: map[string]string{
+						"session": fmt.Sprintf("session-%s", kernel.Id),
+						"app":     fmt.Sprintf("kernel-%s", kernel.Id),
+					},
+				},
+				Spec: corev1.PodSpec{
+					Affinity:      &affinity,
+					RestartPolicy: corev1.RestartPolicyAlways,
+					Containers: []corev1.Container{
+						{
+							Name:  "kernel",
+							Image: "scusemua/jupyter:latest", // TODO(Ben): Don't hardcode this.
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: 8888,
+								},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "node-local",
+									MountPath: c.nodeLocalMountPoint,
+								},
+								{
+									Name:      "shared-config-dir",
+									MountPath: c.configDir,
+								},
+							},
+							Env: []corev1.EnvVar{
+								{
+									Name: "POD_SERVICE_ACCOUNT",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "spec.serviceAccountName",
+										},
+									},
+								},
+								{
+									Name: "NODE_IP",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "status.hostIP",
+										},
+									},
+								},
+								{
+									Name: "POD_IP",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "status.podIP",
+										},
+									},
+								},
+								{
+									Name: "POD_NAMESPACE",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "metadata.namespace",
+										},
+									},
+								},
+								{
+									Name: "POD_NAME",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "metadata.name",
+										},
+									},
+								},
+								{
+									Name: "NODE_NAME",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "spec.nodeName",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: v1.ObjectMeta{
+						Name: fmt.Sprintf("kernel-%s", kernel.Id),
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteOnce,
+						},
+						StorageClassName: &storageClassName,
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: storage_resource,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err = statefulSetsClient.Create(ctx, statefulSet, v1.CreateOptions{})
 
 	return connectionInfo, nil
 }
@@ -173,14 +423,9 @@ func (c *BasicKubeClient) writeConfigFile(dir string, configFilePath string, inf
 
 func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	// Prepare contents of the connection file.
+	// We just need to add the SignatureScheme and Key.
+	// The other information will be available in a file already on the host.
 	connectionInfo := &jupyter.ConnectionInfo{
-		IP:              "0.0.0.0",
-		Transport:       "tcp",
-		ControlPort:     c.dockerOpts.ControlPort,
-		ShellPort:       c.dockerOpts.ShellPort,
-		StdinPort:       c.dockerOpts.StdinPort,
-		HBPort:          c.dockerOpts.HBPort,
-		IOPubPort:       c.dockerOpts.IOPubPort,
 		SignatureScheme: spec.SignatureScheme,
 		Key:             spec.Key,
 	}
@@ -189,12 +434,21 @@ func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec
 }
 
 func (c *BasicKubeClient) prepareConfigFileContents(spec *gateway.KernelReplicaSpec) (*jupyter.ConfigFile, error) {
+	var replicas []string
+
+	// Generate the hostnames for the Pods of the StatefulSet.
+	// We can determine them deterministically due to the convention/properties of the StatefulSet.
+	for i := 0; i < 3; i++ {
+		hostname := fmt.Sprintf("kernel-%s-%d", spec.ID(), i)
+		replicas = append(replicas, hostname)
+	}
+
 	// Prepare contents of the configuration file.
 	file := &jupyter.ConfigFile{
 		DistributedKernelConfig: jupyter.DistributedKernelConfig{
 			StorageBase: kubeStorageBase,
-			SMRNodeID:   int(spec.ReplicaId),
-			SMRNodes:    spec.Replicas,
+			SMRNodeID:   int(spec.ReplicaId), // TODO(Ben): Set this to -1 to make it obvious that the Pod needs to fill this in itself?
+			SMRNodes:    replicas,
 			SMRJoin:     spec.Join,
 		},
 	}

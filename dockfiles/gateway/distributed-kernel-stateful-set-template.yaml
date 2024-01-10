@@ -56,11 +56,11 @@ spec:
       - name: POD_NAME
         valueFrom:
           fieldRef:
-            fieldPath: metadata.SessionId
+            fieldPath: metadata.name
       - name: POD_NAMESPACE
         valueFrom:
           fieldRef:
-            fieldPath: metadata.SessionIdspace
+            fieldPath: metadata.namespace
       - name: POD_IP
         valueFrom:
           fieldRef:
