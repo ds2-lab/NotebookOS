@@ -47,12 +47,6 @@ spec:
             labelSelector:
             matchLabels:
               session: session-{{ .SessionId }}
-      containers:
-      - image: scusemua/jupyter:latest
-        name: kernel
-        ports:
-        - containerPort: 8888
-        resources: {}
       restartPolicy: Always
       env:
       - name: NODE_NAME
@@ -79,12 +73,23 @@ spec:
         valueFrom:
           fieldRef:
             fieldPath: spec.serviceAccountName
+      containers:
+      - image: scusemua/jupyter:latest
+        name: kernel
+        ports:
+        - containerPort: 8888
+        resources: {}
+        volumeMounts:
+        - name: node-local
+          mountPath: "{{ .NodeLocalMountPoint }}"
+        - name: shared-config-dir
+          mountPath: "{{ .SharedConfigDir }}" # TODO(Ben): Update this. I think it'll be a ConfigMap? I'm not sure yet, though... 
   volumeClaimTemplates: # This will be used to create a unique PVC for each of the LocalDaemon pods.
   - metadata:
-      name: kernel-storage
+      name: node-local
     spec:
       accessModes: ["ReadWriteOnce"]
       storageClassName: local-path
       resources:
         requests:
-          storage: 256Mi
+          storage: 128Mi # {{ .Values.local_daemon.pvc_size }}

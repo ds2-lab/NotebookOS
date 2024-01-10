@@ -33,7 +33,11 @@ notebook_server:
 local_daemon:
   image: scusemua/daemon
   image_tag: latest
-  pvc_size: 128Mi
+  # pvc_size: 128Mi Hard-coded to 128Mi for now, as this request needs to be the same in the local daemon and any co-located kernel pods.
+
+common:
+  config_file_dir: "./configurationFiles/"
+  node_local_pvc_mount_point: "node_local"
 
 ingress:
   enabled: false

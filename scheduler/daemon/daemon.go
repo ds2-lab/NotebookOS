@@ -2,7 +2,11 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -26,6 +30,12 @@ import (
 const (
 	ShellKernelInfoRequest = "kernel_info_request"
 	ShellShutdownRequest   = "shutdown_request"
+
+	KubeSharedConfigDir        = "SHARED_CONFIG_DIR"
+	KubeSharedConfigDirDefault = "/configurationFiles/"
+
+	KubeNodeLocalMountPoint        = "NODE_LOCAL_MOUNT_POINT"
+	KubeNodeLocalMountPointDefault = "/data"
 )
 
 var (
@@ -110,7 +120,63 @@ func New(opts *jupyter.ConnectionInfo, configs ...SchedulerDaemonConfig) *Schedu
 		}
 	}
 
+	daemon.createAndWriteSharedConnectionFile()
+
 	return daemon
+}
+
+// Create the ConnectionFile to be used/shared by all co-located Kernel pods (i.e., all Kernel pods running on the same node as this SchedulerDaemon).
+func (d *SchedulerDaemon) createAndWriteSharedConnectionFile() {
+	connectionInfo := &jupyter.ConnectionInfo{
+		IP:              "0.0.0.0",
+		Transport:       "tcp",
+		ControlPort:     d.connectionOptions.ControlPort,
+		ShellPort:       d.connectionOptions.ShellPort,
+		StdinPort:       d.connectionOptions.StdinPort,
+		HBPort:          d.connectionOptions.HBPort,
+		IOPubPort:       d.connectionOptions.IOPubPort,
+		SignatureScheme: "", // This will need to be passed separately on a per-StatefulSet basis.
+		Key:             "", // This will need to be passed separately on a per-StatefulSet basis.
+	}
+
+	d.log.Debug("Prepared connection info: %v\n", connectionInfo)
+
+	jsonContent, err := json.Marshal(connectionInfo)
+	if err != nil {
+		d.log.Error("Error while writing connection file: %v.\n", err)
+		d.log.Error("Connection info: %v\n", connectionInfo)
+		panic(err)
+	}
+
+	pvcDir := utils.GetEnv(KubeNodeLocalMountPoint, KubeNodeLocalMountPointDefault)
+	configDir := utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDirDefault)
+	targetDirectory := filepath.Join(pvcDir, configDir)
+	if _, err = os.Stat(targetDirectory); os.IsNotExist(err) {
+		err = os.Mkdir(targetDirectory, os.ModePerm)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	f, err := os.Create(filepath.Join(targetDirectory, "connection-all.json"))
+	if err != nil {
+		d.log.Error("Error while writing connection file: %v.\n", err)
+		d.log.Error("Connection info: %v\n", connectionInfo)
+		panic(err)
+	}
+
+	d.log.Debug("Created connection file \"%s\"\n", f.Name())
+	d.log.Debug("Writing the following contents to connection file \"%s\": \"%v\"\n", f.Name(), jsonContent)
+	f.Write(jsonContent)
+	defer f.Close()
+
+	d.log.Debug("Changing permissions of connection file \"%s\" now\n", f.Name())
+	if err := os.Chmod(f.Name(), 0777); err != nil {
+		log.Fatal(err)
+	}
+
+	d.log.Debug("Wrote connection file: %v\n", f.Name())
+
 }
 
 // SetID sets the SchedulerDaemon id by the gateway.

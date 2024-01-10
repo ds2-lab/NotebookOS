@@ -3,9 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
-	"html/template"
 	"net"
-	"os"
 	"sync"
 	"sync/atomic"
 
@@ -26,14 +24,14 @@ import (
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
-
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 const (
 	ShellKernelInfoRequest = "kernel_info_request"
 	ShellShutdownRequest   = "shutdown_request"
+	KubernetesKernelName   = "kernel-%s"
+	ConnectionFileFormat   = "connection-%s-*.json" // "*" is a placeholder for random string
+	ConfigFileFormat       = "config-%s-*.json"     // "*" is a placeholder for random string
 )
 
 var (
@@ -89,11 +87,7 @@ type GatewayDaemon struct {
 	cleaned chan struct{}
 
 	// Kubernetes client.
-	kubeClientset *kubernetes.Clientset
-}
-
-type SessionDef struct {
-	SessionId string
+	kubeClient KubeClient
 }
 
 func New(opts *jupyter.ConnectionInfo, configs ...GatewayDaemonConfig) *GatewayDaemon {
@@ -122,17 +116,7 @@ func New(opts *jupyter.ConnectionInfo, configs ...GatewayDaemonConfig) *GatewayD
 		}
 	}
 
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		panic(err.Error())
-	}
-
-	// Creates the Clientset.
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
-	}
-	daemon.kubeClientset = clientset
+	daemon.kubeClient = NewKubeClient()
 
 	return daemon
 }
@@ -221,22 +205,6 @@ func (d *GatewayDaemon) SetID(ctx context.Context, hostId *gateway.HostId) (*gat
 	return nil, ErrNotImplemented
 }
 
-// Create a new Kubernetes deployment for the given Session.
-func (d *GatewayDaemon) CreateKernelDeployment(sessionId string) {
-	var templateFile = "./distributed-kernel-deployment-template.yaml"
-
-	tmpl, err := template.New("distributed-kernel-deployment-template.yaml").ParseFiles(templateFile)
-	if err != nil {
-		panic(err)
-	}
-
-	sess := &SessionDef{SessionId: "Session1"}
-	err = tmpl.Execute(os.Stdout, sess)
-	if err != nil {
-		panic(err)
-	}
-}
-
 // StartKernel launches a new kernel.
 func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
 	d.log.Debug("GatewayDaemon has been instructed to StartKernel.")
@@ -264,6 +232,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	// TODO(Ben):
 	// This is likely where we'd create the new Deployment for the particular Session, I guess?
 	// (In the Kubernetes version.)
+	go d.kubeClient.CreateKernelStatefulSet(in)
 
 	hosts := d.placer.FindHosts(in.Resource)
 

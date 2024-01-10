@@ -25,6 +25,9 @@ spec:
         io.kompose.service: gateway
         app: gateway
     spec:
+      env:
+        - name: SHARED_CONFIG_DIR
+          value: "{{ .Values.commo.node_local_pvc_mount_point }}/{{ .Values.common.config_file_dir }}"
       containers:
         - image: {{ .Values.gateway.image }}:{{ .Values.gateway.image_tag }}
           name: gateway
