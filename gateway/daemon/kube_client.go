@@ -277,6 +277,18 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 				Spec: corev1.PodSpec{
 					Affinity:      &affinity,
 					RestartPolicy: corev1.RestartPolicyAlways,
+					Volumes: []corev1.Volume{
+						{
+							Name: "kernel-configmap",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: fmt.Sprintf("kernel-%s-configmap", kernel.Id),
+									},
+								},
+							},
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:  "kernel",
@@ -294,6 +306,11 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 								{
 									Name:      "shared-config-dir",
 									MountPath: c.configDir,
+								},
+								{
+									Name:      "kernel-configmap",
+									MountPath: "/config-map",
+									ReadOnly:  true,
 								},
 							},
 							Env: []corev1.EnvVar{
