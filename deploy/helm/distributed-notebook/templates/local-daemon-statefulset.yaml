@@ -56,11 +56,11 @@ spec:
           resources: {}
           volumeMounts:
             - name: node-local
-              mountPath: {{ .Values.commo.node_local_pvc_mount_point }}
+              mountPath: {{ .Values.common.node_local_pvc_mount_point }}
       restartPolicy: Always
       env:
         - name: SHARED_CONFIG_DIR
-          value: "{{ .Values.commo.node_local_pvc_mount_point }}/{{ .Values.common.config_file_dir }}"
+          value: "{{ .Values.common.node_local_pvc_mount_point }}/{{ .Values.common.config_file_dir }}"
   volumeClaimTemplates: # This will be used to create a unique PVC for each of the LocalDaemon pods.
     - metadata:
         name: node-local
@@ -69,5 +69,5 @@ spec:
         storageClassName: local-path
         resources:
           requests:
-            storage: 128Mi # {{ .Values.local_daemon.pvc_size }}
+            storage: 128Mi
 status: {}
