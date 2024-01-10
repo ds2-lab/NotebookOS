@@ -10,10 +10,15 @@ metadata:
   name: gateway
 spec:
   ports:
-    - name: "{{ .Values.gateway.port }}"
-      port: {{ .Values.gateway.port }}
-      targetPort: {{ .Values.gateway.port }}
+    - name: jupyter
+      port: {{ .Values.gateway.grpc_port }}
+      targetPort: {{ .Values.gateway.grpc_port }}
+    - name: provisioner
+      port: {{ .Values.gateway.provisioner_port }}
+      targetPort: {{ .Values.gateway.provisioner_port }}
   selector:
+    app: gateway 
     io.kompose.service: gateway
+  type: LoadBalancer
 status:
   loadBalancer: {}

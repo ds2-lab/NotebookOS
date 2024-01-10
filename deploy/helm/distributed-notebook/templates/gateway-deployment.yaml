@@ -7,6 +7,7 @@ metadata:
   creationTimestamp: null
   labels:
     io.kompose.service: gateway
+    app: gateway
   name: gateway
 spec:
   replicas: 1
@@ -22,6 +23,7 @@ spec:
       creationTimestamp: null
       labels:
         io.kompose.service: gateway
+        app: gateway
     spec:
       containers:
         - image: {{ .Values.gateway.image }}:{{ .Values.gateway.image_tag }}

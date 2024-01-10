@@ -20,7 +20,8 @@ service:
   port: 80
 
 gateway:
-  port: 8081
+  grpc_port: 8080
+  provisioner_port: 8081
   image: scusemua/gateway
   image_tag: latest
 
@@ -39,10 +40,10 @@ ingress:
   className: ""
   annotations: {}
   hosts:
-    - host: chart-example.local
-      paths:
-        - path: /
-          pathType: ImplementationSpecific
+  - host: chart-example.local
+    paths:
+    - path: /
+      pathType: ImplementationSpecific
   tls: []
 
 resources: {}

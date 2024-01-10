@@ -3,7 +3,9 @@ package daemon
 import (
 	"context"
 	"errors"
+	"html/template"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -24,6 +26,9 @@ import (
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 const (
@@ -82,6 +87,13 @@ type GatewayDaemon struct {
 	// lifetime
 	closed  int32
 	cleaned chan struct{}
+
+	// Kubernetes client.
+	kubeClientset *kubernetes.Clientset
+}
+
+type SessionDef struct {
+	SessionId string
 }
 
 func New(opts *jupyter.ConnectionInfo, configs ...GatewayDaemonConfig) *GatewayDaemon {
@@ -109,6 +121,18 @@ func New(opts *jupyter.ConnectionInfo, configs ...GatewayDaemonConfig) *GatewayD
 			daemon.ip = ip
 		}
 	}
+
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// Creates the Clientset.
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+	daemon.kubeClientset = clientset
 
 	return daemon
 }
@@ -197,6 +221,22 @@ func (d *GatewayDaemon) SetID(ctx context.Context, hostId *gateway.HostId) (*gat
 	return nil, ErrNotImplemented
 }
 
+// Create a new Kubernetes deployment for the given Session.
+func (d *GatewayDaemon) CreateKernelDeployment(sessionId string) {
+	var templateFile = "./distributed-kernel-deployment-template.yaml"
+
+	tmpl, err := template.New("distributed-kernel-deployment-template.yaml").ParseFiles(templateFile)
+	if err != nil {
+		panic(err)
+	}
+
+	sess := &SessionDef{SessionId: "Session1"}
+	err = tmpl.Execute(os.Stdout, sess)
+	if err != nil {
+		panic(err)
+	}
+}
+
 // StartKernel launches a new kernel.
 func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
 	d.log.Debug("GatewayDaemon has been instructed to StartKernel.")
@@ -257,12 +297,14 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 			replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
 			err = replica.Validate()
 			if err != nil {
+				d.log.Error("KernelClient::Validate call failed: %v", err)
 				d.closeReplica(host, kernel, replica, replicaId, "validation error")
 				return
 			}
 
 			err = kernel.AddReplica(replica, host)
 			if err != nil {
+				d.log.Error("KernelClient::AddReplica call failed: %v", err)
 				d.closeReplica(host, kernel, replica, replicaId, "failed adding to the kernel")
 				return
 			}

@@ -31,14 +31,22 @@ spec:
             topologyKey: "kubernetes.io/hostname"
       containers:
         - env:
+            - name: NODE_NAME # The full name of the Pod.
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name 
+            - name: ORDINAL_NUMBER # The Pod's oridinal with respect to the containing StatefulSet.
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
             - name: HOST_MOUNT_DIR
-              value: /home/bcarver2/kernel_base
+              value: /data
             - name: KERNEL_IMAGE
               value: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag }}
             - name: KERNEL_NETWORK
               value: local_daemon_default
             - name: KERNEL_TEMP_BASE
-              value: /kernel_base
+              value: /data
             # - name: STORAGE
             #   value: local_daemon_storage
             # - name: TARGET_MOUNT_DIR

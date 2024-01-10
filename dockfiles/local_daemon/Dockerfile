@@ -7,6 +7,7 @@ ENV LANG=C.UTF-8 \
 # Add executable
 ADD scheduler scheduler
 ADD daemon.yml daemon.yml
+ADD distributed-kernel-pod.yaml distributed-kernel-pod.yaml
 
 EXPOSE 8080/tcp
 

@@ -252,6 +252,7 @@ class GatewayProvisioner(KernelProvisionerBase):
 
   def _get_stub(self) -> LocalGatewayStub:
     if self.gatewayChannel == None:
+      self.log.debug("Creating GatewayChannel now. Gateway: \"%s\"" % self.gateway)
       self.gatewayChannel = grpc.insecure_channel(self.gateway)
       self.gatewayStub = LocalGatewayStub(self.gatewayChannel)
 
