@@ -89,6 +89,8 @@ func (c *BasicKubeClient) GenerateKernelName(sessionId string) string {
 }
 
 // Create a new Kubernetes StatefulSet for the given Session.
+// Returns a tuple containing the connection info returned by the `prepareConnectionFileContents` function and an error,
+// which will be nil if there were no errors encountered while creating the StatefulSet and related components.
 func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	c.log.Debug("Creating StatefulSet for Session %s.", kernel.Id)
 
