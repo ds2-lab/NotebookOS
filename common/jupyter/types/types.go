@@ -1,6 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 var (
 	ErrNotSupported                = fmt.Errorf("not supported")
@@ -47,6 +50,10 @@ type ConnectionInfo struct {
 	Key             string `json:"key"`
 }
 
+func (ci ConnectionInfo) String() string {
+	return fmt.Sprintf("IP: %s, ControlPort: %d, ShellPort: %d, StdinPort: %d, HBPort: %d, IOPubPort: %d, Transport: %s, SignatureScheme: %s, Key: %s", ci.IP, ci.ControlPort, ci.ShellPort, ci.StdinPort, ci.HBPort, ci.IOPubPort, ci.Transport, ci.SignatureScheme, ci.Key)
+}
+
 type DistributedKernelConfig struct {
 	StorageBase  string   `json:"storage_base"`
 	SMRPort      int      `json:"smr_port"`
@@ -56,6 +63,14 @@ type DistributedKernelConfig struct {
 	PersistentID string   `json:"persistent_id,omitempty"`
 }
 
+func (c DistributedKernelConfig) String() string {
+	return fmt.Sprintf("StorageBase: %s, SMRPort: %d, SMRNodeID: %d, SMRJoin: %v, PersistentID: %s, SMRNodes: %s", c.StorageBase, c.SMRPort, c.SMRNodeID, c.SMRJoin, c.PersistentID, strings.Join(c.SMRNodes, ","))
+}
+
 type ConfigFile struct {
 	DistributedKernelConfig `json:"DistributedKernel"`
+}
+
+func (c ConfigFile) String() string {
+	return c.DistributedKernelConfig.String()
 }

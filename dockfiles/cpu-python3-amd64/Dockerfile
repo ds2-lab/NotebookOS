@@ -1,5 +1,7 @@
 FROM quay.io/jupyter/scipy-notebook:latest
 
+# IMPORTANT: This is expected to be built using the provided Makefile from the build context ../.. 
+
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
     JUPYTER_ALLOW_INSECURE_WRITES=1
@@ -25,6 +27,10 @@ ADD MANIFEST.in /distributed_notebook/MANIFEST.in
 ADD setup.py /distributed_notebook/setup.py
 ADD install_kernel.sh /distributed_notebook/install_kernel.sh
 ADD Makefile /distributed_notebook/Makefile
+# ADD dockfiles/cpu-python3-amd64/kernel-entrypoint.sh /kernel-entrypoint.sh
+
+# Make sure we can execute the kernel-entrypoint.sh file.
+# RUN chmod +x /kernel-entrypoint.sh
 
 # Install kernel
 RUN cd /distributed_notebook \
