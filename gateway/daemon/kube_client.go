@@ -43,10 +43,11 @@ type BasicKubeClient struct {
 	log                 logger.Logger
 }
 
-func NewKubeClient() *BasicKubeClient {
+func NewKubeClient(gatewayDaemon *GatewayDaemon) *BasicKubeClient {
 	client := &BasicKubeClient{
 		configDir:           utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDir),
 		nodeLocalMountPoint: utils.GetEnv(KubeNodeLocalMountPoint, KubeNodeLocalMountPointDefault),
+		gatewayDaemon:       gatewayDaemon,
 	}
 	config.InitLogger(&client.log, client)
 
@@ -181,6 +182,13 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 		Data: map[string]string{
 			"signature-scheme": connectionInfo.SignatureScheme,
 			"key":              connectionInfo.Key,
+			"ip":               "0.0.0.0",
+			"transport":        "tcp",
+			"control-port":     fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.ControlPort),
+			"shell-port":       fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.ShellPort),
+			"stdin-port":       fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.StdinPort),
+			"hbport-port":      fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.HBPort),
+			"iopub-port":       fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.IOPubPort),
 			"storage-base":     jupyterConfigFileInfo.StorageBase,
 			"smr-node-id":      fmt.Sprintf("%d", jupyterConfigFileInfo.SMRNodeID),
 			"smr-nodes":        strings.Join(jupyterConfigFileInfo.SMRNodes, ","),
@@ -304,10 +312,6 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 									MountPath: c.nodeLocalMountPoint,
 								},
 								{
-									Name:      "shared-config-dir",
-									MountPath: c.configDir,
-								},
-								{
 									Name:      "kernel-configmap",
 									MountPath: "/config-map",
 									ReadOnly:  true,
@@ -370,7 +374,7 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name: fmt.Sprintf("kernel-%s", kernel.Id),
+						Name: "node-local",
 					},
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes: []corev1.PersistentVolumeAccessMode{

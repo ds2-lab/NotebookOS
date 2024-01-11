@@ -115,7 +115,7 @@ func New(opts *jupyter.ConnectionInfo, configs ...GatewayDaemonConfig) *GatewayD
 		}
 	}
 
-	daemon.kubeClient = NewKubeClient()
+	daemon.kubeClient = NewKubeClient(daemon)
 
 	return daemon
 }

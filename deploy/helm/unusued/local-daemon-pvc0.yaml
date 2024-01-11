@@ -9,10 +9,10 @@ metadata:
 spec:
   volumeMode: Filesystem
   accessModes:
-    - ReadWriteOnce # The volume can be mounted as read-write by a single node. 
+  - ReadWriteOnce # The volume can be mounted as read-write by a single node. 
   resources:
-    requests: 
-      storage: {{ .Values.local_daemon.pvc_size }}
+    requests:
+      storage: {? {.Values.local_daemon.pvc_size: ''} : ''}
   storageClassName: local-storage
   local:
     path: /mnt/disks/k8s-local-storage

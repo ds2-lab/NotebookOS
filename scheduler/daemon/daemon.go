@@ -120,7 +120,7 @@ func New(opts *jupyter.ConnectionInfo, configs ...SchedulerDaemonConfig) *Schedu
 		}
 	}
 
-	daemon.createAndWriteSharedConnectionFile()
+	// daemon.createAndWriteSharedConnectionFile()
 
 	return daemon
 }

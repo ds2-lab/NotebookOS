@@ -23,7 +23,7 @@ const (
 	DockerTempBaseDefault = ""
 
 	DockerImageName        = "KERNEL_IMAGE"
-	DockerImageNameDefault = "zhangjyr/jupyter:latest"
+	DockerImageNameDefault = "scusemua/jupyter:latest"
 
 	DockerNetworkName        = "KERNEL_NETWORK"
 	DockerNetworkNameDefault = "local_daemon_default"

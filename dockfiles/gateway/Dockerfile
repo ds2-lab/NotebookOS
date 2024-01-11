@@ -6,7 +6,7 @@ ENV LANG=C.UTF-8 \
 
 # Add executable.
 ADD gateway gateway
-# Add configuration file.
+# Add configuration files.
 ADD gateway.yml gateway.yml
 # Add the StatefulSet template for distributed kernel replicas.
 ADD distributed-kernel-stateful-set-template.yaml distributed-kernel-stateful-set-template.yaml
