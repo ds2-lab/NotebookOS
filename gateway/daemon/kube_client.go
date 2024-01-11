@@ -29,7 +29,7 @@ const (
 	KubeNodeLocalMountPointDefault = "/data"
 
 	IPythonConfigPath        = "IPYTHON_CONFIG_PATH"
-	IPythonConfigPathDefault = ""
+	IPythonConfigPathDefault = "/home/jovyan/.ipython/profile_default/ipython_config.json"
 
 	KernelSMRPort        = "SMR_PORT"
 	KernelSMRPortDefault = 8080
@@ -53,7 +53,7 @@ type BasicKubeClient struct {
 
 func NewKubeClient(gatewayDaemon *GatewayDaemon) *BasicKubeClient {
 	client := &BasicKubeClient{
-		configDir:           utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDir),
+		configDir:           utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDirDefault),
 		ipythonConfigPath:   utils.GetEnv(IPythonConfigPath, IPythonConfigPathDefault),
 		nodeLocalMountPoint: utils.GetEnv(KubeNodeLocalMountPoint, KubeNodeLocalMountPointDefault),
 		gatewayDaemon:       gatewayDaemon,

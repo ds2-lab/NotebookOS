@@ -32,7 +32,7 @@ const (
 	ShellShutdownRequest   = "shutdown_request"
 
 	KubeSharedConfigDir        = "SHARED_CONFIG_DIR"
-	KubeSharedConfigDirDefault = "/configurationFiles/"
+	KubeSharedConfigDirDefault = "/kernel-configmap"
 
 	KubeNodeLocalMountPoint        = "NODE_LOCAL_MOUNT_POINT"
 	KubeNodeLocalMountPointDefault = "/data"
