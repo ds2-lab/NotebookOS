@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config
+data:
+  test.conf: |
+    "shell_port": 9002,
+    "iopub_port": 9004,
+    "stdin_port": 9003,
+    "control_port": 9001,
+    "hb_port": 9000,
+    "ip": "0.0.0.0",
+    "key": "3e881afc-3b9d68fda33b3e22a07efb78",
+    "transport": "tcp",
+    "signature_scheme": "hmac-sha256",
+    "kernel_name": ""

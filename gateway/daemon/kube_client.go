@@ -29,6 +29,9 @@ const (
 
 	KubeNodeLocalMountPoint        = "NODE_LOCAL_MOUNT_POINT"
 	KubeNodeLocalMountPointDefault = "/data"
+
+	KernelSMRPort        = "SMR_PORT"
+	KernelSMRPortDefault = 8080
 )
 
 var (
@@ -40,6 +43,7 @@ type BasicKubeClient struct {
 	gatewayDaemon       *GatewayDaemon        // Associated Gateway daemon.
 	configDir           string                // Where to write config files. This is also where they'll be found on the kernel nodes.
 	nodeLocalMountPoint string                // The mount of the shared PVC for all kernel nodes.
+	smrPort             int                   // Port used for the SMR protocol.
 	log                 logger.Logger
 }
 
@@ -69,6 +73,13 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon) *BasicKubeClient {
 		client.log.Debug("The configuration/connection file directory \"%s\" does not exist. Creating it now.", client.configDir)
 		os.Mkdir(client.configDir, os.ModePerm)
 	}
+
+	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
+	if smrPort == 0 {
+		smrPort = KernelSMRPortDefault
+	}
+
+	client.smrPort = smrPort
 
 	return client
 }
@@ -101,6 +112,9 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 		return nil, err
 	}
 	c.log.Debug("Prepared connection info: %v\n", connectionInfo)
+	for i := 0; i < len(kernel.Argv); i++ {
+		c.log.Debug("spec.Kernel.Argv[%d]: %v", i, kernel.Argv[i])
+	}
 	// Write connection file and replace placeholders within in command line
 	// connectionFileName, err := c.writeConnectionFile(c.configDir, fmt.Sprintf(ConnectionFileFormat, kernelName), connectionInfo)
 	// if err != nil {
@@ -170,36 +184,80 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 	// 	panic(err)
 	// }
 
-	configMap := &corev1.ConfigMap{
+	connectionFileConfigMap := &corev1.ConfigMap{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "ConfigMap",
 			APIVersion: "v1",
 		},
 		ObjectMeta: v1.ObjectMeta{
-			Name:      fmt.Sprintf("kernel-%s-configmap", kernel.Id),
+			Name:      fmt.Sprintf("kernel-%s-connectionfile", kernel.Id),
 			Namespace: "default", // TODO(Ben): Don't hardcode the namespace.
 		},
 		Data: map[string]string{
-			"signature-scheme": connectionInfo.SignatureScheme,
-			"key":              connectionInfo.Key,
-			"ip":               "0.0.0.0",
-			"transport":        "tcp",
-			"control-port":     fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.ControlPort),
-			"shell-port":       fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.ShellPort),
-			"stdin-port":       fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.StdinPort),
-			"hbport-port":      fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.HBPort),
-			"iopub-port":       fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.IOPubPort),
-			"storage-base":     jupyterConfigFileInfo.StorageBase,
-			"smr-node-id":      fmt.Sprintf("%d", jupyterConfigFileInfo.SMRNodeID),
-			"smr-nodes":        strings.Join(jupyterConfigFileInfo.SMRNodes, ","),
-			"smr-join":         strconv.FormatBool(jupyterConfigFileInfo.SMRJoin),
+			"connection-file.json": fmt.Sprintf(`
+{
+"shell_port": %d,
+"iopub_port": %d,
+"stdin_port": %d,
+"control_port": %d,
+"hb_port": %d,
+"ip": "0.0.0.0",
+"key": "%s",
+"transport": "tcp",
+"signature_scheme": "%s",
+"kernel_name": ""
+}`, c.gatewayDaemon.connectionOptions.ShellPort, c.gatewayDaemon.connectionOptions.IOPubPort, c.gatewayDaemon.connectionOptions.StdinPort, c.gatewayDaemon.connectionOptions.ControlPort, c.gatewayDaemon.connectionOptions.HBPort, connectionInfo.Key, connectionInfo.SignatureScheme),
+			// "signature-scheme": connectionInfo.SignatureScheme,
+			// "key":              connectionInfo.Key,
+			// "ip":               "0.0.0.0",
+			// "transport":        "tcp",
+			// "control-port":     fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.ControlPort),
+			// "shell-port":       fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.ShellPort),
+			// "stdin-port":       fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.StdinPort),
+			// "hbport-port":      fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.HBPort),
+			// "iopub-port":       fmt.Sprintf("%d", c.gatewayDaemon.connectionOptions.IOPubPort),
+			// "storage-base": jupyterConfigFileInfo.StorageBase,
+			// "smr-node-id":  fmt.Sprintf("%d", jupyterConfigFileInfo.SMRNodeID),
+			// "smr-nodes":    strings.Join(jupyterConfigFileInfo.SMRNodes, ","),
+			// "smr-join":     strconv.FormatBool(jupyterConfigFileInfo.SMRJoin),
 		},
 	}
 
 	// TODO(Ben): Don't hardcode the namespace.
-	_, err = c.kubeClientset.CoreV1().ConfigMaps("default").Create(ctx, configMap, v1.CreateOptions{})
+	_, err = c.kubeClientset.CoreV1().ConfigMaps("default").Create(ctx, connectionFileConfigMap, v1.CreateOptions{})
 	if err != nil {
-		c.log.Error("Error creating ConfigMap for Session %s.", kernel.Id)
+		c.log.Error("Error creating ConfigMap for connection file for Session %s.", kernel.Id)
+		panic(err)
+	}
+
+	configFileConfigMap := &corev1.ConfigMap{
+		TypeMeta: v1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name:      fmt.Sprintf("kernel-%s-configfile", kernel.Id),
+			Namespace: "default", // TODO(Ben): Don't hardcode the namespace.
+		},
+		Data: map[string]string{
+			"ipython_config.json": fmt.Sprintf(`
+{
+	"DistributedKernel":
+	{
+		"storage_base":"%s",
+		"smr_port":%d,
+		"smr_node_id":{{replica_id}},
+		"smr_nodes":[%v],
+		"smr_join":%v
+	}
+}`, jupyterConfigFileInfo.StorageBase, c.smrPort, strings.Join(jupyterConfigFileInfo.SMRNodes, ","), strconv.FormatBool(jupyterConfigFileInfo.SMRJoin)),
+		},
+	}
+
+	// TODO(Ben): Don't hardcode the namespace.
+	_, err = c.kubeClientset.CoreV1().ConfigMaps("default").Create(ctx, configFileConfigMap, v1.CreateOptions{})
+	if err != nil {
+		c.log.Error("Error creating ConfigMap for config file for Session %s.", kernel.Id)
 		panic(err)
 	}
 
@@ -287,11 +345,21 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 					RestartPolicy: corev1.RestartPolicyAlways,
 					Volumes: []corev1.Volume{
 						{
-							Name: "kernel-configmap",
+							Name: "kernel-connectionfile-configmap",
 							VolumeSource: corev1.VolumeSource{
 								ConfigMap: &corev1.ConfigMapVolumeSource{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: fmt.Sprintf("kernel-%s-configmap", kernel.Id),
+										Name: fmt.Sprintf("kernel-%s-connectionfile", kernel.Id),
+									},
+								},
+							},
+						},
+						{
+							Name: "kernel-configfile-configmap",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: fmt.Sprintf("kernel-%s-configfile", kernel.Id),
 									},
 								},
 							},
@@ -301,6 +369,12 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 						{
 							Name:  "kernel",
 							Image: "scusemua/jupyter:latest", // TODO(Ben): Don't hardcode this.
+							Command: []string{
+								"sed",
+							},
+							Args: []string{
+								"-i", "\"s/{{replica_id}}/$(echo $POD_NAME | cut -d \"-\" -f 7)/g\"", "/home/jovyan/.ipython/profile_default/ipython_config.json", "&&", "/opt/conda/bin/python3", "-m", "distributed_notebook.kernel", "-f", fmt.Sprintf("kernel-%s-connectionfile-configmap", kernel.Id), "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream",
+							},
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 8888,
@@ -312,8 +386,13 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 									MountPath: c.nodeLocalMountPoint,
 								},
 								{
-									Name:      "kernel-configmap",
-									MountPath: "/config-map",
+									Name:      "kernel-connectionfile-configmap",
+									MountPath: "kernel-connectionfile-configmap.json",
+									ReadOnly:  true,
+								},
+								{
+									Name:      "kernel-configfile-configmap",
+									MountPath: "/home/jovyan/.ipython/profile_default/ipython_config.json",
 									ReadOnly:  true,
 								},
 							},
@@ -449,6 +528,11 @@ func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec
 	connectionInfo := &jupyter.ConnectionInfo{
 		SignatureScheme: spec.SignatureScheme,
 		Key:             spec.Key,
+		ControlPort:     c.gatewayDaemon.connectionOptions.ControlPort,
+		ShellPort:       c.gatewayDaemon.connectionOptions.ShellPort,
+		StdinPort:       c.gatewayDaemon.connectionOptions.StdinPort,
+		HBPort:          c.gatewayDaemon.connectionOptions.HBPort,
+		IOPubPort:       c.gatewayDaemon.connectionOptions.IOPubPort,
 	}
 
 	return connectionInfo, nil
