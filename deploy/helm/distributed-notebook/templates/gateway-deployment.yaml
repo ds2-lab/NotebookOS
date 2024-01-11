@@ -33,4 +33,5 @@ spec:
           name: gateway
           resources: {}
       restartPolicy: Always
+      serviceAccountName: gateway-service-account
 status: {}

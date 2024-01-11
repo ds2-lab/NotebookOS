@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"text/template"
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
@@ -129,47 +127,47 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 	// }
 	// c.log.Debug("Wrote configuration file: \"%s\"", configFileName)
 
-	sess := NewSessionDef(kernel.Id, c.nodeLocalMountPoint, c.configDir)
+	// sess := NewSessionDef(kernel.Id, c.nodeLocalMountPoint, c.configDir)
 
 	// TODO(Ben):
 	// - I could read in the template files once at the beginning.
 	// - I may also be able to do this programmatically (i.e., without reading and writing files) using the Kubernetes Golang client API.
 
 	// Create an empty file. We'll write the populated template for the StatefulSet to this file.
-	statefulSetDefinitionFilePath := filepath.Join(c.configDir, fmt.Sprintf("sess-%s-distr-kernel-statefulset.yaml", kernel.Id))
-	statefulSetDefinitionFile, err := os.Create(statefulSetDefinitionFilePath)
-	defer statefulSetDefinitionFile.Close()
+	// statefulSetDefinitionFilePath := filepath.Join(c.configDir, fmt.Sprintf("sess-%s-distr-kernel-statefulset.yaml", kernel.Id))
+	// statefulSetDefinitionFile, err := os.Create(statefulSetDefinitionFilePath)
+	// defer statefulSetDefinitionFile.Close()
 
 	// Fill out the template for the stateful set.
-	var statefulSetTemplateFile = "./distributed-kernel-stateful-set-template.yaml" // TODO(Ben): Don't hardcode this.
-	statefulSetTemplate, err := template.New("distributed-kernel-stateful-set-template.yaml").ParseFiles(statefulSetTemplateFile)
-	if err != nil {
-		panic(err)
-	}
-	err = statefulSetTemplate.Execute(os.Stdout, sess)
-	if err != nil {
-		panic(err)
-	}
+	// var statefulSetTemplateFile = "./distributed-kernel-stateful-set-template.yaml" // TODO(Ben): Don't hardcode this.
+	// statefulSetTemplate, err := template.New("distributed-kernel-stateful-set-template.yaml").ParseFiles(statefulSetTemplateFile)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// err = statefulSetTemplate.Execute(os.Stdout, sess)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	data := KernelConfigMapDataSource{
-		SessionId: kernel.Id, ConfigFileInfo: jupyterConfigFileInfo, ConnectionInfo: connectionInfo,
-	}
+	// data := KernelConfigMapDataSource{
+	// 	SessionId: kernel.Id, ConfigFileInfo: jupyterConfigFileInfo, ConnectionInfo: connectionInfo,
+	// }
 
 	// Create an empty file. We'll write the populated template for the ConfigMap to this file.
-	kernelConfigMapDefinitionFilePath := filepath.Join(c.configDir, fmt.Sprintf("kernel-%s-config-map.yaml", kernel.Id))
-	kernelConfigMapDefinitionFile, err := os.Create(kernelConfigMapDefinitionFilePath)
-	defer kernelConfigMapDefinitionFile.Close()
+	// kernelConfigMapDefinitionFilePath := filepath.Join(c.configDir, fmt.Sprintf("kernel-%s-config-map.yaml", kernel.Id))
+	// kernelConfigMapDefinitionFile, err := os.Create(kernelConfigMapDefinitionFilePath)
+	// defer kernelConfigMapDefinitionFile.Close()
 
 	// Fill out the template for the ConfigMap.
-	var configMapTemplateFile = "./kernel-configmap.yaml" // TODO(Ben): Don't hardcode this.
-	configMapTemplate, err := template.New("kernel-configmap.yaml").ParseFiles(configMapTemplateFile)
-	if err != nil {
-		panic(err)
-	}
-	err = configMapTemplate.Execute(kernelConfigMapDefinitionFile, data)
-	if err != nil {
-		panic(err)
-	}
+	// var configMapTemplateFile = "./kernel-configmap.yaml" // TODO(Ben): Don't hardcode this.
+	// configMapTemplate, err := template.New("kernel-configmap.yaml").ParseFiles(configMapTemplateFile)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// err = configMapTemplate.Execute(kernelConfigMapDefinitionFile, data)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	configMap := &corev1.ConfigMap{
 		TypeMeta: v1.TypeMeta{
@@ -202,7 +200,7 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
 				{
-					Name:     "TCP",
+					Name:     "tcp",
 					Protocol: "TCP",
 					Port:     80,
 					TargetPort: intstr.IntOrString{

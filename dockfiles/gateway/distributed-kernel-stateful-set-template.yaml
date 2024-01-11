@@ -92,4 +92,4 @@ spec:
       storageClassName: local-path
       resources:
         requests:
-          storage: 128Mi # {{ .Values.local_daemon.pvc_size }}
+          storage: 128Mi
