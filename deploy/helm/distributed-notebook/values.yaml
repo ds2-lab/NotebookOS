@@ -36,7 +36,8 @@ local_daemon:
   # pvc_size: 128Mi Hard-coded to 128Mi for now, as this request needs to be the same in the local daemon and any co-located kernel pods.
 
 common:
-  config_file_dir: "./configurationFiles/"
+  config_file_dir: "/kernel-configmap"
+  ipython_config_path: "/home/jovyan/.ipython/profile_default/ipython_config.json"
   node_local_pvc_mount_point: "node_local"
 
 ingress:

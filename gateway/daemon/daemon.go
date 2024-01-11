@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"sync/atomic"
 
 	"github.com/go-zeromq/zmq4"
@@ -240,8 +241,9 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 
 	// hosts := d.placer.FindHosts(in.Resource)
 
-	// var created sync.WaitGroup
-	// created.Add(len(hosts))
+	var created sync.WaitGroup
+	created.Add(3) // TODO(Ben): Don't hardcode this.
+
 	// for i, host := range hosts {
 	// 	d.log.Debug("Launching kernel replica #%d", i)
 
@@ -288,7 +290,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	// TODO: Handle replica creation error and ensure enough number of replicas are created.
 
 	// Wait for all replicas to be created.
-	// created.Wait()
+	created.Wait()
 
 	if kernel.Size() == 0 {
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")

@@ -32,6 +32,12 @@ ADD Makefile /distributed_notebook/Makefile
 # Make sure we can execute the kernel-entrypoint.sh file.
 # RUN chmod +x /kernel-entrypoint.sh
 
+# Install frontend extension.
+RUN cd /home/jovyan \
+    && git clone https://github.com/Scusemua/DistributedKernelFrontendExtension.git \
+    && cd ./DistributedKernelFrontendExtension \
+    && pip install .
+
 # Install kernel
 RUN cd /distributed_notebook \
     && python3 -m grpc_tools.protoc -Icommon/gateway \
@@ -40,12 +46,6 @@ RUN cd /distributed_notebook \
     common/gateway/gateway.proto \
 	&& sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
 RUN cd /distributed_notebook && ./install_kernel.sh
-
-# Install frontend extension.
-RUN cd /home/jovyan \
-    && git clone https://github.com/Scusemua/DistributedKernelFrontendExtension.git \
-    && cd ./DistributedKernelFrontendExtension \
-    && pip install .
 
 # Switch back to jovyan
 USER jovyan:users

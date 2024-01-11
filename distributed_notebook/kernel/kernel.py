@@ -2,7 +2,9 @@ import asyncio
 import inspect
 import os
 import logging
+import json
 import sys
+import socket
 
 from typing import Union, Optional
 from traitlets import List, Integer, Unicode, Bool, Undefined
@@ -69,6 +71,8 @@ class DistributedKernel(IPythonKernel):
     synchronizer: Synchronizer
 
     def __init__(self, **kwargs):
+        print(f' Kwargs: {kwargs}' )
+        
         self.control_msg_types = [
             *self.control_msg_types,
             "add_replica_request",
@@ -78,11 +82,66 @@ class DistributedKernel(IPythonKernel):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
+        self.log.info("Kwargs: %s" % str(kwargs))
+
+        connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
+        config_file_path = os.environ.get("IPYTHON_CONFIG_FILE")
+        
+        self.log.info("Connection file path: \"%s\"" % connection_file_path)
+        self.log.info("IPython config file path: \"%s\"" % config_file_path)
+        
+        connection_info = None 
+        if len(connection_file_path) > 0:
+            with open(connection_file_path, 'r') as f:
+                connection_info = json.load(f)
+        
+        connection_info = None 
+        if len(config_file_path) > 0:
+            with open(config_file_path, 'r') as f:
+                config_info = json.load(f)
+        
+        self.log.info("Connection info: %s" % str(connection_info))
+        self.log.info("IPython config info: %s" % str(config_info))
 
         # Single node mode
         if not isinstance(self.smr_nodes, list) or len(self.smr_nodes) == 0:
             self.smr_nodes = [f":{self.smr_port}"]
 
+        # TODO(Ben): Connect to LocalDaemon.
+    
+    def register_with_local_daemon(self, connection_info:dict, config_info:dict):
+        self.log.info("Registering with local daemon now.")
+        
+        server_ip = "0.0.0.0"
+        server_port = 8070 # TODO(Ben): Don't hardcode this.
+        
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect((server_ip, server_port))
+        
+        registration_payload = {
+            "SignatureScheme": connection_info["SignatureScheme"],
+            "Key": connection_info["Key"],
+            "ReplicaID": config_info["smr_node_id"],
+            "NumReplicas": len(config_info["smr_nodes"]),
+            "Replicas": config_info["smr_nodes"],
+            "Join": config_info["smr_join"],
+            "PersistentId": "",
+            "Kernel": {
+                "Id": config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
+                "Session": config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
+                "SignatureScheme": connection_info["SignatureScheme"],
+                "Key": connection_info["Key"],
+            }
+        }
+        # registration_payload.update(connection_info)
+        # registration_payload.update(config_info)
+        
+        self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
+        
+        bytes_sent = client_socket.send(json.dumps(registration_payload).encode())
+        
+        self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
+    
     def start(self):
         super().start()
 
@@ -337,4 +396,3 @@ class DistributedKernel(IPythonKernel):
         else:
             sys.stdout.disable = not sys.stdout.disable # type: ignore
             sys.stderr.disable = not sys.stderr.disable # type: ignore
-

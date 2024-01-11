@@ -106,7 +106,7 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 	return nil
 }
 
-// Serve starts serving the socket with the specified handler. THe handler
+// Serve starts serving the socket with the specified handler. The handler
 // is passed as an argument to allow multiple sockets sharing the same handler.
 func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, handler types.MessageHandler) {
 	if !atomic.CompareAndSwapInt32(&socket.Serving, 0, 1) {

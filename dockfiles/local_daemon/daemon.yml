@@ -1,3 +1,4 @@
+kernel-registry-port: 8070 # TODO(Ben): Don't hardcode this.
 port: 8080
 provisioner: "gateway:8081"
 hb-port: 9000

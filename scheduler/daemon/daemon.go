@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
-	"os"
-	"path/filepath"
+	"net"
 	"sync"
 	"time"
 
@@ -90,19 +90,27 @@ type SchedulerDaemon struct {
 	kernels   hashmap.HashMap[string, *client.KernelClient]
 	log       logger.Logger
 
+	kernelRegistryPort int
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
 }
 
-func New(opts *jupyter.ConnectionInfo, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
+// Incoming connection from local distributed kernel.
+type KernelRegistrationClient struct {
+	conn net.Conn
+}
+
+func New(opts *jupyter.ConnectionInfo, kernelRegistryPort int, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
 	daemon := &SchedulerDaemon{
-		connectionOptions: opts,
-		transport:         "tcp",
-		ip:                opts.IP,
-		kernels:           hashmap.NewCornelkMap[string, *client.KernelClient](1000),
-		closed:            make(chan struct{}),
-		cleaned:           make(chan struct{}),
+		connectionOptions:  opts,
+		transport:          "tcp",
+		ip:                 opts.IP,
+		kernels:            hashmap.NewCornelkMap[string, *client.KernelClient](1000),
+		closed:             make(chan struct{}),
+		cleaned:            make(chan struct{}),
+		kernelRegistryPort: kernelRegistryPort,
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -120,63 +128,7 @@ func New(opts *jupyter.ConnectionInfo, configs ...SchedulerDaemonConfig) *Schedu
 		}
 	}
 
-	// daemon.createAndWriteSharedConnectionFile()
-
 	return daemon
-}
-
-// Create the ConnectionFile to be used/shared by all co-located Kernel pods (i.e., all Kernel pods running on the same node as this SchedulerDaemon).
-func (d *SchedulerDaemon) createAndWriteSharedConnectionFile() {
-	connectionInfo := &jupyter.ConnectionInfo{
-		IP:              "0.0.0.0",
-		Transport:       "tcp",
-		ControlPort:     d.connectionOptions.ControlPort,
-		ShellPort:       d.connectionOptions.ShellPort,
-		StdinPort:       d.connectionOptions.StdinPort,
-		HBPort:          d.connectionOptions.HBPort,
-		IOPubPort:       d.connectionOptions.IOPubPort,
-		SignatureScheme: "", // This will need to be passed separately on a per-StatefulSet basis.
-		Key:             "", // This will need to be passed separately on a per-StatefulSet basis.
-	}
-
-	d.log.Debug("Prepared connection info: %v\n", connectionInfo)
-
-	jsonContent, err := json.Marshal(connectionInfo)
-	if err != nil {
-		d.log.Error("Error while writing connection file: %v.\n", err)
-		d.log.Error("Connection info: %v\n", connectionInfo)
-		panic(err)
-	}
-
-	pvcDir := utils.GetEnv(KubeNodeLocalMountPoint, KubeNodeLocalMountPointDefault)
-	configDir := utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDirDefault)
-	targetDirectory := filepath.Join(pvcDir, configDir)
-	if _, err = os.Stat(targetDirectory); os.IsNotExist(err) {
-		err = os.Mkdir(targetDirectory, os.ModePerm)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	f, err := os.Create(filepath.Join(targetDirectory, "connection-all.json"))
-	if err != nil {
-		d.log.Error("Error while writing connection file: %v.\n", err)
-		d.log.Error("Connection info: %v\n", connectionInfo)
-		panic(err)
-	}
-
-	d.log.Debug("Created connection file \"%s\"\n", f.Name())
-	d.log.Debug("Writing the following contents to connection file \"%s\": \"%v\"\n", f.Name(), jsonContent)
-	f.Write(jsonContent)
-	defer f.Close()
-
-	d.log.Debug("Changing permissions of connection file \"%s\" now\n", f.Name())
-	if err := os.Chmod(f.Name(), 0777); err != nil {
-		log.Fatal(err)
-	}
-
-	d.log.Debug("Wrote connection file: %v\n", f.Name())
-
 }
 
 // SetID sets the SchedulerDaemon id by the gateway.
@@ -197,6 +149,95 @@ func (d *SchedulerDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpe
 		Replicas:  nil,
 		Kernel:    in,
 	})
+}
+
+type KernelRegistrationPayload struct {
+	SignatureScheme string              `json:"signature_scheme"`
+	Key             string              `json:"key"`
+	Kernel          *gateway.KernelSpec `json:"kernel,omitempty"`
+	ReplicaId       int32               `json:"replicaId,omitempty"`
+	NumReplicas     int32               `json:"numReplicas,omitempty"`
+	Replicas        []string            `json:"replicas,omitempty"`
+	Join            bool                `json:"join,omitempty"`
+	PersistentId    *string             `json:"persistentId,omitempty"`
+}
+
+// Register a Kernel that has started running on the same node as we are.
+// This method must be thread-safe.
+func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegistrationClient *KernelRegistrationClient) {
+	d.log.Debug("Registering Kernel at (remote) address %v", kernelRegistrationClient.conn.RemoteAddr())
+
+	var registrationPayload KernelRegistrationPayload
+	jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
+	err := jsonDecoder.Decode(&registrationPayload)
+
+	invoker := invoker.NewDockerInvoker(d.connectionOptions)
+	connInfo := &jupyter.ConnectionInfo{
+		IP:              "0.0.0.0",
+		Transport:       "tcp",
+		ControlPort:     d.connectionOptions.ControlPort,
+		ShellPort:       d.connectionOptions.ShellPort,
+		StdinPort:       d.connectionOptions.StdinPort,
+		HBPort:          d.connectionOptions.HBPort,
+		IOPubPort:       d.connectionOptions.IOPubPort,
+		SignatureScheme: registrationPayload.SignatureScheme,
+		Key:             registrationPayload.Key,
+	}
+
+	kernelReplicaSpec := &gateway.KernelReplicaSpec{
+		Kernel:       registrationPayload.Kernel,
+		ReplicaId:    registrationPayload.ReplicaId,   // Can get (from config file).
+		NumReplicas:  registrationPayload.NumReplicas, // Can get (from config file).
+		Join:         registrationPayload.Join,        // Can get (from config file).
+		PersistentId: registrationPayload.PersistentId,
+	}
+
+	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo)
+	shell := d.router.Socket(jupyter.ShellMessage)
+	if d.Options.DirectServer {
+		var err error
+		shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
+		if err != nil {
+			d.closeKernel(kernel, "failed initializing shell forwarder")
+			return // nil, status.Errorf(codes.Internal, err.Error())
+		}
+	}
+	iopub, err := kernel.InitializeIOForwarder()
+	if err != nil {
+		d.closeKernel(kernel, "failed initializing io forwarder")
+		return // nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if err := kernel.Validate(); err != nil {
+		d.closeKernel(kernel, "validation error")
+		return // nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	// Handle kernel response.
+	kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
+
+	// Register kernel.
+	d.kernels.Store(kernel.ID(), kernel)
+
+	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
+	for _, session := range kernel.Sessions() {
+		d.kernels.Store(session, kernel)
+	}
+
+	info := &gateway.KernelConnectionInfo{
+		Ip:              d.ip,
+		Transport:       d.transport,
+		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
+		ShellPort:       int32(shell.Port),
+		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
+		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
+		IopubPort:       int32(iopub.Port),
+		SignatureScheme: connInfo.SignatureScheme,
+		Key:             connInfo.Key,
+	}
+	d.log.Info("Kernel %s registered: %v", kernelReplicaSpec.ID(), info)
+
+	// TODO(Ben): Contact the Gateway to notify it that we've registered one of the replicas.
 }
 
 // StartKernel launches a new kernel.
@@ -342,12 +383,36 @@ func (d *SchedulerDaemon) Start() error {
 	// Start cleaning routine.
 	go d.cleanUp()
 
+	go d.startKernelRegistryService()
+
 	// Start the router. The call will return on error or router.Close() is called.
 	err := d.router.Start()
 
 	// Shutdown helper routines (e.g., cleanUp())
 	close(d.closed)
 	return err
+}
+
+func (d *SchedulerDaemon) startKernelRegistryService() {
+	d.log.Debug("Beginning to listen for kernel registrations at %v", fmt.Sprintf(":%d", d.kernelRegistryPort))
+
+	// Initialize the Kernel Registry listener
+	registryListener, err := net.Listen("tcp", fmt.Sprintf(":%d", d.kernelRegistryPort))
+	if err != nil {
+		log.Fatalf("Failed to listen for kernel registry: %v", err)
+	}
+	defer registryListener.Close()
+	d.log.Info("Scheduler listening for kernel registrations at %v", registryListener.Addr())
+
+	for {
+		conn, err := registryListener.Accept()
+		if err != nil {
+			d.log.Error("Error encountered while listening for kernel registrations: %v", err)
+		}
+
+		kernelRegistrationClient := &KernelRegistrationClient{conn: conn}
+		go d.registerKernelReplica(context.TODO(), kernelRegistrationClient)
+	}
 }
 
 func (d *SchedulerDaemon) Close() error {

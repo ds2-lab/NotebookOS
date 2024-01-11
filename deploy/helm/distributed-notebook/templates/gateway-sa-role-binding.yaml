@@ -9,4 +9,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: gateway-service-account
-  namespace: default
+  namespace: default 

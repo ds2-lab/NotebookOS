@@ -23,10 +23,13 @@ import (
 
 const (
 	KubeSharedConfigDir        = "SHARED_CONFIG_DIR"
-	KubeSharedConfigDirDefault = "/configurationFiles/"
+	KubeSharedConfigDirDefault = "/kernel-configmap"
 
 	KubeNodeLocalMountPoint        = "NODE_LOCAL_MOUNT_POINT"
 	KubeNodeLocalMountPointDefault = "/data"
+
+	IPythonConfigPath        = "IPYTHON_CONFIG_PATH"
+	IPythonConfigPathDefault = ""
 
 	KernelSMRPort        = "SMR_PORT"
 	KernelSMRPortDefault = 8080
@@ -42,6 +45,7 @@ type BasicKubeClient struct {
 	kubeClientset       *kubernetes.Clientset // Kubernetes client.
 	gatewayDaemon       *GatewayDaemon        // Associated Gateway daemon.
 	configDir           string                // Where to write config files. This is also where they'll be found on the kernel nodes.
+	ipythonConfigPath   string                // Where the IPython config is located.
 	nodeLocalMountPoint string                // The mount of the shared PVC for all kernel nodes.
 	smrPort             int                   // Port used for the SMR protocol.
 	log                 logger.Logger
@@ -50,6 +54,7 @@ type BasicKubeClient struct {
 func NewKubeClient(gatewayDaemon *GatewayDaemon) *BasicKubeClient {
 	client := &BasicKubeClient{
 		configDir:           utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDir),
+		ipythonConfigPath:   utils.GetEnv(IPythonConfigPath, IPythonConfigPathDefault),
 		nodeLocalMountPoint: utils.GetEnv(KubeNodeLocalMountPoint, KubeNodeLocalMountPointDefault),
 		gatewayDaemon:       gatewayDaemon,
 	}
@@ -290,7 +295,7 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 								},
 								{
 									Name:      "kernel-configmap",
-									MountPath: "/kernel-configmap",
+									MountPath: fmt.Sprintf("%s", c.configDir),
 									ReadOnly:  false,
 								},
 								{
@@ -350,7 +355,11 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 								},
 								{
 									Name:  "CONNECTION_FILE_PATH",
-									Value: "/kernel-configmap/connection-file.json",
+									Value: fmt.Sprintf("%s/connection-file.json", c.configDir),
+								},
+								{
+									Name:  IPythonConfigPath,
+									Value: c.ipythonConfigPath,
 								},
 							},
 						},

@@ -40,10 +40,11 @@ type Options struct {
 	types.ConnectionInfo
 	daemon.SchedulerDaemonOptions
 
-	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
-	ProvisionerAddr string `name:"provisioner" description:"Provisioner address."`
-	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
-	Consuladdr      string `name:"consul" description:"Consul agent address."`
+	Port               int    `name:"port" usage:"Port that the gRPC service listens on."`
+	KernelRegistryPort int    `name:"kernel-registry-port" usage:"Port on which the Kernel Registry Server listens."`
+	ProvisionerAddr    string `name:"provisioner" description:"Provisioner address."`
+	JaegerAddr         string `name:"jaeger" description:"Jaeger agent address."`
+	Consuladdr         string `name:"consul" description:"Consul agent address."`
 }
 
 func init() {
@@ -105,18 +106,18 @@ func main() {
 
 	// Initialize grpc server
 	srv := grpc.NewServer(gOpts...)
-	scheduler := daemon.New(&options.ConnectionInfo, func(scheduler *daemon.SchedulerDaemon) {
+	scheduler := daemon.New(&options.ConnectionInfo, options.KernelRegistryPort, func(scheduler *daemon.SchedulerDaemon) {
 		scheduler.Options = options.SchedulerDaemonOptions
 	})
 	gateway.RegisterLocalGatewayServer(srv, scheduler)
 
-	// Initialize listener
+	// Initialize gRPC listener
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 	defer lis.Close()
-	logger.Info("Scheduler listening at %v", lis.Addr())
+	logger.Info("Scheduler listening for gRPC at %v", lis.Addr())
 
 	// Initialize connection to the provisioner
 	provConn, err := net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
