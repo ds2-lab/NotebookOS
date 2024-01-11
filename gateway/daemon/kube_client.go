@@ -370,10 +370,10 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 							Name:  "kernel",
 							Image: "scusemua/jupyter:latest", // TODO(Ben): Don't hardcode this.
 							Command: []string{
-								"sed",
+								"/bin/sh",
 							},
 							Args: []string{
-								"-i", "\"s/{{replica_id}}/$(echo $POD_NAME | cut -d \"-\" -f 7)/g\"", "/home/jovyan/.ipython/profile_default/ipython_config.json", "&&", "/opt/conda/bin/python3", "-m", "distributed_notebook.kernel", "-f", fmt.Sprintf("kernel-%s-connectionfile-configmap", kernel.Id), "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream",
+								"-c", "-i", "\"s/{{replica_id}}/$(echo $POD_NAME | cut -d \"-\" -f 7)/g\"", "/home/jovyan/.ipython/profile_default/ipython_config.json", "&&", "/opt/conda/bin/python3", "-m", "distributed_notebook.kernel", "-f", fmt.Sprintf("kernel-%s-connectionfile-configmap", kernel.Id), "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream",
 							},
 							Ports: []corev1.ContainerPort{
 								{
