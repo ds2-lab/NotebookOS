@@ -82,59 +82,77 @@ class DistributedKernel(IPythonKernel):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
+        
+        # Single node mode
+        if not isinstance(self.smr_nodes, list) or len(self.smr_nodes) == 0:
+            self.smr_nodes = [f":{self.smr_port}"]
+        
         self.log.info("Kwargs: %s" % str(kwargs))
 
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
-        config_file_path = os.environ.get("IPYTHON_CONFIG_FILE")
+        config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
+        session_id = os.environ.get("SESSION_ID", default = "N/A")
+        kernel_id = os.environ.get("KERNEL_ID", default = "N/A") 
+        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default = "local-daemon-network")
         
         self.log.info("Connection file path: \"%s\"" % connection_file_path)
         self.log.info("IPython config file path: \"%s\"" % config_file_path)
+        self.log.info("Session ID: \"%s\"" % session_id)
+        self.log.info("Kernel ID: \"%s\"" % kernel_id)
         
         connection_info = None 
-        if len(connection_file_path) > 0:
-            with open(connection_file_path, 'r') as f:
-                connection_info = json.load(f)
+        try:
+            if len(connection_file_path) > 0:
+                with open(connection_file_path, 'r') as connection_file:
+                    connection_info = json.load(connection_file)
+        except Exception as ex:
+            self.log.error("Failed to obtain connection info from file \"%s\"" % connection_file_path)
+            self.log.error("Error: %s" % str(ex))
         
-        connection_info = None 
-        if len(config_file_path) > 0:
-            with open(config_file_path, 'r') as f:
-                config_info = json.load(f)
+        config_info = None 
+        try:
+            if len(config_file_path) > 0:
+                with open(config_file_path, 'r') as config_file:
+                    config_info = json.load(config_file)
+                    config_info = config_info["DistributedKernel"]
+        except Exception as ex:
+            self.log.error("Failed to obtain config info from file \"%s\"" % config_file_path)
+            self.log.error("Error: %s" % str(ex))
         
         self.log.info("Connection info: %s" % str(connection_info))
         self.log.info("IPython config info: %s" % str(config_info))
 
-        # Single node mode
-        if not isinstance(self.smr_nodes, list) or len(self.smr_nodes) == 0:
-            self.smr_nodes = [f":{self.smr_port}"]
-
         # TODO(Ben): Connect to LocalDaemon.
+        self.register_with_local_daemon(connection_info, config_info, kernel_id, session_id, local_daemon_service_name)
     
-    def register_with_local_daemon(self, connection_info:dict, config_info:dict):
+    def register_with_local_daemon(self, connection_info:dict, config_info:dict, kernel_id: str, session_id: str, local_daemon_service_name:str):
         self.log.info("Registering with local daemon now.")
         
-        server_ip = "0.0.0.0"
         server_port = 8070 # TODO(Ben): Don't hardcode this.
         
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.connect((server_ip, server_port))
+        
+        try:
+            client_socket.connect((local_daemon_service_name, server_port))
+        except Exception as ex:
+            self.log.error("Failed to connect to LocalDaemon at %s:%d" % (local_daemon_service_name, server_port))
+            self.log.error("Reason: %s" % str(ex))
+            return 
         
         registration_payload = {
-            "SignatureScheme": connection_info["SignatureScheme"],
-            "Key": connection_info["Key"],
+            "SignatureScheme": connection_info["signature_scheme"],
+            "Key": connection_info["key"],
             "ReplicaID": config_info["smr_node_id"],
             "NumReplicas": len(config_info["smr_nodes"]),
             "Replicas": config_info["smr_nodes"],
             "Join": config_info["smr_join"],
-            "PersistentId": "",
             "Kernel": {
-                "Id": config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
-                "Session": config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
-                "SignatureScheme": connection_info["SignatureScheme"],
-                "Key": connection_info["Key"],
+                "Id": kernel_id, #, config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
+                "Session": session_id, # config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
+                "SignatureScheme": connection_info["signature_scheme"],
+                "Key": connection_info["key"],
             }
         }
-        # registration_payload.update(connection_info)
-        # registration_payload.update(config_info)
         
         self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
         

@@ -31,6 +31,11 @@ const (
 	IPythonConfigPath        = "IPYTHON_CONFIG_PATH"
 	IPythonConfigPathDefault = "/home/jovyan/.ipython/profile_default/ipython_config.json"
 
+	LocalDaemonServiceName        = "LOCAL_DAEMON_SERVICE_NAME"
+	LocalDaemonServiceNameDefault = "local-daemon-network"
+	LocalDaemonServicePort        = "LOCAL_DAEMON_SERVICE_PORT"
+	LocalDaemonServicePortDefault = "8070"
+
 	KernelSMRPort        = "SMR_PORT"
 	KernelSMRPortDefault = 8080
 
@@ -42,27 +47,43 @@ var (
 )
 
 type BasicKubeClient struct {
-	kubeClientset       *kubernetes.Clientset // Kubernetes client.
-	gatewayDaemon       *GatewayDaemon        // Associated Gateway daemon.
-	configDir           string                // Where to write config files. This is also where they'll be found on the kernel nodes.
-	ipythonConfigPath   string                // Where the IPython config is located.
-	nodeLocalMountPoint string                // The mount of the shared PVC for all kernel nodes.
-	smrPort             int                   // Port used for the SMR protocol.
-	log                 logger.Logger
+	kubeClientset          *kubernetes.Clientset // Kubernetes client.
+	gatewayDaemon          *GatewayDaemon        // Associated Gateway daemon.
+	configDir              string                // Where to write config files. This is also where they'll be found on the kernel nodes.
+	ipythonConfigPath      string                // Where the IPython config is located.
+	nodeLocalMountPoint    string                // The mount of the shared PVC for all kernel nodes.
+	localDaemonServiceName string                // Name of the service controlling the routing of the local daemon. It only routes traffic on the same node.
+	localDaemonServicePort string                // Port that local daemon service will be routing traffic to.
+	smrPort                int                   // Port used for the SMR protocol.
+	log                    logger.Logger
 }
 
 func NewKubeClient(gatewayDaemon *GatewayDaemon) *BasicKubeClient {
 	client := &BasicKubeClient{
-		configDir:           utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDirDefault),
-		ipythonConfigPath:   utils.GetEnv(IPythonConfigPath, IPythonConfigPathDefault),
-		nodeLocalMountPoint: utils.GetEnv(KubeNodeLocalMountPoint, KubeNodeLocalMountPointDefault),
-		gatewayDaemon:       gatewayDaemon,
+		configDir:              utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDirDefault),
+		ipythonConfigPath:      utils.GetEnv(IPythonConfigPath, IPythonConfigPathDefault),
+		nodeLocalMountPoint:    utils.GetEnv(KubeNodeLocalMountPoint, KubeNodeLocalMountPointDefault),
+		localDaemonServiceName: utils.GetEnv(LocalDaemonServiceName, LocalDaemonServiceNameDefault),
+		gatewayDaemon:          gatewayDaemon,
 	}
+
 	config.InitLogger(&client.log, client)
 
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
+	}
+
+	// TODO(Ben): Is passing this port through to the kernel Pods really necessary if the Service is already configured to route traffic to the target port?
+	localDaemonServicePortAsString := utils.GetEnv(LocalDaemonServicePort, "")
+	_, err = strconv.Atoi(localDaemonServicePortAsString) // We're just doing this to ensure it is a valid port. We pass it as a string as we need to set it as an environment variable anyway.
+	if err != nil {
+		client.log.Error("Failed to convert Local Daemon service port to integer: \"%s\"")
+		client.log.Warn("Using default port of %s", LocalDaemonServicePortDefault)
+		client.localDaemonServicePort = LocalDaemonServicePortDefault
+	} else {
+		// We know the string can be converted to an int, so we'll use it.
+		client.localDaemonServicePort = localDaemonServicePortAsString
 	}
 
 	// Creates the Clientset.
@@ -181,7 +202,8 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 					},
 				},
 			},
-			Selector: map[string]string{"app": fmt.Sprintf("nginx-session-%s", kernel.Id)},
+			Selector:  map[string]string{"app": fmt.Sprintf("nginx-session-%s", kernel.Id)},
+			ClusterIP: "None", // Headless.
 		},
 		ObjectMeta: v1.ObjectMeta{
 			Name:   fmt.Sprintf("nginx-session-%s", kernel.Id),
@@ -360,6 +382,22 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 								{
 									Name:  IPythonConfigPath,
 									Value: c.ipythonConfigPath,
+								},
+								{
+									Name:  "SESSION_ID",
+									Value: kernel.Session,
+								},
+								{
+									Name:  "KERNEL_ID",
+									Value: kernel.Id,
+								},
+								{
+									Name:  LocalDaemonServiceName,
+									Value: c.localDaemonServiceName,
+								},
+								{
+									Name:  LocalDaemonServicePort,
+									Value: c.localDaemonServicePort,
 								},
 							},
 						},

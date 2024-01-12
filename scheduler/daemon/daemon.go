@@ -405,11 +405,14 @@ func (d *SchedulerDaemon) startKernelRegistryService() {
 	d.log.Info("Scheduler listening for kernel registrations at %v", registryListener.Addr())
 
 	for {
+		d.log.Info("Listening for kernel registration connection...")
 		conn, err := registryListener.Accept()
 		if err != nil {
 			d.log.Error("Error encountered while listening for kernel registrations: %v", err)
+			continue
 		}
 
+		d.log.Info("Accepted kernel registry connection. Local: %s. Remote: %s.", conn.LocalAddr(), conn.RemoteAddr())
 		kernelRegistrationClient := &KernelRegistrationClient{conn: conn}
 		go d.registerKernelReplica(context.TODO(), kernelRegistrationClient)
 	}

@@ -1,3 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.local_daemon.service_name }}
+  labels:
+    app: local-daemon
+spec:
+  internalTrafficPolicy: Local
+  selector:
+    app: local-daemon
+  ports:
+  - name: tcp
+    port: {{ .Values.local_daemon.service_port }}
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -45,8 +59,14 @@ spec:
               value: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag }}
             - name: KERNEL_NETWORK
               value: local_daemon_default
+            - name: LOCAL_DAEMON_SERVICE_NAME
+              value: {{ .Values.local_daemon.service_name }}
+            - name: LOCAL_DAEMON_SERVICE_PORT
+              value: "{{ .Values.local_daemon.service_port }}"
             - name: KERNEL_TEMP_BASE
               value: /data
+            - name: SHARED_CONFIG_DIR
+              value: "{{ .Values.common.config_file_dir }}"
             # - name: STORAGE
             #   value: local_daemon_storage
             # - name: TARGET_MOUNT_DIR
@@ -58,9 +78,6 @@ spec:
             - name: node-local
               mountPath: {{ .Values.common.node_local_pvc_mount_point }}
       restartPolicy: Always
-      env:
-        - name: SHARED_CONFIG_DIR
-          value: "{{ .Values.common.node_local_pvc_mount_point }}/{{ .Values.common.config_file_dir }}"
   volumeClaimTemplates: # This will be used to create a unique PVC for each of the LocalDaemon pods.
     - metadata:
         name: node-local

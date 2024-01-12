@@ -25,15 +25,19 @@ spec:
         io.kompose.service: gateway
         app: gateway
     spec:
-      env:
-        - name: SHARED_CONFIG_DIR
-          value: "{{ .Values.common.node_local_pvc_mount_point }}/{{ .Values.common.config_file_dir }}"
-        - name: IPYTHON_CONFIG_PATH
-          value: {{ .Values.common.ipython_config_path }}
       containers:
         - image: {{ .Values.gateway.image }}:{{ .Values.gateway.image_tag }}
           name: gateway
           resources: {}
+          env:
+            - name: SHARED_CONFIG_DIR
+              value: "{{ .Values.common.config_file_dir }}"
+            - name: IPYTHON_CONFIG_PATH
+              value: {{ .Values.common.ipython_config_path }}
+            - name: LOCAL_DAEMON_SERVICE_NAME
+              value: {{ .Values.local_daemon.service_name }}
+            - name: LOCAL_DAEMON_SERVICE_PORT
+              value: "{{ .Values.local_daemon.service_port }}"
       restartPolicy: Always
       serviceAccountName: gateway-service-account
 status: {}
