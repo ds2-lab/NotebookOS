@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: test-config
+  name: test-configmap
 data:
-  test.conf: |
+  config.conf: |
     "shell_port": 9002,
     "iopub_port": 9004,
     "stdin_port": 9003,

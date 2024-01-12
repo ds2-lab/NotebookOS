@@ -47,6 +47,10 @@ type Options struct {
 	Consuladdr         string `name:"consul" description:"Consul agent address."`
 }
 
+func (o Options) String() string {
+	return fmt.Sprintf("Port: %d, KernelRegistryPort: %d, ProvisionerAddr: %s, JaegerAddr: %s, ConsulAddr: %s, %s, %s", o.Port, o.KernelRegistryPort, o.ProvisionerAddr, o.JaegerAddr, o.Consuladdr, o.ConnectionInfo.String(), o.SchedulerDaemonOptions.String())
+}
+
 func init() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 	// Set default options.

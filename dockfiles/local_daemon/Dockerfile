@@ -4,10 +4,8 @@ FROM scusemua/dist-notebook-base:latest
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC
 
-# Add executable
+# Add executable. We do not add the config file anymore, as we instead mount that as a ConfigMap.
 ADD scheduler scheduler
-ADD daemon.yml daemon.yml
-ADD distributed-kernel-pod.yaml distributed-kernel-pod.yaml
 
 EXPOSE 8080/tcp
 

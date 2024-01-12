@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -50,6 +51,15 @@ var (
 	ErrKernelIDRequired      = errors.New("kernel id frame is required for kernel_info_request")
 )
 
+type DaemonKubeClientOptions struct {
+	LocalDaemonServiceName string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the networking of local daemons."`
+	LocalDaemonServicePort int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the networking of local daemons."`
+}
+
+func (o DaemonKubeClientOptions) String() string {
+	return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d", o.LocalDaemonServiceName, o.LocalDaemonServicePort)
+}
+
 type GatewayDaemonConfig func(*GatewayDaemon)
 
 // GatewayDaemon serves distributed notebook gateway for three roles:
@@ -90,7 +100,7 @@ type GatewayDaemon struct {
 	kubeClient KubeClient
 }
 
-func New(opts *jupyter.ConnectionInfo, configs ...GatewayDaemonConfig) *GatewayDaemon {
+func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClientOptions, configs ...GatewayDaemonConfig) *GatewayDaemon {
 	daemon := &GatewayDaemon{
 		id:                uuid.New().String(),
 		connectionOptions: opts,
@@ -116,7 +126,7 @@ func New(opts *jupyter.ConnectionInfo, configs ...GatewayDaemonConfig) *GatewayD
 		}
 	}
 
-	daemon.kubeClient = NewKubeClient(daemon)
+	daemon.kubeClient = NewKubeClient(daemon, daemonKubeClientOptions)
 
 	return daemon
 }

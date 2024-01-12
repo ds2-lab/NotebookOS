@@ -64,6 +64,10 @@ type SchedulerDaemonOptions struct {
 	DirectServer bool `name:"direct" usage:"True if the scheduler serves jupyter notebook directly."`
 }
 
+func (o SchedulerDaemonOptions) String() string {
+	return fmt.Sprintf("DirectServer: %v", o.DirectServer)
+}
+
 // SchedulerDaemon is the daemon that proxy requests to kernel replicas on local-host.
 //
 // WIP: Replica membership change.
@@ -167,13 +171,20 @@ type KernelRegistrationPayload struct {
 func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegistrationClient *KernelRegistrationClient) {
 	d.log.Debug("Registering Kernel at (remote) address %v", kernelRegistrationClient.conn.RemoteAddr())
 
+	remote_ip, _, err := net.SplitHostPort(kernelRegistrationClient.conn.RemoteAddr().String())
+	if err != nil {
+		d.log.Error("Failed to extract remote address from kernel registration connection: %v", err)
+		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
+		return
+	}
+
 	var registrationPayload KernelRegistrationPayload
 	jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
-	err := jsonDecoder.Decode(&registrationPayload)
+	err = jsonDecoder.Decode(&registrationPayload)
 
 	invoker := invoker.NewDockerInvoker(d.connectionOptions)
 	connInfo := &jupyter.ConnectionInfo{
-		IP:              "0.0.0.0",
+		IP:              remote_ip,
 		Transport:       "tcp",
 		ControlPort:     d.connectionOptions.ControlPort,
 		ShellPort:       d.connectionOptions.ShellPort,
@@ -225,7 +236,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	info := &gateway.KernelConnectionInfo{
-		Ip:              d.ip,
+		Ip:              remote_ip,
 		Transport:       d.transport,
 		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
 		ShellPort:       int32(shell.Port),

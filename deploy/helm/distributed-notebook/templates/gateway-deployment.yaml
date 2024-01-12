@@ -28,16 +28,27 @@ spec:
       containers:
         - image: {{ .Values.gateway.image }}:{{ .Values.gateway.image_tag }}
           name: gateway
+          command: ["./gateway"]
+          args: ["-yaml", "{{ .Values.common.config_file_dir }}/daemon.yml", "-debug"]
           resources: {}
+          volumeMounts:
+            - name: gateway-config-file
+              mountPath: "{{ .Values.common.config_file_dir }}/daemon.yml"
+              subPath: daemon.yml
           env:
             - name: SHARED_CONFIG_DIR
               value: "{{ .Values.common.config_file_dir }}"
             - name: IPYTHON_CONFIG_PATH
               value: {{ .Values.common.ipython_config_path }}
-            - name: LOCAL_DAEMON_SERVICE_NAME
-              value: {{ .Values.local_daemon.service_name }}
-            - name: LOCAL_DAEMON_SERVICE_PORT
-              value: "{{ .Values.local_daemon.service_port }}"
+            # - name: LOCAL_DAEMON_SERVICE_NAME
+            #   value: {{ .Values.local_daemon.service_name }}
+            # - name: LOCAL_DAEMON_SERVICE_PORT
+            #   value: "{{ .Values.local_daemon.service_port }}"
       restartPolicy: Always
       serviceAccountName: gateway-service-account
+      volumes:
+        - name: gateway-config-file
+          configMap:
+            name: daemon-configmap 
+            defaultMode: 384
 status: {}

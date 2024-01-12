@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: daemon-configmap 
+  namespace: default 
+data:
+  daemon.yml: | 
+    kernel-registry-port: 8070 
+    port: 8080
+    provisioner-port: 8081
+    provisioner: "gateway:8081"
+    hb-port: 9000
+    control-port: 9001
+    shell-port: 9002
+    stdin-port: 9003
+    iopub-port: 9004
+    debug: true
+    direct: false
+    num-replicas: 3
+    max-subscribed-ratio: 7.0
+    local-daemon-service-name: {{ .Values.local_daemon.service_name }}
+    local-daemon-service-port: {{ .Values.local_daemon.service_port }}
+    ipython-config-path: {{ .Values.common.ipython_config_path }}

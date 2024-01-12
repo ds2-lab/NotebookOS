@@ -4,10 +4,9 @@ FROM scusemua/dist-notebook-base:latest
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC
 
-# Add executable.
+# Add executable. We do not add the config file anymore, as we instead mount that as a ConfigMap.
 ADD gateway gateway
-# Add configuration files.
-ADD gateway.yml gateway.yml
+
 # Add the StatefulSet template for distributed kernel replicas.
 ADD distributed-kernel-stateful-set-template.yaml distributed-kernel-stateful-set-template.yaml
 # Add the ConfigMap template. This contains the Jupyter connection file and config file information.

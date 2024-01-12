@@ -39,6 +39,7 @@ type Options struct {
 	config.LoggerOptions
 	types.ConnectionInfo
 	core.CoreOptions
+	daemon.DaemonKubeClientOptions
 
 	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
 	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
@@ -106,12 +107,9 @@ func main() {
 	if tracer != nil {
 		gOpts = append(gOpts, grpc.UnaryInterceptor(otgrpc.OpenTracingServerInterceptor(tracer)))
 	}
-	// if tlsopt := tls.GetServerOpt(); tlsopt != nil {
-	// 	opts = append(opts, tlsopt)
-	// }
 
 	// Initialize daemon
-	srv := daemon.New(&options.ConnectionInfo, func(srv *daemon.GatewayDaemon) {
+	srv := daemon.New(&options.ConnectionInfo, &options.DaemonKubeClientOptions, func(srv *daemon.GatewayDaemon) {
 		srv.ClusterOptions = options.CoreOptions
 	})
 
