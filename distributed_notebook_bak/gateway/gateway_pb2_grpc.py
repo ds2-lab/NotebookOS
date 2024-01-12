@@ -29,8 +29,8 @@ class ClusterGatewayStub(object):
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
                 response_deserializer=gateway__pb2.ReplicaId.FromString,
                 )
-        self.NotifyKernelRegistered = channel.unary_unary(
-                '/gateway.ClusterGateway/NotifyKernelRegistered',
+        self.RegisterKernelStarted = channel.unary_unary(
+                '/gateway.ClusterGateway/RegisterKernelStarted',
                 request_serializer=gateway__pb2.KernelConnectionInfo.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
@@ -65,8 +65,8 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def NotifyKernelRegistered(self, request, context):
-        """Notify the Gateway that a distributed kernel replica has started somewhere.
+    def RegisterKernelStarted(self, request, context):
+        """Used by LocalDaemons to inform the Gateway that a distributed kernel has started running on a node.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -90,8 +90,8 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.ReplicaInfo.FromString,
                     response_serializer=gateway__pb2.ReplicaId.SerializeToString,
             ),
-            'NotifyKernelRegistered': grpc.unary_unary_rpc_method_handler(
-                    servicer.NotifyKernelRegistered,
+            'RegisterKernelStarted': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterKernelStarted,
                     request_deserializer=gateway__pb2.KernelConnectionInfo.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
@@ -157,7 +157,7 @@ class ClusterGateway(object):
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def NotifyKernelRegistered(request,
+    def RegisterKernelStarted(request,
             target,
             options=(),
             channel_credentials=None,
@@ -167,7 +167,7 @@ class ClusterGateway(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/NotifyKernelRegistered',
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/RegisterKernelStarted',
             gateway__pb2.KernelConnectionInfo.SerializeToString,
             gateway__pb2.Void.FromString,
             options, channel_credentials,

@@ -1,0 +1,6 @@
+
+build-smr-linux-amd64:
+	@echo "Building SMR for Linux AMD64"
+	export CGO_CFLAGS="-I/usr/local/include/python3.11/ -fPIC -Ofast"
+	export CGO_LDFLAGS="-L/usr/local/lib/ -lpython3.11 -lcrypt -lpthread -ldl -lutil -lm -lm"
+	go build -mod=mod -buildmode=c-shared -buildvcs=false -o _smr.cpython-311-x86_64-linux-gnu.so .

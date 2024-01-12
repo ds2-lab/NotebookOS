@@ -246,9 +246,15 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}
-	d.log.Info("Kernel %s registered: %v", kernelReplicaSpec.ID(), info)
+	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
 
 	// TODO(Ben): Contact the Gateway to notify it that we've registered one of the replicas.
+	_, err = d.Provisioner.NotifyKernelRegistered(ctx, info)
+	if err != nil {
+		d.log.Error("Error encountered while notifying Gateway of kernel registration: %v", err)
+	}
+
+	d.log.Debug("Successfully notified Gateway of kernel registration.")
 }
 
 // StartKernel launches a new kernel.

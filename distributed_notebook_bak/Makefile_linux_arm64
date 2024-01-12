@@ -1,0 +1,5 @@
+
+build-smr-linux-arm64:
+	export CGO_CFLAGS="-I/usr/include/python3.9 -fPIC -Ofast"
+	export CGO_LDFLAGS="-L/usr/lib -lpython3.9 -lcrypt -lpthread -ldl -lutil -lm -lm"
+	go build -mod=mod -buildmode=c-shared -o _smr.cpython-39-aarch64-linux-gnu.so .

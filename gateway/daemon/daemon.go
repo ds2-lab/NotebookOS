@@ -404,6 +404,12 @@ func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*ga
 	return gateway.VOID, nil
 }
 
+func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelConnectionInfo) (*gateway.Void, error) {
+	d.log.Info("Received kernel registration notification: %v", in)
+
+	return gateway.VOID, nil
+}
+
 func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.ReplicaId, error) {
 	kernel, ok := d.kernels.Load(in.KernelId)
 	if !ok {
