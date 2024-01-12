@@ -51,7 +51,11 @@ build-grpc-python:
   	--python_out=distributed_notebook/gateway \
 		--grpc_python_out=distributed_notebook/gateway \
     common/gateway/gateway.proto
+ifeq ($(shell uname -p), x86_64)
+	@sed -i -E 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
+else
 	@sed -Ei '' 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
+endif 
 
 build-grpc: build-grpc-go build-grpc-python
 
