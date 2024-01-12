@@ -31,7 +31,7 @@ class ClusterGatewayStub(object):
                 )
         self.NotifyKernelRegistered = channel.unary_unary(
                 '/gateway.ClusterGateway/NotifyKernelRegistered',
-                request_serializer=gateway__pb2.KernelConnectionInfo.SerializeToString,
+                request_serializer=gateway__pb2.KernelRegistrationNotification.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
 
@@ -92,7 +92,7 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
             ),
             'NotifyKernelRegistered': grpc.unary_unary_rpc_method_handler(
                     servicer.NotifyKernelRegistered,
-                    request_deserializer=gateway__pb2.KernelConnectionInfo.FromString,
+                    request_deserializer=gateway__pb2.KernelRegistrationNotification.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
@@ -168,7 +168,7 @@ class ClusterGateway(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/NotifyKernelRegistered',
-            gateway__pb2.KernelConnectionInfo.SerializeToString,
+            gateway__pb2.KernelRegistrationNotification.SerializeToString,
             gateway__pb2.Void.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

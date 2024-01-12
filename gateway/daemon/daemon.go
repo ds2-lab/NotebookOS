@@ -87,14 +87,19 @@ type GatewayDaemon struct {
 	placer   core.Placer
 
 	// kernel members
-	transport string
-	ip        string
-	kernels   hashmap.HashMap[string, *client.DistributedKernelClient]
-	log       logger.Logger
+	transport   string
+	ip          string
+	kernels     hashmap.HashMap[string, *client.DistributedKernelClient]
+	kernelSpecs hashmap.HashMap[string, *gateway.KernelSpec]
+	log         logger.Logger
 
 	// lifetime
 	closed  int32
 	cleaned chan struct{}
+
+	mutex sync.Mutex
+
+	waitGroups hashmap.HashMap[string, *sync.WaitGroup]
 
 	// Kubernetes client.
 	kubeClient KubeClient
@@ -107,6 +112,8 @@ func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClient
 		transport:         "tcp",
 		ip:                opts.IP,
 		kernels:           hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
+		kernelSpecs:       hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
+		waitGroups:        hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
 		cleaned:           make(chan struct{}),
 	}
 	for _, config := range configs {
@@ -239,6 +246,15 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 		kernel.BindSession(in.Session)
 	}
 
+	var created sync.WaitGroup
+	created.Add(d.ClusterOptions.NumReplicas)
+
+	d.mutex.Lock() // TODO(Ben): This may be unnecessary.
+	d.kernels.Store(in.Id, kernel)
+	d.kernelSpecs.Store(in.Id, in)
+	d.waitGroups.Store(in.Id, &created)
+	d.mutex.Unlock()
+
 	// TODO(Ben):
 	// This is likely where we'd create the new Deployment for the particular Session, I guess?
 	// (In the Kubernetes version.)
@@ -250,9 +266,6 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	}
 
 	// hosts := d.placer.FindHosts(in.Resource)
-
-	var created sync.WaitGroup
-	created.Add(3) // TODO(Ben): Don't hardcode this.
 
 	// for i, host := range hosts {
 	// 	d.log.Debug("Launching kernel replica #%d", i)
@@ -267,32 +280,32 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	// 			}
 	// 		}()
 
-	// 		var replicaConnInfo *gateway.KernelConnectionInfo
-	// 		replicaSpec := &gateway.KernelReplicaSpec{
-	// 			Kernel:      in,
-	// 			ReplicaId:   int32(replicaId),
-	// 			NumReplicas: int32(len(hosts)),
-	// 		}
-	// 		replicaConnInfo, err = d.placer.Place(host, replicaSpec)
-	// 		if err != nil {
-	// 			return
-	// 		}
+	// var replicaConnInfo *gateway.KernelConnectionInfo
+	// replicaSpec := &gateway.KernelReplicaSpec{
+	// 	Kernel:      in,
+	// 	ReplicaId:   int32(replicaId),
+	// 	NumReplicas: int32(len(hosts)),
+	// }
+	// replicaConnInfo, err = d.placer.Place(host, replicaSpec)
+	// if err != nil {
+	// 	return
+	// }
 
-	// 		// Initialize kernel client
-	// 		replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
-	// 		err = replica.Validate()
-	// 		if err != nil {
-	// 			d.log.Error("KernelClient::Validate call failed: %v", err)
-	// 			d.closeReplica(host, kernel, replica, replicaId, "validation error")
-	// 			return
-	// 		}
+	// // Initialize kernel client
+	// replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
+	// err = replica.Validate()
+	// if err != nil {
+	// 	d.log.Error("KernelClient::Validate call failed: %v", err)
+	// 	d.closeReplica(host, kernel, replica, replicaId, "validation error")
+	// 	return
+	// }
 
-	// 		err = kernel.AddReplica(replica, host)
-	// 		if err != nil {
-	// 			d.log.Error("KernelClient::AddReplica call failed: %v", err)
-	// 			d.closeReplica(host, kernel, replica, replicaId, "failed adding to the kernel")
-	// 			return
-	// 		}
+	// err = kernel.AddReplica(replica, host)
+	// if err != nil {
+	// 	d.log.Error("KernelClient::AddReplica call failed: %v", err)
+	// 	d.closeReplica(host, kernel, replica, replicaId, "failed adding to the kernel")
+	// 	return
+	// }
 
 	// 	}(i+1, host)
 	// }
@@ -307,7 +320,6 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	}
 
 	// TODO: Handle kernel response.
-	d.kernels.Store(kernel.KernelSpec().Id, kernel)
 	for _, sess := range kernel.Sessions() {
 		d.kernels.Store(sess, kernel)
 	}
@@ -325,6 +337,67 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	}
 	d.log.Info("Kernel(%s) started: %v", kernel.ID(), info)
 	return info, nil
+}
+
+func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelRegistrationNotification) (*gateway.Void, error) {
+	d.log.Info("Received kernel registration notification.")
+
+	connectionInfo := in.ConnectionInfo
+	sessionId := in.SessionId
+	kernelId := in.KernelId
+	replicaId := in.ReplicaId
+	hostId := in.HostId
+
+	d.log.Info("Connection info: %v", connectionInfo)
+	d.log.Info("Session ID: %v", sessionId)
+	d.log.Info("Kernel ID: %v", kernelId)
+	d.log.Info("Host ID: %v", hostId)
+
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	kernel, loaded := d.kernels.Load(kernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing kernel with ID %s", kernelId))
+	}
+
+	kernelSpec, loaded := d.kernelSpecs.Load(kernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing kernel spec for kernel with ID %s", kernelId))
+	}
+
+	waitGroup, loaded := d.waitGroups.Load(kernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing WaitGroup associated with kernel with ID %s", kernelId))
+	}
+
+	host, loaded := d.cluster.GetHostManager().Load(hostId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", hostId)) // TODO(Ben): Handle gracefully.
+	}
+
+	replicaSpec := &gateway.KernelReplicaSpec{
+		Kernel:      kernelSpec,
+		ReplicaId:   replicaId,
+		NumReplicas: int32(d.ClusterOptions.NumReplicas), // TODO(Ben): Don't hardcode this.
+	}
+
+	// Initialize kernel client
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo())
+	err := replica.Validate()
+	if err != nil {
+		panic(fmt.Sprintf("KernelClient::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
+	}
+
+	err = kernel.AddReplica(replica, host)
+	if err != nil {
+		panic(fmt.Sprintf("KernelClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
+	}
+
+	waitGroup.Add(1)
+	d.waitGroups.Store(kernelId, waitGroup)
+
+	return gateway.VOID, nil
 }
 
 func (d *GatewayDaemon) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
@@ -401,12 +474,6 @@ func (d *GatewayDaemon) ID(ctx context.Context, in *gateway.Void) (*gateway.Prov
 
 func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*gateway.Void, error) {
 	d.cluster.GetHostManager().Delete(in.Id)
-	return gateway.VOID, nil
-}
-
-func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelConnectionInfo) (*gateway.Void, error) {
-	d.log.Info("Received kernel registration notification: %v", in)
-
 	return gateway.VOID, nil
 }
 

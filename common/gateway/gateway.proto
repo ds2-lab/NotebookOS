@@ -23,7 +23,7 @@ service ClusterGateway {
   rpc MigrateKernelReplica(ReplicaInfo) returns (ReplicaId) {}
 
   // Notify the Gateway that a distributed kernel replica has started somewhere.
-  rpc NotifyKernelRegistered(KernelConnectionInfo) returns (Void) {}
+  rpc NotifyKernelRegistered(KernelRegistrationNotification) returns (Void) {}
 }
 
 message ProvisionerId {
@@ -122,6 +122,14 @@ message KernelConnectionInfo {
 	int32 iopubPort = 7; // The port for iopub messages.
 	string signatureScheme = 8; // The signature scheme to use.
 	string key = 9;  // The key to use for signing messages.
+}
+
+message KernelRegistrationNotification {
+  KernelConnectionInfo connectionInfo = 1; // Connection information of the kernel.
+  string kernelId = 2; // ID of the Kernel.
+  string sessionId = 3; // ID of the associated Session.
+  string hostId = 4; // The ID of the HostScheduler associated with this Host. It's basically the ID of the LocalDaemon.
+  int32 replicaId = 5; // The SMR replica ID.
 }
 
 // The status of a kernel.

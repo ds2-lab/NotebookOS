@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/core"
@@ -55,7 +56,7 @@ func (s *HostScheduler) Addr() string {
 }
 
 func (s *HostScheduler) String() string {
-	return s.addr
+	return fmt.Sprintf("HostScheduler[Addr: %s, ID: %s]", s.addr, s.id)
 }
 
 func (s *HostScheduler) Restore(scheduler core.Host) error {

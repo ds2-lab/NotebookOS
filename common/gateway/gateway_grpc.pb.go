@@ -41,7 +41,7 @@ type ClusterGatewayClient interface {
 	// The caller should stop the replica after confirmed that the new replica is ready.
 	MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*ReplicaId, error)
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
-	NotifyKernelRegistered(ctx context.Context, in *KernelConnectionInfo, opts ...grpc.CallOption) (*Void, error)
+	NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*Void, error)
 }
 
 type clusterGatewayClient struct {
@@ -79,7 +79,7 @@ func (c *clusterGatewayClient) MigrateKernelReplica(ctx context.Context, in *Rep
 	return out, nil
 }
 
-func (c *clusterGatewayClient) NotifyKernelRegistered(ctx context.Context, in *KernelConnectionInfo, opts ...grpc.CallOption) (*Void, error) {
+func (c *clusterGatewayClient) NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*Void, error) {
 	out := new(Void)
 	err := c.cc.Invoke(ctx, ClusterGateway_NotifyKernelRegistered_FullMethodName, in, out, opts...)
 	if err != nil {
@@ -104,7 +104,7 @@ type ClusterGatewayServer interface {
 	// The caller should stop the replica after confirmed that the new replica is ready.
 	MigrateKernelReplica(context.Context, *ReplicaInfo) (*ReplicaId, error)
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
-	NotifyKernelRegistered(context.Context, *KernelConnectionInfo) (*Void, error)
+	NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*Void, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -121,7 +121,7 @@ func (UnimplementedClusterGatewayServer) RemoveHost(context.Context, *HostId) (*
 func (UnimplementedClusterGatewayServer) MigrateKernelReplica(context.Context, *ReplicaInfo) (*ReplicaId, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MigrateKernelReplica not implemented")
 }
-func (UnimplementedClusterGatewayServer) NotifyKernelRegistered(context.Context, *KernelConnectionInfo) (*Void, error) {
+func (UnimplementedClusterGatewayServer) NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NotifyKernelRegistered not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
@@ -192,7 +192,7 @@ func _ClusterGateway_MigrateKernelReplica_Handler(srv interface{}, ctx context.C
 }
 
 func _ClusterGateway_NotifyKernelRegistered_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(KernelConnectionInfo)
+	in := new(KernelRegistrationNotification)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -204,7 +204,7 @@ func _ClusterGateway_NotifyKernelRegistered_Handler(srv interface{}, ctx context
 		FullMethod: ClusterGateway_NotifyKernelRegistered_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClusterGatewayServer).NotifyKernelRegistered(ctx, req.(*KernelConnectionInfo))
+		return srv.(ClusterGatewayServer).NotifyKernelRegistered(ctx, req.(*KernelRegistrationNotification))
 	}
 	return interceptor(ctx, in, info, handler)
 }
