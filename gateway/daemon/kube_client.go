@@ -111,7 +111,7 @@ func (c *BasicKubeClient) GenerateKernelName(sessionId string) string {
 // Create a new Kubernetes StatefulSet for the given Session.
 // Returns a tuple containing the connection info returned by the `prepareConnectionFileContents` function and an error,
 // which will be nil if there were no errors encountered while creating the StatefulSet and related components.
-func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
+func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	c.log.Debug("Creating StatefulSet for Session %s.", kernel.Id)
 
 	// Prepare the *jupyter.ConnectionInfo.
@@ -148,61 +148,8 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 		panic(err)
 	}
 
-	// Construct the ConfigMap. We'll mount this to the Pods.
-	connectionFileConfigMap := &corev1.ConfigMap{
-		TypeMeta: v1.TypeMeta{
-			Kind:       "ConfigMap",
-			APIVersion: "v1",
-		},
-		ObjectMeta: v1.ObjectMeta{
-			Name:      fmt.Sprintf("kernel-%s-configmap", kernel.Id),
-			Namespace: "default", // TODO(Ben): Don't hardcode the namespace.
-		},
-		Data: map[string]string{
-			"connection-file.json": string(connectionInfoJson),
-			"ipython_config.json":  string(configJson),
-		},
-	}
-
-	// Create the ConfigMap using the Kubernetes API.
-	// TODO(Ben): Don't hardcode the namespace.
-	_, err = c.kubeClientset.CoreV1().ConfigMaps("default").Create(ctx, connectionFileConfigMap, v1.CreateOptions{})
-	if err != nil {
-		c.log.Error("Error creating ConfigMap for connection file for Session %s.", kernel.Id)
-		panic(err)
-	}
-
-	// Create a headless service for the StatefulSet that we'll be creating later on.
-	svcClient := c.kubeClientset.CoreV1().Services(corev1.NamespaceDefault)
-	svc := &corev1.Service{
-		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{
-				{
-					Name:     "tcp",
-					Protocol: "TCP",
-					Port:     80,
-					TargetPort: intstr.IntOrString{
-						IntVal: 80,
-					},
-				},
-			},
-			Selector:  map[string]string{"app": fmt.Sprintf("nginx-session-%s", kernel.Id)},
-			ClusterIP: "None", // Headless.
-		},
-		ObjectMeta: v1.ObjectMeta{
-			Name:   fmt.Sprintf("nginx-session-%s", kernel.Id),
-			Labels: map[string]string{"app": fmt.Sprintf("nginx-session-%s", kernel.Id)},
-		},
-		TypeMeta: v1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
-	}
-	_, err = svcClient.Create(ctx, svc, v1.CreateOptions{})
-	if err != nil {
-		c.log.Error("Error creating Service for StatefulSet for Session %s.", kernel.Id)
-		panic(err)
-	}
+	c.createConfigMap(ctx, connectionInfoJson, configJson, kernel)
+	c.createHeadlessService(ctx, kernel)
 
 	// Create the StatefulSet of distributed kernel replicas.
 	statefulSetsClient := c.kubeClientset.AppsV1().StatefulSets(v1.NamespaceDefault)
@@ -240,7 +187,10 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 			Name: fmt.Sprintf("kernel-%s", kernel.Id),
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas:       &replicas,
+			Replicas: &replicas,
+			Ordinals: &appsv1.StatefulSetOrdinals{
+				Start: 1, // We want to start at 1, as we also use the ordinals as the SMR Node IDs, and those are expected to begin at 1.
+			},
 			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{}},
 			Selector: &v1.LabelSelector{
 				MatchLabels: map[string]string{
@@ -412,6 +362,69 @@ func (c *BasicKubeClient) CreateKernelStatefulSet(ctx context.Context, kernel *g
 	_, err = statefulSetsClient.Create(ctx, statefulSet, v1.CreateOptions{})
 
 	return connectionInfo, nil
+}
+
+// Create a Kubernetes ConfigMap containing the configuration information for a particular deployment of distributed kernels.
+// Both the connectionInfoJson and configJson arguments should be values returned by the json.Marshal function.
+func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJson []byte, configJson []byte, kernel *gateway.KernelSpec) {
+	// Construct the ConfigMap. We'll mount this to the Pods.
+	connectionFileConfigMap := &corev1.ConfigMap{
+		TypeMeta: v1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name:      fmt.Sprintf("kernel-%s-configmap", kernel.Id),
+			Namespace: "default", // TODO(Ben): Don't hardcode the namespace.
+		},
+		Data: map[string]string{
+			"connection-file.json": string(connectionInfoJson),
+			"ipython_config.json":  string(configJson),
+		},
+	}
+
+	// Create the ConfigMap using the Kubernetes API.
+	// TODO(Ben): Don't hardcode the namespace.
+	_, err := c.kubeClientset.CoreV1().ConfigMaps("default").Create(ctx, connectionFileConfigMap, v1.CreateOptions{})
+	if err != nil {
+		c.log.Error("Error creating ConfigMap for connection file for Session %s.", kernel.Id)
+		panic(err)
+	}
+}
+
+// Create a headless service that will control the networking of the distributed kernel StatefulSet.
+func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *gateway.KernelSpec) {
+	// Create a headless service for the StatefulSet that we'll be creating later on.
+	svcClient := c.kubeClientset.CoreV1().Services(corev1.NamespaceDefault)
+	svc := &corev1.Service{
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:     "tcp",
+					Protocol: "TCP",
+					Port:     80,
+					TargetPort: intstr.IntOrString{
+						IntVal: 80,
+					},
+				},
+			},
+			Selector:  map[string]string{"app": fmt.Sprintf("session-%s-svc", kernel.Id)},
+			ClusterIP: "None", // Headless.
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name:   fmt.Sprintf("session-%s-svc", kernel.Id),
+			Labels: map[string]string{"app": fmt.Sprintf("session-%s-svc", kernel.Id)},
+		},
+		TypeMeta: v1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+	}
+	_, err := svcClient.Create(ctx, svc, v1.CreateOptions{})
+	if err != nil {
+		c.log.Error("Error creating Service for StatefulSet for Session %s.", kernel.Id)
+		panic(err)
+	}
 }
 
 func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {

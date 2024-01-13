@@ -258,7 +258,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	// TODO(Ben):
 	// This is likely where we'd create the new Deployment for the particular Session, I guess?
 	// (In the Kubernetes version.)
-	_, err := d.kubeClient.CreateKernelStatefulSet(ctx, in)
+	_, err := d.kubeClient.DeployDistributedKernels(ctx, in)
 	if err != nil {
 		d.log.Error("Error encountered while attempting to create the StatefulSet for Session %s", in.Id)
 		d.log.Error("%v", err)

@@ -15,7 +15,7 @@ type KubeClient interface {
 	GenerateKernelName(string) string     // Generate a name to be assigned to a Kernel.
 
 	// Create a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
-	CreateKernelStatefulSet(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
+	DeployDistributedKernels(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
 }
 
 type SessionDef struct {

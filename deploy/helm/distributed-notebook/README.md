@@ -21,6 +21,13 @@ The `./values.yaml` file specifies default values to be used within the template
 
 # Installation
 
+## Cluster Configuration
+The `distributed-notebook` project uses a State Machine Replication (SMR) protocol to provide data availability and fault tolerance. This protocol assigns an `SMR Node ID` to each distributed kernel replica. These IDs are expected to begin with 1 rather than 0. The distributed kernel replicas for each user session are deployed as a Kubernetes `StatefulSet` resource. Per the [Kubernetes documentation](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/): for a `StatefulSet` with _N_ replicas, each `Pod` in the `StatefulSet` will be assigned an integer ordinal that is unique over the `StatefulSet`. By default, pods will be assigned ordinals from 0 up through _N_-1.
+
+We use each distributed kernel `Pod`'s ordinal as its SMR node ID. But because SMR node IDs are expected to begin with 1, we need to enable a special feature within Kubernetes that adjusts the starting index for the distributed kernel `StatefulSet` resources. For instructions on how to do this, please refer to the Kubernetes documentation available [here](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#start-ordinal). Specifically, the `StatefulSetStartOrdinal` feature gate must be enabled. 
+
+## Chart Installation Instructions
+
 To install this Helm chart, we must first install a third-party provisioner that supports dynamic provisioning of `local` volumes. 
 
 We are using [Local Path Provisioner](https://github.com/rancher/local-path-provisioner/tree/master). To install this on your Kubernetes cluster, execute the following:
