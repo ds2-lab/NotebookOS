@@ -5,7 +5,8 @@ metadata:
 data:
   config.conf: |
     "shell_port": 9002,
-    "iopub_port": 9004,
+    "iosub_port": 9004,
+    "iopub_port": 9005,
     "stdin_port": 9003,
     "control_port": 9001,
     "hb_port": 9000,

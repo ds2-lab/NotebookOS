@@ -261,6 +261,7 @@ func (ivk *DockerInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupy
 		ShellPort:       ivk.dockerOpts.ShellPort,
 		StdinPort:       ivk.dockerOpts.StdinPort,
 		HBPort:          ivk.dockerOpts.HBPort,
+		IOSubPort:       ivk.dockerOpts.IOSubPort,
 		IOPubPort:       ivk.dockerOpts.IOPubPort,
 		SignatureScheme: spec.SignatureScheme,
 		Key:             spec.Key,

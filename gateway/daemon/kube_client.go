@@ -148,8 +148,10 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 		panic(err)
 	}
 
+	headlessServiceName := fmt.Sprintf("kernel-%s-svc", kernel.Id)
+
 	c.createConfigMap(ctx, connectionInfoJson, configJson, kernel)
-	c.createHeadlessService(ctx, kernel)
+	c.createHeadlessService(ctx, kernel, connectionInfo, headlessServiceName)
 
 	// Create the StatefulSet of distributed kernel replicas.
 	statefulSetsClient := c.kubeClientset.AppsV1().StatefulSets(v1.NamespaceDefault)
@@ -162,7 +164,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 					TopologyKey: "kubernetes.io/hostname",
 					LabelSelector: &v1.LabelSelector{
 						MatchLabels: map[string]string{
-							"session": fmt.Sprintf("session-%s", kernel.Id),
+							"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
 						},
 					},
 				},
@@ -181,8 +183,8 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 		},
 		ObjectMeta: v1.ObjectMeta{
 			Labels: map[string]string{
-				"session": fmt.Sprintf("session-%s", kernel.Id),
-				"app":     fmt.Sprintf("kernel-%s", kernel.Id),
+				"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
+				"app":    fmt.Sprintf("kernel-%s", kernel.Id),
 			},
 			Name: fmt.Sprintf("kernel-%s", kernel.Id),
 		},
@@ -197,12 +199,12 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 					"app": fmt.Sprintf("kernel-%s", kernel.Id),
 				},
 			},
-			ServiceName: fmt.Sprintf("nginx-%s", kernel.Id),
+			ServiceName: headlessServiceName,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: v1.ObjectMeta{
 					Labels: map[string]string{
-						"session": fmt.Sprintf("session-%s", kernel.Id),
-						"app":     fmt.Sprintf("kernel-%s", kernel.Id),
+						"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
+						"app":    fmt.Sprintf("kernel-%s", kernel.Id),
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -242,6 +244,24 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 8888,
+								},
+								{
+									ContainerPort: int32(connectionInfo.ControlPort),
+								},
+								{
+									ContainerPort: int32(connectionInfo.HBPort),
+								},
+								{
+									ContainerPort: int32(connectionInfo.IOPubPort),
+								},
+								{
+									ContainerPort: int32(connectionInfo.IOSubPort),
+								},
+								{
+									ContainerPort: int32(connectionInfo.ShellPort),
+								},
+								{
+									ContainerPort: int32(connectionInfo.StdinPort),
 								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
@@ -393,27 +413,76 @@ func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJso
 }
 
 // Create a headless service that will control the networking of the distributed kernel StatefulSet.
-func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *gateway.KernelSpec) {
+func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, serviceName string) {
 	// Create a headless service for the StatefulSet that we'll be creating later on.
 	svcClient := c.kubeClientset.CoreV1().Services(corev1.NamespaceDefault)
 	svc := &corev1.Service{
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
 				{
-					Name:     "tcp",
+					Name:     "web",
 					Protocol: "TCP",
 					Port:     80,
 					TargetPort: intstr.IntOrString{
 						IntVal: 80,
 					},
 				},
+				{
+					Name:     "control-port",
+					Protocol: "TCP",
+					Port:     int32(connectionInfo.ControlPort),
+					TargetPort: intstr.IntOrString{
+						IntVal: int32(connectionInfo.ControlPort),
+					},
+				},
+				{
+					Name:     "shell-port",
+					Protocol: "TCP",
+					Port:     int32(connectionInfo.ShellPort),
+					TargetPort: intstr.IntOrString{
+						IntVal: int32(connectionInfo.ShellPort),
+					},
+				},
+				{
+					Name:     "stdin-port",
+					Protocol: "TCP",
+					Port:     int32(connectionInfo.StdinPort),
+					TargetPort: intstr.IntOrString{
+						IntVal: int32(connectionInfo.StdinPort),
+					},
+				},
+				{
+					Name:     "hb-port",
+					Protocol: "TCP",
+					Port:     int32(connectionInfo.HBPort),
+					TargetPort: intstr.IntOrString{
+						IntVal: int32(connectionInfo.HBPort),
+					},
+				},
+				{
+					Name:     "iopub-port",
+					Protocol: "TCP",
+					Port:     int32(connectionInfo.IOPubPort),
+					TargetPort: intstr.IntOrString{
+						IntVal: int32(connectionInfo.IOPubPort),
+					},
+				},
+				{
+					Name:     "iosub-port",
+					Protocol: "TCP",
+					Port:     int32(connectionInfo.IOSubPort),
+					TargetPort: intstr.IntOrString{
+						IntVal: int32(connectionInfo.IOSubPort),
+					},
+				},
 			},
-			Selector:  map[string]string{"app": fmt.Sprintf("session-%s-svc", kernel.Id)},
+			Selector:  map[string]string{"app": fmt.Sprintf("kernel-%s", kernel.Id)},
 			ClusterIP: "None", // Headless.
+			Type:      corev1.ServiceTypeClusterIP,
 		},
 		ObjectMeta: v1.ObjectMeta{
-			Name:   fmt.Sprintf("session-%s-svc", kernel.Id),
-			Labels: map[string]string{"app": fmt.Sprintf("session-%s-svc", kernel.Id)},
+			Name:   serviceName,
+			Labels: map[string]string{"app": fmt.Sprintf("kernel-%s", kernel.Id)},
 		},
 		TypeMeta: v1.TypeMeta{
 			Kind:       "Service",
@@ -439,6 +508,7 @@ func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec
 		StdinPort:       c.gatewayDaemon.connectionOptions.StdinPort,
 		HBPort:          c.gatewayDaemon.connectionOptions.HBPort,
 		IOPubPort:       c.gatewayDaemon.connectionOptions.IOPubPort,
+		IOSubPort:       c.gatewayDaemon.connectionOptions.IOSubPort,
 		Transport:       "tcp",
 		IP:              "0.0.0.0",
 	}

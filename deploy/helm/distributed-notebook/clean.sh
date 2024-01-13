@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "Deleting services."
-kubectl delete svc $(sudo kubectl get svc | grep nginx-session | awk '{print $1}')
+kubectl delete svc $(sudo kubectl get svc | grep kernel | awk '{print $1}')
 echo "Deleting StatefulSets."
 kubectl delete statefulset $(sudo kubectl get statefulset | grep kernel | awk '{print $1}')
 echo "Deleting ConfigMaps."

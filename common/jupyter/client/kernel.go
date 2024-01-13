@@ -206,31 +206,39 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 }
 
 // InitializeIOForwarder initializes the IOPub serving.
-func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
+// Returns Pub socket, Sub socket, error.
+func (c *KernelClient) InitializeIOForwarder() (*types.Socket, *types.Socket, error) {
 	iopub := &types.Socket{
 		Socket: zmq4.NewPub(c.client.Ctx),
+		Port:   c.client.Meta.IOPubPort,
 		Type:   types.IOMessage,
 	}
 
+	c.log.Debug("iopub.Port in KernelClient::InitializeIOForwarder (1): %d", iopub.Port)
+
 	if err := c.client.Listen(iopub); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Though named IOPub, it is a sub socket for a client.
 	// Subscribe to all messages.
 	// Dial our self if the client is running and serving heartbeat.
 	// Try dial, ignore failure.
-	if err := c.InitializeIOSub(c.handleMsg); err != nil {
+	iosub, err := c.InitializeIOSub(c.handleMsg)
+	if err != nil {
 		iopub.Close()
-		return nil, err
+		iosub.Close() // TODO(Ben): Should we have this? I added it.
+		return nil, nil, err
 	}
+
+	c.log.Debug("iopub.Port in KernelClient::InitializeIOForwarder (2): %d", iopub.Port)
 
 	c.iopub = iopub
 	c.iobroker = NewMessageBroker[core.Kernel](c.extractIOTopicFrame)
 	c.iobroker.Subscribe(MessageBrokerAllTopics, c.forwardIOMessage) // Default to forward all messages.
 	c.iobroker.Subscribe(types.IOTopicStatus, c.handleIOKernelStatus)
 	c.iobroker.Subscribe(types.IOTopicSMRReady, c.handleIOKernelSMRReady)
-	return iopub, nil
+	return iopub, iosub, nil
 }
 
 // AddIOHandler adds a handler for a specific IOPub topic.
@@ -285,14 +293,16 @@ func (c *KernelClient) Close() error {
 	return nil
 }
 
-func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) error {
+func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) (*types.Socket, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.log.Debug("c.client.Meta.IOPubPort: %d", c.client.Meta.IOPubPort)
 
 	// Handler is set, so server routing will be started on dialing.
 	c.client.Sockets.IO = &types.Socket{
 		Socket:  zmq4.NewSub(c.client.Ctx), // Sub socket for client.
-		Port:    c.client.Meta.IOPubPort,
+		Port:    c.client.Meta.IOSubPort,
 		Type:    types.IOMessage,
 		Handler: handler,
 	}
@@ -301,10 +311,10 @@ func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) error {
 
 	if c.status == types.KernelStatusRunning {
 		if err := c.dial(c.client.Sockets.IO); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return c.client.Sockets.IO, nil
 }
 
 // dial connects to specified sockets

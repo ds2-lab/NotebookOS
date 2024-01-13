@@ -96,10 +96,14 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 		return types.ErrNotSupported
 	}
 
+	s.Log.Debug("socket.Port: %d", socket.Port)
+
 	err := socket.Listen(fmt.Sprintf("tcp://:%d", socket.Port))
 	if err != nil {
 		return err
 	}
+
+	s.Log.Debug("socket.Addr().(*net.TCPAddr).Port: %d", socket.Addr().(*net.TCPAddr).Port)
 
 	// Update the port number if it is 0.
 	socket.Port = socket.Addr().(*net.TCPAddr).Port

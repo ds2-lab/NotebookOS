@@ -32,6 +32,10 @@ build: build-scheduler-linux
 	rm scheduler
 	../clean.sh
 
+build-no-clean: build-scheduler-linux
+	docker build ${PARAMS} -t $(DOCKER_USER)daemon .
+	rm scheduler
+
 local-daemon-amd64: build-base-image build-image-cpu-jupyter build-image-gateway build
 # use scale = num-replicas + 1 for membership tests.
 	docker compose up -d --scale daemon=`./load-num-replicas.sh 1`

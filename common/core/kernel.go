@@ -50,7 +50,7 @@ type Kernel interface {
 	InitializeShellForwarder(handler KernelMessageHandler) (*jupyter.Socket, error)
 
 	// InitializeIOForwarder initializes the io forwarder.
-	InitializeIOForwarder() (*jupyter.Socket, error)
+	InitializeIOForwarder() (*jupyter.Socket, *jupyter.Socket, error)
 
 	// RequestWithHandler sends a request and handles the response.
 	// Includes simulator features:
@@ -75,5 +75,5 @@ type KernelReplica interface {
 	ReplicaID() int32
 
 	// InitializeIOSub initializes the io subscriber of the replica with customized handler.
-	InitializeIOSub(handler jupyter.MessageHandler) error
+	InitializeIOSub(handler jupyter.MessageHandler) (*jupyter.Socket, error)
 }

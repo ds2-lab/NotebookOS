@@ -6,5 +6,6 @@ hb-port: 9000
 control-port: 9001
 shell-port: 9002
 stdin-port: 9003
-iopub-port: 9004
+iosub-port: 9004
+iopub-port: 9005
 debug: true

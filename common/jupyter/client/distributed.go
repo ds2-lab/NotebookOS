@@ -187,7 +187,7 @@ func (c *DistributedKernelClient) PerpareNewReplica(persistentId string) *gatewa
 // AddReplica adds a replica peer to the kernel.
 func (c *DistributedKernelClient) AddReplica(r core.KernelReplica, host core.Host) error {
 	// IOForwarder is initialized, link the kernel to feed the IOPub.
-	err := r.InitializeIOSub(c.handleMsg)
+	_, err := r.InitializeIOSub(c.handleMsg)
 	if err != nil {
 		return err
 	}

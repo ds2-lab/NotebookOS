@@ -119,9 +119,10 @@ message KernelConnectionInfo {
 	int32 shellPort = 4; // The port for shell messages.
 	int32 stdinPort = 5; // The port for stdin messages.
 	int32 hbPort = 6; // The port for heartbeat messages.
-	int32 iopubPort = 7; // The port for iopub messages.
-	string signatureScheme = 8; // The signature scheme to use.
-	string key = 9;  // The key to use for signing messages.
+	int32 iopubPort = 7; // The port for iopub messages (for the pub socket).
+	int32 iosubPort = 8; // The port for iopub messages (for the sub socket).
+	string signatureScheme = 9; // The signature scheme to use.
+	string key = 10;  // The key to use for signing messages.
 }
 
 message KernelRegistrationNotification {

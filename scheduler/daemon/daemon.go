@@ -101,6 +101,17 @@ type SchedulerDaemon struct {
 	cleaned chan struct{}
 }
 
+type KernelRegistrationPayload struct {
+	SignatureScheme string              `json:"signature_scheme"`
+	Key             string              `json:"key"`
+	Kernel          *gateway.KernelSpec `json:"kernel,omitempty"`
+	ReplicaId       int32               `json:"replicaId,omitempty"`
+	NumReplicas     int32               `json:"numReplicas,omitempty"`
+	Replicas        []string            `json:"replicas,omitempty"`
+	Join            bool                `json:"join,omitempty"`
+	PersistentId    *string             `json:"persistentId,omitempty"`
+}
+
 // Incoming connection from local distributed kernel.
 type KernelRegistrationClient struct {
 	conn net.Conn
@@ -132,6 +143,8 @@ func New(opts *jupyter.ConnectionInfo, kernelRegistryPort int, configs ...Schedu
 		}
 	}
 
+	daemon.log.Debug("Connection options: %v", daemon.connectionOptions)
+
 	return daemon
 }
 
@@ -153,17 +166,6 @@ func (d *SchedulerDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpe
 		Replicas:  nil,
 		Kernel:    in,
 	})
-}
-
-type KernelRegistrationPayload struct {
-	SignatureScheme string              `json:"signature_scheme"`
-	Key             string              `json:"key"`
-	Kernel          *gateway.KernelSpec `json:"kernel,omitempty"`
-	ReplicaId       int32               `json:"replicaId,omitempty"`
-	NumReplicas     int32               `json:"numReplicas,omitempty"`
-	Replicas        []string            `json:"replicas,omitempty"`
-	Join            bool                `json:"join,omitempty"`
-	PersistentId    *string             `json:"persistentId,omitempty"`
 }
 
 // Register a Kernel that has started running on the same node as we are.
@@ -190,10 +192,14 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		ShellPort:       d.connectionOptions.ShellPort,
 		StdinPort:       d.connectionOptions.StdinPort,
 		HBPort:          d.connectionOptions.HBPort,
+		IOSubPort:       d.connectionOptions.IOSubPort,
 		IOPubPort:       d.connectionOptions.IOPubPort,
 		SignatureScheme: registrationPayload.SignatureScheme,
 		Key:             registrationPayload.Key,
 	}
+
+	d.log.Debug("d.connectionOptions.IOPubPort: %d", d.connectionOptions.IOPubPort)
+	d.log.Debug("connInfo.IOPubPort: %d", connInfo.IOPubPort)
 
 	kernelReplicaSpec := &gateway.KernelReplicaSpec{
 		Kernel:       registrationPayload.Kernel,
@@ -214,7 +220,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 			return // nil, status.Errorf(codes.Internal, err.Error())
 		}
 	}
-	iopub, err := kernel.InitializeIOForwarder()
+	iopub, iosub, err := kernel.InitializeIOForwarder()
 	if err != nil {
 		d.closeKernel(kernel, "failed initializing io forwarder")
 		return // nil, status.Errorf(codes.Internal, err.Error())
@@ -235,6 +241,8 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		d.kernels.Store(session, kernel)
 	}
 
+	d.log.Debug("iopub.Port: %d", iopub.Port)
+
 	info := &gateway.KernelConnectionInfo{
 		Ip:              remote_ip,
 		Transport:       d.transport,
@@ -242,6 +250,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		ShellPort:       int32(shell.Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
+		IosubPort:       int32(iosub.Port),
 		IopubPort:       int32(iopub.Port),
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
@@ -286,7 +295,7 @@ func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.Ke
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 	}
-	iopub, err := kernel.InitializeIOForwarder()
+	iopub, iosub, err := kernel.InitializeIOForwarder()
 	if err != nil {
 		d.closeKernel(kernel, "failed initializing io forwarder")
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -315,6 +324,7 @@ func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.Ke
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
 		IopubPort:       int32(iopub.Port),
+		IosubPort:       int32(iosub.Port),
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}
