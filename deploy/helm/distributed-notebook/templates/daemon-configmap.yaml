@@ -13,8 +13,8 @@ data:
     control-port: 9001
     shell-port: 9002
     stdin-port: 9003
-    iosub-port: 9004
-    iopub-port: 9005
+    iopub-port-kernel: 9004
+    iopub-port-client: 9005
     debug: true
     direct: false
     num-replicas: 3

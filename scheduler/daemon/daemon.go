@@ -192,14 +192,11 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		ShellPort:       d.connectionOptions.ShellPort,
 		StdinPort:       d.connectionOptions.StdinPort,
 		HBPort:          d.connectionOptions.HBPort,
-		IOSubPort:       d.connectionOptions.IOSubPort,
-		IOPubPort:       d.connectionOptions.IOPubPort,
+		IOPubPortClient: d.connectionOptions.IOPubPortClient,
+		IOPubPortKernel: d.connectionOptions.IOPubPortKernel,
 		SignatureScheme: registrationPayload.SignatureScheme,
 		Key:             registrationPayload.Key,
 	}
-
-	d.log.Debug("d.connectionOptions.IOPubPort: %d", d.connectionOptions.IOPubPort)
-	d.log.Debug("connInfo.IOPubPort: %d", connInfo.IOPubPort)
 
 	kernelReplicaSpec := &gateway.KernelReplicaSpec{
 		Kernel:       registrationPayload.Kernel,

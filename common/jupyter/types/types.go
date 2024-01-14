@@ -44,15 +44,15 @@ type ConnectionInfo struct {
 	ShellPort       int    `json:"shell_port" name:"shell-port" description:"The port for shell messages."`
 	StdinPort       int    `json:"stdin_port" name:"stdin-port" description:"The port for stdin messages."`
 	HBPort          int    `json:"hb_port" name:"hb-port" description:"The port for heartbeat messages."`
-	IOPubPort       int    `json:"iopub_port" name:"iopub-port" description:"The port for iopub messages (for the pub socket)."`
-	IOSubPort       int    `json:"iosub_port" name:"iosub-port" description:"The port for iopub messages (for the sub socket)."`
+	IOPubPortKernel int    `json:"iopub_port_kernel" name:"iopub-port-kernel" description:"The port for iopub messages on the kernel (for the pub socket). In clients, we'll create a SUB socket using this to connect to the kernel's PUB socket."`
+	IOPubPortClient int    `json:"iopub_port_client" name:"iopub-port-client" description:"The port for iopub messages (for the sub socket)."`
 	Transport       string `json:"transport"`
 	SignatureScheme string `json:"signature_scheme"`
 	Key             string `json:"key"`
 }
 
 func (ci ConnectionInfo) String() string {
-	return fmt.Sprintf("IP: %s, ControlPort: %d, ShellPort: %d, StdinPort: %d, HBPort: %d, IOPubPort: %d, IOSubPort: %d, Transport: %s, SignatureScheme: %s, Key: %s", ci.IP, ci.ControlPort, ci.ShellPort, ci.StdinPort, ci.HBPort, ci.IOPubPort, ci.IOSubPort, ci.Transport, ci.SignatureScheme, ci.Key)
+	return fmt.Sprintf("IP: %s, ControlPort: %d, ShellPort: %d, StdinPort: %d, HBPort: %d, IOPubPortKernel: %d, IOPubPortClient: %d, Transport: %s, SignatureScheme: %s, Key: %s", ci.IP, ci.ControlPort, ci.ShellPort, ci.StdinPort, ci.HBPort, ci.IOPubPortKernel, ci.IOPubPortClient, ci.Transport, ci.SignatureScheme, ci.Key)
 }
 
 type DistributedKernelConfig struct {

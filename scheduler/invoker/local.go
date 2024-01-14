@@ -162,7 +162,7 @@ func (ivk *LocalInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupyt
 	connectionInfo.ControlPort = socks[0].Addr().(*net.TCPAddr).Port
 	connectionInfo.ShellPort = socks[1].Addr().(*net.TCPAddr).Port
 	connectionInfo.StdinPort = socks[2].Addr().(*net.TCPAddr).Port
-	connectionInfo.IOPubPort = socks[3].Addr().(*net.TCPAddr).Port
+	connectionInfo.IOPubPortKernel = socks[3].Addr().(*net.TCPAddr).Port
 	connectionInfo.HBPort = socks[4].Addr().(*net.TCPAddr).Port
 	return connectionInfo, nil
 }

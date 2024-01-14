@@ -210,15 +210,17 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 func (c *KernelClient) InitializeIOForwarder() (*types.Socket, *types.Socket, error) {
 	iopub := &types.Socket{
 		Socket: zmq4.NewPub(c.client.Ctx),
-		Port:   c.client.Meta.IOPubPort,
+		Port:   c.client.Meta.IOPubPortClient,
 		Type:   types.IOMessage,
 	}
 
-	c.log.Debug("iopub.Port in KernelClient::InitializeIOForwarder (1): %d", iopub.Port)
+	c.log.Debug("Created IOPub socket with port %d.", iopub.Port)
 
 	if err := c.client.Listen(iopub); err != nil {
 		return nil, nil, err
 	}
+
+	c.log.Debug("IOPub socket has port %d (1).", iopub.Port)
 
 	// Though named IOPub, it is a sub socket for a client.
 	// Subscribe to all messages.
@@ -227,11 +229,11 @@ func (c *KernelClient) InitializeIOForwarder() (*types.Socket, *types.Socket, er
 	iosub, err := c.InitializeIOSub(c.handleMsg)
 	if err != nil {
 		iopub.Close()
-		iosub.Close() // TODO(Ben): Should we have this? I added it.
+		// iosub.Close() // TODO(Ben): Should we have this? I added it.
 		return nil, nil, err
 	}
 
-	c.log.Debug("iopub.Port in KernelClient::InitializeIOForwarder (2): %d", iopub.Port)
+	c.log.Debug("IOPub socket has port %d (2).", iopub.Port)
 
 	c.iopub = iopub
 	c.iobroker = NewMessageBroker[core.Kernel](c.extractIOTopicFrame)
@@ -297,12 +299,10 @@ func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) (*types.Soc
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.log.Debug("c.client.Meta.IOPubPort: %d", c.client.Meta.IOPubPort)
-
 	// Handler is set, so server routing will be started on dialing.
 	c.client.Sockets.IO = &types.Socket{
 		Socket:  zmq4.NewSub(c.client.Ctx), // Sub socket for client.
-		Port:    c.client.Meta.IOSubPort,
+		Port:    c.client.Meta.IOPubPortKernel,
 		Type:    types.IOMessage,
 		Handler: handler,
 	}
@@ -314,6 +314,7 @@ func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) (*types.Soc
 			return nil, err
 		}
 	}
+
 	return c.client.Sockets.IO, nil
 }
 
@@ -325,6 +326,8 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 		if socket == nil {
 			continue
 		}
+
+		c.log.Debug("Dialing %s socket at %s now...", socket.Type.String(), fmt.Sprintf(address, socket.Port))
 
 		err := socket.Socket.Dial(fmt.Sprintf(address, socket.Port))
 		if err != nil {
