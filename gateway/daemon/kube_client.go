@@ -252,10 +252,10 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 									ContainerPort: int32(connectionInfo.HBPort),
 								},
 								{
-									ContainerPort: int32(connectionInfo.IOPubPortKernel),
+									ContainerPort: int32(connectionInfo.IOPubPort),
 								},
 								{
-									ContainerPort: int32(connectionInfo.IOPubPortClient),
+									ContainerPort: int32(connectionInfo.IOSubPort),
 								},
 								{
 									ContainerPort: int32(connectionInfo.ShellPort),
@@ -460,19 +460,19 @@ func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *gat
 					},
 				},
 				{
-					Name:     "iopub-port-kernel",
+					Name:     "iopub-port",
 					Protocol: "TCP",
-					Port:     int32(connectionInfo.IOPubPortKernel),
+					Port:     int32(connectionInfo.IOPubPort),
 					TargetPort: intstr.IntOrString{
-						IntVal: int32(connectionInfo.IOPubPortKernel),
+						IntVal: int32(connectionInfo.IOPubPort),
 					},
 				},
 				{
-					Name:     "iopub-port-client",
+					Name:     "iosub-port",
 					Protocol: "TCP",
-					Port:     int32(connectionInfo.IOPubPortClient),
+					Port:     int32(connectionInfo.IOSubPort),
 					TargetPort: intstr.IntOrString{
-						IntVal: int32(connectionInfo.IOPubPortClient),
+						IntVal: int32(connectionInfo.IOSubPort),
 					},
 				},
 			},
@@ -507,8 +507,8 @@ func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec
 		ShellPort:       c.gatewayDaemon.connectionOptions.ShellPort,
 		StdinPort:       c.gatewayDaemon.connectionOptions.StdinPort,
 		HBPort:          c.gatewayDaemon.connectionOptions.HBPort,
-		IOPubPortKernel: c.gatewayDaemon.connectionOptions.IOPubPortKernel,
-		IOPubPortClient: c.gatewayDaemon.connectionOptions.IOPubPortClient,
+		IOPubPort:       c.gatewayDaemon.connectionOptions.IOPubPort,
+		IOSubPort:       c.gatewayDaemon.connectionOptions.IOSubPort,
 		Transport:       "tcp",
 		IP:              "0.0.0.0",
 	}

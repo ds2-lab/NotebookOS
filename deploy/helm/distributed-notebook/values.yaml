@@ -36,11 +36,10 @@ local_daemon:
   network:
     port: 8080
     local_service_name: local-daemon-network
-    local_service_port: 8075
     global_service_name: daemon-network
-    global_service_port: 8076
+    service_port: 8075
     jupyter:
-      kernel_registry_port: 8070
+      kernel_registry_port: 8075
       hb_port: 9000
       control_port: 9001
       shell_port: 9002

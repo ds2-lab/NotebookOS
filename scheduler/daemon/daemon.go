@@ -194,8 +194,8 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		ShellPort:       d.connectionOptions.ShellPort,
 		StdinPort:       d.connectionOptions.StdinPort,
 		HBPort:          d.connectionOptions.HBPort,
-		IOPubPortClient: d.connectionOptions.IOPubPortClient,
-		IOPubPortKernel: d.connectionOptions.IOPubPortKernel,
+		IOSubPort:       d.connectionOptions.IOSubPort,
+		IOPubPort:       d.connectionOptions.IOPubPort,
 		SignatureScheme: registrationPayload.SignatureScheme,
 		Key:             registrationPayload.Key,
 	}
@@ -249,8 +249,8 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		ShellPort:       int32(shell.Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
-		IosubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+		IopubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+		IosubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}

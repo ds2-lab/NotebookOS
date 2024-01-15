@@ -210,7 +210,7 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 func (c *KernelClient) InitializeIOForwarder() (*types.Socket, *types.Socket, error) {
 	iopub := &types.Socket{
 		Socket: zmq4.NewPub(c.client.Ctx),
-		Port:   c.client.Meta.IOPubPortClient,
+		Port:   c.client.Meta.IOSubPort,
 		Type:   types.IOMessage,
 	}
 
@@ -297,12 +297,12 @@ func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) (*types.Soc
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.log.Debug("Creating ZeroMQ SUB socket with port %d", c.client.Meta.IOPubPortKernel)
+	c.log.Debug("Creating ZeroMQ SUB socket with port %d", c.client.Meta.IOPubPort)
 
 	// Handler is set, so server routing will be started on dialing.
 	c.client.Sockets.IO = &types.Socket{
 		Socket:  zmq4.NewSub(c.client.Ctx), // Sub socket for client.
-		Port:    c.client.Meta.IOPubPortKernel,
+		Port:    c.client.Meta.IOPubPort,
 		Type:    types.IOMessage,
 		Handler: handler,
 	}

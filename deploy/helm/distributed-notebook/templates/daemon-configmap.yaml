@@ -13,14 +13,13 @@ data:
     control-port: {{ .Values.local_daemon.network.jupyter.control_port }}
     shell-port: {{ .Values.local_daemon.network.jupyter.shell_port }}
     stdin-port: {{ .Values.local_daemon.network.jupyter.stdin_port }}
-    iopub-port-kernel: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
-    iopub-port-client: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+    iopub-port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+    iosub-port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
     debug: true
     direct: false
     num-replicas: 3
     max-subscribed-ratio: 7.0
     local-daemon-service-name: {{ .Values.local_daemon.network.local_service_name }}
-    local-daemon-service-port: {{ .Values.local_daemon.network.local_service_port }}
     global-daemon-service-name: {{ .Values.local_daemon.network.global_service_name }}
-    global-daemon-service-port: {{ .Values.local_daemon.network.global_service_port }}
+    local-daemon-service-port: {{ .Values.local_daemon.network.service_port }}
     ipython-config-path: {{ .Values.common.ipython_config_path }}

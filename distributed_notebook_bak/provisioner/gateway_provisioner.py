@@ -162,8 +162,8 @@ class GatewayProvisioner(KernelProvisionerBase):
         shell_port        = connectionInfo.shellPort,
         stdin_port        = connectionInfo.stdinPort,
         hb_port           = connectionInfo.hbPort,
-        iopub_port_client        = connectionInfo.iopub_port_client,
-        iopub_port_kernel        = connectionInfo.iopub_port_kernel,
+        iosub_port        = connectionInfo.iosub_port,
+        iopub_port        = connectionInfo.iopub_port,
         transport         = connectionInfo.transport,
         signature_scheme  = connectionInfo.signatureScheme,
       )

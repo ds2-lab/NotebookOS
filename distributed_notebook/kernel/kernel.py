@@ -93,7 +93,6 @@ class DistributedKernel(IPythonKernel):
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
         session_id = os.environ.get("SESSION_ID", default = "N/A")
         kernel_id = os.environ.get("KERNEL_ID", default = "N/A") 
-        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default = "local-daemon-network")
         
         self.log.info("Connection file path: \"%s\"" % connection_file_path)
         self.log.info("IPython config file path: \"%s\"" % config_file_path)
@@ -123,12 +122,19 @@ class DistributedKernel(IPythonKernel):
         self.log.info("IPython config info: %s" % str(config_info))
 
         # TODO(Ben): Connect to LocalDaemon.
-        self.register_with_local_daemon(connection_info, config_info, kernel_id, session_id, local_daemon_service_name)
+        self.register_with_local_daemon(connection_info, config_info, kernel_id, session_id)
     
-    def register_with_local_daemon(self, connection_info:dict, config_info:dict, kernel_id: str, session_id: str, local_daemon_service_name:str):
+    def register_with_local_daemon(self, connection_info:dict, config_info:dict, kernel_id: str, session_id: str):
         self.log.info("Registering with local daemon now.")
         
-        server_port = 8070 # TODO(Ben): Don't hardcode this.
+        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default = "local-daemon-network")
+        server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default = 8075)
+        try:
+            server_port = int(server_port)
+        except ValueError:
+            server_port = 8075
+        
+        self.log.info("Local Daemon network address: \"%s:%d\"" % (local_daemon_service_name, server_port))
         
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         

@@ -1,6 +1,32 @@
 apiVersion: v1
 kind: Service
 metadata:
+  name: {{ .Values.local_daemon.network.local_service_name }}
+  labels:
+    app: local-daemon
+spec:
+  internalTrafficPolicy: Local
+  selector:
+    app: local-daemon
+  ports:
+  - name: tcp
+    port: {{ .Values.local_daemon.network.service_port }}
+  - name: hb-port
+    port: {{ .Values.local_daemon.network.jupyter.hb_port }}
+  - name: control-port
+    port: {{ .Values.local_daemon.network.jupyter.control_port }}
+  - name: shell-port
+    port: {{ .Values.local_daemon.network.jupyter.shell_port }}
+  - name: stdin-port
+    port: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+  - name: iopub-port1
+    port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+  - name: iopub-port2
+    port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: {{ .Values.local_daemon.network.global_service_name }}
   labels:
     app: local-daemon # Still target the `local-daemon` app, but this service provides globally-visible networking.
@@ -9,7 +35,8 @@ spec:
     app: local-daemon # Still target the `local-daemon` app, but this service provides globally-visible networking.
   ports:
   - name: tcp
-    port: {{ .Values.local_daemon.network.global_service_port }}
+    port: {{ .Values.local_daemon.network.service_port }}
+    protocol: TCP
   - name: hb-port
     port: {{ .Values.local_daemon.network.jupyter.hb_port }}
   - name: control-port
@@ -38,6 +65,7 @@ spec:
   selector:
     matchLabels:
       app: local-daemon
+  serviceName: {{ .Values.local_daemon.network.global_service_name }}
   template:
     metadata:
       creationTimestamp: null
@@ -55,39 +83,55 @@ spec:
                 - local-daemon
             topologyKey: "kubernetes.io/hostname"
       containers:
-        - env:
-            - name: NODE_NAME # The full name of the Pod.
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name 
-            - name: POD_IP
-              valueFrom:
-                fieldRef:
-                  apiVersion: v1
-                  fieldPath: status.podIP
-            - name: ORDINAL_NUMBER # The Pod's oridinal with respect to the containing StatefulSet.
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
-            - name: HOST_MOUNT_DIR
-              value: /data
-            - name: KERNEL_IMAGE
-              value: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag }}
-            - name: KERNEL_TEMP_BASE
-              value: /data
-            - name: SHARED_CONFIG_DIR
-              value: "{{ .Values.common.config_file_dir }}"
-          image: {{ .Values.local_daemon.image }}:{{ .Values.local_daemon.image_tag }}
-          name: local-daemon
-          command: ["./scheduler"]
-          args: ["-yaml", "{{ .Values.common.config_file_dir }}/daemon.yml", "-debug", "-v"]
-          resources: {}
-          volumeMounts:
-            - name: node-local
-              mountPath: {{ .Values.common.node_local_pvc_mount_point }}
-            - name: daemon-config-file
-              mountPath: "{{ .Values.common.config_file_dir }}/daemon.yml"
-              subPath: daemon.yml
+      - name: local-daemon
+        image: {{ .Values.local_daemon.image }}:{{ .Values.local_daemon.image_tag }}
+        command: ["./scheduler"]
+        args: ["-yaml", "{{ .Values.common.config_file_dir }}/daemon.yml", "-debug", "-v"]
+        resources: {}
+        ports:
+        - name: tcp
+          containerPort: {{ .Values.local_daemon.network.service_port }}
+        - name: hb-port
+          containerPort: {{ .Values.local_daemon.network.jupyter.hb_port }}
+        - name: control-port
+          containerPort: {{ .Values.local_daemon.network.jupyter.control_port }}
+        - name: shell-port
+          containerPort: {{ .Values.local_daemon.network.jupyter.shell_port }}
+        - name: stdin-port
+          containerPort: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+        - name: iopub-port1
+          containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+        - name: iopub-port2
+          containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+        volumeMounts:
+          - name: node-local
+            mountPath: {{ .Values.common.node_local_pvc_mount_point }}
+          - name: daemon-config-file
+            mountPath: "{{ .Values.common.config_file_dir }}/daemon.yml"
+            subPath: daemon.yml
+        env:
+          - name: NODE_NAME # The full name of the Pod.
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name 
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ORDINAL_NUMBER # The Pod's oridinal with respect to the containing StatefulSet.
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+          - name: HOST_MOUNT_DIR
+            value: /data
+          - name: KERNEL_IMAGE
+            value: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag }}
+          - name: KERNEL_TEMP_BASE
+            value: /data
+          - name: SHARED_CONFIG_DIR
+            value: "{{ .Values.common.config_file_dir }}"
+        
       restartPolicy: Always
       volumes:
         - name: daemon-config-file
