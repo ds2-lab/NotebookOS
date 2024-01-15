@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -118,10 +119,11 @@ type KernelRegistrationClient struct {
 }
 
 func New(opts *jupyter.ConnectionInfo, kernelRegistryPort int, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
+	ip := os.Getenv("POD_IP")
 	daemon := &SchedulerDaemon{
 		connectionOptions:  opts,
 		transport:          "tcp",
-		ip:                 opts.IP,
+		ip:                 ip,
 		kernels:            hashmap.NewCornelkMap[string, *client.KernelClient](1000),
 		closed:             make(chan struct{}),
 		cleaned:            make(chan struct{}),
@@ -241,14 +243,14 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	d.log.Debug("iopub.Port: %d", iopub.Port)
 
 	info := &gateway.KernelConnectionInfo{
-		Ip:              remote_ip,
+		Ip:              d.ip, // TODO(Ben): What should this be? The local daemon's IP, but what is that?
 		Transport:       d.transport,
 		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
 		ShellPort:       int32(shell.Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IosubPort:       int32(iosub.Port),
-		IopubPort:       int32(iopub.Port),
+		IopubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+		IosubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}
@@ -320,8 +322,8 @@ func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.Ke
 		ShellPort:       int32(shell.Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(iopub.Port),
-		IosubPort:       int32(iosub.Port),
+		IopubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+		IosubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}

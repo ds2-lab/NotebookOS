@@ -331,8 +331,8 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 		ShellPort:       int32(kernel.Socket(jupyter.ShellMessage).Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(kernel.Socket(jupyter.IOMessage).Port),
-		IosubPort:       int32(kernel.Socket(jupyter.IOMessage).Port),
+		IopubPort:       -1,                                           // TODO(Ben): Need to set these correctly.
+		IosubPort:       int32(kernel.Socket(jupyter.IOMessage).Port), // TODO(Ben): Need to set these correctly.
 		SignatureScheme: kernel.KernelSpec().SignatureScheme,
 		Key:             kernel.KernelSpec().Key,
 	}

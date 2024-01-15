@@ -214,13 +214,13 @@ func (c *KernelClient) InitializeIOForwarder() (*types.Socket, *types.Socket, er
 		Type:   types.IOMessage,
 	}
 
-	c.log.Debug("Created IOPub socket with port %d.", iopub.Port)
+	c.log.Debug("Created ZeroMQ PUB socket with port %d.", iopub.Port)
 
 	if err := c.client.Listen(iopub); err != nil {
 		return nil, nil, err
 	}
 
-	c.log.Debug("IOPub socket has port %d (1).", iopub.Port)
+	c.log.Debug("ZeroMQ PUB socket has port %d.", iopub.Port)
 
 	// Though named IOPub, it is a sub socket for a client.
 	// Subscribe to all messages.
@@ -232,8 +232,6 @@ func (c *KernelClient) InitializeIOForwarder() (*types.Socket, *types.Socket, er
 		// iosub.Close() // TODO(Ben): Should we have this? I added it.
 		return nil, nil, err
 	}
-
-	c.log.Debug("IOPub socket has port %d (2).", iopub.Port)
 
 	c.iopub = iopub
 	c.iobroker = NewMessageBroker[core.Kernel](c.extractIOTopicFrame)
@@ -299,6 +297,8 @@ func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) (*types.Soc
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.log.Debug("Creating ZeroMQ SUB socket with port %d", c.client.Meta.IOPubPortKernel)
+
 	// Handler is set, so server routing will be started on dialing.
 	c.client.Sockets.IO = &types.Socket{
 		Socket:  zmq4.NewSub(c.client.Ctx), // Sub socket for client.
@@ -314,6 +314,8 @@ func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) (*types.Soc
 			return nil, err
 		}
 	}
+
+	c.log.Debug("ZeroMQ SUB socket has port %d", c.client.Sockets.IO.Port)
 
 	return c.client.Sockets.IO, nil
 }

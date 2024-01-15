@@ -8,6 +8,7 @@ func (ci *KernelConnectionInfo) ConnectionInfo() *jupyter.ConnectionInfo {
 		ControlPort:     int(ci.ControlPort),
 		ShellPort:       int(ci.ShellPort),
 		StdinPort:       int(ci.StdinPort),
+		IOPubPortClient: int(ci.IosubPort),
 		IOPubPortKernel: int(ci.IopubPort),
 		HBPort:          int(ci.HbPort),
 		Transport:       ci.Transport,

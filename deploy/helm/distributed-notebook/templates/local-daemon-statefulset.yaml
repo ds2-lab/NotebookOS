@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.local_daemon.service_name }}
+  name: {{ .Values.local_daemon.local_service_name }}
   labels:
     app: local-daemon
 spec:
@@ -10,7 +10,20 @@ spec:
     app: local-daemon
   ports:
   - name: tcp
-    port: {{ .Values.local_daemon.service_port }}
+    port: {{ .Values.local_daemon.local_service_port }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.local_daemon.global_service_name }}
+  labels:
+    app: local-daemon # Still target the `local-daemon` app, but this service provides globally-visible networking.
+spec:
+  selector:
+    app: local-daemon # Still target the `local-daemon` app, but this service provides globally-visible networking.
+  ports:
+  - name: tcp
+    port: {{ .Values.local_daemon.global_service_port }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -49,6 +62,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name 
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
             - name: ORDINAL_NUMBER # The Pod's oridinal with respect to the containing StatefulSet.
               valueFrom:
                 fieldRef:
@@ -57,20 +75,10 @@ spec:
               value: /data
             - name: KERNEL_IMAGE
               value: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag }}
-            - name: KERNEL_NETWORK
-              value: local_daemon_default
-            # - name: LOCAL_DAEMON_SERVICE_NAME
-            #   value: {{ .Values.local_daemon.service_name }}
-            # - name: LOCAL_DAEMON_SERVICE_PORT
-            #   value: "{{ .Values.local_daemon.service_port }}"
             - name: KERNEL_TEMP_BASE
               value: /data
             - name: SHARED_CONFIG_DIR
               value: "{{ .Values.common.config_file_dir }}"
-            # - name: STORAGE
-            #   value: local_daemon_storage
-            # - name: TARGET_MOUNT_DIR
-            #   value: /kernel_base
           image: {{ .Values.local_daemon.image }}:{{ .Values.local_daemon.image_tag }}
           name: local-daemon
           command: ["./scheduler"]

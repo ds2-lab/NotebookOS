@@ -137,7 +137,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	}
 
 	// Convert to JSON so we can embed it in a ConfigMap.
-	connectionInfoJson, err := json.Marshal(connectionInfo)
+	connectionInfoJson, err := json.Marshal(connectionInfo.ToConnectionInfoForKernel())
 	if err != nil {
 		panic(err)
 	}

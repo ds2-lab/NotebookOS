@@ -33,8 +33,10 @@ notebook_server:
 local_daemon:
   image: scusemua/daemon
   image_tag: latest
-  service_name: local-daemon-network
-  service_port: 8070
+  local_service_name: local-daemon-network
+  local_service_port: 8070
+  global_service_name: daemon-network
+  global_service_port: 8071
   # pvc_size: 128Mi Hard-coded to 128Mi for now, as this request needs to be the same in the local daemon and any co-located kernel pods.
 
 common:

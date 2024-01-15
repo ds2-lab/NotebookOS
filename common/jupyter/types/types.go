@@ -37,6 +37,9 @@ func (s KernelStatus) String() string {
 }
 
 // ConnectionInfo stores the contents of the kernel connection info.
+// This is not used by Kernels directly, as it has two fields `IOPubPortKernel` and `IOPubPortClient`
+// that are used to configure other components, such as the Gateway and LocalDaemons.
+// We convert this struct to a `ConnectionInfoForKernel` when we want to pass configuration to a kernel.
 // The definition is compatible with github.com/mason-leap-lab/go-utils/config.Options
 type ConnectionInfo struct {
 	IP              string `json:"ip" name:"ip" description:"The IP address of the kernel."`
@@ -53,6 +56,38 @@ type ConnectionInfo struct {
 
 func (ci ConnectionInfo) String() string {
 	return fmt.Sprintf("IP: %s, ControlPort: %d, ShellPort: %d, StdinPort: %d, HBPort: %d, IOPubPortKernel: %d, IOPubPortClient: %d, Transport: %s, SignatureScheme: %s, Key: %s", ci.IP, ci.ControlPort, ci.ShellPort, ci.StdinPort, ci.HBPort, ci.IOPubPortKernel, ci.IOPubPortClient, ci.Transport, ci.SignatureScheme, ci.Key)
+}
+
+func (ci ConnectionInfo) ToConnectionInfoForKernel() *ConnectionInfoForKernel {
+	return &ConnectionInfoForKernel{
+		IP:              ci.IP,
+		ControlPort:     ci.ControlPort,
+		ShellPort:       ci.ShellPort,
+		StdinPort:       ci.StdinPort,
+		HBPort:          ci.HBPort,
+		IOPubPort:       ci.IOPubPortKernel,
+		Transport:       ci.Transport,
+		SignatureScheme: ci.SignatureScheme,
+		Key:             ci.Key,
+	}
+}
+
+// ConnectionInfo stores the contents of the kernel connection info.
+// The definition is compatible with github.com/mason-leap-lab/go-utils/config.Options
+type ConnectionInfoForKernel struct {
+	IP              string `json:"ip" name:"ip" description:"The IP address of the kernel."`
+	ControlPort     int    `json:"control_port" name:"control-port" description:"The port for control messages."`
+	ShellPort       int    `json:"shell_port" name:"shell-port" description:"The port for shell messages."`
+	StdinPort       int    `json:"stdin_port" name:"stdin-port" description:"The port for stdin messages."`
+	HBPort          int    `json:"hb_port" name:"hb-port" description:"The port for heartbeat messages."`
+	IOPubPort       int    `json:"iopub_port" name:"iopub-port" description:"The port for iopub messages on the kernel."`
+	Transport       string `json:"transport"`
+	SignatureScheme string `json:"signature_scheme"`
+	Key             string `json:"key"`
+}
+
+func (ci ConnectionInfoForKernel) String() string {
+	return fmt.Sprintf("IP: %s, ControlPort: %d, ShellPort: %d, StdinPort: %d, HBPort: %d, IOPubPort: %d, Transport: %s, SignatureScheme: %s, Key: %s", ci.IP, ci.ControlPort, ci.ShellPort, ci.StdinPort, ci.HBPort, ci.IOPubPort, ci.Transport, ci.SignatureScheme, ci.Key)
 }
 
 type DistributedKernelConfig struct {
