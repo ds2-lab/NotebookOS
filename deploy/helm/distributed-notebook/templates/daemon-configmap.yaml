@@ -5,20 +5,22 @@ metadata:
   namespace: default 
 data:
   daemon.yml: | 
-    kernel-registry-port: 8070 
-    port: 8080
-    provisioner-port: 8081
-    provisioner: "gateway:8081"
-    hb-port: 9000
-    control-port: 9001
-    shell-port: 9002
-    stdin-port: 9003
-    iopub-port-kernel: 9004
-    iopub-port-client: 9005
+    kernel-registry-port: {{ .Values.local_daemon.network.jupyter.kernel_registry_port }} 
+    port: {{ .Values.local_daemon.network.port }}
+    provisioner-port: {{ .Values.gateway.provisioner_port }}
+    provisioner: "gateway:{{ .Values.gateway.provisioner_port }}"
+    hb-port: {{ .Values.local_daemon.network.jupyter.hb_port }}
+    control-port: {{ .Values.local_daemon.network.jupyter.control_port }}
+    shell-port: {{ .Values.local_daemon.network.jupyter.shell_port }}
+    stdin-port: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+    iopub-port-kernel: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+    iopub-port-client: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
     debug: true
     direct: false
     num-replicas: 3
     max-subscribed-ratio: 7.0
-    local-daemon-service-name: {{ .Values.local_daemon.service_name }}
-    local-daemon-service-port: {{ .Values.local_daemon.service_port }}
+    local-daemon-service-name: {{ .Values.local_daemon.network.local_service_name }}
+    local-daemon-service-port: {{ .Values.local_daemon.network.local_service_port }}
+    global-daemon-service-name: {{ .Values.local_daemon.network.global_service_name }}
+    global-daemon-service-port: {{ .Values.local_daemon.network.global_service_port }}
     ipython-config-path: {{ .Values.common.ipython_config_path }}

@@ -52,8 +52,10 @@ var (
 )
 
 type DaemonKubeClientOptions struct {
-	LocalDaemonServiceName string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the networking of local daemons."`
-	LocalDaemonServicePort int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the networking of local daemons."`
+	LocalDaemonServiceName  string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
+	LocalDaemonServicePort  int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
+	GlobalDaemonServiceName string `name:"global-daemon-service-name" description:"Name of the Kubernetes service that manages the global networking of local daemons."`
+	GlobalDaemonServicePort int    `name:"global-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
 }
 
 func (o DaemonKubeClientOptions) String() string {
