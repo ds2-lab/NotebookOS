@@ -538,7 +538,8 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *gateway.KernelReplicaS
 	// Generate the hostnames for the Pods of the StatefulSet.
 	// We can determine them deterministically due to the convention/properties of the StatefulSet.
 	for i := 0; i < 3; i++ {
-		fqdn := fmt.Sprintf(fqdn_format, spec.ID(), i, c.smrPort)
+		// We use i+1 here, as SMR IDs are expected to begin at 1, and we configured the StatefulSet of kernel replicas to begin ordinals at 1 rather than 0.
+		fqdn := fmt.Sprintf(fqdn_format, spec.ID(), i+1, c.smrPort)
 		c.log.Debug("Generated peer fully-qualified domain name: \"%s\"", fqdn)
 		replicas = append(replicas, fqdn)
 	}

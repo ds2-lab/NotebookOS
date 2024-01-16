@@ -19,6 +19,9 @@ USER root:root
 # Prepare directories to have them owned by the user jovyan
 RUN mkdir -p /storage && chown jovyan:users /storage
 
+# For debugging.
+RUN apt-get update && apt-get install iputils-ping dnsutils -y 
+
 # Add files
 ADD common/gateway /distributed_notebook/common/gateway
 ADD distributed_notebook /distributed_notebook/distributed_notebook
