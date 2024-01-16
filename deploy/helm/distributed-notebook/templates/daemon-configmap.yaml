@@ -23,3 +23,5 @@ data:
     global-daemon-service-name: {{ .Values.local_daemon.network.global_service_name }}
     local-daemon-service-port: {{ .Values.local_daemon.network.service_port }}
     ipython-config-path: {{ .Values.common.ipython_config_path }}
+    smr-port: {{ .Values.smr.port }}
+    kube-namespace: {{ .Values.namespace }}

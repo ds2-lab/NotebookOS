@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
@@ -50,6 +49,7 @@ type BasicKubeClient struct {
 	localDaemonServiceName string                // Name of the service controlling the routing of the local daemon. It only routes traffic on the same node.
 	localDaemonServicePort int                   // Port that local daemon service will be routing traffic to.
 	smrPort                int                   // Port used for the SMR protocol.
+	kubeNamespace          string                // Kubernetes namespace that all of these components reside in.
 	log                    logger.Logger
 }
 
@@ -60,6 +60,8 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 		nodeLocalMountPoint:    utils.GetEnv(KubeNodeLocalMountPoint, KubeNodeLocalMountPointDefault),
 		localDaemonServiceName: daemonKubeClientOptions.LocalDaemonServiceName,
 		localDaemonServicePort: daemonKubeClientOptions.LocalDaemonServicePort,
+		smrPort:                daemonKubeClientOptions.SMRPort,
+		kubeNamespace:          daemonKubeClientOptions.KubeNamespace,
 		gatewayDaemon:          gatewayDaemon,
 	}
 
@@ -84,12 +86,12 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 		os.Mkdir(client.configDir, os.ModePerm)
 	}
 
-	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
-	if smrPort == 0 {
-		smrPort = KernelSMRPortDefault
-	}
+	// smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
+	// if smrPort == 0 {
+	// 	smrPort = KernelSMRPortDefault
+	// }
 
-	client.smrPort = smrPort
+	// client.smrPort = smrPort
 
 	return client
 }
@@ -125,12 +127,14 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 		c.log.Debug("spec.Kernel.Argv[%d]: %v", i, kernel.Argv[i])
 	}
 
+	headlessServiceName := fmt.Sprintf("kernel-%s-svc", kernel.Id)
+
 	// Prepare the *jupyter.ConfigFile.
 	configFileInfo, err := c.prepareConfigFileContents(&gateway.KernelReplicaSpec{
 		ReplicaId: DummySMRNodeId, // We'll replace the dummy value with the correct ID when the Pod starts.
 		Replicas:  nil,
 		Kernel:    kernel,
-	})
+	}, headlessServiceName)
 	if err != nil {
 		c.log.Error("Error while preparing config file: %v.\n", err)
 		return nil, err
@@ -147,8 +151,6 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	if err != nil {
 		panic(err)
 	}
-
-	headlessServiceName := fmt.Sprintf("kernel-%s-svc", kernel.Id)
 
 	c.createConfigMap(ctx, connectionInfoJson, configJson, kernel)
 	c.createHeadlessService(ctx, kernel, connectionInfo, headlessServiceName)
@@ -262,6 +264,9 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 								},
 								{
 									ContainerPort: int32(connectionInfo.StdinPort),
+								},
+								{
+									ContainerPort: int32(c.smrPort),
 								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
@@ -475,6 +480,14 @@ func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *gat
 						IntVal: int32(connectionInfo.IOSubPort),
 					},
 				},
+				{
+					Name:     "smr-port",
+					Protocol: "TCP",
+					Port:     int32(c.smrPort),
+					TargetPort: intstr.IntOrString{
+						IntVal: int32(c.smrPort),
+					},
+				},
 			},
 			Selector:  map[string]string{"app": fmt.Sprintf("kernel-%s", kernel.Id)},
 			ClusterIP: "None", // Headless.
@@ -516,14 +529,18 @@ func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec
 	return connectionInfo, nil
 }
 
-func (c *BasicKubeClient) prepareConfigFileContents(spec *gateway.KernelReplicaSpec) (*jupyter.ConfigFile, error) {
+func (c *BasicKubeClient) prepareConfigFileContents(spec *gateway.KernelReplicaSpec, headlessServiceName string) (*jupyter.ConfigFile, error) {
 	var replicas []string
+
+	// Fully-qualified domain name.
+	fqdn_format := fmt.Sprintf("kernel-%%s-%%d.%s.%s.svc.cluster.local:%%d", headlessServiceName, c.kubeNamespace)
 
 	// Generate the hostnames for the Pods of the StatefulSet.
 	// We can determine them deterministically due to the convention/properties of the StatefulSet.
 	for i := 0; i < 3; i++ {
-		hostname := fmt.Sprintf("kernel-%s-%d", spec.ID(), i)
-		replicas = append(replicas, hostname)
+		fqdn := fmt.Sprintf(fqdn_format, spec.ID(), i, c.smrPort)
+		c.log.Debug("Generated peer fully-qualified domain name: \"%s\"", fqdn)
+		replicas = append(replicas, fqdn)
 	}
 
 	// Prepare contents of the configuration file.
@@ -533,6 +550,7 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *gateway.KernelReplicaS
 			SMRNodeID:   int(spec.ReplicaId), // TODO(Ben): Set this to -1 to make it obvious that the Pod needs to fill this in itself?
 			SMRNodes:    replicas,
 			SMRJoin:     spec.Join,
+			SMRPort:     c.smrPort,
 		},
 	}
 	if spec.PersistentId != nil {

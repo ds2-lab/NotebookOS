@@ -56,6 +56,8 @@ type DaemonKubeClientOptions struct {
 	LocalDaemonServicePort  int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
 	GlobalDaemonServiceName string `name:"global-daemon-service-name" description:"Name of the Kubernetes service that manages the global networking of local daemons."`
 	GlobalDaemonServicePort int    `name:"global-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
+	SMRPort                 int    `name:"smr-port" description:"Port used by the state machine replication (SMR) protocol."`
+	KubeNamespace           string `name:"kube-namespace" description:"Kubernetes namespace that all of these components reside in."`
 }
 
 func (o DaemonKubeClientOptions) String() string {
@@ -233,7 +235,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	if !ok {
 		d.log.Debug("Did not find existing KernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
 		// Initialize kernel with new context.
-		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas)
+		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions)
 		d.log.Debug("Initializing Shell Forwarder for new DistributedKernelClient \"%s\" now.", in.Id)
 		_, err := kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {

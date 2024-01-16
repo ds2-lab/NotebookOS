@@ -57,24 +57,27 @@ type DistributedKernelClient struct {
 	replicas []core.KernelReplica
 	size     int
 
+	connectionInfo *types.ConnectionInfo
+
 	log     logger.Logger
 	mu      sync.RWMutex
 	closing int32
 	cleaned chan struct{}
 }
 
-func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int) *DistributedKernelClient {
+func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo) *DistributedKernelClient {
 	kernel := &DistributedKernelClient{
 		id: spec.Id,
 		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, func(s *server.AbstractServer) {
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx)}
-			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx)}
+			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: connectionInfo.IOSubPort}
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
-		status:   types.KernelStatusInitializing,
-		spec:     spec,
-		replicas: make([]core.KernelReplica, numReplicas),
-		cleaned:  make(chan struct{}),
+		status:         types.KernelStatusInitializing,
+		spec:           spec,
+		replicas:       make([]core.KernelReplica, numReplicas),
+		cleaned:        make(chan struct{}),
+		connectionInfo: connectionInfo,
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)

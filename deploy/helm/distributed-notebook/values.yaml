@@ -1,5 +1,7 @@
 replicaCount: 1
 
+namespace: default
+
 serviceAccount:
   # Specifies whether a service account should be created
   create: true
@@ -46,6 +48,9 @@ local_daemon:
       stdin_port: 9003
       iopub_port1: 9004
       iopub_port2: 9005
+
+smr:
+  port: 8080
 
 common:
   config_file_dir: "/kernel-configmap"
