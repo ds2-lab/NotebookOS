@@ -12,7 +12,21 @@ spec:
   ports:
     - name: "{{ .Values.notebook_server.port }}"
       port: {{ .Values.notebook_server.port }}
-      targetPort: {{ .Values.notebook_server.port }}
+    - name: tcp
+      port: {{ .Values.local_daemon.network.service_port }}
+      protocol: TCP
+    - name: hb-port
+      port: {{ .Values.local_daemon.network.jupyter.hb_port }}
+    - name: control-port
+      port: {{ .Values.local_daemon.network.jupyter.control_port }}
+    - name: shell-port
+      port: {{ .Values.local_daemon.network.jupyter.shell_port }}
+    - name: stdin-port
+      port: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+    - name: iopub-port1
+      port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+    - name: iopub-port2
+      port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
   selector:
     io.kompose.service: jupyter-notebook
 status:

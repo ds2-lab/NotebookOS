@@ -231,13 +231,16 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	// Try to find existing kernel by session id first. The kernel that associated with the session id will not be clear during restart.
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
+		d.log.Debug("Did not find existing KernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
 		// Initialize kernel with new context.
 		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas)
+		d.log.Debug("Initializing Shell Forwarder for new DistributedKernelClient \"%s\" now.", in.Id)
 		_, err := kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {
 			kernel.Close()
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
+		d.log.Debug("Initializing IO Forwarder for new DistributedKernelClient \"%s\" now.", in.Id)
 		_, err = kernel.InitializeIOForwarder()
 		if err != nil {
 			kernel.Close()
@@ -323,6 +326,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 
 	// TODO: Handle kernel response.
 	for _, sess := range kernel.Sessions() {
+		d.log.Debug("Storing kernel %v under session ID %s.", kernel, sess)
 		d.kernels.Store(sess, kernel)
 	}
 
@@ -333,7 +337,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 		ShellPort:       int32(kernel.Socket(jupyter.ShellMessage).Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       -1,                                           // TODO(Ben): Need to set these correctly.
+		IopubPort:       int32(kernel.Socket(jupyter.IOMessage).Port), // TODO(Ben): Need to set these correctly.
 		IosubPort:       int32(kernel.Socket(jupyter.IOMessage).Port), // TODO(Ben): Need to set these correctly.
 		SignatureScheme: kernel.KernelSpec().SignatureScheme,
 		Key:             kernel.KernelSpec().Key,
@@ -354,6 +358,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	d.log.Info("Connection info: %v", connectionInfo)
 	d.log.Info("Session ID: %v", sessionId)
 	d.log.Info("Kernel ID: %v", kernelId)
+	d.log.Info("Replica ID: %v", replicaId)
 	d.log.Info("Host ID: %v", hostId)
 
 	d.mutex.Lock()
@@ -387,18 +392,20 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 
 	// Initialize kernel client
 	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo())
+	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("KernelClient::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
+	d.log.Debug("Adding Replica KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
 		panic(fmt.Sprintf("KernelClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
-	waitGroup.Add(1)
-	d.waitGroups.Store(kernelId, waitGroup)
+	waitGroup.Done()
+	d.log.Debug("Done registering KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 
 	return gateway.VOID, nil
 }

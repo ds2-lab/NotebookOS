@@ -33,5 +33,24 @@ spec:
           ports:
             - containerPort: {{ .Values.notebook_server.port }}
           resources: {}
+          ports:
+          - name: tcp
+            containerPort: {{ .Values.local_daemon.network.service_port }}
+          - name: hb-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.hb_port }}
+          - name: control-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.control_port }}
+          - name: shell-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.shell_port }}
+          - name: stdin-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+          - name: iopub-port1
+            containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+          - name: iopub-port2
+            containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+          - name: jupyter
+            containerPort: {{ .Values.gateway.grpc_port }}
+          - name: provisioner
+            containerPort: {{ .Values.gateway.provisioner_port }}
       restartPolicy: Always
 status: {}
