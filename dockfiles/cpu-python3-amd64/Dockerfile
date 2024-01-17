@@ -20,7 +20,7 @@ USER root:root
 RUN mkdir -p /storage && chown jovyan:users /storage
 
 # For debugging.
-RUN apt-get update && apt-get install iputils-ping dnsutils -y 
+RUN apt-get update && apt-get install iputils-ping dnsutils unzip -y
 
 # Add files
 ADD common/gateway /distributed_notebook/common/gateway
@@ -30,6 +30,15 @@ ADD MANIFEST.in /distributed_notebook/MANIFEST.in
 ADD setup.py /distributed_notebook/setup.py
 ADD install_kernel.sh /distributed_notebook/install_kernel.sh
 ADD Makefile /distributed_notebook/Makefile
+ADD dockfiles/cpu-python3-amd64/sample_notebooks/ /home/jovyan/sample_notebooks/
+
+RUN chmod -R 777 /home/jovyan/sample_notebooks/*
+RUN chown jovyan /home/jovyan/sample_notebooks/*
+
+RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
+RUN chmod -R 777 /home/jovyan/datasets/*
+# RUN chown jovyan /home/jovyan/datasets/*
+
 # ADD dockfiles/cpu-python3-amd64/kernel-entrypoint.sh /kernel-entrypoint.sh
 
 # Make sure we can execute the kernel-entrypoint.sh file.

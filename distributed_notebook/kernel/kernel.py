@@ -168,6 +168,8 @@ class DistributedKernel(IPythonKernel):
     
     def start(self):
         super().start()
+        
+        self.log.debug("DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
 
         if self.persistent_id != Undefined and self.persistent_id != "":
             assert isinstance(self.persistent_id, str)
@@ -181,6 +183,7 @@ class DistributedKernel(IPythonKernel):
     # #     self.synchronizer.close()
 
     async def init_persistent_store_on_start(self, persistent_id: str):
+        self.log.debug("Initializing Persistent Store on start, as persistent ID is available: \"%s\"" % persistent_id)
         future = asyncio.Future(loop = asyncio.get_running_loop())
         self.store = future
         self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
@@ -190,6 +193,8 @@ class DistributedKernel(IPythonKernel):
     async def init_persistent_store(self, code):
         if await self.check_persistent_store():
             return self.gen_simple_response()
+
+        self.log.debug("Initializing persistent datastore now.")
         
         # By executing code, we can get persistent id later.
         # The execution_count should not be counted and will reset later.
@@ -261,10 +266,17 @@ class DistributedKernel(IPythonKernel):
         else:
             return True
 
-    async def do_execute(self, code, silent, store_history=True, user_expressions=None, allow_stdin=False):
+    async def do_execute(self, code:str, silent:bool, store_history:bool=True, user_expressions:dict=None, allow_stdin:bool=False):
+        self.log.debug("DistributedKernel is preparing to execute some code.")
+        
         # Special code to initialize persistent store
         if code[:len(key_persistent_id)] == key_persistent_id:
             return await asyncio.ensure_future(self.init_persistent_store(code))
+        
+        if not await self.check_persistent_store():
+            if 'persistent_id' in self.shell.user_ns:
+                self.persistent_id = self.shell.user_ns['persistent_id']
+                await asyncio.ensure_future(self.init_persistent_store(self.persistent_id))
 
         try:
             self.toggle_outstream(override=True, enable=False)
