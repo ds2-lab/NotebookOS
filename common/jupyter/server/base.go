@@ -69,7 +69,7 @@ func (s *BaseServer) ExtractSourceKernelFrame(frames [][]byte) (kernelID string,
 	return s.server.ExtractSourceKernelFrame(frames)
 }
 
-func (s *BaseServer) AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte, reqID string) {
+func (s *BaseServer) AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte) {
 	return s.server.AddSourceKernelFrame(frames, kernelID, jOffset)
 }
 

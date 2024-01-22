@@ -24,8 +24,8 @@ var (
 	ZMQDestFrameFormatter  = "dest.%s.req.%s" // dest.<kernel-id>.req.<req-id>
 	ZMQDestFrameRecognizer = regexp.MustCompile(`^dest\.([0-9a-f-]+)\.req\.([0-9a-f-]+)$`)
 
-	ZMQSourceKernelFormatter  = "src.%s" // src.<kernel-id>
-	ZMQSourceKernelRecognizer = regexp.MustCompile(`^src\.([0-9a-f-]+)$`)
+	ZMQSourceKernelFrameFormatter  = "src.%s" // src.<kernel-id>
+	ZMQSourceKernelFrameRecognizer = regexp.MustCompile(`^src\.([0-9a-f-]+)$`)
 
 	WROptionRemoveDestFrame         = "RemoveDestFrame"
 	WROptionRemoveSourceKernelFrame = "RemoveSourceKernelFrame"
@@ -67,7 +67,7 @@ type SourceKernel interface {
 	// AddSourceKernelFrame adds the source kernel to the specified zmq4 frames,
 	// which should generate a unique request ID that can be extracted by ExtractSourceKernelFrame.
 	// Pass JOffsetAutoDetect to jOffset to let the function automatically detect the jupyter frames.
-	AddSourceKernelFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]byte, reqID string)
+	AddSourceKernelFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]byte)
 
 	// RemoveSourceKernelFrame removes the source kernel frame from the specified zmq4 frames.
 	// Pass JOffsetAutoDetect to jOffset to let the function automatically detect the jupyter frames.
@@ -271,14 +271,21 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	return nil
 }
 
+// Given a jOffset, attempt to extract a DestFrame from the given set of frames.
+func (s *AbstractServer) extractDestFrame(frames [][]byte, jOffset int) (destID string, reqID string) {
+	matches := ZMQDestFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
+	if len(matches) > 0 {
+		destID = matches[1]
+		reqID = matches[2]
+	}
+
+	return
+}
+
 func (s *AbstractServer) ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int) {
 	_, jOffset = s.SkipIdentities(frames)
 	if jOffset > 0 {
-		matches := ZMQDestFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
-		if len(matches) > 0 {
-			destID = matches[1]
-			reqID = matches[2]
-		}
+		destID, reqID = s.extractDestFrame(frames, jOffset)
 	}
 	return
 }
@@ -325,9 +332,30 @@ func (s *AbstractServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed 
 func (s *AbstractServer) ExtractSourceKernelFrame(frames [][]byte) (kernelID string, jOffset int) {
 	_, jOffset = s.SkipIdentities(frames)
 	if jOffset > 0 {
-		matches := ZMQSourceKernelRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
+		// If there's no DEST frame, then the frame immediately preceeding the identities will be the "Source Kernel" frame.
+		matches := ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
 		if len(matches) > 0 {
 			kernelID = matches[1]
+			return
+		}
+		// Alternatively, there may be a DEST frame immediately preceeding the identities,
+		// in which case we need to check the frame before the DEST frame.
+		destID, reqID := s.extractDestFrame(frames, jOffset)
+
+		// If these are non-empty strings, then there was indeed a Dest frame. So, we need to check the frame before that.
+		if destID != "" && reqID != "" {
+			jOffset = jOffset - 1 // Update this since we have to return it along with the kernel ID.
+
+			// If the offset is now 0, then there's no preceeding frames, so we can just return.
+			if jOffset == 0 {
+				return
+			}
+
+			matches := ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
+			if len(matches) > 0 {
+				kernelID = matches[1]
+				return
+			}
 		}
 	}
 	return
@@ -347,7 +375,7 @@ func (s *AbstractServer) AddSourceKernelFrame(frames [][]byte, kernelID string, 
 	// Add "source kernel" frame just before "<IDS|MSG>" frame.
 	newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
 	copy(newFrames[jOffset+1:], frames[jOffset:])
-	newFrames[jOffset] = []byte(fmt.Sprintf(ZMQDestFrameFormatter, kernelID))
+	newFrames[jOffset] = []byte(fmt.Sprintf(ZMQSourceKernelFrameFormatter, kernelID))
 	return
 }
 

@@ -255,7 +255,7 @@ func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.Message
 	}
 
 	// Add timeout if necessary.
-	c.client.Request(ctx, c, socket, msg, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
+	c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
 		// Kernel frame is automatically removed.
 		if handler != nil {
 			err = handler(server.(*KernelClient), typ, msg)
