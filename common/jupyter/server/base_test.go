@@ -119,7 +119,7 @@ var _ = Describe("BaseServer", func() {
 		Expect(len(added)).To(Equal(2))
 		match := ZMQDestFrameRecognizer.FindStringSubmatch(string(added[0]))
 		printFrames(added)
-		GinkgoWriter.Printf("match: %v\n", match)
+		GinkgoWriter.Printf("match: %v\n\n", match)
 		Expect(len(match)).To(Equal(3))
 		Expect(match[1]).To(Equal(DEST_KERNEL_ID))
 		Expect(string(added[1])).To(Equal("<IDS|MSG>"))
@@ -134,11 +134,29 @@ var _ = Describe("BaseServer", func() {
 		Expect(added[0]).To(Equal(frames[0]))
 		match = ZMQDestFrameRecognizer.FindStringSubmatch(string(added[1]))
 		printFrames(added)
-		GinkgoWriter.Printf("match: %v\n", match)
+		GinkgoWriter.Printf("match: %v\n\n", match)
 		Expect(len(match)).To(Equal(3))
 		Expect(match[1]).To(Equal(DEST_KERNEL_ID))
 		Expect(string(added[2])).To(Equal("<IDS|MSG>"))
 		Expect(string(added[3])).To(Equal("body"))
+
+		frames = [][]byte{
+			[]byte("some identities"),
+			getSourceKernelFrame(SOURCE_KERNEL_ID),
+			[]byte("<IDS|MSG>"),
+			[]byte("body"),
+		}
+		added, _ = srv.AddDestFrame(frames, DEST_KERNEL_ID, JOffsetAutoDetect)
+		Expect(len(added)).To(Equal(5))
+		Expect(added[0]).To(Equal(frames[0]))
+		Expect(added[1]).To(Equal(frames[1]))
+		match = ZMQDestFrameRecognizer.FindStringSubmatch(string(added[2]))
+		printFrames(added)
+		GinkgoWriter.Printf("match: %v\n\n", match)
+		Expect(len(match)).To(Equal(3))
+		Expect(match[1]).To(Equal(DEST_KERNEL_ID))
+		Expect(string(added[3])).To(Equal("<IDS|MSG>"))
+		Expect(string(added[4])).To(Equal("body"))
 	})
 
 	It("should use ExtractDestFrame to extract kernel id and jupyter frames.", func() {

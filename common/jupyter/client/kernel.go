@@ -22,6 +22,12 @@ var (
 
 // KernelClient offers a simple interface to communicate with a kernel.
 // All sockets except IOPub are connected on dialing.
+//
+// Each replica of a particular Distributed Kernel will have a corresponding KernelClient.
+// These KernelClients are then wrapped/managed by a DistributedKernelClient, which is only
+// used by the Gateway.
+//
+// Used by both the Gateway and Local Daemon components.
 type KernelClient struct {
 	*server.BaseServer
 	*SessionManager
@@ -394,7 +400,7 @@ func (c *KernelClient) handleIOKernelStatus(kernel core.Kernel, frames types.Jup
 
 	c.busyStatus = status.Status
 	c.lastBStatusMsg = msg
-	// Forward to client.
+	// Return nil so that we forward the message to the client.
 	return nil
 }
 

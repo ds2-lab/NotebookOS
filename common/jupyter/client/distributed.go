@@ -43,6 +43,8 @@ func (r *ReplicaKernelInfo) String() string {
 	return r.replica.String()
 }
 
+// Client of a Distributed Jupyter Kernel.
+// Used by the Gateway daemon.
 type DistributedKernelClient struct {
 	*server.BaseServer
 	*SessionManager
