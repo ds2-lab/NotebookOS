@@ -2,9 +2,14 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+)
+
+var (
+	ErrIOSocketAlreadySet = errors.New("The server already has a non-nil IO ZeroMQ Socket.")
 )
 
 // Router defines the interface to provider infos of a JupyterRouter.
@@ -22,6 +27,19 @@ type BaseServer struct {
 // Socket returns the zmq socket of the given type.
 func (s *BaseServer) Socket(typ types.MessageType) *types.Socket {
 	return s.server.Sockets.All[typ]
+}
+
+// Set the IOPub socket for the server.
+// Returns an error if the Socket is already set, as it should only be set once when the IO socket is nil.
+func (s *BaseServer) SetIOPubSocket(iopub *types.Socket) error {
+	if s.server.Sockets.IO != nil {
+		return ErrIOSocketAlreadySet
+	}
+
+	s.server.Sockets.IO = iopub
+	s.server.Sockets.All[types.IOMessage] = iopub
+
+	return nil
 }
 
 // Context returns the context of this server.
@@ -45,6 +63,18 @@ func (s *BaseServer) AddDestFrame(frames [][]byte, kernelID string, jOffset int)
 
 func (s *BaseServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {
 	return s.server.RemoveDestFrame(frames, jOffset)
+}
+
+func (s *BaseServer) ExtractSourceKernelFrame(frames [][]byte) (kernelID string, jOffset int) {
+	return s.server.ExtractSourceKernelFrame(frames)
+}
+
+func (s *BaseServer) AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte, reqID string) {
+	return s.server.AddSourceKernelFrame(frames, kernelID, jOffset)
+}
+
+func (s *BaseServer) RemoveSourceKernelFrame(frames [][]byte, jOffset int) (removed [][]byte) {
+	return s.server.RemoveSourceKernelFrame(frames, jOffset)
 }
 
 func (s *BaseServer) SkipIdentities(frames [][]byte) (types.JupyterFrames, int) {

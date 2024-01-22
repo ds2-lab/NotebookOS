@@ -170,7 +170,6 @@ class GatewayProvisioner(KernelProvisionerBase):
       
       pprinter = pprint.PrettyPrinter()
       conn_info_formatted = pprinter.pformat(conn_info)
-      
       self.log.info(f"Returning connection info:\n{conn_info_formatted}")
       
       if type(conn_info["key"]) is str:

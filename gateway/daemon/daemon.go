@@ -38,10 +38,11 @@ const (
 var (
 	// gRPC errors
 	// ErrNotFound         = errors.New("function not defined: %s")
-	ErrNoHandler        = status.Errorf(codes.NotFound, "handler not defined")
-	ErrNotImplemented   = status.Errorf(codes.Unimplemented, "not implemented in daemon")
-	ErrNotSupported     = status.Errorf(codes.Unimplemented, "not supported in daemon")
-	ErrInvalidParameter = status.Errorf(codes.InvalidArgument, "invalid parameter")
+	ErrNoHandler          = status.Errorf(codes.NotFound, "handler not defined")
+	ErrNotImplemented     = status.Errorf(codes.Unimplemented, "not implemented in daemon")
+	ErrNotImplementedKube = status.Errorf(codes.Unimplemented, "not supported in Kubernetes-based implementation (yet)")
+	ErrNotSupported       = status.Errorf(codes.Unimplemented, "not supported in daemon")
+	ErrInvalidParameter   = status.Errorf(codes.InvalidArgument, "invalid parameter")
 
 	// Internal errors
 	ErrHeaderNotFound        = errors.New("message header not found")
@@ -104,6 +105,9 @@ type GatewayDaemon struct {
 	mutex sync.Mutex
 
 	waitGroups hashmap.HashMap[string, *sync.WaitGroup]
+
+	// The IOPub socket that all Jupyter clients subscribe to.
+	iopub *jupyter.Socket
 
 	// Kubernetes client.
 	kubeClient KubeClient
@@ -243,11 +247,20 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 		d.log.Debug("Initializing IO Forwarder for new DistributedKernelClient \"%s\" now.", in.Id)
-		_, err = kernel.InitializeIOForwarder()
+
+		// If the Gateway doesn't already have an IOPub socket, then we'll save this one and assign it to future clients.
+		// The Gateway exposes a single IOPub socket. Jupyter clients subscribe to this socket and specify their kernel as the subscription topic.
+		// TODO(Ben): Adjust message
+		if d.iopub == nil {
+			d.iopub, err = kernel.InitializeIOForwarder()
+		}
+
 		if err != nil {
 			kernel.Close()
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
+
+		kernel.SetIOPubSocket(d.iopub)
 	} else {
 		d.log.Info("Restarting %v...", kernel)
 		kernel.BindSession(in.Session)
@@ -271,51 +284,6 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 		d.log.Error("%v", err)
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
 	}
-
-	// hosts := d.placer.FindHosts(in.Resource)
-
-	// for i, host := range hosts {
-	// 	d.log.Debug("Launching kernel replica #%d", i)
-
-	// 	// Launch replicas in parallel.
-	// 	go func(replicaId int, host core.Host) {
-	// 		var err error
-	// 		defer func() {
-	// 			created.Done()
-	// 			if err != nil {
-	// 				d.log.Warn("Failed to start replica(%s:%d): %v", kernel.KernelSpec().Id, replicaId, err)
-	// 			}
-	// 		}()
-
-	// var replicaConnInfo *gateway.KernelConnectionInfo
-	// replicaSpec := &gateway.KernelReplicaSpec{
-	// 	Kernel:      in,
-	// 	ReplicaId:   int32(replicaId),
-	// 	NumReplicas: int32(len(hosts)),
-	// }
-	// replicaConnInfo, err = d.placer.Place(host, replicaSpec)
-	// if err != nil {
-	// 	return
-	// }
-
-	// // Initialize kernel client
-	// replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
-	// err = replica.Validate()
-	// if err != nil {
-	// 	d.log.Error("KernelClient::Validate call failed: %v", err)
-	// 	d.closeReplica(host, kernel, replica, replicaId, "validation error")
-	// 	return
-	// }
-
-	// err = kernel.AddReplica(replica, host)
-	// if err != nil {
-	// 	d.log.Error("KernelClient::AddReplica call failed: %v", err)
-	// 	d.closeReplica(host, kernel, replica, replicaId, "failed adding to the kernel")
-	// 	return
-	// }
-
-	// 	}(i+1, host)
-	// }
 
 	// TODO: Handle replica creation error and ensure enough number of replicas are created.
 
@@ -496,10 +464,12 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 	}
 
 	d.log.Debug("Migrating kernel(%s:%d)...", kernel.ID(), in.ReplicaId)
+	d.log.Warn("WARNING: This feature has not been reimplemented for Kubernetes yet. This will fail.")
+
 	replicaSpec := kernel.PerpareNewReplica(in.PersistentId)
 
 	// TODO: Pass decision to the cluster scheduler.
-	host := d.placer.FindHost(replicaSpec.Kernel.Resource)
+	// host := d.placer.FindHost(replicaSpec.Kernel.Resource)
 
 	var err error
 	defer func() {
@@ -508,34 +478,36 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 		}
 	}()
 
-	replicaConnInfo, err := d.placer.Place(host, replicaSpec)
-	if err != nil {
-		return nil, d.errorf(err)
-	}
+	return nil, d.errorf(ErrNotImplementedKube)
 
-	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
-	err = replica.Validate()
-	if err != nil {
-		d.closeReplica(host, kernel, replica, int(replicaSpec.ReplicaId), "validation error")
-		return nil, d.errorf(err)
-	}
+	// replicaConnInfo, err := d.placer.Place(host, replicaSpec)
+	// if err != nil {
+	// 	return nil, d.errorf(err)
+	// }
 
-	err = kernel.AddReplica(replica, host)
-	if err != nil {
-		d.closeReplica(host, kernel, replica, int(replicaSpec.ReplicaId), "failed adding to the kernel")
-		return nil, d.errorf(err)
-	}
+	// // Initialize kernel client
+	// replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
+	// err = replica.Validate()
+	// if err != nil {
+	// 	d.closeReplica(host, kernel, replica, int(replicaSpec.ReplicaId), "validation error")
+	// 	return nil, d.errorf(err)
+	// }
 
-	// Simply remove the replica from the kernel, the caller should stop the replica after confirmed that the new replica is ready.
-	go func() {
-		_, err := kernel.RemoveReplicaByID(in.ReplicaId, d.placer.Reclaim, true)
-		if err != nil {
-			d.log.Warn("Failed to remove replica(%s:%d): %v", kernel.ID(), in.ReplicaId, err)
-		}
-	}()
+	// err = kernel.AddReplica(replica, host)
+	// if err != nil {
+	// 	d.closeReplica(host, kernel, replica, int(replicaSpec.ReplicaId), "failed adding to the kernel")
+	// 	return nil, d.errorf(err)
+	// }
 
-	return &gateway.ReplicaId{Id: replicaSpec.ReplicaId}, nil
+	// // Simply remove the replica from the kernel, the caller should stop the replica after confirmed that the new replica is ready.
+	// go func() {
+	// 	_, err := kernel.RemoveReplicaByID(in.ReplicaId, d.placer.Reclaim, true)
+	// 	if err != nil {
+	// 		d.log.Warn("Failed to remove replica(%s:%d): %v", kernel.ID(), in.ReplicaId, err)
+	// 	}
+	// }()
+
+	// return &gateway.ReplicaId{Id: replicaSpec.ReplicaId}, nil
 }
 
 func (d *GatewayDaemon) Start() error {

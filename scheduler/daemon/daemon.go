@@ -95,6 +95,12 @@ type SchedulerDaemon struct {
 	kernels   hashmap.HashMap[string, *client.KernelClient]
 	log       logger.Logger
 
+	// The IOPub socket that the Gateway subscribes to.
+	// All pub/sub messages are forwarded from kernels to the gateway (througth us, the local daemon) using this socket.
+	// We wrap the messages in another message that just has a header that is the kernel ID.
+	// This enables the Gateway's SUB sockets to filter messages from each kernel.
+	iopub *jupyter.Socket
+
 	kernelRegistryPort int
 
 	// lifetime
@@ -219,11 +225,30 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 			return // nil, status.Errorf(codes.Internal, err.Error())
 		}
 	}
-	iopub, iosub, err := kernel.InitializeIOForwarder()
-	if err != nil {
-		d.closeKernel(kernel, "failed initializing io forwarder")
-		return // nil, status.Errorf(codes.Internal, err.Error())
+
+	var iosub *jupyter.Socket
+	if d.iopub == nil {
+		d.iopub, err = kernel.InitializeIOForwarder()
+
+		if err != nil {
+			d.closeKernel(kernel, fmt.Sprintf("failed initializing io forwarder (IO PUB socket). Error: %v", err))
+			return // nil, status.Errorf(codes.Internal, err.Error())
+		}
 	}
+	kernel.SetIOPubSocket(d.iopub)
+
+	// Though named IOPub, it is a sub socket for a client.
+	// Subscribe to all messages.
+	// Dial our self if the client is running and serving heartbeat.
+	// Try dial, ignore failure.
+	// The function will default to `KernelClient::handleMsg` if the provided handler is null.
+	iosub, err = kernel.InitializeIOSub(nil)
+	if err != nil {
+		d.log.Error("Failed to initialize IO SUB socket. Error: %v", err)
+		d.closeKernel(kernel, fmt.Sprintf("Failed to initialize IO SUB socket. Error: %v", err))
+		return
+	}
+
 	if err := kernel.Validate(); err != nil {
 		d.closeKernel(kernel, "validation error")
 		return // nil, status.Errorf(codes.Internal, err.Error())
@@ -240,7 +265,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		d.kernels.Store(session, kernel)
 	}
 
-	d.log.Debug("iopub.Port: %d", iopub.Port)
+	// d.log.Debug("iopub.Port: %d", d.iopub.Port)
 
 	info := &gateway.KernelConnectionInfo{
 		Ip:              d.ip, // TODO(Ben): What should this be? The local daemon's IP, but what is that?
@@ -249,8 +274,8 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		ShellPort:       int32(shell.Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
-		IosubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+		IopubPort:       int32(d.iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+		IosubPort:       int32(iosub.Port),   // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}
@@ -276,59 +301,60 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 
 // StartKernel launches a new kernel.
 func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
-	invoker := invoker.NewDockerInvoker(d.connectionOptions)
-	connInfo, err := invoker.InvokeWithContext(ctx, in)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
+	// invoker := invoker.NewDockerInvoker(d.connectionOptions)
+	// connInfo, err := invoker.InvokeWithContext(ctx, in)
+	// if err != nil {
+	// 	return nil, status.Errorf(codes.Internal, err.Error())
+	// }
 
-	// Initialize kernel client with new context.
-	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	kernel := client.NewKernelClient(kernelCtx, in, connInfo)
-	shell := d.router.Socket(jupyter.ShellMessage)
-	if d.Options.DirectServer {
-		var err error
-		shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
-		if err != nil {
-			d.closeKernel(kernel, "failed initializing shell forwarder")
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-	}
-	iopub, iosub, err := kernel.InitializeIOForwarder()
-	if err != nil {
-		d.closeKernel(kernel, "failed initializing io forwarder")
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-	if err := kernel.Validate(); err != nil {
-		d.closeKernel(kernel, "validation error")
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
+	// // Initialize kernel client with new context.
+	// kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
+	// kernel := client.NewKernelClient(kernelCtx, in, connInfo)
+	// shell := d.router.Socket(jupyter.ShellMessage)
+	// if d.Options.DirectServer {
+	// 	var err error
+	// 	shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
+	// 	if err != nil {
+	// 		d.closeKernel(kernel, "failed initializing shell forwarder")
+	// 		return nil, status.Errorf(codes.Internal, err.Error())
+	// 	}
+	// }
+	// iopub, iosub, err := kernel.InitializeIOForwarder()
+	// if err != nil {
+	// 	d.closeKernel(kernel, "failed initializing io forwarder")
+	// 	return nil, status.Errorf(codes.Internal, err.Error())
+	// }
+	// if err := kernel.Validate(); err != nil {
+	// 	d.closeKernel(kernel, "validation error")
+	// 	return nil, status.Errorf(codes.Internal, err.Error())
+	// }
 
-	// Handle kernel response.
-	kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
+	// // Handle kernel response.
+	// kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
 
-	// Register kernel.
-	d.kernels.Store(kernel.ID(), kernel)
+	// // Register kernel.
+	// d.kernels.Store(kernel.ID(), kernel)
 
-	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
-	for _, session := range kernel.Sessions() {
-		d.kernels.Store(session, kernel)
-	}
+	// // Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
+	// for _, session := range kernel.Sessions() {
+	// 	d.kernels.Store(session, kernel)
+	// }
 
-	info := &gateway.KernelConnectionInfo{
-		Ip:              d.ip,
-		Transport:       d.transport,
-		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
-		ShellPort:       int32(shell.Port),
-		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
-		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
-		IosubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
-		SignatureScheme: connInfo.SignatureScheme,
-		Key:             connInfo.Key,
-	}
-	d.log.Info("Kernel %s started: %v", in.ID(), info)
-	return info, nil
+	// info := &gateway.KernelConnectionInfo{
+	// 	Ip:              d.ip,
+	// 	Transport:       d.transport,
+	// 	ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
+	// 	ShellPort:       int32(shell.Port),
+	// 	StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
+	// 	HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
+	// 	IopubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+	// 	IosubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+	// 	SignatureScheme: connInfo.SignatureScheme,
+	// 	Key:             connInfo.Key,
+	// }
+	// d.log.Info("Kernel %s started: %v", in.ID(), info)
+	// return info, nil
+	panic("Not supported.")
 }
 
 // KernelStatus returns the status of a kernel.

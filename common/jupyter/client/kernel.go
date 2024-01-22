@@ -207,7 +207,7 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 
 // InitializeIOForwarder initializes the IOPub serving.
 // Returns Pub socket, Sub socket, error.
-func (c *KernelClient) InitializeIOForwarder() (*types.Socket, *types.Socket, error) {
+func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
 	iopub := &types.Socket{
 		Socket: zmq4.NewPub(c.client.Ctx),
 		Port:   c.client.Meta.IOSubPort,
@@ -217,20 +217,7 @@ func (c *KernelClient) InitializeIOForwarder() (*types.Socket, *types.Socket, er
 	c.log.Debug("Created ZeroMQ PUB socket with port %d.", iopub.Port)
 
 	if err := c.client.Listen(iopub); err != nil {
-		return nil, nil, err
-	}
-
-	c.log.Debug("ZeroMQ PUB socket has port %d.", iopub.Port)
-
-	// Though named IOPub, it is a sub socket for a client.
-	// Subscribe to all messages.
-	// Dial our self if the client is running and serving heartbeat.
-	// Try dial, ignore failure.
-	iosub, err := c.InitializeIOSub(c.handleMsg)
-	if err != nil {
-		iopub.Close()
-		// iosub.Close() // TODO(Ben): Should we have this? I added it.
-		return nil, nil, err
+		return nil, err
 	}
 
 	c.iopub = iopub
@@ -238,7 +225,7 @@ func (c *KernelClient) InitializeIOForwarder() (*types.Socket, *types.Socket, er
 	c.iobroker.Subscribe(MessageBrokerAllTopics, c.forwardIOMessage) // Default to forward all messages.
 	c.iobroker.Subscribe(types.IOTopicStatus, c.handleIOKernelStatus)
 	c.iobroker.Subscribe(types.IOTopicSMRReady, c.handleIOKernelSMRReady)
-	return iopub, iosub, nil
+	return iopub, nil
 }
 
 // AddIOHandler adds a handler for a specific IOPub topic.
@@ -298,6 +285,11 @@ func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) (*types.Soc
 	defer c.mu.Unlock()
 
 	c.log.Debug("Creating ZeroMQ SUB socket with port %d", c.client.Meta.IOPubPort)
+
+	// Default to `c.handleMsg` if the provided handler is null.
+	if handler == nil {
+		handler = c.handleMsg
+	}
 
 	// Handler is set, so server routing will be started on dialing.
 	c.client.Sockets.IO = &types.Socket{

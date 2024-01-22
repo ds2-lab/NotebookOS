@@ -50,7 +50,7 @@ type Kernel interface {
 	InitializeShellForwarder(handler KernelMessageHandler) (*jupyter.Socket, error)
 
 	// InitializeIOForwarder initializes the io forwarder.
-	InitializeIOForwarder() (*jupyter.Socket, *jupyter.Socket, error)
+	InitializeIOForwarder() (*jupyter.Socket, error)
 
 	// RequestWithHandler sends a request and handles the response.
 	// Includes simulator features:
