@@ -134,8 +134,8 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 	return nil
 }
 
-// Serve starts serving the socket with the specified handler. The handler
-// is passed as an argument to allow multiple sockets sharing the same handler.
+// Serve starts serving the socket with the specified handler.
+// The handler is passed as an argument to allow multiple sockets sharing the same handler.
 func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, handler types.MessageHandler) {
 	if !atomic.CompareAndSwapInt32(&socket.Serving, 0, 1) {
 		// Already serving.
@@ -234,7 +234,8 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// 	req.Frames = sourceKernel.AddSourceKernelFrame(req.Frames, sourceKernel.SourceKernelID(), jOffset)
 	// }
 
-	s.Log.Debug("Issuing Request using %v Socket. Source: \"%v\". Destination: \"%v\"", socket.Type.String(), sourceKernel.SourceKernelID(), dest.RequestDestID())
+	s.Log.Debug("%v Request. Message: %p. Kernel: %s. Client Socket: %s. Server: %s.", socket.Type.String(), req, dest.RequestDestID(), socket.Addr().String(), server.String())
+	// s.Log.Debug("Issuing request for message %p using %v Socket. Source: \"%v\". Destination: \"%v\"", req, socket.Type.String(), sourceKernel.SourceKernelID(), dest.RequestDestID())
 
 	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
 	_, reqId, jOffset := dest.ExtractDestFrame(req.Frames)
@@ -338,72 +339,91 @@ func (s *AbstractServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed 
 }
 
 func (s *AbstractServer) ExtractSourceKernelFrame(frames [][]byte) (kernelID string, jOffset int) {
-	_, jOffset = s.SkipIdentities(frames)
-	if jOffset > 0 {
-		// If there's no DEST frame, then the frame immediately preceeding the identities will be the "Source Kernel" frame.
-		matches := ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
-		if len(matches) > 0 {
-			kernelID = matches[1]
-			return
-		}
-		// Alternatively, there may be a DEST frame immediately preceeding the identities,
-		// in which case we need to check the frame before the DEST frame.
-		destID, reqID := s.extractDestFrame(frames, jOffset)
+	// _, jOffset = s.SkipIdentities(frames)
+	// if jOffset > 0 {
+	// 	// If there's no DEST frame, then the frame immediately preceeding the identities will be the "Source Kernel" frame.
+	// 	matches := ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
+	// 	if len(matches) > 0 {
+	// 		kernelID = matches[1]
+	// 		return
+	// 	}
+	// 	// Alternatively, there may be a DEST frame immediately preceeding the identities,
+	// 	// in which case we need to check the frame before the DEST frame.
+	// 	destID, reqID := s.extractDestFrame(frames, jOffset)
 
-		// If these are non-empty strings, then there was indeed a Dest frame. So, we need to check the frame before that.
-		if destID != "" && reqID != "" {
-			jOffset = jOffset - 1 // Update this since we have to return it along with the kernel ID.
+	// 	// If these are non-empty strings, then there was indeed a Dest frame. So, we need to check the frame before that.
+	// 	if destID != "" && reqID != "" {
+	// 		jOffset = jOffset - 1 // Update this since we have to return it along with the kernel ID.
 
-			// If the offset is now 0, then there's no preceeding frames, so we can just return.
-			if jOffset == 0 {
-				return
-			}
+	// 		// If the offset is now 0, then there's no preceeding frames, so we can just return.
+	// 		if jOffset == 0 {
+	// 			return
+	// 		}
 
-			matches := ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
-			if len(matches) > 0 {
-				kernelID = matches[1]
-				return
-			}
-		}
+	// 		matches := ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
+	// 		if len(matches) > 0 {
+	// 			kernelID = matches[1]
+	// 			return
+	// 		}
+	// 	}
+	// }
+	// return
+
+	matches := ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[0]))
+	if len(matches) > 0 {
+		kernelID = matches[1]
 	}
+
 	return
 }
 
 func (s *AbstractServer) AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte) {
-	// Automatically detect the "source kernel" frame.
-	if jOffset == JOffsetAutoDetect {
-		var existingKernelID string
-		existingKernelID, jOffset = s.ExtractSourceKernelFrame(frames)
-		// If the "source kernel" frame is already there, we are done.
-		if existingKernelID != "" {
-			return
-		}
-	}
+	// // Automatically detect the "source kernel" frame.
+	// if jOffset == JOffsetAutoDetect {
+	// 	var existingKernelID string
+	// 	existingKernelID, jOffset = s.ExtractSourceKernelFrame(frames)
+	// 	// If the "source kernel" frame is already there, we are done.
+	// 	if existingKernelID != "" {
+	// 		return
+	// 	}
+	// }
 
-	// Add "source kernel" frame just before "<IDS|MSG>" frame.
+	// // Add "source kernel" frame just before "<IDS|MSG>" frame.
+	// newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
+	// copy(newFrames[jOffset+1:], frames[jOffset:])
+	// newFrames[jOffset] = []byte(fmt.Sprintf(ZMQSourceKernelFrameFormatter, kernelID))
+	// return
+
+	// Add "source kernel" frame to the very beginning.
 	newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
-	copy(newFrames[jOffset+1:], frames[jOffset:])
-	newFrames[jOffset] = []byte(fmt.Sprintf(ZMQSourceKernelFrameFormatter, kernelID))
+	copy(newFrames[1:], frames[0:])
+	newFrames[0] = []byte(fmt.Sprintf(ZMQSourceKernelFrameFormatter, kernelID))
 	return
 }
 
 func (s *AbstractServer) RemoveSourceKernelFrame(frames [][]byte, jOffset int) (removed [][]byte) {
 	// Automatically detect the "source kernel" frame.
-	if jOffset == JOffsetAutoDetect {
-		var existingKernelID string
-		existingKernelID, jOffset = s.ExtractSourceKernelFrame(frames)
-		// If the "source kernel" frame is not available, we are done.
-		if existingKernelID == "" {
-			return frames
-		}
+	// if jOffset == JOffsetAutoDetect {
+	// 	var existingKernelID string
+	// 	existingKernelID, jOffset = s.ExtractSourceKernelFrame(frames)
+	// 	// If the "source kernel" frame is not available, we are done.
+	// 	if existingKernelID == "" {
+	// 		return frames
+	// 	}
+	// }
+
+	// // Remove "source kernel" frame.
+	// if jOffset > 0 {
+	// 	copy(frames[jOffset-1:], frames[jOffset:])
+	// 	frames[len(frames)-1] = nil
+	// 	frames = frames[:len(frames)-1]
+	// }
+
+	existingKernelID, _ := s.ExtractSourceKernelFrame(frames)
+	if existingKernelID != "" {
+		return frames[1:]
 	}
 
-	// Remove "source kernel" frame.
-	if jOffset > 0 {
-		copy(frames[jOffset-1:], frames[jOffset:])
-		frames[len(frames)-1] = nil
-		frames = frames[:len(frames)-1]
-	}
 	return frames
 }
 
@@ -426,8 +446,9 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 	var msg interface{}
 	for {
 		got, err := socket.Recv()
-		s.Log.Debug("Incoming %v message.", socket.Type)
-		s.Log.Trace("Incoming %v message: %v.", socket.Type, &got)
+
+		s.Log.Debug("Received %v message.", socket.Type)
+		// s.Log.Debug("Incoming %v message: %v.", socket.Type, &got)
 		if err == nil {
 			msg = &got
 		} else {
@@ -472,9 +493,9 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 				matchReqId = rspId
 
 				// Automatically remove source kernel ID frame.
-				if remove, _ := getOption(WROptionRemoveSourceKernelFrame).(bool); remove {
-					msg.Frames = sourceKernel.RemoveSourceKernelFrame(msg.Frames, offset)
-				}
+				// if remove, _ := getOption(WROptionRemoveSourceKernelFrame).(bool); remove {
+				// 	msg.Frames = sourceKernel.RemoveSourceKernelFrame(msg.Frames, offset)
+				// }
 
 				// Automatically remove destination kernel ID frame.
 				if remove, _ := getOption(WROptionRemoveDestFrame).(bool); remove {

@@ -107,7 +107,7 @@ type GatewayDaemon struct {
 	waitGroups hashmap.HashMap[string, *sync.WaitGroup]
 
 	// The IOPub socket that all Jupyter clients subscribe to.
-	iopub *jupyter.Socket
+	// iopub *jupyter.Socket
 
 	// Kubernetes client.
 	kubeClient KubeClient
@@ -251,16 +251,17 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 		// If the Gateway doesn't already have an IOPub socket, then we'll save this one and assign it to future clients.
 		// The Gateway exposes a single IOPub socket. Jupyter clients subscribe to this socket and specify their kernel as the subscription topic.
 		// TODO(Ben): Adjust message
-		if d.iopub == nil {
-			d.iopub, err = kernel.InitializeIOForwarder()
-		}
+		// if d.iopub == nil {
+		// 	d.iopub, err = kernel.InitializeIOForwarder()
+		// }
+		_, err = kernel.InitializeIOForwarder()
 
 		if err != nil {
 			kernel.Close()
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 
-		kernel.SetIOPubSocket(d.iopub)
+		// kernel.SetIOPubSocket(d.iopub)
 	} else {
 		d.log.Info("Restarting %v...", kernel)
 		kernel.BindSession(in.Session)
@@ -671,7 +672,7 @@ func (d *GatewayDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyte
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
 	}
-	d.log.Debug("Forwarding %v response from %v: %v", socket, from, msg)
+	d.log.Debug("Forwarding %v response to %v [addr=%v].", socket.Type.String(), from, socket.Addr().String())
 	return socket.Send(*msg)
 }
 

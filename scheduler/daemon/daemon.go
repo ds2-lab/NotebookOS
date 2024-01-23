@@ -99,7 +99,7 @@ type SchedulerDaemon struct {
 	// All pub/sub messages are forwarded from kernels to the gateway (througth us, the local daemon) using this socket.
 	// We wrap the messages in another message that just has a header that is the kernel ID.
 	// This enables the Gateway's SUB sockets to filter messages from each kernel.
-	iopub *jupyter.Socket
+	// iopub *jupyter.Socket
 
 	kernelRegistryPort int
 
@@ -218,31 +218,43 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.Options.DirectServer {
+		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
 		var err error
 		shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {
-			d.closeKernel(kernel, "failed initializing shell forwarder")
+			d.closeKernel(kernel, fmt.Sprintf("failed to initialize shell forwarder for kernel \"%s\". Error: %v", kernelReplicaSpec.Kernel.Id, err))
 			return // nil, status.Errorf(codes.Internal, err.Error())
 		}
+		d.log.Debug("Successfully initialized shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
 	}
 
-	var iosub *jupyter.Socket
-	if d.iopub == nil {
-		d.iopub, err = kernel.InitializeIOForwarder()
+	// var iosub *jupyter.Socket
+	// if d.iopub == nil {
+	// 	d.log.Debug("Initializing IO forwarder for kernel \"%s\".", kernelReplicaSpec.Kernel.Id)
+	// 	d.iopub, err = kernel.InitializeIOForwarder()
 
-		if err != nil {
-			d.closeKernel(kernel, fmt.Sprintf("failed initializing io forwarder (IO PUB socket). Error: %v", err))
-			return // nil, status.Errorf(codes.Internal, err.Error())
-		}
+	// 	if err != nil {
+	// 		d.closeKernel(kernel, fmt.Sprintf("failed to initialize io forwarder (IO PUB socket) for kernel \"%s\". Error: %v", kernelReplicaSpec.Kernel.Id, err))
+	// 		return // nil, status.Errorf(codes.Internal, err.Error())
+	// 	}
+
+	// 	d.log.Debug("Successfully initialized IO forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
+	// }
+	// kernel.SetIOPubSocket(d.iopub)
+
+	iopub, err := kernel.InitializeIOForwarder()
+
+	if err != nil {
+		d.closeKernel(kernel, fmt.Sprintf("failed to initialize io forwarder (IO PUB socket) for kernel \"%s\". Error: %v", kernelReplicaSpec.Kernel.Id, err))
+		return // nil, status.Errorf(codes.Internal, err.Error())
 	}
-	kernel.SetIOPubSocket(d.iopub)
 
 	// Though named IOPub, it is a sub socket for a client.
 	// Subscribe to all messages.
 	// Dial our self if the client is running and serving heartbeat.
 	// Try dial, ignore failure.
 	// The function will default to `KernelClient::handleMsg` if the provided handler is null.
-	iosub, err = kernel.InitializeIOSub(nil, "")
+	iosub, err := kernel.InitializeIOSub(nil, "")
 	if err != nil {
 		d.log.Error("Failed to initialize IO SUB socket. Error: %v", err)
 		d.closeKernel(kernel, fmt.Sprintf("Failed to initialize IO SUB socket. Error: %v", err))
@@ -274,8 +286,8 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		ShellPort:       int32(shell.Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(d.iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
-		IosubPort:       int32(iosub.Port),   // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+		IopubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+		IosubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}
@@ -645,7 +657,7 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
 	}
-	d.log.Debug("Forwarding %v response from %v: %v", socket, from, msg)
+	d.log.Debug("Forwarding %v response from %v.", socket, from)
 	return socket.Send(*msg)
 }
 

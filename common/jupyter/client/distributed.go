@@ -282,7 +282,7 @@ func (c *DistributedKernelClient) Validate() error {
 	return types.ErrKernelNotReady
 }
 
-// InitializeIOForwarder initializes the IOPub serving.
+// InitializeShellForwarder initializes the Shell serving.
 func (c *DistributedKernelClient) InitializeShellForwarder(handler core.KernelMessageHandler) (*types.Socket, error) {
 	shell := c.server.Sockets.Shell
 	if err := c.server.Listen(shell); err != nil {
@@ -308,7 +308,8 @@ func (c *DistributedKernelClient) InitializeIOForwarder() (*types.Socket, error)
 
 // RequestWithHandler sends a request to all replicas and handles the response.
 func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
-	c.log.Debug("%s %v request(%p) to all replicas(%d): %v", prompt, typ, msg, c.Size(), msg)
+	// c.log.Debug("%s %v request(%p) to all replicas(%d): %v", prompt, typ, msg, c.Size(), msg)
+	c.log.Debug("%s %v request(%p) to all replicas(%d).", prompt, typ, msg, c.Size())
 	return c.RequestWithHandlerAndReplicas(ctx, typ, msg, handler, done)
 }
 
@@ -532,8 +533,12 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 }
 
 func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+	c.log.Debug("DistrKernClient %v handling %v message: %v", c.id, typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
+		// Remove the source kernel frame.
+		msg.Frames = c.RemoveSourceKernelFrame(msg.Frames, -1)
+
 		topic, jFrames := replica.(*KernelClient).extractIOTopicFrame(msg)
 		switch topic {
 		case types.IOTopicStatus:

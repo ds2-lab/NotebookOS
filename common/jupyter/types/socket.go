@@ -82,7 +82,6 @@ type Socket struct {
 	Handler    MessageHandler
 	PendingReq hashmap.HashMap[string, *MessageHandlerWrapper]
 	Serving    int32
-	Mu         sync.Mutex
 }
 
 func (s *Socket) String() string {

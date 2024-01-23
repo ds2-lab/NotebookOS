@@ -35,6 +35,8 @@ notebook_server:
 local_daemon:
   image: scusemua/daemon
   image_tag: latest
+  max_gpu_per_node: 8
+  gpu_allocation_granularity: 1
   network:
     port: 8080
     local_service_name: local-daemon-network
@@ -48,6 +50,7 @@ local_daemon:
       stdin_port: 9003
       iopub_port1: 9004
       iopub_port2: 9005
+      starting_port: 9006
 
 smr:
   port: 8080

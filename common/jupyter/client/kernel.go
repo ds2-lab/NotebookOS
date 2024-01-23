@@ -299,15 +299,21 @@ func (c *KernelClient) Close() error {
 	return nil
 }
 
+// Initialize the ZMQ SUB socket for handling IO messages from the Jupyter kernel.
+// If the provided types.MessageHandler parameter is nil, then we will use the default handler.
+// (The default handler is KernelClient::InitializeIOSub.)
+//
+// The ZMQ socket is subscribed to the specified topic, which should be "" (i.e., the empty string) if no subscription is desired.
 func (c *KernelClient) InitializeIOSub(handler types.MessageHandler, subscriptionTopic string) (*types.Socket, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.log.Debug("Creating ZeroMQ SUB socket with port %d and subscription topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
-
-	// Default to `c.handleMsg` if the provided handler is null.
+	// Default to KernelClient::handleMsg if the provided handler is null.
 	if handler == nil {
+		c.log.Debug("Creating ZeroMQ SUB socket: default handler, port %d, subscribe-topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
 		handler = c.handleMsg
+	} else {
+		c.log.Debug("Creating ZeroMQ SUB socket: non-default handler, port %d, subscribe-topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
 	}
 
 	// Handler is set, so server routing will be started on dialing.
@@ -352,6 +358,7 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 	// Using a second loop to start serving after all sockets are connected.
 	for _, socket := range sockets {
 		if socket != nil && socket.Handler != nil {
+			c.log.Debug("Beginning to serve socket %v.", socket.Type.String())
 			go c.client.Serve(c, socket, socket.Handler)
 		}
 	}
@@ -359,7 +366,24 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 	return nil
 }
 
+func (c *KernelClient) handleMsgWithKernelSourceFrame(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+	c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
+	switch typ {
+	case types.IOMessage:
+		msg.Frames = c.RemoveSourceKernelFrame(msg.Frames, -1)
+
+		if c.iopub != nil {
+			return c.iobroker.Publish(c, msg)
+		} else {
+			return ErrIOPubNotStarted
+		}
+	}
+
+	return ErrHandlerNotImplemented
+}
+
 func (c *KernelClient) handleMsg(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+	c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
 		if c.iopub != nil {
@@ -400,8 +424,13 @@ func (c *KernelClient) extractIOTopicFrame(msg *zmq4.Msg) (topic string, jFrames
 }
 
 func (c *KernelClient) forwardIOMessage(kernel core.Kernel, _ types.JupyterFrames, msg *zmq4.Msg) error {
-	msg.Frames = c.AddSourceKernelFrame(msg.Frames, c.SourceKernelID(), server.JOffsetAutoDetect)
-	c.client.Log.Debug("Forwarding %v message: %v", types.IOMessage, msg)
+	c.client.Log.Debug("Forwarding %v message for Kernel \"%s\".", types.IOMessage, c.id)
+	if c.addSourceKernelFrames {
+		c.client.Log.Debug("Adding \"Source Kernel\" frame to %v message that we're forwarding.", types.IOMessage)
+		msg.Frames = c.AddSourceKernelFrame(msg.Frames, c.SourceKernelID(), server.JOffsetAutoDetect)
+	}
+
+	c.client.Log.Debug("%v message to be forwarded (for kernel \"%s\"): %v", types.IOMessage, c.id, msg)
 
 	return kernel.Socket(types.IOMessage).Send(*msg)
 }
@@ -415,6 +444,8 @@ func (c *KernelClient) handleIOKernelStatus(kernel core.Kernel, frames types.Jup
 	if err != nil {
 		return err
 	}
+
+	c.log.Debug("Handling IO Kernel Status for Kernel %v, Status %v.", kernel.ID(), status.Status)
 
 	c.busyStatus = status.Status
 	c.lastBStatusMsg = msg
@@ -431,6 +462,8 @@ func (c *KernelClient) handleIOKernelSMRReady(kernel core.Kernel, frames types.J
 	if err != nil {
 		return err
 	}
+
+	c.log.Debug("Handling IO Kernel SMR Ready for Kernel %v, PersistentID %v.", kernel.ID(), ready.PersistentID)
 
 	c.persistentId = ready.PersistentID
 	c.log.Debug("Persistent ID confirmed: %v", c.persistentId)

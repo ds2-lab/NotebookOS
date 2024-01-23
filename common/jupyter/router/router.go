@@ -55,6 +55,8 @@ func (g *Router) Start() error {
 			continue
 		}
 
+		g.server.Log.Debug("Listening on %v socket now.", socket.Type.String())
+
 		err := g.server.Listen(socket)
 		if err != nil {
 			return fmt.Errorf("could not listen on router socket(port:%d): %w", socket.Port, err)
@@ -68,6 +70,8 @@ func (g *Router) Start() error {
 		if socket == nil {
 			continue
 		}
+
+		g.server.Log.Debug("Serving %v socket with shared handler (Router::handleMsg) now.", socket.Type.String())
 
 		// socket.Handler has not been set, use shared handler.
 		go g.server.Serve(g, socket, g.handleMsg)
