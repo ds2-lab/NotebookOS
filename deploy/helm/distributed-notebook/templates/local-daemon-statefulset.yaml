@@ -108,7 +108,7 @@ spec:
         {{- $nextPort := .Values.local_daemon.network.jupyter.starting_port | int -}}
         {{- range $i := until $portsRequired }}
         - name: {{ printf "resource-port-%d" $i }}
-          containerPort: {{ $nextPort }}
+          containerPort: {{ $nextPort | int }}
           {{- $nextPort = add $nextPort 1 | int}}
         {{- end }}
         volumeMounts:
@@ -119,7 +119,7 @@ spec:
             subPath: daemon.yml
         env:
           - name: NUM_RESOURCE_PORTS
-            value: {{ div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity | int }}
+            value: "{{ printf "%d" (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity ) }}"
           - name: NODE_NAME # The full name of the Pod.
             valueFrom:
               fieldRef:

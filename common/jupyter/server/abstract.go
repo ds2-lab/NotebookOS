@@ -234,7 +234,11 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// 	req.Frames = sourceKernel.AddSourceKernelFrame(req.Frames, sourceKernel.SourceKernelID(), jOffset)
 	// }
 
-	s.Log.Debug("%v Request. Message: %p. Kernel: %s. Client Socket: %s. Server: %s.", socket.Type.String(), req, dest.RequestDestID(), socket.Addr().String(), server.String())
+	if socket.Addr() != nil {
+		s.Log.Debug("%v Request. Message: %p. Kernel: %s. Client Socket: %s. Server: %s.", socket.Type.String(), req, dest.RequestDestID(), socket.Addr().String(), server.String())
+	} else {
+		s.Log.Debug("%v Request. Message: %p. Kernel: %s. Client Socket Port: %d. Server: %s.", socket.Type.String(), req, dest.RequestDestID(), socket.Port, server.String())
+	}
 	// s.Log.Debug("Issuing request for message %p using %v Socket. Source: \"%v\". Destination: \"%v\"", req, socket.Type.String(), sourceKernel.SourceKernelID(), dest.RequestDestID())
 
 	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.

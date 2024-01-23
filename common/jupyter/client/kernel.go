@@ -370,7 +370,7 @@ func (c *KernelClient) handleMsgWithKernelSourceFrame(server types.JupyterServer
 	c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
-		msg.Frames = c.RemoveSourceKernelFrame(msg.Frames, -1)
+		// msg.Frames = c.RemoveSourceKernelFrame(msg.Frames, -1)
 
 		if c.iopub != nil {
 			return c.iobroker.Publish(c, msg)
@@ -425,12 +425,12 @@ func (c *KernelClient) extractIOTopicFrame(msg *zmq4.Msg) (topic string, jFrames
 
 func (c *KernelClient) forwardIOMessage(kernel core.Kernel, _ types.JupyterFrames, msg *zmq4.Msg) error {
 	c.client.Log.Debug("Forwarding %v message for Kernel \"%s\".", types.IOMessage, c.id)
-	if c.addSourceKernelFrames {
-		c.client.Log.Debug("Adding \"Source Kernel\" frame to %v message that we're forwarding.", types.IOMessage)
-		msg.Frames = c.AddSourceKernelFrame(msg.Frames, c.SourceKernelID(), server.JOffsetAutoDetect)
-	}
+	// if c.addSourceKernelFrames {
+	// 	c.client.Log.Debug("Adding \"Source Kernel\" frame to %v message that we're forwarding.", types.IOMessage)
+	// 	msg.Frames = c.AddSourceKernelFrame(msg.Frames, c.SourceKernelID(), server.JOffsetAutoDetect)
+	// }
 
-	c.client.Log.Debug("%v message to be forwarded (for kernel \"%s\"): %v", types.IOMessage, c.id, msg)
+	// c.client.Log.Debug("%v message to be forwarded (for kernel \"%s\"): %v", types.IOMessage, c.id, msg)
 
 	return kernel.Socket(types.IOMessage).Send(*msg)
 }

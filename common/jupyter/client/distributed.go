@@ -200,7 +200,8 @@ func (c *DistributedKernelClient) PerpareNewReplica(persistentId string) *gatewa
 // AddReplica adds a replica peer to the kernel.
 func (c *DistributedKernelClient) AddReplica(r core.KernelReplica, host core.Host) error {
 	// IOForwarder is initialized, link the kernel to feed the IOPub.
-	_, err := r.InitializeIOSub(c.handleMsg, c.id)
+	// _, err := r.InitializeIOSub(c.handleMsg, c.id)
+	_, err := r.InitializeIOSub(c.handleMsg, "")
 	if err != nil {
 		return err
 	}
@@ -537,7 +538,7 @@ func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ
 	switch typ {
 	case types.IOMessage:
 		// Remove the source kernel frame.
-		msg.Frames = c.RemoveSourceKernelFrame(msg.Frames, -1)
+		// msg.Frames = c.RemoveSourceKernelFrame(msg.Frames, -1)
 
 		topic, jFrames := replica.(*KernelClient).extractIOTopicFrame(msg)
 		switch topic {
