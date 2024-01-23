@@ -38,7 +38,7 @@ type WaitResponseOptionGetter func(key string) interface{}
 // RequestDestination is an interface for describing the destination of a request.
 type RequestDest interface {
 	// ID returns the ID of the destination.
-	ID() string
+	RequestDestID() string
 
 	// ExtractDestFrame extracts the destination info from the specified zmq4 frames.
 	// Returns the destination ID, request ID and the offset to the jupyter frames.
@@ -58,7 +58,7 @@ type RequestDest interface {
 // This interface is designed similarly to the RequestDest interface.
 type SourceKernel interface {
 	// ID returns the ID of the destination.
-	ID() string
+	SourceKernelID() string
 
 	// ExtractSourceKernelFrame extracts the source kernel info from the specified zmq4 frames.
 	// Returns the destination ID, request ID and the offset to the jupyter frames.
@@ -228,10 +228,18 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 //   - getOption: The function to get the options.
 func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter) error {
 	socket.InitPendingReq()
+	// Normalize the request, we do not assume that the SourceKernel implements the auto-detect feature.
+	// sourceKernelId, jOffset := sourceKernel.ExtractSourceKernelFrame(req.Frames)
+	// if sourceKernelId == "" {
+	// 	req.Frames = sourceKernel.AddSourceKernelFrame(req.Frames, sourceKernel.SourceKernelID(), jOffset)
+	// }
+
+	s.Log.Debug("Issuing Request using %v Socket. Source: \"%v\". Destination: \"%v\"", socket.Type.String(), sourceKernel.SourceKernelID(), dest.RequestDestID())
+
 	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
 	_, reqId, jOffset := dest.ExtractDestFrame(req.Frames)
 	if reqId == "" {
-		req.Frames, reqId = dest.AddDestFrame(req.Frames, dest.ID(), jOffset)
+		req.Frames, reqId = dest.AddDestFrame(req.Frames, dest.RequestDestID(), jOffset)
 	}
 
 	// Send request.
@@ -251,7 +259,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// Use Serve to support timeout;
 	// Late response will be ignored and serve routing will be stopped if no request is pending.
 	if atomic.LoadInt32(&socket.Serving) == 0 {
-		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, dest, getOption, nil)) // Pass nil as handler to discard any response without dest frame.
+		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, dest, sourceKernel, getOption, nil)) // Pass nil as handler to discard any response without dest frame.
 	}
 
 	// Wait for timeout.
@@ -265,7 +273,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		// Clear pending request.
 		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
 			pending.Release()
-			s.Log.Debug("Request(%p) %v", req, err)
+			s.Log.Debug("Request(%p), error: %v", req, err)
 		}
 	}()
 	return nil
@@ -446,7 +454,7 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 	}
 }
 
-func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest RequestDest, getOption WaitResponseOptionGetter, defaultHandler types.MessageHandler) types.MessageHandler {
+func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest RequestDest, sourceKernel SourceKernel, getOption WaitResponseOptionGetter, defaultHandler types.MessageHandler) types.MessageHandler {
 	return func(info types.JupyterServerInfo, msgType types.MessageType, msg *zmq4.Msg) error {
 		// This handler returns errServeOnce if any to indicate that the server should stop serving.
 		retErr := errServeOnce
@@ -463,15 +471,15 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 			} else {
 				matchReqId = rspId
 
-				// Automatically remove kernel ID frame.
+				// Automatically remove source kernel ID frame.
+				if remove, _ := getOption(WROptionRemoveSourceKernelFrame).(bool); remove {
+					msg.Frames = sourceKernel.RemoveSourceKernelFrame(msg.Frames, offset)
+				}
+
+				// Automatically remove destination kernel ID frame.
 				if remove, _ := getOption(WROptionRemoveDestFrame).(bool); remove {
 					msg.Frames = dest.RemoveDestFrame(msg.Frames, offset)
 				}
-
-				// TODO(Ben): May need to implement this. The order with respect to the removal of the DestFrame will likely be relevant.
-				// if remove, _ := getOption(WROptionRemoveSourceKernelFrame).(bool); remove {
-				// 	msg.Frames = dest.RemoveDestFrame()
-				// }
 
 				// Remove pending request and return registered handler. If timeout, the handler will be nil.
 				if pending, exist := pendings.LoadAndDelete(rspId); exist {

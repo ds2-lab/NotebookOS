@@ -107,6 +107,14 @@ func (c *DistributedKernelClient) ID() string {
 	return c.id
 }
 
+func (c *DistributedKernelClient) RequestDestID() string {
+	return c.id
+}
+
+func (c *DistributedKernelClient) SourceKernelID() string {
+	return c.id
+}
+
 func (s *DistributedKernelClient) Spec() protocol.Spec {
 	return s.spec.Resource
 }
@@ -192,7 +200,7 @@ func (c *DistributedKernelClient) PerpareNewReplica(persistentId string) *gatewa
 // AddReplica adds a replica peer to the kernel.
 func (c *DistributedKernelClient) AddReplica(r core.KernelReplica, host core.Host) error {
 	// IOForwarder is initialized, link the kernel to feed the IOPub.
-	_, err := r.InitializeIOSub(c.handleMsg)
+	_, err := r.InitializeIOSub(c.handleMsg, c.id)
 	if err != nil {
 		return err
 	}

@@ -75,5 +75,5 @@ type KernelReplica interface {
 	ReplicaID() int32
 
 	// InitializeIOSub initializes the io subscriber of the replica with customized handler.
-	InitializeIOSub(handler jupyter.MessageHandler) (*jupyter.Socket, error)
+	InitializeIOSub(handler jupyter.MessageHandler, subscriptionTopic string) (*jupyter.Socket, error)
 }

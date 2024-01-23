@@ -215,7 +215,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo)
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.Options.DirectServer {
 		var err error
@@ -242,7 +242,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	// Dial our self if the client is running and serving heartbeat.
 	// Try dial, ignore failure.
 	// The function will default to `KernelClient::handleMsg` if the provided handler is null.
-	iosub, err = kernel.InitializeIOSub(nil)
+	iosub, err = kernel.InitializeIOSub(nil, "")
 	if err != nil {
 		d.log.Error("Failed to initialize IO SUB socket. Error: %v", err)
 		d.closeKernel(kernel, fmt.Sprintf("Failed to initialize IO SUB socket. Error: %v", err))

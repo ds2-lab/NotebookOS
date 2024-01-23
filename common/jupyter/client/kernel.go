@@ -44,17 +44,22 @@ type KernelClient struct {
 	iopub          *types.Socket
 	iobroker       *MessageBroker[core.Kernel, *zmq4.Msg, types.JupyterFrames]
 
+	// If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will
+	// set its subscription option to the KernelClient's kernel ID.
+	addSourceKernelFrames bool
+
 	log logger.Logger
 	mu  sync.Mutex
 }
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool) *KernelClient {
 	client := &KernelClient{
-		id:        spec.Kernel.Id,
-		replicaId: spec.ReplicaId,
-		spec:      spec.Kernel,
+		id:                    spec.Kernel.Id,
+		replicaId:             spec.ReplicaId,
+		spec:                  spec.Kernel,
+		addSourceKernelFrames: addSourceKernelFrames,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ControlPort}
@@ -81,6 +86,14 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 
 // ID returns the kernel ID.
 func (c *KernelClient) ID() string {
+	return c.id
+}
+
+func (c *KernelClient) RequestDestID() string {
+	return c.id
+}
+
+func (c *KernelClient) SourceKernelID() string {
 	return c.id
 }
 
@@ -286,11 +299,11 @@ func (c *KernelClient) Close() error {
 	return nil
 }
 
-func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) (*types.Socket, error) {
+func (c *KernelClient) InitializeIOSub(handler types.MessageHandler, subscriptionTopic string) (*types.Socket, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.log.Debug("Creating ZeroMQ SUB socket with port %d", c.client.Meta.IOPubPort)
+	c.log.Debug("Creating ZeroMQ SUB socket with port %d and subscription topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
 
 	// Default to `c.handleMsg` if the provided handler is null.
 	if handler == nil {
@@ -304,7 +317,8 @@ func (c *KernelClient) InitializeIOSub(handler types.MessageHandler) (*types.Soc
 		Type:    types.IOMessage,
 		Handler: handler,
 	}
-	c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, "")
+
+	c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
 	c.client.Sockets.All[types.IOMessage] = c.client.Sockets.IO
 
 	if c.status == types.KernelStatusRunning {
@@ -362,6 +376,8 @@ func (c *KernelClient) getWaitResponseOption(key string) interface{} {
 	switch key {
 	case server.WROptionRemoveDestFrame:
 		return c.shell != nil
+		// case server.WROptionRemoveSourceKernelFrame:
+		// 	return c.removeSourceKernelFramesFromMessages
 	}
 
 	return nil
@@ -384,7 +400,9 @@ func (c *KernelClient) extractIOTopicFrame(msg *zmq4.Msg) (topic string, jFrames
 }
 
 func (c *KernelClient) forwardIOMessage(kernel core.Kernel, _ types.JupyterFrames, msg *zmq4.Msg) error {
+	msg.Frames = c.AddSourceKernelFrame(msg.Frames, c.SourceKernelID(), server.JOffsetAutoDetect)
 	c.client.Log.Debug("Forwarding %v message: %v", types.IOMessage, msg)
+
 	return kernel.Socket(types.IOMessage).Send(*msg)
 }
 
