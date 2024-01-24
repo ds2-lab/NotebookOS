@@ -106,6 +106,8 @@ type GatewayDaemon struct {
 
 	waitGroups hashmap.HashMap[string, *sync.WaitGroup]
 
+	availablePorts *utils.AvailablePorts
+
 	// The IOPub socket that all Jupyter clients subscribe to.
 	// iopub *jupyter.Socket
 
@@ -119,6 +121,7 @@ func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClient
 		connectionOptions: opts,
 		transport:         "tcp",
 		ip:                opts.IP,
+		availablePorts:    utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
 		kernels:           hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
 		kernelSpecs:       hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
 		waitGroups:        hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
@@ -238,10 +241,16 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Debug("Did not find existing KernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
+
+		listenPorts, err := d.availablePorts.RequestPorts()
+		if err != nil {
+			panic(err)
+		}
+
 		// Initialize kernel with new context.
-		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions)
+		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions, listenPorts[0], listenPorts[1])
 		d.log.Debug("Initializing Shell Forwarder for new DistributedKernelClient \"%s\" now.", in.Id)
-		_, err := kernel.InitializeShellForwarder(d.kernelShellHandler)
+		_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {
 			kernel.Close()
 			return nil, status.Errorf(codes.Internal, err.Error())
@@ -362,7 +371,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1)
 	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
@@ -432,6 +441,11 @@ func (d *GatewayDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (r
 			kernel.ClearSessions()
 		} else {
 			d.kernels.Delete(kernel.ID())
+
+			// Return the ports allocated to the kernel.
+			listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
+			d.availablePorts.ReturnPorts(listenPorts)
+
 			d.log.Debug("Cleaned kernel %s after kernel stopped.", kernel.ID())
 		}
 	}()

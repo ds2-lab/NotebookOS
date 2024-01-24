@@ -52,7 +52,7 @@ type ConnectionInfo struct {
 	Transport            string `json:"transport"`
 	SignatureScheme      string `json:"signature_scheme"`
 	Key                  string `json:"key"`
-	StartingResourcePort int    `json:"starting_port" name:"starting-port" description:"The first 'resource port'. Resource ports are the ports exposed by the Kubernetes services that are available for ZMQ sockets to listen on."`
+	StartingResourcePort int    `json:"starting_resource_port" name:"starting-resource-port" description:"The first 'resource port'. Resource ports are the ports exposed by the Kubernetes services that are available for ZMQ sockets to listen on."`
 	NumResourcePorts     int    `json:"num_resource_ports" name:"num-resource-ports" description:"The total number of available resource ports. If the 'starting-port' is 9006 and there are 20 resource ports, then the following ports are available: 9006, 9007, 9008, ..., 9024, 9025, 9026. Resource ports are the ports exposed by the Kubernetes services that are available for ZMQ sockets to listen on."`
 }
 

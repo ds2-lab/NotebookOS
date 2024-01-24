@@ -59,7 +59,9 @@ type DistributedKernelClient struct {
 	replicas []core.KernelReplica
 	size     int
 
-	connectionInfo *types.ConnectionInfo
+	connectionInfo  *types.ConnectionInfo
+	shellListenPort int // Port that the KernelClient::shell socket listens on.
+	iopubListenPort int // Port that the KernelClient::iopub socket listens on.
 
 	log     logger.Logger
 	mu      sync.RWMutex
@@ -67,25 +69,35 @@ type DistributedKernelClient struct {
 	cleaned chan struct{}
 }
 
-func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo) *DistributedKernelClient {
+func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int) *DistributedKernelClient {
 	kernel := &DistributedKernelClient{
 		id: spec.Id,
 		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, func(s *server.AbstractServer) {
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx)}
-			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: connectionInfo.IOSubPort}
+			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort}
+			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort} // connectionInfo.IOSubPort}
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
-		status:         types.KernelStatusInitializing,
-		spec:           spec,
-		replicas:       make([]core.KernelReplica, numReplicas),
-		cleaned:        make(chan struct{}),
-		connectionInfo: connectionInfo,
+		status:          types.KernelStatusInitializing,
+		spec:            spec,
+		replicas:        make([]core.KernelReplica, numReplicas),
+		cleaned:         make(chan struct{}),
+		connectionInfo:  connectionInfo,
+		shellListenPort: shellListenPort,
+		iopubListenPort: iopubListenPort,
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)
 	kernel.busyStatus = NewAggregateKernelStatus(kernel, numReplicas)
 	kernel.log = kernel.server.Log
 	return kernel
+}
+
+func (c *DistributedKernelClient) ShellListenPort() int {
+	return c.shellListenPort
+}
+
+func (c *DistributedKernelClient) IOPubListenPort() int {
+	return c.iopubListenPort
 }
 
 // ResetID resets the kernel ID.

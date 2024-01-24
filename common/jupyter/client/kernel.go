@@ -33,20 +33,19 @@ type KernelClient struct {
 	*SessionManager
 	client *server.AbstractServer
 
-	id             string
-	replicaId      int32
-	persistentId   string
-	spec           *gateway.KernelSpec
-	status         types.KernelStatus
-	busyStatus     string
-	lastBStatusMsg *zmq4.Msg
-	shell          *types.Socket
-	iopub          *types.Socket
-	iobroker       *MessageBroker[core.Kernel, *zmq4.Msg, types.JupyterFrames]
-
-	// If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will
-	// set its subscription option to the KernelClient's kernel ID.
-	addSourceKernelFrames bool
+	id                    string
+	replicaId             int32
+	persistentId          string
+	spec                  *gateway.KernelSpec
+	status                types.KernelStatus
+	busyStatus            string
+	lastBStatusMsg        *zmq4.Msg
+	iobroker              *MessageBroker[core.Kernel, *zmq4.Msg, types.JupyterFrames]
+	shell                 *types.Socket // Listener.
+	iopub                 *types.Socket // Listener.
+	addSourceKernelFrames bool          // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelClient's kernel ID.
+	shellListenPort       int           // Port that the KernelClient::shell socket listens on.
+	iopubListenPort       int           // Port that the KernelClient::iopub socket listens on.
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -54,12 +53,14 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int) *KernelClient {
 	client := &KernelClient{
 		id:                    spec.Kernel.Id,
 		replicaId:             spec.ReplicaId,
 		spec:                  spec.Kernel,
 		addSourceKernelFrames: addSourceKernelFrames,
+		shellListenPort:       shellListenPort,
+		iopubListenPort:       iopubListenPort,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ControlPort}
@@ -82,6 +83,14 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 	client.log.Debug("Created new Kernel Client with spec %v, connection info %v.", spec, info)
 
 	return client
+}
+
+func (c *KernelClient) ShellListenPort() int {
+	return c.shellListenPort
+}
+
+func (c *KernelClient) IOPubListenPort() int {
+	return c.iopubListenPort
 }
 
 // ID returns the kernel ID.
@@ -209,6 +218,7 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 	shell := &types.Socket{
 		Socket: zmq4.NewRouter(c.client.Ctx),
 		Type:   types.ShellMessage,
+		Port:   c.shellListenPort,
 	}
 
 	if err := c.client.Listen(shell); err != nil {
@@ -229,7 +239,7 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
 	iopub := &types.Socket{
 		Socket: zmq4.NewPub(c.client.Ctx),
-		Port:   c.client.Meta.IOSubPort,
+		Port:   c.iopubListenPort, // c.client.Meta.IOSubPort,
 		Type:   types.IOMessage,
 	}
 

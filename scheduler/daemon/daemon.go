@@ -101,7 +101,10 @@ type SchedulerDaemon struct {
 	// This enables the Gateway's SUB sockets to filter messages from each kernel.
 	// iopub *jupyter.Socket
 
+	// There's a simple TCP server that listens for kernel registration notifications on this port.
 	kernelRegistryPort int
+
+	availablePorts *utils.AvailablePorts
 
 	// lifetime
 	closed  chan struct{}
@@ -131,6 +134,7 @@ func New(opts *jupyter.ConnectionInfo, kernelRegistryPort int, configs ...Schedu
 		transport:          "tcp",
 		ip:                 ip,
 		kernels:            hashmap.NewCornelkMap[string, *client.KernelClient](1000),
+		availablePorts:     utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
 		closed:             make(chan struct{}),
 		cleaned:            make(chan struct{}),
 		kernelRegistryPort: kernelRegistryPort,
@@ -214,8 +218,13 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		PersistentId: registrationPayload.PersistentId,
 	}
 
+	listenPorts, err := d.availablePorts.RequestPorts()
+	if err != nil {
+		panic(err)
+	}
+
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true)
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1])
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.Options.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
@@ -286,8 +295,8 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		ShellPort:       int32(shell.Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
-		IosubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
+		IopubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly.
+		IosubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly.
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}
@@ -404,6 +413,13 @@ func (d *SchedulerDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) 
 	if err != nil {
 		return nil, d.errorf(err)
 	}
+
+	listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
+	err = d.availablePorts.ReturnPorts(listenPorts)
+	if err != nil {
+		return nil, d.errorf(err)
+	}
+
 	return gateway.VOID, nil
 }
 

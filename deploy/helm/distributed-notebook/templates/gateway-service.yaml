@@ -34,7 +34,7 @@ spec:
     {{- $portsRequired := mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
     {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
     {{- range $i := until $portsRequired }}
-    - name: {{ printf "resource-port-%d" $i }}
+    - name: {{ printf "res-port-%d" $i }}
       port: {{ $nextPort | int }}
       {{- $nextPort = add $nextPort 1 | int}}
     {{- end }}
