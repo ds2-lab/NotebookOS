@@ -24,6 +24,13 @@ spec:
     port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
   - name: iopub-port2
     port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+  {{- $portsRequired := mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
+  {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
+  {{- range $i := until $portsRequired }}
+  - name: {{ printf "resource-port-%d" $i }}
+    port: {{ $nextPort | int }}
+    {{- $nextPort = add $nextPort 1 | int}}
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -50,6 +57,13 @@ spec:
     port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
   - name: iopub-port2
     port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+  {{- $portsRequired := mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
+  {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
+  {{- range $i := until $portsRequired }}
+  - name: {{ printf "resource-port-%d" $i }}
+    port: {{ $nextPort | int }}
+    {{- $nextPort = add $nextPort 1 | int}}
+  {{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -104,8 +118,8 @@ spec:
           containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
         - name: iopub-port2
           containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
-        {{- $portsRequired := div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity | int -}}
-        {{- $nextPort := .Values.local_daemon.network.jupyter.starting_port | int -}}
+        {{- $portsRequired := mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
+        {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
         {{- range $i := until $portsRequired }}
         - name: {{ printf "resource-port-%d" $i }}
           containerPort: {{ $nextPort | int }}
