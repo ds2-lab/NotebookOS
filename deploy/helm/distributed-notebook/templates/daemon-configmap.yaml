@@ -25,3 +25,5 @@ data:
     ipython-config-path: {{ .Values.common.ipython_config_path }}
     smr-port: {{ .Values.smr.port }}
     kube-namespace: {{ .Values.namespace }}
+    starting-resource-port: {{ .Values.local_daemon.network.jupyter.starting_resource_port }}
+    num-resource-ports: {{ mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 }}
