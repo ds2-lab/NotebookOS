@@ -15,7 +15,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -41,15 +44,16 @@ var (
 )
 
 type BasicKubeClient struct {
-	kubeClientset          *kubernetes.Clientset // Kubernetes client.
-	gatewayDaemon          *GatewayDaemon        // Associated Gateway daemon.
-	configDir              string                // Where to write config files. This is also where they'll be found on the kernel nodes.
-	ipythonConfigPath      string                // Where the IPython config is located.
-	nodeLocalMountPoint    string                // The mount of the shared PVC for all kernel nodes.
-	localDaemonServiceName string                // Name of the service controlling the routing of the local daemon. It only routes traffic on the same node.
-	localDaemonServicePort int                   // Port that local daemon service will be routing traffic to.
-	smrPort                int                   // Port used for the SMR protocol.
-	kubeNamespace          string                // Kubernetes namespace that all of these components reside in.
+	kubeClientset          *kubernetes.Clientset  // Kubernetes client.
+	dynamicClient          *dynamic.DynamicClient // Dynamic client for working with unstructured components. We use this for the custom CloneSet.
+	gatewayDaemon          *GatewayDaemon         // Associated Gateway daemon.
+	configDir              string                 // Where to write config files. This is also where they'll be found on the kernel nodes.
+	ipythonConfigPath      string                 // Where the IPython config is located.
+	nodeLocalMountPoint    string                 // The mount of the shared PVC for all kernel nodes.
+	localDaemonServiceName string                 // Name of the service controlling the routing of the local daemon. It only routes traffic on the same node.
+	localDaemonServicePort int                    // Port that local daemon service will be routing traffic to.
+	smrPort                int                    // Port used for the SMR protocol.
+	kubeNamespace          string                 // Kubernetes namespace that all of these components reside in.
 	log                    logger.Logger
 }
 
@@ -67,17 +71,30 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 
 	config.InitLogger(&client.log, client)
 
-	config, err := rest.InClusterConfig()
+	kubeConfig, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
 	}
 
 	// Creates the Clientset.
-	clientset, err := kubernetes.NewForConfig(config)
+	clientset, err := kubernetes.NewForConfig(kubeConfig)
 	if err != nil {
 		panic(err.Error())
 	}
+
+	dynamicConfig, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// Create the "Dynamic" client, which is used for unstructured components, such as CloneSets.
+	dynamicClient, err := dynamic.NewForConfig(dynamicConfig)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	client.kubeClientset = clientset
+	client.dynamicClient = dynamicClient
 
 	// Check if the "/configurationFiles" directory exists.
 	// Create it if it doesn't already exist.
@@ -387,6 +404,200 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	_, err = statefulSetsClient.Create(ctx, statefulSet, v1.CreateOptions{})
 
 	return connectionInfo, nil
+}
+
+// Create a CloneSet for a particular distributed kernel.
+func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) {
+	deploymentRes := schema.GroupVersionResource{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "cloneset"}
+
+	cloneSetDefinition := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apps.kruise.io/v1alpha1",
+			"kind":       "CloneSet",
+			"metadata": map[string]interface{}{
+				"name": fmt.Sprintf("kernel-%s", kernel.Id),
+				"labels": map[string]interface{}{
+					"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
+					"app":    fmt.Sprintf("kernel-%s", kernel.Id),
+				},
+			},
+			"spec": map[string]interface{}{
+				"replicas": 4,
+				"selector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"app": fmt.Sprintf("kernel-%s", kernel.Id),
+					},
+				},
+			},
+			"serviceName": headlessServiceName,
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": fmt.Sprintf("kernel-%s", kernel.Id),
+					"labels": map[string]interface{}{
+						"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
+						"app":    fmt.Sprintf("kernel-%s", kernel.Id),
+					},
+				},
+				"spec": map[string]interface{}{
+					"affinity": map[string]interface{}{
+						"podAntiAffinity": map[string]interface{}{
+							"requiredDuringSchedulingIgnoredDuringExecution": map[string]interface{}{
+								"topologyKey": "kubernetes.io/hostname",
+								"labelSelector": map[string]interface{}{
+									"matchLabels": map[string]interface{}{
+										"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
+									},
+								},
+							},
+						},
+					},
+					"volumes": []map[string]interface{}{
+						{
+							"name": "kernel-configmap",
+							"configMap": map[string]interface{}{
+								"name":        fmt.Sprintf("kernel-%s-configmap", kernel.Id),
+								"defaultMode": "0777",
+							},
+						},
+						{
+							"name": "kernel-entrypoint",
+							"configMap": map[string]interface{}{
+								"name":        "kernel-entrypoint-configmap",
+								"defaultMode": "0777",
+							},
+						},
+					},
+					"containers": []map[string]interface{}{
+						{
+							"name":    "kernel",
+							"image":   "scusemua/jupyter:latest",
+							"command": []string{"/kernel-entrypoint/kernel-entrypoint.sh"},
+							"ports": []map[string]interface{}{
+								{
+									"containerPort": 8888,
+								},
+								{
+									"containerPort": int32(connectionInfo.ControlPort),
+								},
+								{
+									"containerPort": int32(connectionInfo.HBPort),
+								},
+								{
+									"containerPort": int32(connectionInfo.IOPubPort),
+								},
+								{
+									"containerPort": int32(connectionInfo.IOSubPort),
+								},
+								{
+									"containerPort": int32(connectionInfo.ShellPort),
+								},
+								{
+									"containerPort": int32(connectionInfo.StdinPort),
+								},
+								{
+									"containerPort": int32(c.smrPort),
+								},
+							},
+							"volumeMounts": []map[string]interface{}{
+								{
+									"name":       "node-local",
+									"mountPoint": c.nodeLocalMountPoint,
+								},
+								{
+									"name":       "kernel-configmap",
+									"mountPoint": fmt.Sprintf("%s", c.configDir),
+								},
+								{
+									"name":       "kernel-entrypoint",
+									"mountPoint": "/kernel-entrypoint",
+								},
+							},
+							"env": []map[string]interface{}{
+								{
+									"name": "POD_SERVICE_ACCOUNT",
+									"valueFrom": map[string]interface{}{
+										"fieldRef": map[string]interface{}{
+											"fieldPath": "spec.serviceAccountName",
+										},
+									},
+								},
+								{
+									"name": "NODE_IP",
+									"valueFrom": map[string]interface{}{
+										"fieldRef": map[string]interface{}{
+											"fieldPath": "status.hostIP",
+										},
+									},
+								},
+								{
+									"name": "POD_IP",
+									"valueFrom": map[string]interface{}{
+										"fieldRef": map[string]interface{}{
+											"fieldPath": "status.podIP",
+										},
+									},
+								},
+								{
+									"name": "POD_NAMESPACE",
+									"valueFrom": map[string]interface{}{
+										"fieldRef": map[string]interface{}{
+											"fieldPath": "metadata.namespace",
+										},
+									},
+								},
+								{
+									"name": "POD_NAME",
+									"valueFrom": map[string]interface{}{
+										"fieldRef": map[string]interface{}{
+											"fieldPath": "metadata.name",
+										},
+									},
+								},
+								{
+									"name": "NODE_NAME",
+									"valueFrom": map[string]interface{}{
+										"fieldRef": map[string]interface{}{
+											"fieldPath": "spec.nodeName",
+										},
+									},
+								},
+								{
+									"name":  "CONNECTION_FILE_PATH",
+									"value": fmt.Sprintf("%s/connection-file.json", c.configDir),
+								},
+								{
+									"name":  IPythonConfigPath,
+									"value": c.ipythonConfigPath,
+								},
+								{
+									"name":  "SESSION_ID",
+									"value": kernel.Session,
+								},
+								{
+									"name":  "KERNEL_ID",
+									"value": kernel.Id,
+								},
+								{
+									"name":  "LOCAL_DAEMON_SERVICE_NAME",
+									"value": c.localDaemonServiceName,
+								},
+								{
+									"name":  "LOCAL_DAEMON_SERVICE_PORT",
+									"value": fmt.Sprintf("%d", c.localDaemonServicePort),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := c.dynamicClient.Resource(deploymentRes).Namespace("default").Create(context.TODO(), cloneSetDefinition, v1.CreateOptions{})
+
+	if err != nil {
+		panic(err.Error())
+	}
 }
 
 // Create a Kubernetes ConfigMap containing the configuration information for a particular deployment of distributed kernels.

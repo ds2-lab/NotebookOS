@@ -108,23 +108,23 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Failed to obtain connection info from file \"%s\"" % connection_file_path)
             self.log.error("Error: %s" % str(ex))
         
-        config_info = None 
-        try:
-            if len(config_file_path) > 0:
-                with open(config_file_path, 'r') as config_file:
-                    config_info = json.load(config_file)
-                    config_info = config_info["DistributedKernel"]
-        except Exception as ex:
-            self.log.error("Failed to obtain config info from file \"%s\"" % config_file_path)
-            self.log.error("Error: %s" % str(ex))
+        # config_info = None 
+        # try:
+        #     if len(config_file_path) > 0:
+        #         with open(config_file_path, 'r') as config_file:
+        #             config_info = json.load(config_file)
+        #             config_info = config_info["DistributedKernel"]
+        # except Exception as ex:
+        #     self.log.error("Failed to obtain config info from file \"%s\"" % config_file_path)
+        #     self.log.error("Error: %s" % str(ex))
         
         self.log.info("Connection info: %s" % str(connection_info))
-        self.log.info("IPython config info: %s" % str(config_info))
+        # self.log.info("IPython config info: %s" % str(config_info))
 
         # TODO(Ben): Connect to LocalDaemon.
-        self.register_with_local_daemon(connection_info, config_info, kernel_id, session_id)
+        self.register_with_local_daemon(connection_info, kernel_id, session_id) # config_info
     
-    def register_with_local_daemon(self, connection_info:dict, config_info:dict, kernel_id: str, session_id: str):
+    def register_with_local_daemon(self, connection_info:dict, kernel_id: str, session_id: str): # config_info:dict, 
         self.log.info("Registering with local daemon now.")
         
         local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default = "local-daemon-network")
@@ -148,10 +148,10 @@ class DistributedKernel(IPythonKernel):
         registration_payload = {
             "SignatureScheme": connection_info["signature_scheme"],
             "Key": connection_info["key"],
-            "ReplicaID": config_info["smr_node_id"],
-            "NumReplicas": len(config_info["smr_nodes"]),
-            "Replicas": config_info["smr_nodes"],
-            "Join": config_info["smr_join"],
+            "ReplicaID": self.smr_node_id, # config_info["smr_node_id"],
+            "NumReplicas": len(self.smr_nodes), # len(config_info["smr_nodes"]),
+            "Replicas": self.smr_nodes, # config_info["smr_nodes"],
+            "Join": self.smr_join, # config_info["smr_join"],
             "Kernel": {
                 "Id": kernel_id, #, config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
                 "Session": session_id, # config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 

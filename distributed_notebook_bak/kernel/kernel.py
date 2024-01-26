@@ -159,6 +159,8 @@ class DistributedKernel(IPythonKernel):
         bytes_sent = client_socket.send(json.dumps(registration_payload).encode())
         
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
+        
+        # TODO(Ben): Receive response containing SMR node ID and any other necessary information.
     
     def start(self):
         super().start()
