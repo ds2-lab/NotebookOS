@@ -132,7 +132,9 @@ spec:
             mountPath: "{{ .Values.common.config_file_dir }}/daemon.yml"
             subPath: daemon.yml
           - name: device-plugin
-            mountPath: /var/lib/kubelet/device-plugins
+            mountPath: /var/lib/kubelet/device-plugins/
+          - name: kubelet-socket
+            mouthPath: /var/lib/kubelet/pod-resources/
         env:
           - name: NUM_RESOURCE_PORTS
             value: "{{ printf "%d" (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity ) }}"
@@ -163,6 +165,14 @@ spec:
           configMap:
             name: daemon-configmap 
             defaultMode: 384
+        - name: kubelet-socket # Used for DevicePlugin implementation.
+          hostPath:
+            type: Directory 
+            path: /var/lib/kubelet/pod-resources/
+        - name: device-plugin # Used for DevicePlugin implementation.
+          hostPath:
+            type: Directory
+            path: /var/lib/kubelet/device-plugins/
   volumeClaimTemplates: # This will be used to create a unique PVC for each of the LocalDaemon pods.
     - metadata:
         name: node-local
@@ -172,10 +182,4 @@ spec:
         resources:
           requests:
             storage: 128Mi
-    - metadata: # Used for DevicePlugin implementation.
-        name: device-plugin
-      spec:
-        hostPath:
-          type: Directory
-          path: /var/lib/kubelet/device-plugins
 status: {}

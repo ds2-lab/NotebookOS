@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"os"
-	"path"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -21,22 +20,24 @@ import (
 )
 
 const (
-	vcoreSocketName = "vcore.sock"
+	vgpuSocketName = "vgpu.sock"
 )
 
 type virtualGpuResourceServerImpl struct {
-	srv        *grpc.Server // This server is not "owned" by us. It is owned by the Scheduler/Local Daemon.
-	socketFile string
-	opts       *VirtualGpuResourceServerConfig
+	srv        *grpc.Server
+	socketFile string // Fully-qualified path.
+	socketName string // Just the name of the socket.
+	opts       *VirtualGpuResourceServerOptions
 	log        logger.Logger
 }
 
-func newVirtualGpuResourceServerImpl(opts *VirtualGpuResourceServerConfig, srv *grpc.Server) VirtualGpuResourceServer {
-	socketFile := filepath.Join(opts.DevicePluginPath, vcoreSocketName)
+func NewVirtualGpuResourceServer(opts *VirtualGpuResourceServerOptions) VirtualGpuResourceServer {
+	socketFile := filepath.Join(opts.DevicePluginPath, vgpuSocketName)
 
 	server := &virtualGpuResourceServerImpl{
-		srv:        srv,
+		srv:        grpc.NewServer(),
 		socketFile: socketFile,
+		socketName: vgpuSocketName,
 		opts:       opts,
 	}
 
@@ -45,7 +46,19 @@ func newVirtualGpuResourceServerImpl(opts *VirtualGpuResourceServerConfig, srv *
 	return server
 }
 
+// Return the options for this DevicePlugin that will be passed to the Kubelet during registration.
+func (v *virtualGpuResourceServerImpl) getDevicePluginOptions() *pluginapi.DevicePluginOptions {
+	return &pluginapi.DevicePluginOptions{
+		PreStartRequired:                false,
+		GetPreferredAllocationAvailable: false,
+	}
+}
+
 func (v *virtualGpuResourceServerImpl) SocketName() string {
+	return v.socketName
+}
+
+func (v *virtualGpuResourceServerImpl) SocketFile() string {
 	return v.socketFile
 }
 
@@ -54,9 +67,11 @@ func (v *virtualGpuResourceServerImpl) ResourceName() string {
 }
 
 func (v *virtualGpuResourceServerImpl) Stop() {
-	// Do nothing. The gRPC server isn't owned by us.
+	v.srv.Stop()
+	v.log.Warn("Virtual GPU resource server has stopped.")
 }
 
+// NOTE: This function should be called within its own goroutine.
 func (v *virtualGpuResourceServerImpl) Run() error {
 	pluginapi.RegisterDevicePluginServer(v.srv, v)
 
@@ -73,35 +88,56 @@ func (v *virtualGpuResourceServerImpl) Run() error {
 	v.log.Info("Server %s is ready at %s", VDeviceAnnotation, v.socketFile)
 	klog.V(2).Infof("Server %s is ready at %s", VDeviceAnnotation, v.socketFile)
 
-	return v.srv.Serve(l)
+	go func() {
+		if err := v.srv.Serve(l); err != nil {
+			klog.Errorf("Unable to start the gRPC DevicePlugin server: %+v", err)
+		}
+	}()
+
+	// Wait for the server to start before registering with the kubelet.
+	if err = waitForDevicePluginServer(v.socketFile, 30*time.Second); err != nil {
+		klog.Errorf("Failed to detect gRPC DevicePlugin server start-up: %+v", err)
+		return err
+	}
+
+	// Register this DevicePlugin with the Kubelet.
+	v.registerWithKubelet()
+
+	// We're already being called from a go-routine, so it is safe to call this.
+	return v.watchDevicePluginSocket()
 }
 
-func (v *virtualGpuResourceServerImpl) RegisterWithKubelet() error {
-	socketFile := filepath.Join(v.opts.DevicePluginPath, KubeletSocket)
-	dialOptions := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock()}
+// Register this DevicePlugin with the Kubelet.
+func (v *virtualGpuResourceServerImpl) registerWithKubelet() error {
+	ctx := context.Background()
 
-	conn, err := grpc.Dial(socketFile, dialOptions...)
+	kubeSocketFile := filepath.Join(v.opts.DevicePluginPath, pluginapi.KubeletSocketWindows)
+	dialOptions := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", addr)
+		}),
+	}
+
+	conn, err := grpc.DialContext(ctx, kubeSocketFile, dialOptions...)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
 	client := pluginapi.NewRegistrationClient(conn)
-
 	req := &pluginapi.RegisterRequest{
 		Version:      pluginapi.Version,
-		Endpoint:     path.Base(v.SocketName()),
+		Endpoint:     v.socketFile,
 		ResourceName: v.ResourceName(),
-		Options: &pluginapi.DevicePluginOptions{
-			PreStartRequired:                false,
-			GetPreferredAllocationAvailable: false,
-		},
+		Options:      v.getDevicePluginOptions(),
 	}
 
 	klog.V(2).Infof("Register to kubelet with endpoint %s", req.Endpoint)
 	_, err = client.Register(context.Background(), req)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "Cannot register to kubelet service")
 	}
 
 	return nil
@@ -113,8 +149,7 @@ func (v *virtualGpuResourceServerImpl) RegisterWithKubelet() error {
 //
 // Thus, in this function, we monitor the deletion of our Unix socket and re-register ourselves if we detect such an event.
 // NOTE: This function should be called within its own goroutine.
-func (v *virtualGpuResourceServerImpl) WatchDevicePluginSocket() error {
-	devicePluginSocket := filepath.Join(v.opts.DevicePluginPath, KubeletSocket)
+func (v *virtualGpuResourceServerImpl) watchDevicePluginSocket() error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		v.log.Error("Failed to create file system watcher for file \"%s\"", v.opts.DevicePluginPath)
@@ -132,11 +167,10 @@ func (v *virtualGpuResourceServerImpl) WatchDevicePluginSocket() error {
 	for {
 		select {
 		case event := <-watcher.Events:
-			if event.Name == devicePluginSocket && event.Op&fsnotify.Create == fsnotify.Create {
+			if event.Name == v.socketFile && event.Op&fsnotify.Create == fsnotify.Create {
 				time.Sleep(time.Second)
-				v.log.Warn("Socket %s deleted, restarting.", devicePluginSocket)
-				// TODO(Ben): Implement restarting and recreating the gRPC server.
-				panic("Have not yet implemented restarting on kubelet restarts.")
+				v.log.Warn("Socket %s deleted, restarting.", v.socketFile)
+				return ErrSocketDeleted // errors.Errorf("Socket deleted, restarting.", v.socketFile)
 			}
 		case err := <-watcher.Errors:
 			v.log.Error("FileWatcher error: %s", err)

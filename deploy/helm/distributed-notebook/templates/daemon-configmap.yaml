@@ -4,6 +4,7 @@ metadata:
   name: daemon-configmap 
   namespace: default 
 data:
+  # device-plugin-port: {{ .Values.local_daemon.device_plugin.port }}
   daemon.yml: | 
     kernel-registry-port: {{ .Values.local_daemon.network.jupyter.kernel_registry_port }} 
     port: {{ .Values.local_daemon.network.port }}
@@ -28,3 +29,4 @@ data:
     starting-resource-port: {{ .Values.local_daemon.network.jupyter.starting_resource_port }}
     num-resource-ports: {{ mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 }}
     use-stateful-set: {{ .Values.common.use_stateful_set }}
+    device-plugin-path: {{ .Values.local_daemon.device_plugin.path }}

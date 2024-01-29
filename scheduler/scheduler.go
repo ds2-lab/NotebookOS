@@ -22,6 +22,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"
 	"github.com/zhangjyr/distributed-notebook/scheduler/daemon"
+	"github.com/zhangjyr/distributed-notebook/scheduler/device"
 )
 
 const (
@@ -39,6 +40,7 @@ type Options struct {
 	config.LoggerOptions
 	types.ConnectionInfo
 	daemon.SchedulerDaemonOptions
+	device.VirtualGpuResourceServerOptions
 
 	Port               int    `name:"port" usage:"Port that the gRPC service listens on."`
 	KernelRegistryPort int    `name:"kernel-registry-port" usage:"Port on which the Kernel Registry Server listens."`
@@ -110,9 +112,7 @@ func main() {
 
 	// Initialize grpc server
 	srv := grpc.NewServer(gOpts...)
-	scheduler := daemon.New(&options.ConnectionInfo, options.KernelRegistryPort, func(scheduler *daemon.SchedulerDaemon) {
-		scheduler.Options = options.SchedulerDaemonOptions
-	})
+	scheduler := daemon.New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort)
 	gateway.RegisterLocalGatewayServer(srv, scheduler)
 
 	// Initialize gRPC listener
@@ -159,6 +159,8 @@ func main() {
 		logger.Info("Successfully registered in consul")
 	}
 
+	devicePluginServer := device.NewVirtualGpuResourceServer(&options.VirtualGpuResourceServerOptions)
+
 	// Start detecting stop signals
 	done.Add(1)
 	go func() {
@@ -182,6 +184,30 @@ func main() {
 		defer finalize(true)
 		if err := scheduler.Start(); err != nil {
 			log.Fatalf("Error during daemon serving: %v", err)
+		}
+	}()
+
+	// Start device plugin.
+	go func() {
+		defer finalize(true)
+
+		for { // Do this forever.
+			log.Println("Running the DevicePlugin server now.")
+			if err := devicePluginServer.Run(); err != nil {
+				if err == device.ErrSocketDeleted {
+					log.Println("DevicePlugin socket has been deleted. Must restart DevicePlugin.")
+
+					// Stop the DevicePlugin server.
+					log.Println("Stopping the DevicePlugin server now.")
+					devicePluginServer.Stop()
+
+					// Recreate the DevicePlugin server.
+					log.Println("Recreating the DevicePlugin server now.")
+					devicePluginServer = device.NewVirtualGpuResourceServer(&options.VirtualGpuResourceServerOptions)
+				} else {
+					log.Fatalf("Error during device plugin serving: %v", err)
+				}
+			}
 		}
 	}()
 

@@ -37,6 +37,9 @@ local_daemon:
   image_tag: latest
   max_gpu_per_node: 8
   gpu_allocation_granularity: 1
+  device_plugin:
+    path: /var/lib/kubelet/device-plugins/
+    # port: 8079
   network:
     port: 8080
     local_service_name: local-daemon-network

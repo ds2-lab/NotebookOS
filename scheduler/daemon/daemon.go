@@ -83,8 +83,8 @@ type SchedulerDaemon struct {
 	scheduler core.HostScheduler
 
 	// Options
-	connectionOptions *jupyter.ConnectionInfo
-	Options           SchedulerDaemonOptions
+	connectionOptions      *jupyter.ConnectionInfo
+	schedulerDaemonOptions SchedulerDaemonOptions
 
 	// Cluster client
 	Provisioner gateway.ClusterGatewayClient
@@ -100,6 +100,8 @@ type SchedulerDaemon struct {
 	// We wrap the messages in another message that just has a header that is the kernel ID.
 	// This enables the Gateway's SUB sockets to filter messages from each kernel.
 	// iopub *jupyter.Socket
+
+	// devicePluginServer deviceplugin.VirtualGpuResourceServer
 
 	// There's a simple TCP server that listens for kernel registration notifications on this port.
 	kernelRegistryPort int
@@ -127,17 +129,18 @@ type KernelRegistrationClient struct {
 	conn net.Conn
 }
 
-func New(opts *jupyter.ConnectionInfo, kernelRegistryPort int, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
+func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *SchedulerDaemonOptions, kernelRegistryPort int, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
 	ip := os.Getenv("POD_IP")
 	daemon := &SchedulerDaemon{
-		connectionOptions:  opts,
+		connectionOptions:  connectionOptions,
 		transport:          "tcp",
 		ip:                 ip,
 		kernels:            hashmap.NewCornelkMap[string, *client.KernelClient](1000),
-		availablePorts:     utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
+		availablePorts:     utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
 		closed:             make(chan struct{}),
 		cleaned:            make(chan struct{}),
 		kernelRegistryPort: kernelRegistryPort,
+		// devicePluginServer: deviceplugin.NewVirtualGpuResourceServer(devicePluginOpts),
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -226,7 +229,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
 	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1])
 	shell := d.router.Socket(jupyter.ShellMessage)
-	if d.Options.DirectServer {
+	if d.schedulerDaemonOptions.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
 		var err error
 		shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
