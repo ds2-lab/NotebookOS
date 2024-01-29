@@ -124,8 +124,40 @@ class DistributedKernel(IPythonKernel):
         # TODO(Ben): Connect to LocalDaemon.
         self.register_with_local_daemon(connection_info, kernel_id, session_id) # config_info
     
+    def __get_hostnames(self, addr:str)->list[str]:
+        """
+        Perform a DNS query/lookup for a particular address. Return the IPv4 addresses.
+        
+        This is intended to be use to resolve the hostnames of peer replicas.
+
+        Args:
+            addr (str): The address for which a DNS query/lookup is performed.
+
+        Returns:
+            list[str]: List of IPv4 addresses that the given address resolved to. 
+        """
+        self.log.debug("Performing DNS lookup on address \"%s\" now...", addr)
+        query_result = socket.getaddrinfo(addr, 0)
+        self.log.debug("DNS query result: %s" % str(query_result))
+        return list(i[4][0] for i in query_result if i[0] is socket.AddressFamily.AF_INET and i[1] is socket.SocketKind.SOCK_RAW)
+    
     def register_with_local_daemon(self, connection_info:dict, kernel_id: str, session_id: str): # config_info:dict, 
         self.log.info("Registering with local daemon now.")
+        
+        # If we either have no SMR nodes, or the SMR node(s) we do have are the empty string, then we need to resolve our peer replicas.
+        if len(self.smr_nodes) == 0 or self.smr_nodes[0] == "":
+            pod_service_name = os.environ.get("KERNEL_NETWORK_SERVICE_NAME", default = "")
+            
+            if pod_service_name == "":
+                self.log.error("Could not determine kernel's network service name.")
+                exit(1)
+            
+            self.log.info("Found headless service name: \"%s\"" % pod_service_name)
+            
+            # Perform DNS lookup of replicas.
+            peer_hostnames = self.__get_hostnames(pod_service_name)
+            self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in peer_hostnames]
+            self.log.info("Resolved peer hostnames as follows: %s" % self.smr_nodes)
         
         local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default = "local-daemon-network")
         server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default = 8075)
@@ -165,6 +197,12 @@ class DistributedKernel(IPythonKernel):
         bytes_sent = client_socket.send(json.dumps(registration_payload).encode())
         
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
+        
+        response = client_socket.recv(1024)
+        response_dict = json.loads(response)
+        self.smr_node_id = response_dict["smr_node_id"]
+        
+        self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
     
     def start(self):
         super().start()

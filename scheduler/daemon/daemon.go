@@ -237,20 +237,6 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		d.log.Debug("Successfully initialized shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
 	}
 
-	// var iosub *jupyter.Socket
-	// if d.iopub == nil {
-	// 	d.log.Debug("Initializing IO forwarder for kernel \"%s\".", kernelReplicaSpec.Kernel.Id)
-	// 	d.iopub, err = kernel.InitializeIOForwarder()
-
-	// 	if err != nil {
-	// 		d.closeKernel(kernel, fmt.Sprintf("failed to initialize io forwarder (IO PUB socket) for kernel \"%s\". Error: %v", kernelReplicaSpec.Kernel.Id, err))
-	// 		return // nil, status.Errorf(codes.Internal, err.Error())
-	// 	}
-
-	// 	d.log.Debug("Successfully initialized IO forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
-	// }
-	// kernel.SetIOPubSocket(d.iopub)
-
 	iopub, err := kernel.InitializeIOForwarder()
 
 	if err != nil {
@@ -312,12 +298,25 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
 
 	// TODO(Ben): Contact the Gateway to notify it that we've registered one of the replicas.
-	_, err = d.Provisioner.NotifyKernelRegistered(ctx, kernelRegistrationNotification)
+	replicaId, err := d.Provisioner.NotifyKernelRegistered(ctx, kernelRegistrationNotification)
 	if err != nil {
 		d.log.Error("Error encountered while notifying Gateway of kernel registration: %v", err)
 	}
 
-	d.log.Debug("Successfully notified Gateway of kernel registration.")
+	d.log.Debug("Successfully notified Gateway of kernel registration. Received replicaId %d in response.", replicaId.Id)
+
+	payload := map[string]interface{}{
+		"smr_node_id": replicaId.Id,
+	}
+	payload_json, err := json.Marshal(payload)
+	if err != nil {
+		d.log.Error("Error encountered while marshalling replica ID to JSON: %v", err)
+	}
+
+	_, err = kernelRegistrationClient.conn.Write(payload_json)
+	if err != nil {
+		d.log.Error("Error encountered while writing replica ID back to kernel: %v", err)
+	}
 }
 
 // StartKernel launches a new kernel.

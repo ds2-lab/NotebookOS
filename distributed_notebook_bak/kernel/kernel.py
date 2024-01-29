@@ -160,7 +160,11 @@ class DistributedKernel(IPythonKernel):
         
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
         
-        # TODO(Ben): Receive response containing SMR node ID and any other necessary information.
+        response = client_socket.recv(1024)
+        response_dict = json.loads(response)
+        self.smr_node_id = response_dict["smr_node_id"]
+        
+        self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
     
     def start(self):
         super().start()

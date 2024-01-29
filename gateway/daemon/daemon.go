@@ -59,6 +59,7 @@ type DaemonKubeClientOptions struct {
 	GlobalDaemonServicePort int    `name:"global-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
 	SMRPort                 int    `name:"smr-port" description:"Port used by the state machine replication (SMR) protocol."`
 	KubeNamespace           string `name:"kube-namespace" description:"Kubernetes namespace that all of these components reside in."`
+	UseStatefulSet          bool   `name:"use-stateful-set" description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
 }
 
 func (o DaemonKubeClientOptions) String() string {
@@ -326,19 +327,19 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	return info, nil
 }
 
-func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelRegistrationNotification) (*gateway.Void, error) {
+func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelRegistrationNotification) (*gateway.ReplicaId, error) {
 	d.log.Info("Received kernel registration notification.")
 
 	connectionInfo := in.ConnectionInfo
 	sessionId := in.SessionId
 	kernelId := in.KernelId
-	replicaId := in.ReplicaId
+	// replicaId := in.ReplicaId
 	hostId := in.HostId
 
 	d.log.Info("Connection info: %v", connectionInfo)
 	d.log.Info("Session ID: %v", sessionId)
 	d.log.Info("Kernel ID: %v", kernelId)
-	d.log.Info("Replica ID: %v", replicaId)
+	// d.log.Info("Replica ID: %v", replicaId)
 	d.log.Info("Host ID: %v", hostId)
 
 	d.mutex.Lock()
@@ -364,6 +365,10 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", hostId)) // TODO(Ben): Handle gracefully.
 	}
 
+	// If this is the first replica we're registering, then its ID should be 1.
+	// The size will be 0, so we'll assign it a replica ID of 0 + 1 = 1.
+	var replicaId int32 = int32(kernel.Size()) + 1
+
 	replicaSpec := &gateway.KernelReplicaSpec{
 		Kernel:      kernelSpec,
 		ReplicaId:   replicaId,
@@ -387,7 +392,11 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	waitGroup.Done()
 	d.log.Debug("Done registering KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 
-	return gateway.VOID, nil
+	replicaIdResponse := &gateway.ReplicaId{
+		Id: replicaId,
+	}
+
+	return replicaIdResponse, nil
 }
 
 func (d *GatewayDaemon) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {

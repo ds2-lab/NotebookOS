@@ -41,7 +41,7 @@ type ClusterGatewayClient interface {
 	// The caller should stop the replica after confirmed that the new replica is ready.
 	MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*ReplicaId, error)
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
-	NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*Void, error)
+	NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*ReplicaId, error)
 }
 
 type clusterGatewayClient struct {
@@ -79,8 +79,8 @@ func (c *clusterGatewayClient) MigrateKernelReplica(ctx context.Context, in *Rep
 	return out, nil
 }
 
-func (c *clusterGatewayClient) NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*Void, error) {
-	out := new(Void)
+func (c *clusterGatewayClient) NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*ReplicaId, error) {
+	out := new(ReplicaId)
 	err := c.cc.Invoke(ctx, ClusterGateway_NotifyKernelRegistered_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ type ClusterGatewayServer interface {
 	// The caller should stop the replica after confirmed that the new replica is ready.
 	MigrateKernelReplica(context.Context, *ReplicaInfo) (*ReplicaId, error)
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
-	NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*Void, error)
+	NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*ReplicaId, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -121,7 +121,7 @@ func (UnimplementedClusterGatewayServer) RemoveHost(context.Context, *HostId) (*
 func (UnimplementedClusterGatewayServer) MigrateKernelReplica(context.Context, *ReplicaInfo) (*ReplicaId, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MigrateKernelReplica not implemented")
 }
-func (UnimplementedClusterGatewayServer) NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*Void, error) {
+func (UnimplementedClusterGatewayServer) NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*ReplicaId, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NotifyKernelRegistered not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
