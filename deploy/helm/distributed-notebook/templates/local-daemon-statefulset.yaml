@@ -127,14 +127,14 @@ spec:
         {{- end }}
         volumeMounts:
           - name: node-local
-            mountPath: {{ .Values.common.node_local_pvc_mount_point }}
+            mountPath: "{{ .Values.common.node_local_pvc_mount_point }}"
           - name: daemon-config-file
             mountPath: "{{ .Values.common.config_file_dir }}/daemon.yml"
             subPath: daemon.yml
           - name: device-plugin
-            mountPath: /var/lib/kubelet/device-plugins/
-          - name: kubelet-socket
-            mouthPath: /var/lib/kubelet/pod-resources/
+            mountPath: "/var/lib/kubelet/device-plugins/"
+          - name: pod-resources
+            mountPath: "/var/lib/kubelet/pod-resources/"
         env:
           - name: NUM_RESOURCE_PORTS
             value: "{{ printf "%d" (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity ) }}"
@@ -165,14 +165,14 @@ spec:
           configMap:
             name: daemon-configmap 
             defaultMode: 384
-        - name: kubelet-socket # Used for DevicePlugin implementation.
+        - name: pod-resources # Used for DevicePlugin implementation.
           hostPath:
-            type: Directory 
-            path: /var/lib/kubelet/pod-resources/
+            type: Directory
+            path: "/var/lib/kubelet/pod-resources/"
         - name: device-plugin # Used for DevicePlugin implementation.
           hostPath:
             type: Directory
-            path: /var/lib/kubelet/device-plugins/
+            path: "/var/lib/kubelet/device-plugins/"
   volumeClaimTemplates: # This will be used to create a unique PVC for each of the LocalDaemon pods.
     - metadata:
         name: node-local
