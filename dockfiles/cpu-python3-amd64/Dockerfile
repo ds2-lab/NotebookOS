@@ -20,7 +20,8 @@ USER root:root
 RUN mkdir -p /storage && chown jovyan:users /storage
 
 # For debugging.
-RUN apt-get update && apt-get install iputils-ping dnsutils unzip -y
+RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip -y
+RUN python3 -m pip install kubernetes 
 
 # Add files
 ADD common/gateway /distributed_notebook/common/gateway

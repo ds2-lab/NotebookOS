@@ -131,6 +131,8 @@ spec:
           - name: daemon-config-file
             mountPath: "{{ .Values.common.config_file_dir }}/daemon.yml"
             subPath: daemon.yml
+          - name: device-plugin
+            mountPath: /var/lib/kubelet/device-plugins
         env:
           - name: NUM_RESOURCE_PORTS
             value: "{{ printf "%d" (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity ) }}"
@@ -155,7 +157,6 @@ spec:
             value: /data
           - name: SHARED_CONFIG_DIR
             value: "{{ .Values.common.config_file_dir }}"
-        
       restartPolicy: Always
       volumes:
         - name: daemon-config-file
@@ -171,4 +172,10 @@ spec:
         resources:
           requests:
             storage: 128Mi
+    - metadata: # Used for DevicePlugin implementation.
+        name: device-plugin
+      spec:
+        hostPath:
+          type: Directory
+          path: /var/lib/kubelet/device-plugins
 status: {}
