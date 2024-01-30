@@ -161,6 +161,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
         
         response = client_socket.recv(1024)
+        self.log.info("Received response: %s" % str(response.decode()))
         response_dict = json.loads(response)
         self.smr_node_id = response_dict["smr_node_id"]
         

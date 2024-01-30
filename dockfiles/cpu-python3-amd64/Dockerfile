@@ -23,6 +23,15 @@ RUN mkdir -p /storage && chown jovyan:users /storage
 RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip -y
 RUN python3 -m pip install kubernetes 
 
+# Install frontend extension.
+RUN cd /home/jovyan \
+    && git clone https://github.com/Scusemua/DistributedKernelFrontendExtension.git \
+    && cd ./DistributedKernelFrontendExtension \
+    && pip install .
+
+RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
+RUN chmod -R 777 /home/jovyan/datasets/*
+
 # Add files
 ADD common/gateway /distributed_notebook/common/gateway
 ADD distributed_notebook /distributed_notebook/distributed_notebook
@@ -36,20 +45,12 @@ ADD dockfiles/cpu-python3-amd64/sample_notebooks/ /home/jovyan/sample_notebooks/
 RUN chmod -R 777 /home/jovyan/sample_notebooks/*
 RUN chown jovyan /home/jovyan/sample_notebooks/*
 
-RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
-RUN chmod -R 777 /home/jovyan/datasets/*
 # RUN chown jovyan /home/jovyan/datasets/*
 
 # ADD dockfiles/cpu-python3-amd64/kernel-entrypoint.sh /kernel-entrypoint.sh
 
 # Make sure we can execute the kernel-entrypoint.sh file.
 # RUN chmod +x /kernel-entrypoint.sh
-
-# Install frontend extension.
-RUN cd /home/jovyan \
-    && git clone https://github.com/Scusemua/DistributedKernelFrontendExtension.git \
-    && cd ./DistributedKernelFrontendExtension \
-    && pip install .
 
 # Install kernel
 RUN cd /distributed_notebook \

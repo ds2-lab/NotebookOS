@@ -23,7 +23,7 @@ service ClusterGateway {
   rpc MigrateKernelReplica(ReplicaInfo) returns (ReplicaId) {}
 
   // Notify the Gateway that a distributed kernel replica has started somewhere.
-  rpc NotifyKernelRegistered(KernelRegistrationNotification) returns (ReplicaId) {}
+  rpc NotifyKernelRegistered(KernelRegistrationNotification) returns (KernelRegistrationNotificationResponse) {}
 }
 
 message ProvisionerId {
@@ -131,6 +131,12 @@ message KernelRegistrationNotification {
   string sessionId = 3; // ID of the associated Session.
   string hostId = 4; // The ID of the HostScheduler associated with this Host. It's basically the ID of the LocalDaemon.
   int32 replicaId = 5; // The SMR replica ID.
+  string kernelIp = 6; // The hostname of the kernel itself (not its LocalDaemon).
+}
+
+message KernelRegistrationNotificationResponse {
+  int32 id = 1;
+  repeated string replicas = 2;
 }
 
 // The status of a kernel.

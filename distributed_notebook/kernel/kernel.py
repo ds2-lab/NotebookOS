@@ -127,6 +127,27 @@ class DistributedKernel(IPythonKernel):
         # TODO(Ben): Connect to LocalDaemon.
         self.register_with_local_daemon(connection_info, kernel_id, session_id) # config_info
     
+    def __resolve_dns(self, addr:str)->list[str]:
+        return socket.getaddrinfo(addr, 0)
+    
+    def __resolve_hostnames_kube(self, kernel_id: str)->list[str]:
+        self.log.info("Querying Kubernetes API directly to resolve peer replica hostnames.")
+        config.load_incluster_config()
+        v1 = client.CoreV1Api()
+        app_label = "kernel-" + kernel_id
+        ret = v1.list_pod_for_all_namespaces(watch=False, label_selector="app=%s" % app_label)
+        
+        replicas = []
+        for i in ret.items:
+            pod_ip = i.status.pod_ip
+            
+            if pod_ip == "" or pod_ip == None:
+                raise ValueError("Peer kernel replica Pod does not yet have an IP assigned to it.")
+            
+            replicas.append(pod_ip)
+        
+        return replicas
+    
     def __get_peer_replica_hostnames(self, addr:str, kernel_id: str)->list[str]:
         """
         Perform a DNS query/lookup for a particular address. Return the IPv4 addresses.
@@ -143,33 +164,28 @@ class DistributedKernel(IPythonKernel):
         Returns:
             list[str]: List of IPv4 addresses that the given address resolved to. 
         """
-        self.log.debug("Performing DNS lookup on address \"%s\" now...", addr)
+        self.log.info("Performing DNS lookup on address \"%s\" now...", addr)
         
         start_time = time.time() 
         
         query_result = None
-        tried_kubernetes = False 
         # Keep trying for 60 seconds.
         while time.time() - start_time < 60:
             try:
-                query_result = socket.getaddrinfo(addr, 0)
+                query_result = self.__resolve_dns(addr)
                 break # If we successfully performed the DNS query without exception/error, then break out of the while-loop.
             except socket.gaierror as ex:
                 self.log.warn("Exception encountered while resolving address \"%s\": %s" % (addr, str(ex)))
                 
                 # Try querying Kubernetes API directly.
                 if not tried_kubernetes:
-                    self.log.debug("Querying Kubernetes API directly to resolve peer replica hostnames.")
+                    self.log.info("Querying Kubernetes API directly to resolve peer replica hostnames.")
                     tried_kubernetes = True 
-                    config.load_incluster_config()
-                    v1 = client.CoreV1Api()
-                    app_label = "kernel-" + kernel_id
-                    ret = v1.list_pod_for_all_namespaces(watch=False, label_selector="app=%s" % app_label)
+                    replicas = self.__resolve_hostnames_kube(addr, kernel_id)
                     
-                    if len(ret.items) == 3:
-                        self.log.debug("Successfully resolved peer replica hostnames by querying Kubernetes API directly.")
-                        replicas = list(str(i.status.pod_ip) for i in ret.items)
-                        self.log.debug("Peer replica hostnames: %s" % str(replicas))
+                    if len(replicas) == 3:
+                        self.log.info("Successfully resolved peer replica hostnames by querying Kubernetes API directly.")
+                        self.log.info("Peer replica hostnames: %s" % str(replicas))
                         return replicas 
                     else:
                         self.log.warn("Failed to resolve peer replica hostnames by querying Kubernetes API directly.")
@@ -180,26 +196,44 @@ class DistributedKernel(IPythonKernel):
         if query_result == None:
             raise ValueError("Failed to resolve DNS for address \"%s\"" % addr)
         
-        self.log.debug("Successfully resolved peer replica hostnames via DNS query. Replicas: %s" % str(query_result))
+        self.log.info("Successfully resolved peer replica hostnames via DNS query. Replicas: %s" % str(query_result))
         return list(i[4][0] for i in query_result if i[0] is socket.AddressFamily.AF_INET and i[1] is socket.SocketKind.SOCK_RAW)
     
     def register_with_local_daemon(self, connection_info:dict, kernel_id: str, session_id: str): # config_info:dict, 
         self.log.info("Registering with local daemon now.")
         
         # If we either have no SMR nodes, or the SMR node(s) we do have are the empty string, then we need to resolve our peer replicas.
-        if len(self.smr_nodes) == 0 or self.smr_nodes[0] == "":
-            pod_service_name = os.environ.get("KERNEL_NETWORK_SERVICE_NAME", default = "")
+        # if len(self.smr_nodes) == 0 or self.smr_nodes[0] == "":            
+        #     start_time = time.time()
+        #     while time.time() - start_time < 60:
+        #         self.log.info("Attempting to resolve peer hostnames via Kubernetes API. Time elapsed: %.4f seconds." % (time.time() - start_time))
+                
+        #         try:
+        #             peer_hostnames = self.__resolve_hostnames_kube(kernel_id)
+        #         except Exception as ex:
+        #             self.log.error("Failed to resolve peer hostnames via Kubernetes. Will try again in 3 seconds.")
+        #             time.sleep(3)
+        #             continue
+                
+        #         # If we found no hosts, then we'll need to try again.
+        #         if len(peer_hostnames) != 3:
+        #             self.log.error("Failed to resolve peer hostnames via Kubernetes. Resolved %d hostname(s). Required: 3 hostnames. Will try again in 3 seconds." % len(peer_hostnames))
+        #             time.sleep(3)
+        #             continue
+                
+        #         # If any of the hostnames are none, then we'll need to try again.
+        #         for hostname in peer_hostnames:
+        #             if hostname == None or hostname == "":
+        #                 self.log.error("Failed to resolve peer hostnames via Kubernetes. Will try again in 3 seconds.")
+        #                 time.sleep(3)
+        #                 continue
+        #             else:
+        #                 self.log.debug("Discovered valid peer hostname: \"%s\"" % hostname)
+                
+        #         break
             
-            if pod_service_name == "":
-                self.log.error("Could not determine kernel's network service name.")
-                exit(1)
-            
-            self.log.info("Found headless service name: \"%s\"" % pod_service_name)
-            
-            # Perform DNS lookup of replicas.
-            peer_hostnames = self.__get_peer_replica_hostnames(pod_service_name, kernel_id)
-            self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in peer_hostnames]
-            self.log.info("Resolved peer hostnames as follows: %s" % self.smr_nodes)
+        #     self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in peer_hostnames]
+        #     self.log.info("Resolved peer hostnames as follows: %s" % self.smr_nodes)
         
         local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default = "local-daemon-network")
         server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default = 8075)
@@ -241,15 +275,35 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
         
         response = client_socket.recv(1024)
+        self.log.info("Received %d byte(s) in response from LocalDaemon.", len(response))
         response_dict = json.loads(response)
         self.smr_node_id = response_dict["smr_node_id"]
+        self.hostname = response_dict["hostname"]
+        self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in response_dict["replicas"]]
+        
+        assert(self.smr_nodes[self.smr_node_id - 1] == (self.hostname + ":" + str(self.smr_port)))
+        
+        # my_hostname = self.hostname + ":8080"
+        # # We may need to rearrange the SMR node list, depending on whether our IP is in the correct slot (relative to our SMR node ID).
+        # try:
+        #     idx = self.smr_nodes.index(my_hostname)
+        # except ValueError:
+        #     self.log.error("Expected to find hostname \"%s\" in SMR Nodes list. SMR Nodes list: %s" % (my_hostname, self.smr_nodes))
+        #     exit(1)
+        
+        # # Rearrange the SMR Nodes, as our hostname is not in the correct position.
+        # if idx != self.smr_node_id - 1:
+        #     tmp = self.smr_nodes[self.smr_node_id - 1]
+        #     self.smr_nodes[self.smr_node_id - 1] = my_hostname
+        #     self.smr_nodes[idx] = tmp 
         
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
+        self.log.info("Replica hostnames: %s" % str(self.smr_nodes))
     
     def start(self):
         super().start()
         
-        self.log.debug("DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
+        self.log.info("DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
 
         if self.persistent_id != Undefined and self.persistent_id != "":
             assert isinstance(self.persistent_id, str)
@@ -263,7 +317,7 @@ class DistributedKernel(IPythonKernel):
     # #     self.synchronizer.close()
 
     async def init_persistent_store_on_start(self, persistent_id: str):
-        self.log.debug("Initializing Persistent Store on start, as persistent ID is available: \"%s\"" % persistent_id)
+        self.log.info("Initializing Persistent Store on start, as persistent ID is available: \"%s\"" % persistent_id)
         future = asyncio.Future(loop = asyncio.get_running_loop())
         self.store = future
         self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
@@ -274,7 +328,7 @@ class DistributedKernel(IPythonKernel):
         if await self.check_persistent_store():
             return self.gen_simple_response()
 
-        self.log.debug("Initializing persistent datastore now.")
+        self.log.info("Initializing persistent datastore now.")
         
         # By executing code, we can get persistent id later.
         # The execution_count should not be counted and will reset later.
@@ -347,7 +401,7 @@ class DistributedKernel(IPythonKernel):
             return True
 
     async def do_execute(self, code:str, silent:bool, store_history:bool=True, user_expressions:dict=None, allow_stdin:bool=False):
-        self.log.debug("DistributedKernel is preparing to execute some code.")
+        self.log.info("DistributedKernel is preparing to execute some code.")
         
         # Special code to initialize persistent store
         if code[:len(key_persistent_id)] == key_persistent_id:

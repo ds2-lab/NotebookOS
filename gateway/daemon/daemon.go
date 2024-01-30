@@ -105,7 +105,8 @@ type GatewayDaemon struct {
 
 	mutex sync.Mutex
 
-	waitGroups hashmap.HashMap[string, *sync.WaitGroup]
+	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
+	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
 
 	availablePorts *utils.AvailablePorts
 
@@ -114,6 +115,100 @@ type GatewayDaemon struct {
 
 	// Kubernetes client.
 	kubeClient KubeClient
+}
+
+type registrationWaitGroups struct {
+	// Decremented each time a kernel registers.
+	registered    sync.WaitGroup
+	numRegistered int
+
+	// Decremented each time we've notified a kernel of its ID.
+	notified    sync.WaitGroup
+	numNotified int
+
+	// The SMR node replicas in order according to their registration IDs.
+	replicas []string
+
+	// Synchronizes access to the `replicas` slice.
+	replicasMutex sync.Mutex
+}
+
+// Create and return a pointer to a new registrationWaitGroups struct.
+//
+// Parameters:
+// - numReplicas (int): Value to be added to the registrationWaitGroups's "notified" and "registered" sync.WaitGroups.
+func NewRegistrationWaitGroups(numReplicas int) *registrationWaitGroups {
+	wg := &registrationWaitGroups{
+		replicas: make([]string, numReplicas, numReplicas),
+	}
+
+	wg.notified.Add(numReplicas)
+	wg.registered.Add(numReplicas)
+
+	return wg
+}
+
+func (wg *registrationWaitGroups) String() string {
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+	return fmt.Sprintf("RegistrationWaitGroups[NumRegistered=%d, NumNotified=%d]", wg.numRegistered, wg.numNotified)
+}
+
+// Call `Done()` on the "notified" sync.WaitGroup.
+func (wg *registrationWaitGroups) Notify() {
+	wg.notified.Done()
+
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+	wg.numNotified += 1
+}
+
+// Call `Done()` on the "registered" sync.WaitGroup.
+func (wg *registrationWaitGroups) Register() {
+	wg.registered.Done()
+
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+
+	wg.numRegistered += 1
+}
+
+func (wg *registrationWaitGroups) SetReplica(idx int32, hostname string) {
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+
+	wg.replicas[idx] = hostname
+}
+
+func (wg *registrationWaitGroups) GetReplicas() []string {
+	return wg.replicas
+}
+
+// Return the "notified" sync.WaitGroup.
+func (wg *registrationWaitGroups) GetNotified() *sync.WaitGroup {
+	return &wg.notified
+}
+
+// Return the "registered" sync.WaitGroup.
+func (wg *registrationWaitGroups) GetRegistered() *sync.WaitGroup {
+	return &wg.registered
+}
+
+// Call `Wait()` on the "notified" sync.WaitGroup.
+func (wg *registrationWaitGroups) WaitNotified() {
+	wg.notified.Wait()
+}
+
+// Call `Wait()` on the "registered" sync.WaitGroup.
+func (wg *registrationWaitGroups) WaitRegistered() {
+	wg.registered.Wait()
+}
+
+// First, call `Wait()` on the "registered" sync.WaitGroup.
+// Then, call `Wait()` on the "notified" sync.WaitGroup.
+func (wg *registrationWaitGroups) Wait() {
+	wg.WaitRegistered()
+	wg.WaitNotified()
 }
 
 func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClientOptions, configs ...GatewayDaemonConfig) *GatewayDaemon {
@@ -125,8 +220,9 @@ func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClient
 		availablePorts:    utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
 		kernels:           hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
 		kernelSpecs:       hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
-		waitGroups:        hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
-		cleaned:           make(chan struct{}),
+		// waitGroups:        hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
+		waitGroups: hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
+		cleaned:    make(chan struct{}),
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -258,32 +354,27 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 		}
 		d.log.Debug("Initializing IO Forwarder for new DistributedKernelClient \"%s\" now.", in.Id)
 
-		// If the Gateway doesn't already have an IOPub socket, then we'll save this one and assign it to future clients.
-		// The Gateway exposes a single IOPub socket. Jupyter clients subscribe to this socket and specify their kernel as the subscription topic.
-		// TODO(Ben): Adjust message
-		// if d.iopub == nil {
-		// 	d.iopub, err = kernel.InitializeIOForwarder()
-		// }
 		_, err = kernel.InitializeIOForwarder()
 
 		if err != nil {
 			kernel.Close()
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
-
-		// kernel.SetIOPubSocket(d.iopub)
 	} else {
 		d.log.Info("Restarting %v...", kernel)
 		kernel.BindSession(in.Session)
 	}
 
-	var created sync.WaitGroup
-	created.Add(d.ClusterOptions.NumReplicas)
+	created := NewRegistrationWaitGroups(d.ClusterOptions.NumReplicas)
+
+	// var created sync.WaitGroup
+	// created.Add(d.ClusterOptions.NumReplicas)
 
 	d.mutex.Lock() // TODO(Ben): This may be unnecessary.
 	d.kernels.Store(in.Id, kernel)
 	d.kernelSpecs.Store(in.Id, in)
-	d.waitGroups.Store(in.Id, &created)
+	// d.waitGroups.Store(in.Id, &created)
+	d.waitGroups.Store(in.Id, created)
 	d.mutex.Unlock()
 
 	// TODO(Ben):
@@ -327,23 +418,22 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	return info, nil
 }
 
-func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelRegistrationNotification) (*gateway.ReplicaId, error) {
+func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelRegistrationNotification) (*gateway.KernelRegistrationNotificationResponse, error) {
 	d.log.Info("Received kernel registration notification.")
 
 	connectionInfo := in.ConnectionInfo
 	sessionId := in.SessionId
 	kernelId := in.KernelId
-	// replicaId := in.ReplicaId
 	hostId := in.HostId
+	kernelIp := in.KernelIp
 
 	d.log.Info("Connection info: %v", connectionInfo)
 	d.log.Info("Session ID: %v", sessionId)
 	d.log.Info("Kernel ID: %v", kernelId)
-	// d.log.Info("Replica ID: %v", replicaId)
+	d.log.Info("Kernel IP: %v", kernelIp)
 	d.log.Info("Host ID: %v", hostId)
 
 	d.mutex.Lock()
-	defer d.mutex.Unlock()
 
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
@@ -389,14 +479,26 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		panic(fmt.Sprintf("KernelClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
-	waitGroup.Done()
-	d.log.Debug("Done registering KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.mutex.Unlock()
 
-	replicaIdResponse := &gateway.ReplicaId{
-		Id: replicaId,
+	// Wait until all replicas have registered before continuing, as we need all of their IDs.
+	waitGroup.SetReplica(replicaId-1, kernelIp)
+	waitGroup.Register()
+
+	d.log.Debug("Done registering KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("WaitGroup for Kernel \"%s\": %s", kernelId, waitGroup.String())
+
+	waitGroup.WaitRegistered()
+
+	d.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d", kernelId, replicaId)
+
+	response := &gateway.KernelRegistrationNotificationResponse{
+		Id:       replicaId,
+		Replicas: waitGroup.GetReplicas(),
 	}
 
-	return replicaIdResponse, nil
+	waitGroup.Notify()
+	return response, nil
 }
 
 func (d *GatewayDaemon) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {

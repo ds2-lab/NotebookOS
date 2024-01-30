@@ -296,30 +296,35 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		SessionId:      "N/A",
 		ReplicaId:      registrationPayload.ReplicaId,
 		HostId:         d.id,
+		KernelIp:       remote_ip,
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
 
 	// TODO(Ben): Contact the Gateway to notify it that we've registered one of the replicas.
-	replicaId, err := d.Provisioner.NotifyKernelRegistered(ctx, kernelRegistrationNotification)
+	response, err := d.Provisioner.NotifyKernelRegistered(ctx, kernelRegistrationNotification)
 	if err != nil {
 		d.log.Error("Error encountered while notifying Gateway of kernel registration: %v", err)
 	}
 
-	d.log.Debug("Successfully notified Gateway of kernel registration. Received replicaId %d in response.", replicaId.Id)
+	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.", response.Id, response.Replicas)
 
 	payload := map[string]interface{}{
-		"smr_node_id": replicaId.Id,
+		"smr_node_id": response.Id,
+		"hostname":    remote_ip,
+		"replicas":    response.Replicas,
 	}
 	payload_json, err := json.Marshal(payload)
 	if err != nil {
 		d.log.Error("Error encountered while marshalling replica ID to JSON: %v", err)
 	}
 
-	_, err = kernelRegistrationClient.conn.Write(payload_json)
+	bytes_written, err := kernelRegistrationClient.conn.Write(payload_json)
 	if err != nil {
 		d.log.Error("Error encountered while writing replica ID back to kernel: %v", err)
 	}
+
+	d.log.Debug("Wrote %d bytes back to kernel in response to kernel registration.", bytes_written)
 }
 
 // StartKernel launches a new kernel.
