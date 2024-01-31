@@ -318,7 +318,8 @@ func (v *virtualGpuPluginServerImpl) ListAndWatch(e *pluginapi.Empty, s pluginap
 func (v *virtualGpuPluginServerImpl) GetDevicePluginOptions(ctx context.Context, e *pluginapi.Empty) (*pluginapi.DevicePluginOptions, error) {
 	v.log.Info("virtualGpuPluginServerImpl::GetDevicePluginOptions called.")
 	klog.V(2).Infof("GetDevicePluginOptions request for vcore")
-	panic("Not implemented.")
+
+	return v.getDevicePluginOptions(), nil
 }
 
 // NOTE: We do not implement this. It is an optional part of the DevicePlugin interface.
