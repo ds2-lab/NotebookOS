@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -19,25 +20,21 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
-const (
-	vgpuSocketName = "vgpu.sock"
-)
-
-type virtualGpuResourceServerImpl struct {
+type virtualGpuListerServerImpl struct {
 	srv        *grpc.Server
 	socketFile string // Fully-qualified path.
-	socketName string // Just the name of the socket.
-	opts       *VirtualGpuResourceServerOptions
+	opts       *VirtualGpuPluginServerOptions
 	log        logger.Logger
+
+	VirtualGPUs int
 }
 
-func NewVirtualGpuResourceServer(opts *VirtualGpuResourceServerOptions) VirtualGpuResourceServer {
+func NewVirtualGpuListerServer(opts *VirtualGpuPluginServerOptions) VirtualGpuListerServer {
 	socketFile := filepath.Join(opts.DevicePluginPath, vgpuSocketName)
 
-	server := &virtualGpuResourceServerImpl{
+	server := &virtualGpuListerServerImpl{
 		srv:        grpc.NewServer(),
 		socketFile: socketFile,
-		socketName: vgpuSocketName,
 		opts:       opts,
 	}
 
@@ -47,32 +44,32 @@ func NewVirtualGpuResourceServer(opts *VirtualGpuResourceServerOptions) VirtualG
 }
 
 // Return the options for this DevicePlugin that will be passed to the Kubelet during registration.
-func (v *virtualGpuResourceServerImpl) getDevicePluginOptions() *pluginapi.DevicePluginOptions {
+func (v *virtualGpuListerServerImpl) getDevicePluginOptions() *pluginapi.DevicePluginOptions {
 	return &pluginapi.DevicePluginOptions{
 		PreStartRequired:                false,
 		GetPreferredAllocationAvailable: false,
 	}
 }
 
-func (v *virtualGpuResourceServerImpl) SocketName() string {
-	return v.socketName
+func (v *virtualGpuListerServerImpl) SocketName() string {
+	return path.Base(v.socketFile)
 }
 
-func (v *virtualGpuResourceServerImpl) SocketFile() string {
+func (v *virtualGpuListerServerImpl) SocketFile() string {
 	return v.socketFile
 }
 
-func (v *virtualGpuResourceServerImpl) ResourceName() string {
+func (v *virtualGpuListerServerImpl) ResourceName() string {
 	return VDeviceAnnotation
 }
 
-func (v *virtualGpuResourceServerImpl) Stop() {
+func (v *virtualGpuListerServerImpl) Stop() {
 	v.srv.Stop()
 	v.log.Warn("Virtual GPU resource server has stopped.")
 }
 
 // NOTE: This function should be called within its own goroutine.
-func (v *virtualGpuResourceServerImpl) Run() error {
+func (v *virtualGpuListerServerImpl) Run() error {
 	pluginapi.RegisterDevicePluginServer(v.srv, v)
 
 	err := syscall.Unlink(v.socketFile)
@@ -100,18 +97,24 @@ func (v *virtualGpuResourceServerImpl) Run() error {
 		return err
 	}
 
+	v.log.Info("Server %s has started. Registering with kubelet now.", VDeviceAnnotation)
+	klog.V(2).Infof("Server %s has started. Registering with kubelet now.", VDeviceAnnotation)
+
 	// Register this DevicePlugin with the Kubelet.
 	v.registerWithKubelet()
+
+	v.log.Info("Server %s has successfully registering with the kubelet.", VDeviceAnnotation)
+	klog.V(2).Infof("Server %s has successfully registered with the kubelet.", VDeviceAnnotation)
 
 	// We're already being called from a go-routine, so it is safe to call this.
 	return v.watchDevicePluginSocket()
 }
 
 // Register this DevicePlugin with the Kubelet.
-func (v *virtualGpuResourceServerImpl) registerWithKubelet() error {
+func (v *virtualGpuListerServerImpl) registerWithKubelet() error {
 	ctx := context.Background()
 
-	kubeSocketFile := filepath.Join(v.opts.DevicePluginPath, pluginapi.KubeletSocketWindows)
+	kubeSocketFile := filepath.Join(v.opts.DevicePluginPath, KubeletSocket)
 	dialOptions := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
@@ -149,7 +152,7 @@ func (v *virtualGpuResourceServerImpl) registerWithKubelet() error {
 //
 // Thus, in this function, we monitor the deletion of our Unix socket and re-register ourselves if we detect such an event.
 // NOTE: This function should be called within its own goroutine.
-func (v *virtualGpuResourceServerImpl) watchDevicePluginSocket() error {
+func (v *virtualGpuListerServerImpl) watchDevicePluginSocket() error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		v.log.Error("Failed to create file system watcher for file \"%s\"", v.opts.DevicePluginPath)
@@ -183,21 +186,24 @@ func (v *virtualGpuResourceServerImpl) watchDevicePluginSocket() error {
 // Allocate is called during container creation so that the Device
 // Plugin can run device specific operations and instruct Kubelet
 // of the steps to make the Device available in the container
-func (v *virtualGpuResourceServerImpl) Allocate(ctx context.Context, reqs *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
-	klog.V(2).Infof("%+v allocation request for vcore", reqs)
+func (v *virtualGpuListerServerImpl) Allocate(ctx context.Context, req *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
+	v.log.Info("virtualGpuListerServerImpl::Allocate called. Request: %v", req)
+	klog.V(2).Infof("%+v allocation request for vcore", req)
 	panic("Not implemented.")
 }
 
 // ListAndWatch returns a stream of List of Devices
 // Whenever a Device state change or a Device disappears, ListAndWatch
 // returns the new list
-func (v *virtualGpuResourceServerImpl) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
+func (v *virtualGpuListerServerImpl) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
+	v.log.Info("virtualGpuListerServerImpl::ListAndWatch called.")
 	klog.V(2).Infof("ListAndWatch request for vcore")
 	panic("Not implemented.")
 }
 
 // GetDevicePluginOptions returns options to be communicated with Device Manager.
-func (v *virtualGpuResourceServerImpl) GetDevicePluginOptions(ctx context.Context, e *pluginapi.Empty) (*pluginapi.DevicePluginOptions, error) {
+func (v *virtualGpuListerServerImpl) GetDevicePluginOptions(ctx context.Context, e *pluginapi.Empty) (*pluginapi.DevicePluginOptions, error) {
+	v.log.Info("virtualGpuListerServerImpl::GetDevicePluginOptions called.")
 	klog.V(2).Infof("GetDevicePluginOptions request for vcore")
 	panic("Not implemented.")
 }
@@ -207,7 +213,8 @@ func (v *virtualGpuResourceServerImpl) GetDevicePluginOptions(ctx context.Contex
 // PreStartContainer is called, if indicated by Device Plugin during registration phase,
 // before each container start. Device plugin can run device specific operations
 // such as resetting the device before making devices available to the container.
-func (v *virtualGpuResourceServerImpl) PreStartContainer(ctx context.Context, req *pluginapi.PreStartContainerRequest) (*pluginapi.PreStartContainerResponse, error) {
+func (v *virtualGpuListerServerImpl) PreStartContainer(ctx context.Context, req *pluginapi.PreStartContainerRequest) (*pluginapi.PreStartContainerResponse, error) {
+	v.log.Info("virtualGpuListerServerImpl::PreStartContainer called. Request: %v", req)
 	klog.V(2).Infof("PreStartContainer request for vcore")
 	panic("Not implemented.")
 }
@@ -219,7 +226,8 @@ func (v *virtualGpuResourceServerImpl) PreStartContainer(ctx context.Context, re
 // guaranteed to be the allocation ultimately performed by the
 // devicemanager. It is only designed to help the devicemanager make a more
 // informed allocation decision when possible.
-func (v *virtualGpuResourceServerImpl) GetPreferredAllocation(ctx context.Context, req *pluginapi.PreferredAllocationRequest) (*pluginapi.PreferredAllocationResponse, error) {
+func (v *virtualGpuListerServerImpl) GetPreferredAllocation(ctx context.Context, req *pluginapi.PreferredAllocationRequest) (*pluginapi.PreferredAllocationResponse, error) {
+	v.log.Info("virtualGpuListerServerImpl::GetPreferredAllocation called. Request: %v", req)
 	klog.V(2).Infof("PreStartContainer request for vcore")
 	panic("Not implemented.")
 }

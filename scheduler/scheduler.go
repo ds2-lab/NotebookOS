@@ -40,7 +40,7 @@ type Options struct {
 	config.LoggerOptions
 	types.ConnectionInfo
 	daemon.SchedulerDaemonOptions
-	device.VirtualGpuResourceServerOptions
+	device.VirtualGpuPluginServerOptions
 
 	Port               int    `name:"port" usage:"Port that the gRPC service listens on."`
 	KernelRegistryPort int    `name:"kernel-registry-port" usage:"Port on which the Kernel Registry Server listens."`
@@ -159,7 +159,7 @@ func main() {
 		logger.Info("Successfully registered in consul")
 	}
 
-	devicePluginServer := device.NewVirtualGpuResourceServer(&options.VirtualGpuResourceServerOptions)
+	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions)
 
 	// Start detecting stop signals
 	done.Add(1)
@@ -203,7 +203,7 @@ func main() {
 
 					// Recreate the DevicePlugin server.
 					log.Println("Recreating the DevicePlugin server now.")
-					devicePluginServer = device.NewVirtualGpuResourceServer(&options.VirtualGpuResourceServerOptions)
+					devicePluginServer = device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions)
 				} else {
 					log.Fatalf("Error during device plugin serving: %v", err)
 				}

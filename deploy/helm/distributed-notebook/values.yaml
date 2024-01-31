@@ -63,6 +63,7 @@ common:
   ipython_config_path: "/home/jovyan/.ipython/profile_default/ipython_config.json"
   node_local_pvc_mount_point: "node_local"
   use_stateful_set: false # If true, use StatefulSets for the distributed kernel replica pods. If false, use CloneSets.
+  num_virtual_gpus_per_node: 8 # 8 GPUs per Node * 3 Oversubscription Factor * 3 Replicas.
 
 ingress:
   enabled: false

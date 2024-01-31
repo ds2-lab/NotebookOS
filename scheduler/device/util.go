@@ -29,5 +29,6 @@ func waitForDevicePluginServer(sock string, timeout time.Duration) error {
 		_ = conn.Close()
 	}
 
+	// If err is nil, Wrapf returns nil.
 	return errors.Wrapf(err, "Failed gRPC::DialContext for socket \"%s\"", sock)
 }

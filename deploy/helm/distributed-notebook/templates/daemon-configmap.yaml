@@ -30,3 +30,4 @@ data:
     num-resource-ports: {{ mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 }}
     use-stateful-set: {{ .Values.common.use_stateful_set }}
     device-plugin-path: {{ .Values.local_daemon.device_plugin.path }}
+    num-virtual-gpus-per-node: {{ .Values.common.num_virtual_gpus_per_node }}

@@ -101,7 +101,7 @@ type SchedulerDaemon struct {
 	// This enables the Gateway's SUB sockets to filter messages from each kernel.
 	// iopub *jupyter.Socket
 
-	// devicePluginServer deviceplugin.VirtualGpuResourceServer
+	// devicePluginServer deviceplugin.VirtualGpuPluginServer
 
 	// There's a simple TCP server that listens for kernel registration notifications on this port.
 	kernelRegistryPort int
@@ -140,7 +140,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		closed:             make(chan struct{}),
 		cleaned:            make(chan struct{}),
 		kernelRegistryPort: kernelRegistryPort,
-		// devicePluginServer: deviceplugin.NewVirtualGpuResourceServer(devicePluginOpts),
+		// devicePluginServer: deviceplugin.NewVirtualGpuPluginServer(devicePluginOpts),
 	}
 	for _, config := range configs {
 		config(daemon)
