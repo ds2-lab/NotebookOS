@@ -28,12 +28,25 @@ We use each distributed kernel `Pod`'s ordinal as its SMR node ID. But because S
 
 ## Chart Installation Instructions
 
+### Local Path Provisioner
+
 To install this Helm chart, we must first install a third-party provisioner that supports dynamic provisioning of `local` volumes. 
 
 We are using [Local Path Provisioner](https://github.com/rancher/local-path-provisioner/tree/master). To install this on your Kubernetes cluster, execute the following:
 ``` sh
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
 ```
+
+### Metrics Server
+
+Next, we install the `metrics-server`. With kind, we either need to enable `--kubelet-insecure-tls`, or we can configure our kind cluster differently. See [this post](https://www.zeng.dev/post/2023-kubeadm-enable-kubelet-serving-certs/) for how to configure.
+
+For now, we will use the `--kubelet-insecure-tls` solution with the included `.yaml` file (found at `deploy/helm/distributed-notebook/metrics-server.yaml`):
+``` sh
+kubectl apply -f ./metrics-server.yaml
+```
+
+### The `DistributedNotebook` Helm Chart
 
 Next, to install the Helm chart, execute the following command:
 ``` sh

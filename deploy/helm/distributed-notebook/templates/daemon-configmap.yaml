@@ -27,7 +27,7 @@ data:
     smr-port: {{ .Values.smr.port }}
     kube-namespace: {{ .Values.namespace }}
     starting-resource-port: {{ .Values.local_daemon.network.jupyter.starting_resource_port }}
-    num-resource-ports: {{ mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 }}
+    num-resource-ports: {{ mul (div .Values.local_daemon.max_actual_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 }}
     use-stateful-set: {{ .Values.common.use_stateful_set }}
     device-plugin-path: {{ .Values.local_daemon.device_plugin.path }}
-    num-virtual-gpus-per-node: {{ .Values.common.num_virtual_gpus_per_node }}
+    num-virtual-gpus-per-node: {{ .Values.local_daemon.num_virtual_gpus_per_node }}

@@ -24,7 +24,7 @@ spec:
     port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
   - name: iopub-port2
     port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
-  {{- $portsRequired := mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
+  {{- $portsRequired := mul (div .Values.local_daemon.max_actual_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
   {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
   {{- range $i := until $portsRequired }}
   - name: {{ printf "res-port-%d" $i }}
@@ -57,7 +57,7 @@ spec:
     port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
   - name: iopub-port2
     port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
-  {{- $portsRequired := mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
+  {{- $portsRequired := mul (div .Values.local_daemon.max_actual_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
   {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
   {{- range $i := until $portsRequired }}
   - name: {{ printf "res-port-%d" $i }}
@@ -118,7 +118,7 @@ spec:
           containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
         - name: iopub-port2
           containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
-        {{- $portsRequired := mul (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
+        {{- $portsRequired := mul (div .Values.local_daemon.max_actual_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
         {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
         {{- range $i := until $portsRequired }}
         - name: {{ printf "res-port-%d" $i }}
@@ -137,7 +137,7 @@ spec:
             mountPath: "/var/lib/kubelet/pod-resources/"
         env:
           - name: NUM_RESOURCE_PORTS
-            value: "{{ printf "%d" (div .Values.local_daemon.max_gpu_per_node .Values.local_daemon.gpu_allocation_granularity ) }}"
+            value: "{{ printf "%d" (div .Values.local_daemon.max_actual_gpu_per_node .Values.local_daemon.gpu_allocation_granularity ) }}"
           - name: NODE_NAME # The full name of the Pod.
             valueFrom:
               fieldRef:
