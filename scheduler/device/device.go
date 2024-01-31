@@ -16,7 +16,7 @@ type Device struct {
 }
 
 func (d *Device) String() string {
-	return fmt.Sprintf("Device[Idx=%s,ID=%s,Health=%v]", d.Index, d.ID, d.Health)
+	return fmt.Sprintf("Device[Idx=%d,ID=%s,Health=%s]", d.Index, d.ID, d.Health)
 }
 
 func BuildDevice(index int) *Device {

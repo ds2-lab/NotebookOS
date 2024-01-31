@@ -3,7 +3,7 @@ package device
 import "errors"
 
 const (
-	VDeviceAnnotation = "ds2-lab.github.io/vgpu-device"
+	VDeviceAnnotation = "ds2-lab.github.io/deflated-gpu"
 	GPUAssigned       = "ds2-lab.github.io/gpu-assigned"
 
 	ClusterNameAnnotation = "clusterName"
