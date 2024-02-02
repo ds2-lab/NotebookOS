@@ -30,8 +30,8 @@ type MigrationOperation interface {
 	NewPodStarted() bool                           // Returns true if a new Pod has been started for the replica that is being migrated. Otherwise, returns false.
 	OldPodStopped() bool                           // Returns true if the original Pod of the replica has stopped. Otherwise, returns false.
 	Completed() bool                               // Returns true if the migration has been completed; otherwise, returns false (i.e., if it is still ongoing).
-	OldPodName() (string, bool)                    // Name of the Pod in which the target replica container is running.
-	NewPodName() string                            // Return the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
+	OldPodName() string                            // Name of the Pod in which the target replica container is running.
+	NewPodName() (string, bool)                    // Return the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
 	SetNewPodName(string)                          // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
 	SetOldPodStopped()                             // Record that the old Pod (containing the replica to be migrated) has stopped.
 }

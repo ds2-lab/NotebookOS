@@ -122,25 +122,28 @@ func (m *migrationOperationImpl) SetOldPodStopped() {
 }
 
 type migrationManagerImpl struct {
-	client                     KubeClient                                                                      // The KubeClient that maintains a reference to this migration manager.
-	dynamicClient              *dynamic.DynamicClient                                                          // Own dynamic client, separate from the dynamic client belonging to the associated KubeClient.
-	migrationOperations        *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of migration operation ID to migration operation.
-	activeMigrationOpsPerKenel *cmap.ConcurrentMap[string, *orderedmap.OrderedMap[string, MigrationOperation]] // Mapping of kernel ID to all active migration operations associated with that kernel.
-	kernelMutexes              *cmap.ConcurrentMap[string, *sync.Mutex]                                        // Mapping from Kernel ID to its associated RWMutex.
-	mainMutex                  sync.Mutex                                                                      // Synchronizes certain atomic operations related to internal state and book-keeping of the migration manager.
-	log                        logger.Logger
+	client                          KubeClient                                                                      // The KubeClient that maintains a reference to this migration manager.
+	dynamicClient                   *dynamic.DynamicClient                                                          // Own dynamic client, separate from the dynamic client belonging to the associated KubeClient.
+	migrationOperations             *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of migration operation ID to migration operation.
+	migrationOperationsByOldPodName *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of old Pod names to their associated migration operation.
+	activeMigrationOpsPerKenel      *cmap.ConcurrentMap[string, *orderedmap.OrderedMap[string, MigrationOperation]] // Mapping of kernel ID to all active migration operations associated with that kernel.
+	kernelMutexes                   *cmap.ConcurrentMap[string, *sync.Mutex]                                        // Mapping from Kernel ID to its associated RWMutex.
+	mainMutex                       sync.Mutex                                                                      // Synchronizes certain atomic operations related to internal state and book-keeping of the migration manager.
+	log                             logger.Logger
 }
 
 func NewMigrationManager(client KubeClient) *migrationManagerImpl {
 	migrationOperations := cmap.New[MigrationOperation]()
+	migrationOperationsByOldPodName := cmap.New[MigrationOperation]()
 	activeMigrationOpsPerKenel := cmap.New[*orderedmap.OrderedMap[string, MigrationOperation]]()
 	kernelMutexes := cmap.New[*sync.Mutex]()
 
 	m := &migrationManagerImpl{
-		client:                     client,
-		migrationOperations:        &migrationOperations,
-		kernelMutexes:              &kernelMutexes,
-		activeMigrationOpsPerKenel: &activeMigrationOpsPerKenel,
+		client:                          client,
+		migrationOperations:             &migrationOperations,
+		kernelMutexes:                   &kernelMutexes,
+		activeMigrationOpsPerKenel:      &activeMigrationOpsPerKenel,
+		migrationOperationsByOldPodName: &migrationOperationsByOldPodName,
 	}
 
 	config.InitLogger(&m.log, m)
@@ -180,6 +183,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 
 	migrationOp := NewMigrationOperation(targetClient, in.ReplicaId, podName)
 	m.migrationOperations.Set(migrationOp.id, migrationOp)
+	m.migrationOperationsByOldPodName.Set(podName, migrationOp)
 	err = m.storeActiveMigrationOperationForKernel(kernelId, migrationOp)
 	if err != nil {
 		panic(fmt.Sprintf("Migration operation \"%s\" is already registered with kernel \"%s\".", migrationOp.id, kernelId))
@@ -243,8 +247,6 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	pod := obj.(*corev1.Pod)
 	m.log.Debug("Pod created: %s/%s", pod.Namespace, pod.Name)
 
-	// TODO(Ben): Check if there is an associated migration operation.
-
 	// First, check if the newly-created Pod is a kernel Pod.
 	// If it is not a kernel Pod, then we simply return.
 	if !strings.HasPrefix(pod.Name, "kernel") {
@@ -258,7 +260,7 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	activeOps, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
 
 	if !ok {
-		m.log.Error("No 'active migration operations' mapping associated with kernel \"%s\"", kernelId)
+		panic(fmt.Sprintf("No 'active migration operations' mapping associated with kernel \"%s\"", kernelId))
 	}
 
 	// If there are no active migration operations, then we simply return.
@@ -268,7 +270,7 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 
 	mutex, ok := m.kernelMutexes.Get(kernelId)
 	if !ok {
-		m.log.Error("No mutex found for kernel \"%s\"", kernelId)
+		panic(fmt.Sprintf("No mutex found for kernel \"%s\"", kernelId))
 	}
 
 	mutex.Lock()
@@ -294,9 +296,14 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 		return
 	}
 
+	op.SetNewPodName(pod.Name)
+
 	mutex.Unlock()
 
-	// activeOp, _ := activeOps.Get("")
+	// TODO(Ben):
+	// Next steps are to update the CloneSet spec and decrease the number of replicas by 1.
+	// We need to be careful here so as not to step on any other concurrent migration operations.
+	// We also need to facilitate hooking up the new replica with the rest of the system.
 }
 
 // Function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
@@ -324,16 +331,29 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 	// Example Pod name:
 	// kernel-5aef36f7-ae8b-477c-9162-178f2d4b85df-ABCDE
 	kernelId := pod.Name[7:43]
-	activeOps, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
+	activeOps, foundActiveOps := m.activeMigrationOpsPerKenel.Get(kernelId)
+	op, ok := m.migrationOperationsByOldPodName.Get(pod.Name)
 
+	// No operation found when looking by old Pod name, so we can just return.
 	if !ok {
-		m.log.Error("No 'active migration operations' mapping associated with kernel \"%s\"", kernelId)
-	}
-
-	// If there are no active migration operations, then we simply return.
-	if activeOps.Len() == 0 {
 		return
 	}
+
+	// At this point, we know we found an operation by old Pod name.
+	// So, if there are no active operations, then we're in an error state.
+	if !foundActiveOps || activeOps.Len() == 0 {
+		panic(fmt.Sprintf("Found migration operation %s by old pod name %s, but no active ops found.", op.OperationID(), pod.Name))
+	}
+
+	// Sanity check. The op we found via old pod Name should be in the active operations map.
+	if _, ok = activeOps.Get(op.OperationID()); !ok {
+		panic(fmt.Sprintf("Found migration operation %s by old pod name %s, but it is not included in the active operations for the associated kernel.", op.OperationID(), pod.Name))
+	}
+
+	m.log.Debug("Recording that old pod %s stopped for active migration operation %s.", pod.Name, op.OperationID())
+	op.SetOldPodStopped()
+
+	// TODO(Ben): What's next?
 }
 
 // Given a kernel ID and a migration operation, register the migration operation as an active migration operation of the kernel identified by the given ID.
