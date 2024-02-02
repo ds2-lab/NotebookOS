@@ -122,6 +122,7 @@ type KernelRegistrationPayload struct {
 	Replicas        []string            `json:"replicas,omitempty"`
 	Join            bool                `json:"join,omitempty"`
 	PersistentId    *string             `json:"persistentId,omitempty"`
+	PodName         string              `json:"podName,omitempty"`
 }
 
 // Incoming connection from local distributed kernel.
@@ -213,6 +214,8 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		Key:             registrationPayload.Key,
 	}
 
+	d.log.Debug("connInfo: %v", connInfo)
+
 	kernelReplicaSpec := &gateway.KernelReplicaSpec{
 		Kernel:       registrationPayload.Kernel,
 		ReplicaId:    registrationPayload.ReplicaId,   // Can get (from config file).
@@ -221,13 +224,15 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		PersistentId: registrationPayload.PersistentId,
 	}
 
+	d.log.Debug("kernelReplicaSpec: %v", kernelReplicaSpec)
+
 	listenPorts, err := d.availablePorts.RequestPorts()
 	if err != nil {
 		panic(err)
 	}
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1])
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
@@ -297,6 +302,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		ReplicaId:      registrationPayload.ReplicaId,
 		HostId:         d.id,
 		KernelIp:       remote_ip,
+		PodName:        registrationPayload.PodName,
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)

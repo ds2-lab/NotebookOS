@@ -179,6 +179,17 @@ func (c *DistributedKernelClient) Replicas() []core.KernelReplica {
 	return ret
 }
 
+func (c *DistributedKernelClient) KernelPodName(id int32) (string, error) {
+	replica, err := c.GetReplicaByID(id)
+
+	if err != nil {
+		c.log.Debug("Could not find replica with id %d", id)
+		return "", err
+	}
+
+	return replica.KernelPodName(), nil
+}
+
 // PerpareNewReplica determines the replica ID for the new replica and returns the KernelReplicaSpec required to start the replica.
 func (c *DistributedKernelClient) PerpareNewReplica(persistentId string) *gateway.KernelReplicaSpec {
 	c.mu.Lock()
@@ -268,6 +279,21 @@ func (c *DistributedKernelClient) RemoveReplica(r core.KernelReplica, remover Re
 	c.replicas[r.ReplicaID()-1] = nil
 	c.size--
 	return host, nil
+}
+
+func (c *DistributedKernelClient) GetReplicaByID(id int32) (core.KernelReplica, error) {
+	c.mu.RLock()
+	var replica core.KernelReplica
+	if id <= int32(len(c.replicas)) {
+		replica = c.replicas[id-1]
+	}
+	c.mu.RUnlock()
+
+	if replica == nil {
+		return nil, ErrReplicaNotFound
+	}
+
+	return replica, nil
 }
 
 // RemoveReplicaByID removes a kernel peer from the kernel by replica ID.

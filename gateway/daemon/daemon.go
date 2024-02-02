@@ -426,11 +426,13 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	kernelId := in.KernelId
 	hostId := in.HostId
 	kernelIp := in.KernelIp
+	kernelPodName := in.PodName
 
 	d.log.Info("Connection info: %v", connectionInfo)
 	d.log.Info("Session ID: %v", sessionId)
 	d.log.Info("Kernel ID: %v", kernelId)
 	d.log.Info("Kernel IP: %v", kernelIp)
+	d.log.Info("Pod name: %v", kernelPodName)
 	d.log.Info("Host ID: %v", hostId)
 
 	d.mutex.Lock()
@@ -466,7 +468,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName)
 	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
@@ -590,19 +592,21 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 	}
 
 	d.log.Debug("Migrating kernel(%s:%d)...", kernel.ID(), in.ReplicaId)
-	d.log.Warn("WARNING: This feature has not been reimplemented for Kubernetes yet. This will fail.")
+	// d.log.Warn("WARNING: This feature has not been reimplemented for Kubernetes yet. This will fail.")
 
-	replicaSpec := kernel.PerpareNewReplica(in.PersistentId)
+	// replicaSpec := kernel.PerpareNewReplica(in.PersistentId)
 
 	// TODO: Pass decision to the cluster scheduler.
 	// host := d.placer.FindHost(replicaSpec.Kernel.Resource)
 
-	var err error
-	defer func() {
-		if err != nil {
-			d.log.Warn("Failed to start replica(%s:%d): %v", kernel.KernelSpec().Id, replicaSpec.ReplicaId, err)
-		}
-	}()
+	// var err error
+	// defer func() {
+	// 	if err != nil {
+	// 		d.log.Warn("Failed to start replica(%s:%d): %v", kernel.KernelSpec().Id, replicaSpec.ReplicaId, err)
+	// 	}
+	// }()
+
+	d.kubeClient.MigrateKernelReplica(ctx, kernel, in.ReplicaId, in)
 
 	return nil, d.errorf(ErrNotImplementedKube)
 

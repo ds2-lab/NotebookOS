@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	appsv1 "k8s.io/api/apps/v1"
@@ -18,9 +20,12 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 )
 
 const (
@@ -40,7 +45,8 @@ const (
 )
 
 var (
-	kubeStorageBase = "/storage" // TODO(Ben): Don't hard-code this. What should this be?
+	kubeStorageBase = "/storage"                                                                                       // TODO(Ben): Don't hard-code this. What should this be?
+	clonesetRes     = schema.GroupVersionResource{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "clonesets"} // Identifier for Kubernetes CloneSet resources.
 )
 
 type BasicKubeClient struct {
@@ -55,6 +61,8 @@ type BasicKubeClient struct {
 	smrPort                int                    // Port used for the SMR protocol.
 	kubeNamespace          string                 // Kubernetes namespace that all of these components reside in.
 	useStatefulSet         bool                   // If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet.
+	podWatcherStopChan     chan struct{}          // Used to tell the Pod Watcher to stop.
+	migrationManager       MigrationManager       // Responsible for orchestrating and managing migration operations.
 	log                    logger.Logger
 }
 
@@ -69,6 +77,7 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 		kubeNamespace:          daemonKubeClientOptions.KubeNamespace,
 		gatewayDaemon:          gatewayDaemon,
 		useStatefulSet:         daemonKubeClientOptions.UseStatefulSet,
+		podWatcherStopChan:     make(chan struct{}),
 	}
 
 	config.InitLogger(&client.log, client)
@@ -111,6 +120,10 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 	// }
 
 	// client.smrPort = smrPort
+
+	client.migrationManager = NewMigrationManager(client)
+
+	client.createPodWatcher("default")
 
 	return client
 }
@@ -182,7 +195,38 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 		c.createKernelCloneSet(ctx, kernel, connectionInfo, headlessServiceName)
 	}
 
+	c.migrationManager.RegisterKernel(kernel.Id)
+
 	return connectionInfo, nil
+}
+
+// TODO(Ben): Will need some sort of concurrency control -- like if we try to migrate two replicas at once, then we'd need to account for this.
+func (c *BasicKubeClient) MigrateKernelReplica(ctx context.Context, targetClient *client.KernelClient, targetSmrNodeId int, in *gateway.ReplicaInfo) {
+	c.migrationManager.MigrateKernelReplica(ctx, targetClient, targetSmrNodeId, in)
+}
+
+// Create a SharedInformer that watches for Pod-creation and Pod-deletion events within the given namespace.
+// In general, namespace should be "default" until we make the namespace configurable (for the Helm k8s deployment).
+// This is expected to be used in conjunction with the Migration Orchestrator, as the Migration Orchestrator exposes
+// an API that is registered with the SharedInformer to handle Pod-started and Pod-stopped events.
+func (c *BasicKubeClient) createPodWatcher(namespace string) {
+	// create shared informers for resources in all known API group versions with a reSync period and namespace
+	factory := informers.NewSharedInformerFactoryWithOptions(c.kubeClientset, 10*time.Second, informers.WithNamespace(namespace))
+	podInformer := factory.Core().V1().Pods().Informer()
+	go factory.Start(c.podWatcherStopChan)
+
+	// start to sync and call list
+	if !cache.WaitForCacheSync(c.podWatcherStopChan, podInformer.HasSynced) {
+		runtime.HandleError(fmt.Errorf("Timed out waiting for caches to sync"))
+		return
+	}
+
+	// Temporary.
+	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    c.migrationManager.PodCreated,
+		UpdateFunc: c.migrationManager.PodUpdated,
+		DeleteFunc: c.migrationManager.PodDeleted,
+	})
 }
 
 // Create a StatefulSet for a particular distributed kernel.
@@ -438,8 +482,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 // - connectionInfo (*jupyter.ConnectionInfo): The connection info of the distributed kernel.
 // - headlessServiceName (string): The name of the headless Kubernetes service that was created to manage the networking of the Pods of the CloneSet.
 func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) {
-	deploymentRes := schema.GroupVersionResource{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "clonesets"}
-
+	// Define the CloneSet.
 	cloneSetDefinition := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "apps.kruise.io/v1alpha1",
@@ -626,7 +669,8 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 		},
 	}
 
-	_, err := c.dynamicClient.Resource(deploymentRes).Namespace("default").Create(context.TODO(), cloneSetDefinition, v1.CreateOptions{})
+	// Issue the Kubernetes API request to create the CloneSet.
+	_, err := c.dynamicClient.Resource(clonesetRes).Namespace("default").Create(context.TODO(), cloneSetDefinition, v1.CreateOptions{})
 
 	if err != nil {
 		panic(err.Error())

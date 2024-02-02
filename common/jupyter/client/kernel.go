@@ -46,6 +46,7 @@ type KernelClient struct {
 	addSourceKernelFrames bool          // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelClient's kernel ID.
 	shellListenPort       int           // Port that the KernelClient::shell socket listens on.
 	iopubListenPort       int           // Port that the KernelClient::iopub socket listens on.
+	kernelPodName         string        // Name of the Pod housing the associated distributed kernel replica container.
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -53,7 +54,7 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string) *KernelClient {
 	client := &KernelClient{
 		id:                    spec.Kernel.Id,
 		replicaId:             spec.ReplicaId,
@@ -61,6 +62,7 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		addSourceKernelFrames: addSourceKernelFrames,
 		shellListenPort:       shellListenPort,
 		iopubListenPort:       iopubListenPort,
+		kernelPodName:         kernelPodName,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ControlPort}
@@ -83,6 +85,10 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 	client.log.Debug("Created new Kernel Client with spec %v, connection info %v.", spec, info)
 
 	return client
+}
+
+func (c *KernelClient) KernelPodName() string {
+	return c.kernelPodName
 }
 
 func (c *KernelClient) ShellListenPort() int {

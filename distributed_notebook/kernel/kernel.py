@@ -28,6 +28,8 @@ err_invalid_request = RuntimeError("Invalid request.")
 key_persistent_id = "persistent_id"
 enable_storage = True
 
+UNAVAILABLE:str = "N/A" # Used as the value for an environment variable that was not set.
+
 logging.basicConfig(level=logging.INFO)
 
 class DistributedKernel(IPythonKernel):
@@ -55,6 +57,10 @@ class DistributedKernel(IPythonKernel):
     persistent_id: Union[str, Unicode] = Unicode(
         help="""Persistent id for storage"""
     ).tag(config=True)
+    
+    pod_name: Union[str, Unicode] = Unicode(
+        help = """Name of the Pod encapsulating this distributed kernel replica"""
+    ).tag(config = False)
 
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
@@ -94,13 +100,15 @@ class DistributedKernel(IPythonKernel):
 
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
-        session_id = os.environ.get("SESSION_ID", default = "N/A")
-        kernel_id = os.environ.get("KERNEL_ID", default = "N/A") 
+        session_id = os.environ.get("SESSION_ID", default = UNAVAILABLE)
+        kernel_id = os.environ.get("KERNEL_ID", default = UNAVAILABLE) 
+        self.pod_name = os.environ.get("POD_NAME", default = UNAVAILABLE)
         
         self.log.info("Connection file path: \"%s\"" % connection_file_path)
         self.log.info("IPython config file path: \"%s\"" % config_file_path)
         self.log.info("Session ID: \"%s\"" % session_id)
         self.log.info("Kernel ID: \"%s\"" % kernel_id)
+        self.log.info("Pod name: \"%s\"" % self.pod_name)
         
         connection_info = None 
         try:
@@ -254,17 +262,18 @@ class DistributedKernel(IPythonKernel):
             return 
         
         registration_payload = {
-            "SignatureScheme": connection_info["signature_scheme"],
-            "Key": connection_info["key"],
-            "ReplicaID": self.smr_node_id, # config_info["smr_node_id"],
-            "NumReplicas": len(self.smr_nodes), # len(config_info["smr_nodes"]),
-            "Replicas": self.smr_nodes, # config_info["smr_nodes"],
-            "Join": self.smr_join, # config_info["smr_join"],
-            "Kernel": {
-                "Id": kernel_id, #, config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
-                "Session": session_id, # config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
-                "SignatureScheme": connection_info["signature_scheme"],
-                "Key": connection_info["key"],
+            "signature_scheme": connection_info["signature_scheme"],
+            "key": connection_info["key"],
+            "replicaId": self.smr_node_id, # config_info["smr_node_id"],
+            "numReplicas": len(self.smr_nodes), # len(config_info["smr_nodes"]),
+            "replicas": self.smr_nodes, # config_info["smr_nodes"],
+            "join": self.smr_join, # config_info["smr_join"],
+            "podName": self.pod_name,
+            "kernel": {
+                "id": kernel_id, #, config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
+                "session": session_id, # config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
+                "signature_scheme": connection_info["signature_scheme"],
+                "key": connection_info["key"],
             }
         }
         
