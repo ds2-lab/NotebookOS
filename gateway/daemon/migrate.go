@@ -121,6 +121,8 @@ func (m *migrationOperationImpl) SetOldPodStopped() {
 	m.oldPodStopped = true
 }
 
+// Note on the use of orderedmap.OrderedMap.
+// We use an ordered map to store the active migration operations for each kernel so that operations that were initiated first are completed/processed first.
 type migrationManagerImpl struct {
 	client                          KubeClient                                                                      // The KubeClient that maintains a reference to this migration manager.
 	dynamicClient                   *dynamic.DynamicClient                                                          // Own dynamic client, separate from the dynamic client belonging to the associated KubeClient.
