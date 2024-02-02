@@ -606,7 +606,7 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 	// 	}
 	// }()
 
-	d.kubeClient.MigrateKernelReplica(ctx, kernel, in.ReplicaId, in)
+	d.kubeClient.InitiateKernelMigration(ctx, kernel, in.ReplicaId, in)
 
 	return nil, d.errorf(ErrNotImplementedKube)
 
