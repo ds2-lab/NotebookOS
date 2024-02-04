@@ -63,6 +63,8 @@ type DistributedKernelClient struct {
 	shellListenPort int // Port that the KernelClient::shell socket listens on.
 	iopubListenPort int // Port that the KernelClient::iopub socket listens on.
 
+	numActiveMigrations int // Number of active migrations of the associated kernel's replicas.
+
 	log     logger.Logger
 	mu      sync.RWMutex
 	closing int32
@@ -77,13 +79,14 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort} // connectionInfo.IOSubPort}
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
-		status:          types.KernelStatusInitializing,
-		spec:            spec,
-		replicas:        make([]core.KernelReplica, numReplicas),
-		cleaned:         make(chan struct{}),
-		connectionInfo:  connectionInfo,
-		shellListenPort: shellListenPort,
-		iopubListenPort: iopubListenPort,
+		status:              types.KernelStatusInitializing,
+		spec:                spec,
+		replicas:            make([]core.KernelReplica, numReplicas),
+		cleaned:             make(chan struct{}),
+		connectionInfo:      connectionInfo,
+		shellListenPort:     shellListenPort,
+		iopubListenPort:     iopubListenPort,
+		numActiveMigrations: 0,
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)
@@ -162,6 +165,28 @@ func (c *DistributedKernelClient) BindSession(sess string) {
 // Size returns the number of replicas in the kernel.
 func (c *DistributedKernelClient) Size() int {
 	return c.size
+}
+
+// Return the number of active migrations of the associated kernel's replicas.
+func (c *DistributedKernelClient) NumActiveMigrations() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.numActiveMigrations
+}
+
+func (c *DistributedKernelClient) MigrationStarted() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.numActiveMigrations += 1
+}
+
+func (c *DistributedKernelClient) MigrationCompleted() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.numActiveMigrations -= 1
 }
 
 // Replicas returns the replicas in the kernel.
@@ -294,6 +319,33 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (core.KernelReplica, 
 	}
 
 	return replica, nil
+}
+
+// RemoveReplicaByID removes a kernel peer from the kernel by replica ID.
+func (c *DistributedKernelClient) RemoveReplicaByIDWithoutRemover(id int32) error {
+	c.mu.RLock()
+	var replica core.KernelReplica
+	if id <= int32(len(c.replicas)) {
+		replica = c.replicas[id-1]
+	}
+	c.mu.RUnlock()
+
+	if replica == nil {
+		return ErrReplicaNotFound
+	}
+
+	c.mu.Lock()
+	defer replica.Close()
+	defer c.mu.Unlock()
+
+	// The replica ID starts with 1.
+	if int(replica.ReplicaID()) > len(c.replicas) || c.replicas[replica.ReplicaID()-1] != replica {
+		return ErrReplicaNotFound
+	}
+
+	c.replicas[replica.ReplicaID()-1] = nil
+	c.size--
+	return nil
 }
 
 // RemoveReplicaByID removes a kernel peer from the kernel by replica ID.

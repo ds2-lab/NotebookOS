@@ -130,12 +130,16 @@ func (m *migrationOperationImpl) SetOldPodStopped() {
 
 // Block and wait until the migration operation has completed.
 func (m *migrationOperationImpl) Wait() {
+	m.doneVar.L.Lock()
 	m.doneVar.Wait()
+	m.doneVar.L.Unlock()
 }
 
 // Notify any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
 func (m *migrationOperationImpl) Broadcast() {
+	m.doneVar.L.Lock()
 	m.doneVar.Broadcast()
+	m.doneVar.L.Unlock()
 }
 
 // Notify any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
@@ -150,6 +154,7 @@ type migrationManagerImpl struct {
 	dynamicClient                   *dynamic.DynamicClient                                                          // Own dynamic client, separate from the dynamic client belonging to the associated KubeClient.
 	migrationOperations             *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of migration operation ID to migration operation.
 	migrationOperationsByOldPodName *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of old Pod names to their associated migration operation.
+	migrationOperationsByNewPodName *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of old Pod names to their associated migration operation.
 	activeMigrationOpsPerKenel      *cmap.ConcurrentMap[string, *orderedmap.OrderedMap[string, MigrationOperation]] // Mapping of kernel ID to all active migration operations associated with that kernel.
 	kernelMutexes                   *cmap.ConcurrentMap[string, *sync.Mutex]                                        // Mapping from Kernel ID to its associated RWMutex.
 	mainMutex                       sync.Mutex                                                                      // Synchronizes certain atomic operations related to internal state and book-keeping of the migration manager.
@@ -159,6 +164,7 @@ type migrationManagerImpl struct {
 func NewMigrationManager(client KubeClient) *migrationManagerImpl {
 	migrationOperations := cmap.New[MigrationOperation]()
 	migrationOperationsByOldPodName := cmap.New[MigrationOperation]()
+	migrationOperationsByNewPodName := cmap.New[MigrationOperation]()
 	activeMigrationOpsPerKenel := cmap.New[*orderedmap.OrderedMap[string, MigrationOperation]]()
 	kernelMutexes := cmap.New[*sync.Mutex]()
 
@@ -168,6 +174,7 @@ func NewMigrationManager(client KubeClient) *migrationManagerImpl {
 		kernelMutexes:                   &kernelMutexes,
 		activeMigrationOpsPerKenel:      &activeMigrationOpsPerKenel,
 		migrationOperationsByOldPodName: &migrationOperationsByOldPodName,
+		migrationOperationsByNewPodName: &migrationOperationsByNewPodName,
 	}
 
 	config.InitLogger(&m.log, m)
@@ -205,10 +212,15 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 		panic(fmt.Sprintf("Could not find replica of kernel \"%s\" with SMR Node ID %d.", kernelId, targetSmrNodeId))
 	}
 
+	targetClient.MigrationStarted()
 	migrationOp := NewMigrationOperation(targetClient, in.ReplicaId, podName)
+
+	m.mainMutex.Lock()
 	m.migrationOperations.Set(migrationOp.id, migrationOp)
 	m.migrationOperationsByOldPodName.Set(podName, migrationOp)
 	err = m.storeActiveMigrationOperationForKernel(kernelId, migrationOp)
+	m.mainMutex.Unlock()
+
 	if err != nil {
 		panic(fmt.Sprintf("Migration operation \"%s\" is already registered with kernel \"%s\".", migrationOp.id, kernelId))
 	}
@@ -257,6 +269,16 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 	// as the lock would be held indefinitely in this case unless we could detect that the Pod was unable to be scheduled.
 	// TODO(Ben): Possible race condition if there are concurrent migration operations that increment and decrement the number of replicas concurrently here.
 	mutex.Unlock()
+
+	go func() {
+		m.log.Debug("Removing replica %d from Distributed Kernel Client for kernel %s.", migrationOp.TargetSMRNodeID(), migrationOp.KernelId())
+		err := migrationOp.KernelClient().RemoveReplicaByIDWithoutRemover(migrationOp.TargetSMRNodeID())
+		if err != nil {
+			m.log.Error("Failed to remove replica(%s:%d): %v", migrationOp.KernelId(), in.ReplicaId, err)
+		} else {
+			m.log.Debug("Successfully removed replica %d from Distributed Kernel Client for kernel %s.", migrationOp.TargetSMRNodeID(), migrationOp.KernelId())
+		}
+	}()
 
 	if retryErr != nil {
 		return errors.Wrap(retryErr, fmt.Sprintf("Failed to update the CloneSet associated with kernel \"%s\" while migration replica %d.", kernelId, targetSmrNodeId))
@@ -323,6 +345,7 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	}
 
 	op.SetNewPodName(pod.Name)
+	m.migrationOperationsByNewPodName.Set(pod.Name, op)
 
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		cloneset_id := fmt.Sprintf("kernel-%s", op.KernelId())
@@ -396,6 +419,7 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 	// Example Pod name:
 	// kernel-5aef36f7-ae8b-477c-9162-178f2d4b85df-ABCDE
 	kernelId := pod.Name[7:43]
+
 	activeOps, foundActiveOps := m.activeMigrationOpsPerKenel.Get(kernelId)
 	op, ok := m.migrationOperationsByOldPodName.Get(pod.Name)
 
@@ -422,18 +446,62 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 		panic(fmt.Sprintf("Old pod \"%s\" stopped for Migration Operation %s for Kernel %s, but new Pod has not yet started.", op.OldPodName(), op.OperationID(), op.KernelId()))
 	}
 
+	m.migrationCompleted(op)
+}
+
+// Called when a migration operation completes successfully.
+func (m *migrationManagerImpl) migrationCompleted(op MigrationOperation) {
 	m.log.Debug("Migration %s of replica %d of kernel %s completed successfully.", op.OperationID(), op.TargetSMRNodeID(), op.KernelId())
 
+	op.KernelClient().MigrationCompleted()
 	// Wake up anybody waiting.
 	op.Broadcast()
+
+	m.mainMutex.Lock()
+	defer m.mainMutex.Unlock()
+
+	activeOps, ok := m.activeMigrationOpsPerKenel.Get(op.KernelId())
+	if !ok {
+		panic(fmt.Sprintf("Could not find active migration operations associated with kernel %s", op.KernelId()))
+	}
+
+	deleted := activeOps.Delete(op.OperationID())
+	if !deleted {
+		panic(fmt.Sprintf("Expected migration operation %s targeting replica %d of kernel %s to be in active operations map.", op.OperationID(), op.TargetSMRNodeID(), op.KernelId()))
+	}
+}
+
+func (m *migrationManagerImpl) GetMigrationOperationByNewPod(newPodName string) (MigrationOperation, bool) {
+	return m.migrationOperationsByNewPodName.Get(newPodName)
+}
+
+// Return the migration operation associated with the given Kernel ID and SMR Node ID.
+func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndReplicaId(kernelId string, smrNodeId int) (MigrationOperation, bool) {
+	m.mainMutex.Lock()
+	defer m.mainMutex.Unlock()
+
+	activeOps, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
+	if !ok {
+		return nil, false
+	}
+
+	var op MigrationOperation
+	for el := activeOps.Front(); el != nil; el = el.Next() {
+		op = el.Value
+
+		if op.TargetSMRNodeID() == int32(smrNodeId) {
+			return op, true
+		}
+	}
+
+	return nil, false
 }
 
 // Given a kernel ID and a migration operation, register the migration operation as an active migration operation of the kernel identified by the given ID.
 // Returns an error if the operation is already registered with the given kernel.
+//
+// Note: this MUST be called with the main mutex held!
 func (m *migrationManagerImpl) storeActiveMigrationOperationForKernel(kernelId string, op *migrationOperationImpl) error {
-	m.mainMutex.Lock()
-	defer m.mainMutex.Unlock()
-
 	ops_ptr, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
 
 	if !ok {

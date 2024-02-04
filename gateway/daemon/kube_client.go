@@ -128,6 +128,15 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 	return client
 }
 
+// Return the migration operation associated with the given Kernel ID and SMR Node ID.
+func (c *BasicKubeClient) GetMigrationOperationByKernelIdAndReplicaId(string, int) (MigrationOperation, bool) {
+
+}
+
+func (c *BasicKubeClient) GetMigrationOperationByNewPod(newPodName string) (MigrationOperation, bool) {
+	return c.migrationManager.GetMigrationOperationByNewPod(newPodName)
+}
+
 // Get the Kubernetes client.
 func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
 	return c.kubeClientset

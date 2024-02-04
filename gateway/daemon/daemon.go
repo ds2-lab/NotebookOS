@@ -184,6 +184,13 @@ func (wg *registrationWaitGroups) GetReplicas() []string {
 	return wg.replicas
 }
 
+func (wg *registrationWaitGroups) UpdateReplicaAfterMigration(idx int32, hostname string) []string {
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+
+	wg.replicas[idx] = hostname
+}
+
 // Return the "notified" sync.WaitGroup.
 func (wg *registrationWaitGroups) GetNotified() *sync.WaitGroup {
 	return &wg.notified
@@ -418,6 +425,40 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	return info, nil
 }
 
+func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, in *gateway.KernelRegistrationNotification, kernel *client.DistributedKernelClient, kernelSpec *gateway.KernelSpec, waitGroup *registrationWaitGroups) (*gateway.KernelRegistrationNotificationResponse, error) {
+	podNameOfMigratedRepilica := in.PodName
+	migrationOperation, ok := d.kubeClient.GetMigrationOperationByNewPod(podNameOfMigratedRepilica)
+
+	if !ok {
+		// TODO: I actually don't think this API will work here.
+		// Just need to provide a mechanism to wait until we receive the pod-created notification, and get the migration operation that way.
+		migrationOperation = d.kubeClient.GetMigrationOperationByKernelIdAndReplicaId(kernel.ID())
+	}
+
+	replicaSpec := &gateway.KernelReplicaSpec{
+		Kernel:      kernelSpec,
+		ReplicaId:   migrationOperation.TargetSMRNodeID(),
+		NumReplicas: int32(d.ClusterOptions.NumReplicas), // TODO(Ben): Don't hardcode this.
+	}
+
+	// Initialize kernel client
+	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, podNameOfMigratedRepilica)
+	err := replica.Validate()
+	if err != nil {
+		panic(fmt.Sprintf("Validation error for migrated replica %d of kernel %s", migrationOperation.TargetSMRNodeID(), in.KernelId))
+	}
+
+	waitGroup.UpdateReplicaAfterMigration(migrationOperation.TargetSMRNodeID()-1, in.KernelIp)
+
+	// TODO(Ben): Need to update the replicas stored here.
+	response := &gateway.KernelRegistrationNotificationResponse{
+		Id:       migrationOperation.TargetSMRNodeID(),
+		Replicas: waitGroup.GetReplicas(),
+	}
+
+	return response, nil
+}
+
 func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelRegistrationNotification) (*gateway.KernelRegistrationNotificationResponse, error) {
 	d.log.Info("Received kernel registration notification.")
 
@@ -455,6 +496,10 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	host, loaded := d.cluster.GetHostManager().Load(hostId)
 	if !loaded {
 		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", hostId)) // TODO(Ben): Handle gracefully.
+	}
+
+	if kernel.NumActiveMigrations() > 1 {
+		return d.handleMigratedReplicaRegistration(ctx, in, kernel, kernelSpec, waitGroup)
 	}
 
 	// If this is the first replica we're registering, then its ID should be 1.

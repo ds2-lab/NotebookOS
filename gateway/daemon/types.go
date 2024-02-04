@@ -20,6 +20,12 @@ type KubeClient interface {
 
 	// Initiate a migration operation for a particular replica of a particular kernel. The migration will be carried out automatically by the migration manager once it has been initiated.
 	InitiateKernelMigration(context.Context, *client.DistributedKernelClient, int32, *gateway.ReplicaInfo) error
+
+	// Return the migration operation associated with the given Pod name, such that the Pod with the given name was created for the given migration operation.
+	GetMigrationOperationByNewPod(string) (MigrationOperation, bool)
+
+	// Return the migration operation associated with the given Kernel ID and SMR Node ID.
+	GetMigrationOperationByKernelIdAndReplicaId(string, int) (MigrationOperation, bool)
 }
 
 // Represents and active, ongoing replica migration operation in which we are migrating a distributed kernel replica from one node to another.
@@ -46,6 +52,12 @@ type MigrationManager interface {
 
 	// Initiate a migration operation for a particular Pod. The migration will be carried out automatically by the migration manager once it has been initiated.
 	InitiateKernelMigration(context.Context, *client.DistributedKernelClient, int32, *gateway.ReplicaInfo) error
+
+	// Return the migration operation associated with the given Pod name, such that the Pod with the given name was created for the given migration operation.
+	GetMigrationOperationByNewPod(string) (MigrationOperation, bool)
+
+	// Return the migration operation associated with the given Kernel ID and SMR Node ID.
+	GetMigrationOperationByKernelIdAndReplicaId(string, int) (MigrationOperation, bool)
 
 	PodCreated(interface{})              // Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
 	PodUpdated(interface{}, interface{}) // Function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
