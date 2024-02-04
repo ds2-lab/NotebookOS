@@ -26,6 +26,7 @@ type KubeClient interface {
 type MigrationOperation interface {
 	OperationID() string                           // Unique identifier of the migration operation.
 	KernelClient() *client.DistributedKernelClient // The DistributedKernelClient of the kernel for which we're migrating a replica.
+	KernelId() string                              // Return the ID of the associated kernel.
 	TargetSMRNodeID() int32                        // The SMR Node ID of the replica that is being migrated.
 	NewPodStarted() bool                           // Returns true if a new Pod has been started for the replica that is being migrated. Otherwise, returns false.
 	OldPodStopped() bool                           // Returns true if the original Pod of the replica has stopped. Otherwise, returns false.
@@ -34,6 +35,8 @@ type MigrationOperation interface {
 	NewPodName() (string, bool)                    // Return the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
 	SetNewPodName(string)                          // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
 	SetOldPodStopped()                             // Record that the old Pod (containing the replica to be migrated) has stopped.
+	Wait()                                         // Block and wait until the migration operation has completed.
+	Broadcast()                                    // Broadcast (Notify) any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
 }
 
 // Component responsible for orchestrating and managing migration operations.

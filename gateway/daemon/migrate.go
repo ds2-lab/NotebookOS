@@ -33,9 +33,12 @@ type migrationOperationImpl struct {
 	targetSmrNodeId int32                           // The SMR Node ID of the replica that is being migrated.
 	newPodStarted   bool                            // True if a new Pod has been started for the replica that is being migrated. Otherwise, false.
 	oldPodStopped   bool                            // True if the original Pod of the replica has stopped. Otherwise, false.
-	completed       bool                            // True if the migration has been completed; otherwise, false (i.e., if it is still ongoing).
 	oldPodName      string                          // Name of the Pod in which the target replica container is running.
 	newPodName      string                          // Name of the new Pod that was started to host the migrated replica.
+	doneVar         *sync.Cond                      // Used to signal that the Migration has completed.
+	doneMu          sync.Mutex                      // Used with the doneVar condition variable.
+
+	// completed       bool                            // True if the migration has been completed; otherwise, false (i.e., if it is still ongoing).
 }
 
 func NewMigrationOperation(targetClient *client.DistributedKernelClient, targetSmrNodeId int32, oldPodName string) *migrationOperationImpl {
@@ -46,15 +49,17 @@ func NewMigrationOperation(targetClient *client.DistributedKernelClient, targetS
 		targetSmrNodeId: targetSmrNodeId,
 		newPodStarted:   false,
 		oldPodStopped:   false,
-		completed:       false,
 		oldPodName:      oldPodName,
+		// completed:       false,
 	}
+
+	m.doneVar = sync.NewCond(&m.doneMu)
 
 	return m
 }
 
 func (m *migrationOperationImpl) String() string {
-	return fmt.Sprintf("MigrationOperation[ID=%s,KernelID=%s,ReplicaID=%d,Completed=%v,TargetPod=%s]", m.id, m.kernelId, m.targetSmrNodeId, m.completed, m.oldPodName)
+	return fmt.Sprintf("MigrationOperation[ID=%s,KernelID=%s,ReplicaID=%d,Completed=%v,TargetPod=%s]", m.id, m.kernelId, m.targetSmrNodeId, m.Completed(), m.oldPodName)
 }
 
 // Unique identifier of the migration operation.
@@ -84,7 +89,9 @@ func (m *migrationOperationImpl) OldPodStopped() bool {
 
 // Return true if the migration has been completed; otherwise, return false (i.e., if it is still ongoing).
 func (m *migrationOperationImpl) Completed() bool {
-	return m.completed
+	// return m.completed
+
+	return m.oldPodStopped && m.newPodStarted
 }
 
 // Return the name of the Pod in which the target replica container is running.
@@ -119,6 +126,21 @@ func (m *migrationOperationImpl) SetOldPodStopped() {
 	}
 
 	m.oldPodStopped = true
+}
+
+// Block and wait until the migration operation has completed.
+func (m *migrationOperationImpl) Wait() {
+	m.doneVar.Wait()
+}
+
+// Notify any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
+func (m *migrationOperationImpl) Broadcast() {
+	m.doneVar.Broadcast()
+}
+
+// Notify any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
+func (m *migrationOperationImpl) KernelId() string {
+	return m.kernelId
 }
 
 // Note on the use of orderedmap.OrderedMap.
@@ -240,6 +262,8 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 		return errors.Wrap(retryErr, fmt.Sprintf("Failed to update the CloneSet associated with kernel \"%s\" while migration replica %d.", kernelId, targetSmrNodeId))
 	}
 
+	migrationOp.Wait()
+
 	// TODO (Ben): Wait for new Pod to start, assign it the correct SMR Node ID, and then update the CloneSet to have less replicas and delete the correct Pod.
 	return nil
 }
@@ -300,10 +324,49 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 
 	op.SetNewPodName(pod.Name)
 
+	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		cloneset_id := fmt.Sprintf("kernel-%s", op.KernelId())
+		result, getErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, v1.GetOptions{})
+
+		if getErr != nil {
+			panic(fmt.Errorf("Failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
+		}
+
+		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
+
+		if err != nil || !found {
+			m.log.Error("Replicas not found for CloneSet %s: error=%s", cloneset_id, err)
+			return err
+		}
+
+		m.log.Debug("CloneSet \"%s\" is currently configured to have %d replica(s).", cloneset_id, current_num_replicas)
+
+		// Specify the Pod to be deleted.
+		if err := unstructured.SetNestedField(result.Object, []string{op.OldPodName()}, "scaleStrategy", "podsToDelete"); err != nil {
+			panic(fmt.Errorf("Failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
+		}
+
+		// Decrease the number of replicas.
+		if err := unstructured.SetNestedField(result.Object, current_num_replicas-1, "spec", "replicas"); err != nil {
+			panic(fmt.Errorf("Failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
+		}
+
+		_, updateErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, v1.UpdateOptions{})
+
+		if updateErr != nil {
+			m.log.Error("Failed to apply update to CloneSet \"%s\": error=%s", cloneset_id, err)
+		}
+
+		return updateErr
+	})
+
+	if retryErr != nil {
+		panic(retryErr)
+	}
+
 	mutex.Unlock()
 
 	// TODO(Ben):
-	// Next steps are to update the CloneSet spec and decrease the number of replicas by 1.
 	// We need to be careful here so as not to step on any other concurrent migration operations.
 	// We also need to facilitate hooking up the new replica with the rest of the system.
 }
@@ -355,7 +418,14 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 	m.log.Debug("Recording that old pod %s stopped for active migration operation %s.", pod.Name, op.OperationID())
 	op.SetOldPodStopped()
 
-	// TODO(Ben): What's next?
+	if !op.NewPodStarted() {
+		panic(fmt.Sprintf("Old pod \"%s\" stopped for Migration Operation %s for Kernel %s, but new Pod has not yet started.", op.OldPodName(), op.OperationID(), op.KernelId()))
+	}
+
+	m.log.Debug("Migration %s of replica %d of kernel %s completed successfully.", op.OperationID(), op.TargetSMRNodeID(), op.KernelId())
+
+	// Wake up anybody waiting.
+	op.Broadcast()
 }
 
 // Given a kernel ID and a migration operation, register the migration operation as an active migration operation of the kernel identified by the given ID.
