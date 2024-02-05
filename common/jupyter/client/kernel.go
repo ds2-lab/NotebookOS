@@ -117,6 +117,11 @@ func (c *KernelClient) ReplicaID() int32 {
 	return c.replicaId
 }
 
+// ReplicaID returns the replica ID.
+func (c *KernelClient) SetReplicaID(replicaId int32) {
+	c.replicaId = replicaId
+}
+
 // PersistentID returns the persistent ID.
 func (c *KernelClient) PersistentID() string {
 	return c.persistentId

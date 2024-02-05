@@ -10,20 +10,27 @@ nodes:
     kind: JoinConfiguration
     nodeRegistration:
       kubeletExtraArgs:
-        system-reserved: memory=8Gi
+        system-reserved: memory=5Gi
 - role: worker
   kubeadmConfigPatches:
   - |
     kind: JoinConfiguration
     nodeRegistration:
       kubeletExtraArgs:
-        system-reserved: memory=8Gi
+        system-reserved: memory=5Gi
 - role: worker
   kubeadmConfigPatches:
   - |
     kind: JoinConfiguration
     nodeRegistration:
       kubeletExtraArgs:
-        system-reserved: memory=8Gi
+        system-reserved: memory=5Gi
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        system-reserved: memory=5Gi
 featureGates:
   StatefulSetStartOrdinal: true

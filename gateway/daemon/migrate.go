@@ -150,6 +150,10 @@ func (m *migrationOperationImpl) Broadcast() {
 	m.opCompletedCond.L.Unlock()
 }
 
+func (m *migrationOperationImpl) PersistentID() string {
+	return m.persistentId
+}
+
 // Notify any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
 func (m *migrationOperationImpl) KernelId() string {
 	return m.kernelId
@@ -401,26 +405,29 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
 
 		if err != nil || !found {
-			m.log.Error("Replicas not found for CloneSet %s: error=%s", cloneset_id, err)
+			m.log.Error("Replicas not found for CloneSet %s: error=%v", cloneset_id, err)
 			return err
 		}
 
 		m.log.Debug("CloneSet \"%s\" is currently configured to have %d replica(s).", cloneset_id, current_num_replicas)
 
+		// TODO(Ben): Applying the update here isn't working; unknown field "scaleStrategy".
+		// I can apparently just apply a label to the Pod that is to be deleted, so I'll try that instead.
+
 		// Specify the Pod to be deleted.
-		if err := unstructured.SetNestedField(result.Object, []string{op.OldPodName()}, "scaleStrategy", "podsToDelete"); err != nil {
-			panic(fmt.Errorf("Failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
+		if err := unstructured.SetNestedField(result.Object, []interface{}{op.OldPodName()}, "scaleStrategy", "podsToDelete"); err != nil {
+			panic(fmt.Errorf("Failed to set scaleStrategy.podsToDelete value for CloneSet \"%s\": %v", cloneset_id, err))
 		}
 
 		// Decrease the number of replicas.
 		if err := unstructured.SetNestedField(result.Object, current_num_replicas-1, "spec", "replicas"); err != nil {
-			panic(fmt.Errorf("Failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
+			panic(fmt.Errorf("Failed to set spec.replicas value for CloneSet \"%s\": %v", cloneset_id, err))
 		}
 
 		_, updateErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, v1.UpdateOptions{})
 
 		if updateErr != nil {
-			m.log.Error("Failed to apply update to CloneSet \"%s\": error=%s", cloneset_id, err)
+			m.log.Error("Failed to apply update to CloneSet \"%s\": error=%v", cloneset_id, err)
 		}
 
 		return updateErr
