@@ -35,8 +35,15 @@ type migrationOperationImpl struct {
 	oldPodStopped   bool                            // True if the original Pod of the replica has stopped. Otherwise, false.
 	oldPodName      string                          // Name of the Pod in which the target replica container is running.
 	newPodName      string                          // Name of the new Pod that was started to host the migrated replica.
-	doneVar         *sync.Cond                      // Used to signal that the Migration has completed.
-	doneMu          sync.Mutex                      // Used with the doneVar condition variable.
+
+	podStartedMu   sync.Mutex // Used to signal that the new Pod has started.
+	podStartedCond *sync.Cond // Used with the podStartedCond condition variable.
+
+	podStoppedMu   sync.Mutex // Used to signal that the old Pod has stopped.
+	podStoppedCond *sync.Cond // Used with the podStoppedCond condition variable.
+
+	opCompletedMu   sync.Mutex // Used with the opCompletedCond condition variable.
+	opCompletedCond *sync.Cond // Used to signal that the Migration has completed.
 
 	// completed       bool                            // True if the migration has been completed; otherwise, false (i.e., if it is still ongoing).
 }
@@ -53,7 +60,7 @@ func NewMigrationOperation(targetClient *client.DistributedKernelClient, targetS
 		// completed:       false,
 	}
 
-	m.doneVar = sync.NewCond(&m.doneMu)
+	m.opCompletedCond = sync.NewCond(&m.opCompletedMu)
 
 	return m
 }
@@ -130,16 +137,16 @@ func (m *migrationOperationImpl) SetOldPodStopped() {
 
 // Block and wait until the migration operation has completed.
 func (m *migrationOperationImpl) Wait() {
-	m.doneVar.L.Lock()
-	m.doneVar.Wait()
-	m.doneVar.L.Unlock()
+	m.opCompletedCond.L.Lock()
+	m.opCompletedCond.Wait()
+	m.opCompletedCond.L.Unlock()
 }
 
 // Notify any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
 func (m *migrationOperationImpl) Broadcast() {
-	m.doneVar.L.Lock()
-	m.doneVar.Broadcast()
-	m.doneVar.L.Unlock()
+	m.opCompletedCond.L.Lock()
+	m.opCompletedCond.Broadcast()
+	m.opCompletedCond.L.Unlock()
 }
 
 // Notify any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
@@ -154,7 +161,8 @@ type migrationManagerImpl struct {
 	dynamicClient                   *dynamic.DynamicClient                                                          // Own dynamic client, separate from the dynamic client belonging to the associated KubeClient.
 	migrationOperations             *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of migration operation ID to migration operation.
 	migrationOperationsByOldPodName *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of old Pod names to their associated migration operation.
-	migrationOperationsByNewPodName *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of old Pod names to their associated migration operation.
+	migrationOperationsByNewPodName *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of new Pod names to their associated migration operation.
+	newPodWaiters                   *cmap.ConcurrentMap[string, chan MigrationOperation]                            // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
 	activeMigrationOpsPerKenel      *cmap.ConcurrentMap[string, *orderedmap.OrderedMap[string, MigrationOperation]] // Mapping of kernel ID to all active migration operations associated with that kernel.
 	kernelMutexes                   *cmap.ConcurrentMap[string, *sync.Mutex]                                        // Mapping from Kernel ID to its associated RWMutex.
 	mainMutex                       sync.Mutex                                                                      // Synchronizes certain atomic operations related to internal state and book-keeping of the migration manager.
@@ -165,6 +173,7 @@ func NewMigrationManager(client KubeClient) *migrationManagerImpl {
 	migrationOperations := cmap.New[MigrationOperation]()
 	migrationOperationsByOldPodName := cmap.New[MigrationOperation]()
 	migrationOperationsByNewPodName := cmap.New[MigrationOperation]()
+	newPodWaiters := cmap.New[chan MigrationOperation]()
 	activeMigrationOpsPerKenel := cmap.New[*orderedmap.OrderedMap[string, MigrationOperation]]()
 	kernelMutexes := cmap.New[*sync.Mutex]()
 
@@ -175,6 +184,7 @@ func NewMigrationManager(client KubeClient) *migrationManagerImpl {
 		activeMigrationOpsPerKenel:      &activeMigrationOpsPerKenel,
 		migrationOperationsByOldPodName: &migrationOperationsByOldPodName,
 		migrationOperationsByNewPodName: &migrationOperationsByNewPodName,
+		newPodWaiters:                   &newPodWaiters,
 	}
 
 	config.InitLogger(&m.log, m)
@@ -215,6 +225,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 	targetClient.MigrationStarted()
 	migrationOp := NewMigrationOperation(targetClient, in.ReplicaId, podName)
 
+	// Store the migration operation in some maps.
 	m.mainMutex.Lock()
 	m.migrationOperations.Set(migrationOp.id, migrationOp)
 	m.migrationOperationsByOldPodName.Set(podName, migrationOp)
@@ -233,6 +244,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 	// Read-lock the mutex so we can safely increment the number of replicas.
 	mutex.Lock()
 
+	// Increase the number of replicas.
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		cloneset_id := fmt.Sprintf("kernel-%s", in.KernelId)
 		result, getErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, v1.GetOptions{})
@@ -270,6 +282,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 	// TODO(Ben): Possible race condition if there are concurrent migration operations that increment and decrement the number of replicas concurrently here.
 	mutex.Unlock()
 
+	// Remove the old replica.
 	go func() {
 		m.log.Debug("Removing replica %d from Distributed Kernel Client for kernel %s.", migrationOp.TargetSMRNodeID(), migrationOp.KernelId())
 		err := migrationOp.KernelClient().RemoveReplicaByIDWithoutRemover(migrationOp.TargetSMRNodeID())
@@ -288,6 +301,33 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 
 	// TODO (Ben): Wait for new Pod to start, assign it the correct SMR Node ID, and then update the CloneSet to have less replicas and delete the correct Pod.
 	return nil
+}
+
+// Wait for us to receive a pod-created notification for the given Pod, which managed to start running
+// and register with us before we received the pod-created notification. Once received, return the
+// associated migration operation.
+func (m *migrationManagerImpl) WaitForNewPodNotification(newPodName string) MigrationOperation {
+	m.mainMutex.Lock()
+
+	// First, try to get the migration operation, in case we received the notification since the time we made the call to WaitForNewPodNotification.
+	op, ok := m.migrationOperationsByNewPodName.Get(newPodName)
+	if ok {
+		m.mainMutex.Unlock()
+		return op
+	}
+
+	_ = m.newPodWaiters.SetIfAbsent(newPodName, make(chan MigrationOperation))
+	channel, _ := m.newPodWaiters.Get(newPodName)
+
+	m.mainMutex.Unlock()
+
+	m.log.Debug("Waiting on channel for pod-created notification for new pod \"%s\"", newPodName)
+	select {
+	case op := <-channel:
+		{
+			return op
+		}
+	}
 }
 
 // Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
@@ -347,6 +387,7 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	op.SetNewPodName(pod.Name)
 	m.migrationOperationsByNewPodName.Set(pod.Name, op)
 
+	// Decrease the number of replicas.
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		cloneset_id := fmt.Sprintf("kernel-%s", op.KernelId())
 		result, getErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, v1.GetOptions{})
@@ -388,6 +429,18 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	}
 
 	mutex.Unlock()
+
+	m.mainMutex.Lock()
+	defer m.mainMutex.Unlock()
+
+	channel, ok := m.newPodWaiters.Get(pod.Name)
+
+	// If there's a goroutine waiting for this pod-created notification to be received, which is determined simply by the existence of an entry
+	// in the `newPodWaiters` map for the new pod's name as the key, then send the migration operation over the channel to the waiting goroutine.
+	if ok {
+		m.log.Debug("Sending migration operation %s thru new-pod channel for new pod %s", op.OperationID(), pod.Name)
+		channel <- op
+	}
 
 	// TODO(Ben):
 	// We need to be careful here so as not to step on any other concurrent migration operations.

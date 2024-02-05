@@ -128,9 +128,11 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 	return client
 }
 
-// Return the migration operation associated with the given Kernel ID and SMR Node ID.
-func (c *BasicKubeClient) GetMigrationOperationByKernelIdAndReplicaId(string, int) (MigrationOperation, bool) {
-
+// Wait for us to receive a pod-created notification for the given Pod, which managed to start running
+// and register with us before we received the pod-created notification. Once received, return the
+// associated migration operation.
+func (c *BasicKubeClient) WaitForNewPodNotification(newPodName string) MigrationOperation {
+	return c.migrationManager.WaitForNewPodNotification(newPodName)
 }
 
 func (c *BasicKubeClient) GetMigrationOperationByNewPod(newPodName string) (MigrationOperation, bool) {

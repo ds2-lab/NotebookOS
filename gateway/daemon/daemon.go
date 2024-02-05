@@ -184,11 +184,13 @@ func (wg *registrationWaitGroups) GetReplicas() []string {
 	return wg.replicas
 }
 
-func (wg *registrationWaitGroups) UpdateReplicaAfterMigration(idx int32, hostname string) []string {
+func (wg *registrationWaitGroups) UpdateAndGetReplicasAfterMigration(idx int32, hostname string) []string {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
 
 	wg.replicas[idx] = hostname
+
+	return wg.replicas
 }
 
 // Return the "notified" sync.WaitGroup.
@@ -429,10 +431,18 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 	podNameOfMigratedRepilica := in.PodName
 	migrationOperation, ok := d.kubeClient.GetMigrationOperationByNewPod(podNameOfMigratedRepilica)
 
+	// If we cannot find the migration operation, then we have an unlikely race here.
+	// Basically, the new replica Pod was created, started running, and contacted its Local Daemon, which then contacted us,
+	// all before we received and processed the associated pod-created notification from kubernetes.
+	//
+	// So, we have to wait to receive the notification so we can get the migration operation and get the correct SMR node ID for the Pod.
+	//
+	// This race would be simplified if we added the constraint that there may be only one active migration per kernel at any given time,
+	// but I've not yet enforced this.
 	if !ok {
 		// TODO: I actually don't think this API will work here.
 		// Just need to provide a mechanism to wait until we receive the pod-created notification, and get the migration operation that way.
-		migrationOperation = d.kubeClient.GetMigrationOperationByKernelIdAndReplicaId(kernel.ID())
+		migrationOperation = d.kubeClient.WaitForNewPodNotification(podNameOfMigratedRepilica)
 	}
 
 	replicaSpec := &gateway.KernelReplicaSpec{
@@ -448,12 +458,14 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 		panic(fmt.Sprintf("Validation error for migrated replica %d of kernel %s", migrationOperation.TargetSMRNodeID(), in.KernelId))
 	}
 
-	waitGroup.UpdateReplicaAfterMigration(migrationOperation.TargetSMRNodeID()-1, in.KernelIp)
+	// Store the new replica in the list of replicas for the kernel (at the correct position, based on the SMR node ID).
+	// Then, return the list of replicas so that we can pass it to the new replica.
+	updatedReplicas := waitGroup.UpdateAndGetReplicasAfterMigration(migrationOperation.TargetSMRNodeID()-1, in.KernelIp)
 
 	// TODO(Ben): Need to update the replicas stored here.
 	response := &gateway.KernelRegistrationNotificationResponse{
 		Id:       migrationOperation.TargetSMRNodeID(),
-		Replicas: waitGroup.GetReplicas(),
+		Replicas: updatedReplicas,
 	}
 
 	return response, nil
