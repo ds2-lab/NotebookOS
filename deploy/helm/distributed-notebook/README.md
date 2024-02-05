@@ -46,6 +46,20 @@ For now, we will use the `--kubelet-insecure-tls` solution with the included `.y
 kubectl apply -f ./metrics-server.yaml
 ```
 
+### OpenKruise and the CloneSet Resource
+
+We also need the `CloneSet` resource provided by OpenKruise. To install this on your Kubernetes cluster, execute the following commands:
+``` sh
+# Firstly add openkruise charts repository if you haven't do this.
+helm repo add openkruise https://openkruise.github.io/charts/
+
+# [Optional]
+helm repo update
+
+# Install the latest version.
+helm install kruise openkruise/kruise --version 1.5.2
+```
+
 ### The `DistributedNotebook` Helm Chart
 
 Next, to install the Helm chart, execute the following command:
