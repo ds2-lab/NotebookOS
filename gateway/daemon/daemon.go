@@ -445,10 +445,13 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 		migrationOperation = d.kubeClient.WaitForNewPodNotification(podNameOfMigratedRepilica)
 	}
 
+	var persistentId string = migrationOperation.PersistentID()
 	replicaSpec := &gateway.KernelReplicaSpec{
-		Kernel:      kernelSpec,
-		ReplicaId:   migrationOperation.TargetSMRNodeID(),
-		NumReplicas: int32(d.ClusterOptions.NumReplicas), // TODO(Ben): Don't hardcode this.
+		Kernel:       kernelSpec,
+		ReplicaId:    migrationOperation.TargetSMRNodeID(),
+		PersistentId: &persistentId,
+		Join:         true,
+		NumReplicas:  int32(d.ClusterOptions.NumReplicas), // TODO(Ben): Don't hardcode this.
 	}
 
 	// Initialize kernel client
@@ -648,7 +651,16 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 		return nil, d.errorf(ErrKernelNotFound)
 	}
 
-	d.log.Debug("Migrating kernel(%s:%d)...", kernel.ID(), in.ReplicaId)
+	var replicaId int32
+	if in.ReplicaId == -1 {
+		d.log.Debug("Preparing replica for replica migration for kernel %s", kernel.ID())
+		var spec *gateway.KernelReplicaSpec = kernel.PerpareNewReplica(in.PersistentId)
+		replicaId = spec.ReplicaId
+	} else {
+		replicaId = in.ReplicaId
+	}
+
+	d.log.Debug("Migrating replica %d of kernel %s now.", replicaId, kernel.ID())
 	// d.log.Warn("WARNING: This feature has not been reimplemented for Kubernetes yet. This will fail.")
 
 	// replicaSpec := kernel.PerpareNewReplica(in.PersistentId)
@@ -663,7 +675,7 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 	// 	}
 	// }()
 
-	d.kubeClient.InitiateKernelMigration(ctx, kernel, in.ReplicaId, in)
+	d.kubeClient.InitiateKernelMigration(ctx, kernel, replicaId, in.PersistentId)
 
 	return nil, d.errorf(ErrNotImplementedKube)
 

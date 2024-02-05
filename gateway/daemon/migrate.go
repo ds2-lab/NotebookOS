@@ -12,7 +12,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/pkg/errors"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +34,7 @@ type migrationOperationImpl struct {
 	oldPodStopped   bool                            // True if the original Pod of the replica has stopped. Otherwise, false.
 	oldPodName      string                          // Name of the Pod in which the target replica container is running.
 	newPodName      string                          // Name of the new Pod that was started to host the migrated replica.
+	persistentId    string                          // Persistent ID of replica.
 
 	podStartedMu   sync.Mutex // Used to signal that the new Pod has started.
 	podStartedCond *sync.Cond // Used with the podStartedCond condition variable.
@@ -48,7 +48,7 @@ type migrationOperationImpl struct {
 	// completed       bool                            // True if the migration has been completed; otherwise, false (i.e., if it is still ongoing).
 }
 
-func NewMigrationOperation(targetClient *client.DistributedKernelClient, targetSmrNodeId int32, oldPodName string) *migrationOperationImpl {
+func NewMigrationOperation(targetClient *client.DistributedKernelClient, targetSmrNodeId int32, oldPodName string, persistentId string) *migrationOperationImpl {
 	m := &migrationOperationImpl{
 		id:              uuid.New().String(),
 		targetClient:    targetClient,
@@ -56,6 +56,7 @@ func NewMigrationOperation(targetClient *client.DistributedKernelClient, targetS
 		targetSmrNodeId: targetSmrNodeId,
 		newPodStarted:   false,
 		oldPodStopped:   false,
+		persistentId:    persistentId,
 		oldPodName:      oldPodName,
 		// completed:       false,
 	}
@@ -215,7 +216,7 @@ func (m *migrationManagerImpl) RegisterKernel(kernelId string) {
 }
 
 // Initiate a migration operation for a particular Pod.
-func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targetClient *client.DistributedKernelClient, targetSmrNodeId int32, in *gateway.ReplicaInfo) error {
+func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targetClient *client.DistributedKernelClient, targetSmrNodeId int32, persistentId string) error {
 	kernelId := targetClient.ID()
 	podName, err := targetClient.KernelPodName(targetSmrNodeId)
 	if err != nil {
@@ -223,7 +224,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 	}
 
 	targetClient.MigrationStarted()
-	migrationOp := NewMigrationOperation(targetClient, in.ReplicaId, podName)
+	migrationOp := NewMigrationOperation(targetClient, targetSmrNodeId, podName, persistentId)
 
 	// Store the migration operation in some maps.
 	m.mainMutex.Lock()
@@ -246,7 +247,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 
 	// Increase the number of replicas.
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		cloneset_id := fmt.Sprintf("kernel-%s", in.KernelId)
+		cloneset_id := fmt.Sprintf("kernel-%s", kernelId)
 		result, getErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, v1.GetOptions{})
 
 		if getErr != nil {
@@ -287,7 +288,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 		m.log.Debug("Removing replica %d from Distributed Kernel Client for kernel %s.", migrationOp.TargetSMRNodeID(), migrationOp.KernelId())
 		err := migrationOp.KernelClient().RemoveReplicaByIDWithoutRemover(migrationOp.TargetSMRNodeID())
 		if err != nil {
-			m.log.Error("Failed to remove replica(%s:%d): %v", migrationOp.KernelId(), in.ReplicaId, err)
+			m.log.Error("Failed to remove replica(%s:%d): %v", migrationOp.KernelId(), targetSmrNodeId, err)
 		} else {
 			m.log.Debug("Successfully removed replica %d from Distributed Kernel Client for kernel %s.", migrationOp.TargetSMRNodeID(), migrationOp.KernelId())
 		}
@@ -348,7 +349,8 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	activeOps, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
 
 	if !ok {
-		panic(fmt.Sprintf("No 'active migration operations' mapping associated with kernel \"%s\"", kernelId))
+		// No migration operation associated with this kernel, so we just return.
+		return
 	}
 
 	// If there are no active migration operations, then we simply return.

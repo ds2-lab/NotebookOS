@@ -19,7 +19,7 @@ type KubeClient interface {
 	DeployDistributedKernels(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
 
 	// Initiate a migration operation for a particular replica of a particular kernel. The migration will be carried out automatically by the migration manager once it has been initiated.
-	InitiateKernelMigration(context.Context, *client.DistributedKernelClient, int32, *gateway.ReplicaInfo) error
+	InitiateKernelMigration(context.Context, *client.DistributedKernelClient, int32, string) error
 
 	// Return the migration operation associated with the given Pod name, such that the Pod with the given name was created for the given migration operation.
 	GetMigrationOperationByNewPod(string) (MigrationOperation, bool)
@@ -40,6 +40,7 @@ type MigrationOperation interface {
 	KernelClient() *client.DistributedKernelClient // The DistributedKernelClient of the kernel for which we're migrating a replica.
 	KernelId() string                              // Return the ID of the associated kernel.
 	TargetSMRNodeID() int32                        // The SMR Node ID of the replica that is being migrated.
+	PersistentID() string                          // Get the persistent ID of the replica we're migrating.
 	NewPodStarted() bool                           // Returns true if a new Pod has been started for the replica that is being migrated. Otherwise, returns false.
 	OldPodStopped() bool                           // Returns true if the original Pod of the replica has stopped. Otherwise, returns false.
 	Completed() bool                               // Returns true if the migration has been completed; otherwise, returns false (i.e., if it is still ongoing).
@@ -57,7 +58,7 @@ type MigrationManager interface {
 	RegisterKernel(string)
 
 	// Initiate a migration operation for a particular Pod. The migration will be carried out automatically by the migration manager once it has been initiated.
-	InitiateKernelMigration(context.Context, *client.DistributedKernelClient, int32, *gateway.ReplicaInfo) error
+	InitiateKernelMigration(context.Context, *client.DistributedKernelClient, int32, string) error
 
 	// Return the migration operation associated with the given Pod name, such that the Pod with the given name was created for the given migration operation.
 	GetMigrationOperationByNewPod(string) (MigrationOperation, bool)

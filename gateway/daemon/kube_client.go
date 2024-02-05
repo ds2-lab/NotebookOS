@@ -212,8 +212,8 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 }
 
 // TODO(Ben): Will need some sort of concurrency control -- like if we try to migrate two replicas at once, then we'd need to account for this.
-func (c *BasicKubeClient) InitiateKernelMigration(ctx context.Context, targetClient *client.DistributedKernelClient, targetSmrNodeId int32, in *gateway.ReplicaInfo) error {
-	return c.migrationManager.InitiateKernelMigration(ctx, targetClient, targetSmrNodeId, in)
+func (c *BasicKubeClient) InitiateKernelMigration(ctx context.Context, targetClient *client.DistributedKernelClient, targetSmrNodeId int32, persistentId string) error {
+	return c.migrationManager.InitiateKernelMigration(ctx, targetClient, targetSmrNodeId, persistentId)
 }
 
 // Create a SharedInformer that watches for Pod-creation and Pod-deletion events within the given namespace.

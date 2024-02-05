@@ -29,7 +29,7 @@ func NewMembershipScheduler(daemon *SchedulerDaemon) *MembershipScheduler {
 
 func (s *MembershipScheduler) OnTaskStart(kernel core.Kernel, task *jupyter.MessageSMRLeadTask) error {
 	persistentId := kernel.(*client.KernelClient).PersistentID()
-	s.log.Info("Add new replica to kernel %s with persistent id %s", kernel.ID(), persistentId)
+	s.log.Info("Add new replica to kernel %s with persistent id %s, replica ID is %d", kernel.ID(), persistentId, kernel.(*client.KernelClient).ReplicaID())
 	replicaId, err := s.daemon.Provisioner.MigrateKernelReplica(context.Background(), &gateway.ReplicaInfo{
 		KernelId:     kernel.ID(),
 		ReplicaId:    kernel.(*client.KernelClient).ReplicaID(),
