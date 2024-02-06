@@ -50,7 +50,7 @@ var (
 )
 
 type BasicKubeClient struct {
-	kubeClientset          *kubernetes.Clientset  // Kubernetes client.
+	kubeClientset          *kubernetes.Clientset  // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
 	dynamicClient          *dynamic.DynamicClient // Dynamic client for working with unstructured components. We use this for the custom CloneSet.
 	gatewayDaemon          *GatewayDaemon         // Associated Gateway daemon.
 	configDir              string                 // Where to write config files. This is also where they'll be found on the kernel nodes.
@@ -121,7 +121,7 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 
 	// client.smrPort = smrPort
 
-	client.migrationManager = NewMigrationManager(client)
+	client.migrationManager = NewMigrationManager()
 
 	client.createPodWatcher("default")
 
@@ -142,6 +142,12 @@ func (c *BasicKubeClient) GetMigrationOperationByNewPod(newPodName string) (Migr
 // Get the Kubernetes client.
 func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
 	return c.kubeClientset
+}
+
+// Check if the given Migration Operation has finished. This is called twice: when the new replica registers with the Gateway,
+// and when the old Pod is deleted. Whichever of those two events happens last will be the one that designates the operation has having completed.
+func (c *BasicKubeClient) CheckIfMigrationCompleted(op MigrationOperation) bool {
+	return c.migrationManager.CheckIfMigrationCompleted(op)
 }
 
 // Get the associated Gateway daemon.

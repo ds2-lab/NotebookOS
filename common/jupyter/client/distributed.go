@@ -187,6 +187,10 @@ func (c *DistributedKernelClient) MigrationCompleted() {
 	defer c.mu.Unlock()
 
 	c.numActiveMigrations -= 1
+
+	if c.numActiveMigrations < 0 {
+		panic(fmt.Sprintf("Number of active migration operations cannot fall below 0."))
+	}
 }
 
 // Replicas returns the replicas in the kernel.

@@ -471,6 +471,11 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 		Replicas: updatedReplicas,
 	}
 
+	migrationOperation.NotifyNewReplicaRegistered()
+
+	// Check if we're done. We'll be done when both the old Pod has stopped AND when the new replica has registered successfully.
+	d.kubeClient.CheckIfMigrationCompleted(migrationOperation)
+
 	return response, nil
 }
 
@@ -514,7 +519,10 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	}
 
 	if kernel.NumActiveMigrations() > 1 {
+		d.log.Debug("There is/are %d active migration operation(s) targeting kernel %s. Assuming currently-registering replica is for a migration.", kernel.NumActiveMigrations(), kernel.ID())
 		return d.handleMigratedReplicaRegistration(ctx, in, kernel, kernelSpec, waitGroup)
+	} else {
+		d.log.Debug("There are 0 active migration operations targeting kernel %s.", kernel.ID())
 	}
 
 	// If this is the first replica we're registering, then its ID should be 1.

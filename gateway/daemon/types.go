@@ -24,14 +24,18 @@ type KubeClient interface {
 	// Return the migration operation associated with the given Pod name, such that the Pod with the given name was created for the given migration operation.
 	GetMigrationOperationByNewPod(string) (MigrationOperation, bool)
 
-	// Return the migration operation associated with the given Kernel ID and SMR Node ID.
-	// Currently unused (at the time of writing this comment).
-	// GetMigrationOperationByKernelIdAndReplicaId(string, int) (MigrationOperation, bool)
+	// Check if the given Migration Operation has finished. This is called twice: when the new replica registers with the Gateway,
+	// and when the old Pod is deleted. Whichever of those two events happens last will be the one that designates the operation has having completed.
+	CheckIfMigrationCompleted(MigrationOperation) bool
 
 	// Wait for us to receive a pod-created notification for the given Pod, which managed to start running
 	// and register with us before we received the pod-created notification. Once received, return the
 	// associated migration operation.
 	WaitForNewPodNotification(string) MigrationOperation
+
+	// Return the migration operation associated with the given Kernel ID and SMR Node ID.
+	// Currently unused (at the time of writing this comment).
+	// GetMigrationOperationByKernelIdAndReplicaId(string, int) (MigrationOperation, bool)
 }
 
 // Represents and active, ongoing replica migration operation in which we are migrating a distributed kernel replica from one node to another.
@@ -49,6 +53,8 @@ type MigrationOperation interface {
 	SetNewPodName(string)                          // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
 	SetOldPodStopped()                             // Record that the old Pod (containing the replica to be migrated) has stopped.
 	Wait()                                         // Block and wait until the migration operation has completed.
+	GetNewReplicaRegistered() bool                 // Return true if the new replica has already registered with the Gateway; otherwise, return false.
+	NotifyNewReplicaRegistered()                   // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered.
 	Broadcast()                                    // Broadcast (Notify) any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
 }
 
@@ -71,9 +77,20 @@ type MigrationManager interface {
 	// associated migration operation.
 	WaitForNewPodNotification(string) MigrationOperation
 
+	// Check if the given Migration Operation has finished. This is called twice: when the new replica registers with the Gateway,
+	// and when the old Pod is deleted. Whichever of those two events happens last will be the one that designates the operation has having completed.
+	CheckIfMigrationCompleted(MigrationOperation) bool
+
 	PodCreated(interface{})              // Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
 	PodUpdated(interface{}, interface{}) // Function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
 	PodDeleted(interface{})              // Function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
+}
+
+// Used to patch the metadata of a Pod.
+type LabelPatch struct {
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value string `json:"value"`
 }
 
 // type KernelConfigMapDataSource struct {
