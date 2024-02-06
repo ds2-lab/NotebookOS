@@ -132,7 +132,7 @@ func main() {
 		provConn, err = net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
 
 		if err != nil {
-			logger.Error("Failed to connect to provisioner at %s on attempt #%d: %v", options.ProvisionerAddr, numAttempts, err)
+			logger.Warn("Failed to connect to provisioner at %s on attempt #%d: %v", options.ProvisionerAddr, numAttempts, err)
 			numAttempts += 1
 			time.Sleep(time.Second * 3)
 		} else {
@@ -143,7 +143,7 @@ func main() {
 	// Initialize connection to the provisioner
 	if !connectedToProvisioner {
 		lis.Close()
-		log.Fatalf("Failed to connect to provisioner. Most recent error: %v", err)
+		log.Fatalf("Failed to connect to provisioner after %d attempt(s). Most recent error: %v", numAttempts, err)
 	}
 	defer provConn.Close()
 

@@ -187,7 +187,7 @@ type migrationManagerImpl struct {
 	migrationOperationsByOldPodName *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of old Pod names to their associated migration operation.
 	migrationOperationsByNewPodName *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of new Pod names to their associated migration operation.
 	newPodWaiters                   *cmap.ConcurrentMap[string, chan MigrationOperation]                            // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
-	activeMigrationOpsPerKenel      *cmap.ConcurrentMap[string, *orderedmap.OrderedMap[string, MigrationOperation]] // Mapping of kernel ID to all active migration operations associated with that kernel.
+	activeMigrationOpsPerKenel      *cmap.ConcurrentMap[string, *orderedmap.OrderedMap[string, MigrationOperation]] // Mapping of kernel ID to all active migration operations associated with that kernel. The inner maps are from Operation ID to MigrationOperation.
 	kernelMutexes                   *cmap.ConcurrentMap[string, *sync.Mutex]                                        // Mapping from Kernel ID to its associated RWMutex.
 	mainMutex                       sync.Mutex                                                                      // Synchronizes certain atomic operations related to internal state and book-keeping of the migration manager.
 	log                             logger.Logger
@@ -619,7 +619,7 @@ func (m *migrationManagerImpl) migrationCompleted(op MigrationOperation) {
 	// Wake up anybody waiting.
 	op.Broadcast()
 
-	err := m.removeActiveMigrationOperationForKernel(op.KernelId())
+	err := m.removeActiveMigrationOperationForKernel(op.KernelId(), op)
 	if err != nil {
 		m.log.Error("Error encountered while deleting migration operation %s from active operations of kernel %s: %v", op.OperationID(), op.KernelId(), err)
 	}
@@ -668,14 +668,14 @@ func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndReplicaId(kerne
 // Returns an error if the operation is already registered with the given kernel.
 //
 // Note: this MUST be called with the main mutex held!
-func (m *migrationManagerImpl) storeActiveMigrationOperationForKernel(kernelId string, op *migrationOperationImpl) error {
+func (m *migrationManagerImpl) storeActiveMigrationOperationForKernel(kernelId string, op MigrationOperation) error {
 	ops_ptr, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
 
 	if !ok {
 		ops_ptr = orderedmap.NewOrderedMap[string, MigrationOperation]()
 	}
 
-	value_was_new := ops_ptr.Set(op.id, op)
+	value_was_new := ops_ptr.Set(op.OperationID(), op)
 	if !value_was_new {
 		return ErrMigrationOpAlreadyRegistered
 	}
@@ -685,14 +685,14 @@ func (m *migrationManagerImpl) storeActiveMigrationOperationForKernel(kernelId s
 	return nil
 }
 
-func (m *migrationManagerImpl) removeActiveMigrationOperationForKernel(kernelId string) error {
+func (m *migrationManagerImpl) removeActiveMigrationOperationForKernel(kernelId string, op MigrationOperation) error {
 	ops_ptr, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
 
 	if !ok {
 		ops_ptr = orderedmap.NewOrderedMap[string, MigrationOperation]()
 	}
 
-	didDelete := ops_ptr.Delete(kernelId)
+	didDelete := ops_ptr.Delete(op.OperationID())
 	if !didDelete {
 		return ErrMigrationOpNotFound
 	}
