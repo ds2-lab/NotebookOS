@@ -518,7 +518,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", hostId)) // TODO(Ben): Handle gracefully.
 	}
 
-	if kernel.NumActiveMigrations() > 1 {
+	if kernel.NumActiveMigrations() >= 1 {
 		d.log.Debug("There is/are %d active migration operation(s) targeting kernel %s. Assuming currently-registering replica is for a migration.", kernel.NumActiveMigrations(), kernel.ID())
 		return d.handleMigratedReplicaRegistration(ctx, in, kernel, kernelSpec, waitGroup)
 	} else {

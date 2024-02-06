@@ -577,15 +577,13 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 }
 
 // Called by CheckIfMigrationCompleted when a migration operation has completed successfully.
+// IMPORTANT: The main mutex MUST be held when this is called.
 func (m *migrationManagerImpl) migrationCompleted(op MigrationOperation) {
 	m.log.Debug("Migration %s of replica %d of kernel %s completed successfully.", op.OperationID(), op.TargetSMRNodeID(), op.KernelId())
 
 	op.KernelClient().MigrationCompleted()
 	// Wake up anybody waiting.
 	op.Broadcast()
-
-	m.mainMutex.Lock()
-	defer m.mainMutex.Unlock()
 
 	activeOps, ok := m.activeMigrationOpsPerKenel.Get(op.KernelId())
 	if !ok {
@@ -601,8 +599,10 @@ func (m *migrationManagerImpl) migrationCompleted(op MigrationOperation) {
 // Check if the given Migration Operation has finished. This is called twice: when the new replica registers with the Gateway,
 // and when the old Pod is deleted. Whichever of those two events happens last will be the one that designates the operation has having completed.
 func (m *migrationManagerImpl) CheckIfMigrationCompleted(op MigrationOperation) bool {
+	m.mainMutex.Lock()
+	defer m.mainMutex.Unlock()
 	if op.NewPodStarted() && op.GetNewReplicaRegistered() && op.OldPodStopped() {
-		m.migrationCompleted(op)
+		m.migrationCompleted(op) // Need to have the lock when we call this.
 		return true
 	}
 
