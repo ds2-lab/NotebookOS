@@ -123,11 +123,24 @@ func main() {
 	defer lis.Close()
 	logger.Info("Scheduler listening for gRPC at %v", lis.Addr())
 
+	start := time.Now()
+	var connectedToProvisioner bool = false
+	var provConn net.Conn
+	for !connectedToProvisioner && time.Since(start) < (time.Minute*1) {
+		provConn, err = net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
+
+		if err != nil {
+			logger.Error("Failed to connect to provisioner at %s: %v", options.ProvisionerAddr, err)
+			time.Sleep(time.Second * 3)
+		} else {
+			connectedToProvisioner = true
+		}
+	}
+
 	// Initialize connection to the provisioner
-	provConn, err := net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
-	if err != nil {
+	if !connectedToProvisioner {
 		lis.Close()
-		log.Fatalf("Failed to connect to provisioner: %v", err)
+		log.Fatalf("Failed to connect to provisioner. Most recent error: %v", err)
 	}
 	defer provConn.Close()
 

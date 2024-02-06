@@ -26,6 +26,7 @@ import (
 
 var (
 	ErrMigrationOpAlreadyRegistered = errors.New("The given migration operation is already registered as an active operation of the kernel.")
+	ErrMigrationOpNotFound          = errors.New("The given migration operation was not in the list and thus could not be deleted (as it wasn't present to begin with).")
 )
 
 type migrationOperationImpl struct {
@@ -267,7 +268,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 	err = m.storeActiveMigrationOperationForKernel(kernelId, migrationOp)
 	m.mainMutex.Unlock()
 
-	m.log.Debug("Initiating kernel replica migration \"%s\" for kernel %s, targeting replica %d with persistent ID %s", migrationOp.OperationID(), kernelId, targetSmrNodeId, persistentId)
+	m.log.Debug("Initiating kernel replica migration \"%s\" for kernel %s, targeting replica %d with persistent ID %s. Old pod name: \"%s\"", migrationOp.OperationID(), kernelId, targetSmrNodeId, persistentId, podName)
 
 	if err != nil {
 		panic(fmt.Sprintf("Migration operation \"%s\" is already registered with kernel \"%s\".", migrationOp.id, kernelId))
@@ -324,12 +325,12 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 
 	// Remove the old replica.
 	go func() {
-		m.log.Debug("Removing replica %d from Distributed Kernel Client for kernel %s.", migrationOp.TargetSMRNodeID(), migrationOp.KernelId())
+		m.log.Debug("Removing replica %d from Distributed Kernel Client for kernel %s.", migrationOp.TargetSMRNodeID(), kernelId)
 		err := migrationOp.KernelClient().RemoveReplicaByIDWithoutRemover(migrationOp.TargetSMRNodeID())
 		if err != nil {
-			m.log.Error("Failed to remove replica(%s:%d): %v", migrationOp.KernelId(), targetSmrNodeId, err)
+			m.log.Error("Failed to remove replica(%s:%d): %v", kernelId, targetSmrNodeId, err)
 		} else {
-			m.log.Debug("Successfully removed replica %d from Distributed Kernel Client for kernel %s.", migrationOp.TargetSMRNodeID(), migrationOp.KernelId())
+			m.log.Debug("Successfully removed replica %d from Distributed Kernel Client for kernel %s.", migrationOp.TargetSMRNodeID(), kernelId)
 		}
 	}()
 
@@ -337,7 +338,9 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 		return errors.Wrap(retryErr, fmt.Sprintf("Failed to update the CloneSet associated with kernel \"%s\" while migration replica %d.", kernelId, targetSmrNodeId))
 	}
 
+	m.log.Debug("Waiting for Migration Operation %s on replica %d of kernel %s to complete before returning.", migrationOp.OperationID(), targetSmrNodeId, kernelId)
 	migrationOp.Wait()
+	m.log.Debug("Migration Operation %s on replica %d of kernel %s to completed. Returning now.", migrationOp.OperationID(), targetSmrNodeId, kernelId)
 
 	// TODO (Ben): Wait for new Pod to start, assign it the correct SMR Node ID, and then update the CloneSet to have less replicas and delete the correct Pod.
 	return nil
@@ -456,6 +459,8 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	op.SetNewPodName(pod.Name)
 	m.migrationOperationsByNewPodName.Set(pod.Name, op)
 
+	m.log.Debug("op.KernelClient().NumActiveMigrations(): %d", op.KernelClient().NumActiveMigrations())
+
 	// Label the Pod that we would like to delete so that the CloneSet prioritizes deleting it when we scale it down in the next step.
 	err := m.addKruiseDeleteLabelToPod(op.OldPodName(), "default")
 	if err != nil {
@@ -551,7 +556,17 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 
 	// No operation found when looking by old Pod name, so we can just return.
 	if !ok {
-		return
+		if activeOps.Len() == 0 {
+			m.log.Debug("No active migration operations found for kernel %s of deleted Pod %s.", kernelId, pod.Name)
+			return
+		}
+
+		op, ok = activeOps.Get(kernelId)
+
+		if !ok {
+			m.log.Warn("Could not find active migration operation associated with old, now-deleted pod %s.", pod.Name)
+			return
+		}
 	}
 
 	// At this point, we know we found an operation by old Pod name.
@@ -585,14 +600,9 @@ func (m *migrationManagerImpl) migrationCompleted(op MigrationOperation) {
 	// Wake up anybody waiting.
 	op.Broadcast()
 
-	activeOps, ok := m.activeMigrationOpsPerKenel.Get(op.KernelId())
-	if !ok {
-		panic(fmt.Sprintf("Could not find active migration operations associated with kernel %s", op.KernelId()))
-	}
-
-	deleted := activeOps.Delete(op.OperationID())
-	if !deleted {
-		panic(fmt.Sprintf("Expected migration operation %s targeting replica %d of kernel %s to be in active operations map.", op.OperationID(), op.TargetSMRNodeID(), op.KernelId()))
+	err := m.removeActiveMigrationOperationForKernel(op.KernelId())
+	if err != nil {
+		m.log.Error("Error encountered while deleting migration operation %s from active operations of kernel %s: %v", op.OperationID(), op.KernelId(), err)
 	}
 }
 
@@ -649,6 +659,23 @@ func (m *migrationManagerImpl) storeActiveMigrationOperationForKernel(kernelId s
 	value_was_new := ops_ptr.Set(op.id, op)
 	if !value_was_new {
 		return ErrMigrationOpAlreadyRegistered
+	}
+
+	m.activeMigrationOpsPerKenel.Set(kernelId, ops_ptr)
+
+	return nil
+}
+
+func (m *migrationManagerImpl) removeActiveMigrationOperationForKernel(kernelId string) error {
+	ops_ptr, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
+
+	if !ok {
+		ops_ptr = orderedmap.NewOrderedMap[string, MigrationOperation]()
+	}
+
+	didDelete := ops_ptr.Delete(kernelId)
+	if !didDelete {
+		return ErrMigrationOpNotFound
 	}
 
 	m.activeMigrationOpsPerKenel.Set(kernelId, ops_ptr)
