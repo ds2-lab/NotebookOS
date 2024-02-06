@@ -379,12 +379,9 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	// var created sync.WaitGroup
 	// created.Add(d.ClusterOptions.NumReplicas)
 
-	d.mutex.Lock() // TODO(Ben): This may be unnecessary.
 	d.kernels.Store(in.Id, kernel)
 	d.kernelSpecs.Store(in.Id, in)
-	// d.waitGroups.Store(in.Id, &created)
 	d.waitGroups.Store(in.Id, created)
-	d.mutex.Unlock()
 
 	// TODO(Ben):
 	// This is likely where we'd create the new Deployment for the particular Session, I guess?
@@ -427,6 +424,10 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	return info, nil
 }
 
+// Handle a registration notification from a new kernel replica that was created during a migration operation.
+// TODO(Ben): Do I really need the main lock for this function?
+// IMPORTANT: This must be called with the main mutex held.
+// IMPORTANT: This will release the main mutex before returning.
 func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, in *gateway.KernelRegistrationNotification, kernel *client.DistributedKernelClient, kernelSpec *gateway.KernelSpec, waitGroup *registrationWaitGroups) (*gateway.KernelRegistrationNotificationResponse, error) {
 	podNameOfMigratedRepilica := in.PodName
 	migrationOperation, ok := d.kubeClient.GetMigrationOperationByNewPod(podNameOfMigratedRepilica)
@@ -440,9 +441,10 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 	// This race would be simplified if we added the constraint that there may be only one active migration per kernel at any given time,
 	// but I've not yet enforced this.
 	if !ok {
-		// TODO: I actually don't think this API will work here.
+		d.mutex.Unlock()
 		// Just need to provide a mechanism to wait until we receive the pod-created notification, and get the migration operation that way.
 		migrationOperation = d.kubeClient.WaitForNewPodNotification(podNameOfMigratedRepilica)
+		d.mutex.Lock()
 	}
 
 	var persistentId string = migrationOperation.PersistentID()
@@ -471,7 +473,9 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 		Replicas: updatedReplicas,
 	}
 
-	migrationOperation.NotifyNewReplicaRegistered()
+	d.mutex.Unlock()
+
+	migrationOperation.NotifyNewReplicaRegistered() // This just sets a flag to true in the migration operation object.
 
 	// Check if we're done. We'll be done when both the old Pod has stopped AND when the new replica has registered successfully.
 	d.kubeClient.CheckIfMigrationCompleted(migrationOperation)
@@ -520,7 +524,10 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 
 	if kernel.NumActiveMigrations() >= 1 {
 		d.log.Debug("There is/are %d active migration operation(s) targeting kernel %s. Assuming currently-registering replica is for a migration.", kernel.NumActiveMigrations(), kernel.ID())
-		return d.handleMigratedReplicaRegistration(ctx, in, kernel, kernelSpec, waitGroup)
+		// Must be holding the main mutex before calling handleMigratedReplicaRegistration.
+		// It will release the lock.
+		result, err := d.handleMigratedReplicaRegistration(ctx, in, kernel, kernelSpec, waitGroup)
+		return result, err
 	} else {
 		d.log.Debug("There are 0 active migration operations targeting kernel %s.", kernel.ID())
 	}
