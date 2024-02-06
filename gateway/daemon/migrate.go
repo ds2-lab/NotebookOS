@@ -268,7 +268,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 	err = m.storeActiveMigrationOperationForKernel(kernelId, migrationOp)
 	m.mainMutex.Unlock()
 
-	m.log.Debug("Initiating kernel replica migration \"%s\" for kernel %s, targeting replica %d with persistent ID %s. Old pod name: \"%s\"", migrationOp.OperationID(), kernelId, targetSmrNodeId, persistentId, podName)
+	m.log.Warn("Initiating kernel replica migration \"%s\" for kernel %s, targeting replica %d with persistent ID %s. Old pod name: \"%s\"", migrationOp.OperationID(), kernelId, targetSmrNodeId, persistentId, podName)
 
 	if err != nil {
 		panic(fmt.Sprintf("Migration operation \"%s\" is already registered with kernel \"%s\".", migrationOp.id, kernelId))
@@ -340,7 +340,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 
 	m.log.Debug("Waiting for Migration Operation %s on replica %d of kernel %s to complete before returning.", migrationOp.OperationID(), targetSmrNodeId, kernelId)
 	migrationOp.Wait()
-	m.log.Debug("Migration Operation %s on replica %d of kernel %s to completed. Returning now.", migrationOp.OperationID(), targetSmrNodeId, kernelId)
+	m.log.Info("Migration Operation %s on replica %d of kernel %s to completed. Returning now.", migrationOp.OperationID(), targetSmrNodeId, kernelId)
 
 	// TODO (Ben): Wait for new Pod to start, assign it the correct SMR Node ID, and then update the CloneSet to have less replicas and delete the correct Pod.
 	return nil
@@ -383,7 +383,7 @@ func (m *migrationManagerImpl) addKruiseDeleteLabelToPod(podName string, podName
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		payload := []LabelPatch{{
 			Op:    "replace",
-			Path:  "apps.kruise.io/specified-delete:",
+			Path:  "/metadata/labels/apps.kruise.io/specified-delete",
 			Value: "true",
 		}}
 		payloadBytes, _ := json.Marshal(payload)
@@ -398,7 +398,34 @@ func (m *migrationManagerImpl) addKruiseDeleteLabelToPod(podName string, podName
 		return nil
 	})
 
-	return retryErr
+	if retryErr != nil {
+		m.log.Error("Failed to update metadata labels for old Pod %s/%s", podNamespace, podName)
+		return retryErr
+	}
+
+	pod, err := m.kubeClientset.CoreV1().Pods(podNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
+	if err != nil {
+		m.log.Error("Could not find Pod \"%s\" in namespace \"%s\": %v", podName, podNamespace, err)
+		return err
+	}
+
+	var annotations map[string]string = pod.GetAnnotations()
+
+	annotations["/metadata/labels/apps.kruise.io/specified-delete"] = "true"
+	annotations["controller.kubernetes.io/pod-deletion-cost"] = "-2147483647"
+
+	pod.SetAnnotations(annotations)
+
+	pod, err = m.kubeClientset.
+		CoreV1().
+		Pods(podNamespace).
+		Update(context.TODO(), pod, metav1.UpdateOptions{})
+
+	if err != nil {
+		m.log.Error("Failed to update annotations of Pod %s/%s: %v", podNamespace, podName, err)
+	}
+
+	return err
 }
 
 // Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
