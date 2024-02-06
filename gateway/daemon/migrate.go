@@ -383,8 +383,8 @@ func (m *migrationManagerImpl) addKruiseDeleteLabelToPod(podName string, podName
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		payload := []LabelPatch{{
 			Op:    "replace",
-			Path:  "/metadata/labels/testLabel",
-			Value: "testValue",
+			Path:  "apps.kruise.io/specified-delete:",
+			Value: "true",
 		}}
 		payloadBytes, _ := json.Marshal(payload)
 

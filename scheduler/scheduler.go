@@ -125,12 +125,15 @@ func main() {
 
 	start := time.Now()
 	var connectedToProvisioner bool = false
+	var numAttempts int = 1
 	var provConn net.Conn
 	for !connectedToProvisioner && time.Since(start) < (time.Minute*1) {
+		logger.Debug("Attempt #%d to connect to Provisioner (Gateway) at %s. Connection timeout: %v.", numAttempts, options.ProvisionerAddr, connectionTimeout)
 		provConn, err = net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
 
 		if err != nil {
-			logger.Error("Failed to connect to provisioner at %s: %v", options.ProvisionerAddr, err)
+			logger.Error("Failed to connect to provisioner at %s on attempt #%d: %v", options.ProvisionerAddr, numAttempts, err)
+			numAttempts += 1
 			time.Sleep(time.Second * 3)
 		} else {
 			connectedToProvisioner = true
