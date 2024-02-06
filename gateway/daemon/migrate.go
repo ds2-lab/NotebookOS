@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -381,20 +380,14 @@ func (m *migrationManagerImpl) WaitForNewPodNotification(newPodName string) Migr
 // https://openkruise.io/docs/user-manuals/cloneset/#selective-pod-deletion
 func (m *migrationManagerImpl) addKruiseDeleteLabelToPod(podName string, podNamespace string) error {
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		payload := []LabelPatch{{
-			Op:    "replace",
-			Path:  "/metadata/labels/apps.kruise.io/specified-delete",
-			Value: "true",
-		}}
-		payloadBytes, _ := json.Marshal(payload)
-
-		_, updateErr := m.kubeClientset.CoreV1().Pods(podNamespace).Patch(context.Background(), podName, types.JSONPatchType, payloadBytes, metav1.PatchOptions{})
+		payload := `{"metadata": {"labels": {"apps.kruise.io/specified-delete": "true"}}}`
+		_, updateErr := m.kubeClientset.CoreV1().Pods(podNamespace).Patch(context.Background(), podName, types.MergePatchType, []byte(payload), metav1.PatchOptions{})
 		if updateErr != nil {
 			m.log.Error("Error when updating labels for Pod \"%s\": %v", podName, updateErr)
 			return errors.Wrapf(updateErr, fmt.Sprintf("Failed to add deletion label to Pod \"%s\".", podName))
 		}
 
-		m.log.Debug(fmt.Sprintf("Pod %s labelled successfully.", podName))
+		m.log.Debug("Pod %s labelled successfully.", podName)
 		return nil
 	})
 
@@ -411,8 +404,8 @@ func (m *migrationManagerImpl) addKruiseDeleteLabelToPod(podName string, podName
 
 	var annotations map[string]string = pod.GetAnnotations()
 
-	annotations["/metadata/labels/apps.kruise.io/specified-delete"] = "true"
-	annotations["controller.kubernetes.io/pod-deletion-cost"] = "-2147483647"
+	annotations["apps.kruise.io/specified-delete"] = "true"                   // I don't think this is necessary; documentation says to use a label for this one.
+	annotations["controller.kubernetes.io/pod-deletion-cost"] = "-2147483647" // This one should be an annotation, though.
 
 	pod.SetAnnotations(annotations)
 
@@ -423,6 +416,7 @@ func (m *migrationManagerImpl) addKruiseDeleteLabelToPod(podName string, podName
 
 	if err != nil {
 		m.log.Error("Failed to update annotations of Pod %s/%s: %v", podNamespace, podName, err)
+		return errors.Wrapf(err, "Failed to update annotations of Pod %s/%s.", podNamespace, podName)
 	}
 
 	return err
@@ -485,8 +479,6 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 
 	op.SetNewPodName(pod.Name)
 	m.migrationOperationsByNewPodName.Set(pod.Name, op)
-
-	m.log.Debug("op.KernelClient().NumActiveMigrations(): %d", op.KernelClient().NumActiveMigrations())
 
 	// Label the Pod that we would like to delete so that the CloneSet prioritizes deleting it when we scale it down in the next step.
 	err := m.addKruiseDeleteLabelToPod(op.OldPodName(), "default")

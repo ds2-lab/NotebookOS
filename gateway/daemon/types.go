@@ -86,13 +86,6 @@ type MigrationManager interface {
 	PodDeleted(interface{})              // Function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
 }
 
-// Used to patch the metadata of a Pod.
-type LabelPatch struct {
-	Op    string `json:"op"`
-	Path  string `json:"path"`
-	Value string `json:"value"`
-}
-
 // type KernelConfigMapDataSource struct {
 // 	SessionId      string
 // 	ConfigFileInfo *jupyter.ConfigFile
