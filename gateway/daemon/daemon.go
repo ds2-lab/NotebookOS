@@ -113,6 +113,7 @@ type GatewayDaemon struct {
 
 	// The IOPub socket that all Jupyter clients subscribe to.
 	// iopub *jupyter.Socket
+	smrPort int
 
 	// Kubernetes client.
 	kubeClient KubeClient
@@ -258,6 +259,7 @@ func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClient
 		// waitGroups:        hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
 		waitGroups: hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
 		cleaned:    make(chan struct{}),
+		smrPort:    daemonKubeClientOptions.SMRPort,
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -536,6 +538,7 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 		Replicas:            updatedReplicas,
 		PersistentId:        &persistent_id,
 		NotifyOtherReplicas: true,
+		SmrPort:             int32(d.smrPort),
 	}
 
 	d.mutex.Unlock()
@@ -637,6 +640,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		Replicas:            waitGroup.GetReplicas(),
 		PersistentId:        nil,
 		NotifyOtherReplicas: false,
+		SmrPort:             -1,
 	}
 
 	waitGroup.Notify()

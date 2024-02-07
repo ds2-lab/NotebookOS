@@ -340,13 +340,17 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
 		panic(err)
 	}
+	d.log.Debug("Wrote %d bytes back to kernel in response to kernel registration.", bytes_written)
+
+	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
+	time.Sleep(time.Second * 2)
 
 	if response.NotifyOtherReplicas {
-		d.log.Debug("Notifying existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
+		d.log.Info("Notifying existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
 		frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernel.Sessions()[0])
 		frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
 			NodeID:  response.Id,
-			Address: remote_ip,
+			Address: fmt.Sprintf("%s:%d", remote_ip, response.SmrPort),
 		})
 		if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 			d.log.Error("Encountered error when signing frames of new-replica message to other replicas: %v", err)
@@ -357,16 +361,18 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		msg := &zmq4.Msg{Frames: frames}
 		var wg sync.WaitGroup
 		wg.Add(1)
-		err = kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, wg.Done)
+		err = kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+			d.log.Debug("Received response of type %v associated with kernel %s: %v", typ, kernel.ID(), msg)
+			return nil
+		}, wg.Done)
 		if err != nil {
 			d.log.Error("Encountered error when sending new-replica message to other replicas: %v", err)
 			// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
 			panic(err)
 		}
 		wg.Wait()
+		d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
 	}
-
-	d.log.Debug("Wrote %d bytes back to kernel in response to kernel registration.", bytes_written)
 }
 
 func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {

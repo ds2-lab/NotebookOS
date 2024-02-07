@@ -110,6 +110,8 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Kernel ID: \"%s\"" % kernel_id)
         self.log.info("Pod name: \"%s\"" % self.pod_name)
         
+        self.persistent_store_cv = asyncio.Condition()
+        
         connection_info = None 
         try:
             if len(connection_file_path) > 0:
@@ -371,9 +373,6 @@ class DistributedKernel(IPythonKernel):
             future.set_result(rsp)
             self.log.info("persistent store confirmed: " + self.store)
 
-            # Notify the client that the SMR is ready
-            self.session.send(self.iopub_socket, "smr_ready", {"persistent_id": self.persistent_id}, ident=self._topic("smr_ready")) # type: ignore
-
             return rsp
         except Exception as e:
             self.shell.execution_count = execution_count # type: ignore
@@ -403,6 +402,14 @@ class DistributedKernel(IPythonKernel):
         await self.override_shell(store)
         
         self.log.info("Overrode shell hooks.")
+        
+        # Notify the client that the SMR is ready.
+        self.session.send(self.iopub_socket, "smr_ready", {"persistent_id": self.persistent_id}, ident=self._topic("smr_ready")) # type: ignore
+        
+        # TODO(Ben): Should this go before the "smr_ready" send?
+        # It probably shouldn't matter -- or if it does, then more synchronization is recuired.
+        async with self.persistent_store_cv:
+            self.persistent_store_cv.notify_all()
 
         return store
 
@@ -502,6 +509,14 @@ class DistributedKernel(IPythonKernel):
     async def add_replica_request(self, stream, ident, parent):
         """Add a replica to the SMR cluster"""
         params = parent['content']
+        self.log.info("Received 'add-replica request' for replica with id %d, addr %s" % (params['id'], params['addr']))
+        
+        async with self.persistent_store_cv:
+            # TODO(Ben): Do I need to use 'while', or can I just use 'if'? 
+            if not await self.check_persistent_store():
+                self.log.debug("Persistent store is not ready yet. Waiting to handle 'add-replica' request.")
+                await self.persistent_store_cv.wait()
+        
         if 'id' not in params or 'addr' not in params:
             return self.gen_error_response(err_invalid_request)
 
