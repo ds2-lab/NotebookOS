@@ -24,6 +24,8 @@ service ClusterGateway {
 
   // Notify the Gateway that a distributed kernel replica has started somewhere.
   rpc NotifyKernelRegistered(KernelRegistrationNotification) returns (KernelRegistrationNotificationResponse) {}
+
+  rpc SmrReady(ReplicaInfo) returns (Void) {}
 }
 
 message ProvisionerId {

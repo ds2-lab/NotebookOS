@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import inspect
 import os
@@ -7,8 +9,6 @@ import sys
 import socket
 import time 
 
-from kubernetes import client, config
-from kubernetes.client import configuration
 from typing import Union, Optional
 from traitlets import List, Integer, Unicode, Bool, Undefined
 from ipykernel.ipkernel import IPythonKernel
@@ -135,77 +135,77 @@ class DistributedKernel(IPythonKernel):
         # TODO(Ben): Connect to LocalDaemon.
         self.register_with_local_daemon(connection_info, kernel_id, session_id) # config_info
     
-    def __resolve_dns(self, addr:str)->list[str]:
-        return socket.getaddrinfo(addr, 0)
+    # def __resolve_dns(self, addr:str)->list[str]:
+    #     return socket.getaddrinfo(addr, 0)
     
-    def __resolve_hostnames_kube(self, kernel_id: str)->list[str]:
-        self.log.info("Querying Kubernetes API directly to resolve peer replica hostnames.")
-        config.load_incluster_config()
-        v1 = client.CoreV1Api()
-        app_label = "kernel-" + kernel_id
-        ret = v1.list_pod_for_all_namespaces(watch=False, label_selector="app=%s" % app_label)
+    # def __resolve_hostnames_kube(self, kernel_id: str)->list[str]:
+    #     self.log.info("Querying Kubernetes API directly to resolve peer replica hostnames.")
+    #     config.load_incluster_config()
+    #     v1 = client.CoreV1Api()
+    #     app_label = "kernel-" + kernel_id
+    #     ret = v1.list_pod_for_all_namespaces(watch=False, label_selector="app=%s" % app_label)
         
-        replicas = []
-        for i in ret.items:
-            pod_ip = i.status.pod_ip
+    #     replicas = []
+    #     for i in ret.items:
+    #         pod_ip = i.status.pod_ip
             
-            if pod_ip == "" or pod_ip == None:
-                raise ValueError("Peer kernel replica Pod does not yet have an IP assigned to it.")
+    #         if pod_ip == "" or pod_ip == None:
+    #             raise ValueError("Peer kernel replica Pod does not yet have an IP assigned to it.")
             
-            replicas.append(pod_ip)
+    #         replicas.append(pod_ip)
         
-        return replicas
+    #     return replicas
     
-    def __get_peer_replica_hostnames(self, addr:str, kernel_id: str)->list[str]:
-        """
-        Perform a DNS query/lookup for a particular address. Return the IPv4 addresses.
+    # def __get_peer_replica_hostnames(self, addr:str, kernel_id: str)->list[str]:
+    #     """
+    #     Perform a DNS query/lookup for a particular address. Return the IPv4 addresses.
         
-        If the DNS fails, then we try a single time to fallback to the Kubernetes API. 
-        We try querying the Kubernetes API to resolve the peer hostnames. 
-        If that also fails, then we'll just keep retrying DNS queries for 60 seconds before giving up and raising an exception.
-        We retry DNS queries over a period of 60 seconds because DNS look-ups may fail initially, depending on the DNS configuration of the Kubernetes cluster.
+    #     If the DNS fails, then we try a single time to fallback to the Kubernetes API. 
+    #     We try querying the Kubernetes API to resolve the peer hostnames. 
+    #     If that also fails, then we'll just keep retrying DNS queries for 60 seconds before giving up and raising an exception.
+    #     We retry DNS queries over a period of 60 seconds because DNS look-ups may fail initially, depending on the DNS configuration of the Kubernetes cluster.
 
-        Args:
-            addr (str): The address for which a DNS query/lookup is performed.
-            kernel_id (str): The ID of this kernel.
+    #     Args:
+    #         addr (str): The address for which a DNS query/lookup is performed.
+    #         kernel_id (str): The ID of this kernel.
 
-        Returns:
-            list[str]: List of IPv4 addresses that the given address resolved to. 
-        """
-        self.log.info("Performing DNS lookup on address \"%s\" now...", addr)
+    #     Returns:
+    #         list[str]: List of IPv4 addresses that the given address resolved to. 
+    #     """
+    #     self.log.info("Performing DNS lookup on address \"%s\" now...", addr)
         
-        start_time = time.time() 
+    #     start_time = time.time() 
         
-        query_result = None
-        # Keep trying for 60 seconds.
-        while time.time() - start_time < 60:
-            try:
-                query_result = self.__resolve_dns(addr)
-                break # If we successfully performed the DNS query without exception/error, then break out of the while-loop.
-            except socket.gaierror as ex:
-                self.log.warn("Exception encountered while resolving address \"%s\": %s" % (addr, str(ex)))
+    #     query_result = None
+    #     # Keep trying for 60 seconds.
+    #     while time.time() - start_time < 60:
+    #         try:
+    #             query_result = self.__resolve_dns(addr)
+    #             break # If we successfully performed the DNS query without exception/error, then break out of the while-loop.
+    #         except socket.gaierror as ex:
+    #             self.log.warn("Exception encountered while resolving address \"%s\": %s" % (addr, str(ex)))
                 
-                # Try querying Kubernetes API directly.
-                if not tried_kubernetes:
-                    self.log.info("Querying Kubernetes API directly to resolve peer replica hostnames.")
-                    tried_kubernetes = True 
-                    replicas = self.__resolve_hostnames_kube(addr, kernel_id)
+    #             # Try querying Kubernetes API directly.
+    #             if not tried_kubernetes:
+    #                 self.log.info("Querying Kubernetes API directly to resolve peer replica hostnames.")
+    #                 tried_kubernetes = True 
+    #                 replicas = self.__resolve_hostnames_kube(addr, kernel_id)
                     
-                    if len(replicas) == 3:
-                        self.log.info("Successfully resolved peer replica hostnames by querying Kubernetes API directly.")
-                        self.log.info("Peer replica hostnames: %s" % str(replicas))
-                        return replicas 
-                    else:
-                        self.log.warn("Failed to resolve peer replica hostnames by querying Kubernetes API directly.")
+    #                 if len(replicas) == 3:
+    #                     self.log.info("Successfully resolved peer replica hostnames by querying Kubernetes API directly.")
+    #                     self.log.info("Peer replica hostnames: %s" % str(replicas))
+    #                     return replicas 
+    #                 else:
+    #                     self.log.warn("Failed to resolve peer replica hostnames by querying Kubernetes API directly.")
                 
-                time.sleep(3) # Sleep for 3 seconds.
-                pass 
+    #             time.sleep(3) # Sleep for 3 seconds.
+    #             pass 
             
-        if query_result == None:
-            raise ValueError("Failed to resolve DNS for address \"%s\"" % addr)
+    #     if query_result == None:
+    #         raise ValueError("Failed to resolve DNS for address \"%s\"" % addr)
         
-        self.log.info("Successfully resolved peer replica hostnames via DNS query. Replicas: %s" % str(query_result))
-        return list(i[4][0] for i in query_result if i[0] is socket.AddressFamily.AF_INET and i[1] is socket.SocketKind.SOCK_RAW)
+    #     self.log.info("Successfully resolved peer replica hostnames via DNS query. Replicas: %s" % str(query_result))
+    #     return list(i[4][0] for i in query_result if i[0] is socket.AddressFamily.AF_INET and i[1] is socket.SocketKind.SOCK_RAW)
     
     def register_with_local_daemon(self, connection_info:dict, kernel_id: str, session_id: str): # config_info:dict, 
         self.log.info("Registering with local daemon now.")
@@ -252,16 +252,17 @@ class DistributedKernel(IPythonKernel):
         
         self.log.info("Local Daemon network address: \"%s:%d\"" % (local_daemon_service_name, server_port))
         
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.daemon_registration_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
         try:
-            client_socket.connect((local_daemon_service_name, server_port))
+            self.daemon_registration_socket.connect((local_daemon_service_name, server_port))
         except Exception as ex:
             self.log.error("Failed to connect to LocalDaemon at %s:%d" % (local_daemon_service_name, server_port))
             self.log.error("Reason: %s" % str(ex))
             return 
         
         registration_payload = {
+            "op": "register",
             "signature_scheme": connection_info["signature_scheme"],
             "key": connection_info["key"],
             "replicaId": self.smr_node_id, # config_info["smr_node_id"],
@@ -279,11 +280,11 @@ class DistributedKernel(IPythonKernel):
         
         self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
         
-        bytes_sent = client_socket.send(json.dumps(registration_payload).encode())
+        bytes_sent = self.daemon_registration_socket.send(json.dumps(registration_payload).encode())
         
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
         
-        response = client_socket.recv(1024)
+        response = self.daemon_registration_socket.recv(1024)
         self.log.info("Received %d byte(s) in response from LocalDaemon.", len(response))
         response_dict = json.loads(response)
         self.smr_node_id = response_dict["smr_node_id"]
@@ -308,6 +309,8 @@ class DistributedKernel(IPythonKernel):
         
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes))
+        
+        self.daemon_registration_socket.close()
     
     def start(self):
         super().start()

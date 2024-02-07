@@ -147,11 +147,11 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 	var contd chan interface{}
 	if socket.PendingReq == nil {
 		go s.poll(socket, chMsg, nil)
-		s.Log.Debug("Start serving %v messages", socket.Type)
+		// s.Log.Debug("Start serving %v messages", socket.Type)
 	} else {
 		contd = make(chan interface{})
 		go s.poll(socket, chMsg, contd)
-		s.Log.Debug("Start waiting for the resposne of %v requests", socket.Type)
+		// s.Log.Debug("Start waiting for the resposne of %v requests", socket.Type)
 	}
 
 	for {
@@ -197,7 +197,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 		if socket.PendingReq != nil {
 			contd <- &struct{}{}
-			s.Log.Debug("Continue waiting for the resposne of %v requests(%d)", socket.Type, socket.PendingReq.Len())
+			// s.Log.Debug("Continue waiting for the resposne of %v requests(%d)", socket.Type, socket.PendingReq.Len())
 		}
 	}
 }
@@ -234,11 +234,11 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// 	req.Frames = sourceKernel.AddSourceKernelFrame(req.Frames, sourceKernel.SourceKernelID(), jOffset)
 	// }
 
-	if socket.Addr() != nil {
-		s.Log.Debug("%v Request. Message: %p. Kernel: %s. Client Socket: %s. Server: %s.", socket.Type.String(), req, dest.RequestDestID(), socket.Addr().String(), server.String())
-	} else {
-		s.Log.Debug("%v Request. Message: %p. Kernel: %s. Client Socket Port: %d. Server: %s.", socket.Type.String(), req, dest.RequestDestID(), socket.Port, server.String())
-	}
+	// if socket.Addr() != nil {
+	// 	s.Log.Debug("%v Request. Message: %p. Kernel: %s. Client Socket: %s. Server: %s.", socket.Type.String(), req, dest.RequestDestID(), socket.Addr().String(), server.String())
+	// } else {
+	// 	s.Log.Debug("%v Request. Message: %p. Kernel: %s. Client Socket Port: %d. Server: %s.", socket.Type.String(), req, dest.RequestDestID(), socket.Port, server.String())
+	// }
 	// s.Log.Debug("Issuing request for message %p using %v Socket. Source: \"%v\". Destination: \"%v\"", req, socket.Type.String(), sourceKernel.SourceKernelID(), dest.RequestDestID())
 
 	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
@@ -451,7 +451,7 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 	for {
 		got, err := socket.Recv()
 
-		s.Log.Debug("Received %v message.", socket.Type)
+		// s.Log.Debug("Received %v message.", socket.Type)
 		// s.Log.Debug("Incoming %v message: %v.", socket.Type, &got)
 		if err == nil {
 			msg = &got

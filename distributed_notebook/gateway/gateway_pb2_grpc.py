@@ -34,6 +34,11 @@ class ClusterGatewayStub(object):
                 request_serializer=gateway__pb2.KernelRegistrationNotification.SerializeToString,
                 response_deserializer=gateway__pb2.KernelRegistrationNotificationResponse.FromString,
                 )
+        self.SmrReady = channel.unary_unary(
+                '/gateway.ClusterGateway/SmrReady',
+                request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
 
 
 class ClusterGatewayServicer(object):
@@ -72,6 +77,12 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SmrReady(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -94,6 +105,11 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
                     servicer.NotifyKernelRegistered,
                     request_deserializer=gateway__pb2.KernelRegistrationNotification.FromString,
                     response_serializer=gateway__pb2.KernelRegistrationNotificationResponse.SerializeToString,
+            ),
+            'SmrReady': grpc.unary_unary_rpc_method_handler(
+                    servicer.SmrReady,
+                    request_deserializer=gateway__pb2.ReplicaInfo.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -170,6 +186,23 @@ class ClusterGateway(object):
         return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/NotifyKernelRegistered',
             gateway__pb2.KernelRegistrationNotification.SerializeToString,
             gateway__pb2.KernelRegistrationNotificationResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def SmrReady(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/SmrReady',
+            gateway__pb2.ReplicaInfo.SerializeToString,
+            gateway__pb2.Void.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

@@ -16,6 +16,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -26,6 +27,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/retry"
 )
 
 const (
@@ -217,9 +219,53 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	return connectionInfo, nil
 }
 
+// Return the migration operation associated with the given Kernel ID and SMR Node ID of the new replica.
+func (m *BasicKubeClient) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (MigrationOperation, bool) {
+	return m.migrationManager.GetMigrationOperationByKernelIdAndNewReplicaId(kernelId, smrNodeId)
+}
+
 // TODO(Ben): Will need some sort of concurrency control -- like if we try to migrate two replicas at once, then we'd need to account for this.
 func (c *BasicKubeClient) InitiateKernelMigration(ctx context.Context, targetClient *client.DistributedKernelClient, targetSmrNodeId int32, newSpec *gateway.KernelReplicaSpec) (string, error) {
 	return c.migrationManager.InitiateKernelMigration(ctx, targetClient, targetSmrNodeId, newSpec)
+}
+
+// Scale-down a CloneSet by decreasing its number of replicas by 1.
+func (m *migrationManagerImpl) ScaleDownCloneSet(op MigrationOperation) error {
+	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		cloneset_id := fmt.Sprintf("kernel-%s", op.KernelId())
+		result, getErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
+
+		if getErr != nil {
+			panic(fmt.Errorf("Failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
+		}
+
+		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
+
+		if err != nil || !found {
+			m.log.Error("Replicas not found for CloneSet %s: error=%v", cloneset_id, err)
+			return err
+		}
+
+		m.log.Debug("Attempting to DECREASE the number of replicas of CloneSet \"%s\" by deleting pod \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, op.OldPodName(), current_num_replicas)
+		new_num_replicas := current_num_replicas - 1
+
+		// Decrease the number of replicas.
+		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
+			panic(fmt.Errorf("Failed to set spec.replicas value for CloneSet \"%s\": %v", cloneset_id, err))
+		}
+
+		_, updateErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
+
+		if updateErr != nil {
+			m.log.Error("Failed to apply update to CloneSet \"%s\": error=%v", cloneset_id, err)
+		} else {
+			m.log.Debug("Successfully decreased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
+		}
+
+		return updateErr
+	})
+
+	return retryErr
 }
 
 // Create a SharedInformer that watches for Pod-creation and Pod-deletion events within the given namespace.

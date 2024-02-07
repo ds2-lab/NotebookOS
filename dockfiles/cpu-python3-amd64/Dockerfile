@@ -21,7 +21,7 @@ RUN mkdir -p /storage && chown jovyan:users /storage
 
 # For debugging.
 RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip -y
-RUN python3 -m pip install kubernetes 
+# RUN python3 -m pip install kubernetes 
 
 # Install frontend extension.
 RUN cd /home/jovyan \

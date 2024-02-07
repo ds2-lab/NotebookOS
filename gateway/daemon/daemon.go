@@ -43,6 +43,7 @@ var (
 	ErrNotImplementedKube = status.Errorf(codes.Unimplemented, "not supported in Kubernetes-based implementation (yet)")
 	ErrNotSupported       = status.Errorf(codes.Unimplemented, "not supported in daemon")
 	ErrInvalidParameter   = status.Errorf(codes.InvalidArgument, "invalid parameter")
+	ErrFailedToRemove     = status.Errorf(codes.Internal, "replica removal failed")
 
 	// Internal errors
 	ErrHeaderNotFound        = errors.New("message header not found")
@@ -355,6 +356,32 @@ func (d *GatewayDaemon) SetID(ctx context.Context, hostId *gateway.HostId) (*gat
 	return nil, ErrNotImplemented
 }
 
+func (d *GatewayDaemon) SmrReady(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
+	kernelId := replicaInfo.KernelId
+	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
+
+	op, ok := d.kubeClient.GetMigrationOperationByKernelIdAndNewReplicaId(kernelId, replicaInfo.ReplicaId)
+
+	if !ok {
+		return gateway.VOID, nil
+	}
+
+	d.log.Debug("Removing old replica %d of kernel %s now, as new replica %d is ready.", op.OriginalSMRNodeID(), replicaInfo.KernelId, replicaInfo.ReplicaId)
+
+	client := op.KernelClient()
+	_, err := client.RemoveReplicaByID(op.OriginalSMRNodeID(), d.placer.Reclaim, false) // We want the replica to be removed here; we know the new replica started.
+
+	if err != nil {
+		d.log.Error("Error removing migrated replica %d of kernel %s: %v", op.OriginalSMRNodeID(), client.ID(), err)
+		return gateway.VOID, ErrFailedToRemove
+	}
+
+	// Now it is safe to scale-down the CloneSet.
+	d.kubeClient.ScaleDownCloneSet(op)
+
+	return gateway.VOID, nil
+}
+
 // StartKernel launches a new kernel.
 func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
 	d.log.Debug("GatewayDaemon has been instructed to StartKernel.")
@@ -475,7 +502,7 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 	// }
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, podNameOfMigratedRepilica)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, podNameOfMigratedRepilica, nil)
 	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("Validation error for migrated replica %d of kernel %s (ID of new replica is %d)", migrationOperation.OriginalSMRNodeID(), in.KernelId, replicaSpec.ReplicaId))
@@ -563,7 +590,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nil)
 	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
@@ -687,19 +714,19 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 	}
 
 	// d.log.Debug("Preparing replica for replica migration for kernel %s", kernel.ID())
-	// var spec *gateway.KernelReplicaSpec = kernel.PerpareNewReplica(in.PersistentId)
+	// var spec *gateway.KernelReplicaSpec = kernel.PrepareNewReplica(in.PersistentId)
 	// var replicaId int32 = spec.ReplicaId
 
 	// The ID of the replica that we're migrating.
 	var targetReplicaId int32 = in.ReplicaId
 
 	// The spec to be used for the new replica that is created during the migration.
-	var newSpec *gateway.KernelReplicaSpec = kernel.PerpareNewReplica(in.PersistentId)
+	var newSpec *gateway.KernelReplicaSpec = kernel.PrepareNewReplica(in.PersistentId)
 
 	d.log.Debug("Migrating replica %d of kernel %s now. New replica ID: %d.", targetReplicaId, kernel.ID(), newSpec.ReplicaId)
 	// d.log.Warn("WARNING: This feature has not been reimplemented for Kubernetes yet. This will fail.")
 
-	// replicaSpec := kernel.PerpareNewReplica(in.PersistentId)
+	// replicaSpec := kernel.PrepareNewReplica(in.PersistentId)
 
 	// TODO: Pass decision to the cluster scheduler.
 	// host := d.placer.FindHost(replicaSpec.Kernel.Resource)

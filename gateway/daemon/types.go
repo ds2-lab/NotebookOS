@@ -33,9 +33,11 @@ type KubeClient interface {
 	// associated migration operation.
 	WaitForNewPodNotification(string) MigrationOperation
 
-	// Return the migration operation associated with the given Kernel ID and SMR Node ID.
-	// Currently unused (at the time of writing this comment).
-	// GetMigrationOperationByKernelIdAndReplicaId(string, int) (MigrationOperation, bool)
+	// Return the migration operation associated with the given Kernel ID and new SMR Node ID.
+	GetMigrationOperationByKernelIdAndNewReplicaId(string, int32) (MigrationOperation, bool)
+
+	// Scale-down a CloneSet by decreasing its number of replicas by 1.
+	ScaleDownCloneSet(op MigrationOperation) error
 }
 
 // Represents and active, ongoing replica migration operation in which we are migrating a distributed kernel replica from one node to another.
@@ -45,7 +47,7 @@ type MigrationOperation interface {
 	KernelId() string                                    // Return the ID of the associated kernel.
 	OriginalSMRNodeID() int32                            // The (original) SMR Node ID of the replica that is being migrated. The new replica will have a different ID.
 	PersistentID() string                                // Get the persistent ID of the replica we're migrating.
-	NewPodStarted() bool                                 // Returns true if a new Pod has been started for the replica that is being migrated. Otherwise, returns false.
+	NewReplicaSmrStarted() bool                          // Returns true if a new Pod has been started for the replica that is being migrated AND the new replica itself has started and joined the SMR cluster. Otherwise, returns false.
 	OldPodStopped() bool                                 // Returns true if the original Pod of the replica has stopped. Otherwise, returns false.
 	Completed() bool                                     // Returns true if the migration has been completed; otherwise, returns false (i.e., if it is still ongoing).
 	OldPodName() string                                  // Name of the Pod in which the target replica container is running.
@@ -67,13 +69,13 @@ type MigrationManager interface {
 	RegisterKernel(string)
 
 	// Initiate a migration operation for a particular Pod. The migration will be carried out automatically by the migration manager once it has been initiated.
-	InitiateKernelMigration(context.Context, *client.DistributedKernelClient, int32, *gateway.KernelReplicaSpec) error
+	InitiateKernelMigration(context.Context, *client.DistributedKernelClient, int32, *gateway.KernelReplicaSpec) (string, error)
 
 	// Return the migration operation associated with the given Pod name, such that the Pod with the given name was created for the given migration operation.
 	GetMigrationOperationByNewPod(string) (MigrationOperation, bool)
 
 	// Return the migration operation associated with the given Kernel ID and SMR Node ID.
-	GetMigrationOperationByKernelIdAndReplicaId(string, int) (MigrationOperation, bool)
+	GetMigrationOperationByKernelIdAndNewReplicaId(string, int32) (MigrationOperation, bool)
 
 	// Wait for us to receive a pod-created notification for the given Pod, which managed to start running
 	// and register with us before we received the pod-created notification. Once received, return the

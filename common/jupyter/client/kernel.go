@@ -20,6 +20,8 @@ var (
 	heartbeatInterval = time.Second
 )
 
+type SMRReadyCallback func(*KernelClient)
+
 // KernelClient offers a simple interface to communicate with a kernel.
 // All sockets except IOPub are connected on dialing.
 //
@@ -48,13 +50,15 @@ type KernelClient struct {
 	iopubListenPort       int           // Port that the KernelClient::iopub socket listens on.
 	kernelPodName         string        // Name of the Pod housing the associated distributed kernel replica container.
 
+	smrReadyCallback SMRReadyCallback
+
 	log logger.Logger
 	mu  sync.Mutex
 }
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, smrReadyCallback SMRReadyCallback) *KernelClient {
 	client := &KernelClient{
 		id:                    spec.Kernel.Id,
 		replicaId:             spec.ReplicaId,
@@ -63,6 +67,7 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		shellListenPort:       shellListenPort,
 		iopubListenPort:       iopubListenPort,
 		kernelPodName:         kernelPodName,
+		smrReadyCallback:      smrReadyCallback,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ControlPort}
@@ -388,7 +393,7 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 }
 
 func (c *KernelClient) handleMsgWithKernelSourceFrame(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-	c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
+	// c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
 		// msg.Frames = c.RemoveSourceKernelFrame(msg.Frames, -1)
@@ -404,7 +409,7 @@ func (c *KernelClient) handleMsgWithKernelSourceFrame(server types.JupyterServer
 }
 
 func (c *KernelClient) handleMsg(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-	c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
+	// c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
 		if c.iopub != nil {
@@ -488,5 +493,10 @@ func (c *KernelClient) handleIOKernelSMRReady(kernel core.Kernel, frames types.J
 
 	c.persistentId = ready.PersistentID
 	c.log.Debug("Persistent ID confirmed: %v", c.persistentId)
+
+	if c.smrReadyCallback != nil {
+		c.smrReadyCallback(c)
+	}
+
 	return types.ErrStopPropagation
 }

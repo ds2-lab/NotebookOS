@@ -30,18 +30,18 @@ var (
 )
 
 type migrationOperationImpl struct {
-	id                   string                          // Unique identifier of the migration operation.
-	kernelId             string                          // ID of the kernel for which a replica is being migrated.
-	targetClient         *client.DistributedKernelClient // DistributedKernelClient of the kernel for which we're migrating a replica.
-	targetSmrNodeId      int32                           // The SMR Node ID of the replica that is being migrated.
-	newPodStarted        bool                            // True if a new Pod has been started for the replica that is being migrated. Otherwise, false.
-	oldPodStopped        bool                            // True if the original Pod of the replica has stopped. Otherwise, false.
-	oldPodName           string                          // Name of the Pod in which the target replica container is running.
-	newPodName           string                          // Name of the new Pod that was started to host the migrated replica.
-	newReplicaRegistered bool                            // If true, then new replica has registered with the Gateway.
-	persistentId         string                          // Persistent ID of replica.
-	newReplicaHostname   string                          // The IP address of the new replica.
-	newSpec              *gateway.KernelReplicaSpec      // Spec for the new replica that is created during the migration.
+	id                      string                          // Unique identifier of the migration operation.
+	kernelId                string                          // ID of the kernel for which a replica is being migrated.
+	targetClient            *client.DistributedKernelClient // DistributedKernelClient of the kernel for which we're migrating a replica.
+	targetSmrNodeId         int32                           // The SMR Node ID of the replica that is being migrated.
+	newPodAndReplicaStarted bool                            // True if a new Pod has been started for the replica that is being migrated. Otherwise, false.
+	oldPodStopped           bool                            // True if the original Pod of the replica has stopped. Otherwise, false.
+	oldPodName              string                          // Name of the Pod in which the target replica container is running.
+	newPodName              string                          // Name of the new Pod that was started to host the migrated replica.
+	newReplicaRegistered    bool                            // If true, then new replica has registered with the Gateway.
+	persistentId            string                          // Persistent ID of replica.
+	newReplicaHostname      string                          // The IP address of the new replica.
+	newSpec                 *gateway.KernelReplicaSpec      // Spec for the new replica that is created during the migration.
 
 	podStartedMu   sync.Mutex // Used to signal that the new Pod has started.
 	podStartedCond *sync.Cond // Used with the podStartedCond condition variable.
@@ -57,15 +57,15 @@ type migrationOperationImpl struct {
 
 func NewMigrationOperation(targetClient *client.DistributedKernelClient, targetSmrNodeId int32, oldPodName string, newSpec *gateway.KernelReplicaSpec) *migrationOperationImpl {
 	m := &migrationOperationImpl{
-		id:              uuid.New().String(),
-		targetClient:    targetClient,
-		kernelId:        targetClient.ID(),
-		targetSmrNodeId: targetSmrNodeId,
-		newPodStarted:   false,
-		oldPodStopped:   false,
-		persistentId:    *newSpec.PersistentId,
-		oldPodName:      oldPodName,
-		newSpec:         newSpec,
+		id:                      uuid.New().String(),
+		targetClient:            targetClient,
+		kernelId:                targetClient.ID(),
+		targetSmrNodeId:         targetSmrNodeId,
+		newPodAndReplicaStarted: false,
+		oldPodStopped:           false,
+		persistentId:            *newSpec.PersistentId,
+		oldPodName:              oldPodName,
+		newSpec:                 newSpec,
 		// completed:       false,
 	}
 
@@ -124,8 +124,8 @@ func (m *migrationOperationImpl) OriginalSMRNodeID() int32 {
 }
 
 // Returns true if a new Pod has been started for the replica that is being migrated. Otherwise, returns false.
-func (m *migrationOperationImpl) NewPodStarted() bool {
-	return m.newPodStarted
+func (m *migrationOperationImpl) NewReplicaSmrStarted() bool {
+	return m.newPodAndReplicaStarted
 }
 
 // Returns true if the original Pod of the replica has stopped. Otherwise, returns false.
@@ -135,9 +135,7 @@ func (m *migrationOperationImpl) OldPodStopped() bool {
 
 // Return true if the migration has been completed; otherwise, return false (i.e., if it is still ongoing).
 func (m *migrationOperationImpl) Completed() bool {
-	// return m.completed
-
-	return m.oldPodStopped && m.newPodStarted
+	return m.oldPodStopped && m.newPodAndReplicaStarted && m.newReplicaRegistered
 }
 
 // Return the name of the Pod in which the target replica container is running.
@@ -148,7 +146,7 @@ func (m *migrationOperationImpl) OldPodName() string {
 // Return the name of the newly-created Pod that will host the migrated replica.
 // Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
 func (m *migrationOperationImpl) NewPodName() (string, bool) {
-	if m.newPodStarted {
+	if m.newPodAndReplicaStarted {
 		return m.newPodName, true
 	} else {
 		return "", false
@@ -157,11 +155,11 @@ func (m *migrationOperationImpl) NewPodName() (string, bool) {
 
 // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
 func (m *migrationOperationImpl) SetNewPodName(newPodName string) {
-	if m.newPodStarted {
+	if m.newPodAndReplicaStarted {
 		panic(fmt.Sprintf("Migration operation %s already has a new pod (pod %s).", m.id, m.newPodName))
 	}
 
-	m.newPodStarted = true
+	m.newPodAndReplicaStarted = true
 	m.newPodName = newPodName
 }
 
@@ -349,18 +347,6 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 	migrationOp.Wait()
 	m.log.Info("Migration Operation %s on replica %d of kernel %s to completed. Returning now.", migrationOp.OperationID(), targetSmrNodeId, kernelId)
 
-	// Remove the old replica.
-	// The caller should stop the replica after confirmed that the new replica is ready.
-	go func() {
-		m.log.Debug("Removing replica %d from Distributed Kernel Client for kernel %s.", migrationOp.OriginalSMRNodeID(), kernelId)
-		err := migrationOp.KernelClient().RemoveReplicaByIDWithoutRemover(migrationOp.OriginalSMRNodeID())
-		if err != nil {
-			m.log.Error("Failed to remove replica(%s:%d): %v", kernelId, targetSmrNodeId, err)
-		} else {
-			m.log.Debug("Successfully removed replica %d from Distributed Kernel Client for kernel %s.", migrationOp.OriginalSMRNodeID(), kernelId)
-		}
-	}()
-
 	// TODO (Ben): Wait for new Pod to start, assign it the correct SMR Node ID, and then update the CloneSet to have less replicas and delete the correct Pod.
 	return migrationOp.NewReplicaHostname(), nil
 }
@@ -484,7 +470,7 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 		op = el.Value
 
 		// The operation has already passed this stage; it's not waiting on a new Pod.
-		if op.Completed() || op.NewPodStarted() {
+		if op.Completed() || op.NewReplicaSmrStarted() {
 			continue
 		}
 
@@ -506,11 +492,11 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 		panic(err)
 	}
 
-	// Decrease the number of replicas of the CloneSet. The Pod that we labeled in the previous step should be deleted.
-	err = m.scaleDownCloneSet(op)
-	if err != nil {
-		panic(err)
-	}
+	// // Decrease the number of replicas of the CloneSet. The Pod that we labeled in the previous step should be deleted.
+	// err = m.scaleDownCloneSet(op)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	mutex.Unlock()
 
@@ -531,53 +517,15 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	// We also need to facilitate hooking up the new replica with the rest of the system.
 }
 
-// Scale-down a CloneSet by decreasing its number of replicas by 1.
-func (m *migrationManagerImpl) scaleDownCloneSet(op MigrationOperation) error {
-	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		cloneset_id := fmt.Sprintf("kernel-%s", op.KernelId())
-		result, getErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
-
-		if getErr != nil {
-			panic(fmt.Errorf("Failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
-		}
-
-		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
-
-		if err != nil || !found {
-			m.log.Error("Replicas not found for CloneSet %s: error=%v", cloneset_id, err)
-			return err
-		}
-
-		m.log.Debug("Attempting to DECREASE the number of replicas of CloneSet \"%s\" by deleting pod \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, op.OldPodName(), current_num_replicas)
-		new_num_replicas := current_num_replicas - 1
-
-		// Decrease the number of replicas.
-		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
-			panic(fmt.Errorf("Failed to set spec.replicas value for CloneSet \"%s\": %v", cloneset_id, err))
-		}
-
-		_, updateErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
-
-		if updateErr != nil {
-			m.log.Error("Failed to apply update to CloneSet \"%s\": error=%v", cloneset_id, err)
-		} else {
-			m.log.Debug("Successfully decreased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
-		}
-
-		return updateErr
-	})
-
-	return retryErr
-}
-
 // Function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
 func (m *migrationManagerImpl) PodUpdated(oldObj interface{}, newObj interface{}) {
 	oldPod := oldObj.(*corev1.Pod)
 	newPod := newObj.(*corev1.Pod)
-	m.log.Debug(
-		"Pod updated. %s/%s %s",
-		oldPod.Namespace, oldPod.Name, newPod.Status.Phase,
-	)
+	if newPod.Status.Phase == corev1.PodFailed {
+		m.log.Error(
+			"Pod updated. %s/%s %s",
+			oldPod.Namespace, oldPod.Name, newPod.Status.Phase)
+	}
 }
 
 // Function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
@@ -629,7 +577,7 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 	m.log.Debug("Recording that old pod %s stopped for active migration operation %s.", pod.Name, op.OperationID())
 	op.SetOldPodStopped()
 
-	if !op.NewPodStarted() {
+	if !op.NewReplicaSmrStarted() {
 		panic(fmt.Sprintf("Old pod \"%s\" stopped for Migration Operation %s for Kernel %s, but new Pod has not yet started.", op.OldPodName(), op.OperationID(), op.KernelId()))
 	}
 
@@ -657,7 +605,8 @@ func (m *migrationManagerImpl) migrationCompleted(op MigrationOperation) {
 func (m *migrationManagerImpl) CheckIfMigrationCompleted(op MigrationOperation) bool {
 	m.mainMutex.Lock()
 	defer m.mainMutex.Unlock()
-	if op.NewPodStarted() && op.GetNewReplicaRegistered() && op.OldPodStopped() {
+	// if op.NewReplicaSmrStarted() && op.GetNewReplicaRegistered() && op.OldPodStopped() {
+	if op.Completed() {
 		m.migrationCompleted(op) // Need to have the lock when we call this.
 		return true
 	}
@@ -669,8 +618,8 @@ func (m *migrationManagerImpl) GetMigrationOperationByNewPod(newPodName string) 
 	return m.migrationOperationsByNewPodName.Get(newPodName)
 }
 
-// Return the migration operation associated with the given Kernel ID and SMR Node ID.
-func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndReplicaId(kernelId string, smrNodeId int) (MigrationOperation, bool) {
+// Return the migration operation associated with the given Kernel ID and SMR Node ID of the new replica.
+func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (MigrationOperation, bool) {
 	m.mainMutex.Lock()
 	defer m.mainMutex.Unlock()
 
@@ -683,7 +632,7 @@ func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndReplicaId(kerne
 	for el := activeOps.Front(); el != nil; el = el.Next() {
 		op = el.Value
 
-		if op.OriginalSMRNodeID() == int32(smrNodeId) {
+		if op.GetNewReplicaKernelSpec().ReplicaId == smrNodeId {
 			return op, true
 		}
 	}

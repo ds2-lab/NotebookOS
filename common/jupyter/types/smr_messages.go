@@ -5,7 +5,6 @@ const (
 
 	IOTopicSMRReady = "smr_ready"
 
-	MessageTypeSMRReady          = IOTopicSMRReady
 	MessageTypeSMRLeadTask       = "smr_lead_task"
 	MessageTypeAddReplicaRequest = "add_replica_request"
 )

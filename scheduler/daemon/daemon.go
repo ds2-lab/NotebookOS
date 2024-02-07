@@ -232,7 +232,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName)
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, d.smrReadyCallback)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
@@ -333,6 +333,10 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	d.log.Debug("Wrote %d bytes back to kernel in response to kernel registration.", bytes_written)
+}
+
+func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
+	d.log.Debug("Replica %d of Kernel %s has joined its SMR cluster.", kernelClient.ReplicaID(), kernelClient.ID())
 }
 
 // StartKernel launches a new kernel.

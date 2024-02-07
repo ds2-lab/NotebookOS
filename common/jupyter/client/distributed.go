@@ -219,8 +219,8 @@ func (c *DistributedKernelClient) KernelPodName(id int32) (string, error) {
 	return replica.KernelPodName(), nil
 }
 
-// PerpareNewReplica determines the replica ID for the new replica and returns the KernelReplicaSpec required to start the replica.
-func (c *DistributedKernelClient) PerpareNewReplica(persistentId string) *gateway.KernelReplicaSpec {
+// PrepareNewReplica determines the replica ID for the new replica and returns the KernelReplicaSpec required to start the replica.
+func (c *DistributedKernelClient) PrepareNewReplica(persistentId string) *gateway.KernelReplicaSpec {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -628,7 +628,7 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 }
 
 func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-	c.log.Debug("DistrKernClient %v handling %v message: %v", c.id, typ.String(), msg)
+	// c.log.Debug("DistrKernClient %v handling %v message: %v", c.id, typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
 		// Remove the source kernel frame.
@@ -639,7 +639,7 @@ func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ
 		case types.IOTopicStatus:
 			return c.handleIOKernelStatus(replica.(*KernelClient), jFrames, msg)
 		default:
-			c.log.Debug("Forwarding %v message from replica %d: %v", typ, replica.(*KernelClient).ReplicaID(), msg)
+			// c.log.Debug("Forwarding %v message from replica %d: %v", typ, replica.(*KernelClient).ReplicaID(), msg)
 			return c.server.Sockets.IO.Send(*msg)
 		}
 	}
