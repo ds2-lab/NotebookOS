@@ -230,10 +230,10 @@ func (c *BasicKubeClient) InitiateKernelMigration(ctx context.Context, targetCli
 }
 
 // Scale-down a CloneSet by decreasing its number of replicas by 1.
-func (m *migrationManagerImpl) ScaleDownCloneSet(op MigrationOperation) error {
+func (c *BasicKubeClient) ScaleDownCloneSet(op MigrationOperation) error {
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		cloneset_id := fmt.Sprintf("kernel-%s", op.KernelId())
-		result, getErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
+		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
 
 		if getErr != nil {
 			panic(fmt.Errorf("Failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
@@ -242,11 +242,11 @@ func (m *migrationManagerImpl) ScaleDownCloneSet(op MigrationOperation) error {
 		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
 
 		if err != nil || !found {
-			m.log.Error("Replicas not found for CloneSet %s: error=%v", cloneset_id, err)
+			c.log.Error("Replicas not found for CloneSet %s: error=%v", cloneset_id, err)
 			return err
 		}
 
-		m.log.Debug("Attempting to DECREASE the number of replicas of CloneSet \"%s\" by deleting pod \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, op.OldPodName(), current_num_replicas)
+		c.log.Debug("Attempting to DECREASE the number of replicas of CloneSet \"%s\" by deleting pod \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, op.OldPodName(), current_num_replicas)
 		new_num_replicas := current_num_replicas - 1
 
 		// Decrease the number of replicas.
@@ -254,12 +254,12 @@ func (m *migrationManagerImpl) ScaleDownCloneSet(op MigrationOperation) error {
 			panic(fmt.Errorf("Failed to set spec.replicas value for CloneSet \"%s\": %v", cloneset_id, err))
 		}
 
-		_, updateErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
+		_, updateErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
 
 		if updateErr != nil {
-			m.log.Error("Failed to apply update to CloneSet \"%s\": error=%v", cloneset_id, err)
+			c.log.Error("Failed to apply update to CloneSet \"%s\": error=%v", cloneset_id, err)
 		} else {
-			m.log.Debug("Successfully decreased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
+			c.log.Debug("Successfully decreased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
 		}
 
 		return updateErr
