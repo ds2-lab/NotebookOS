@@ -20,7 +20,7 @@ service ClusterGateway {
   // 
   // The function will simply remove the replica from the kernel without stopping it.
   // The caller should stop the replica after confirmed that the new replica is ready.
-  rpc MigrateKernelReplica(ReplicaInfo) returns (ReplicaId) {}
+  rpc MigrateKernelReplica(ReplicaInfo) returns (MigrateKernelResponse) {}
 
   // Notify the Gateway that a distributed kernel replica has started somewhere.
   rpc NotifyKernelRegistered(KernelRegistrationNotification) returns (KernelRegistrationNotificationResponse) {}
@@ -99,6 +99,11 @@ message ReplicaInfo {
 // The replica id.
 message ReplicaId {
   int32 id = 1;
+}
+
+message MigrateKernelResponse {
+  int32 id = 1;
+  string hostname = 2;
 }
 
 // The kernel spec.

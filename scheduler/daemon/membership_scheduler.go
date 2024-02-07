@@ -30,7 +30,7 @@ func NewMembershipScheduler(daemon *SchedulerDaemon) *MembershipScheduler {
 func (s *MembershipScheduler) OnTaskStart(kernel core.Kernel, task *jupyter.MessageSMRLeadTask) error {
 	persistentId := kernel.(*client.KernelClient).PersistentID()
 	s.log.Info("Add new replica to kernel %s with persistent id %s, replica ID is %d", kernel.ID(), persistentId, kernel.(*client.KernelClient).ReplicaID())
-	replicaId, err := s.daemon.Provisioner.MigrateKernelReplica(context.Background(), &gateway.ReplicaInfo{
+	migrateKernelResponse, err := s.daemon.Provisioner.MigrateKernelReplica(context.Background(), &gateway.ReplicaInfo{
 		KernelId:     kernel.ID(),
 		ReplicaId:    kernel.(*client.KernelClient).ReplicaID(),
 		PersistentId: persistentId,
@@ -40,11 +40,11 @@ func (s *MembershipScheduler) OnTaskStart(kernel core.Kernel, task *jupyter.Mess
 		return err
 	}
 
-	s.log.Debug("Now that kernel %s(%d) has added, notify the existing members.", kernel.ID(), replicaId.Id)
+	s.log.Debug("Now that kernel %s(%d) has added, notify the existing members.", kernel.ID(), migrateKernelResponse.Id)
 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernel.(*client.KernelClient).Sessions()[0])
 	frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
-		NodeID:  replicaId.Id,
-		Address: s.daemon.getInvoker(kernel).GetReplicaAddress(kernel.KernelSpec(), replicaId.Id),
+		NodeID:  migrateKernelResponse.Id,
+		Address: migrateKernelResponse.Hostname, // s.daemon.getInvoker(kernel).GetReplicaAddress(kernel.KernelSpec(), migrateKernelResponse.Id),
 	})
 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		return err

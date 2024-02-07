@@ -39,7 +39,7 @@ type ClusterGatewayClient interface {
 	//
 	// The function will simply remove the replica from the kernel without stopping it.
 	// The caller should stop the replica after confirmed that the new replica is ready.
-	MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*ReplicaId, error)
+	MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*MigrateKernelResponse, error)
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
 	NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*KernelRegistrationNotificationResponse, error)
 }
@@ -70,8 +70,8 @@ func (c *clusterGatewayClient) RemoveHost(ctx context.Context, in *HostId, opts 
 	return out, nil
 }
 
-func (c *clusterGatewayClient) MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*ReplicaId, error) {
-	out := new(ReplicaId)
+func (c *clusterGatewayClient) MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*MigrateKernelResponse, error) {
+	out := new(MigrateKernelResponse)
 	err := c.cc.Invoke(ctx, ClusterGateway_MigrateKernelReplica_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ type ClusterGatewayServer interface {
 	//
 	// The function will simply remove the replica from the kernel without stopping it.
 	// The caller should stop the replica after confirmed that the new replica is ready.
-	MigrateKernelReplica(context.Context, *ReplicaInfo) (*ReplicaId, error)
+	MigrateKernelReplica(context.Context, *ReplicaInfo) (*MigrateKernelResponse, error)
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
 	NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*KernelRegistrationNotificationResponse, error)
 	mustEmbedUnimplementedClusterGatewayServer()
@@ -118,7 +118,7 @@ func (UnimplementedClusterGatewayServer) ID(context.Context, *Void) (*Provisione
 func (UnimplementedClusterGatewayServer) RemoveHost(context.Context, *HostId) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveHost not implemented")
 }
-func (UnimplementedClusterGatewayServer) MigrateKernelReplica(context.Context, *ReplicaInfo) (*ReplicaId, error) {
+func (UnimplementedClusterGatewayServer) MigrateKernelReplica(context.Context, *ReplicaInfo) (*MigrateKernelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MigrateKernelReplica not implemented")
 }
 func (UnimplementedClusterGatewayServer) NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*KernelRegistrationNotificationResponse, error) {

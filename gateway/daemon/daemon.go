@@ -184,14 +184,30 @@ func (wg *registrationWaitGroups) GetReplicas() []string {
 	return wg.replicas
 }
 
-func (wg *registrationWaitGroups) UpdateAndGetReplicasAfterMigration(idx int32, hostname string) []string {
+func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) []string {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
+
+	var idx int32 = nodeId - 1
+	if int32(len(wg.replicas)) < idx {
+		replicas := make([]string, 0, idx)
+		copy(replicas, wg.replicas)
+		wg.replicas = replicas
+	}
 
 	wg.replicas[idx] = hostname
 
 	return wg.replicas
 }
+
+// func (wg *registrationWaitGroups) UpdateAndGetReplicasAfterMigration(idx int32, hostname string) []string {
+// wg.replicasMutex.Lock()
+// defer wg.replicasMutex.Unlock()
+
+// 	wg.replicas[idx] = hostname
+
+// 	return wg.replicas
+// }
 
 // Return the "notified" sync.WaitGroup.
 func (wg *registrationWaitGroups) GetNotified() *sync.WaitGroup {
@@ -428,7 +444,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 // TODO(Ben): Do I really need the main lock for this function?
 // IMPORTANT: This must be called with the main mutex held.
 // IMPORTANT: This will release the main mutex before returning.
-func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, in *gateway.KernelRegistrationNotification, kernel *client.DistributedKernelClient, kernelSpec *gateway.KernelSpec, waitGroup *registrationWaitGroups) (*gateway.KernelRegistrationNotificationResponse, error) {
+func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, in *gateway.KernelRegistrationNotification, kernel *client.DistributedKernelClient, waitGroup *registrationWaitGroups) (*gateway.KernelRegistrationNotificationResponse, error) {
 	podNameOfMigratedRepilica := in.PodName
 	migrationOperation, ok := d.kubeClient.GetMigrationOperationByNewPod(podNameOfMigratedRepilica)
 
@@ -447,29 +463,32 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 		d.mutex.Lock()
 	}
 
-	var persistentId string = migrationOperation.PersistentID()
-	replicaSpec := &gateway.KernelReplicaSpec{
-		Kernel:       kernelSpec,
-		ReplicaId:    migrationOperation.TargetSMRNodeID(),
-		PersistentId: &persistentId,
-		Join:         true,
-		NumReplicas:  int32(d.ClusterOptions.NumReplicas), // TODO(Ben): Don't hardcode this.
-	}
+	// The replica spec that was specifically prepared for the new replica during the initiation of the migration operation.
+	replicaSpec := migrationOperation.GetNewReplicaKernelSpec()
+	migrationOperation.SetNewReplicaHostname(in.KernelIp)
+	// replicaSpec := &gateway.KernelReplicaSpec{
+	// 	Kernel:       kernelSpec,
+	// 	ReplicaId:    migrationOperation.OriginalSMRNodeID(),
+	// 	PersistentId: &persistentId,
+	// 	Join:         true,
+	// 	NumReplicas:  int32(d.ClusterOptions.NumReplicas), // TODO(Ben): Don't hardcode this.
+	// }
 
 	// Initialize kernel client
 	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, podNameOfMigratedRepilica)
 	err := replica.Validate()
 	if err != nil {
-		panic(fmt.Sprintf("Validation error for migrated replica %d of kernel %s", migrationOperation.TargetSMRNodeID(), in.KernelId))
+		panic(fmt.Sprintf("Validation error for migrated replica %d of kernel %s (ID of new replica is %d)", migrationOperation.OriginalSMRNodeID(), in.KernelId, replicaSpec.ReplicaId))
 	}
 
 	// Store the new replica in the list of replicas for the kernel (at the correct position, based on the SMR node ID).
 	// Then, return the list of replicas so that we can pass it to the new replica.
-	updatedReplicas := waitGroup.UpdateAndGetReplicasAfterMigration(migrationOperation.TargetSMRNodeID()-1, in.KernelIp)
+	// updatedReplicas := waitGroup.UpdateAndGetReplicasAfterMigration(migrationOperation.OriginalSMRNodeID()-1, in.KernelIp)
+	updatedReplicas := waitGroup.AddReplica(replicaSpec.ReplicaId, in.KernelIp)
 
 	// TODO(Ben): Need to update the replicas stored here.
 	response := &gateway.KernelRegistrationNotificationResponse{
-		Id:       migrationOperation.TargetSMRNodeID(),
+		Id:       replicaSpec.ReplicaId,
 		Replicas: updatedReplicas,
 	}
 
@@ -526,7 +545,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		d.log.Debug("There is/are %d active migration operation(s) targeting kernel %s. Assuming currently-registering replica is for a migration.", kernel.NumActiveMigrations(), kernel.ID())
 		// Must be holding the main mutex before calling handleMigratedReplicaRegistration.
 		// It will release the lock.
-		result, err := d.handleMigratedReplicaRegistration(ctx, in, kernel, kernelSpec, waitGroup)
+		result, err := d.handleMigratedReplicaRegistration(ctx, in, kernel, waitGroup)
 		return result, err
 	} else {
 		d.log.Debug("There are 0 active migration operations targeting kernel %s.", kernel.ID())
@@ -536,6 +555,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	// The size will be 0, so we'll assign it a replica ID of 0 + 1 = 1.
 	var replicaId int32 = int32(kernel.Size()) + 1
 
+	// We're registering a new replica, so the number of replicas is based on the cluster configuration.
 	replicaSpec := &gateway.KernelReplicaSpec{
 		Kernel:      kernelSpec,
 		ReplicaId:   replicaId,
@@ -660,22 +680,23 @@ func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*ga
 	return gateway.VOID, nil
 }
 
-func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.ReplicaId, error) {
+func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
 	kernel, ok := d.kernels.Load(in.KernelId)
 	if !ok {
 		return nil, d.errorf(ErrKernelNotFound)
 	}
 
-	var replicaId int32
-	if in.ReplicaId == -1 {
-		d.log.Debug("Preparing replica for replica migration for kernel %s", kernel.ID())
-		var spec *gateway.KernelReplicaSpec = kernel.PerpareNewReplica(in.PersistentId)
-		replicaId = spec.ReplicaId
-	} else {
-		replicaId = in.ReplicaId
-	}
+	// d.log.Debug("Preparing replica for replica migration for kernel %s", kernel.ID())
+	// var spec *gateway.KernelReplicaSpec = kernel.PerpareNewReplica(in.PersistentId)
+	// var replicaId int32 = spec.ReplicaId
 
-	d.log.Debug("Migrating replica %d of kernel %s now.", replicaId, kernel.ID())
+	// The ID of the replica that we're migrating.
+	var targetReplicaId int32 = in.ReplicaId
+
+	// The spec to be used for the new replica that is created during the migration.
+	var newSpec *gateway.KernelReplicaSpec = kernel.PerpareNewReplica(in.PersistentId)
+
+	d.log.Debug("Migrating replica %d of kernel %s now. New replica ID: %d.", targetReplicaId, kernel.ID(), newSpec.ReplicaId)
 	// d.log.Warn("WARNING: This feature has not been reimplemented for Kubernetes yet. This will fail.")
 
 	// replicaSpec := kernel.PerpareNewReplica(in.PersistentId)
@@ -690,9 +711,15 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 	// 	}
 	// }()
 
-	d.kubeClient.InitiateKernelMigration(ctx, kernel, replicaId, in.PersistentId)
+	hostname, err := d.kubeClient.InitiateKernelMigration(ctx, kernel, targetReplicaId, newSpec)
 
-	return nil, d.errorf(ErrNotImplementedKube)
+	if err != nil {
+		d.log.Error("Error encountered while migrating replica %d of kernel %s: %v", targetReplicaId, kernel.ID(), err)
+		err = d.errorf(err) // Reassign err.
+	}
+
+	// `err` may be nil here. The fact that we're returning `err` here doesn't mean `err` is necessarily non-nil.
+	return &gateway.MigrateKernelResponse{Id: targetReplicaId, Hostname: hostname}, err
 
 	// replicaConnInfo, err := d.placer.Place(host, replicaSpec)
 	// if err != nil {
