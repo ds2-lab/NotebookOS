@@ -17,7 +17,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -30,18 +29,19 @@ var (
 )
 
 type migrationOperationImpl struct {
-	id                      string                          // Unique identifier of the migration operation.
-	kernelId                string                          // ID of the kernel for which a replica is being migrated.
-	targetClient            *client.DistributedKernelClient // DistributedKernelClient of the kernel for which we're migrating a replica.
-	targetSmrNodeId         int32                           // The SMR Node ID of the replica that is being migrated.
-	newPodAndReplicaStarted bool                            // True if a new Pod has been started for the replica that is being migrated. Otherwise, false.
-	oldPodStopped           bool                            // True if the original Pod of the replica has stopped. Otherwise, false.
-	oldPodName              string                          // Name of the Pod in which the target replica container is running.
-	newPodName              string                          // Name of the new Pod that was started to host the migrated replica.
-	newReplicaRegistered    bool                            // If true, then new replica has registered with the Gateway.
-	persistentId            string                          // Persistent ID of replica.
-	newReplicaHostname      string                          // The IP address of the new replica.
-	newSpec                 *gateway.KernelReplicaSpec      // Spec for the new replica that is created during the migration.
+	id                   string                          // Unique identifier of the migration operation.
+	kernelId             string                          // ID of the kernel for which a replica is being migrated.
+	targetClient         *client.DistributedKernelClient // DistributedKernelClient of the kernel for which we're migrating a replica.
+	targetSmrNodeId      int32                           // The SMR Node ID of the replica that is being migrated.
+	newPodStarted        bool                            // True if a new Pod has been started for the replica that is being migrated. Otherwise, false.
+	newReplicaJoinedSMR  bool                            // True if the new replica has joined the SMR cluster. Otherwise, false.
+	oldPodStopped        bool                            // True if the original Pod of the replica has stopped. Otherwise, false.
+	oldPodName           string                          // Name of the Pod in which the target replica container is running.
+	newPodName           string                          // Name of the new Pod that was started to host the migrated replica.
+	newReplicaRegistered bool                            // If true, then new replica has registered with the Gateway.
+	persistentId         string                          // Persistent ID of replica.
+	newReplicaHostname   string                          // The IP address of the new replica.
+	newSpec              *gateway.KernelReplicaSpec      // Spec for the new replica that is created during the migration.
 
 	podStartedMu   sync.Mutex // Used to signal that the new Pod has started.
 	podStartedCond *sync.Cond // Used with the podStartedCond condition variable.
@@ -57,15 +57,17 @@ type migrationOperationImpl struct {
 
 func NewMigrationOperation(targetClient *client.DistributedKernelClient, targetSmrNodeId int32, oldPodName string, newSpec *gateway.KernelReplicaSpec) *migrationOperationImpl {
 	m := &migrationOperationImpl{
-		id:                      uuid.New().String(),
-		targetClient:            targetClient,
-		kernelId:                targetClient.ID(),
-		targetSmrNodeId:         targetSmrNodeId,
-		newPodAndReplicaStarted: false,
-		oldPodStopped:           false,
-		persistentId:            *newSpec.PersistentId,
-		oldPodName:              oldPodName,
-		newSpec:                 newSpec,
+		id:                   uuid.New().String(),
+		targetClient:         targetClient,
+		kernelId:             targetClient.ID(),
+		targetSmrNodeId:      targetSmrNodeId,
+		newPodStarted:        false,
+		newReplicaJoinedSMR:  false,
+		newReplicaRegistered: false,
+		oldPodStopped:        false,
+		persistentId:         *newSpec.PersistentId,
+		oldPodName:           oldPodName,
+		newSpec:              newSpec,
 		// completed:       false,
 	}
 
@@ -124,8 +126,18 @@ func (m *migrationOperationImpl) OriginalSMRNodeID() int32 {
 }
 
 // Returns true if a new Pod has been started for the replica that is being migrated. Otherwise, returns false.
-func (m *migrationOperationImpl) NewReplicaSmrStarted() bool {
-	return m.newPodAndReplicaStarted
+func (m *migrationOperationImpl) NewReplicaJoinedSMR() bool {
+	return m.newReplicaJoinedSMR
+}
+
+// Record that the new replica has joined its SMR cluster.
+func (m *migrationOperationImpl) SetNewReplicaJoinedSMR() {
+	m.newReplicaJoinedSMR = true
+}
+
+// Return true if the new Pod has started.
+func (m *migrationOperationImpl) NewPodStarted() bool {
+	return m.newPodStarted
 }
 
 // Returns true if the original Pod of the replica has stopped. Otherwise, returns false.
@@ -135,7 +147,7 @@ func (m *migrationOperationImpl) OldPodStopped() bool {
 
 // Return true if the migration has been completed; otherwise, return false (i.e., if it is still ongoing).
 func (m *migrationOperationImpl) Completed() bool {
-	return m.oldPodStopped && m.newPodAndReplicaStarted && m.newReplicaRegistered
+	return m.oldPodStopped && m.newPodStarted && m.newReplicaRegistered && m.newReplicaJoinedSMR
 }
 
 // Return the name of the Pod in which the target replica container is running.
@@ -146,7 +158,7 @@ func (m *migrationOperationImpl) OldPodName() string {
 // Return the name of the newly-created Pod that will host the migrated replica.
 // Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
 func (m *migrationOperationImpl) NewPodName() (string, bool) {
-	if m.newPodAndReplicaStarted {
+	if m.newPodStarted {
 		return m.newPodName, true
 	} else {
 		return "", false
@@ -155,11 +167,11 @@ func (m *migrationOperationImpl) NewPodName() (string, bool) {
 
 // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
 func (m *migrationOperationImpl) SetNewPodName(newPodName string) {
-	if m.newPodAndReplicaStarted {
+	if m.newPodStarted {
 		panic(fmt.Sprintf("Migration operation %s already has a new pod (pod %s).", m.id, m.newPodName))
 	}
 
-	m.newPodAndReplicaStarted = true
+	m.newPodStarted = true
 	m.newPodName = newPodName
 }
 
@@ -378,56 +390,6 @@ func (m *migrationManagerImpl) WaitForNewPodNotification(newPodName string) Migr
 	}
 }
 
-// Add the "apps.kruise.io/specified-delete: true" label to the Pod with the given name.
-// The labeled Pod will be prioritized for deletion when the CloneSet is scaled down.
-// This is used as part of the replica migration protocol.
-//
-// Relevant OpenKruise documentation:
-// https://openkruise.io/docs/user-manuals/cloneset/#selective-pod-deletion
-func (m *migrationManagerImpl) addKruiseDeleteLabelToPod(podName string, podNamespace string) error {
-	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		payload := `{"metadata": {"labels": {"apps.kruise.io/specified-delete": "true"}}}`
-		_, updateErr := m.kubeClientset.CoreV1().Pods(podNamespace).Patch(context.Background(), podName, types.MergePatchType, []byte(payload), metav1.PatchOptions{})
-		if updateErr != nil {
-			m.log.Error("Error when updating labels for Pod \"%s\": %v", podName, updateErr)
-			return errors.Wrapf(updateErr, fmt.Sprintf("Failed to add deletion label to Pod \"%s\".", podName))
-		}
-
-		m.log.Debug("Pod %s labelled successfully.", podName)
-		return nil
-	})
-
-	if retryErr != nil {
-		m.log.Error("Failed to update metadata labels for old Pod %s/%s", podNamespace, podName)
-		return retryErr
-	}
-
-	pod, err := m.kubeClientset.CoreV1().Pods(podNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
-	if err != nil {
-		m.log.Error("Could not find Pod \"%s\" in namespace \"%s\": %v", podName, podNamespace, err)
-		return err
-	}
-
-	var annotations map[string]string = pod.GetAnnotations()
-
-	annotations["apps.kruise.io/specified-delete"] = "true"                   // I don't think this is necessary; documentation says to use a label for this one.
-	annotations["controller.kubernetes.io/pod-deletion-cost"] = "-2147483647" // This one should be an annotation, though.
-
-	pod.SetAnnotations(annotations)
-
-	pod, err = m.kubeClientset.
-		CoreV1().
-		Pods(podNamespace).
-		Update(context.TODO(), pod, metav1.UpdateOptions{})
-
-	if err != nil {
-		m.log.Error("Failed to update annotations of Pod %s/%s: %v", podNamespace, podName, err)
-		return errors.Wrapf(err, "Failed to update annotations of Pod %s/%s.", podNamespace, podName)
-	}
-
-	return err
-}
-
 // Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
 func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	pod := obj.(*corev1.Pod)
@@ -470,7 +432,7 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 		op = el.Value
 
 		// The operation has already passed this stage; it's not waiting on a new Pod.
-		if op.Completed() || op.NewReplicaSmrStarted() {
+		if op.Completed() || op.NewPodStarted() {
 			continue
 		}
 
@@ -486,12 +448,11 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	op.SetNewPodName(pod.Name)
 	m.migrationOperationsByNewPodName.Set(pod.Name, op)
 
-	// Label the Pod that we would like to delete so that the CloneSet prioritizes deleting it when we scale it down in the next step.
-	err := m.addKruiseDeleteLabelToPod(op.OldPodName(), "default")
-	if err != nil {
-		panic(err)
-	}
-
+	// // Label the Pod that we would like to delete so that the CloneSet prioritizes deleting it when we scale it down in the next step.
+	// err := m.addKruiseDeleteLabelToPod(op.OldPodName(), "default")
+	// if err != nil {
+	// 	panic(err)
+	// }
 	// // Decrease the number of replicas of the CloneSet. The Pod that we labeled in the previous step should be deleted.
 	// err = m.scaleDownCloneSet(op)
 	// if err != nil {
@@ -577,11 +538,11 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 	m.log.Debug("Recording that old pod %s stopped for active migration operation %s.", pod.Name, op.OperationID())
 	op.SetOldPodStopped()
 
-	if !op.NewReplicaSmrStarted() {
+	if !op.NewPodStarted() {
 		panic(fmt.Sprintf("Old pod \"%s\" stopped for Migration Operation %s for Kernel %s, but new Pod has not yet started.", op.OldPodName(), op.OperationID(), op.KernelId()))
 	}
 
-	// Check if we're done. We'll be done when both the old Pod has stopped AND when the new replica has registered successfully.
+	// Check if we're done. We'll be done when both the old Pod has stopped AND when the new replica has joined its SMR cluster.
 	m.CheckIfMigrationCompleted(op)
 }
 
@@ -605,7 +566,6 @@ func (m *migrationManagerImpl) migrationCompleted(op MigrationOperation) {
 func (m *migrationManagerImpl) CheckIfMigrationCompleted(op MigrationOperation) bool {
 	m.mainMutex.Lock()
 	defer m.mainMutex.Unlock()
-	// if op.NewReplicaSmrStarted() && op.GetNewReplicaRegistered() && op.OldPodStopped() {
 	if op.Completed() {
 		m.migrationCompleted(op) // Need to have the lock when we call this.
 		return true

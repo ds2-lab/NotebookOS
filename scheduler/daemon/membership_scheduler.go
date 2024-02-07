@@ -59,5 +59,6 @@ func (s *MembershipScheduler) OnTaskStart(kernel core.Kernel, task *jupyter.Mess
 	}
 	wg.Wait()
 
-	return s.daemon.stopKernel(context.Background(), kernel.(*client.KernelClient), true)
+	// return s.daemon.stopKernel(context.Background(), kernel.(*client.KernelClient), true)
+	return nil
 }

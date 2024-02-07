@@ -185,18 +185,27 @@ func (wg *registrationWaitGroups) GetReplicas() []string {
 	return wg.replicas
 }
 
+func (wg *registrationWaitGroups) NumReplicas() int {
+	return len(wg.replicas)
+}
+
 func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) []string {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
 
 	var idx int32 = nodeId - 1
-	if int32(len(wg.replicas)) < idx {
-		replicas := make([]string, 0, idx)
-		copy(replicas, wg.replicas)
-		wg.replicas = replicas
+
+	if idx > int32(len(wg.replicas)) {
+		panic(fmt.Sprintf("Cannot add node %d at index %d, as there is/are only %d replica(s) in the list already.", nodeId, idx, len(wg.replicas)))
 	}
 
-	wg.replicas[idx] = hostname
+	// Add it to the end.
+	if idx == int32(len(wg.replicas)) {
+		wg.replicas = append(wg.replicas, hostname)
+	} else {
+		fmt.Printf("WARNING: Replacing replica %d (%s) at index %d with new replica %s.\n", nodeId, wg.replicas[idx], idx, hostname)
+		wg.replicas[idx] = hostname
+	}
 
 	return wg.replicas
 }
@@ -376,8 +385,14 @@ func (d *GatewayDaemon) SmrReady(ctx context.Context, replicaInfo *gateway.Repli
 		return gateway.VOID, ErrFailedToRemove
 	}
 
+	d.log.Debug("Removed old replica %d of kernel %s. Scaling-down CloneSet now.", op.OriginalSMRNodeID(), replicaInfo.KernelId)
+
 	// Now it is safe to scale-down the CloneSet.
 	d.kubeClient.ScaleDownCloneSet(op)
+
+	op.SetNewReplicaJoinedSMR() // This just sets a flag to true in the migration operation object.
+	// Check if we're done. We'll be done when both the old Pod has stopped AND when the new replica has joined its SMR cluster.
+	d.kubeClient.CheckIfMigrationCompleted(op)
 
 	return gateway.VOID, nil
 }
@@ -508,23 +523,24 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 		panic(fmt.Sprintf("Validation error for migrated replica %d of kernel %s (ID of new replica is %d)", migrationOperation.OriginalSMRNodeID(), in.KernelId, replicaSpec.ReplicaId))
 	}
 
+	d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaId, in.KernelId, waitGroup.NumReplicas())
+
 	// Store the new replica in the list of replicas for the kernel (at the correct position, based on the SMR node ID).
 	// Then, return the list of replicas so that we can pass it to the new replica.
 	// updatedReplicas := waitGroup.UpdateAndGetReplicasAfterMigration(migrationOperation.OriginalSMRNodeID()-1, in.KernelIp)
 	updatedReplicas := waitGroup.AddReplica(replicaSpec.ReplicaId, in.KernelIp)
 
-	// TODO(Ben): Need to update the replicas stored here.
+	persistent_id := migrationOperation.PersistentID()
 	response := &gateway.KernelRegistrationNotificationResponse{
-		Id:       replicaSpec.ReplicaId,
-		Replicas: updatedReplicas,
+		Id:                  replicaSpec.ReplicaId,
+		Replicas:            updatedReplicas,
+		PersistentId:        &persistent_id,
+		NotifyOtherReplicas: true,
 	}
 
 	d.mutex.Unlock()
 
 	migrationOperation.NotifyNewReplicaRegistered() // This just sets a flag to true in the migration operation object.
-
-	// Check if we're done. We'll be done when both the old Pod has stopped AND when the new replica has registered successfully.
-	d.kubeClient.CheckIfMigrationCompleted(migrationOperation)
 
 	return response, nil
 }
@@ -617,8 +633,10 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	d.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d", kernelId, replicaId)
 
 	response := &gateway.KernelRegistrationNotificationResponse{
-		Id:       replicaId,
-		Replicas: waitGroup.GetReplicas(),
+		Id:                  replicaId,
+		Replicas:            waitGroup.GetReplicas(),
+		PersistentId:        nil,
+		NotifyOtherReplicas: false,
 	}
 
 	waitGroup.Notify()
@@ -939,7 +957,7 @@ func (d *GatewayDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyte
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
 	}
-	d.log.Debug("Forwarding %v response to %v [addr=%v].", socket.Type.String(), from, socket.Addr().String())
+	// d.log.Debug("Forwarding %v response to %v [addr=%v].", socket.Type.String(), from, socket.Addr().String())
 	return socket.Send(*msg)
 }
 

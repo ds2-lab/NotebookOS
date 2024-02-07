@@ -450,7 +450,7 @@ func (c *KernelClient) extractIOTopicFrame(msg *zmq4.Msg) (topic string, jFrames
 }
 
 func (c *KernelClient) forwardIOMessage(kernel core.Kernel, _ types.JupyterFrames, msg *zmq4.Msg) error {
-	c.client.Log.Debug("Forwarding %v message for Kernel \"%s\".", types.IOMessage, c.id)
+	// c.client.Log.Debug("Forwarding %v message for Kernel \"%s\".", types.IOMessage, c.id)
 	// if c.addSourceKernelFrames {
 	// 	c.client.Log.Debug("Adding \"Source Kernel\" frame to %v message that we're forwarding.", types.IOMessage)
 	// 	msg.Frames = c.AddSourceKernelFrame(msg.Frames, c.SourceKernelID(), server.JOffsetAutoDetect)

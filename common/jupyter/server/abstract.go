@@ -526,9 +526,9 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 				s.Log.Warn("Error on handle %v response: %v", msgType, err)
 			}
 		} else if matchReqId != "" {
-			s.Log.Debug("Discard %v response to request %s.", msgType, matchReqId)
+			// s.Log.Debug("Discard %v response to request %s.", msgType, matchReqId)
 		} else {
-			s.Log.Debug("Discard %v response: %v.", msgType, msg)
+			// s.Log.Debug("Discard %v response: %v.", msgType, msg)
 		}
 
 		// Stop serving anyway.

@@ -47,15 +47,17 @@ type MigrationOperation interface {
 	KernelId() string                                    // Return the ID of the associated kernel.
 	OriginalSMRNodeID() int32                            // The (original) SMR Node ID of the replica that is being migrated. The new replica will have a different ID.
 	PersistentID() string                                // Get the persistent ID of the replica we're migrating.
-	NewReplicaSmrStarted() bool                          // Returns true if a new Pod has been started for the replica that is being migrated AND the new replica itself has started and joined the SMR cluster. Otherwise, returns false.
+	NewReplicaJoinedSMR() bool                           // Returns true if the new replica itself has joined the SMR cluster. Otherwise, returns false.
+	SetNewReplicaJoinedSMR()                             // Record that the new replica has joined its SMR cluster.
 	OldPodStopped() bool                                 // Returns true if the original Pod of the replica has stopped. Otherwise, returns false.
+	NewPodStarted() bool                                 // Return true if the new Pod has started.
 	Completed() bool                                     // Returns true if the migration has been completed; otherwise, returns false (i.e., if it is still ongoing).
+	GetNewReplicaRegistered() bool                       // Return true if the new replica has already registered with the Gateway; otherwise, return false.
 	OldPodName() string                                  // Name of the Pod in which the target replica container is running.
 	NewPodName() (string, bool)                          // Return the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
 	SetNewPodName(string)                                // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
 	SetOldPodStopped()                                   // Record that the old Pod (containing the replica to be migrated) has stopped.
 	Wait()                                               // Block and wait until the migration operation has completed.
-	GetNewReplicaRegistered() bool                       // Return true if the new replica has already registered with the Gateway; otherwise, return false.
 	NotifyNewReplicaRegistered()                         // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered.
 	Broadcast()                                          // Broadcast (Notify) any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
 	GetNewReplicaKernelSpec() *gateway.KernelReplicaSpec // Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.

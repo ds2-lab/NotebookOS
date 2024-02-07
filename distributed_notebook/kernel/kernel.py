@@ -291,6 +291,11 @@ class DistributedKernel(IPythonKernel):
         self.hostname = response_dict["hostname"]
         self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in response_dict["replicas"]]
         
+        if "persistent_id" in response_dict:
+            self.log.info("Received persistent ID from registration: \"%s\"" % response_dict["persistent_id"])
+            self.log.info("I must be part of a migration operation!")
+            self.persistent_id = response_dict["persistent_id"]
+        
         assert(self.smr_nodes[self.smr_node_id - 1] == (self.hostname + ":" + str(self.smr_port)))
         
         # my_hostname = self.hostname + ":8080"

@@ -322,21 +322,65 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		"hostname":    remote_ip,
 		"replicas":    response.Replicas,
 	}
+
+	if response.PersistentId != nil {
+		payload["persistent_id"] = response.GetPersistentId()
+	}
+
 	payload_json, err := json.Marshal(payload)
 	if err != nil {
 		d.log.Error("Error encountered while marshalling replica ID to JSON: %v", err)
+		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
+		panic(err)
 	}
 
 	bytes_written, err := kernelRegistrationClient.conn.Write(payload_json)
 	if err != nil {
 		d.log.Error("Error encountered while writing replica ID back to kernel: %v", err)
+		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
+		panic(err)
+	}
+
+	if response.NotifyOtherReplicas {
+		d.log.Debug("Notifying existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
+		frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernel.Sessions()[0])
+		frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
+			NodeID:  response.Id,
+			Address: remote_ip,
+		})
+		if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+			d.log.Error("Encountered error when signing frames of new-replica message to other replicas: %v", err)
+			// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
+			panic(err)
+		}
+
+		msg := &zmq4.Msg{Frames: frames}
+		var wg sync.WaitGroup
+		wg.Add(1)
+		err = kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, wg.Done)
+		if err != nil {
+			d.log.Error("Encountered error when sending new-replica message to other replicas: %v", err)
+			// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
+			panic(err)
+		}
+		wg.Wait()
 	}
 
 	d.log.Debug("Wrote %d bytes back to kernel in response to kernel registration.", bytes_written)
 }
 
 func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
-	d.log.Debug("Replica %d of Kernel %s has joined its SMR cluster.", kernelClient.ReplicaID(), kernelClient.ID())
+	d.log.Debug("Replica %d of kernel %s has joined its SMR cluster.", kernelClient.ReplicaID(), kernelClient.ID())
+
+	_, err := d.Provisioner.SmrReady(context.TODO(), &gateway.ReplicaInfo{
+		KernelId:     kernelClient.ID(),
+		ReplicaId:    kernelClient.ReplicaID(),
+		PersistentId: kernelClient.PersistentID(),
+	})
+
+	if err != nil {
+		d.log.Error("Error when informing Gateway of SMR-Ready for replica %d of kernel %s: %v", kernelClient.ReplicaID(), kernelClient.ID(), err)
+	}
 }
 
 // StartKernel launches a new kernel.
@@ -692,7 +736,7 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
 	}
-	d.log.Debug("Forwarding %v response from %v.", socket, from)
+	// d.log.Debug("Forwarding %v response from %v.", socket, from)
 	return socket.Send(*msg)
 }
 

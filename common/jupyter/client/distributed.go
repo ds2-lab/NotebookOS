@@ -680,7 +680,7 @@ func (c *DistributedKernelClient) handleShellError(replica *KernelClient, msg *z
 }
 
 func (c *DistributedKernelClient) pubIOMessage(msg *zmq4.Msg, status string, how string) error {
-	c.log.Debug("Publishing %v status(%s:%s): %v", types.IOMessage, status, how, msg)
+	// c.log.Debug("Publishing %v status(%s:%s): %v", types.IOMessage, status, how, msg)
 	c.lastBStatusMsg = msg
 	err := c.server.Sockets.IO.Send(*msg)
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/pkg/errors"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
@@ -20,6 +21,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
@@ -220,13 +222,63 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 }
 
 // Return the migration operation associated with the given Kernel ID and SMR Node ID of the new replica.
-func (m *BasicKubeClient) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (MigrationOperation, bool) {
-	return m.migrationManager.GetMigrationOperationByKernelIdAndNewReplicaId(kernelId, smrNodeId)
+func (c *BasicKubeClient) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (MigrationOperation, bool) {
+	return c.migrationManager.GetMigrationOperationByKernelIdAndNewReplicaId(kernelId, smrNodeId)
 }
 
 // TODO(Ben): Will need some sort of concurrency control -- like if we try to migrate two replicas at once, then we'd need to account for this.
 func (c *BasicKubeClient) InitiateKernelMigration(ctx context.Context, targetClient *client.DistributedKernelClient, targetSmrNodeId int32, newSpec *gateway.KernelReplicaSpec) (string, error) {
 	return c.migrationManager.InitiateKernelMigration(ctx, targetClient, targetSmrNodeId, newSpec)
+}
+
+// Add the "apps.kruise.io/specified-delete: true" label to the Pod with the given name.
+// The labeled Pod will be prioritized for deletion when the CloneSet is scaled down.
+// This is used as part of the replica migration protocol.
+//
+// Relevant OpenKruise documentation:
+// https://openkruise.io/docs/user-manuals/cloneset/#selective-pod-deletion
+func (c *BasicKubeClient) addKruiseDeleteLabelToPod(podName string, podNamespace string) error {
+	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		payload := `{"metadata": {"labels": {"apps.kruise.io/specified-delete": "true"}}}`
+		_, updateErr := c.kubeClientset.CoreV1().Pods(podNamespace).Patch(context.Background(), podName, types.MergePatchType, []byte(payload), metav1.PatchOptions{})
+		if updateErr != nil {
+			c.log.Error("Error when updating labels for Pod \"%s\": %v", podName, updateErr)
+			return errors.Wrapf(updateErr, fmt.Sprintf("Failed to add deletion label to Pod \"%s\".", podName))
+		}
+
+		c.log.Debug("Pod %s labelled successfully.", podName)
+		return nil
+	})
+
+	if retryErr != nil {
+		c.log.Error("Failed to update metadata labels for old Pod %s/%s", podNamespace, podName)
+		return retryErr
+	}
+
+	pod, err := c.kubeClientset.CoreV1().Pods(podNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
+	if err != nil {
+		c.log.Error("Could not find Pod \"%s\" in namespace \"%s\": %v", podName, podNamespace, err)
+		return err
+	}
+
+	var annotations map[string]string = pod.GetAnnotations()
+
+	annotations["apps.kruise.io/specified-delete"] = "true"                   // I don't think this is necessary; documentation says to use a label for this one.
+	annotations["controller.kubernetes.io/pod-deletion-cost"] = "-2147483647" // This one should be an annotation, though.
+
+	pod.SetAnnotations(annotations)
+
+	pod, err = c.kubeClientset.
+		CoreV1().
+		Pods(podNamespace).
+		Update(context.TODO(), pod, metav1.UpdateOptions{})
+
+	if err != nil {
+		c.log.Error("Failed to update annotations of Pod %s/%s: %v", podNamespace, podName, err)
+		return errors.Wrapf(err, "Failed to update annotations of Pod %s/%s.", podNamespace, podName)
+	}
+
+	return err
 }
 
 // Scale-down a CloneSet by decreasing its number of replicas by 1.
@@ -244,6 +296,12 @@ func (c *BasicKubeClient) ScaleDownCloneSet(op MigrationOperation) error {
 		if err != nil || !found {
 			c.log.Error("Replicas not found for CloneSet %s: error=%v", cloneset_id, err)
 			return err
+		}
+
+		// Label the Pod that we would like to delete so that the CloneSet prioritizes deleting it when we scale it down in the next step.
+		err = c.addKruiseDeleteLabelToPod(op.OldPodName(), "default")
+		if err != nil {
+			panic(err)
 		}
 
 		c.log.Debug("Attempting to DECREASE the number of replicas of CloneSet \"%s\" by deleting pod \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, op.OldPodName(), current_num_replicas)
