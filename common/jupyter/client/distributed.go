@@ -449,7 +449,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	statusCtx, _ := context.WithTimeout(context.Background(), server.DefaultRequestTimeout)
 	c.busyStatus.Collect(statusCtx, c.size, len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
 	if len(replicas) == 1 {
-		return replicas[0].(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done)
+		return replicas[0].(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done, server.DefaultRequestTimeout)
 	}
 
 	var wg sync.WaitGroup
@@ -460,7 +460,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 		wg.Add(1)
 		go func(kernel core.Kernel) {
-			err := kernel.(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
+			err := kernel.(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done, server.DefaultRequestTimeout)
 			if err != nil {
 				c.log.Warn("Failed to send request to %v: %v", kernel, err)
 			}

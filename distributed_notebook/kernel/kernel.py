@@ -406,6 +406,8 @@ class DistributedKernel(IPythonKernel):
         # Notify the client that the SMR is ready.
         self.session.send(self.iopub_socket, "smr_ready", {"persistent_id": self.persistent_id}, ident=self._topic("smr_ready")) # type: ignore
         
+        self.log.info("Notified local daemon that SMR is ready.")
+        
         # TODO(Ben): Should this go before the "smr_ready" send?
         # It probably shouldn't matter -- or if it does, then more synchronization is recuired.
         async with self.persistent_store_cv:
@@ -496,10 +498,12 @@ class DistributedKernel(IPythonKernel):
         if not await self.check_persistent_store():
             return self.gen_error_response(err_wait_persistent_store)
 
+        self.log.info("Adding replica %d at addr %s now.", id, addr)
+
         # We didn't check if synclog is ready
         try:
             await self.synclog.add_node(id, "http://{}".format(addr))
-            self.log.error("A replica({}) is notified to join: {}".format(id, addr))
+            self.log.info("A replica({}) is notified to join: {}".format(id, addr))
             return {'status': 'ok'}
         except Exception as e:
             self.log.error("A replica fails to join: {}...".format(e))

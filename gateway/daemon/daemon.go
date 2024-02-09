@@ -8,11 +8,13 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/hashicorp/yamux"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	cmap "github.com/orcaman/concurrent-map/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -104,19 +106,90 @@ type GatewayDaemon struct {
 	closed  int32
 	cleaned chan struct{}
 
-	mutex sync.Mutex
+	// Makes certain operations atomic, specifically operations that target the same
+	// kernels (or other resources) and could occur in-parallel (such as being triggered
+	// by multiple concurrent RPC requests).
+	mutex           sync.Mutex
+	addReplicaMutex sync.Mutex
 
 	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
 	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
 
+	// Responsible for orchestrating and managing migration operations.
+	migrationManager MigrationManager
+
+	// We configure a pool of available ports through Kubernetes.
+	// This is the pool of ports. We use these ports to create ZMQ sockets for kernels.
+	// If a kernel stops, then its ports are returned to the pool for future reuse.
 	availablePorts *utils.AvailablePorts
 
 	// The IOPub socket that all Jupyter clients subscribe to.
 	// iopub *jupyter.Socket
 	smrPort int
 
+	// Mapping from AddReplicaOperation ID to AddReplicaOperation.
+	addReplicaOperations *cmap.ConcurrentMap[string, AddReplicaOperation]
+
+	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
+	activeAddReplicaOpsPerKernel *cmap.ConcurrentMap[string, *orderedmap.OrderedMap[string, AddReplicaOperation]]
+
+	// Mapping from new pod name to AddReplicaOperation.
+	addReplicaOperationsByNewPodName *cmap.ConcurrentMap[string, AddReplicaOperation]
+
+	// Mapping from NewPodName to chan string.
+	// In theory, it's possible to receive a PodCreated notifcation from Kubernetes AFTER the replica within the new Pod
+	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
+	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
+	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
+	addReplicaNewPodNotifications *cmap.ConcurrentMap[string, chan AddReplicaOperation]
+
 	// Kubernetes client.
 	kubeClient KubeClient
+}
+
+func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClientOptions, configs ...GatewayDaemonConfig) *GatewayDaemon {
+	addReplicaOperations := cmap.New[AddReplicaOperation]()
+	activeAddReplicaOpsPerKernel := cmap.New[*orderedmap.OrderedMap[string, AddReplicaOperation]]()
+	addReplicaOperationsByNewPodName := cmap.New[AddReplicaOperation]()
+	addReplicaNewPodNotifications := cmap.New[chan AddReplicaOperation]()
+
+	daemon := &GatewayDaemon{
+		id:                uuid.New().String(),
+		connectionOptions: opts,
+		transport:         "tcp",
+		ip:                opts.IP,
+		availablePorts:    utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
+		kernels:           hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
+		kernelSpecs:       hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
+		// waitGroups:        hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
+		waitGroups:                       hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
+		cleaned:                          make(chan struct{}),
+		smrPort:                          daemonKubeClientOptions.SMRPort,
+		addReplicaOperations:             &addReplicaOperations,
+		activeAddReplicaOpsPerKernel:     &activeAddReplicaOpsPerKernel,
+		addReplicaOperationsByNewPodName: &addReplicaOperationsByNewPodName,
+		addReplicaNewPodNotifications:    &addReplicaNewPodNotifications,
+	}
+	for _, config := range configs {
+		config(daemon)
+	}
+	config.InitLogger(&daemon.log, daemon)
+	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon)
+	daemon.cluster = core.NewCluster()
+	daemon.placer = core.NewRandomPlacer(daemon.cluster, &daemon.ClusterOptions)
+
+	if daemon.ip == "" {
+		ip, err := utils.GetIP()
+		if err != nil {
+			daemon.log.Warn("No ip set because of missing configuration and failed to get ip: %v", err)
+		} else {
+			daemon.ip = ip
+		}
+	}
+
+	daemon.kubeClient = NewKubeClient(daemon, daemonKubeClientOptions)
+
+	return daemon
 }
 
 type registrationWaitGroups struct {
@@ -247,42 +320,6 @@ func (wg *registrationWaitGroups) Wait() {
 	wg.WaitNotified()
 }
 
-func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClientOptions, configs ...GatewayDaemonConfig) *GatewayDaemon {
-	daemon := &GatewayDaemon{
-		id:                uuid.New().String(),
-		connectionOptions: opts,
-		transport:         "tcp",
-		ip:                opts.IP,
-		availablePorts:    utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
-		kernels:           hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
-		kernelSpecs:       hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
-		// waitGroups:        hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
-		waitGroups: hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
-		cleaned:    make(chan struct{}),
-		smrPort:    daemonKubeClientOptions.SMRPort,
-	}
-	for _, config := range configs {
-		config(daemon)
-	}
-	config.InitLogger(&daemon.log, daemon)
-	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon)
-	daemon.cluster = core.NewCluster()
-	daemon.placer = core.NewRandomPlacer(daemon.cluster, &daemon.ClusterOptions)
-
-	if daemon.ip == "" {
-		ip, err := utils.GetIP()
-		if err != nil {
-			daemon.log.Warn("No ip set because of missing configuration and failed to get ip: %v", err)
-		} else {
-			daemon.ip = ip
-		}
-	}
-
-	daemon.kubeClient = NewKubeClient(daemon, daemonKubeClientOptions)
-
-	return daemon
-}
-
 // Listen listens on the TCP network address addr and returns a net.Listener that intercepts incoming connections.
 func (d *GatewayDaemon) Listen(transport string, addr string) (net.Listener, error) {
 	d.log.Debug("GatewayDaemon is listening on transport %s, addr %s.", transport, addr)
@@ -371,30 +408,13 @@ func (d *GatewayDaemon) SmrReady(ctx context.Context, replicaInfo *gateway.Repli
 	kernelId := replicaInfo.KernelId
 	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
 
-	op, ok := d.kubeClient.GetMigrationOperationByKernelIdAndNewReplicaId(kernelId, replicaInfo.ReplicaId)
+	op, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, replicaInfo.ReplicaId)
 
 	if !ok {
 		return gateway.VOID, nil
 	}
 
-	d.log.Debug("Removing old replica %d of kernel %s now, as new replica %d is ready.", op.OriginalSMRNodeID(), replicaInfo.KernelId, replicaInfo.ReplicaId)
-
-	client := op.KernelClient()
-	_, err := client.RemoveReplicaByID(op.OriginalSMRNodeID(), d.placer.Reclaim, false) // We want the replica to be removed here; we know the new replica started.
-
-	if err != nil {
-		d.log.Error("Error removing migrated replica %d of kernel %s: %v", op.OriginalSMRNodeID(), client.ID(), err)
-		return gateway.VOID, ErrFailedToRemove
-	}
-
-	d.log.Debug("Removed old replica %d of kernel %s. Scaling-down CloneSet now.", op.OriginalSMRNodeID(), replicaInfo.KernelId)
-
-	// Now it is safe to scale-down the CloneSet.
-	d.kubeClient.ScaleDownCloneSet(op)
-
-	op.SetNewReplicaJoinedSMR() // This just sets a flag to true in the migration operation object.
-	// Check if we're done. We'll be done when both the old Pod has stopped AND when the new replica has joined its SMR cluster.
-	d.kubeClient.CheckIfMigrationCompleted(op)
+	op.SetReplicaJoinedSMR()
 
 	return gateway.VOID, nil
 }
@@ -484,13 +504,16 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	return info, nil
 }
 
-// Handle a registration notification from a new kernel replica that was created during a migration operation.
+func (d *GatewayDaemon) TryPublishNewPodNotification(podName string) {
+
+}
+
+// Handle a registration notification from a new kernel replica that was created during an add-replica/migration operation.
 // TODO(Ben): Do I really need the main lock for this function?
 // IMPORTANT: This must be called with the main mutex held.
 // IMPORTANT: This will release the main mutex before returning.
-func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, in *gateway.KernelRegistrationNotification, kernel *client.DistributedKernelClient, waitGroup *registrationWaitGroups) (*gateway.KernelRegistrationNotificationResponse, error) {
-	podNameOfMigratedRepilica := in.PodName
-	migrationOperation, ok := d.kubeClient.GetMigrationOperationByNewPod(podNameOfMigratedRepilica)
+func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *gateway.KernelRegistrationNotification, kernel *client.DistributedKernelClient, waitGroup *registrationWaitGroups) (*gateway.KernelRegistrationNotificationResponse, error) {
+	addReplicaOp, ok := d.addReplicaOperationsByNewPodName.Get(in.PodName)
 
 	// If we cannot find the migration operation, then we have an unlikely race here.
 	// Basically, the new replica Pod was created, started running, and contacted its Local Daemon, which then contacted us,
@@ -501,28 +524,28 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 	// This race would be simplified if we added the constraint that there may be only one active migration per kernel at any given time,
 	// but I've not yet enforced this.
 	if !ok {
+		channel := make(chan AddReplicaOperation)
+		d.addReplicaNewPodNotifications.Set(in.PodName, channel)
+
 		d.mutex.Unlock()
+		d.log.Debug("Waiting to receive AddReplicaNotification on NewPodNotification channel. NewPodName: %s.", in.PodName)
 		// Just need to provide a mechanism to wait until we receive the pod-created notification, and get the migration operation that way.
-		migrationOperation = d.kubeClient.WaitForNewPodNotification(podNameOfMigratedRepilica)
+		addReplicaOp = <-channel
 		d.mutex.Lock()
+
+		// Clean up mapping. Don't need it anymore.
+		d.addReplicaNewPodNotifications.Remove(in.PodName)
 	}
 
 	// The replica spec that was specifically prepared for the new replica during the initiation of the migration operation.
-	replicaSpec := migrationOperation.GetNewReplicaKernelSpec()
-	migrationOperation.SetNewReplicaHostname(in.KernelIp)
-	// replicaSpec := &gateway.KernelReplicaSpec{
-	// 	Kernel:       kernelSpec,
-	// 	ReplicaId:    migrationOperation.OriginalSMRNodeID(),
-	// 	PersistentId: &persistentId,
-	// 	Join:         true,
-	// 	NumReplicas:  int32(d.ClusterOptions.NumReplicas), // TODO(Ben): Don't hardcode this.
-	// }
+	replicaSpec := addReplicaOp.KernelSpec()
+	addReplicaOp.SetReplicaHostname(in.KernelIp)
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, podNameOfMigratedRepilica, nil)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, nil)
 	err := replica.Validate()
 	if err != nil {
-		panic(fmt.Sprintf("Validation error for migrated replica %d of kernel %s (ID of new replica is %d)", migrationOperation.OriginalSMRNodeID(), in.KernelId, replicaSpec.ReplicaId))
+		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
 	}
 
 	d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaId, in.KernelId, waitGroup.NumReplicas())
@@ -532,7 +555,7 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 	// updatedReplicas := waitGroup.UpdateAndGetReplicasAfterMigration(migrationOperation.OriginalSMRNodeID()-1, in.KernelIp)
 	updatedReplicas := waitGroup.AddReplica(replicaSpec.ReplicaId, in.KernelIp)
 
-	persistent_id := migrationOperation.PersistentID()
+	persistent_id := addReplicaOp.PersistentID()
 	response := &gateway.KernelRegistrationNotificationResponse{
 		Id:                  replicaSpec.ReplicaId,
 		Replicas:            updatedReplicas,
@@ -543,7 +566,7 @@ func (d *GatewayDaemon) handleMigratedReplicaRegistration(ctx context.Context, i
 
 	d.mutex.Unlock()
 
-	migrationOperation.NotifyNewReplicaRegistered() // This just sets a flag to true in the migration operation object.
+	addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
 
 	return response, nil
 }
@@ -591,7 +614,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		d.log.Debug("There is/are %d active migration operation(s) targeting kernel %s. Assuming currently-registering replica is for a migration.", kernel.NumActiveMigrations(), kernel.ID())
 		// Must be holding the main mutex before calling handleMigratedReplicaRegistration.
 		// It will release the lock.
-		result, err := d.handleMigratedReplicaRegistration(ctx, in, kernel, waitGroup)
+		result, err := d.handleAddedReplicaRegistration(ctx, in, kernel, waitGroup)
 		return result, err
 	} else {
 		d.log.Debug("There are 0 active migration operations targeting kernel %s.", kernel.ID())
@@ -915,6 +938,28 @@ func (d *GatewayDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHeade
 	return &header, nil
 }
 
+// Return the add-replica operation associated with the given Kernel ID and SMR Node ID of the new replica.
+func (d *GatewayDaemon) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (AddReplicaOperation, bool) {
+	d.addReplicaMutex.Lock()
+	defer d.addReplicaMutex.Unlock()
+
+	activeOps, ok := d.activeAddReplicaOpsPerKernel.Get(kernelId)
+	if !ok {
+		return nil, false
+	}
+
+	var op AddReplicaOperation
+	for el := activeOps.Front(); el != nil; el = el.Next() {
+		op = el.Value
+
+		if op.KernelSpec().ReplicaId == smrNodeId {
+			return op, true
+		}
+	}
+
+	return nil, false
+}
+
 func (d *GatewayDaemon) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, err error) {
 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
 
@@ -991,4 +1036,89 @@ func (d *GatewayDaemon) closeReplica(host core.Host, kernel *client.DistributedK
 	if err := d.placer.Reclaim(host, kernel, false); err != nil {
 		d.log.Warn("Failed to close kernel(%s:%d) after %s, failure: %v", kernel.ID(), replicaId, reason, err)
 	}
+}
+
+// Add a new replica to a particular distributed kernel.
+// This is only used for adding new replicas beyond the base set of replicas created
+// when the CloneSet is first created. The first 3 (or however many there are configured
+// to be) replicas are created automatically by the CloneSet.
+//
+// Parameters:
+// - kernelId (string): The ID of the kernel to which we're adding a new replica.
+func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo) error {
+	var kernelId string = in.KernelId
+	var persistentId string = in.PersistentId
+
+	kernel, ok := d.kernels.Load(kernelId)
+	if !ok {
+		return d.errorf(ErrKernelNotFound)
+	}
+
+	// The spec to be used for the new replica that is created during the migration.
+	var newReplicaSpec *gateway.KernelReplicaSpec = kernel.PrepareNewReplica(persistentId)
+	addReplicaOp := NewAddReplicaOperation(kernel, newReplicaSpec)
+
+	// Add the AddReplicaOperation to the associated maps belonging to the Gateway Daemon.
+	d.addReplicaMutex.Lock()
+	d.addReplicaOperations.Set(addReplicaOp.OperationID(), addReplicaOp)
+	ops, ok := d.activeAddReplicaOpsPerKernel.Get(kernelId)
+	if !ok {
+		ops = orderedmap.NewOrderedMap[string, AddReplicaOperation]()
+	}
+	ops.Set(addReplicaOp.OperationID(), addReplicaOp)
+	d.activeAddReplicaOpsPerKernel.Set(kernelId, ops)
+	d.addReplicaMutex.Unlock()
+
+	err := d.kubeClient.ScaleUpCloneSet(kernelId, addReplicaOp.PodStartedChannel())
+	if err != nil {
+		d.log.Error("Failed to add replica to kernel %s. Could not scale-up CloneSet.", kernelId)
+		d.log.Error("Reason: %v", err)
+		return err
+	}
+
+	d.log.Debug("Waiting for new Pod to be created for kernel %s.", kernelId)
+
+	var newPodName string
+	select {
+	case newPodName = <-addReplicaOp.PodStartedChannel():
+		{
+			d.log.Debug("New Pod %s has been created for kernel %s.", newPodName, kernelId)
+			addReplicaOp.SetPodName(newPodName)
+			d.addReplicaOperationsByNewPodName.Set(newPodName, addReplicaOp)
+
+			d.mutex.Lock()
+
+			channel, ok := d.addReplicaNewPodNotifications.Get(newPodName)
+
+			if ok {
+				channel <- addReplicaOp
+			}
+
+			d.mutex.Unlock()
+			break
+		}
+	}
+
+	// TODO:
+	// - Wait for new Pod to register with the Gateway.
+	// - Need to avoid race between when we begin waiting and when the registration occurs.
+	// - Also need to wait for the new Pod to join the SMR cluster.
+	// - I don't think we have a notification for this yet? I'm not sure, though.
+	// - We have a notification for "SMR Ready" but not "SMR Joined" as far as I know.
+
+	// Return nil on success.
+	return nil
+}
+
+func (d *GatewayDaemon) waitForReplicaToStart() {
+
+}
+
+// Remove a replica from a distributed kernel.
+//
+// Parameters:
+// - kernelId (string): The ID of the kernel from which we're removing a replica.
+// - smrNodeId (int32): The SMR node ID of the replica that should be removed.
+func (d *GatewayDaemon) removeReplica(kernelId string, smrNodeId int32) error {
+	return nil
 }

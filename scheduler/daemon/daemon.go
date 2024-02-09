@@ -343,7 +343,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	d.log.Debug("Wrote %d bytes back to kernel in response to kernel registration.", bytes_written)
 
 	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
-	time.Sleep(time.Second * 2)
+	time.Sleep(time.Second * 1)
 
 	if response.NotifyOtherReplicas {
 		d.log.Info("Notifying existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
@@ -364,7 +364,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		err = kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
 			d.log.Debug("Received response of type %v associated with kernel %s: %v", typ, kernel.ID(), msg)
 			return nil
-		}, wg.Done)
+		}, wg.Done, time.Second*30)
 		if err != nil {
 			d.log.Error("Encountered error when sending new-replica message to other replicas: %v", err)
 			// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
@@ -509,7 +509,7 @@ func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel *client.KernelC
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done)
+	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done, time.Second*1)
 	if err != nil {
 		return err
 	}
@@ -730,7 +730,7 @@ func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel *client.Ker
 	if done == nil {
 		done = func() {}
 	}
-	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done)
+	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done, time.Second*1)
 }
 
 func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {

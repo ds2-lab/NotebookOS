@@ -284,12 +284,12 @@ func (c *KernelClient) AddIOHandler(topic string, handler MessageBrokerHandler[c
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *KernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
+func (c *KernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func(), timeout time.Duration) error {
 	c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
-	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
+	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done, timeout)
 }
 
-func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
+func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func(), timeout time.Duration) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
 	}
@@ -306,7 +306,7 @@ func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.Message
 			err = handler(server.(*KernelClient), typ, msg)
 		}
 		return err
-	}, done, getOption)
+	}, done, getOption, timeout)
 	return nil
 }
 

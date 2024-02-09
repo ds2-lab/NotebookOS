@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/pkg/errors"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
@@ -24,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -54,23 +59,50 @@ var (
 )
 
 type BasicKubeClient struct {
-	kubeClientset          *kubernetes.Clientset  // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
-	dynamicClient          *dynamic.DynamicClient // Dynamic client for working with unstructured components. We use this for the custom CloneSet.
-	gatewayDaemon          *GatewayDaemon         // Associated Gateway daemon.
-	configDir              string                 // Where to write config files. This is also where they'll be found on the kernel nodes.
-	ipythonConfigPath      string                 // Where the IPython config is located.
-	nodeLocalMountPoint    string                 // The mount of the shared PVC for all kernel nodes.
-	localDaemonServiceName string                 // Name of the service controlling the routing of the local daemon. It only routes traffic on the same node.
-	localDaemonServicePort int                    // Port that local daemon service will be routing traffic to.
-	smrPort                int                    // Port used for the SMR protocol.
-	kubeNamespace          string                 // Kubernetes namespace that all of these components reside in.
-	useStatefulSet         bool                   // If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet.
-	podWatcherStopChan     chan struct{}          // Used to tell the Pod Watcher to stop.
-	migrationManager       MigrationManager       // Responsible for orchestrating and managing migration operations.
-	log                    logger.Logger
+	kubeClientset          *kubernetes.Clientset                      // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
+	dynamicClient          *dynamic.DynamicClient                     // Dynamic client for working with unstructured components. We use this for the custom CloneSet.
+	gatewayDaemon          *GatewayDaemon                             // Associated Gateway daemon.
+	configDir              string                                     // Where to write config files. This is also where they'll be found on the kernel nodes.
+	ipythonConfigPath      string                                     // Where the IPython config is located.
+	nodeLocalMountPoint    string                                     // The mount of the shared PVC for all kernel nodes.
+	localDaemonServiceName string                                     // Name of the service controlling the routing of the local daemon. It only routes traffic on the same node.
+	localDaemonServicePort int                                        // Port that local daemon service will be routing traffic to.
+	smrPort                int                                        // Port used for the SMR protocol.
+	kubeNamespace          string                                     // Kubernetes namespace that all of these components reside in.
+	useStatefulSet         bool                                       // If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet.
+	podWatcherStopChan     chan struct{}                              // Used to tell the Pod Watcher to stop.
+	mutex                  sync.Mutex                                 // Synchronize atomic operations, such as scaling-up/down a CloneSet.
+	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of WaitGroups, each of which would correspond to a scale-up operation.
+	scaleDownChannels      *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of WaitGroups, each of which would correspond to a scale-down operation.
+	// newPodWaiters          *cmap.ConcurrentMap[string, chan AddReplicaOperation] // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
+	log logger.Logger
+}
+
+type waitGroup struct {
+	id string
+	wg *sync.WaitGroup
+}
+
+func newWaitGroup() *waitGroup {
+	var sync_wg sync.WaitGroup
+	wg := &waitGroup{
+		id: uuid.New().String(),
+		wg: &sync_wg,
+	}
+
+	return wg
+}
+
+// Checks if a waitGroup is equal to another based upon their IDs.
+func (wg *waitGroup) Equal(other *waitGroup) bool {
+	return wg.id == other.id
 }
 
 func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *DaemonKubeClientOptions) *BasicKubeClient {
+	scaleUpChannels := cmap.New[[]chan string]()
+	scaleDownChannels := cmap.New[[]chan string]()
+	// newPodWaiters := cmap.New[chan AddReplicaOperation]()
+
 	client := &BasicKubeClient{
 		configDir:              utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDirDefault),
 		ipythonConfigPath:      utils.GetEnv(IPythonConfigPath, IPythonConfigPathDefault),
@@ -81,7 +113,10 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 		kubeNamespace:          daemonKubeClientOptions.KubeNamespace,
 		gatewayDaemon:          gatewayDaemon,
 		useStatefulSet:         daemonKubeClientOptions.UseStatefulSet,
+		scaleUpChannels:        &scaleUpChannels,
+		scaleDownChannels:      &scaleDownChannels,
 		podWatcherStopChan:     make(chan struct{}),
+		// newPodWaiters:          &newPodWaiters,
 	}
 
 	config.InitLogger(&client.log, client)
@@ -132,11 +167,162 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 	return client
 }
 
+// Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
+func (c *BasicKubeClient) PodCreated(obj interface{}) {
+	pod := obj.(*corev1.Pod)
+	c.log.Debug("Pod created: %s/%s", pod.Namespace, pod.Name)
+
+	// First, check if the newly-created Pod is a kernel Pod.
+	// If it is not a kernel Pod, then we simply return.
+	if !strings.HasPrefix(pod.Name, "kernel") {
+		return
+	}
+
+	kernelId := pod.Name[7:43]
+	channels, ok := c.scaleUpChannels.Get(kernelId)
+
+	if !ok || len(channels) == 0 {
+		c.log.Debug("No scale-up waiters for kernel %s", kernelId)
+		return
+	}
+
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	// Notify the first wait group that a Pod has started.
+	// We only notify one of the wait groups, as each wait group corresponds to
+	// a different scale-up operation and thus requires a unique Pod to have been created.
+	// We treat the slice of wait groups as FIFO queue.
+	var channel chan string
+	channel, channels = channels[0], channels[1:]
+	channel <- pod.Name // Notify that the Pod has been created by sending its name over the channel.
+
+	c.scaleUpChannels.Set(kernelId, channels)
+}
+
+// Function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
+func (c *BasicKubeClient) PodDeleted(obj interface{}) {
+	pod := obj.(*corev1.Pod)
+	c.log.Debug("Pod deleted: %s/%s", pod.Namespace, pod.Name)
+
+	// First, check if the newly-created Pod is a kernel Pod.
+	// If it is not a kernel Pod, then we simply return.
+	if !strings.HasPrefix(pod.Name, "kernel") {
+		return
+	}
+}
+
+// Function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
+func (c *BasicKubeClient) PodUpdated(oldObj interface{}, newObj interface{}) {
+	oldPod := oldObj.(*corev1.Pod)
+	newPod := newObj.(*corev1.Pod)
+	if newPod.Status.Phase == corev1.PodFailed {
+		c.log.Warn(
+			"Pod updated. %s/%s %s",
+			oldPod.Namespace, oldPod.Name, newPod.Status.Phase)
+	}
+}
+
+// Scale-up a CloneSet by increasing its number of replicas by 1.
+//
+// Accepts as a parameter a chan string that can be used to wait until the new Pod has been created.
+// The name of the new Pod will be sent over the channel when the new Pod is started.
+// The error will be nil on success.
+func (c *BasicKubeClient) ScaleUpCloneSet(kernelId string, podStartedChannel chan string) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	// The CloneSet resources for distributed kernels are named "kernel-<kernel ID>".
+	cloneset_id := fmt.Sprintf("kernel-%s", kernelId)
+
+	// This is the same as retry.DefaultRetry according to:
+	// https://pkg.go.dev/k8s.io/client-go/util/retry#pkg-variables
+	//
+	// Including it here explicitly for clarity.
+	var retryParameters = wait.Backoff{
+		Steps:    5,
+		Duration: 10 * time.Millisecond,
+		Factor:   1.0,
+		Jitter:   0.1,
+	}
+
+	// Increase the number of replicas.
+	retryErr := retry.RetryOnConflict(retryParameters, func() error {
+		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
+
+		if getErr != nil {
+			panic(fmt.Errorf("Failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
+		}
+
+		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
+
+		if err != nil || !found {
+			c.log.Error("Replicas not found for CloneSet %s: error=%s", cloneset_id, err)
+			return err
+		}
+
+		c.log.Debug("Attempting to INCREASE the number of replicas of CloneSet \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, current_num_replicas)
+		new_num_replicas := current_num_replicas + 1
+
+		// Increase the number of replicas.
+		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
+			panic(fmt.Errorf("Failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
+		}
+
+		_, updateErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
+
+		if updateErr != nil {
+			c.log.Error("Failed to apply update to CloneSet \"%s\": error=%s", cloneset_id, err)
+		} else {
+			c.log.Debug("Successfully increased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
+		}
+
+		return updateErr
+	})
+
+	if retryErr != nil {
+		return errors.Wrapf(retryErr, "Error when attempting to scale-up CloneSet %s")
+	}
+
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	// Store the new channel in the mapping.
+	channels, ok := c.scaleUpChannels.Get(kernelId)
+	if !ok {
+		channels = make([]chan string, 0, 4)
+	}
+	channels = append(channels, podStartedChannel)
+	c.scaleUpChannels.Set(kernelId, channels)
+
+	return nil
+}
+
 // Wait for us to receive a pod-created notification for the given Pod, which managed to start running
 // and register with us before we received the pod-created notification. Once received, return the
 // associated migration operation.
-func (c *BasicKubeClient) WaitForNewPodNotification(newPodName string) MigrationOperation {
-	return c.migrationManager.WaitForNewPodNotification(newPodName)
+func (c *BasicKubeClient) WaitForNewPodNotification(newPodName string) AddReplicaOperation {
+	c.mutex.Lock()
+
+	// First, try to get the migration operation, in case we received the notification since the time we made the call to WaitForNewPodNotification.
+	op, ok := c.migrationOperationsByNewPodName.Get(newPodName)
+	if ok {
+		c.mutex.Unlock()
+		return op
+	}
+
+	_ = c.newPodWaiters.SetIfAbsent(newPodName, make(chan AddReplicaOperation))
+	channel, _ := c.newPodWaiters.Get(newPodName)
+
+	c.mutex.Unlock()
+
+	c.log.Debug("Waiting on channel for pod-created notification for new pod \"%s\"", newPodName)
+	select {
+	case op := <-channel:
+		{
+			return op
+		}
+	}
 }
 
 func (c *BasicKubeClient) GetMigrationOperationByNewPod(newPodName string) (MigrationOperation, bool) {
@@ -255,36 +441,36 @@ func (c *BasicKubeClient) addKruiseDeleteLabelToPod(podName string, podNamespace
 		return retryErr
 	}
 
-	pod, err := c.kubeClientset.CoreV1().Pods(podNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
-	if err != nil {
-		c.log.Error("Could not find Pod \"%s\" in namespace \"%s\": %v", podName, podNamespace, err)
-		return err
-	}
+	// pod, err := c.kubeClientset.CoreV1().Pods(podNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
+	// if err != nil {
+	// 	c.log.Error("Could not find Pod \"%s\" in namespace \"%s\": %v", podName, podNamespace, err)
+	// 	return err
+	// }
 
-	var annotations map[string]string = pod.GetAnnotations()
+	// var annotations map[string]string = pod.GetAnnotations()
 
-	annotations["apps.kruise.io/specified-delete"] = "true"                   // I don't think this is necessary; documentation says to use a label for this one.
-	annotations["controller.kubernetes.io/pod-deletion-cost"] = "-2147483647" // This one should be an annotation, though.
+	// annotations["apps.kruise.io/specified-delete"] = "true"                   // I don't think this is necessary; documentation says to use a label for this one.
+	// annotations["controller.kubernetes.io/pod-deletion-cost"] = "-2147483647" // This one should be an annotation, though.
 
-	pod.SetAnnotations(annotations)
+	// pod.SetAnnotations(annotations)
 
-	pod, err = c.kubeClientset.
-		CoreV1().
-		Pods(podNamespace).
-		Update(context.TODO(), pod, metav1.UpdateOptions{})
+	// pod, err = c.kubeClientset.
+	// 	CoreV1().
+	// 	Pods(podNamespace).
+	// 	Update(context.TODO(), pod, metav1.UpdateOptions{})
 
-	if err != nil {
-		c.log.Error("Failed to update annotations of Pod %s/%s: %v", podNamespace, podName, err)
-		return errors.Wrapf(err, "Failed to update annotations of Pod %s/%s.", podNamespace, podName)
-	}
+	// if err != nil {
+	// 	c.log.Error("Failed to update annotations of Pod %s/%s: %v", podNamespace, podName, err)
+	// 	return errors.Wrapf(err, "Failed to update annotations of Pod %s/%s.", podNamespace, podName)
+	// }
 
-	return err
+	return nil
 }
 
 // Scale-down a CloneSet by decreasing its number of replicas by 1.
-func (c *BasicKubeClient) ScaleDownCloneSet(op MigrationOperation) error {
+func (c *BasicKubeClient) ScaleDownCloneSet(kernelId string, oldPodName string) (chan string, error) {
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		cloneset_id := fmt.Sprintf("kernel-%s", op.KernelId())
+		cloneset_id := fmt.Sprintf("kernel-%s", kernelId)
 		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
 
 		if getErr != nil {
@@ -299,12 +485,12 @@ func (c *BasicKubeClient) ScaleDownCloneSet(op MigrationOperation) error {
 		}
 
 		// Label the Pod that we would like to delete so that the CloneSet prioritizes deleting it when we scale it down in the next step.
-		err = c.addKruiseDeleteLabelToPod(op.OldPodName(), "default")
+		err = c.addKruiseDeleteLabelToPod(oldPodName, "default")
 		if err != nil {
 			panic(err)
 		}
 
-		c.log.Debug("Attempting to DECREASE the number of replicas of CloneSet \"%s\" by deleting pod \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, op.OldPodName(), current_num_replicas)
+		c.log.Debug("Attempting to DECREASE the number of replicas of CloneSet \"%s\" by deleting pod \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, oldPodName, current_num_replicas)
 		new_num_replicas := current_num_replicas - 1
 
 		// Decrease the number of replicas.
@@ -323,7 +509,20 @@ func (c *BasicKubeClient) ScaleDownCloneSet(op MigrationOperation) error {
 		return updateErr
 	})
 
-	return retryErr
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	channel := make(chan string)
+
+	// Store the new channel in the mapping.
+	channels, ok := c.scaleDownChannels.Get(kernelId)
+	if !ok {
+		channels = make([]chan string, 0, 4)
+	}
+	channels = append(channels, channel)
+	c.scaleDownChannels.Set(kernelId, channels)
+
+	return channel, retryErr
 }
 
 // Create a SharedInformer that watches for Pod-creation and Pod-deletion events within the given namespace.
@@ -344,9 +543,9 @@ func (c *BasicKubeClient) createPodWatcher(namespace string) {
 
 	// Temporary.
 	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    c.migrationManager.PodCreated,
-		UpdateFunc: c.migrationManager.PodUpdated,
-		DeleteFunc: c.migrationManager.PodDeleted,
+		AddFunc:    c.PodCreated,
+		UpdateFunc: c.PodUpdated,
+		DeleteFunc: c.PodDeleted,
 	})
 }
 

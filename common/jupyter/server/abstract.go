@@ -226,7 +226,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 //   - dest: The info of request destination that the WaitResponse can use to track individual request.
 //   - handler: The handler to handle the response.
 //   - getOption: The function to get the options.
-func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter) error {
+func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter, timeout time.Duration) error {
 	socket.InitPendingReq()
 	// Normalize the request, we do not assume that the SourceKernel implements the auto-detect feature.
 	// sourceKernelId, jOffset := sourceKernel.ExtractSourceKernelFrame(req.Frames)
@@ -258,7 +258,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// Apply a default timeout
 	var cancel context.CancelFunc
 	if ctx.Done() == nil {
-		ctx, cancel = context.WithTimeout(ctx, DefaultRequestTimeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 	}
 
 	// Use Serve to support timeout;

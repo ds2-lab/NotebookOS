@@ -31,13 +31,41 @@ type KubeClient interface {
 	// Wait for us to receive a pod-created notification for the given Pod, which managed to start running
 	// and register with us before we received the pod-created notification. Once received, return the
 	// associated migration operation.
-	WaitForNewPodNotification(string) MigrationOperation
+	WaitForNewPodNotification(string) AddReplicaOperation
 
 	// Return the migration operation associated with the given Kernel ID and new SMR Node ID.
 	GetMigrationOperationByKernelIdAndNewReplicaId(string, int32) (MigrationOperation, bool)
 
+	// Scale-up a CloneSet by increasing its number of replicas by 1.
+	// Accepts as a parameter a chan string that can be used to wait until the new Pod has been created.
+	// The name of the new Pod will be sent over the channel when the new Pod is started.
+	// The error will be nil on success.
+	ScaleUpCloneSet(string, chan string) error
+
 	// Scale-down a CloneSet by decreasing its number of replicas by 1.
-	ScaleDownCloneSet(op MigrationOperation) error
+	// Returns a chan string that can be used to wait until the new Pod has been created.
+	// The name of the new Pod will be sent over the channel when the new Pod is started.
+	// The error will be nil on success.
+	ScaleDownCloneSet(string, string) (chan string, error)
+}
+
+type AddReplicaOperation interface {
+	KernelClient() *client.DistributedKernelClient // The DistributedKernelClient of the kernel for which we're migrating a replica.
+	KernelId() string                              // Return the ID of the associated kernel.
+	ReplicaRegistered() bool                       // Return true if the new replica has already registered with the Gateway; otherwise, return false.
+	OperationID() string                           // Unique identifier of the migration operation.
+	PersistentID() string                          // Return the persistent ID of the replica.
+	PodName() (string, bool)                       // Return the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
+	PodStarted() bool                              // Return true if the new Pod has started.
+	ReplicaHostname() string                       // Return the IP address of the new replica.
+	ReplicaId() int32                              // The SMR node ID to use for the new replica.
+	KernelSpec() *gateway.KernelReplicaSpec        // Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
+	SetReplicaRegistered()                         // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered.
+	SetPodName(string)                             // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
+	SetReplicaHostname(hostname string)            // Set the IP address of the new replica.
+	Completed() bool                               // Return true if the operation has completed successfully.
+	PodStartedChannel() chan string                // Return the channel used to notify that the new Pod has started.
+	SetReplicaJoinedSMR()                          // Record that the new replica has joined its SMR cluster.
 }
 
 // Represents and active, ongoing replica migration operation in which we are migrating a distributed kernel replica from one node to another.
@@ -82,7 +110,7 @@ type MigrationManager interface {
 	// Wait for us to receive a pod-created notification for the given Pod, which managed to start running
 	// and register with us before we received the pod-created notification. Once received, return the
 	// associated migration operation.
-	WaitForNewPodNotification(string) MigrationOperation
+	WaitForNewPodNotification(string) AddReplicaOperation
 
 	// Check if the given Migration Operation has finished. This is called twice: when the new replica registers with the Gateway,
 	// and when the old Pod is deleted. Whichever of those two events happens last will be the one that designates the operation has having completed.
@@ -92,23 +120,3 @@ type MigrationManager interface {
 	PodUpdated(interface{}, interface{}) // Function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
 	PodDeleted(interface{})              // Function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
 }
-
-// type KernelConfigMapDataSource struct {
-// 	SessionId      string
-// 	ConfigFileInfo *jupyter.ConfigFile
-// 	ConnectionInfo *jupyter.ConnectionInfo
-// }
-
-// type SessionDef struct {
-// 	SessionId           string
-// 	NodeLocalMountPoint string
-// 	SharedConfigDir     string
-// }
-
-// func NewSessionDef(sessionId string, nodeLocalMountPoint string, sharedConfigDir string) SessionDef {
-// 	return SessionDef{
-// 		SessionId:           sessionId,
-// 		NodeLocalMountPoint: nodeLocalMountPoint,
-// 		SharedConfigDir:     sharedConfigDir,
-// 	}
-// }
