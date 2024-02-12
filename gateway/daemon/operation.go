@@ -21,21 +21,25 @@ type addReplicaOperationImpl struct {
 	replicaHostname   string                          // The IP address of the new replica.
 	spec              *gateway.KernelReplicaSpec      // Spec for the new replica that is created during the add operation.
 
-	podStartedChannel chan string // Used to notify that the new Pod has started.
+	podStartedChannel        chan string // Used to notify that the new Pod has started.
+	replicaRegisteredChannel chan string // Used to notify that the new replica has registered with the Gateway.
+	replicaJoinedSmrChannel  chan string // Used to notify that the new replica has joined its SMR cluster.
 }
 
 func NewAddReplicaOperation(client *client.DistributedKernelClient, spec *gateway.KernelReplicaSpec) AddReplicaOperation {
 	op := &addReplicaOperationImpl{
-		id:                uuid.New().String(),
-		client:            client,
-		spec:              spec,
-		smrNodeId:         spec.ReplicaId,
-		kernelId:          spec.Kernel.Id,
-		persistentId:      *spec.PersistentId,
-		podStarted:        false,
-		replicaJoinedSMR:  false,
-		replicaRegistered: false,
-		podStartedChannel: make(chan string),
+		id:                       uuid.New().String(),
+		client:                   client,
+		spec:                     spec,
+		smrNodeId:                spec.ReplicaId,
+		kernelId:                 spec.Kernel.Id,
+		persistentId:             *spec.PersistentId,
+		podStarted:               false,
+		replicaJoinedSMR:         false,
+		replicaRegistered:        false,
+		podStartedChannel:        make(chan string, 1),
+		replicaRegisteredChannel: make(chan string, 1),
+		replicaJoinedSmrChannel:  make(chan string, 1),
 	}
 
 	return op
@@ -46,9 +50,19 @@ func (op *addReplicaOperationImpl) String() string {
 	return fmt.Sprintf("AddReplicaOperation[ID=%s,KernelID=%s,ReplicaID=%d,Completed=%v,NewPodName=%s,PersistentID=%s,NewReplicaRegistered=%v]", op.id, op.kernelId, op.smrNodeId, op.Completed(), op.podName, op.persistentId, op.replicaRegistered)
 }
 
-// Return the channel used to notify that the new Pod has started.
+// Return the channel that is used to notify that the new Pod has started.
 func (op *addReplicaOperationImpl) PodStartedChannel() chan string {
 	return op.podStartedChannel
+}
+
+// Return the channel that is used to notify that the new replica has registered with the Gateway.
+func (op *addReplicaOperationImpl) ReplicaRegisteredChannel() chan string {
+	return op.replicaRegisteredChannel
+}
+
+// Return the channel that is used to notify that the new replica has joined its SMR cluster.
+func (op *addReplicaOperationImpl) ReplicaJoinedSmrChannel() chan string {
+	return op.replicaJoinedSmrChannel
 }
 
 // Returns true if the operation has completed successfully,
@@ -136,7 +150,7 @@ func (op *addReplicaOperationImpl) KernelSpec() *gateway.KernelReplicaSpec {
 }
 
 // Return the IP address of the new replica.
-func (op *addReplicaOperationImpl) ReplicaHostname() string {
+func (op *addReplicaOperationImpl) ReplicaPodHostname() string {
 	return op.replicaHostname
 }
 

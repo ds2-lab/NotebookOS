@@ -286,7 +286,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 		panic(fmt.Sprintf("Could not find replica of kernel \"%s\" with SMR Node ID %d.", kernelId, targetSmrNodeId))
 	}
 
-	targetClient.MigrationStarted()
+	targetClient.AddOperationStarted()
 	migrationOp := NewMigrationOperation(targetClient, targetSmrNodeId, podName, newSpec)
 
 	// Store the migration operation in some maps.
@@ -366,29 +366,29 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 // Wait for us to receive a pod-created notification for the given Pod, which managed to start running
 // and register with us before we received the pod-created notification. Once received, return the
 // associated migration operation.
-func (m *migrationManagerImpl) WaitForNewPodNotification(newPodName string) MigrationOperation {
-	m.mainMutex.Lock()
+// func (m *migrationManagerImpl) WaitForNewPodNotification(newPodName string) MigrationOperation {
+// 	m.mainMutex.Lock()
 
-	// First, try to get the migration operation, in case we received the notification since the time we made the call to WaitForNewPodNotification.
-	op, ok := m.migrationOperationsByNewPodName.Get(newPodName)
-	if ok {
-		m.mainMutex.Unlock()
-		return op
-	}
+// 	// First, try to get the migration operation, in case we received the notification since the time we made the call to WaitForNewPodNotification.
+// 	op, ok := m.migrationOperationsByNewPodName.Get(newPodName)
+// 	if ok {
+// 		m.mainMutex.Unlock()
+// 		return op
+// 	}
 
-	_ = m.newPodWaiters.SetIfAbsent(newPodName, make(chan MigrationOperation))
-	channel, _ := m.newPodWaiters.Get(newPodName)
+// 	_ = m.newPodWaiters.SetIfAbsent(newPodName, make(chan MigrationOperation))
+// 	channel, _ := m.newPodWaiters.Get(newPodName)
 
-	m.mainMutex.Unlock()
+// 	m.mainMutex.Unlock()
 
-	m.log.Debug("Waiting on channel for pod-created notification for new pod \"%s\"", newPodName)
-	select {
-	case op := <-channel:
-		{
-			return op
-		}
-	}
-}
+// 	m.log.Debug("Waiting on channel for pod-created notification for new pod \"%s\"", newPodName)
+// 	select {
+// 	case op := <-channel:
+// 		{
+// 			return op
+// 		}
+// 	}
+// }
 
 // Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
 func (m *migrationManagerImpl) PodCreated(obj interface{}) {
@@ -551,7 +551,7 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 func (m *migrationManagerImpl) migrationCompleted(op MigrationOperation) {
 	m.log.Debug("Migration %s of replica %d of kernel %s completed successfully.", op.OperationID(), op.OriginalSMRNodeID(), op.KernelId())
 
-	op.KernelClient().MigrationCompleted()
+	op.KernelClient().AddOperationCompleted()
 	// Wake up anybody waiting.
 	op.Broadcast()
 

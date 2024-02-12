@@ -63,7 +63,7 @@ type DistributedKernelClient struct {
 	shellListenPort int // Port that the KernelClient::shell socket listens on.
 	iopubListenPort int // Port that the KernelClient::iopub socket listens on.
 
-	numActiveMigrations int // Number of active migrations of the associated kernel's replicas.
+	numActiveAddOperations int // Number of active migrations of the associated kernel's replicas.
 
 	log     logger.Logger
 	mu      sync.RWMutex
@@ -79,14 +79,14 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort} // connectionInfo.IOSubPort}
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
-		status:              types.KernelStatusInitializing,
-		spec:                spec,
-		replicas:            make([]core.KernelReplica, numReplicas),
-		cleaned:             make(chan struct{}),
-		connectionInfo:      connectionInfo,
-		shellListenPort:     shellListenPort,
-		iopubListenPort:     iopubListenPort,
-		numActiveMigrations: 0,
+		status:                 types.KernelStatusInitializing,
+		spec:                   spec,
+		replicas:               make([]core.KernelReplica, numReplicas),
+		cleaned:                make(chan struct{}),
+		connectionInfo:         connectionInfo,
+		shellListenPort:        shellListenPort,
+		iopubListenPort:        iopubListenPort,
+		numActiveAddOperations: 0,
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)
@@ -168,27 +168,27 @@ func (c *DistributedKernelClient) Size() int {
 }
 
 // Return the number of active migrations of the associated kernel's replicas.
-func (c *DistributedKernelClient) NumActiveMigrations() int {
+func (c *DistributedKernelClient) NumActiveAddOperations() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.numActiveMigrations
+	return c.numActiveAddOperations
 }
 
-func (c *DistributedKernelClient) MigrationStarted() {
+func (c *DistributedKernelClient) AddOperationStarted() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.numActiveMigrations += 1
+	c.numActiveAddOperations += 1
 }
 
-func (c *DistributedKernelClient) MigrationCompleted() {
+func (c *DistributedKernelClient) AddOperationCompleted() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.numActiveMigrations -= 1
+	c.numActiveAddOperations -= 1
 
-	if c.numActiveMigrations < 0 {
+	if c.numActiveAddOperations < 0 {
 		panic(fmt.Sprintf("Number of active migration operations cannot fall below 0."))
 	}
 }

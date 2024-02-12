@@ -15,7 +15,6 @@ import (
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/pkg/errors"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	appsv1 "k8s.io/api/apps/v1"
@@ -160,7 +159,7 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 
 	// client.smrPort = smrPort
 
-	client.migrationManager = NewMigrationManager()
+	// client.migrationManager = NewMigrationManager()
 
 	client.createPodWatcher("default")
 
@@ -178,6 +177,9 @@ func (c *BasicKubeClient) PodCreated(obj interface{}) {
 		return
 	}
 
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	kernelId := pod.Name[7:43]
 	channels, ok := c.scaleUpChannels.Get(kernelId)
 
@@ -185,9 +187,6 @@ func (c *BasicKubeClient) PodCreated(obj interface{}) {
 		c.log.Debug("No scale-up waiters for kernel %s", kernelId)
 		return
 	}
-
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
 
 	// Notify the first wait group that a Pod has started.
 	// We only notify one of the wait groups, as each wait group corresponds to
@@ -246,6 +245,14 @@ func (c *BasicKubeClient) ScaleUpCloneSet(kernelId string, podStartedChannel cha
 		Jitter:   0.1,
 	}
 
+	// Store the new channel in the mapping.
+	channels, ok := c.scaleUpChannels.Get(kernelId)
+	if !ok {
+		channels = make([]chan string, 0, 4)
+	}
+	channels = append(channels, podStartedChannel)
+	c.scaleUpChannels.Set(kernelId, channels)
+
 	// Increase the number of replicas.
 	retryErr := retry.RetryOnConflict(retryParameters, func() error {
 		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
@@ -281,19 +288,17 @@ func (c *BasicKubeClient) ScaleUpCloneSet(kernelId string, podStartedChannel cha
 	})
 
 	if retryErr != nil {
+		// Store the new channel in the mapping.
+		channels, ok := c.scaleUpChannels.Get(kernelId)
+		if !ok {
+			panic(fmt.Sprintf("Expected to find slice of scale-up channels for kernel %s.", kernelId))
+		}
+		// Remove the channel that we just added, as the scale-out operation failed.
+		channels = channels[:len(channels)-1]
+		c.scaleUpChannels.Set(kernelId, channels)
+
 		return errors.Wrapf(retryErr, "Error when attempting to scale-up CloneSet %s")
 	}
-
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	// Store the new channel in the mapping.
-	channels, ok := c.scaleUpChannels.Get(kernelId)
-	if !ok {
-		channels = make([]chan string, 0, 4)
-	}
-	channels = append(channels, podStartedChannel)
-	c.scaleUpChannels.Set(kernelId, channels)
 
 	return nil
 }
@@ -301,33 +306,33 @@ func (c *BasicKubeClient) ScaleUpCloneSet(kernelId string, podStartedChannel cha
 // Wait for us to receive a pod-created notification for the given Pod, which managed to start running
 // and register with us before we received the pod-created notification. Once received, return the
 // associated migration operation.
-func (c *BasicKubeClient) WaitForNewPodNotification(newPodName string) AddReplicaOperation {
-	c.mutex.Lock()
+// func (c *BasicKubeClient) WaitForNewPodNotification(newPodName string) AddReplicaOperation {
+// 	c.mutex.Lock()
 
-	// First, try to get the migration operation, in case we received the notification since the time we made the call to WaitForNewPodNotification.
-	op, ok := c.migrationOperationsByNewPodName.Get(newPodName)
-	if ok {
-		c.mutex.Unlock()
-		return op
-	}
+// 	// First, try to get the migration operation, in case we received the notification since the time we made the call to WaitForNewPodNotification.
+// 	op, ok := c.migrationOperationsByNewPodName.Get(newPodName)
+// 	if ok {
+// 		c.mutex.Unlock()
+// 		return op
+// 	}
 
-	_ = c.newPodWaiters.SetIfAbsent(newPodName, make(chan AddReplicaOperation))
-	channel, _ := c.newPodWaiters.Get(newPodName)
+// 	_ = c.newPodWaiters.SetIfAbsent(newPodName, make(chan AddReplicaOperation))
+// 	channel, _ := c.newPodWaiters.Get(newPodName)
 
-	c.mutex.Unlock()
+// 	c.mutex.Unlock()
 
-	c.log.Debug("Waiting on channel for pod-created notification for new pod \"%s\"", newPodName)
-	select {
-	case op := <-channel:
-		{
-			return op
-		}
-	}
-}
+// 	c.log.Debug("Waiting on channel for pod-created notification for new pod \"%s\"", newPodName)
+// 	select {
+// 	case op := <-channel:
+// 		{
+// 			return op
+// 		}
+// 	}
+// }
 
-func (c *BasicKubeClient) GetMigrationOperationByNewPod(newPodName string) (MigrationOperation, bool) {
-	return c.migrationManager.GetMigrationOperationByNewPod(newPodName)
-}
+// func (c *BasicKubeClient) GetMigrationOperationByNewPod(newPodName string) (MigrationOperation, bool) {
+// 	return c.migrationManager.GetMigrationOperationByNewPod(newPodName)
+// }
 
 // Get the Kubernetes client.
 func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
@@ -336,9 +341,9 @@ func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
 
 // Check if the given Migration Operation has finished. This is called twice: when the new replica registers with the Gateway,
 // and when the old Pod is deleted. Whichever of those two events happens last will be the one that designates the operation has having completed.
-func (c *BasicKubeClient) CheckIfMigrationCompleted(op MigrationOperation) bool {
-	return c.migrationManager.CheckIfMigrationCompleted(op)
-}
+// func (c *BasicKubeClient) CheckIfMigrationCompleted(op MigrationOperation) bool {
+// 	return c.migrationManager.CheckIfMigrationCompleted(op)
+// }
 
 // Get the associated Gateway daemon.
 func (c *BasicKubeClient) GatewayDaemon() *GatewayDaemon {
@@ -402,20 +407,20 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 		c.createKernelCloneSet(ctx, kernel, connectionInfo, headlessServiceName)
 	}
 
-	c.migrationManager.RegisterKernel(kernel.Id)
+	// c.migrationManager.RegisterKernel(kernel.Id)
 
 	return connectionInfo, nil
 }
 
 // Return the migration operation associated with the given Kernel ID and SMR Node ID of the new replica.
-func (c *BasicKubeClient) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (MigrationOperation, bool) {
-	return c.migrationManager.GetMigrationOperationByKernelIdAndNewReplicaId(kernelId, smrNodeId)
-}
+// func (c *BasicKubeClient) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (MigrationOperation, bool) {
+// 	return c.migrationManager.GetMigrationOperationByKernelIdAndNewReplicaId(kernelId, smrNodeId)
+// }
 
-// TODO(Ben): Will need some sort of concurrency control -- like if we try to migrate two replicas at once, then we'd need to account for this.
-func (c *BasicKubeClient) InitiateKernelMigration(ctx context.Context, targetClient *client.DistributedKernelClient, targetSmrNodeId int32, newSpec *gateway.KernelReplicaSpec) (string, error) {
-	return c.migrationManager.InitiateKernelMigration(ctx, targetClient, targetSmrNodeId, newSpec)
-}
+// // TODO(Ben): Will need some sort of concurrency control -- like if we try to migrate two replicas at once, then we'd need to account for this.
+// func (c *BasicKubeClient) InitiateKernelMigration(ctx context.Context, targetClient *client.DistributedKernelClient, targetSmrNodeId int32, newSpec *gateway.KernelReplicaSpec) (string, error) {
+// 	return c.migrationManager.InitiateKernelMigration(ctx, targetClient, targetSmrNodeId, newSpec)
+// }
 
 // Add the "apps.kruise.io/specified-delete: true" label to the Pod with the given name.
 // The labeled Pod will be prioritized for deletion when the CloneSet is scaled down.

@@ -88,7 +88,7 @@ class RaftLog:
     self._start_loop = self._async_loop
     # self._node.StartWait(config)
     self._node.Start(config)
-    self._log.debug("Started")
+    self._log.info("Started RaftLog.")
     # self._closed = Future(self._start_loop)
     # return self._closed.future
 

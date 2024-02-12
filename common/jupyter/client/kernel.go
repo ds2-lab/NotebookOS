@@ -270,6 +270,7 @@ func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
 	c.iobroker.Subscribe(MessageBrokerAllTopics, c.forwardIOMessage) // Default to forward all messages.
 	c.iobroker.Subscribe(types.IOTopicStatus, c.handleIOKernelStatus)
 	c.iobroker.Subscribe(types.IOTopicSMRReady, c.handleIOKernelSMRReady)
+	c.iobroker.Subscribe(types.IOTopicSMRNodeAdded, c.handleIOKernelSMRNodeAdded)
 	return iopub, nil
 }
 
@@ -479,6 +480,25 @@ func (c *KernelClient) handleIOKernelStatus(kernel core.Kernel, frames types.Jup
 	return nil
 }
 
+func (c *KernelClient) handleIOKernelSMRNodeAdded(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
+	var ready types.MessageSMRNodeAdded
+	if err := frames.Validate(); err != nil {
+		return err
+	}
+	err := frames.DecodeContent(&ready)
+	if err != nil {
+		return err
+	}
+
+	c.log.Debug("Handling IO Kernel SMR Node-Added for Kernel %v, ReplicaID %d, PersistentID %v.", kernel.ID(), ready.NodeID, ready.PersistentID)
+
+	if c.smrReadyCallback != nil {
+		c.smrReadyCallback(c)
+	}
+
+	return types.ErrStopPropagation
+}
+
 func (c *KernelClient) handleIOKernelSMRReady(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
 	var ready types.MessageSMRReady
 	if err := frames.Validate(); err != nil {
@@ -494,9 +514,9 @@ func (c *KernelClient) handleIOKernelSMRReady(kernel core.Kernel, frames types.J
 	c.persistentId = ready.PersistentID
 	c.log.Debug("Persistent ID confirmed: %v", c.persistentId)
 
-	if c.smrReadyCallback != nil {
-		c.smrReadyCallback(c)
-	}
+	// if c.smrReadyCallback != nil {
+	// 	c.smrReadyCallback(c)
+	// }
 
 	return types.ErrStopPropagation
 }

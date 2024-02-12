@@ -3,7 +3,8 @@ package types
 const (
 	SMRVersion = "1.0"
 
-	IOTopicSMRReady = "smr_ready"
+	IOTopicSMRReady     = "smr_ready"
+	IOTopicSMRNodeAdded = "smr_node_added"
 
 	MessageTypeSMRLeadTask       = "smr_lead_task"
 	MessageTypeAddReplicaRequest = "add_replica_request"
@@ -11,6 +12,11 @@ const (
 
 type MessageSMRReady struct {
 	PersistentID string `json:"persistent_id"`
+}
+
+type MessageSMRNodeAdded struct {
+	MessageSMRReady
+	MessageSMRAddReplicaRequest
 }
 
 type MessageSMRLeadTask struct {

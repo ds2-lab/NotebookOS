@@ -59,7 +59,11 @@ class DistributedKernel(IPythonKernel):
     ).tag(config=True)
     
     pod_name: Union[str, Unicode] = Unicode(
-        help = """Name of the Pod encapsulating this distributed kernel replica"""
+        help = """Kubernetes name of the Pod encapsulating this distributed kernel replica"""
+    ).tag(config = False)
+    
+    hostname = Union[str, Unicode] = Unicode(
+        help = """Hostname of the Pod encapsulating this distributed kernel replica"""
     ).tag(config = False)
 
     implementation = 'Distributed Python 3'
@@ -504,6 +508,9 @@ class DistributedKernel(IPythonKernel):
         try:
             await self.synclog.add_node(id, "http://{}".format(addr))
             self.log.info("A replica({}) is notified to join: {}".format(id, addr))
+            
+            self.session.send(self.iopub_socket, "smr_node_added", {"persistent_id": self.persistent_id, "id": self.smr_node_id, "addr": self.hostname}, ident=self._topic("smr_node_added")) # type: ignore
+            
             return {'status': 'ok'}
         except Exception as e:
             self.log.error("A replica fails to join: {}...".format(e))
