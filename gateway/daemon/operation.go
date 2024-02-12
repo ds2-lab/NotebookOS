@@ -125,11 +125,18 @@ func (op *addReplicaOperationImpl) ReplicaJoinedSMR() bool {
 }
 
 // Record that the new replica has joined its SMR cluster.
-// This also sends a notification on the ReplicaJoinedSmrChannel.
+// This also sends a notification on the ReplicaJoinedSmrChannel and marks the associated replica as ready.
 func (op *addReplicaOperationImpl) SetReplicaJoinedSMR() {
 	op.replicaJoinedSMR = true
-
 	op.replicaJoinedSmrChannel <- struct{}{}
+
+	// Mark the new replica as being ready.
+	replica, err := op.client.GetReplicaByID(op.smrNodeId)
+	if err != nil {
+		panic(fmt.Sprintf("Cannot find new replica with ID %d for kernel %s.", op.smrNodeId, op.kernelId))
+	}
+
+	replica.SetReady()
 }
 
 // Return true if the new Pod has started.

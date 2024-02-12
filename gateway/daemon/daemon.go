@@ -398,13 +398,82 @@ func (d *GatewayDaemon) SetID(ctx context.Context, hostId *gateway.HostId) (*gat
 	return nil, ErrNotImplemented
 }
 
-func (d *GatewayDaemon) SmrReady(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
-	kernelId := replicaInfo.KernelId
-	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
+func (d *GatewayDaemon) SmrReady(ctx context.Context, smrReadyNotification *gateway.SmrReadyNotification) (*gateway.Void, error) {
+	kernelId := smrReadyNotification.KernelId
 
-	op, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, replicaInfo.ReplicaId)
-
+	// First, check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
+	_, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId)
 	if !ok {
+		return gateway.VOID, nil
+	}
+
+	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s.", smrReadyNotification.ReplicaId, kernelId)
+	d.log.Info("Notifying existing replicas of kernel %s that new replica %d has been created and is ready to join the SMR cluster.", smrReadyNotification.KernelId, smrReadyNotification.ReplicaId)
+
+	kernelClient, ok := d.kernels.Load(kernelId)
+	if !ok {
+		panic(fmt.Sprintf("Could not find distributed kernel client with ID %s.", kernelId))
+	}
+
+	targetReplica := kernelClient.GetReadyReplica()
+	if targetReplica == nil {
+		panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernelId))
+	}
+
+	host := targetReplica.Context().Value(client.CtxKernelHost).(core.Host)
+	if host == nil {
+		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
+	}
+
+	d.log.Debug("Issuing AddReplica RPC for new replica %d of kernel %s.", smrReadyNotification.ReplicaId, smrReadyNotification.KernelId)
+	_, err := host.AddReplica(context.TODO(), &gateway.AddReplicaRequest{
+		Id:       smrReadyNotification.ReplicaId,
+		KernelId: kernelId,
+		Hostname: fmt.Sprintf("%s:%d", smrReadyNotification.Address, d.smrPort),
+	})
+	if err != nil {
+		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", smrReadyNotification.ReplicaId, smrReadyNotification.KernelId))
+	}
+	d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", smrReadyNotification.KernelId, smrReadyNotification.ReplicaId)
+
+	// frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernelClient.Sessions()[0])
+	// frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
+	// 	NodeID:  smrReadyNotification.ReplicaId,
+	// 	Address: fmt.Sprintf("%s:%d", smrReadyNotification.Address, d.smrPort),
+	// })
+	// if _, err := frames.Sign(kernelClient.ConnectionInfo().SignatureScheme, []byte(kernelClient.ConnectionInfo().Key)); err != nil {
+	// 	d.log.Error("Encountered error when signing frames of new-replica message to other replicas: %v", err)
+	// 	// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
+	// 	panic(err)
+	// }
+
+	// msg := &zmq4.Msg{Frames: frames}
+	// var wg sync.WaitGroup
+	// wg.Add(1)
+	// // Select a random, existing kernel to issue the add-kernel operation.
+
+	// d.log.Debug("Sending message to replica %d of kernel %s to add new replica %d to SMR cluster.", targetReplica.ReplicaID(), targetReplica.ID(), smrReadyNotification.ReplicaId)
+	// err := kernelClient.RequestWithHandlerAndReplicas(context.Background(), jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+	// 	d.log.Debug("Received response of type %v associated with kernel %s: %v", typ, kernel.ID(), msg)
+	// 	return nil
+	// }, wg.Done, targetReplica)
+	// if err != nil {
+	// 	d.log.Error("Encountered error when sending new-replica message to other replicas: %v", err)
+	// 	// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
+	// 	panic(err)
+	// }
+	// wg.Wait()
+
+	return gateway.VOID, nil
+}
+
+func (d *GatewayDaemon) SmrJoined(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
+	kernelId := replicaInfo.KernelId
+	d.log.Debug("Received SMR-JOINED notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
+
+	// If there's no add-replica operation here, then we'll just return.
+	op, op_exists := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, replicaInfo.ReplicaId)
+	if !op_exists {
 		return gateway.VOID, nil
 	}
 
@@ -536,7 +605,7 @@ func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *
 	addReplicaOp.SetReplicaHostname(in.KernelIp)
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, nil)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, nil, nil)
 	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
@@ -628,7 +697,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nil)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nil, nil)
 	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
@@ -641,6 +710,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		panic(fmt.Sprintf("KernelClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
+	replica.SetReady()
 	d.mutex.Unlock()
 
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.

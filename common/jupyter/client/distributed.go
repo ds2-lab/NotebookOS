@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	ctxKernelHost = utils.ContextKey("host")
+	CtxKernelHost = utils.ContextKey("host")
 
 	ErrReplicaNotFound = fmt.Errorf("replica not found")
 )
@@ -259,7 +259,7 @@ func (c *DistributedKernelClient) AddReplica(r core.KernelReplica, host core.Hos
 	}
 
 	// Safe to append the kernel now.
-	r.SetContext(context.WithValue(r.Context(), ctxKernelHost, host))
+	r.SetContext(context.WithValue(r.Context(), CtxKernelHost, host))
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -401,10 +401,25 @@ func (c *DistributedKernelClient) InitializeIOForwarder() (*types.Socket, error)
 	return c.server.Sockets.IO, nil
 }
 
+// Return a replica that has already joined its SMR cluster and everything.
+// Returns nil if there are no ready replicas.
+func (c *DistributedKernelClient) GetReadyReplica() core.KernelReplica {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, replica := range c.replicas {
+		if replica.IsReady() {
+			return replica
+		}
+	}
+
+	return nil
+}
+
 // RequestWithHandler sends a request to all replicas and handles the response.
 func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
 	// c.log.Debug("%s %v request(%p) to all replicas(%d): %v", prompt, typ, msg, c.Size(), msg)
-	c.log.Debug("%s %v request(%p) to all replicas(%d).", prompt, typ, msg, c.Size())
+	// c.log.Debug("%s %v request(%p) to all replicas(%d).", prompt, typ, msg, c.Size())
 	return c.RequestWithHandlerAndReplicas(ctx, typ, msg, handler, done)
 }
 
@@ -556,7 +571,7 @@ func (c *DistributedKernelClient) WaitClosed() types.KernelStatus {
 }
 
 func (c *DistributedKernelClient) stopReplicaLocked(r core.KernelReplica, remover ReplicaRemover, noop bool) (core.Host, error) {
-	host := r.Context().Value(ctxKernelHost).(core.Host)
+	host := r.Context().Value(CtxKernelHost).(core.Host)
 	if err := remover(host, c, noop); err != nil {
 		return host, err
 	}
@@ -609,7 +624,7 @@ func (c *DistributedKernelClient) queryCloseLocked() error {
 		go func(replica core.Kernel) {
 			defer stopped.Done()
 
-			host := replica.Context().Value(ctxKernelHost).(core.Host)
+			host := replica.Context().Value(CtxKernelHost).(core.Host)
 			host.WaitKernel(context.Background(), &gateway.KernelId{Id: replica.ID()})
 		}(replica)
 	}

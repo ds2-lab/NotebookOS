@@ -36,6 +36,11 @@ class ClusterGatewayStub(object):
                 )
         self.SmrReady = channel.unary_unary(
                 '/gateway.ClusterGateway/SmrReady',
+                request_serializer=gateway__pb2.SmrReadyNotification.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
+        self.SmrJoined = channel.unary_unary(
+                '/gateway.ClusterGateway/SmrJoined',
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
@@ -83,6 +88,12 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SmrJoined(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -108,6 +119,11 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
             ),
             'SmrReady': grpc.unary_unary_rpc_method_handler(
                     servicer.SmrReady,
+                    request_deserializer=gateway__pb2.SmrReadyNotification.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'SmrJoined': grpc.unary_unary_rpc_method_handler(
+                    servicer.SmrJoined,
                     request_deserializer=gateway__pb2.ReplicaInfo.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
@@ -201,6 +217,23 @@ class ClusterGateway(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/SmrReady',
+            gateway__pb2.SmrReadyNotification.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def SmrJoined(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/SmrJoined',
             gateway__pb2.ReplicaInfo.SerializeToString,
             gateway__pb2.Void.FromString,
             options, channel_credentials,
@@ -255,6 +288,11 @@ class LocalGatewayStub(object):
         self.SetClose = channel.unary_unary(
                 '/gateway.LocalGateway/SetClose',
                 request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
+        self.AddReplica = channel.unary_unary(
+                '/gateway.LocalGateway/AddReplica',
+                request_serializer=gateway__pb2.AddReplicaRequest.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
 
@@ -319,6 +357,12 @@ class LocalGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def AddReplica(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_LocalGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -360,6 +404,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
             'SetClose': grpc.unary_unary_rpc_method_handler(
                     servicer.SetClose,
                     request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'AddReplica': grpc.unary_unary_rpc_method_handler(
+                    servicer.AddReplica,
+                    request_deserializer=gateway__pb2.AddReplicaRequest.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
@@ -505,6 +554,23 @@ class LocalGateway(object):
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/SetClose',
             gateway__pb2.Void.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def AddReplica(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/AddReplica',
+            gateway__pb2.AddReplicaRequest.SerializeToString,
             gateway__pb2.Void.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

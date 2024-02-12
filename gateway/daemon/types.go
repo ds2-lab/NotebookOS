@@ -63,7 +63,7 @@ type AddReplicaOperation interface {
 	SetReplicaRegistered()                         // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered. This also sends a notification on the replicaRegisteredChannel.
 	SetPodName(string)                             // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
 	SetReplicaHostname(hostname string)            // Set the IP address of the new replica.
-	SetReplicaJoinedSMR()                          // Record that the new replica has joined its SMR cluster. This also sends a notification on the ReplicaJoinedSmrChannel.
+	SetReplicaJoinedSMR()                          // Record that the new replica has joined its SMR cluster. This also sends a notification on the ReplicaJoinedSmrChannel. NOTE: This does NOT mark the associated replica as ready. That must be done separately.
 	Completed() bool                               // Return true if the operation has completed successfully.
 	PodStartedChannel() chan string                // Return the channel used to notify that the new Pod has started.
 	ReplicaJoinedSmrChannel() chan struct{}        // Return the channel that is used to notify that the new replica has joined its SMR cluster.

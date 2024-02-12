@@ -25,7 +25,9 @@ service ClusterGateway {
   // Notify the Gateway that a distributed kernel replica has started somewhere.
   rpc NotifyKernelRegistered(KernelRegistrationNotification) returns (KernelRegistrationNotificationResponse) {}
 
-  rpc SmrReady(ReplicaInfo) returns (Void) {}
+  rpc SmrReady(SmrReadyNotification) returns (Void) {}
+
+  rpc SmrJoined(ReplicaInfo) returns (Void) {}
 }
 
 message ProvisionerId {
@@ -66,6 +68,8 @@ service LocalGateway {
 
   // SetClose request the gateway to close all kernels and stop.
   rpc SetClose(Void) returns (Void) {}
+
+  rpc AddReplica(AddReplicaRequest) returns (Void) {}
 }
 
 // The input for starting a kernel replica.
@@ -98,6 +102,13 @@ message ReplicaInfo {
   string persistentId = 3;
 }
 
+message SmrReadyNotification {
+  string kernelId = 1;
+  int32 replicaId = 2;
+  string persistentId = 3;
+  string address = 4;
+}
+
 // The replica id.
 message ReplicaId {
   int32 id = 1;
@@ -106,6 +117,12 @@ message ReplicaId {
 message MigrateKernelResponse {
   int32 id = 1;
   string hostname = 2;
+}
+
+message AddReplicaRequest {
+  int32 id = 1;
+  string hostname = 2;
+  string kernelId = 3;
 }
 
 // The kernel spec.

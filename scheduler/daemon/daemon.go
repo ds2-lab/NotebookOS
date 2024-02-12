@@ -21,6 +21,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -236,7 +237,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, d.smrReadyCallback)
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, d.smrReadyCallback, d.smrJoinedCallback)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
@@ -380,16 +381,66 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 }
 
 func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
+	d.log.Debug("Replica %d of kernel %s is ready to join its SMR cluster.", kernelClient.ReplicaID(), kernelClient.ID())
+
+	_, err := d.Provisioner.SmrReady(context.TODO(), &gateway.SmrReadyNotification{
+		KernelId:     kernelClient.ID(),
+		ReplicaId:    kernelClient.ReplicaID(),
+		PersistentId: kernelClient.PersistentID(),
+		Address:      kernelClient.Address(),
+	})
+
+	if err != nil {
+		d.log.Error("Error when informing Gateway of SMR-Ready for replica %d of kernel %s: %v", kernelClient.ReplicaID(), kernelClient.ID(), err)
+	}
+}
+
+func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.AddReplicaRequest) (*gateway.Void, error) {
+	kernelId := req.KernelId
+	hostname := req.Hostname
+	replicaId := req.Id
+
+	kernel, ok := d.kernels.Load(kernelId)
+	if !ok {
+		d.log.Error("Could not find KernelClient for kernel %s.", kernelId)
+		return gateway.VOID, ErrInvalidParameter
+	}
+
+	d.log.Debug("Now that kernel %s(%d) has added, notify the existing members.", kernelId, replicaId)
+	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernel.Sessions()[0])
+	frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
+		NodeID:  replicaId,
+		Address: hostname, // s.daemon.getInvoker(kernel).GetReplicaAddress(kernel.KernelSpec(), replicaId),
+	})
+	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+		d.log.Error("Error occurred while signing frames for add-replica request to kernel %s: %v", kernelId, err)
+		return gateway.VOID, err
+	}
+
+	msg := &zmq4.Msg{Frames: frames}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, wg.Done, server.DefaultRequestTimeout)
+	if err != nil {
+		d.log.Error("Error occurred while issuing add-replica request to kernel %s: %v", kernelId, err)
+		return gateway.VOID, err
+	}
+	wg.Wait()
+
+	return gateway.VOID, nil
+}
+
+func (d *SchedulerDaemon) smrJoinedCallback(kernelClient *client.KernelClient) {
 	d.log.Debug("Replica %d of kernel %s has joined its SMR cluster.", kernelClient.ReplicaID(), kernelClient.ID())
 
-	_, err := d.Provisioner.SmrReady(context.TODO(), &gateway.ReplicaInfo{
+	_, err := d.Provisioner.SmrJoined(context.TODO(), &gateway.ReplicaInfo{
 		KernelId:     kernelClient.ID(),
 		ReplicaId:    kernelClient.ReplicaID(),
 		PersistentId: kernelClient.PersistentID(),
 	})
 
 	if err != nil {
-		d.log.Error("Error when informing Gateway of SMR-Ready for replica %d of kernel %s: %v", kernelClient.ReplicaID(), kernelClient.ID(), err)
+		d.log.Error("Error when informing Gateway of SMR-Joined for replica %d of kernel %s: %v", kernelClient.ReplicaID(), kernelClient.ID(), err)
 	}
 }
 

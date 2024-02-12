@@ -24,6 +24,7 @@ const (
 	ClusterGateway_MigrateKernelReplica_FullMethodName   = "/gateway.ClusterGateway/MigrateKernelReplica"
 	ClusterGateway_NotifyKernelRegistered_FullMethodName = "/gateway.ClusterGateway/NotifyKernelRegistered"
 	ClusterGateway_SmrReady_FullMethodName               = "/gateway.ClusterGateway/SmrReady"
+	ClusterGateway_SmrJoined_FullMethodName              = "/gateway.ClusterGateway/SmrJoined"
 )
 
 // ClusterGatewayClient is the client API for ClusterGateway service.
@@ -43,7 +44,8 @@ type ClusterGatewayClient interface {
 	MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*MigrateKernelResponse, error)
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
 	NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*KernelRegistrationNotificationResponse, error)
-	SmrReady(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
+	SmrReady(ctx context.Context, in *SmrReadyNotification, opts ...grpc.CallOption) (*Void, error)
+	SmrJoined(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
 }
 
 type clusterGatewayClient struct {
@@ -90,9 +92,18 @@ func (c *clusterGatewayClient) NotifyKernelRegistered(ctx context.Context, in *K
 	return out, nil
 }
 
-func (c *clusterGatewayClient) SmrReady(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error) {
+func (c *clusterGatewayClient) SmrReady(ctx context.Context, in *SmrReadyNotification, opts ...grpc.CallOption) (*Void, error) {
 	out := new(Void)
 	err := c.cc.Invoke(ctx, ClusterGateway_SmrReady_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *clusterGatewayClient) SmrJoined(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error) {
+	out := new(Void)
+	err := c.cc.Invoke(ctx, ClusterGateway_SmrJoined_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +127,8 @@ type ClusterGatewayServer interface {
 	MigrateKernelReplica(context.Context, *ReplicaInfo) (*MigrateKernelResponse, error)
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
 	NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*KernelRegistrationNotificationResponse, error)
-	SmrReady(context.Context, *ReplicaInfo) (*Void, error)
+	SmrReady(context.Context, *SmrReadyNotification) (*Void, error)
+	SmrJoined(context.Context, *ReplicaInfo) (*Void, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -136,8 +148,11 @@ func (UnimplementedClusterGatewayServer) MigrateKernelReplica(context.Context, *
 func (UnimplementedClusterGatewayServer) NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*KernelRegistrationNotificationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NotifyKernelRegistered not implemented")
 }
-func (UnimplementedClusterGatewayServer) SmrReady(context.Context, *ReplicaInfo) (*Void, error) {
+func (UnimplementedClusterGatewayServer) SmrReady(context.Context, *SmrReadyNotification) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SmrReady not implemented")
+}
+func (UnimplementedClusterGatewayServer) SmrJoined(context.Context, *ReplicaInfo) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SmrJoined not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 
@@ -225,7 +240,7 @@ func _ClusterGateway_NotifyKernelRegistered_Handler(srv interface{}, ctx context
 }
 
 func _ClusterGateway_SmrReady_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReplicaInfo)
+	in := new(SmrReadyNotification)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -237,7 +252,25 @@ func _ClusterGateway_SmrReady_Handler(srv interface{}, ctx context.Context, dec 
 		FullMethod: ClusterGateway_SmrReady_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClusterGatewayServer).SmrReady(ctx, req.(*ReplicaInfo))
+		return srv.(ClusterGatewayServer).SmrReady(ctx, req.(*SmrReadyNotification))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ClusterGateway_SmrJoined_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReplicaInfo)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterGatewayServer).SmrJoined(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterGateway_SmrJoined_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterGatewayServer).SmrJoined(ctx, req.(*ReplicaInfo))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -269,6 +302,10 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "SmrReady",
 			Handler:    _ClusterGateway_SmrReady_Handler,
 		},
+		{
+			MethodName: "SmrJoined",
+			Handler:    _ClusterGateway_SmrJoined_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "common/gateway/gateway.proto",
@@ -283,6 +320,7 @@ const (
 	LocalGateway_StopKernel_FullMethodName         = "/gateway.LocalGateway/StopKernel"
 	LocalGateway_WaitKernel_FullMethodName         = "/gateway.LocalGateway/WaitKernel"
 	LocalGateway_SetClose_FullMethodName           = "/gateway.LocalGateway/SetClose"
+	LocalGateway_AddReplica_FullMethodName         = "/gateway.LocalGateway/AddReplica"
 )
 
 // LocalGatewayClient is the client API for LocalGateway service.
@@ -305,6 +343,7 @@ type LocalGatewayClient interface {
 	WaitKernel(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*KernelStatus, error)
 	// SetClose request the gateway to close all kernels and stop.
 	SetClose(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
+	AddReplica(ctx context.Context, in *AddReplicaRequest, opts ...grpc.CallOption) (*Void, error)
 }
 
 type localGatewayClient struct {
@@ -387,6 +426,15 @@ func (c *localGatewayClient) SetClose(ctx context.Context, in *Void, opts ...grp
 	return out, nil
 }
 
+func (c *localGatewayClient) AddReplica(ctx context.Context, in *AddReplicaRequest, opts ...grpc.CallOption) (*Void, error) {
+	out := new(Void)
+	err := c.cc.Invoke(ctx, LocalGateway_AddReplica_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalGatewayServer is the server API for LocalGateway service.
 // All implementations must embed UnimplementedLocalGatewayServer
 // for forward compatibility
@@ -407,6 +455,7 @@ type LocalGatewayServer interface {
 	WaitKernel(context.Context, *KernelId) (*KernelStatus, error)
 	// SetClose request the gateway to close all kernels and stop.
 	SetClose(context.Context, *Void) (*Void, error)
+	AddReplica(context.Context, *AddReplicaRequest) (*Void, error)
 	mustEmbedUnimplementedLocalGatewayServer()
 }
 
@@ -437,6 +486,9 @@ func (UnimplementedLocalGatewayServer) WaitKernel(context.Context, *KernelId) (*
 }
 func (UnimplementedLocalGatewayServer) SetClose(context.Context, *Void) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetClose not implemented")
+}
+func (UnimplementedLocalGatewayServer) AddReplica(context.Context, *AddReplicaRequest) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddReplica not implemented")
 }
 func (UnimplementedLocalGatewayServer) mustEmbedUnimplementedLocalGatewayServer() {}
 
@@ -595,6 +647,24 @@ func _LocalGateway_SetClose_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalGateway_AddReplica_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddReplicaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).AddReplica(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalGateway_AddReplica_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).AddReplica(ctx, req.(*AddReplicaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalGateway_ServiceDesc is the grpc.ServiceDesc for LocalGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -633,6 +703,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetClose",
 			Handler:    _LocalGateway_SetClose_Handler,
+		},
+		{
+			MethodName: "AddReplica",
+			Handler:    _LocalGateway_AddReplica_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -20,7 +20,7 @@ var (
 	heartbeatInterval = time.Second
 )
 
-type SMRReadyCallback func(*KernelClient)
+type SMRNotificationCallback func(*KernelClient)
 
 // KernelClient offers a simple interface to communicate with a kernel.
 // All sockets except IOPub are connected on dialing.
@@ -50,7 +50,10 @@ type KernelClient struct {
 	iopubListenPort       int           // Port that the KernelClient::iopub socket listens on.
 	kernelPodName         string        // Name of the Pod housing the associated distributed kernel replica container.
 
-	smrReadyCallback SMRReadyCallback
+	ready bool // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
+
+	smrReadyCallback  SMRNotificationCallback
+	smrJoinedCallback SMRNotificationCallback
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -58,7 +61,7 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, smrReadyCallback SMRReadyCallback) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, smrReadyCallback SMRNotificationCallback, smrJoinedCallback SMRNotificationCallback) *KernelClient {
 	client := &KernelClient{
 		id:                    spec.Kernel.Id,
 		replicaId:             spec.ReplicaId,
@@ -68,6 +71,7 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		iopubListenPort:       iopubListenPort,
 		kernelPodName:         kernelPodName,
 		smrReadyCallback:      smrReadyCallback,
+		smrJoinedCallback:     smrJoinedCallback,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ControlPort}
@@ -154,6 +158,18 @@ func (c *KernelClient) String() string {
 	} else {
 		return fmt.Sprintf("replica(%s:%d)", c.id, c.replicaId)
 	}
+}
+
+// Returns true if the replica has registered and joined its SMR cluster.
+// Only used by the Cluster Gateway, not by the Local Daemon.
+func (c *KernelClient) IsReady() bool {
+	return c.ready
+}
+
+// Designate the replica as ready.
+// Only used by the Cluster Gateway, not by the Local Daemon.
+func (c *KernelClient) SetReady() {
+	c.ready = true
 }
 
 // Socket returns the serve socket the kernel is listening on.
@@ -286,7 +302,7 @@ func (c *KernelClient) AddIOHandler(topic string, handler MessageBrokerHandler[c
 
 // RequestWithHandler sends a request and handles the response.
 func (c *KernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func(), timeout time.Duration) error {
-	c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
+	// c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
 	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done, timeout)
 }
 
@@ -492,8 +508,8 @@ func (c *KernelClient) handleIOKernelSMRNodeAdded(kernel core.Kernel, frames typ
 
 	c.log.Debug("Handling IO Kernel SMR Node-Added for Kernel %v, ReplicaID %d, PersistentID %v.", kernel.ID(), ready.NodeID, ready.PersistentID)
 
-	if c.smrReadyCallback != nil {
-		c.smrReadyCallback(c)
+	if c.smrJoinedCallback != nil {
+		c.smrJoinedCallback(c)
 	}
 
 	return types.ErrStopPropagation
@@ -514,9 +530,9 @@ func (c *KernelClient) handleIOKernelSMRReady(kernel core.Kernel, frames types.J
 	c.persistentId = ready.PersistentID
 	c.log.Debug("Persistent ID confirmed: %v", c.persistentId)
 
-	// if c.smrReadyCallback != nil {
-	// 	c.smrReadyCallback(c)
-	// }
+	if c.smrReadyCallback != nil {
+		c.smrReadyCallback(c)
+	}
 
 	return types.ErrStopPropagation
 }
