@@ -62,7 +62,8 @@ type SchedulerDaemonConfig func(*SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
 	// If the scheduler serves jupyter notebook directly, set this to true.
-	DirectServer bool `name:"direct" usage:"True if the scheduler serves jupyter notebook directly."`
+	DirectServer bool `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
+	SMRPort      int  `name:"smr_port" description:"Port used by the SMR protocol."`
 }
 
 func (o SchedulerDaemonOptions) String() string {
@@ -88,6 +89,8 @@ type SchedulerDaemon struct {
 
 	// Cluster client
 	Provisioner gateway.ClusterGatewayClient
+
+	smrPort int
 
 	// members
 	transport string
@@ -141,6 +144,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		closed:             make(chan struct{}),
 		cleaned:            make(chan struct{}),
 		kernelRegistryPort: kernelRegistryPort,
+		smrPort:            schedulerDaemonOptions.SMRPort,
 		// devicePluginServer: deviceplugin.NewVirtualGpuPluginServer(devicePluginOpts),
 	}
 	for _, config := range configs {
@@ -345,34 +349,34 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
 	time.Sleep(time.Second * 1)
 
-	if response.NotifyOtherReplicas {
-		d.log.Info("Notifying existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
-		frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernel.Sessions()[0])
-		frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
-			NodeID:  response.Id,
-			Address: fmt.Sprintf("%s:%d", remote_ip, response.SmrPort),
-		})
-		if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
-			d.log.Error("Encountered error when signing frames of new-replica message to other replicas: %v", err)
-			// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
-			panic(err)
-		}
+	// if response.NotifyOtherReplicas {
+	// 	d.log.Info("Notifying existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
+	// 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernel.Sessions()[0])
+	// 	frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
+	// 		NodeID:  response.Id,
+	// 		Address: fmt.Sprintf("%s:%d", remote_ip, response.SmrPort),
+	// 	})
+	// 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+	// 		d.log.Error("Encountered error when signing frames of new-replica message to other replicas: %v", err)
+	// 		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
+	// 		panic(err)
+	// 	}
 
-		msg := &zmq4.Msg{Frames: frames}
-		var wg sync.WaitGroup
-		wg.Add(1)
-		err = kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
-			d.log.Debug("Received response of type %v associated with kernel %s: %v", typ, kernel.ID(), msg)
-			return nil
-		}, wg.Done, time.Second*30)
-		if err != nil {
-			d.log.Error("Encountered error when sending new-replica message to other replicas: %v", err)
-			// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
-			panic(err)
-		}
-		wg.Wait()
-		d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
-	}
+	// 	msg := &zmq4.Msg{Frames: frames}
+	// 	var wg sync.WaitGroup
+	// 	wg.Add(1)
+	// 	err = kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+	// 		d.log.Debug("Received response of type %v associated with kernel %s: %v", typ, kernel.ID(), msg)
+	// 		return nil
+	// 	}, wg.Done, time.Second*30)
+	// 	if err != nil {
+	// 		d.log.Error("Encountered error when sending new-replica message to other replicas: %v", err)
+	// 		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
+	// 		panic(err)
+	// 	}
+	// 	wg.Wait()
+	// 	d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
+	// }
 }
 
 func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {

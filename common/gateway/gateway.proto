@@ -146,8 +146,7 @@ message KernelRegistrationNotificationResponse {
   int32 id = 1;
   repeated string replicas = 2;
   optional string persistentId = 3;
-  bool notifyOtherReplicas = 4;
-  int32 smrPort = 5;
+  int32 smrPort = 4;
 }
 
 // The status of a kernel.

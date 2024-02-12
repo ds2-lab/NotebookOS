@@ -60,14 +60,14 @@ type AddReplicaOperation interface {
 	ReplicaPodHostname() string                    // Return the IP address of the new replica.
 	ReplicaId() int32                              // The SMR node ID to use for the new replica.
 	KernelSpec() *gateway.KernelReplicaSpec        // Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
-	SetReplicaRegistered()                         // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered.
+	SetReplicaRegistered()                         // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered. This also sends a notification on the replicaRegisteredChannel.
 	SetPodName(string)                             // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
 	SetReplicaHostname(hostname string)            // Set the IP address of the new replica.
-	SetReplicaJoinedSMR()                          // Record that the new replica has joined its SMR cluster.
+	SetReplicaJoinedSMR()                          // Record that the new replica has joined its SMR cluster. This also sends a notification on the ReplicaJoinedSmrChannel.
 	Completed() bool                               // Return true if the operation has completed successfully.
 	PodStartedChannel() chan string                // Return the channel used to notify that the new Pod has started.
-	ReplicaJoinedSmrChannel() chan string          // Return the channel that is used to notify that the new replica has joined its SMR cluster.
-	ReplicaRegisteredChannel() chan string         // Return the channel that is used to notify that the new replica has registered with the Gateway.
+	ReplicaJoinedSmrChannel() chan struct{}        // Return the channel that is used to notify that the new replica has joined its SMR cluster.
+	ReplicaRegisteredChannel() chan struct{}       // Return the channel that is used to notify that the new replica has registered with the Gateway.
 }
 
 // Represents and active, ongoing replica migration operation in which we are migrating a distributed kernel replica from one node to another.
@@ -121,4 +121,10 @@ type MigrationManager interface {
 	PodCreated(interface{})              // Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
 	PodUpdated(interface{}, interface{}) // Function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
 	PodDeleted(interface{})              // Function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
+}
+
+// We always wait for the scale-out to occur.
+type AddReplicaWaitOptions interface {
+	WaitRegistered() bool // If true, wait for the replica registration to occur.
+	WaitSmrJoined() bool  // If true, wait for the SMR joined notification.
 }

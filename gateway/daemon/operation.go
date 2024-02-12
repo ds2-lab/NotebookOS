@@ -21,9 +21,9 @@ type addReplicaOperationImpl struct {
 	replicaHostname   string                          // The IP address of the new replica.
 	spec              *gateway.KernelReplicaSpec      // Spec for the new replica that is created during the add operation.
 
-	podStartedChannel        chan string // Used to notify that the new Pod has started.
-	replicaRegisteredChannel chan string // Used to notify that the new replica has registered with the Gateway.
-	replicaJoinedSmrChannel  chan string // Used to notify that the new replica has joined its SMR cluster.
+	podStartedChannel        chan string   // Used to notify that the new Pod has started.
+	replicaRegisteredChannel chan struct{} // Used to notify that the new replica has registered with the Gateway.
+	replicaJoinedSmrChannel  chan struct{} // Used to notify that the new replica has joined its SMR cluster.
 }
 
 func NewAddReplicaOperation(client *client.DistributedKernelClient, spec *gateway.KernelReplicaSpec) AddReplicaOperation {
@@ -38,8 +38,8 @@ func NewAddReplicaOperation(client *client.DistributedKernelClient, spec *gatewa
 		replicaJoinedSMR:         false,
 		replicaRegistered:        false,
 		podStartedChannel:        make(chan string, 1),
-		replicaRegisteredChannel: make(chan string, 1),
-		replicaJoinedSmrChannel:  make(chan string, 1),
+		replicaRegisteredChannel: make(chan struct{}, 1),
+		replicaJoinedSmrChannel:  make(chan struct{}, 1),
 	}
 
 	return op
@@ -56,12 +56,12 @@ func (op *addReplicaOperationImpl) PodStartedChannel() chan string {
 }
 
 // Return the channel that is used to notify that the new replica has registered with the Gateway.
-func (op *addReplicaOperationImpl) ReplicaRegisteredChannel() chan string {
+func (op *addReplicaOperationImpl) ReplicaRegisteredChannel() chan struct{} {
 	return op.replicaRegisteredChannel
 }
 
 // Return the channel that is used to notify that the new replica has joined its SMR cluster.
-func (op *addReplicaOperationImpl) ReplicaJoinedSmrChannel() chan string {
+func (op *addReplicaOperationImpl) ReplicaJoinedSmrChannel() chan struct{} {
 	return op.replicaJoinedSmrChannel
 }
 
@@ -125,8 +125,11 @@ func (op *addReplicaOperationImpl) ReplicaJoinedSMR() bool {
 }
 
 // Record that the new replica has joined its SMR cluster.
+// This also sends a notification on the ReplicaJoinedSmrChannel.
 func (op *addReplicaOperationImpl) SetReplicaJoinedSMR() {
 	op.replicaJoinedSMR = true
+
+	op.replicaJoinedSmrChannel <- struct{}{}
 }
 
 // Return true if the new Pod has started.
@@ -139,9 +142,13 @@ func (op *addReplicaOperationImpl) ReplicaRegistered() bool {
 	return op.replicaRegistered
 }
 
-// Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered.
+// Record that the new replica for this migration operation has registered with the Gateway.
+// Will panic if we've already recorded that the new replica has registered.
+// This also sends a notification on the replicaRegisteredChannel.
 func (op *addReplicaOperationImpl) SetReplicaRegistered() {
 	op.replicaRegistered = true
+
+	op.replicaRegisteredChannel <- struct{}{} // KernelID isn't needed.
 }
 
 // Return the *gateway.KernelReplicaSpec for the new replica that is created during the add operation.
@@ -157,4 +164,26 @@ func (op *addReplicaOperationImpl) ReplicaPodHostname() string {
 // Set the IP address of the new replica.
 func (op *addReplicaOperationImpl) SetReplicaHostname(hostname string) {
 	op.replicaHostname = hostname
+}
+
+type addReplicaWaitOptionsImpl struct {
+	waitRegistered bool
+	waitSmrJoined  bool
+}
+
+func NewAddReplicaWaitOptions(waitRegistered bool, waitSmrJoined bool) AddReplicaWaitOptions {
+	return &addReplicaWaitOptionsImpl{
+		waitRegistered: waitRegistered,
+		waitSmrJoined:  waitSmrJoined,
+	}
+}
+
+// If true, wait for the replica registration to occur.
+func (o *addReplicaWaitOptionsImpl) WaitRegistered() bool {
+	return o.waitRegistered
+}
+
+// If true, wait for the SMR joined notification.
+func (o *addReplicaWaitOptionsImpl) WaitSmrJoined() bool {
+	return o.waitSmrJoined
 }

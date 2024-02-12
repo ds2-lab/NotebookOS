@@ -62,7 +62,7 @@ class DistributedKernel(IPythonKernel):
         help = """Kubernetes name of the Pod encapsulating this distributed kernel replica"""
     ).tag(config = False)
     
-    hostname = Union[str, Unicode] = Unicode(
+    hostname: Union[str, Unicode] = Unicode(
         help = """Hostname of the Pod encapsulating this distributed kernel replica"""
     ).tag(config = False)
 

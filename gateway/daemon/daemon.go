@@ -551,16 +551,18 @@ func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *
 
 	persistent_id := addReplicaOp.PersistentID()
 	response := &gateway.KernelRegistrationNotificationResponse{
-		Id:                  replicaSpec.ReplicaId,
-		Replicas:            updatedReplicas,
-		PersistentId:        &persistent_id,
-		NotifyOtherReplicas: true,
-		SmrPort:             int32(d.smrPort),
+		Id:           replicaSpec.ReplicaId,
+		Replicas:     updatedReplicas,
+		PersistentId: &persistent_id,
+		// NotifyOtherReplicas: true,
+		SmrPort: int32(d.smrPort),
 	}
 
 	d.mutex.Unlock()
 
 	addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
+
+	d.log.Debug("Done handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)
 
 	return response, nil
 }
@@ -606,7 +608,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 
 	if kernel.NumActiveAddOperations() >= 1 {
 		d.log.Debug("There is/are %d active add-replica operation(s) targeting kernel %s. Assuming currently-registering replica is for an add-replica operation.", kernel.NumActiveAddOperations(), kernel.ID())
-		// Must be holding the main mutex before calling handleMigratedReplicaRegistration.
+		// Must be holding the main mutex before calling handleAddedReplicaRegistration.
 		// It will release the lock.
 		result, err := d.handleAddedReplicaRegistration(ctx, in, kernel, waitGroup)
 		return result, err
@@ -653,11 +655,11 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	d.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d", kernelId, replicaId)
 
 	response := &gateway.KernelRegistrationNotificationResponse{
-		Id:                  replicaId,
-		Replicas:            waitGroup.GetReplicas(),
-		PersistentId:        nil,
-		NotifyOtherReplicas: false,
-		SmrPort:             -1,
+		Id:           replicaId,
+		Replicas:     waitGroup.GetReplicas(),
+		PersistentId: nil,
+		// NotifyOtherReplicas: false,
+		SmrPort: -1,
 	}
 
 	waitGroup.Notify()
@@ -749,8 +751,12 @@ func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*ga
 func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
 	d.log.Debug("Migrating replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
 
+	opts := NewAddReplicaWaitOptions(true, false)
+
 	// First, add a new replica. We pass "true" so we wait for the replica to start fully.
-	addReplicaOp, err := d.addReplica(in, true)
+	addReplicaOp, err := d.addReplica(in, opts)
+
+	d.log.Debug("Done migrating replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
 
 	return &gateway.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
 
@@ -1037,8 +1043,8 @@ func (d *GatewayDaemon) closeReplica(host core.Host, kernel *client.DistributedK
 //
 // Parameters:
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
-// - wait (bool): If true, do not return from addReplica until the new replica has started, or an error has occurred.
-func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, wait bool) (AddReplicaOperation, error) {
+// - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
+func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, opts AddReplicaWaitOptions) (AddReplicaOperation, error) {
 	var kernelId string = in.KernelId
 	var persistentId string = in.PersistentId
 
@@ -1075,28 +1081,43 @@ func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, wait bool) (AddRepli
 
 	d.log.Debug("Waiting for new Pod to be created for kernel %s.", kernelId)
 
-	if wait {
-		var newPodName string
-		select {
-		case newPodName = <-addReplicaOp.PodStartedChannel():
-			{
-				d.log.Debug("New Pod %s has been created for kernel %s.", newPodName, kernelId)
-				addReplicaOp.SetPodName(newPodName)
-				d.addReplicaOperationsByNewPodName.Store(newPodName, addReplicaOp)
+	// Always wait for the scale-out operation to complete and the new Pod to be created.
+	var newPodName string
+	select {
+	case newPodName = <-addReplicaOp.PodStartedChannel():
+		{
+			d.log.Debug("New Pod %s has been created for kernel %s.", newPodName, kernelId)
+			addReplicaOp.SetPodName(newPodName)
+			d.addReplicaOperationsByNewPodName.Store(newPodName, addReplicaOp)
 
-				d.mutex.Lock()
+			d.mutex.Lock()
 
-				channel, ok := d.addReplicaNewPodNotifications.Load(newPodName)
+			channel, ok := d.addReplicaNewPodNotifications.Load(newPodName)
 
-				if ok {
-					channel <- addReplicaOp
-				}
-
-				d.mutex.Unlock()
-				break
+			if ok {
+				channel <- addReplicaOp
 			}
-		}
 
+			d.mutex.Unlock()
+			break
+		}
+	}
+
+	// var regWg sync.WaitGroup
+	// regWg.Add(1)
+	// go func() {
+	// 	select {
+	// 	case _ = <-addReplicaOp.ReplicaRegisteredChannel():
+	// 		{
+	// 			d.log.Debug("New replica %d for kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
+	// 			regWg.Done()
+	// 			break
+	// 		}
+	// 	}
+	// }()
+
+	if opts.WaitRegistered() {
+		d.log.Debug("Waiting for new replica %d of kernel %s to register.", addReplicaOp.ReplicaId(), kernelId)
 		select {
 		case _ = <-addReplicaOp.ReplicaRegisteredChannel():
 			{
@@ -1104,17 +1125,27 @@ func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, wait bool) (AddRepli
 				break
 			}
 		}
+	}
 
+	var smrWg sync.WaitGroup
+	smrWg.Add(1)
+	// Separate goroutine because this has to run everytime, even if we don't wait, as we call AddOperationCompleted when the new replica joins its SMR cluster.
+	go func() {
 		select {
 		case _ = <-addReplicaOp.ReplicaJoinedSmrChannel():
 			{
 				d.log.Debug("New replica %d for kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
+				kernel.AddOperationCompleted()
+				smrWg.Done()
 				break
 			}
 		}
-	}
+	}()
 
-	kernel.AddOperationCompleted()
+	if opts.WaitSmrJoined() {
+		d.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
+		smrWg.Wait()
+	}
 
 	// TODO:
 	// - Wait for new Pod to register with the Gateway.
