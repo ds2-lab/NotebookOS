@@ -20,7 +20,8 @@ var (
 	heartbeatInterval = time.Second
 )
 
-type SMRNotificationCallback func(*KernelClient)
+type SMRNodeReadyNotificationCallback func(*KernelClient)
+type SMRNodeAddedNotificationCallback func(*types.MessageSMRNodeAdded)
 
 // KernelClient offers a simple interface to communicate with a kernel.
 // All sockets except IOPub are connected on dialing.
@@ -52,8 +53,8 @@ type KernelClient struct {
 
 	ready bool // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
 
-	smrReadyCallback  SMRNotificationCallback
-	smrJoinedCallback SMRNotificationCallback
+	smrReadyCallback  SMRNodeReadyNotificationCallback
+	smrJoinedCallback SMRNodeAddedNotificationCallback
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -61,7 +62,7 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, smrReadyCallback SMRNotificationCallback, smrJoinedCallback SMRNotificationCallback) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, smrReadyCallback SMRNodeReadyNotificationCallback, smrJoinedCallback SMRNodeAddedNotificationCallback) *KernelClient {
 	client := &KernelClient{
 		id:                    spec.Kernel.Id,
 		replicaId:             spec.ReplicaId,
@@ -96,7 +97,8 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 	return client
 }
 
-func (c *KernelClient) KernelPodName() string {
+// Return the name of the Kubernetes Pod hosting the replica.
+func (c *KernelClient) PodName() string {
 	return c.kernelPodName
 }
 
@@ -506,10 +508,10 @@ func (c *KernelClient) handleIOKernelSMRNodeAdded(kernel core.Kernel, frames typ
 		return err
 	}
 
-	c.log.Debug("Handling IO Kernel SMR Node-Added for Kernel %v, ReplicaID %d, PersistentID %v.", kernel.ID(), ready.NodeID, ready.PersistentID)
+	c.log.Debug("Handling IO Kernel SMR Node-Added message for replica %d of kernel %s.", ready.NodeID, ready.KernelId)
 
 	if c.smrJoinedCallback != nil {
-		c.smrJoinedCallback(c)
+		c.smrJoinedCallback(&ready)
 	}
 
 	return types.ErrStopPropagation

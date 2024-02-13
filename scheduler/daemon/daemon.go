@@ -22,6 +22,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -430,17 +431,17 @@ func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.AddReplic
 	return gateway.VOID, nil
 }
 
-func (d *SchedulerDaemon) smrJoinedCallback(kernelClient *client.KernelClient) {
-	d.log.Debug("Replica %d of kernel %s has joined its SMR cluster.", kernelClient.ReplicaID(), kernelClient.ID())
+func (d *SchedulerDaemon) smrJoinedCallback(readyMessage *types.MessageSMRNodeAdded) {
+	d.log.Debug("Replica %d of kernel %s has joined its SMR cluster.", readyMessage.NodeID, readyMessage.KernelId)
 
 	_, err := d.Provisioner.SmrJoined(context.TODO(), &gateway.ReplicaInfo{
-		KernelId:     kernelClient.ID(),
-		ReplicaId:    kernelClient.ReplicaID(),
-		PersistentId: kernelClient.PersistentID(),
+		KernelId:     readyMessage.KernelId,
+		ReplicaId:    readyMessage.NodeID,
+		PersistentId: readyMessage.PersistentID,
 	})
 
 	if err != nil {
-		d.log.Error("Error when informing Gateway of SMR-Joined for replica %d of kernel %s: %v", kernelClient.ReplicaID(), kernelClient.ID(), err)
+		d.log.Error("Error when informing Gateway of SMR-Joined for replica %d of kernel %s: %v", readyMessage.NodeID, readyMessage.KernelId, err)
 	}
 }
 

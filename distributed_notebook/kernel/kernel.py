@@ -65,6 +65,10 @@ class DistributedKernel(IPythonKernel):
     hostname: Union[str, Unicode] = Unicode(
         help = """Hostname of the Pod encapsulating this distributed kernel replica"""
     ).tag(config = False)
+    
+    kernel_id: Union[str, Unicode] = Unicode(
+        help = """The ID of the kernel."""
+    ).tag(config = False)
 
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
@@ -105,13 +109,13 @@ class DistributedKernel(IPythonKernel):
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
         session_id = os.environ.get("SESSION_ID", default = UNAVAILABLE)
-        kernel_id = os.environ.get("KERNEL_ID", default = UNAVAILABLE) 
+        self.kernel_id = os.environ.get("KERNEL_ID", default = UNAVAILABLE) 
         self.pod_name = os.environ.get("POD_NAME", default = UNAVAILABLE)
         
         self.log.info("Connection file path: \"%s\"" % connection_file_path)
         self.log.info("IPython config file path: \"%s\"" % config_file_path)
         self.log.info("Session ID: \"%s\"" % session_id)
-        self.log.info("Kernel ID: \"%s\"" % kernel_id)
+        self.log.info("Kernel ID: \"%s\"" % self.kernel_id)
         self.log.info("Pod name: \"%s\"" % self.pod_name)
         
         self.persistent_store_cv = asyncio.Condition()
@@ -139,7 +143,7 @@ class DistributedKernel(IPythonKernel):
         # self.log.info("IPython config info: %s" % str(config_info))
 
         # TODO(Ben): Connect to LocalDaemon.
-        self.register_with_local_daemon(connection_info, kernel_id, session_id) # config_info
+        self.register_with_local_daemon(connection_info, session_id) # config_info
     
     # def __resolve_dns(self, addr:str)->list[str]:
     #     return socket.getaddrinfo(addr, 0)
@@ -213,7 +217,7 @@ class DistributedKernel(IPythonKernel):
     #     self.log.info("Successfully resolved peer replica hostnames via DNS query. Replicas: %s" % str(query_result))
     #     return list(i[4][0] for i in query_result if i[0] is socket.AddressFamily.AF_INET and i[1] is socket.SocketKind.SOCK_RAW)
     
-    def register_with_local_daemon(self, connection_info:dict, kernel_id: str, session_id: str): # config_info:dict, 
+    def register_with_local_daemon(self, connection_info:dict, session_id: str): # config_info:dict, 
         self.log.info("Registering with local daemon now.")
         
         # If we either have no SMR nodes, or the SMR node(s) we do have are the empty string, then we need to resolve our peer replicas.
@@ -277,7 +281,7 @@ class DistributedKernel(IPythonKernel):
             "join": self.smr_join, # config_info["smr_join"],
             "podName": self.pod_name,
             "kernel": {
-                "id": kernel_id, #, config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
+                "id": self.kernel_id, #, config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
                 "session": session_id, # config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
                 "signature_scheme": connection_info["signature_scheme"],
                 "key": connection_info["key"],
@@ -509,7 +513,7 @@ class DistributedKernel(IPythonKernel):
             await self.synclog.add_node(id, "http://{}".format(addr))
             self.log.info("A replica({}) is notified to join: {}".format(id, addr))
             
-            self.session.send(self.iopub_socket, "smr_node_added", {"persistent_id": self.persistent_id, "id": self.smr_node_id, "addr": self.hostname}, ident=self._topic("smr_node_added")) # type: ignore
+            self.session.send(self.iopub_socket, "smr_node_added", {"persistent_id": self.persistent_id, "id": id, "addr": addr, "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added")) # type: ignore
             
             return {'status': 'ok'}
         except Exception as e:

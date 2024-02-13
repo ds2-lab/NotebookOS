@@ -40,13 +40,22 @@ type KubeClient interface {
 	// Accepts as a parameter a chan string that can be used to wait until the new Pod has been created.
 	// The name of the new Pod will be sent over the channel when the new Pod is started.
 	// The error will be nil on success.
-	ScaleUpCloneSet(string, chan string) error
+	//
+	// Parameters:
+	// - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale-out.
+	// - podStartedChannel (chan string): Used to notify waiting goroutines that the Pod has started.
+	ScaleOutCloneSet(string, chan string) error
 
 	// Scale-down a CloneSet by decreasing its number of replicas by 1.
 	// Returns a chan string that can be used to wait until the new Pod has been created.
 	// The name of the new Pod will be sent over the channel when the new Pod is started.
 	// The error will be nil on success.
-	ScaleDownCloneSet(string, string) (chan string, error)
+	//
+	// Parameters:
+	// - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale in
+	// - oldPodName (string): The name of the Pod that we'd like to delete during the scale-in operation.
+	// - podStoppedChannel (chan string): Used to notify waiting goroutines that the Pod has stopped.
+	ScaleInCloneSet(string, string, chan string) error
 }
 
 type AddReplicaOperation interface {

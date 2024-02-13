@@ -17,6 +17,7 @@ type MessageSMRReady struct {
 type MessageSMRNodeAdded struct {
 	MessageSMRReady
 	MessageSMRAddReplicaRequest
+	KernelId string `json:"kernel_id"`
 }
 
 type MessageSMRLeadTask struct {

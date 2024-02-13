@@ -71,8 +71,8 @@ type BasicKubeClient struct {
 	useStatefulSet         bool                                       // If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet.
 	podWatcherStopChan     chan struct{}                              // Used to tell the Pod Watcher to stop.
 	mutex                  sync.Mutex                                 // Synchronize atomic operations, such as scaling-up/down a CloneSet.
-	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of WaitGroups, each of which would correspond to a scale-up operation.
-	scaleDownChannels      *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of WaitGroups, each of which would correspond to a scale-down operation.
+	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
+	scaleDownChannels      *cmap.ConcurrentMap[string, chan string]   // Mapping from Pod name a channel, each of which would correspond to a scale-down operation.
 	// newPodWaiters          *cmap.ConcurrentMap[string, chan AddReplicaOperation] // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
 	log logger.Logger
 }
@@ -99,7 +99,7 @@ func (wg *waitGroup) Equal(other *waitGroup) bool {
 
 func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *DaemonKubeClientOptions) *BasicKubeClient {
 	scaleUpChannels := cmap.New[[]chan string]()
-	scaleDownChannels := cmap.New[[]chan string]()
+	scaleDownChannels := cmap.New[chan string]()
 	// newPodWaiters := cmap.New[chan AddReplicaOperation]()
 
 	client := &BasicKubeClient{
@@ -220,87 +220,6 @@ func (c *BasicKubeClient) PodUpdated(oldObj interface{}, newObj interface{}) {
 			"Pod updated. %s/%s %s",
 			oldPod.Namespace, oldPod.Name, newPod.Status.Phase)
 	}
-}
-
-// Scale-up a CloneSet by increasing its number of replicas by 1.
-//
-// Accepts as a parameter a chan string that can be used to wait until the new Pod has been created.
-// The name of the new Pod will be sent over the channel when the new Pod is started.
-// The error will be nil on success.
-func (c *BasicKubeClient) ScaleUpCloneSet(kernelId string, podStartedChannel chan string) error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	// The CloneSet resources for distributed kernels are named "kernel-<kernel ID>".
-	cloneset_id := fmt.Sprintf("kernel-%s", kernelId)
-
-	// This is the same as retry.DefaultRetry according to:
-	// https://pkg.go.dev/k8s.io/client-go/util/retry#pkg-variables
-	//
-	// Including it here explicitly for clarity.
-	var retryParameters = wait.Backoff{
-		Steps:    5,
-		Duration: 10 * time.Millisecond,
-		Factor:   1.0,
-		Jitter:   0.1,
-	}
-
-	// Store the new channel in the mapping.
-	channels, ok := c.scaleUpChannels.Get(kernelId)
-	if !ok {
-		channels = make([]chan string, 0, 4)
-	}
-	channels = append(channels, podStartedChannel)
-	c.scaleUpChannels.Set(kernelId, channels)
-
-	// Increase the number of replicas.
-	retryErr := retry.RetryOnConflict(retryParameters, func() error {
-		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
-
-		if getErr != nil {
-			panic(fmt.Errorf("Failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
-		}
-
-		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
-
-		if err != nil || !found {
-			c.log.Error("Replicas not found for CloneSet %s: error=%s", cloneset_id, err)
-			return err
-		}
-
-		c.log.Debug("Attempting to INCREASE the number of replicas of CloneSet \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, current_num_replicas)
-		new_num_replicas := current_num_replicas + 1
-
-		// Increase the number of replicas.
-		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
-			panic(fmt.Errorf("Failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
-		}
-
-		_, updateErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
-
-		if updateErr != nil {
-			c.log.Error("Failed to apply update to CloneSet \"%s\": error=%s", cloneset_id, err)
-		} else {
-			c.log.Debug("Successfully increased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
-		}
-
-		return updateErr
-	})
-
-	if retryErr != nil {
-		// Store the new channel in the mapping.
-		channels, ok := c.scaleUpChannels.Get(kernelId)
-		if !ok {
-			panic(fmt.Sprintf("Expected to find slice of scale-up channels for kernel %s.", kernelId))
-		}
-		// Remove the channel that we just added, as the scale-out operation failed.
-		channels = channels[:len(channels)-1]
-		c.scaleUpChannels.Set(kernelId, channels)
-
-		return errors.Wrapf(retryErr, "Error when attempting to scale-up CloneSet %s")
-	}
-
-	return nil
 }
 
 // Wait for us to receive a pod-created notification for the given Pod, which managed to start running
@@ -472,10 +391,104 @@ func (c *BasicKubeClient) addKruiseDeleteLabelToPod(podName string, podNamespace
 	return nil
 }
 
+// Scale-up a CloneSet by increasing its number of replicas by 1.
+//
+// Accepts as a parameter a chan string that can be used to wait until the new Pod has been created.
+// The name of the new Pod will be sent over the channel when the new Pod is started.
+// The error will be nil on success.
+//
+// Parameters:
+// - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale-out.
+// - podStartedChannel (chan string): Used to notify waiting goroutines that the Pod has started.
+func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string, podStartedChannel chan string) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	// The CloneSet resources for distributed kernels are named "kernel-<kernel ID>".
+	cloneset_id := fmt.Sprintf("kernel-%s", kernelId)
+
+	// This is the same as retry.DefaultRetry according to:
+	// https://pkg.go.dev/k8s.io/client-go/util/retry#pkg-variables
+	//
+	// Including it here explicitly for clarity.
+	var retryParameters = wait.Backoff{
+		Steps:    5,
+		Duration: 10 * time.Millisecond,
+		Factor:   1.0,
+		Jitter:   0.1,
+	}
+
+	// Store the new channel in the mapping.
+	channels, ok := c.scaleUpChannels.Get(kernelId)
+	if !ok {
+		channels = make([]chan string, 0, 4)
+	}
+	channels = append(channels, podStartedChannel)
+	c.scaleUpChannels.Set(kernelId, channels)
+
+	// Increase the number of replicas.
+	retryErr := retry.RetryOnConflict(retryParameters, func() error {
+		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
+
+		if getErr != nil {
+			panic(fmt.Errorf("Failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
+		}
+
+		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
+
+		if err != nil || !found {
+			c.log.Error("Replicas not found for CloneSet %s: error=%s", cloneset_id, err)
+			return err
+		}
+
+		c.log.Debug("Attempting to INCREASE the number of replicas of CloneSet \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, current_num_replicas)
+		new_num_replicas := current_num_replicas + 1
+
+		// Increase the number of replicas.
+		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
+			panic(fmt.Errorf("Failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
+		}
+
+		_, updateErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
+
+		if updateErr != nil {
+			c.log.Error("Failed to apply update to CloneSet \"%s\": error=%s", cloneset_id, err)
+		} else {
+			c.log.Debug("Successfully increased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
+		}
+
+		return updateErr
+	})
+
+	if retryErr != nil {
+		// Store the new channel in the mapping.
+		channels, ok := c.scaleUpChannels.Get(kernelId)
+		if !ok {
+			panic(fmt.Sprintf("Expected to find slice of scale-up channels for kernel %s.", kernelId))
+		}
+		// Remove the channel that we just added, as the scale-out operation failed.
+		channels = channels[:len(channels)-1]
+		c.scaleUpChannels.Set(kernelId, channels)
+
+		return errors.Wrapf(retryErr, "Error when attempting to scale-up CloneSet %s")
+	}
+
+	return nil
+}
+
 // Scale-down a CloneSet by decreasing its number of replicas by 1.
-func (c *BasicKubeClient) ScaleDownCloneSet(kernelId string, oldPodName string) (chan string, error) {
+//
+// Parameters:
+// - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale in
+// - oldPodName (string): The name of the Pod that we'd like to delete during the scale-in operation.
+// - podStoppedChannel (chan string): Used to notify waiting goroutines that the Pod has stopped.
+func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, podStoppedChannel chan string) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	cloneset_id := fmt.Sprintf("kernel-%s", kernelId)
+	c.log.Debug("Scaling-in CloneSet %s by deleting Pod %s.", cloneset_id, oldPodName)
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		cloneset_id := fmt.Sprintf("kernel-%s", kernelId)
 		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
 
 		if getErr != nil {
@@ -490,10 +503,10 @@ func (c *BasicKubeClient) ScaleDownCloneSet(kernelId string, oldPodName string) 
 		}
 
 		// Label the Pod that we would like to delete so that the CloneSet prioritizes deleting it when we scale it down in the next step.
-		err = c.addKruiseDeleteLabelToPod(oldPodName, "default")
-		if err != nil {
-			panic(err)
-		}
+		// err = c.addKruiseDeleteLabelToPod(oldPodName, "default")
+		// if err != nil {
+		// 	panic(err)
+		// }
 
 		c.log.Debug("Attempting to DECREASE the number of replicas of CloneSet \"%s\" by deleting pod \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, oldPodName, current_num_replicas)
 		new_num_replicas := current_num_replicas - 1
@@ -503,10 +516,14 @@ func (c *BasicKubeClient) ScaleDownCloneSet(kernelId string, oldPodName string) 
 			panic(fmt.Errorf("Failed to set spec.replicas value for CloneSet \"%s\": %v", cloneset_id, err))
 		}
 
+		if err := unstructured.SetNestedField(result.Object, []interface{}{oldPodName}, "spec", "scaleStrategy", "podsToDelete"); err != nil {
+
+		}
+
 		_, updateErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
 
 		if updateErr != nil {
-			c.log.Error("Failed to apply update to CloneSet \"%s\": error=%v", cloneset_id, err)
+			c.log.Error("Failed to apply update to CloneSet \"%s\": error=%v", cloneset_id, updateErr)
 		} else {
 			c.log.Debug("Successfully decreased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
 		}
@@ -514,20 +531,21 @@ func (c *BasicKubeClient) ScaleDownCloneSet(kernelId string, oldPodName string) 
 		return updateErr
 	})
 
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+	c.scaleDownChannels.Set(oldPodName, podStoppedChannel)
 
-	channel := make(chan string)
-
-	// Store the new channel in the mapping.
-	channels, ok := c.scaleDownChannels.Get(kernelId)
-	if !ok {
-		channels = make([]chan string, 0, 4)
+	if retryErr != nil {
+		c.log.Error("Failed to scale-in CloneSet %s: %v", cloneset_id, retryErr)
 	}
-	channels = append(channels, channel)
-	c.scaleDownChannels.Set(kernelId, channels)
 
-	return channel, retryErr
+	// Store the channel in the mapping.
+	// channels, ok := c.scaleDownChannels.Get(kernelId)
+	// if !ok {
+	// 	channels = make([]chan string, 0, 4)
+	// }
+	// channels = append(channels, podStoppedChannel)
+	// c.scaleDownChannels.Set(kernelId, channels)
+
+	return retryErr
 }
 
 // Create a SharedInformer that watches for Pod-creation and Pod-deletion events within the given namespace.
