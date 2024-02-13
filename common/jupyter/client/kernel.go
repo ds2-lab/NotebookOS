@@ -21,7 +21,7 @@ var (
 )
 
 type SMRNodeReadyNotificationCallback func(*KernelClient)
-type SMRNodeAddedNotificationCallback func(*types.MessageSMRNodeAdded)
+type SMRNodeUpdatedNotificationCallback func(*types.MessageSMRNodeUpdated) // For node-added or node-removed notifications.
 
 // KernelClient offers a simple interface to communicate with a kernel.
 // All sockets except IOPub are connected on dialing.
@@ -53,8 +53,9 @@ type KernelClient struct {
 
 	ready bool // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
 
-	smrReadyCallback  SMRNodeReadyNotificationCallback
-	smrJoinedCallback SMRNodeAddedNotificationCallback
+	smrNodeReadyCallback SMRNodeReadyNotificationCallback
+	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback
+	// smrNodeRemovedCallback SMRNodeUpdatedNotificationCallback
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -62,7 +63,7 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, smrReadyCallback SMRNodeReadyNotificationCallback, smrJoinedCallback SMRNodeAddedNotificationCallback) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback) *KernelClient {
 	client := &KernelClient{
 		id:                    spec.Kernel.Id,
 		replicaId:             spec.ReplicaId,
@@ -71,8 +72,9 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		shellListenPort:       shellListenPort,
 		iopubListenPort:       iopubListenPort,
 		kernelPodName:         kernelPodName,
-		smrReadyCallback:      smrReadyCallback,
-		smrJoinedCallback:     smrJoinedCallback,
+		smrNodeReadyCallback:  smrNodeReadyCallback,
+		smrNodeAddedCallback:  smrNodeAddedCallback,
+		// smrNodeRemovedCallback: smrNodeRemovedCallback,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ControlPort}
@@ -289,6 +291,7 @@ func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
 	c.iobroker.Subscribe(types.IOTopicStatus, c.handleIOKernelStatus)
 	c.iobroker.Subscribe(types.IOTopicSMRReady, c.handleIOKernelSMRReady)
 	c.iobroker.Subscribe(types.IOTopicSMRNodeAdded, c.handleIOKernelSMRNodeAdded)
+	// c.iobroker.Subscribe(types.IOTopicSMRNodeRemoved, c.handleIOKernelSMRNodeRemoved)
 	return iopub, nil
 }
 
@@ -498,42 +501,62 @@ func (c *KernelClient) handleIOKernelStatus(kernel core.Kernel, frames types.Jup
 	return nil
 }
 
+// func (c *KernelClient) handleIOKernelSMRNodeRemoved(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
+// 	c.log.Debug("Handling IO Kernel SMR Node-Removed message...")
+// 	var node_removed_message types.MessageSMRNodeUpdated
+// 	if err := frames.Validate(); err != nil {
+// 		return err
+// 	}
+// 	err := frames.DecodeContent(&node_removed_message)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	c.log.Debug("Handling IO Kernel SMR Node-Removed message for replica %d of kernel %s.", node_removed_message.NodeID, node_removed_message.KernelId)
+
+// 	if c.smrNodeRemovedCallback != nil {
+// 		c.smrNodeRemovedCallback(&node_removed_message)
+// 	}
+
+// 	return types.ErrStopPropagation
+// }
+
 func (c *KernelClient) handleIOKernelSMRNodeAdded(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
-	var ready types.MessageSMRNodeAdded
+	var node_added_message types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
 		return err
 	}
-	err := frames.DecodeContent(&ready)
+	err := frames.DecodeContent(&node_added_message)
 	if err != nil {
 		return err
 	}
 
-	c.log.Debug("Handling IO Kernel SMR Node-Added message for replica %d of kernel %s.", ready.NodeID, ready.KernelId)
+	c.log.Debug("Handling IO Kernel SMR Node-Added message for replica %d of kernel %s.", node_added_message.NodeID, node_added_message.KernelId)
 
-	if c.smrJoinedCallback != nil {
-		c.smrJoinedCallback(&ready)
+	if c.smrNodeAddedCallback != nil {
+		c.smrNodeAddedCallback(&node_added_message)
 	}
 
 	return types.ErrStopPropagation
 }
 
 func (c *KernelClient) handleIOKernelSMRReady(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
-	var ready types.MessageSMRReady
+	var node_ready_message types.MessageSMRReady
 	if err := frames.Validate(); err != nil {
 		return err
 	}
-	err := frames.DecodeContent(&ready)
+	err := frames.DecodeContent(&node_ready_message)
 	if err != nil {
 		return err
 	}
 
-	c.log.Debug("Handling IO Kernel SMR Ready for Kernel %v, PersistentID %v.", kernel.ID(), ready.PersistentID)
+	c.log.Debug("Handling IO Kernel SMR Ready for Kernel %v, PersistentID %v.", kernel.ID(), node_ready_message.PersistentID)
 
-	c.persistentId = ready.PersistentID
+	c.persistentId = node_ready_message.PersistentID
 	c.log.Debug("Persistent ID confirmed: %v", c.persistentId)
 
-	if c.smrReadyCallback != nil {
-		c.smrReadyCallback(c)
+	if c.smrNodeReadyCallback != nil {
+		c.smrNodeReadyCallback(c)
 	}
 
 	return types.ErrStopPropagation

@@ -544,12 +544,14 @@ func (c *DistributedKernelClient) WaitClosed() types.KernelStatus {
 }
 
 func (c *DistributedKernelClient) stopReplicaLocked(r core.KernelReplica, remover ReplicaRemover, noop bool) (core.Host, error) {
+	c.log.Debug("Stopping replica %d of kernel %s now.", r.ReplicaID(), r.ID())
 	host := r.Context().Value(CtxKernelHost).(core.Host)
 	if err := remover(host, c, noop); err != nil {
 		return host, err
 	}
 
-	host.WaitKernel(context.Background(), &gateway.KernelId{Id: r.ID()})
+	// c.log.Debug("Waiting for replica %d of kernel %s to stop and return its status.", r.ReplicaID(), r.ID())
+	// host.WaitKernel(context.Background(), &gateway.KernelId{Id: r.ID()})
 	return host, nil
 }
 

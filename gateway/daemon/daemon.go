@@ -144,6 +144,9 @@ type GatewayDaemon struct {
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
 	addReplicaNewPodNotifications *hashmap.CornelkMap[string, chan AddReplicaOperation]
 
+	// Used to wait for an explicit notification that a particular node was successfully removed from its SMR cluster.
+	// smrNodeRemovedNotifications *hashmap.CornelkMap[string, chan struct{}]
+
 	// Kubernetes client.
 	kubeClient KubeClient
 }
@@ -165,6 +168,7 @@ func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClient
 		activeAddReplicaOpsPerKernel:     hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, AddReplicaOperation]](64),
 		addReplicaOperationsByNewPodName: hashmap.NewCornelkMap[string, AddReplicaOperation](64),
 		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan AddReplicaOperation](64),
+		// smrNodeRemovedNotifications:      hashmap.NewCornelkMap[string, chan struct{}](64),
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -469,9 +473,24 @@ func (d *GatewayDaemon) SmrReady(ctx context.Context, smrReadyNotification *gate
 	return gateway.VOID, nil
 }
 
-func (d *GatewayDaemon) SmrJoined(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
+// func (d *GatewayDaemon) SmrNodeRemoved(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
+// 	kernelId := replicaInfo.KernelId
+// 	d.log.Debug("Received SMR Node-Removed notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
+
+// 	channelMapKey := fmt.Sprintf("%s-%s", kernelId, replicaInfo.ReplicaId)
+// 	channel, ok := d.smrNodeRemovedNotifications.Load(channelMapKey)
+// 	if !ok {
+// 		panic(fmt.Sprintf("Could not find \"node-removed\" notification channel for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId))
+// 	}
+
+// 	channel <- struct{}{}
+
+// 	return gateway.VOID, nil
+// }
+
+func (d *GatewayDaemon) SmrNodeAdded(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
 	kernelId := replicaInfo.KernelId
-	d.log.Debug("Received SMR-JOINED notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
+	d.log.Debug("Received SMR Node-Added notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
 
 	// If there's no add-replica operation here, then we'll just return.
 	op, op_exists := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, replicaInfo.ReplicaId)
@@ -625,7 +644,7 @@ func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *
 		panic(fmt.Sprintf("KernelClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
-	d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaId, in.KernelId, waitGroup.NumReplicas())
+	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaId, in.KernelId, waitGroup.NumReplicas())
 
 	// Store the new replica in the list of replicas for the kernel (at the correct position, based on the SMR node ID).
 	// Then, return the list of replicas so that we can pass it to the new replica.
@@ -833,6 +852,17 @@ func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*ga
 }
 
 func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
+	// client, ok := d.kernels.Load(in.KernelId)
+	// if !ok {
+	// 	d.log.Error("Failed to find client of kernel %s.", in.KernelId)
+	// 	return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrKernelNotFound
+	// }
+
+	// if client.Size() >= 4 {
+	// 	d.log.Debug("We already have 4 replicas. Not adding another.")
+	// 	return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, nil
+	// }
+
 	d.log.Debug("Migrating replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
 
 	// First, add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
@@ -843,7 +873,7 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
 	}
 
-	d.log.Debug("Done adding replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId)
+	d.log.Debug("Done adding replica %d of kernel %s. Removing replica %d now.", addReplicaOp.ReplicaId(), in.KernelId, in.ReplicaId)
 
 	// We pass 'false' for `wait` here, as we don't really need to wait for the CloneSet to scale-down.
 	// As long as the replica is stopped, we can continue.
@@ -1217,7 +1247,7 @@ func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, opts AddReplicaWaitO
 		select {
 		case _ = <-addReplicaOp.ReplicaRegisteredChannel():
 			{
-				d.log.Debug("New replica %d for kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
+				d.log.Trace("New replica %d for kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
 				break
 			}
 		}
@@ -1278,16 +1308,30 @@ func (d *GatewayDaemon) removeReplica(smrNodeId int32, kernelId string, wait boo
 
 	oldPodName := replica.PodName()
 
+	// Create a channel that will be used to signal that the node has been removed from its SMR cluster.
+	// nodeRemovedNotificationChannel := make(chan struct{}, 1)
+	// channelMapKey := fmt.Sprintf("%s-%s", kernelId, smrNodeId)
+	// d.smrNodeRemovedNotifications.Store(channelMapKey, nodeRemovedNotificationChannel)
+
 	// First, stop the kernel on the replica we'd like to remove.
-	_, err = kernelClient.RemoveReplicaByID(smrNodeId, d.placer.Reclaim, true)
+	_, err = kernelClient.RemoveReplicaByID(smrNodeId, d.placer.Reclaim, false)
 	if err != nil {
 		d.log.Error("Error while stopping replica %d of kernel %s: %v", smrNodeId, kernelId, err)
 		return err
 	}
 
+	// d.log.Debug("Waiting to receive notification that replica %d of kernel %s has been removed from its SMR cluster.", smrNodeId, kernelId)
+	// select {
+	// case _ = <-nodeRemovedNotificationChannel:
+	// 	{
+	// 		d.log.Debug("Successfully removed replica %d of kernel %s.", smrNodeId, kernelId)
+	// 		d.smrNodeRemovedNotifications.Delete(channelMapKey)
+	// 	}
+	// }
+
 	d.log.Debug("Successfully removed replica %d of kernel %s.", smrNodeId, kernelId)
 
-	podStoppedChannel := make(chan string, 1) // Buffered.
+	podStoppedChannel := make(chan struct{}, 1) // Buffered.
 
 	// Next, scale-down the CloneSet, taking care to ensure the correct Pod is deleted.
 	err = d.kubeClient.ScaleInCloneSet(kernelId, oldPodName, podStoppedChannel)

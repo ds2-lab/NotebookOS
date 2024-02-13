@@ -27,7 +27,9 @@ service ClusterGateway {
 
   rpc SmrReady(SmrReadyNotification) returns (Void) {}
 
-  rpc SmrJoined(ReplicaInfo) returns (Void) {}
+  rpc SmrNodeAdded(ReplicaInfo) returns (Void) {}
+
+  // rpc SmrNodeRemoved(ReplicaInfo) returns (Void) {}
 }
 
 message ProvisionerId {

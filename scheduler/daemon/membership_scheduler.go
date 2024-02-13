@@ -27,7 +27,7 @@ func NewMembershipScheduler(daemon *SchedulerDaemon) *MembershipScheduler {
 
 func (s *MembershipScheduler) OnTaskStart(kernel core.Kernel, task *jupyter.MessageSMRLeadTask) error {
 	persistentId := kernel.(*client.KernelClient).PersistentID()
-	s.log.Info("Add new replica to kernel %s with persistent id %s, replica ID is %d", kernel.ID(), persistentId, kernel.(*client.KernelClient).ReplicaID())
+	s.log.Info("Triggering hard-coded migration of replica %d of kernel %s", kernel.(*client.KernelClient).ReplicaID(), kernel.ID())
 	// migrateKernelResponse, err := s.daemon.Provisioner.MigrateKernelReplica(context.Background(), &gateway.ReplicaInfo{
 	_, err := s.daemon.Provisioner.MigrateKernelReplica(context.Background(), &gateway.ReplicaInfo{
 		KernelId:     kernel.ID(),
@@ -35,7 +35,7 @@ func (s *MembershipScheduler) OnTaskStart(kernel core.Kernel, task *jupyter.Mess
 		PersistentId: persistentId,
 	})
 	if err != nil {
-		s.log.Error("Failed to add new replica: %v", err)
+		s.log.Error("Hard-coded migration failed: %v", err)
 		return err
 	}
 

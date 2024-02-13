@@ -5,8 +5,10 @@ metadata:
   namespace: default 
 data:
   kernel-entrypoint.sh: | 
-    #!/bin/sh
+    #!/bin/bash
     # First, we need to fill-in the IPython configuration file.
     sed "s/-987654321/$(echo $POD_NAME | cut -d - -f 7)/g" "{{ .Values.common.config_file_dir }}/ipython_config.json" >> "{{ .Values.common.ipython_config_path }}"
     # Next, execute the kernel.
     /opt/conda/bin/python3 -m distributed_notebook.kernel -f $CONNECTION_FILE_PATH --debug --IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream
+    # Prevent script from exiting, which will cause Pod to finish if kernel is shutdown, which will prompt new Pod to be created.
+    sleep 9999

@@ -24,7 +24,7 @@ const (
 	ClusterGateway_MigrateKernelReplica_FullMethodName   = "/gateway.ClusterGateway/MigrateKernelReplica"
 	ClusterGateway_NotifyKernelRegistered_FullMethodName = "/gateway.ClusterGateway/NotifyKernelRegistered"
 	ClusterGateway_SmrReady_FullMethodName               = "/gateway.ClusterGateway/SmrReady"
-	ClusterGateway_SmrJoined_FullMethodName              = "/gateway.ClusterGateway/SmrJoined"
+	ClusterGateway_SmrNodeAdded_FullMethodName           = "/gateway.ClusterGateway/SmrNodeAdded"
 )
 
 // ClusterGatewayClient is the client API for ClusterGateway service.
@@ -45,7 +45,7 @@ type ClusterGatewayClient interface {
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
 	NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*KernelRegistrationNotificationResponse, error)
 	SmrReady(ctx context.Context, in *SmrReadyNotification, opts ...grpc.CallOption) (*Void, error)
-	SmrJoined(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
+	SmrNodeAdded(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
 }
 
 type clusterGatewayClient struct {
@@ -101,9 +101,9 @@ func (c *clusterGatewayClient) SmrReady(ctx context.Context, in *SmrReadyNotific
 	return out, nil
 }
 
-func (c *clusterGatewayClient) SmrJoined(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error) {
+func (c *clusterGatewayClient) SmrNodeAdded(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error) {
 	out := new(Void)
-	err := c.cc.Invoke(ctx, ClusterGateway_SmrJoined_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, ClusterGateway_SmrNodeAdded_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ type ClusterGatewayServer interface {
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
 	NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*KernelRegistrationNotificationResponse, error)
 	SmrReady(context.Context, *SmrReadyNotification) (*Void, error)
-	SmrJoined(context.Context, *ReplicaInfo) (*Void, error)
+	SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -151,8 +151,8 @@ func (UnimplementedClusterGatewayServer) NotifyKernelRegistered(context.Context,
 func (UnimplementedClusterGatewayServer) SmrReady(context.Context, *SmrReadyNotification) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SmrReady not implemented")
 }
-func (UnimplementedClusterGatewayServer) SmrJoined(context.Context, *ReplicaInfo) (*Void, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SmrJoined not implemented")
+func (UnimplementedClusterGatewayServer) SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SmrNodeAdded not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 
@@ -257,20 +257,20 @@ func _ClusterGateway_SmrReady_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ClusterGateway_SmrJoined_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ClusterGateway_SmrNodeAdded_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ReplicaInfo)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ClusterGatewayServer).SmrJoined(ctx, in)
+		return srv.(ClusterGatewayServer).SmrNodeAdded(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ClusterGateway_SmrJoined_FullMethodName,
+		FullMethod: ClusterGateway_SmrNodeAdded_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClusterGatewayServer).SmrJoined(ctx, req.(*ReplicaInfo))
+		return srv.(ClusterGatewayServer).SmrNodeAdded(ctx, req.(*ReplicaInfo))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -303,8 +303,8 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ClusterGateway_SmrReady_Handler,
 		},
 		{
-			MethodName: "SmrJoined",
-			Handler:    _ClusterGateway_SmrJoined_Handler,
+			MethodName: "SmrNodeAdded",
+			Handler:    _ClusterGateway_SmrNodeAdded_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

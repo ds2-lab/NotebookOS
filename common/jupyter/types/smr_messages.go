@@ -5,6 +5,7 @@ const (
 
 	IOTopicSMRReady     = "smr_ready"
 	IOTopicSMRNodeAdded = "smr_node_added"
+	// IOTopicSMRNodeRemoved = "smr_node_removed"
 
 	MessageTypeSMRLeadTask       = "smr_lead_task"
 	MessageTypeAddReplicaRequest = "add_replica_request"
@@ -14,10 +15,11 @@ type MessageSMRReady struct {
 	PersistentID string `json:"persistent_id"`
 }
 
-type MessageSMRNodeAdded struct {
+type MessageSMRNodeUpdated struct {
 	MessageSMRReady
 	MessageSMRAddReplicaRequest
 	KernelId string `json:"kernel_id"`
+	Success  bool   `json:"success"`
 }
 
 type MessageSMRLeadTask struct {

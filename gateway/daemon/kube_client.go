@@ -72,7 +72,7 @@ type BasicKubeClient struct {
 	podWatcherStopChan     chan struct{}                              // Used to tell the Pod Watcher to stop.
 	mutex                  sync.Mutex                                 // Synchronize atomic operations, such as scaling-up/down a CloneSet.
 	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
-	scaleDownChannels      *cmap.ConcurrentMap[string, chan string]   // Mapping from Pod name a channel, each of which would correspond to a scale-down operation.
+	scaleDownChannels      *cmap.ConcurrentMap[string, chan struct{}] // Mapping from Pod name a channel, each of which would correspond to a scale-down operation.
 	// newPodWaiters          *cmap.ConcurrentMap[string, chan AddReplicaOperation] // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
 	log logger.Logger
 }
@@ -99,7 +99,7 @@ func (wg *waitGroup) Equal(other *waitGroup) bool {
 
 func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *DaemonKubeClientOptions) *BasicKubeClient {
 	scaleUpChannels := cmap.New[[]chan string]()
-	scaleDownChannels := cmap.New[chan string]()
+	scaleDownChannels := cmap.New[chan struct{}]()
 	// newPodWaiters := cmap.New[chan AddReplicaOperation]()
 
 	client := &BasicKubeClient{
@@ -209,6 +209,13 @@ func (c *BasicKubeClient) PodDeleted(obj interface{}) {
 	if !strings.HasPrefix(pod.Name, "kernel") {
 		return
 	}
+
+	channel, ok := c.scaleDownChannels.Get(pod.Name)
+	if !ok {
+		return
+	}
+
+	channel <- struct{}{}
 }
 
 // Function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
@@ -347,6 +354,8 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 //
 // Relevant OpenKruise documentation:
 // https://openkruise.io/docs/user-manuals/cloneset/#selective-pod-deletion
+//
+// Currently unusued. We can modify the CloneSet directly.
 func (c *BasicKubeClient) addKruiseDeleteLabelToPod(podName string, podNamespace string) error {
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		payload := `{"metadata": {"labels": {"apps.kruise.io/specified-delete": "true"}}}`
@@ -481,8 +490,8 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string, podStartedChannel ch
 // Parameters:
 // - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale in
 // - oldPodName (string): The name of the Pod that we'd like to delete during the scale-in operation.
-// - podStoppedChannel (chan string): Used to notify waiting goroutines that the Pod has stopped.
-func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, podStoppedChannel chan string) error {
+// - podStoppedChannel (chan struct{}): Used to notify waiting goroutines that the Pod has stopped.
+func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, podStoppedChannel chan struct{}) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -502,6 +511,9 @@ func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, po
 			return err
 		}
 
+		// COMMENTED-OUT:
+		// We can modify the CloneSet directly.
+		//
 		// Label the Pod that we would like to delete so that the CloneSet prioritizes deleting it when we scale it down in the next step.
 		// err = c.addKruiseDeleteLabelToPod(oldPodName, "default")
 		// if err != nil {
@@ -517,7 +529,7 @@ func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, po
 		}
 
 		if err := unstructured.SetNestedField(result.Object, []interface{}{oldPodName}, "spec", "scaleStrategy", "podsToDelete"); err != nil {
-
+			panic(fmt.Errorf("Failed to set spec.scaleStrategy.podsToDelete value for CloneSet \"%s\": %v", cloneset_id, err))
 		}
 
 		_, updateErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
@@ -528,7 +540,7 @@ func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, po
 			c.log.Debug("Successfully decreased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
 		}
 
-		return updateErr
+		return updateErr // Will be nil if the operation was successful.
 	})
 
 	c.scaleDownChannels.Set(oldPodName, podStoppedChannel)

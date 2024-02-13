@@ -39,8 +39,8 @@ class ClusterGatewayStub(object):
                 request_serializer=gateway__pb2.SmrReadyNotification.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
-        self.SmrJoined = channel.unary_unary(
-                '/gateway.ClusterGateway/SmrJoined',
+        self.SmrNodeAdded = channel.unary_unary(
+                '/gateway.ClusterGateway/SmrNodeAdded',
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
@@ -88,7 +88,7 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def SmrJoined(self, request, context):
+    def SmrNodeAdded(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -122,8 +122,8 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.SmrReadyNotification.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
-            'SmrJoined': grpc.unary_unary_rpc_method_handler(
-                    servicer.SmrJoined,
+            'SmrNodeAdded': grpc.unary_unary_rpc_method_handler(
+                    servicer.SmrNodeAdded,
                     request_deserializer=gateway__pb2.ReplicaInfo.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
@@ -223,7 +223,7 @@ class ClusterGateway(object):
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def SmrJoined(request,
+    def SmrNodeAdded(request,
             target,
             options=(),
             channel_credentials=None,
@@ -233,7 +233,7 @@ class ClusterGateway(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/SmrJoined',
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/SmrNodeAdded',
             gateway__pb2.ReplicaInfo.SerializeToString,
             gateway__pb2.Void.FromString,
             options, channel_credentials,

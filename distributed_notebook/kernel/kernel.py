@@ -496,12 +496,18 @@ class DistributedKernel(IPythonKernel):
             self.synchronizer.close()
 
         if self.synclog:
+            self.log.info("Shutting down. Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
             await self.synclog.remove_node(self.smr_node_id)
+            self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
+            # self.session.send(self.iopub_socket, "smr_node_removed", {"success": True, "persistent_id": self.persistent_id, "id": self.smr_node_id, "addr": self.hostname, "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added")) # type: ignore
+            # self.log.info("Notified session that I've been removed from the SMR cluster.")
             self.synclog.close()
 
+        # Give time for the "smr_node_removed" message to be sent.
+        # time.sleep(2)
         return super().do_shutdown(restart)
     
-    async def do_add_replica(self, id, addr):
+    async def do_add_replica(self, id, addr) -> tuple:
         """Add a replica to the SMR cluster"""
         if not await self.check_persistent_store():
             return self.gen_error_response(err_wait_persistent_store)
@@ -513,12 +519,12 @@ class DistributedKernel(IPythonKernel):
             await self.synclog.add_node(id, "http://{}".format(addr))
             self.log.info("A replica({}) is notified to join: {}".format(id, addr))
             
-            self.session.send(self.iopub_socket, "smr_node_added", {"persistent_id": self.persistent_id, "id": id, "addr": addr, "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added")) # type: ignore
+            # self.session.send(self.iopub_socket, "smr_node_added", {"persistent_id": self.persistent_id, "id": id, "addr": addr, "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added")) # type: ignore
             
-            return {'status': 'ok'}
+            return {'status': 'ok'}, True
         except Exception as e:
             self.log.error("A replica fails to join: {}...".format(e))
-            return self.gen_error_response(e)
+            return self.gen_error_response(e), False
     
     # customized control message handlers
     async def add_replica_request(self, stream, ident, parent):
@@ -535,9 +541,18 @@ class DistributedKernel(IPythonKernel):
         if 'id' not in params or 'addr' not in params:
             return self.gen_error_response(err_invalid_request)
 
-        content = self.do_add_replica(params['id'], params['addr'])
-        if inspect.isawaitable(content):
-            content = await content
+        val = self.do_add_replica(params['id'], params['addr'])
+        if inspect.isawaitable(val):
+            content, success = await val
+        else:
+            content, success = val
+        
+        if success:
+            self.log.debug("Notifying session that SMR node was added.")
+            self.session.send(self.iopub_socket, "smr_node_added", {"success": True, "persistent_id": self.persistent_id, "id": params['id'], "addr": params['addr'], "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added")) # type: ignore
+        else:
+            self.log.debug("Notifying session that SMR node addition failed.")
+            self.session.send(self.iopub_socket, "smr_node_added", {"success": False, "persistent_id": self.persistent_id, "id": params['id'], "addr": params['addr'], "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added")) # type: ignore
         
         self.session.send(stream, "add_replica_reply", content, parent, ident=ident) # type: ignore
 

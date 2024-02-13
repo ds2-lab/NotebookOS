@@ -238,7 +238,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, d.smrReadyCallback, d.smrJoinedCallback)
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, d.smrReadyCallback, d.smrNodeAddedCallback)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
@@ -431,17 +431,40 @@ func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.AddReplic
 	return gateway.VOID, nil
 }
 
-func (d *SchedulerDaemon) smrJoinedCallback(readyMessage *types.MessageSMRNodeAdded) {
-	d.log.Debug("Replica %d of kernel %s has joined its SMR cluster.", readyMessage.NodeID, readyMessage.KernelId)
+// func (d *SchedulerDaemon) smrNodeRemovedCallback(readyMessage *types.MessageSMRNodeUpdated) {
+// 	d.log.Debug("Replica %d of kernel %s has been removed from its SMR cluster.", readyMessage.NodeID, readyMessage.KernelId)
 
-	_, err := d.Provisioner.SmrJoined(context.TODO(), &gateway.ReplicaInfo{
+// 	_, err := d.Provisioner.SmrNodeRemoved(context.TODO(), &gateway.ReplicaInfo{
+// 		KernelId:     readyMessage.KernelId,
+// 		ReplicaId:    readyMessage.NodeID,
+// 		PersistentId: readyMessage.PersistentID,
+// 	})
+
+// 	if err != nil {
+// 		// TODO(Ben): Handle this somehow.
+// 		d.log.Error("Error when informing Gateway of SMR Node-Removed for replica %d of kernel %s: %v", readyMessage.NodeID, readyMessage.KernelId, err)
+// 	}
+// }
+
+func (d *SchedulerDaemon) smrNodeAddedCallback(readyMessage *types.MessageSMRNodeUpdated) {
+	if readyMessage.Success {
+		d.log.Debug("Replica %d of kernel %s has successfully joined its SMR cluster.", readyMessage.NodeID, readyMessage.KernelId)
+	} else {
+		d.log.Error("Replica %d of kernel %s has failed to join its SMR cluster.", readyMessage.NodeID, readyMessage.KernelId)
+
+		// TODO(Ben): Handle this somehow.
+		return
+	}
+
+	_, err := d.Provisioner.SmrNodeAdded(context.TODO(), &gateway.ReplicaInfo{
 		KernelId:     readyMessage.KernelId,
 		ReplicaId:    readyMessage.NodeID,
 		PersistentId: readyMessage.PersistentID,
 	})
 
 	if err != nil {
-		d.log.Error("Error when informing Gateway of SMR-Joined for replica %d of kernel %s: %v", readyMessage.NodeID, readyMessage.KernelId, err)
+		// TODO(Ben): Handle this somehow.
+		d.log.Error("Error when informing Gateway of SMR Node-Added for replica %d of kernel %s: %v", readyMessage.NodeID, readyMessage.KernelId, err)
 	}
 }
 
@@ -529,6 +552,7 @@ func (d *SchedulerDaemon) KillKernel(ctx context.Context, in *gateway.KernelId) 
 
 // StopKernel stops a kernel.
 func (d *SchedulerDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
+	d.log.Debug("Received instruction to stop kernel %s.", in.Id)
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		return nil, ErrKernelNotFound
@@ -538,6 +562,8 @@ func (d *SchedulerDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) 
 	if err != nil {
 		return nil, d.errorf(err)
 	}
+
+	d.log.Debug("Stopped kernel %s.", in.Id)
 
 	listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
 	err = d.availablePorts.ReturnPorts(listenPorts)
@@ -565,13 +591,16 @@ func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel *client.KernelC
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done, time.Second*1)
+	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done, time.Second*5)
 	if err != nil {
 		return err
 	}
 
 	wg.Wait()
-	d.getInvoker(kernel).Close()
+
+	d.log.Debug("Issued \"%s\" message to replica %d of kernel %s.", jupyter.MessageTypeShutdownRequest, kernel.ReplicaID(), kernel.ID())
+
+	// d.getInvoker(kernel).Close()
 	return nil
 }
 

@@ -54,8 +54,8 @@ type KubeClient interface {
 	// Parameters:
 	// - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale in
 	// - oldPodName (string): The name of the Pod that we'd like to delete during the scale-in operation.
-	// - podStoppedChannel (chan string): Used to notify waiting goroutines that the Pod has stopped.
-	ScaleInCloneSet(string, string, chan string) error
+	// - podStoppedChannel (chan struct{}): Used to notify waiting goroutines that the Pod has stopped.
+	ScaleInCloneSet(string, string, chan struct{}) error
 }
 
 type AddReplicaOperation interface {
