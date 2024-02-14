@@ -499,8 +499,6 @@ class DistributedKernel(IPythonKernel):
             self.log.info("Shutting down. Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
             await self.synclog.remove_node(self.smr_node_id)
             self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
-            # self.session.send(self.iopub_socket, "smr_node_removed", {"success": True, "persistent_id": self.persistent_id, "id": self.smr_node_id, "addr": self.hostname, "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added")) # type: ignore
-            # self.log.info("Notified session that I've been removed from the SMR cluster.")
             self.synclog.close()
 
         # Give time for the "smr_node_removed" message to be sent.
@@ -517,10 +515,7 @@ class DistributedKernel(IPythonKernel):
         # We didn't check if synclog is ready
         try:
             await self.synclog.add_node(id, "http://{}".format(addr))
-            self.log.info("A replica({}) is notified to join: {}".format(id, addr))
-            
-            # self.session.send(self.iopub_socket, "smr_node_added", {"persistent_id": self.persistent_id, "id": id, "addr": addr, "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added")) # type: ignore
-            
+            self.log.info("Replica {} at {} has joined the SMR cluster.".format(id, addr))
             return {'status': 'ok'}, True
         except Exception as e:
             self.log.error("A replica fails to join: {}...".format(e))

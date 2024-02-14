@@ -39,7 +39,7 @@ func (s *MembershipScheduler) OnTaskStart(kernel core.Kernel, task *jupyter.Mess
 		return err
 	}
 
-	// s.log.Debug("Now that kernel %s(%d) has added, notify the existing members.", kernel.ID(), migrateKernelResponse.Id)
+	// s.log.Debug("Now that kernel %s(%d) has been added, notify the existing members.", kernel.ID(), migrateKernelResponse.Id)
 	// frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernel.(*client.KernelClient).Sessions()[0])
 	// frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
 	// 	NodeID:  migrateKernelResponse.Id,

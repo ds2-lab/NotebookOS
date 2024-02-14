@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/go-zeromq/zmq4"
@@ -404,17 +405,8 @@ func (d *GatewayDaemon) SetID(ctx context.Context, hostId *gateway.HostId) (*gat
 	return nil, ErrNotImplemented
 }
 
-func (d *GatewayDaemon) SmrReady(ctx context.Context, smrReadyNotification *gateway.SmrReadyNotification) (*gateway.Void, error) {
-	kernelId := smrReadyNotification.KernelId
-
-	// First, check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
-	_, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId)
-	if !ok {
-		return gateway.VOID, nil
-	}
-
-	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s.", smrReadyNotification.ReplicaId, kernelId)
-	d.log.Info("Notifying existing replicas of kernel %s that new replica %d has been created and is ready to join the SMR cluster.", smrReadyNotification.KernelId, smrReadyNotification.ReplicaId)
+func (d *GatewayDaemon) issueAddNodeRequest(kernelId string, nodeId int32, address string) {
+	d.log.Info("Notifying existing replicas of kernel %s that new replica %d has been created and is ready to join the SMR cluster.", kernelId, nodeId)
 
 	kernelClient, ok := d.kernels.Load(kernelId)
 	if !ok {
@@ -431,45 +423,30 @@ func (d *GatewayDaemon) SmrReady(ctx context.Context, smrReadyNotification *gate
 		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
 	}
 
-	d.log.Debug("Issuing AddReplica RPC for new replica %d of kernel %s.", smrReadyNotification.ReplicaId, smrReadyNotification.KernelId)
+	d.log.Debug("Issuing AddReplica RPC for new replica %d of kernel %s.", nodeId, kernelId)
 	_, err := host.AddReplica(context.TODO(), &gateway.AddReplicaRequest{
-		Id:       smrReadyNotification.ReplicaId,
+		Id:       nodeId,
 		KernelId: kernelId,
-		Hostname: fmt.Sprintf("%s:%d", smrReadyNotification.Address, d.smrPort),
+		Hostname: fmt.Sprintf("%s:%d", address, d.smrPort),
 	})
 	if err != nil {
-		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", smrReadyNotification.ReplicaId, smrReadyNotification.KernelId))
+		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
 	}
-	d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", smrReadyNotification.KernelId, smrReadyNotification.ReplicaId)
+	d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", kernelId, nodeId)
+	time.Sleep(time.Second * 10)
 
-	// frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernelClient.Sessions()[0])
-	// frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
-	// 	NodeID:  smrReadyNotification.ReplicaId,
-	// 	Address: fmt.Sprintf("%s:%d", smrReadyNotification.Address, d.smrPort),
-	// })
-	// if _, err := frames.Sign(kernelClient.ConnectionInfo().SignatureScheme, []byte(kernelClient.ConnectionInfo().Key)); err != nil {
-	// 	d.log.Error("Encountered error when signing frames of new-replica message to other replicas: %v", err)
-	// 	// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
-	// 	panic(err)
-	// }
+}
 
-	// msg := &zmq4.Msg{Frames: frames}
-	// var wg sync.WaitGroup
-	// wg.Add(1)
-	// // Select a random, existing kernel to issue the add-kernel operation.
+func (d *GatewayDaemon) SmrReady(ctx context.Context, smrReadyNotification *gateway.SmrReadyNotification) (*gateway.Void, error) {
+	kernelId := smrReadyNotification.KernelId
 
-	// d.log.Debug("Sending message to replica %d of kernel %s to add new replica %d to SMR cluster.", targetReplica.ReplicaID(), targetReplica.ID(), smrReadyNotification.ReplicaId)
-	// err := kernelClient.RequestWithHandlerAndReplicas(context.Background(), jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
-	// 	d.log.Debug("Received response of type %v associated with kernel %s: %v", typ, kernel.ID(), msg)
-	// 	return nil
-	// }, wg.Done, targetReplica)
-	// if err != nil {
-	// 	d.log.Error("Encountered error when sending new-replica message to other replicas: %v", err)
-	// 	// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
-	// 	panic(err)
-	// }
-	// wg.Wait()
+	// First, check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
+	_, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId)
+	if !ok {
+		return gateway.VOID, nil
+	}
 
+	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s.", smrReadyNotification.ReplicaId, kernelId)
 	return gateway.VOID, nil
 }
 
@@ -589,10 +566,6 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	return info, nil
 }
 
-func (d *GatewayDaemon) TryPublishNewPodNotification(podName string) {
-
-}
-
 // Handle a registration notification from a new kernel replica that was created during an add-replica/migration operation.
 // TODO(Ben): Do I really need the main lock for this function?
 // IMPORTANT: This must be called with the main mutex held.
@@ -663,6 +636,9 @@ func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *
 	d.mutex.Unlock()
 
 	addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
+
+	// Issue the AddNode request now, so that the node can join when it starts up.
+	d.issueAddNodeRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
 
 	d.log.Debug("Done handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)
 
@@ -851,6 +827,55 @@ func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*ga
 	return gateway.VOID, nil
 }
 
+func (d *GatewayDaemon) migrate_removeFirst(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
+	// We pass 'false' for `wait` here, as we don't really need to wait for the CloneSet to scale-down.
+	// As long as the replica is stopped, we can continue.
+	err := d.removeReplica(in.ReplicaId, in.KernelId, false)
+	if err != nil {
+		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
+	}
+
+	var num_seconds int = 20
+	d.log.Debug("Done removing replica %d of kernel %s. Sleeping for %d seconds.", in.ReplicaId, in.KernelId, num_seconds)
+	time.Sleep(time.Second * time.Duration(num_seconds))
+
+	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
+	opts := NewAddReplicaWaitOptions(true, true)
+	addReplicaOp, err := d.addReplica(in, opts)
+	if err != nil {
+		d.log.Error("Failed to add new replica %d to kernel %s: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
+		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+	}
+
+	return &gateway.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
+}
+
+func (d *GatewayDaemon) migrate_removeLast(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
+	// First, add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
+	opts := NewAddReplicaWaitOptions(true, true)
+	addReplicaOp, err := d.addReplica(in, opts)
+	if err != nil {
+		d.log.Error("Failed to add new replica %d to kernel %s: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
+		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+	}
+
+	var num_seconds int = 60
+	d.log.Debug("Done adding replica %d of kernel %s. Sleeping for %d seconds.", addReplicaOp.ReplicaId(), in.KernelId, num_seconds)
+	time.Sleep(time.Second * time.Duration(num_seconds))
+	d.log.Debug("Removing replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
+
+	// We pass 'false' for `wait` here, as we don't really need to wait for the CloneSet to scale-down.
+	// As long as the replica is stopped, we can continue.
+	err = d.removeReplica(in.ReplicaId, in.KernelId, false)
+	if err != nil {
+		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
+	}
+
+	d.log.Debug("Done migrating replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
+
+	return &gateway.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
+}
+
 func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
 	// client, ok := d.kernels.Load(in.KernelId)
 	// if !ok {
@@ -865,26 +890,8 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 
 	d.log.Debug("Migrating replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
 
-	// First, add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
-	opts := NewAddReplicaWaitOptions(true, true)
-	addReplicaOp, err := d.addReplica(in, opts)
-	if err != nil {
-		d.log.Error("Failed to add new replica %d to kernel %s: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
-		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
-	}
-
-	d.log.Debug("Done adding replica %d of kernel %s. Removing replica %d now.", addReplicaOp.ReplicaId(), in.KernelId, in.ReplicaId)
-
-	// We pass 'false' for `wait` here, as we don't really need to wait for the CloneSet to scale-down.
-	// As long as the replica is stopped, we can continue.
-	err = d.removeReplica(in.ReplicaId, in.KernelId, false)
-	if err != nil {
-		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
-	}
-
-	d.log.Debug("Done migrating replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
-
-	return &gateway.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
+	return d.migrate_removeFirst(ctx, in)
+	// return d.migrate_removeLast(ctx, in)
 
 	// The ID of the replica that we're migrating.
 	// var targetReplicaId int32 = in.ReplicaId

@@ -240,6 +240,7 @@ func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
 // }
 
 func (node *LogNode) AddNode(id int, addr string, resolve ResolveCallback) {
+	log.Printf("Proposing the addition of node %d at %s\n", id, addr)
 	ctx := node.generateConfChange(&raftpb.ConfChange{
 		Type:    raftpb.ConfChangeAddNode,
 		NodeID:  uint64(id),
@@ -249,6 +250,7 @@ func (node *LogNode) AddNode(id int, addr string, resolve ResolveCallback) {
 }
 
 func (node *LogNode) RemoveNode(id int, resolve ResolveCallback) {
+	log.Printf("Proposing the removal of node %d\n", id)
 	ctx := node.generateConfChange(&raftpb.ConfChange{
 		Type:   raftpb.ConfChangeRemoveNode,
 		NodeID: uint64(id),
@@ -276,6 +278,11 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 		}
 	}
 	node.logger.Debug("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
+	if msg == "add node" {
+		log.Printf("Value appended: \"add node\" (id: %s)\n", ctx.ID())
+	} else if msg == "remove node" {
+		log.Printf("Value appended: \"remove node\" (id: %s)\n", ctx.ID())
+	}
 	if resolve != nil {
 		resolve(msg, toCError(nil))
 	}
@@ -480,6 +487,7 @@ func (node *LogNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool)
 			switch cc.Type {
 			case raftpb.ConfChangeAddNode:
 				if len(cc.Context) > 0 {
+					log.Println("Adding a node to the cluster: ", cc.NodeID)
 					node.transport.AddPeer(types.ID(cc.NodeID), []string{string(cc.Context)})
 				}
 			case raftpb.ConfChangeRemoveNode:
@@ -766,6 +774,7 @@ func (node *LogNode) serveChannels() {
 					proposeC = nil // Clear local channel.
 				} else {
 					// blocks until accepted by raft state machine
+					node.logger.Debug("Proposing something.")
 					node.node.Propose(ctx, ctx.Proposal)
 				}
 
@@ -775,6 +784,7 @@ func (node *LogNode) serveChannels() {
 				} else {
 					confChangeCount++
 					cc.ConfChange.ID = confChangeCount
+					node.logger.Debug("Proposing configuration change: %s", zap.String("conf-change", cc.ConfChange.String()))
 					node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
 				}
 			}

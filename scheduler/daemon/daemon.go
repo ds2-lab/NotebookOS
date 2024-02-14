@@ -350,35 +350,6 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 
 	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
 	time.Sleep(time.Second * 1)
-
-	// if response.NotifyOtherReplicas {
-	// 	d.log.Info("Notifying existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
-	// 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernel.Sessions()[0])
-	// 	frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
-	// 		NodeID:  response.Id,
-	// 		Address: fmt.Sprintf("%s:%d", remote_ip, response.SmrPort),
-	// 	})
-	// 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
-	// 		d.log.Error("Encountered error when signing frames of new-replica message to other replicas: %v", err)
-	// 		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
-	// 		panic(err)
-	// 	}
-
-	// 	msg := &zmq4.Msg{Frames: frames}
-	// 	var wg sync.WaitGroup
-	// 	wg.Add(1)
-	// 	err = kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
-	// 		d.log.Debug("Received response of type %v associated with kernel %s: %v", typ, kernel.ID(), msg)
-	// 		return nil
-	// 	}, wg.Done, time.Second*30)
-	// 	if err != nil {
-	// 		d.log.Error("Encountered error when sending new-replica message to other replicas: %v", err)
-	// 		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
-	// 		panic(err)
-	// 	}
-	// 	wg.Wait()
-	// 	d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", kernel.ID(), response.Id)
-	// }
 }
 
 func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
@@ -407,7 +378,7 @@ func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.AddReplic
 		return gateway.VOID, ErrInvalidParameter
 	}
 
-	d.log.Debug("Now that kernel %s(%d) has added, notify the existing members.", kernelId, replicaId)
+	d.log.Debug("Now that replica %d of kernel %s (host=%s) has been added, notify the existing members.", replicaId, kernelId, hostname)
 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernel.Sessions()[0])
 	frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
 		NodeID:  replicaId,
@@ -558,12 +529,13 @@ func (d *SchedulerDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) 
 		return nil, ErrKernelNotFound
 	}
 
+	d.log.Debug("Stopped kernel %s, replica %d.", in.Id, kernel.ReplicaID())
 	err = d.stopKernel(ctx, kernel, false)
 	if err != nil {
 		return nil, d.errorf(err)
 	}
 
-	d.log.Debug("Stopped kernel %s.", in.Id)
+	d.log.Debug("Stopped kernel %s, replica %d.", in.Id, kernel.ReplicaID())
 
 	listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
 	err = d.availablePorts.ReturnPorts(listenPorts)
@@ -598,7 +570,7 @@ func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel *client.KernelC
 
 	wg.Wait()
 
-	d.log.Debug("Issued \"%s\" message to replica %d of kernel %s.", jupyter.MessageTypeShutdownRequest, kernel.ReplicaID(), kernel.ID())
+	d.log.Debug("Sent \"%s\" message to replica %d of kernel %s.", jupyter.MessageTypeShutdownRequest, kernel.ReplicaID(), kernel.ID())
 
 	// d.getInvoker(kernel).Close()
 	return nil

@@ -286,22 +286,26 @@ class RaftLog:
   async def add_node(self, node_id, address):
     """Add a node to the cluster."""
     future, resolve = self._get_callback()
+    self._log.info("Adding node %d at addr %s to the SMR cluster." % (node_id, address))
     self._node.AddNode(node_id, address, resolve)
-    await future.result()
+    res = await future.result()
+    self._log.info("Result of AddNode: %s" % str(res))
 
   async def remove_node(self, node_id):
     """Remove a node from the cluster."""
     future, resolve = self._get_callback()
+    self._log.info("Removing node %d from the SMR cluster." % node_id)
     self._node.RemoveNode(node_id, resolve)
-    await future.result()
+    res = await future.result()
+    self._log.info("Result of RemoveNode: %s" % str(res))
 
   def close(self):
     """Ensure all async coroutines end and clean up."""
     self._node.Close()
-    self._log.debug("closed")
     if self._closed is not None:
       asyncio.run_coroutine_threadsafe(self._closed.resolve(None, None), self._start_loop)
       self._closed = None
+    self._log.debug("RaftLog %d has closed." % self._id)
 
   def ensure_path(self, base_path):
     if base_path != "" and not os.path.exists(base_path):
