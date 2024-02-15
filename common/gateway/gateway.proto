@@ -163,7 +163,7 @@ message KernelRegistrationNotification {
 
 message KernelRegistrationNotificationResponse {
   int32 id = 1;
-  repeated string replicas = 2;
+  map<int32, string> replicas = 2;
   optional string persistentId = 3;
   int32 smrPort = 4;
 }

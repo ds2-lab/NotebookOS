@@ -171,8 +171,6 @@ func NewLogNode(store_path string, id int, peer_addresses []string, peer_ids []i
 		log.Fatalf("Received unequal number of peer addresses (%d) and peer node IDs (%d). They must be equal.\n", len(peer_addresses), len(peer_ids))
 	}
 
-	fmt.Printf("Creating a new LogNode.\n")
-
 	node := &LogNode{
 		proposeC:         make(chan *proposalContext),
 		confChangeC:      make(chan *confChangeContext),
@@ -209,10 +207,6 @@ func NewLogNode(store_path string, id int, peer_addresses []string, peer_ids []i
 
 	testId, _ := node.patchPropose(nil)
 	node.proposalPadding = len(testId)
-
-	fmt.Printf("Created LogNode %d.\n", node.id)
-	node.logger.Debug("Created LogNode.\n", zap.Int("ID", node.id))
-
 	return node
 }
 

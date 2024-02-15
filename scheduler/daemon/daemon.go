@@ -513,6 +513,7 @@ func (d *SchedulerDaemon) GetKernelStatus(ctx context.Context, in *gateway.Kerne
 func (d *SchedulerDaemon) KillKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
+		d.log.Error("Could not find kernel with ID %s", in.Id)
 		return nil, ErrKernelNotFound
 	}
 
@@ -526,6 +527,7 @@ func (d *SchedulerDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) 
 	d.log.Debug("Received instruction to stop kernel %s.", in.Id)
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
+		d.log.Error("Could not find kernel with ID %s", in.Id)
 		return nil, ErrKernelNotFound
 	}
 
@@ -580,6 +582,7 @@ func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel *client.KernelC
 func (d *SchedulerDaemon) WaitKernel(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
+		d.log.Error("Could not find kernel with ID %s", in.Id)
 		return nil, ErrKernelNotFound
 	}
 
@@ -652,6 +655,7 @@ func (d *SchedulerDaemon) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) 
 
 	kernel, ok := d.kernels.Load(header.Session)
 	if !ok {
+		d.log.Error("Could not find kernel with ID %s", header.Session)
 		return ErrKernelNotFound
 	}
 
@@ -689,6 +693,7 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 
 		kernel, ok = d.kernels.Load(kernelId)
 		if !ok {
+			d.log.Error("Could not find kernel with ID %s", kernelId)
 			return ErrKernelNotFound
 		}
 
@@ -697,6 +702,7 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 		kernel.BindSession(header.Session)
 	}
 	if kernel == nil {
+		d.log.Error("Could not find kernel with ID %s", header.Session)
 		return ErrKernelNotFound
 	}
 
@@ -766,6 +772,7 @@ func (d *SchedulerDaemon) kernelFromMsg(msg *zmq4.Msg) (kernel *client.KernelCli
 
 	kernel, ok := d.kernels.Load(id)
 	if !ok {
+		d.log.Error("Could not find kernel with ID %s", id)
 		return nil, ErrKernelNotFound
 	}
 

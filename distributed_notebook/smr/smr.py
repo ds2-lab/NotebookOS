@@ -339,6 +339,28 @@ def Set_ProposalDeadline(value):
 
 # ---- Interfaces ---
 
+# Python type for interface smr.ReadCloser
+class ReadCloser(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_ReadCloser_Close(self.handle)
+	def Read(self, p):
+		"""Read(object p) object"""
+		return IntRet(handle=_smr.smr_ReadCloser_Read(self.handle, p.handle))
+
 # Python type for interface smr.WriteCloser
 class WriteCloser(go.GoClass):
 	""""""
@@ -414,77 +436,8 @@ class LogStorage(go.GoClass):
 		"""SaveSnapshot(object) """
 		_smr.smr_LogStorage_SaveSnapshot(self.handle, arg_0.handle, goRun)
 
-# Python type for interface smr.ReadCloser
-class ReadCloser(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Close(self):
-		"""Close() str"""
-		return _smr.smr_ReadCloser_Close(self.handle)
-	def Read(self, p):
-		"""Read(object p) object"""
-		return IntRet(handle=_smr.smr_ReadCloser_Read(self.handle, p.handle))
-
 
 # ---- Structs ---
-
-# Python type for struct smr.SMRContext
-class SMRContext(go.context_Context):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_SMRContext_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.SMRContext{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.SMRContext ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def ID(self):
-		"""ID() str"""
-		return _smr.smr_SMRContext_ID(self.handle)
-	def Cancel(self, goRun=False):
-		"""Cancel() """
-		_smr.smr_SMRContext_Cancel(self.handle, goRun)
 
 # Python type for struct smr.Bytes
 class Bytes(go.GoClass):
@@ -778,6 +731,53 @@ class LogNodeConfig(go.GoClass):
 		"""WithSnapshotCallback(callable cb) object"""
 		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithSnapshotCallback(self.handle, cb))
 
+# Python type for struct smr.SMRContext
+class SMRContext(go.context_Context):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_SMRContext_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.SMRContext{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.SMRContext ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def ID(self):
+		"""ID() str"""
+		return _smr.smr_SMRContext_ID(self.handle)
+	def Cancel(self, goRun=False):
+		"""Cancel() """
+		_smr.smr_SMRContext_Cancel(self.handle, goRun)
+
 
 # ---- Slices ---
 
@@ -786,16 +786,19 @@ class LogNodeConfig(go.GoClass):
 
 
 # ---- Constructors ---
-def NewLogNode(store_path, id, peers, join):
-	"""NewLogNode(str store_path, int id, []str peers, bool join) object
+def NewLogNode(store_path, id, peer_addresses, peer_ids, join):
+	"""NewLogNode(str store_path, int id, []str peer_addresses, []int peer_ids, bool join) object
 	
 	NewLogNode initiates a raft instance and returns a committed log entry
 	channel and error channel. Proposals for log updates are sent over the
 	provided the proposal channel. All log entries are replayed over the
 	commit channel, followed by a nil message (to indicate the channel is
 	current), then new log entries. To shutdown, close proposeC and read errorC.
+	
+	This accepts two slices for peers, since we do not know how to pass a map.
+	The address at peer_addresses[i] corresponds to the node ID at peer_ids[i].
 	"""
-	return LogNode(handle=_smr.smr_NewLogNode(store_path, id, peers.handle, join))
+	return LogNode(handle=_smr.smr_NewLogNode(store_path, id, peer_addresses.handle, peer_ids.handle, join))
 def NewConfig():
 	"""NewConfig() object"""
 	return LogNodeConfig(handle=_smr.smr_NewConfig())

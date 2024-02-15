@@ -29,11 +29,7 @@ ifeq (,$(wildcard $(DEST)/bak/build.py))
 	@cp $(DEST)/build.py $(DEST)/bak/build.py 
 endif
 	@echo "patching $(DEST)/build.py"
-ifeq ($(shell uname -p), x86_64)
-	@sed -i -E '/^mod\.generate\(/d' $(DEST)/build.py
-else 
 	@sed -Ei '' '/^mod\.generate\(/d' $(DEST)/build.py
-endif
 	cat $< >> $(DEST)/build.py
 	
 patch.%: patch/% restore.% prepare
@@ -44,15 +40,11 @@ patch.%: patch/% restore.% prepare
 
 patch.smr.c: patch/smr.c restore.smr.c prepare
 ifeq (,$(wildcard $(DEST)/bak/smr.c))
-	@echo "creating backup of $(DEST)/bak/smr.c"
+	@echo "backuping $(DEST)/bak/smr.c"
 	@cp $(DEST)/smr.c $(DEST)/bak/smr.c 
 endif
 	@echo "patching $(DEST)/smr.c"
-ifeq ($(shell uname -p), x86_64)
-	@sed -i -E -e '/^_wrap__smr_smr_NewBytes\(/r $<' -e '/^_wrap__smr_smr_NewBytes\(/,/^\}/d' $(DEST)/smr.c
-else
 	@sed -Ei '' -e '/^_wrap__smr_smr_NewBytes\(/r $<' -e '/^_wrap__smr_smr_NewBytes\(/,/^\}/d' $(DEST)/smr.c
-endif
 
 patch.darwin:
 	sed -Ei '' 's/^CFLAGS =(.*)/CFLAGS = -I$(PYTHON3_ESCAPED_PATH)\/include\/python$(PYTHON3_VERSION)/' ../distributed_notebook/smr/Makefile
@@ -61,33 +53,21 @@ patch.darwin:
 	sed -Ei '' 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_ESCAPED_PATH)\/lib -lpython$(PYTHON3_VERSION) -ldl -framework CoreFoundation/' ../distributed_notebook/smr/smr.go
 
 gen-python: clean
-	@echo "Executing gopy gen now..."
 	gopy gen -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
-	@echo "Finished gopy gen."
 
 build-python: clean
-	@echo "Executing gopy build now..."
 	gopy build -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
-	@echo "Finished gopy build."
 
 build-common:
-	@echo "Building common now..."
 	cd $(dir $(DEST)) && make build-smr-common
-	@echo "Done building common."
 
 gen-darwin: gen-python patch patch.darwin
 	-rm $(DEST)/smr_darwin.go
 
 gen-%: gen-python patch
 
-gen-linux-amd64: gen-python patch
-
-build-linux-amd64: gen-linux-amd64 build-common patch.smr.c
-	cd $(dir $(DEST)) && make build-smr-linux-amd64
-
 build-%: gen-% build-common patch.smr.c
 	cd $(dir $(DEST)) && make build-smr-$*
-# cd $(dir $(DEST)) && make build-smr-$*
 
 clean:
 	rm -rf $(DEST)

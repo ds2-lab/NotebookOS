@@ -1,13 +1,18 @@
-include ./env.mk
+include ./env_amd64.mk
 
-all: build-smr-linux-arm64
+all: test-env-amd64 build-smr-linux-arm64
 
 # Verify the value of PYTHON3_PATH and PYTHON3_VERSION.
-test-env:
-	@echo $(PYTHON3)
-	@echo $(PYTHON3_PATH)
-	@echo $(PYTHON3_VERSION)
-	@echo $(PYTHON3_ESCAPED_PATH)
+test-env-amd64:
+	@echo ""
+	@echo "Environment: "
+	@echo "PYTHON3: $(PYTHON3)"
+	@echo "PYTHON3_PATH: $(PYTHON3_PATH)"
+	@echo "PYTHON3_VERSION: $(PYTHON3_VERSION)"
+	@echo "PYTHON3_ESCAPED_PATH: $(PYTHON3_ESCAPED_PATH)"
+	@echo "PYTHON3_INCLUDES_PATH: $(PYTHON3_INCLUDES_PATH)"
+	@echo "PYTHON3_LIB_PATH: $(PYTHON3_LIB_PATH)"
+	@echo ""
 
 # Generate os and arch specific smr.go. Call make in project root directory to generate smr.go.
 prepare-%.go:
@@ -31,9 +36,9 @@ prepare-smr-linux-arm64: prepare-smr_linux_arm64.go
 
 prepare-smr-linux-amd64: prepare-smr_linux_amd64.go
 # We don't use -i because it may cause permission problem with created temporary file.
-	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I\/usr\/local\/include\/python3.11 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
+	sed -i -E 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I\/usr\/local\/include\/python3.11 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
-	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L\/usr\/local\/lib -lpython3.11 -lcrypt -lpthread -ldl  -lutil -lm -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
+	sed -i -E 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L\/usr\/local\/lib -lpython3.11 -lcrypt -lpthread -ldl  -lutil -lm -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
 
 build-init:
@@ -56,7 +61,7 @@ build-smr-linux-arm64: build-init prepare-smr-linux-arm64
 	cd smr && make build-smr-linux-arm64
 	make reset
 
-build-smr-linux-amd64: build-init prepare-smr-linux-amd64
+build-smr-linux-amd64: test-env-amd64 build-init prepare-smr-linux-amd64
 	@echo "Building SMR for Linux AMD64"
 	cat Makefile_linux_amd64 >> smr/Makefile
 	cd smr && make build-smr-linux-amd64
