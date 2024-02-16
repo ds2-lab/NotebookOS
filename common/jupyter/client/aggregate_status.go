@@ -153,16 +153,19 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 		ret, err := s.Result()
 		// Double check the promise error. Possibilities are the promise can be reseted with promise.ErrReset.
 		if err != nil || ret == nil {
+			s.kernel.log.Warn("Failed to obtain status result. Error: %v", err)
 			return
 		}
 		statusMsg := ret.(*StatusMsg)
 		s.status = statusMsg.Status
+		s.kernel.log.Warn("Publishing status \"%v\" with message \"%v\", how \"%v\"", statusMsg.Status, statusMsg.Msg, statusMsg.How)
 		publish(statusMsg.Msg, statusMsg.Status, statusMsg.How)
 	} else if s.sampleMsg != nil {
 		// TODO: Not working here, need to regenerate the signature.
 		jFrames, _ := s.kernel.SkipIdentities(s.sampleMsg.Frames)
 		jFrames.ContentFrame().Set([]byte(fmt.Sprintf(KernelStatusFrameTemplate, status)))
 		jFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+		s.kernel.log.Warn("Publishing sample status \"%v\" with message \"%v\", how: \"Synthesized status\"", status, s.sampleMsg)
 		publish(s.sampleMsg, status, "Synthesized status")
 	}
 

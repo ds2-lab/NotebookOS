@@ -15,8 +15,6 @@ from ipykernel.ipkernel import IPythonKernel
 from .iostream import OutStream
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 
-logFormatter = logging.Formatter(fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
 class ExecutionYieldError(Exception):
     """Exception raised when execution is yielded."""
     def __init__(self, message):
@@ -32,7 +30,7 @@ enable_storage = True
 
 UNAVAILABLE:str = "N/A" # Used as the value for an environment variable that was not set.
 
-# logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG, format = '%(asctime)s:%(name)s:%(levelname)s:%(message)s')
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
@@ -101,10 +99,11 @@ class DistributedKernel(IPythonKernel):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
-        consoleHandler = logging.StreamHandler()
-        consoleHandler.setLevel(logging.DEBUG)
-        consoleHandler.setFormatter(logFormatter)
-        self.log.addHandler(consoleHandler)
+        
+        self.log.info("TEST -- INFO")
+        self.log.debug("TEST -- DEBUG")
+        self.log.warn("TEST -- WARN")
+        self.log.error("TEST -- ERROR")
         
         self.smr_nodes_map = {}
         
@@ -260,7 +259,7 @@ class DistributedKernel(IPythonKernel):
         if await self.check_persistent_store():
             return self.gen_simple_response()
 
-        self.log.info("Initializing persistent datastore now.")
+        self.log.info("Initializing persistent datastore now using code \"%s\"" % str(code))
         
         # By executing code, we can get persistent id later.
         # The execution_count should not be counted and will reset later.
@@ -344,6 +343,7 @@ class DistributedKernel(IPythonKernel):
         
         # Special code to initialize persistent store
         if code[:len(key_persistent_id)] == key_persistent_id:
+            self.log.debug("Using special code to initialize persistent store: \"%s\"" % code)
             return await asyncio.ensure_future(self.init_persistent_store(code))
         
         if not await self.check_persistent_store():
@@ -507,8 +507,10 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Confirmed node {}".format(self.smr_nodes_map[self.smr_node_id]))
         
         addrs = []
-        for _, addr in self.smr_nodes_map.items():
+        ids = []
+        for node_id, addr in self.smr_nodes_map.items():
             addrs.append("http://" + addr)
+            ids.append(node_id)
         
         # Implement dynamic later
         # addrs = map(lambda x: "http://{}".format(x), self.smr_nodes)
@@ -516,8 +518,9 @@ class DistributedKernel(IPythonKernel):
         store = ""
         if enable_storage:
             store = store_path
+        
         self.log.debug("Creating RaftLog now.")
-        self.synclog = RaftLog(store, self.smr_node_id, addrs, join=self.smr_join)
+        self.synclog = RaftLog(store, self.smr_node_id, addrs, ids, join=self.smr_join)
         self.log.debug("Created RaftLog now.")
         return self.synclog
 

@@ -53,12 +53,16 @@ class RaftLog:
     self._id = id
     self.ensure_path(self._store)
     self._offloader = FileLog(self._store)
+    self._log = logging.getLogger(__class__.__name__ + str(id))
+    self._log.setLevel(logging.DEBUG)
+    
+    self._log.info("Creating LogNode %d now." % id)
     self._node = NewLogNode(self._store, id, Slice_string(peer_addrs), Slice_int(peer_ids), join)
+    self._log.info("Successfully created LogNode %d." % id)
+    
     self._changeCallback = self._changeHandler  # No idea why this walkaround works
     self._restoreCallback = self._restore       # No idea why this walkaround works
     self._ignore_changes = 0
-    self._log = logging.getLogger(__class__.__name__ + str(id))
-    self._log.setLevel(logging.DEBUG)
     self._closed = None
 
   @property
