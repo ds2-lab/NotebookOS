@@ -1,5 +1,5 @@
 
-include ../env_amd64.mk
+include ../env.mk
 
 build-smr-linux-amd64:
 	@echo "Building SMR for Linux AMD64"
