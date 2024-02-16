@@ -124,7 +124,6 @@ type KernelRegistrationPayload struct {
 	Kernel          *gateway.KernelSpec `json:"kernel,omitempty"`
 	ReplicaId       int32               `json:"replicaId,omitempty"`
 	NumReplicas     int32               `json:"numReplicas,omitempty"`
-	Replicas        []string            `json:"replicas,omitempty"`
 	Join            bool                `json:"join,omitempty"`
 	PersistentId    *string             `json:"persistentId,omitempty"`
 	PodName         string              `json:"podName,omitempty"`
@@ -205,6 +204,11 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	var registrationPayload KernelRegistrationPayload
 	jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
 	err = jsonDecoder.Decode(&registrationPayload)
+	if err != nil {
+		d.log.Error("Failed to decode registration payload: %v", err)
+		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
+		return
+	}
 
 	invoker := invoker.NewDockerInvoker(d.connectionOptions)
 	connInfo := &jupyter.ConnectionInfo{

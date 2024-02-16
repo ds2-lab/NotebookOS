@@ -121,11 +121,11 @@ type LogNode struct {
 	commitC     chan *commit
 	errorC      chan error // errors from raft session
 
-	id      int      // Client ID for raft session
-	peers   []string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1.
-	join    bool     // Node is joining an existing cluster
-	waldir  string   // Path to WAL directory
-	snapdir string   // Path to snapshot directory
+	id      int            // Client ID for raft session
+	peers   map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1.
+	join    bool           // Node is joining an existing cluster
+	waldir  string         // Path to WAL directory
+	snapdir string         // Path to snapshot directory
 
 	confState        raftpb.ConfState
 	snapshotIndex    uint64
@@ -163,14 +163,19 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
-func NewLogNode(store_path string, id int, peers []string, join bool) *LogNode {
+func NewLogNode(store_path string, id int, peer_addresses []string, peer_ids []int, join bool) *LogNode {
+	if len(peer_addresses) != len(peer_ids) {
+		log.Fatalf("Received unequal number of peer addresses (%d) and peer node IDs (%d). They must be equal.\n", len(peer_addresses), len(peer_ids))
+	}
+
+	fmt.Printf("Creating a new LogNode.\n")
+
 	node := &LogNode{
 		proposeC:         make(chan *proposalContext),
 		confChangeC:      make(chan *confChangeContext),
 		commitC:          make(chan *commit),
 		errorC:           make(chan error, 1),
 		id:               id,
-		peers:            peers,
 		join:             join,
 		snapCount:        defaultSnapshotCount,
 		stopc:            make(chan struct{}),
@@ -191,6 +196,16 @@ func NewLogNode(store_path string, id int, peers []string, join bool) *LogNode {
 	}
 	testId, _ := node.patchPropose(nil)
 	node.proposalPadding = len(testId)
+
+	node.peers = make(map[int]string, len(peer_addresses))
+	for i := 0; i < len(peer_addresses); i++ {
+		peer_addr := peer_addresses[i]
+		peer_id := peer_ids[i]
+
+		node.logger.Debug("Discovered peer.", zap.String("peer_address", peer_addr), zap.Int("peer_id", peer_id))
+		node.peers[peer_id] = peer_addr
+	}
+
 	return node
 }
 
@@ -374,9 +389,9 @@ func (node *LogNode) start() {
 	node.snapshotterReady <- node.snapshotter
 
 	rpeers := make([]raft.Peer, 0, len(node.peers))
-	for i, peer := range node.peers {
+	for id, peer := range node.peers {
 		if peer != "" {
-			rpeers = append(rpeers, raft.Peer{ID: uint64(i + 1)})
+			rpeers = append(rpeers, raft.Peer{ID: uint64(id)})
 		}
 	}
 	c := &raft.Config{
@@ -406,10 +421,10 @@ func (node *LogNode) start() {
 	}
 
 	node.transport.Start()
-	for i, peer := range node.peers {
+	for id, peer := range node.peers {
 		// Allow holes in the peer list
-		if peer != "" && i+1 != node.id {
-			node.transport.AddPeer(types.ID(i+1), []string{peer})
+		if peer != "" && id != node.id {
+			node.transport.AddPeer(types.ID(id), []string{peer})
 		}
 	}
 
@@ -873,7 +888,7 @@ func (node *LogNode) processMessages(ms []raftpb.Message) []raftpb.Message {
 func (node *LogNode) serveRaft() {
 	defer close(node.httpdonec)
 
-	url, err := url.Parse(node.peers[node.id-1])
+	url, err := url.Parse(node.peers[node.id])
 	if err != nil {
 		node.logFatalf("LogNode: Failed parsing URL (%v)", err)
 		return

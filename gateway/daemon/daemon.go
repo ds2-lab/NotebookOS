@@ -203,7 +203,7 @@ type registrationWaitGroups struct {
 	numNotified int
 
 	// The SMR node replicas in order according to their registration IDs.
-	replicas []string
+	replicas map[int32]string
 
 	// Synchronizes access to the `replicas` slice.
 	replicasMutex sync.Mutex
@@ -215,7 +215,7 @@ type registrationWaitGroups struct {
 // - numReplicas (int): Value to be added to the registrationWaitGroups's "notified" and "registered" sync.WaitGroups.
 func NewRegistrationWaitGroups(numReplicas int) *registrationWaitGroups {
 	wg := &registrationWaitGroups{
-		replicas: make([]string, numReplicas, numReplicas),
+		replicas: make(map[int32]string),
 	}
 
 	wg.notified.Add(numReplicas)
@@ -256,7 +256,7 @@ func (wg *registrationWaitGroups) SetReplica(idx int32, hostname string) {
 	wg.replicas[idx] = hostname
 }
 
-func (wg *registrationWaitGroups) GetReplicas() []string {
+func (wg *registrationWaitGroups) GetReplicas() map[int32]string {
 	return wg.replicas
 }
 
@@ -264,23 +264,29 @@ func (wg *registrationWaitGroups) NumReplicas() int {
 	return len(wg.replicas)
 }
 
-func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) []string {
+func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) map[int32]string {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
 
-	var idx int32 = nodeId - 1
+	// var idx int32 = nodeId - 1
 
-	if idx > int32(len(wg.replicas)) {
-		panic(fmt.Sprintf("Cannot add node %d at index %d, as there is/are only %d replica(s) in the list already.", nodeId, idx, len(wg.replicas)))
+	// if idx > int32(len(wg.replicas)) {
+	// 	panic(fmt.Sprintf("Cannot add node %d at index %d, as there is/are only %d replica(s) in the list already.", nodeId, idx, len(wg.replicas)))
+	// }
+
+	// // Add it to the end.
+	// if idx == int32(len(wg.replicas)) {
+	// 	wg.replicas = append(wg.replicas, hostname)
+	// } else {
+	// 	fmt.Printf("WARNING: Replacing replica %d (%s) at index %d with new replica %s.\n", nodeId, wg.replicas[idx], idx, hostname)
+	// 	wg.replicas[idx] = hostname
+	// }
+
+	if _, ok := wg.replicas[nodeId]; ok {
+		fmt.Printf("WARNING: Replacing replica %d (%s) with new replica %s.\n", nodeId, wg.replicas[nodeId], hostname)
 	}
 
-	// Add it to the end.
-	if idx == int32(len(wg.replicas)) {
-		wg.replicas = append(wg.replicas, hostname)
-	} else {
-		fmt.Printf("WARNING: Replacing replica %d (%s) at index %d with new replica %s.\n", nodeId, wg.replicas[idx], idx, hostname)
-		wg.replicas[idx] = hostname
-	}
+	wg.replicas[nodeId] = hostname
 
 	return wg.replicas
 }
@@ -723,7 +729,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	d.mutex.Unlock()
 
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
-	waitGroup.SetReplica(replicaId-1, kernelIp)
+	waitGroup.SetReplica(replicaId, kernelIp)
 	waitGroup.Register()
 
 	d.log.Debug("Done registering KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
@@ -731,15 +737,15 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 
 	waitGroup.WaitRegistered()
 
-	d.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d", kernelId, replicaId)
-
 	response := &gateway.KernelRegistrationNotificationResponse{
 		Id:           replicaId,
 		Replicas:     waitGroup.GetReplicas(),
 		PersistentId: nil,
 		// NotifyOtherReplicas: false,
-		SmrPort: -1,
+		SmrPort: int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
 	}
+
+	d.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d: %v", kernelId, replicaId, response)
 
 	waitGroup.Notify()
 	return response, nil

@@ -8,7 +8,7 @@ import ctypes
 from typing import Tuple, List, Callable, Optional, Any, Iterable
 
 from ..smr.smr import NewLogNode, NewConfig, NewBytes, Bytes, WriteCloser, ReadCloser
-from ..smr.go import Slice_string
+from ..smr.go import Slice_string, Slice_int
 from .log import SyncLog, SyncValue, KEY_SYNC_END, Checkpointer
 from .checkpoint import Checkpoint
 from .future import Future
@@ -48,12 +48,12 @@ class RaftLog:
   _shouldSnapshotCallback: Optional[Callable[[SyncLog], bool]] = None # The callback to be called when a snapshot is needed.
   _snapshotCallback: Optional[Callable[[Any], bytes]] = None # The callback to be called when a snapshot is needed.
 
-  def __init__(self, base_path: str, id: int, peers: Iterable[str], join: bool = False):
+  def __init__(self, base_path: str, id: int, peer_addrs: Iterable[str], peer_ids: Iterable[int], join: bool = False):
     self._store = base_path
     self._id = id
     self.ensure_path(self._store)
     self._offloader = FileLog(self._store)
-    self._node = NewLogNode(self._store, id, Slice_string(peers), join)
+    self._node = NewLogNode(self._store, id, Slice_string(peer_addrs), Slice_int(peer_ids), join)
     self._changeCallback = self._changeHandler  # No idea why this walkaround works
     self._restoreCallback = self._restore       # No idea why this walkaround works
     self._ignore_changes = 0

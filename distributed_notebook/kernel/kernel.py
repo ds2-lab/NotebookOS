@@ -15,6 +15,8 @@ from ipykernel.ipkernel import IPythonKernel
 from .iostream import OutStream
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 
+logFormatter = logging.Formatter(fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 class ExecutionYieldError(Exception):
     """Exception raised when execution is yielded."""
     def __init__(self, message):
@@ -30,7 +32,7 @@ enable_storage = True
 
 UNAVAILABLE:str = "N/A" # Used as the value for an environment variable that was not set.
 
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.DEBUG)
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
@@ -47,7 +49,7 @@ class DistributedKernel(IPythonKernel):
     ).tag(config=True)
 
     smr_nodes = List([], 
-        help="""Nodes in the SMR cluster"""
+        help="""Initial SMR nodes in the SMR cluster"""
     ).tag(config=True)
 
     smr_join = Bool(False, # type: ignore
@@ -99,10 +101,20 @@ class DistributedKernel(IPythonKernel):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
+        consoleHandler = logging.StreamHandler()
+        consoleHandler.setLevel(logging.DEBUG)
+        consoleHandler.setFormatter(logFormatter)
+        self.log.addHandler(consoleHandler)
+        
+        self.smr_nodes_map = {}
         
         # Single node mode
         if not isinstance(self.smr_nodes, list) or len(self.smr_nodes) == 0:
             self.smr_nodes = [f":{self.smr_port}"]
+            self.smr_nodes_map = {0: f":{self.smr_port}"}
+        else:
+            for i, host in enumerate(self.smr_nodes):
+                self.smr_nodes_map[i] = f"{host}:{self.smr_port}"
         
         self.log.info("Kwargs: %s" % str(kwargs))
 
@@ -129,129 +141,14 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Failed to obtain connection info from file \"%s\"" % connection_file_path)
             self.log.error("Error: %s" % str(ex))
         
-        # config_info = None 
-        # try:
-        #     if len(config_file_path) > 0:
-        #         with open(config_file_path, 'r') as config_file:
-        #             config_info = json.load(config_file)
-        #             config_info = config_info["DistributedKernel"]
-        # except Exception as ex:
-        #     self.log.error("Failed to obtain config info from file \"%s\"" % config_file_path)
-        #     self.log.error("Error: %s" % str(ex))
-        
         self.log.info("Connection info: %s" % str(connection_info))
         # self.log.info("IPython config info: %s" % str(config_info))
 
         # TODO(Ben): Connect to LocalDaemon.
         self.register_with_local_daemon(connection_info, session_id) # config_info
     
-    # def __resolve_dns(self, addr:str)->list[str]:
-    #     return socket.getaddrinfo(addr, 0)
-    
-    # def __resolve_hostnames_kube(self, kernel_id: str)->list[str]:
-    #     self.log.info("Querying Kubernetes API directly to resolve peer replica hostnames.")
-    #     config.load_incluster_config()
-    #     v1 = client.CoreV1Api()
-    #     app_label = "kernel-" + kernel_id
-    #     ret = v1.list_pod_for_all_namespaces(watch=False, label_selector="app=%s" % app_label)
-        
-    #     replicas = []
-    #     for i in ret.items:
-    #         pod_ip = i.status.pod_ip
-            
-    #         if pod_ip == "" or pod_ip == None:
-    #             raise ValueError("Peer kernel replica Pod does not yet have an IP assigned to it.")
-            
-    #         replicas.append(pod_ip)
-        
-    #     return replicas
-    
-    # def __get_peer_replica_hostnames(self, addr:str, kernel_id: str)->list[str]:
-    #     """
-    #     Perform a DNS query/lookup for a particular address. Return the IPv4 addresses.
-        
-    #     If the DNS fails, then we try a single time to fallback to the Kubernetes API. 
-    #     We try querying the Kubernetes API to resolve the peer hostnames. 
-    #     If that also fails, then we'll just keep retrying DNS queries for 60 seconds before giving up and raising an exception.
-    #     We retry DNS queries over a period of 60 seconds because DNS look-ups may fail initially, depending on the DNS configuration of the Kubernetes cluster.
-
-    #     Args:
-    #         addr (str): The address for which a DNS query/lookup is performed.
-    #         kernel_id (str): The ID of this kernel.
-
-    #     Returns:
-    #         list[str]: List of IPv4 addresses that the given address resolved to. 
-    #     """
-    #     self.log.info("Performing DNS lookup on address \"%s\" now...", addr)
-        
-    #     start_time = time.time() 
-        
-    #     query_result = None
-    #     # Keep trying for 60 seconds.
-    #     while time.time() - start_time < 60:
-    #         try:
-    #             query_result = self.__resolve_dns(addr)
-    #             break # If we successfully performed the DNS query without exception/error, then break out of the while-loop.
-    #         except socket.gaierror as ex:
-    #             self.log.warn("Exception encountered while resolving address \"%s\": %s" % (addr, str(ex)))
-                
-    #             # Try querying Kubernetes API directly.
-    #             if not tried_kubernetes:
-    #                 self.log.info("Querying Kubernetes API directly to resolve peer replica hostnames.")
-    #                 tried_kubernetes = True 
-    #                 replicas = self.__resolve_hostnames_kube(addr, kernel_id)
-                    
-    #                 if len(replicas) == 3:
-    #                     self.log.info("Successfully resolved peer replica hostnames by querying Kubernetes API directly.")
-    #                     self.log.info("Peer replica hostnames: %s" % str(replicas))
-    #                     return replicas 
-    #                 else:
-    #                     self.log.warn("Failed to resolve peer replica hostnames by querying Kubernetes API directly.")
-                
-    #             time.sleep(3) # Sleep for 3 seconds.
-    #             pass 
-            
-    #     if query_result == None:
-    #         raise ValueError("Failed to resolve DNS for address \"%s\"" % addr)
-        
-    #     self.log.info("Successfully resolved peer replica hostnames via DNS query. Replicas: %s" % str(query_result))
-    #     return list(i[4][0] for i in query_result if i[0] is socket.AddressFamily.AF_INET and i[1] is socket.SocketKind.SOCK_RAW)
-    
     def register_with_local_daemon(self, connection_info:dict, session_id: str): # config_info:dict, 
         self.log.info("Registering with local daemon now.")
-        
-        # If we either have no SMR nodes, or the SMR node(s) we do have are the empty string, then we need to resolve our peer replicas.
-        # if len(self.smr_nodes) == 0 or self.smr_nodes[0] == "":            
-        #     start_time = time.time()
-        #     while time.time() - start_time < 60:
-        #         self.log.info("Attempting to resolve peer hostnames via Kubernetes API. Time elapsed: %.4f seconds." % (time.time() - start_time))
-                
-        #         try:
-        #             peer_hostnames = self.__resolve_hostnames_kube(kernel_id)
-        #         except Exception as ex:
-        #             self.log.error("Failed to resolve peer hostnames via Kubernetes. Will try again in 3 seconds.")
-        #             time.sleep(3)
-        #             continue
-                
-        #         # If we found no hosts, then we'll need to try again.
-        #         if len(peer_hostnames) != 3:
-        #             self.log.error("Failed to resolve peer hostnames via Kubernetes. Resolved %d hostname(s). Required: 3 hostnames. Will try again in 3 seconds." % len(peer_hostnames))
-        #             time.sleep(3)
-        #             continue
-                
-        #         # If any of the hostnames are none, then we'll need to try again.
-        #         for hostname in peer_hostnames:
-        #             if hostname == None or hostname == "":
-        #                 self.log.error("Failed to resolve peer hostnames via Kubernetes. Will try again in 3 seconds.")
-        #                 time.sleep(3)
-        #                 continue
-        #             else:
-        #                 self.log.debug("Discovered valid peer hostname: \"%s\"" % hostname)
-                
-        #         break
-            
-        #     self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in peer_hostnames]
-        #     self.log.info("Resolved peer hostnames as follows: %s" % self.smr_nodes)
         
         local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default = "local-daemon-network")
         server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default = 8075)
@@ -276,8 +173,7 @@ class DistributedKernel(IPythonKernel):
             "signature_scheme": connection_info["signature_scheme"],
             "key": connection_info["key"],
             "replicaId": self.smr_node_id, # config_info["smr_node_id"],
-            "numReplicas": len(self.smr_nodes), # len(config_info["smr_nodes"]),
-            "replicas": self.smr_nodes, # config_info["smr_nodes"],
+            "numReplicas": len(self.smr_nodes_map), # len(config_info["smr_nodes"]),
             "join": self.smr_join, # config_info["smr_join"],
             "podName": self.pod_name,
             "kernel": {
@@ -295,18 +191,30 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
         
         response = self.daemon_registration_socket.recv(1024)
-        self.log.info("Received %d byte(s) in response from LocalDaemon.", len(response))
+        self.log.info("Received %d byte(s) in response from LocalDaemon: %s", len(response), str(response))
         response_dict = json.loads(response)
         self.smr_node_id = response_dict["smr_node_id"]
         self.hostname = response_dict["hostname"]
-        self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in response_dict["replicas"]]
+        
+        # self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in response_dict["replicas"]]
+        
+        # Note: we expect the keys to be integers; however, they will have been converted to strings. 
+        # See https://stackoverflow.com/a/1451857 for details.
+        # We convert the string keys, which are node IDs, back to integers.
+        #
+        # We also append ":<SMR_PORT>" to each address before storing it in the map.
+        self.smr_nodes_map = {int(node_id_str): (node_addr + ":" + str(self.smr_port)) for node_id_str, node_addr in response_dict["replicas"].items()}
         
         if "persistent_id" in response_dict:
             self.log.info("Received persistent ID from registration: \"%s\"" % response_dict["persistent_id"])
             self.log.info("I must be part of a migration operation!")
             self.persistent_id = response_dict["persistent_id"]
+            
+        self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
+        self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
         
-        assert(self.smr_nodes[self.smr_node_id - 1] == (self.hostname + ":" + str(self.smr_port)))
+        # assert(self.smr_nodes[self.smr_node_id - 1] == (self.hostname + ":" + str(self.smr_port)))
+        assert(self.smr_nodes_map[self.smr_node_id] == (self.hostname + ":" + str(self.smr_port)))
         
         # my_hostname = self.hostname + ":8080"
         # # We may need to rearrange the SMR node list, depending on whether our IP is in the correct slot (relative to our SMR node ID).
@@ -321,9 +229,6 @@ class DistributedKernel(IPythonKernel):
         #     tmp = self.smr_nodes[self.smr_node_id - 1]
         #     self.smr_nodes[self.smr_node_id - 1] = my_hostname
         #     self.smr_nodes[idx] = tmp 
-        
-        self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
-        self.log.info("Replica hostnames: %s" % str(self.smr_nodes))
         
         self.daemon_registration_socket.close()
     
@@ -349,7 +254,7 @@ class DistributedKernel(IPythonKernel):
         self.store = future
         self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
         future.set_result(self.gen_simple_response())
-        self.log.info("persistent store confirmed: " + self.store)
+        self.log.info("Persistent store confirmed: " + self.store)
 
     async def init_persistent_store(self, code):
         if await self.check_persistent_store():
@@ -379,7 +284,7 @@ class DistributedKernel(IPythonKernel):
             # Resolve future
             rsp = self.gen_simple_response()
             future.set_result(rsp)
-            self.log.info("persistent store confirmed: " + self.store)
+            self.log.info("Persistent store confirmed: " + self.store)
 
             return rsp
         except Exception as e:
@@ -574,10 +479,14 @@ class DistributedKernel(IPythonKernel):
         
         # Get synclog for synchronization.
         synclog = await self.get_synclog(store_path)
+        
+        self.log.info("Creating Synchronizer now.")
 
         # Start the synchronizer. 
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
         self.synchronizer = Synchronizer(synclog, module = self.shell.user_module, opts=CHECKPOINT_AUTO) # type: ignore
+
+        self.log.info("Created Synchronizer. Starting Synchronizer now.")
 
         # if self.control_thread:
         #     control_loop = self.control_thread.io_loop
@@ -585,20 +494,31 @@ class DistributedKernel(IPythonKernel):
         #     control_loop = self.io_loop
         # asyncio.run_coroutine_threadsafe(self.synchronizer.start(), control_loop.asyncio_loop)
         self.synchronizer.start()
+        
+        self.log.info("Started Synchronizer.")
 
     async def get_synclog(self, store_path):
         assert isinstance(self.smr_nodes, list)
+        assert isinstance(self.smr_nodes_map, dict)
         assert isinstance(self.smr_node_id, int)
         assert isinstance(self.smr_join, bool)
 
-        self.log.info("Confirmed node {}".format(self.smr_nodes[self.smr_node_id-1]))
+        # self.log.info("Confirmed node {}".format(self.smr_nodes[self.smr_node_id-1]))
+        self.log.info("Confirmed node {}".format(self.smr_nodes_map[self.smr_node_id]))
+        
+        addrs = []
+        for _, addr in self.smr_nodes_map.items():
+            addrs.append("http://" + addr)
         
         # Implement dynamic later
-        addrs = map(lambda x: "http://{}".format(x), self.smr_nodes)
+        # addrs = map(lambda x: "http://{}".format(x), self.smr_nodes)
+        self.log.debug("Passing the following addresses to RaftLog: %s" % str(addrs))
         store = ""
         if enable_storage:
             store = store_path
+        self.log.debug("Creating RaftLog now.")
         self.synclog = RaftLog(store, self.smr_node_id, addrs, join=self.smr_join)
+        self.log.debug("Created RaftLog now.")
         return self.synclog
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):

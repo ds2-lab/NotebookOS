@@ -30,6 +30,9 @@ var (
 	mu                sync.Mutex
 )
 
+// Recreate the global emptyCollectedMap variable with a particular size based on the number of replicas.
+// As far as I can tell, this is just used to efficiently clear the contents of the `collected` field of
+// an AggregateKernelStatus struct.
 func resetEmptyCollectedMap(size int) {
 	if int(size) > len(emptyCollectedMap) {
 		mu.Lock()
@@ -47,29 +50,37 @@ type StatusMsg struct {
 	How    string
 }
 
+// The aggregated Jupyter kernel status of a set of kernel replicas.
 type AggregateKernelStatus struct {
 	promise.Promise
 
-	kernel           *DistributedKernelClient
-	expectingStatus  string  // Expected status.
-	expectingMatches int32   // The number of collected status that matches the expected status.
-	allowViolation   bool    // If true, the status collection will stop on status dismatch.
-	collecting       int32   // The number of replicas that are collecting status.
-	collected        []int32 // A map that tracks the progress of the status collection. The first element is the number of collected status.
-	matches          int32   // The number of collected status that matches the expected status.
+	mu sync.Mutex
+
+	kernel           *DistributedKernelClient // The client that manages all the replicas.
+	expectingStatus  string                   // Expected status.
+	expectingMatches int32                    // The number of collected status that matches the expected status.
+	allowViolation   bool                     // If true, the status collection will stop on status dismatch.
+	collecting       int32                    // The number of replicas that are collecting status.
+	collectedMap     map[int32]int32          // Map from replica ID to its status.
+	numCollected     int32                    // Number of statuses we've collected.
+	matches          int32                    // The number of collected status that matches the expected status.
+	status           string                   // The last resolved status.
 	sampleMsg        *zmq4.Msg
-	status           string // The last resolved status.
 	lastErr          error
+
+	// collected        []int32                  // A map that tracks the progress of the status collection. The first element is the number of collected status.
 }
 
 // NewAggregateKernelStatus creates a new aggregate status with configured number of replicas.
 func NewAggregateKernelStatus(kernel *DistributedKernelClient, num_replicas int) *AggregateKernelStatus {
-	resetEmptyCollectedMap(num_replicas + 1)
+	resetEmptyCollectedMap(num_replicas + 1) // + 1, as the first slot is the current number of statuses collected.
 	return &AggregateKernelStatus{
-		Promise:   promise.Resolved(),
-		kernel:    kernel,
-		status:    types.MessageKernelStatusIdle,
-		collected: make([]int32, num_replicas+1),
+		Promise:      promise.Resolved(),
+		kernel:       kernel,
+		status:       types.MessageKernelStatusIdle,
+		collectedMap: make(map[int32]int32, num_replicas),
+		numCollected: 0,
+		// collected: make([]int32, num_replicas+1),
 	}
 }
 
@@ -92,12 +103,16 @@ func (s *AggregateKernelStatus) Collect(ctx context.Context, num_replicas int, r
 	}
 	// Reset the collected map. Note we need replice_slots+1 because the first element is the number of collected status.
 	s.collecting = int32(num_replicas)
-	if replica_slots >= cap(s.collected) {
-		resetEmptyCollectedMap(replica_slots + 1)
-		s.collected = make([]int32, int(math.Pow(2, math.Ceil(math.Log2(float64(replica_slots+1)))))) // Round up to the nearest power of 2.
-	}
-	s.collected = s.collected[:replica_slots+1]
-	copy(s.collected, emptyCollectedMap[:replica_slots+1]) // Reset the collected map.
+
+	// if replica_slots >= cap(s.collected) {
+	// 	resetEmptyCollectedMap(replica_slots + 1)
+	// 	s.collected = make([]int32, int(math.Pow(2, math.Ceil(math.Log2(float64(replica_slots+1)))))) // Round up to the nearest power of 2.
+	// }
+	// s.collected = s.collected[:replica_slots+1]
+	// copy(s.collected, emptyCollectedMap[:replica_slots+1]) // Reset the collected map.
+	s.collectedMap = make(map[int32]int32, num_replicas)
+	s.numCollected = 0
+
 	// s.status will remain the same.
 	s.matches = 0
 	s.sampleMsg = nil
@@ -161,11 +176,23 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 func (s *AggregateKernelStatus) match(replicaId int32, status string, msg *zmq4.Msg) (how string, retStatus string, resolved bool) {
 	// Check if the status has been collected.
 	// ReplicaID should not exceed the size of the collected map, ignore if it does.
-	if replicaId >= int32(len(s.collected)) || !atomic.CompareAndSwapInt32(&s.collected[replicaId], 0, 1) {
+	// if replicaId >= int32(len(s.collected)) || !atomic.CompareAndSwapInt32(&s.collected[replicaId], 0, 1) {
+	// 	return
+	// }
+
+	// Check if the status has already been collected. If so, then we'll just return.
+	s.mu.Lock()
+	if val, ok := s.collectedMap[replicaId]; ok && val == 1 {
+		// If there's already a 1 stored for the particular replica ID, then we already have its status, so we'll just return.
+		s.mu.Unlock() // Make sure to unlock before returning.
 		return
 	}
 
-	collected := atomic.AddInt32(&s.collected[0], 1)
+	// There was not already a 1 stored for the particular replica ID, so we'll store a 1 now.
+	s.collectedMap[replicaId] = 1
+	s.mu.Unlock() // Make sure to unlock before proceeding.
+
+	collected := atomic.AddInt32(&s.numCollected, 1)
 	s.sampleMsg = msg // Update the sample message.
 	if status != s.expectingStatus {
 		if !s.allowViolation {

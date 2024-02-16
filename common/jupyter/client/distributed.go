@@ -56,15 +56,18 @@ type DistributedKernelClient struct {
 	busyStatus     *AggregateKernelStatus
 	lastBStatusMsg *zmq4.Msg
 
-	spec     *gateway.KernelSpec
-	replicas []core.KernelReplica
-	size     int
+	spec *gateway.KernelSpec
+	// replicas []core.KernelReplica
+	replicas map[int32]core.KernelReplica
+	// size     int
 
 	connectionInfo  *types.ConnectionInfo
 	shellListenPort int // Port that the KernelClient::shell socket listens on.
 	iopubListenPort int // Port that the KernelClient::iopub socket listens on.
 
 	numActiveAddOperations int // Number of active migrations of the associated kernel's replicas.
+
+	nextNodeId int32
 
 	log     logger.Logger
 	mu      sync.RWMutex
@@ -82,12 +85,13 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 		}),
 		status:                 types.KernelStatusInitializing,
 		spec:                   spec,
-		replicas:               make([]core.KernelReplica, numReplicas),
+		replicas:               make(map[int32]core.KernelReplica, numReplicas), // make([]core.KernelReplica, numReplicas),
 		cleaned:                make(chan struct{}),
 		connectionInfo:         connectionInfo,
 		shellListenPort:        shellListenPort,
 		iopubListenPort:        iopubListenPort,
 		numActiveAddOperations: 0,
+		nextNodeId:             int32(numReplicas + 1),
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)
@@ -165,7 +169,7 @@ func (c *DistributedKernelClient) BindSession(sess string) {
 
 // Size returns the number of replicas in the kernel.
 func (c *DistributedKernelClient) Size() int {
-	return c.size
+	return len(c.replicas) // c.size
 }
 
 // Return the number of active migrations of the associated kernel's replicas.
@@ -200,12 +204,16 @@ func (c *DistributedKernelClient) Replicas() []core.KernelReplica {
 	defer c.mu.RUnlock()
 
 	// Make a copy of references.
-	ret := make([]core.KernelReplica, 0, c.size)
-	for i := 0; i < c.size; i++ {
-		if c.replicas[i] != nil {
-			ret = append(ret, c.replicas[i])
-		}
+	ret := make([]core.KernelReplica, 0, len(c.replicas))
+	for _, replica := range c.replicas {
+		ret = append(ret, replica)
 	}
+	// for i := 0; i < c.size; i++ {
+	// 	if c.replicas[i] != nil {
+	// 		ret = append(ret, c.replicas[i])
+	// 	}
+	// }
+
 	return ret
 }
 
@@ -227,21 +235,24 @@ func (c *DistributedKernelClient) PrepareNewReplica(persistentId string) *gatewa
 
 	spec := &gateway.KernelReplicaSpec{
 		Kernel:       c.spec,
-		NumReplicas:  int32(c.size) + 1,
+		NumReplicas:  int32(len(c.replicas)) + 1,
 		Join:         true,
 		PersistentId: &persistentId,
+		ReplicaId:    c.nextNodeId,
 	}
 
+	c.nextNodeId++
+
 	// Find the first empty slot.
-	for i := 0; i < len(c.replicas); i++ {
-		if c.replicas[i] == nil {
-			spec.ReplicaId = int32(i + 1)
-			break
-		}
-	}
-	if spec.ReplicaId == 0 {
-		spec.ReplicaId = int32(len(c.replicas) + 1)
-	}
+	// for i := 0; i < len(c.replicas); i++ {
+	// 	if c.replicas[i] == nil {
+	// 		spec.ReplicaId = int32(i + 1)
+	// 		break
+	// 	}
+	// }
+	// if spec.ReplicaId == 0 {
+	// 	spec.ReplicaId = int32(len(c.replicas) + 1)
+	// }
 
 	// If we follows add one and remove one rule, replicas are expected to have no holes in
 	// replica list (i.e. no nil in the list) at this point. So we spec.Replicas is leaved
@@ -265,20 +276,22 @@ func (c *DistributedKernelClient) AddReplica(r core.KernelReplica, host core.Hos
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.replicas[r.ReplicaID()] = r
+
 	// On adding replica, we keep the position of the replica in the kernel aligned with the replica ID.
 	// The replica ID starts with 1.
-	if int(r.ReplicaID()) > cap(c.replicas) {
-		newArr := make([]core.KernelReplica, cap(c.replicas)*2)
-		copy(newArr, c.replicas)
-		c.replicas = newArr[:r.ReplicaID()]
-	} else if int(r.ReplicaID()) > len(c.replicas) {
-		c.replicas = c.replicas[:r.ReplicaID()]
-	}
-	if c.replicas[r.ReplicaID()-1] == nil {
-		// New added replica, or no size change for the replacement.
-		c.size++
-	}
-	c.replicas[r.ReplicaID()-1] = r
+	// if int(r.ReplicaID()) > cap(c.replicas) {
+	// 	newArr := make([]core.KernelReplica, cap(c.replicas)*2)
+	// 	copy(newArr, c.replicas)
+	// 	c.replicas = newArr[:r.ReplicaID()]
+	// } else if int(r.ReplicaID()) > len(c.replicas) {
+	// 	c.replicas = c.replicas[:r.ReplicaID()]
+	// }
+	// if c.replicas[r.ReplicaID()-1] == nil {
+	// 	// New added replica, or no size change for the replacement.
+	// 	c.size++
+	// }
+	// c.replicas[r.ReplicaID()-1] = r
 	// Once a replica is available, the kernel is ready.
 	if atomic.CompareAndSwapInt32((*int32)(&c.status), int32(types.KernelStatusInitializing), int32(types.KernelStatusRunning)) {
 		// Update signature scheme and key.
@@ -301,13 +314,19 @@ func (c *DistributedKernelClient) RemoveReplica(r core.KernelReplica, remover Re
 	defer r.Close()
 	defer c.mu.Unlock()
 
-	// The replica ID starts with 1.
-	if int(r.ReplicaID()) > len(c.replicas) || c.replicas[r.ReplicaID()-1] != r {
+	if c.replicas[r.ReplicaID()] != r {
 		return host, ErrReplicaNotFound
 	}
 
-	c.replicas[r.ReplicaID()-1] = nil
-	c.size--
+	delete(c.replicas, r.ReplicaID())
+
+	// The replica ID starts with 1.
+	// if int(r.ReplicaID()) > len(c.replicas) || c.replicas[r.ReplicaID()-1] != r {
+	// 	return host, ErrReplicaNotFound
+	// }
+
+	// c.replicas[r.ReplicaID()-1] = nil
+	// c.size--
 	return host, nil
 }
 
@@ -401,7 +420,9 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, prompt
 func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func(), replicas ...core.KernelReplica) error {
 	// Boardcast to all replicas if no replicas are specified.
 	if len(replicas) == 0 {
-		replicas = c.replicas
+		for _, replica := range c.replicas {
+			replicas = append(replicas, replica)
+		}
 	}
 
 	once := sync.Once{}
@@ -436,7 +457,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 	// Send the request to all replicas.
 	statusCtx, _ := context.WithTimeout(context.Background(), server.DefaultRequestTimeout)
-	c.busyStatus.Collect(statusCtx, c.size, len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
+	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
 	if len(replicas) == 1 {
 		return replicas[0].(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done, server.DefaultRequestTimeout)
 	}
@@ -475,7 +496,7 @@ func (c *DistributedKernelClient) Shutdown(remover ReplicaRemover, restart bool)
 
 	// Stop the replicas first.
 	var stopped sync.WaitGroup
-	stopped.Add(c.size)
+	stopped.Add(len(c.replicas))
 
 	// In RLock, don't change anything in c.replicas.
 	for _, replica := range c.replicas {
@@ -557,14 +578,26 @@ func (c *DistributedKernelClient) stopReplicaLocked(r core.KernelReplica, remove
 }
 
 func (c *DistributedKernelClient) clearReplicasLocked() {
-	for i, kernel := range c.replicas {
+	toRemove := make([]int32, len(c.replicas))
+	for id, kernel := range c.replicas {
 		if kernel != nil {
-			kernel.Close()
-			c.replicas[i] = nil
+			c.log.Debug("Closing replica %d now.", kernel.ReplicaID())
+			err := kernel.Close()
+
+			if err != nil {
+				// TODO(Ben): Handle this more cleanly.
+				c.log.Error("Error while trying to close replica %d: %v", kernel.ReplicaID(), err)
+			} else {
+				c.log.Debug("Successfully closed replica %d.", kernel.ReplicaID())
+			}
+			toRemove = append(toRemove, id)
 		}
 	}
-	c.size = 0
-	c.replicas = c.replicas[:0]
+
+	for _, id := range toRemove {
+		delete(c.replicas, id)
+	}
+
 	c.status = types.KernelStatusExited
 }
 
@@ -591,7 +624,7 @@ func (c *DistributedKernelClient) closeLocked() error {
 func (c *DistributedKernelClient) queryCloseLocked() error {
 	// Stop the replicas first.
 	var stopped sync.WaitGroup
-	stopped.Add(c.size)
+	stopped.Add(len(c.replicas))
 	for _, replica := range c.replicas {
 		if replica == nil {
 			continue
@@ -677,7 +710,7 @@ func (c *DistributedKernelClient) pubIOMessage(msg *zmq4.Msg, status string, how
 
 	// Initiate idle status collection.
 	if status == types.MessageKernelStatusBusy {
-		c.busyStatus.Collect(context.Background(), c.size, len(c.replicas), types.MessageKernelStatusIdle, c.pubIOMessage)
+		c.busyStatus.Collect(context.Background(), len(c.replicas), len(c.replicas), types.MessageKernelStatusIdle, c.pubIOMessage)
 		// Fill matched status that has been received before collecting.
 		for _, replica := range c.replicas {
 			if replica == nil {
