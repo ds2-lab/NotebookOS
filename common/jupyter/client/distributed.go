@@ -315,6 +315,8 @@ func (c *DistributedKernelClient) RemoveReplica(r core.KernelReplica, remover Re
 	defer c.mu.Unlock()
 
 	if c.replicas[r.ReplicaID()] != r {
+		// This is bad and should never happen.
+		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
 		return host, ErrReplicaNotFound
 	}
 
@@ -332,13 +334,18 @@ func (c *DistributedKernelClient) RemoveReplica(r core.KernelReplica, remover Re
 
 func (c *DistributedKernelClient) GetReplicaByID(id int32) (core.KernelReplica, error) {
 	c.mu.RLock()
-	var replica core.KernelReplica
-	if id <= int32(len(c.replicas)) {
-		replica = c.replicas[id-1]
-	}
+	// if id <= int32(len(c.replicas)) {
+	// 	replica = c.replicas[id-1]
+	// }
+	replica, ok := c.replicas[id]
 	c.mu.RUnlock()
 
-	if replica == nil {
+	if replica == nil || !ok {
+		valid_ids := make([]int32, 0, len(c.replicas))
+		for valid_id := range c.replicas {
+			valid_ids = append(valid_ids, valid_id)
+		}
+		c.log.Warn("Could not retrieve kernel replica with id %d. Valid IDs are %v.", id, valid_ids)
 		return nil, ErrReplicaNotFound
 	}
 
@@ -348,13 +355,19 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (core.KernelReplica, 
 // RemoveReplicaByID removes a kernel peer from the kernel by replica ID.
 func (c *DistributedKernelClient) RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (core.Host, error) {
 	c.mu.RLock()
-	var replica core.KernelReplica
-	if id <= int32(len(c.replicas)) {
-		replica = c.replicas[id-1]
-	}
+	// var replica core.KernelReplica
+	// if id <= int32(len(c.replicas)) {
+	// 	replica = c.replicas[id-1]
+	// }
+	replica, ok := c.replicas[id]
 	c.mu.RUnlock()
 
-	if replica == nil {
+	if replica == nil || !ok {
+		valid_ids := make([]int32, 0, len(c.replicas))
+		for valid_id := range c.replicas {
+			valid_ids = append(valid_ids, valid_id)
+		}
+		c.log.Warn("Could not retrieve kernel replica with id %d. Valid IDs are %v.", id, valid_ids)
 		return nil, ErrReplicaNotFound
 	}
 
