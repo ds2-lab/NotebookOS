@@ -9,6 +9,17 @@ test-env:
 	@echo $(PYTHON3_VERSION)
 	@echo $(PYTHON3_ESCAPED_PATH)
 
+test-env-amd64:
+	@echo ""
+	@echo "Environment: "
+	@echo "PYTHON3: $(PYTHON3)"
+	@echo "PYTHON3_PATH: $(PYTHON3_PATH)"
+	@echo "PYTHON3_VERSION: $(PYTHON3_VERSION)"
+	@echo "PYTHON3_ESCAPED_PATH: $(PYTHON3_ESCAPED_PATH)"
+	@echo "PYTHON3_INCLUDES_PATH: $(PYTHON3_INCLUDES_PATH)"
+	@echo "PYTHON3_LIB_PATH: $(PYTHON3_LIB_PATH)"
+	@echo ""
+
 # Generate os and arch specific smr.go. Call make in project root directory to generate smr.go.
 prepare-%.go:
 ifneq ($(wildcard smr/smr.go),)

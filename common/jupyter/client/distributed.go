@@ -26,7 +26,8 @@ const (
 var (
 	CtxKernelHost = utils.ContextKey("host")
 
-	ErrReplicaNotFound = fmt.Errorf("replica not found")
+	ErrReplicaNotFound      = fmt.Errorf("replica not found")
+	ErrReplicaAlreadyExists = errors.New("cannot replace existing replica, as node IDs cannot be reused")
 )
 
 // ReplicaRemover is a function that removes a replica from a kernel.

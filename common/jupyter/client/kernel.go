@@ -401,6 +401,8 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 		if err != nil {
 			return fmt.Errorf("could not connect to kernel socket(port:%d): %w", socket.Port, err)
 		}
+
+		c.log.Debug("Successfully dialed %s socket at %s.", socket.Type.String(), fmt.Sprintf(address, socket.Port))
 	}
 
 	// Using a second loop to start serving after all sockets are connected.
