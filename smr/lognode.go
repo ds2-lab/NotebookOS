@@ -193,6 +193,9 @@ func NewLogNode(store_path string, id int, peer_addresses []string, peer_ids []i
 	if store_path != "" {
 		node.waldir = path.Join(store_path, fmt.Sprintf("dnlog-%d", id))
 		node.snapdir = path.Join(store_path, fmt.Sprintf("dnlog-%d-snap", id))
+
+		node.logger.Info(fmt.Sprintf("LogNode %d WAL directory: \"%s\"", id, node.waldir))
+		node.logger.Info(fmt.Sprintf("LogNode %d WAL directory: \"%s\"", id, node.snapdir))
 	}
 	testId, _ := node.patchPropose(nil)
 	node.proposalPadding = len(testId)

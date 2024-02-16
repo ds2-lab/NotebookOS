@@ -264,6 +264,21 @@ func (wg *registrationWaitGroups) NumReplicas() int {
 	return len(wg.replicas)
 }
 
+// Returns true if the node with the given ID was actually removed.
+// If the node with the given ID was not present in the WaitGroup, then returns false.
+func (wg *registrationWaitGroups) RemoveReplica(nodeId int32) bool {
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+
+	if _, ok := wg.replicas[nodeId]; !ok {
+		return false
+	}
+
+	delete(wg.replicas, nodeId)
+
+	return true
+}
+
 func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) map[int32]string {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
@@ -439,7 +454,7 @@ func (d *GatewayDaemon) issueAddNodeRequest(kernelId string, nodeId int32, addre
 		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
 	}
 	d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", kernelId, nodeId)
-	time.Sleep(time.Second * 10)
+	time.Sleep(time.Second * 5)
 
 }
 
@@ -841,7 +856,7 @@ func (d *GatewayDaemon) migrate_removeFirst(ctx context.Context, in *gateway.Rep
 		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
 	}
 
-	var num_seconds int = 20
+	var num_seconds int = 5
 	d.log.Debug("Done removing replica %d of kernel %s. Sleeping for %d seconds.", in.ReplicaId, in.KernelId, num_seconds)
 	time.Sleep(time.Second * time.Duration(num_seconds))
 
@@ -865,7 +880,7 @@ func (d *GatewayDaemon) migrate_removeLast(ctx context.Context, in *gateway.Repl
 		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
 	}
 
-	var num_seconds int = 60
+	var num_seconds int = 5
 	d.log.Debug("Done adding replica %d of kernel %s. Sleeping for %d seconds.", addReplicaOp.ReplicaId(), in.KernelId, num_seconds)
 	time.Sleep(time.Second * time.Duration(num_seconds))
 	d.log.Debug("Removing replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
@@ -1341,6 +1356,21 @@ func (d *GatewayDaemon) removeReplica(smrNodeId int32, kernelId string, wait boo
 	// 		d.smrNodeRemovedNotifications.Delete(channelMapKey)
 	// 	}
 	// }
+
+	wg, ok := d.waitGroups.Load(kernelId)
+	if !ok {
+		d.log.Error("Could not find WaitGroup for kernel %s after removing replica %d of said kernel...", kernelId, smrNodeId)
+		return err
+	}
+
+	removed := wg.RemoveReplica(smrNodeId)
+	if !removed {
+		// TODO(Ben): We won't necessarily always return an error for this, but it's definitely problematic.
+		// For now, I will return an error so I can debug the situation if it arises, because I don't think
+		// it ever should if things are working correctly.
+		d.log.Error("Now-removed replica %d of kernel %s was not present in associated WaitGroup...")
+		return err
+	}
 
 	d.log.Debug("Successfully removed replica %d of kernel %s.", smrNodeId, kernelId)
 
