@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hdfs-test-pod
+spec:
+  containers:
+  - name: hdfs-test-app
+    image: scusemua/hdfs-test-app:latest
+    resources:
+      limits:
+        memory: 128Mi
+        cpu: "1"
+      requests:
+        memory: 32Mi
+        cpu: "0.2"
