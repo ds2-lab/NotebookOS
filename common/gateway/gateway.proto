@@ -77,7 +77,7 @@ service LocalGateway {
   // Used to instruct a specific kernel replica to prepare to be migrated to a new node.
   // This involves writing the contents of the etcd-raft data directory to HDFS so that
   // it can be read back from HDFS by the new replica.
-  rpc PrepareToMigrate(ReplicaInfoWithAddr) returns (Void) {}
+  rpc PrepareToMigrate(ReplicaInfo) returns (Void) {}
 }
 
 // The input for starting a kernel replica.

@@ -349,7 +349,7 @@ type LocalGatewayClient interface {
 	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
 	// This involves writing the contents of the etcd-raft data directory to HDFS so that
 	// it can be read back from HDFS by the new replica.
-	PrepareToMigrate(ctx context.Context, in *ReplicaInfoWithAddr, opts ...grpc.CallOption) (*Void, error)
+	PrepareToMigrate(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
 }
 
 type localGatewayClient struct {
@@ -441,7 +441,7 @@ func (c *localGatewayClient) AddReplica(ctx context.Context, in *ReplicaInfoWith
 	return out, nil
 }
 
-func (c *localGatewayClient) PrepareToMigrate(ctx context.Context, in *ReplicaInfoWithAddr, opts ...grpc.CallOption) (*Void, error) {
+func (c *localGatewayClient) PrepareToMigrate(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error) {
 	out := new(Void)
 	err := c.cc.Invoke(ctx, LocalGateway_PrepareToMigrate_FullMethodName, in, out, opts...)
 	if err != nil {
@@ -475,7 +475,7 @@ type LocalGatewayServer interface {
 	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
 	// This involves writing the contents of the etcd-raft data directory to HDFS so that
 	// it can be read back from HDFS by the new replica.
-	PrepareToMigrate(context.Context, *ReplicaInfoWithAddr) (*Void, error)
+	PrepareToMigrate(context.Context, *ReplicaInfo) (*Void, error)
 	mustEmbedUnimplementedLocalGatewayServer()
 }
 
@@ -510,7 +510,7 @@ func (UnimplementedLocalGatewayServer) SetClose(context.Context, *Void) (*Void, 
 func (UnimplementedLocalGatewayServer) AddReplica(context.Context, *ReplicaInfoWithAddr) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddReplica not implemented")
 }
-func (UnimplementedLocalGatewayServer) PrepareToMigrate(context.Context, *ReplicaInfoWithAddr) (*Void, error) {
+func (UnimplementedLocalGatewayServer) PrepareToMigrate(context.Context, *ReplicaInfo) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrepareToMigrate not implemented")
 }
 func (UnimplementedLocalGatewayServer) mustEmbedUnimplementedLocalGatewayServer() {}
@@ -689,7 +689,7 @@ func _LocalGateway_AddReplica_Handler(srv interface{}, ctx context.Context, dec 
 }
 
 func _LocalGateway_PrepareToMigrate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReplicaInfoWithAddr)
+	in := new(ReplicaInfo)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -701,7 +701,7 @@ func _LocalGateway_PrepareToMigrate_Handler(srv interface{}, ctx context.Context
 		FullMethod: LocalGateway_PrepareToMigrate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(LocalGatewayServer).PrepareToMigrate(ctx, req.(*ReplicaInfoWithAddr))
+		return srv.(LocalGatewayServer).PrepareToMigrate(ctx, req.(*ReplicaInfo))
 	}
 	return interceptor(ctx, in, info, handler)
 }

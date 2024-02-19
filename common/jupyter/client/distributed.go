@@ -229,19 +229,24 @@ func (c *DistributedKernelClient) PodName(id int32) (string, error) {
 }
 
 // PrepareNewReplica determines the replica ID for the new replica and returns the KernelReplicaSpec required to start the replica.
-func (c *DistributedKernelClient) PrepareNewReplica(persistentId string) *gateway.KernelReplicaSpec {
+//
+// Pass -1 for smrNodeId to automatically select the next node ID.
+func (c *DistributedKernelClient) PrepareNewReplica(persistentId string, smrNodeId int32) *gateway.KernelReplicaSpec {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if smrNodeId == -1 {
+		smrNodeId = c.nextNodeId
+		c.nextNodeId++
+	}
 
 	spec := &gateway.KernelReplicaSpec{
 		Kernel:       c.spec,
 		NumReplicas:  int32(len(c.replicas)) + 1,
 		Join:         true,
 		PersistentId: &persistentId,
-		ReplicaId:    c.nextNodeId,
+		ReplicaId:    smrNodeId,
 	}
-
-	c.nextNodeId++
 
 	// Find the first empty slot.
 	// for i := 0; i < len(c.replicas); i++ {

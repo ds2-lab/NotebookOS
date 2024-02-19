@@ -133,6 +133,7 @@ type MigrationManager interface {
 
 // We always wait for the scale-out to occur.
 type AddReplicaWaitOptions interface {
-	WaitRegistered() bool // If true, wait for the replica registration to occur.
-	WaitSmrJoined() bool  // If true, wait for the SMR joined notification.
+	WaitRegistered() bool  // If true, wait for the replica registration to occur.
+	WaitSmrJoined() bool   // If true, wait for the SMR joined notification.
+	ReuseSameNodeId() bool // If true, reuse the same SMR node ID for the new node.
 }

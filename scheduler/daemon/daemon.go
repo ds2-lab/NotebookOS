@@ -371,10 +371,9 @@ func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
 	}
 }
 
-func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.ReplicaInfoWithAddr) (*gateway.Void, error) {
+func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.ReplicaInfo) (*gateway.Void, error) {
 	kernelId := req.KernelId
-	replicaId := req.Id
-	hostname := req.Hostname
+	replicaId := req.ReplicaId
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
@@ -385,7 +384,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypePrepareToMigrateRequest, kernel.Sessions()[0])
 	frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
 		NodeID:  replicaId,
-		Address: hostname,
+		Address: kernel.Address(),
 	})
 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		d.log.Error("Error occurred while signing frames for prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)

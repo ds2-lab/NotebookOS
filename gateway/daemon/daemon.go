@@ -434,7 +434,7 @@ func (d *GatewayDaemon) SetID(ctx context.Context, hostId *gateway.HostId) (*gat
 // Issue a 'prepare-to-migrate' request to a specific replica of a specific kernel.
 // This will prompt the kernel to shutdown its etcd process (but not remove itself from the cluster)
 // before writing the contents of its data directory to HDFS.
-func (d *GatewayDaemon) issuePrepareMigrateRequest(kernelId string, nodeId int32, address string) {
+func (d *GatewayDaemon) issuePrepareMigrateRequest(kernelId string, nodeId int32) {
 	d.log.Info("Issuing 'prepare-to-migrate' request to replica %d of kernel %s.", nodeId, kernelId)
 
 	kernelClient, ok := d.kernels.Load(kernelId)
@@ -453,10 +453,9 @@ func (d *GatewayDaemon) issuePrepareMigrateRequest(kernelId string, nodeId int32
 		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
 	}
 
-	replicaInfo := &gateway.ReplicaInfoWithAddr{
-		Id:       nodeId,
-		KernelId: kernelId,
-		Hostname: fmt.Sprintf("%s:%d", address, d.smrPort),
+	replicaInfo := &gateway.ReplicaInfo{
+		ReplicaId: nodeId,
+		KernelId:  kernelId,
 	}
 
 	// Issue the 'prepare-to-migrate' request. We panic if there was an error.
@@ -897,6 +896,8 @@ func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*ga
 func (d *GatewayDaemon) migrate_removeFirst(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
 	// We pass 'false' for `wait` here, as we don't really need to wait for the CloneSet to scale-down.
 	// As long as the replica is stopped, we can continue.
+	d.issuePrepareMigrateRequest(in.KernelId, in.ReplicaId)
+
 	err := d.removeReplica(in.ReplicaId, in.KernelId, false)
 	if err != nil {
 		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
@@ -907,7 +908,7 @@ func (d *GatewayDaemon) migrate_removeFirst(ctx context.Context, in *gateway.Rep
 	time.Sleep(time.Second * time.Duration(num_seconds))
 
 	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
-	opts := NewAddReplicaWaitOptions(true, true)
+	opts := NewAddReplicaWaitOptions(true, true, true)
 	addReplicaOp, err := d.addReplica(in, opts)
 	if err != nil {
 		d.log.Error("Failed to add new replica %d to kernel %s: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
@@ -919,7 +920,7 @@ func (d *GatewayDaemon) migrate_removeFirst(ctx context.Context, in *gateway.Rep
 
 func (d *GatewayDaemon) migrate_removeLast(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
 	// First, add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
-	opts := NewAddReplicaWaitOptions(true, true)
+	opts := NewAddReplicaWaitOptions(true, true, true)
 	addReplicaOp, err := d.addReplica(in, opts)
 	if err != nil {
 		d.log.Error("Failed to add new replica %d to kernel %s: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
@@ -1255,8 +1256,16 @@ func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, opts AddReplicaWaitO
 
 	kernel.AddOperationStarted()
 
+	var smrNodeId int32 = -1
+
+	// Reuse the same SMR node ID if we've been told to do so.
+	if opts.ReuseSameNodeId() {
+		smrNodeId = in.ReplicaId
+	}
+
 	// The spec to be used for the new replica that is created during the migration.
-	var newReplicaSpec *gateway.KernelReplicaSpec = kernel.PrepareNewReplica(persistentId)
+	var newReplicaSpec *gateway.KernelReplicaSpec = kernel.PrepareNewReplica(persistentId, smrNodeId)
+
 	addReplicaOp := NewAddReplicaOperation(kernel, newReplicaSpec)
 
 	d.log.Debug("Adding replica %d to kernel %s now.", newReplicaSpec.ReplicaId, kernelId)

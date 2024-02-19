@@ -174,15 +174,22 @@ func (op *addReplicaOperationImpl) SetReplicaHostname(hostname string) {
 }
 
 type addReplicaWaitOptionsImpl struct {
-	waitRegistered bool
-	waitSmrJoined  bool
+	waitRegistered  bool
+	waitSmrJoined   bool
+	reuseSameNodeId bool
 }
 
-func NewAddReplicaWaitOptions(waitRegistered bool, waitSmrJoined bool) AddReplicaWaitOptions {
+func NewAddReplicaWaitOptions(waitRegistered bool, waitSmrJoined bool, reuseSameNodeId bool) AddReplicaWaitOptions {
 	return &addReplicaWaitOptionsImpl{
-		waitRegistered: waitRegistered,
-		waitSmrJoined:  waitSmrJoined,
+		waitRegistered:  waitRegistered,
+		waitSmrJoined:   waitSmrJoined,
+		reuseSameNodeId: reuseSameNodeId,
 	}
+}
+
+// If true, reuse the same SMR node ID for the new node.
+func (o *addReplicaWaitOptionsImpl) ReuseSameNodeId() bool {
+	return o.reuseSameNodeId
 }
 
 // If true, wait for the replica registration to occur.
