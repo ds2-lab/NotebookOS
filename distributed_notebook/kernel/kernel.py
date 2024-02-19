@@ -66,6 +66,10 @@ class DistributedKernel(IPythonKernel):
         help = """Hostname of the Pod encapsulating this distributed kernel replica"""
     ).tag(config = False)
     
+    hdfs_namenode_hostname: Union[str, Unicode] = Unicode(
+        help = """Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."""
+    ).tag(config = True)
+    
     kernel_id: Union[str, Unicode] = Unicode(
         help = """The ID of the kernel."""
     ).tag(config = False)
@@ -85,7 +89,9 @@ class DistributedKernel(IPythonKernel):
     # The initialization is triggered by kernel.js
     store: Optional[Union[str, asyncio.Future]] = None 
     synclog: RaftLog
+    synclog_stopped: bool 
     synchronizer: Synchronizer
+    smr_nodes_map: dict
 
     def __init__(self, **kwargs):
         print(f' Kwargs: {kwargs}' )
@@ -93,6 +99,7 @@ class DistributedKernel(IPythonKernel):
         self.control_msg_types = [
             *self.control_msg_types,
             "add_replica_request",
+            "prepare_to_migrate_request",
         ]
 
         super().__init__(**kwargs)
@@ -106,6 +113,7 @@ class DistributedKernel(IPythonKernel):
         self.log.error("TEST -- ERROR")
         
         self.smr_nodes_map = {}
+        self.synclog_stopped = False 
         
         # Single node mode
         if not isinstance(self.smr_nodes, list) or len(self.smr_nodes) == 0:
@@ -128,6 +136,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Session ID: \"%s\"" % session_id)
         self.log.info("Kernel ID: \"%s\"" % self.kernel_id)
         self.log.info("Pod name: \"%s\"" % self.pod_name)
+        self.log.info("HDFS NameNode hostname: \"%s\"" % self.hdfs_namenode_hostname)
         
         self.persistent_store_cv = asyncio.Condition()
         
@@ -273,10 +282,11 @@ class DistributedKernel(IPythonKernel):
             
             # Execute code to get persistent id
             await asyncio.ensure_future(super().do_execute(code, True, store_history=False))
+            self.log.info("Successfully executed initialization code: \"%s\"" % str(code))
             # Reset execution_count
             self.shell.execution_count = execution_count # type: ignore
             self.persistent_id = self.shell.user_ns[key_persistent_id] # type: ignore
-
+            self.log.info("Persistent ID set: \"%s\"" % self.persistent_id)
             # Initialize persistent store
             self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
 
@@ -287,6 +297,8 @@ class DistributedKernel(IPythonKernel):
 
             return rsp
         except Exception as e:
+            self.log.error("Exception encountered during code execution: %s" % str(e))
+            
             self.shell.execution_count = execution_count # type: ignore
             err_rsp = self.gen_error_response(e)
 
@@ -339,7 +351,7 @@ class DistributedKernel(IPythonKernel):
             return True
 
     async def do_execute(self, code:str, silent:bool, store_history:bool=True, user_expressions:dict=None, allow_stdin:bool=False):
-        self.log.info("DistributedKernel is preparing to execute some code.")
+        self.log.info("DistributedKernel is preparing to execute some code: %s", code)
         
         # Special code to initialize persistent store
         if code[:len(key_persistent_id)] == key_persistent_id:
@@ -349,7 +361,8 @@ class DistributedKernel(IPythonKernel):
         if not await self.check_persistent_store():
             if 'persistent_id' in self.shell.user_ns:
                 self.persistent_id = self.shell.user_ns['persistent_id']
-                await asyncio.ensure_future(self.init_persistent_store(self.persistent_id))
+                code = "persistent_id = \"%s\"" % self.persistent_id
+                await asyncio.ensure_future(self.init_persistent_store(code))
 
         try:
             self.toggle_outstream(override=True, enable=False)
@@ -396,15 +409,55 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Execution error: {}...".format(e))
             return self.gen_error_response(e)
     
-    async def do_shutdown(self, restart):
-        if self.synchronizer:
-            self.synchronizer.close()
-
-        if self.synclog:
-            self.log.info("Shutting down. Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
+    async def prepare_to_migrate(self):
+        self.log.info("Preparing for migration of replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
+        
+        if not self.synclog:
+            return 
+        
+        self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
+        try:
             await self.synclog.remove_node(self.smr_node_id)
             self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
+        except Exception as e:
+            self.log.error("Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
+            return self.gen_error_response(e), False
+        
+        self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
+        try:
             self.synclog.close()
+        except Exception as e:
+            self.log.error("Failed to close the SyncLog for replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
+            return self.gen_error_response(e), False
+        
+        self.log.info("SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
+       
+        try:
+            await self.synclog.write_data_dir_to_hdfs()
+            self.log.info("Wrote etcd-Raft data directory to HDFS.")
+            self.synclog_stopped = True 
+            return {'status': 'ok'}, True
+        except Exception as e:
+            self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS.", self.smr_node_id, self.kernel_id)
+            return self.gen_error_response(e), False
+    
+    async def do_shutdown(self, restart):
+        self.log.info("Replica %d of kernel %s is shutting down.", self.smr_node_id, self.kernel_id)
+        
+        if self.synchronizer:
+            self.log.info("Closing the Synchronizer.")
+            self.synchronizer.close()
+            self.log.info("Successfully closed the Synchronizer.")
+
+        # The value of self.synclog_stopped will be True if `prepare_to_migrate` was already called.
+        if self.synclog:
+            if not self.synclog_stopped:
+                self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
+                await self.synclog.remove_node(self.smr_node_id)
+                self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
+                self.synclog.close()
+            else:
+                self.log.info("I've already removed myself from the SMR cluster and closed my sync-log.")
 
         # Give time for the "smr_node_removed" message to be sent.
         # time.sleep(2)
@@ -425,6 +478,32 @@ class DistributedKernel(IPythonKernel):
         except Exception as e:
             self.log.error("A replica fails to join: {}...".format(e))
             return self.gen_error_response(e), False
+    
+    async def prepare_to_migrate_request(self, stream, ident, parent):
+        """
+        Handle a "prepare-to-migrate" request sent by our local scheduler.
+        
+        Args:
+            stream (_type_): Jupyter-related.
+            ident (_type_): Jupyter-related.
+            parent (_type_): Jupyter-related.
+        """
+        self.log.info("Received 'prepare-to-migrate request'.")
+        
+        async with self.persistent_store_cv:
+            # TODO(Ben): Do I need to use 'while', or can I just use 'if'? 
+            if not await self.check_persistent_store():
+                self.log.debug("Persistent store is not ready yet. Waiting to handle 'add-replica' request.")
+                await self.persistent_store_cv.wait()
+        
+        val = await self.prepare_to_migrate()
+        
+        if inspect.isawaitable(val):
+            content, success = await val
+        else:
+            content, success = val
+        
+        self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident)
     
     # customized control message handlers
     async def add_replica_request(self, stream, ident, parent):
@@ -520,8 +599,13 @@ class DistributedKernel(IPythonKernel):
             store = store_path
         
         self.log.debug("Creating RaftLog now.")
-        self.synclog = RaftLog(store, self.smr_node_id, addrs, ids, join=self.smr_join)
-        self.log.debug("Created RaftLog now.")
+        try:
+            self.synclog = RaftLog(store, self.smr_node_id, self.hdfs_namenode_hostname, addrs, ids, join=self.smr_join)
+        except Exception as ex:
+            self.log.error("Error while creating RaftLog: %s" % str(ex))
+            exit(1) 
+            
+        self.log.debug("Successfully created RaftLog.")
         return self.synclog
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):

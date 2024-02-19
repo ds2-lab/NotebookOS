@@ -7,8 +7,9 @@ const (
 	IOTopicSMRNodeAdded = "smr_node_added"
 	// IOTopicSMRNodeRemoved = "smr_node_removed"
 
-	MessageTypeSMRLeadTask       = "smr_lead_task"
-	MessageTypeAddReplicaRequest = "add_replica_request"
+	MessageTypeSMRLeadTask             = "smr_lead_task"
+	MessageTypeAddReplicaRequest       = "add_replica_request"
+	MessageTypePrepareToMigrateRequest = "prepare_to_migrate_request"
 )
 
 type MessageSMRReady struct {

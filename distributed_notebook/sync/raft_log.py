@@ -48,7 +48,7 @@ class RaftLog:
   _shouldSnapshotCallback: Optional[Callable[[SyncLog], bool]] = None # The callback to be called when a snapshot is needed.
   _snapshotCallback: Optional[Callable[[Any], bytes]] = None # The callback to be called when a snapshot is needed.
 
-  def __init__(self, base_path: str, id: int, peer_addrs: Iterable[str], peer_ids: Iterable[int], join: bool = False):
+  def __init__(self, base_path: str, id: int, hdfs_hostname:str, peer_addrs: Iterable[str], peer_ids: Iterable[int], join: bool = False):
     self._store = base_path
     self._id = id
     self.ensure_path(self._store)
@@ -57,7 +57,7 @@ class RaftLog:
     self._log.setLevel(logging.DEBUG)
     
     self._log.info("Creating LogNode %d now." % id)
-    self._node = NewLogNode(self._store, id, Slice_string(peer_addrs), Slice_int(peer_ids), join)
+    self._node = NewLogNode(self._store, id, hdfs_hostname, Slice_string(peer_addrs), Slice_int(peer_ids), join)
     self._log.info("Successfully created LogNode %d." % id)
     
     self._changeCallback = self._changeHandler  # No idea why this walkaround works
@@ -302,6 +302,15 @@ class RaftLog:
     self._node.RemoveNode(node_id, resolve)
     res = await future.result()
     self._log.info("Result of RemoveNode: %s" % str(res))
+    
+  async def write_data_dir_to_hdfs(self):
+    """
+    Write the contents of the etcd-Raft data directory to HDFS.
+    """
+    future, resolve = self._get_callback()
+    self._log.info("Writing etcd-Raft data directory to HDFS.")
+    self._node.WriteDataDirectoryToHDFS(resolve)
+    await future.result()
 
   def close(self):
     """Ensure all async coroutines end and clean up."""

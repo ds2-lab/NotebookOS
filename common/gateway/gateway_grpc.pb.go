@@ -321,6 +321,7 @@ const (
 	LocalGateway_WaitKernel_FullMethodName         = "/gateway.LocalGateway/WaitKernel"
 	LocalGateway_SetClose_FullMethodName           = "/gateway.LocalGateway/SetClose"
 	LocalGateway_AddReplica_FullMethodName         = "/gateway.LocalGateway/AddReplica"
+	LocalGateway_PrepareToMigrate_FullMethodName   = "/gateway.LocalGateway/PrepareToMigrate"
 )
 
 // LocalGatewayClient is the client API for LocalGateway service.
@@ -343,7 +344,12 @@ type LocalGatewayClient interface {
 	WaitKernel(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*KernelStatus, error)
 	// SetClose request the gateway to close all kernels and stop.
 	SetClose(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
-	AddReplica(ctx context.Context, in *AddReplicaRequest, opts ...grpc.CallOption) (*Void, error)
+	// Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
+	AddReplica(ctx context.Context, in *ReplicaInfoWithAddr, opts ...grpc.CallOption) (*Void, error)
+	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
+	// This involves writing the contents of the etcd-raft data directory to HDFS so that
+	// it can be read back from HDFS by the new replica.
+	PrepareToMigrate(ctx context.Context, in *ReplicaInfoWithAddr, opts ...grpc.CallOption) (*Void, error)
 }
 
 type localGatewayClient struct {
@@ -426,9 +432,18 @@ func (c *localGatewayClient) SetClose(ctx context.Context, in *Void, opts ...grp
 	return out, nil
 }
 
-func (c *localGatewayClient) AddReplica(ctx context.Context, in *AddReplicaRequest, opts ...grpc.CallOption) (*Void, error) {
+func (c *localGatewayClient) AddReplica(ctx context.Context, in *ReplicaInfoWithAddr, opts ...grpc.CallOption) (*Void, error) {
 	out := new(Void)
 	err := c.cc.Invoke(ctx, LocalGateway_AddReplica_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localGatewayClient) PrepareToMigrate(ctx context.Context, in *ReplicaInfoWithAddr, opts ...grpc.CallOption) (*Void, error) {
+	out := new(Void)
+	err := c.cc.Invoke(ctx, LocalGateway_PrepareToMigrate_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +470,12 @@ type LocalGatewayServer interface {
 	WaitKernel(context.Context, *KernelId) (*KernelStatus, error)
 	// SetClose request the gateway to close all kernels and stop.
 	SetClose(context.Context, *Void) (*Void, error)
-	AddReplica(context.Context, *AddReplicaRequest) (*Void, error)
+	// Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
+	AddReplica(context.Context, *ReplicaInfoWithAddr) (*Void, error)
+	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
+	// This involves writing the contents of the etcd-raft data directory to HDFS so that
+	// it can be read back from HDFS by the new replica.
+	PrepareToMigrate(context.Context, *ReplicaInfoWithAddr) (*Void, error)
 	mustEmbedUnimplementedLocalGatewayServer()
 }
 
@@ -487,8 +507,11 @@ func (UnimplementedLocalGatewayServer) WaitKernel(context.Context, *KernelId) (*
 func (UnimplementedLocalGatewayServer) SetClose(context.Context, *Void) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetClose not implemented")
 }
-func (UnimplementedLocalGatewayServer) AddReplica(context.Context, *AddReplicaRequest) (*Void, error) {
+func (UnimplementedLocalGatewayServer) AddReplica(context.Context, *ReplicaInfoWithAddr) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddReplica not implemented")
+}
+func (UnimplementedLocalGatewayServer) PrepareToMigrate(context.Context, *ReplicaInfoWithAddr) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PrepareToMigrate not implemented")
 }
 func (UnimplementedLocalGatewayServer) mustEmbedUnimplementedLocalGatewayServer() {}
 
@@ -648,7 +671,7 @@ func _LocalGateway_SetClose_Handler(srv interface{}, ctx context.Context, dec fu
 }
 
 func _LocalGateway_AddReplica_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AddReplicaRequest)
+	in := new(ReplicaInfoWithAddr)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -660,7 +683,25 @@ func _LocalGateway_AddReplica_Handler(srv interface{}, ctx context.Context, dec 
 		FullMethod: LocalGateway_AddReplica_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(LocalGatewayServer).AddReplica(ctx, req.(*AddReplicaRequest))
+		return srv.(LocalGatewayServer).AddReplica(ctx, req.(*ReplicaInfoWithAddr))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalGateway_PrepareToMigrate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReplicaInfoWithAddr)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).PrepareToMigrate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalGateway_PrepareToMigrate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).PrepareToMigrate(ctx, req.(*ReplicaInfoWithAddr))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -707,6 +748,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AddReplica",
 			Handler:    _LocalGateway_AddReplica_Handler,
+		},
+		{
+			MethodName: "PrepareToMigrate",
+			Handler:    _LocalGateway_PrepareToMigrate_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

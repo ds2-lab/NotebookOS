@@ -93,12 +93,13 @@ func (ci ConnectionInfoForKernel) String() string {
 }
 
 type DistributedKernelConfig struct {
-	StorageBase  string   `json:"storage_base"`
-	SMRPort      int      `json:"smr_port"`
-	SMRNodeID    int      `json:"smr_node_id"`
-	SMRNodes     []string `json:"smr_nodes"`
-	SMRJoin      bool     `json:"smr_join"`
-	PersistentID string   `json:"persistent_id,omitempty"`
+	StorageBase          string   `json:"storage_base"`
+	SMRPort              int      `json:"smr_port"`
+	SMRNodeID            int      `json:"smr_node_id"`
+	SMRNodes             []string `json:"smr_nodes"`
+	SMRJoin              bool     `json:"smr_join"`
+	PersistentID         string   `json:"persistent_id,omitempty"`
+	HDFSNameNodeEndpoint string   `json:"hdfs_namenode_hostname"`
 }
 
 func (c DistributedKernelConfig) String() string {

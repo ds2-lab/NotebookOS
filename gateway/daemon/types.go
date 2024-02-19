@@ -13,7 +13,6 @@ import (
 type KubeClient interface {
 	KubeClientset() *kubernetes.Clientset // Get the Kubernetes client.
 	GatewayDaemon() *GatewayDaemon        // Get the associated Gateway daemon.
-	GenerateKernelName(string) string     // Generate a name to be assigned to a Kernel.
 
 	// Create a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
 	DeployDistributedKernels(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)

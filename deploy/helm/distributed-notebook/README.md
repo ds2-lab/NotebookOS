@@ -60,6 +60,10 @@ helm repo update
 helm install kruise openkruise/kruise --version 1.5.2
 ```
 
+### Distributed File System (HDFS)
+
+TODO(Ben): Write documentation for this step if we end up sticking with the HDFS-based design for migrations or whatever else.
+
 ### The `DistributedNotebook` Helm Chart
 
 Next, to install the Helm chart, execute the following command:

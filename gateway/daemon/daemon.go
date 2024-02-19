@@ -65,10 +65,11 @@ type DaemonKubeClientOptions struct {
 	SMRPort                 int    `name:"smr-port" description:"Port used by the state machine replication (SMR) protocol."`
 	KubeNamespace           string `name:"kube-namespace" description:"Kubernetes namespace that all of these components reside in."`
 	UseStatefulSet          bool   `name:"use-stateful-set" description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
+	HDFSNameNodeEndpoint    string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
 }
 
 func (o DaemonKubeClientOptions) String() string {
-	return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d", o.LocalDaemonServiceName, o.LocalDaemonServicePort)
+	return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HDFSNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HDFSNameNodeEndpoint)
 }
 
 type GatewayDaemonConfig func(*GatewayDaemon)
@@ -148,6 +149,9 @@ type GatewayDaemon struct {
 	// Used to wait for an explicit notification that a particular node was successfully removed from its SMR cluster.
 	// smrNodeRemovedNotifications *hashmap.CornelkMap[string, chan struct{}]
 
+	// Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
+	hdfsNameNodeEndpoint string
+
 	// Kubernetes client.
 	kubeClient KubeClient
 }
@@ -169,6 +173,7 @@ func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClient
 		activeAddReplicaOpsPerKernel:     hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, AddReplicaOperation]](64),
 		addReplicaOperationsByNewPodName: hashmap.NewCornelkMap[string, AddReplicaOperation](64),
 		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan AddReplicaOperation](64),
+		hdfsNameNodeEndpoint:             daemonKubeClientOptions.HDFSNameNodeEndpoint,
 		// smrNodeRemovedNotifications:      hashmap.NewCornelkMap[string, chan struct{}](64),
 	}
 	for _, config := range configs {
@@ -426,8 +431,47 @@ func (d *GatewayDaemon) SetID(ctx context.Context, hostId *gateway.HostId) (*gat
 	return nil, ErrNotImplemented
 }
 
+// Issue a 'prepare-to-migrate' request to a specific replica of a specific kernel.
+// This will prompt the kernel to shutdown its etcd process (but not remove itself from the cluster)
+// before writing the contents of its data directory to HDFS.
+func (d *GatewayDaemon) issuePrepareMigrateRequest(kernelId string, nodeId int32, address string) {
+	d.log.Info("Issuing 'prepare-to-migrate' request to replica %d of kernel %s.", nodeId, kernelId)
+
+	kernelClient, ok := d.kernels.Load(kernelId)
+	if !ok {
+		panic(fmt.Sprintf("Could not find distributed kernel client with ID %s.", kernelId))
+	}
+
+	targetReplica, err := kernelClient.GetReplicaByID(nodeId)
+	if err != nil {
+		d.log.Error("Could not find any ready replicas for kernel %s.", kernelId)
+		panic(err)
+	}
+
+	host := targetReplica.Context().Value(client.CtxKernelHost).(core.Host)
+	if host == nil {
+		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
+	}
+
+	replicaInfo := &gateway.ReplicaInfoWithAddr{
+		Id:       nodeId,
+		KernelId: kernelId,
+		Hostname: fmt.Sprintf("%s:%d", address, d.smrPort),
+	}
+
+	// Issue the 'prepare-to-migrate' request. We panic if there was an error.
+	if _, err = host.PrepareToMigrate(context.TODO(), replicaInfo); err != nil {
+		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
+	}
+
+	d.log.Debug("Sucessfully issued 'prepare-to-migrate' request to replica %d of kernel %s.", nodeId, kernelId)
+	time.Sleep(time.Second * 5)
+}
+
+// Issue an 'add-replica' request to a random replica of a specific kernel, informing that kernel and its peers
+// to add a new replica to the cluster (with ID `nodeId`).
 func (d *GatewayDaemon) issueAddNodeRequest(kernelId string, nodeId int32, address string) {
-	d.log.Info("Notifying existing replicas of kernel %s that new replica %d has been created and is ready to join the SMR cluster.", kernelId, nodeId)
+	d.log.Info("Issuing 'add-replica' request to kernel %s fir new replica %d.", kernelId, nodeId)
 
 	kernelClient, ok := d.kernels.Load(kernelId)
 	if !ok {
@@ -445,17 +489,19 @@ func (d *GatewayDaemon) issueAddNodeRequest(kernelId string, nodeId int32, addre
 	}
 
 	d.log.Debug("Issuing AddReplica RPC for new replica %d of kernel %s.", nodeId, kernelId)
-	_, err := host.AddReplica(context.TODO(), &gateway.AddReplicaRequest{
+	replicaInfo := &gateway.ReplicaInfoWithAddr{
 		Id:       nodeId,
 		KernelId: kernelId,
 		Hostname: fmt.Sprintf("%s:%d", address, d.smrPort),
-	})
-	if err != nil {
+	}
+
+	// Issue the 'add-replica' request. We panic if there was an error.
+	if _, err := host.AddReplica(context.TODO(), replicaInfo); err != nil {
 		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
 	}
+
 	d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", kernelId, nodeId)
 	time.Sleep(time.Second * 5)
-
 }
 
 func (d *GatewayDaemon) SmrReady(ctx context.Context, smrReadyNotification *gateway.SmrReadyNotification) (*gateway.Void, error) {
@@ -1272,28 +1318,18 @@ func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, opts AddReplicaWaitO
 
 	if opts.WaitRegistered() {
 		d.log.Debug("Waiting for new replica %d of kernel %s to register.", addReplicaOp.ReplicaId(), kernelId)
-		select {
-		case _ = <-addReplicaOp.ReplicaRegisteredChannel():
-			{
-				d.log.Trace("New replica %d for kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
-				break
-			}
-		}
+		<-addReplicaOp.ReplicaRegisteredChannel()
+		d.log.Trace("New replica %d for kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
 	}
 
 	var smrWg sync.WaitGroup
 	smrWg.Add(1)
 	// Separate goroutine because this has to run everytime, even if we don't wait, as we call AddOperationCompleted when the new replica joins its SMR cluster.
 	go func() {
-		select {
-		case _ = <-addReplicaOp.ReplicaJoinedSmrChannel():
-			{
-				d.log.Debug("New replica %d for kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
-				kernel.AddOperationCompleted()
-				smrWg.Done()
-				break
-			}
-		}
+		<-addReplicaOp.ReplicaJoinedSmrChannel()
+		d.log.Debug("New replica %d for kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
+		kernel.AddOperationCompleted()
+		smrWg.Done()
 	}()
 
 	if opts.WaitSmrJoined() {
@@ -1310,10 +1346,6 @@ func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, opts AddReplicaWaitO
 
 	// Return nil on success.
 	return addReplicaOp, nil
-}
-
-func (d *GatewayDaemon) waitForReplicaToStart() {
-
 }
 
 // Remove a replica from a distributed kernel.
@@ -1385,7 +1417,7 @@ func (d *GatewayDaemon) removeReplica(smrNodeId int32, kernelId string, wait boo
 
 	if wait {
 		select {
-		case _ = <-podStoppedChannel:
+		case <-podStoppedChannel:
 			{
 				d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
 			}

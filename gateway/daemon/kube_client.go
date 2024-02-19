@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	cmap "github.com/orcaman/concurrent-map/v2"
@@ -73,34 +72,14 @@ type BasicKubeClient struct {
 	mutex                  sync.Mutex                                 // Synchronize atomic operations, such as scaling-up/down a CloneSet.
 	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
 	scaleDownChannels      *cmap.ConcurrentMap[string, chan struct{}] // Mapping from Pod name a channel, each of which would correspond to a scale-down operation.
+	hdfsNameNodeEndpoint   string                                     // Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
 	// newPodWaiters          *cmap.ConcurrentMap[string, chan AddReplicaOperation] // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
 	log logger.Logger
-}
-
-type waitGroup struct {
-	id string
-	wg *sync.WaitGroup
-}
-
-func newWaitGroup() *waitGroup {
-	var sync_wg sync.WaitGroup
-	wg := &waitGroup{
-		id: uuid.New().String(),
-		wg: &sync_wg,
-	}
-
-	return wg
-}
-
-// Checks if a waitGroup is equal to another based upon their IDs.
-func (wg *waitGroup) Equal(other *waitGroup) bool {
-	return wg.id == other.id
 }
 
 func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *DaemonKubeClientOptions) *BasicKubeClient {
 	scaleUpChannels := cmap.New[[]chan string]()
 	scaleDownChannels := cmap.New[chan struct{}]()
-	// newPodWaiters := cmap.New[chan AddReplicaOperation]()
 
 	client := &BasicKubeClient{
 		configDir:              utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDirDefault),
@@ -115,7 +94,11 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 		scaleUpChannels:        &scaleUpChannels,
 		scaleDownChannels:      &scaleDownChannels,
 		podWatcherStopChan:     make(chan struct{}),
-		// newPodWaiters:          &newPodWaiters,
+		hdfsNameNodeEndpoint:   daemonKubeClientOptions.HDFSNameNodeEndpoint,
+	}
+
+	if client.hdfsNameNodeEndpoint == "" {
+		panic("The HDFS NameNode endpoint cannot be \"\"")
 	}
 
 	config.InitLogger(&client.log, client)
@@ -276,10 +259,6 @@ func (c *BasicKubeClient) GatewayDaemon() *GatewayDaemon {
 	return c.gatewayDaemon
 }
 
-func (c *BasicKubeClient) GenerateKernelName(sessionId string) string {
-	return fmt.Sprintf(KubernetesKernelName, fmt.Sprintf("%s", sessionId))
-}
-
 // Create a new Kubernetes StatefulSet for the given Session.
 // Returns a tuple containing the connection info returned by the `prepareConnectionFileContents` function and an error,
 // which will be nil if there were no errors encountered while creating the StatefulSet and related components.
@@ -373,29 +352,6 @@ func (c *BasicKubeClient) addKruiseDeleteLabelToPod(podName string, podNamespace
 		c.log.Error("Failed to update metadata labels for old Pod %s/%s", podNamespace, podName)
 		return retryErr
 	}
-
-	// pod, err := c.kubeClientset.CoreV1().Pods(podNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
-	// if err != nil {
-	// 	c.log.Error("Could not find Pod \"%s\" in namespace \"%s\": %v", podName, podNamespace, err)
-	// 	return err
-	// }
-
-	// var annotations map[string]string = pod.GetAnnotations()
-
-	// annotations["apps.kruise.io/specified-delete"] = "true"                   // I don't think this is necessary; documentation says to use a label for this one.
-	// annotations["controller.kubernetes.io/pod-deletion-cost"] = "-2147483647" // This one should be an annotation, though.
-
-	// pod.SetAnnotations(annotations)
-
-	// pod, err = c.kubeClientset.
-	// 	CoreV1().
-	// 	Pods(podNamespace).
-	// 	Update(context.TODO(), pod, metav1.UpdateOptions{})
-
-	// if err != nil {
-	// 	c.log.Error("Failed to update annotations of Pod %s/%s: %v", podNamespace, podName, err)
-	// 	return errors.Wrapf(err, "Failed to update annotations of Pod %s/%s.", podNamespace, podName)
-	// }
 
 	return nil
 }
@@ -1198,11 +1154,12 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *gateway.KernelReplicaS
 	// Prepare contents of the configuration file.
 	file := &jupyter.ConfigFile{
 		DistributedKernelConfig: jupyter.DistributedKernelConfig{
-			StorageBase: kubeStorageBase,
-			SMRNodeID:   -1, // int(spec.ReplicaId), // TODO(Ben): Set this to -1 to make it obvious that the Pod needs to fill this in itself?
-			SMRNodes:    replicas,
-			SMRJoin:     spec.Join,
-			SMRPort:     c.smrPort,
+			StorageBase:          kubeStorageBase,
+			SMRNodeID:            -1, // int(spec.ReplicaId), // TODO(Ben): Set this to -1 to make it obvious that the Pod needs to fill this in itself?
+			SMRNodes:             replicas,
+			SMRJoin:              spec.Join,
+			SMRPort:              c.smrPort,
+			HDFSNameNodeEndpoint: c.hdfsNameNodeEndpoint,
 		},
 	}
 	if spec.PersistentId != nil {

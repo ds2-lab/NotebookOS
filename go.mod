@@ -7,6 +7,7 @@ toolchain go1.21.5
 replace github.com/go-zeromq/zmq4 => ../zmq4
 
 require (
+	github.com/colinmarc/hdfs v1.1.3
 	github.com/fsnotify/fsnotify v1.5.1
 	github.com/go-zeromq/zmq4 v0.16.0
 	github.com/google/uuid v1.3.0

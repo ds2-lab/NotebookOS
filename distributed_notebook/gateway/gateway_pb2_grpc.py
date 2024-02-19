@@ -292,7 +292,12 @@ class LocalGatewayStub(object):
                 )
         self.AddReplica = channel.unary_unary(
                 '/gateway.LocalGateway/AddReplica',
-                request_serializer=gateway__pb2.AddReplicaRequest.SerializeToString,
+                request_serializer=gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
+        self.PrepareToMigrate = channel.unary_unary(
+                '/gateway.LocalGateway/PrepareToMigrate',
+                request_serializer=gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
 
@@ -358,7 +363,17 @@ class LocalGatewayServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def AddReplica(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PrepareToMigrate(self, request, context):
+        """Used to instruct a specific kernel replica to prepare to be migrated to a new node.
+        This involves writing the contents of the etcd-raft data directory to HDFS so that
+        it can be read back from HDFS by the new replica.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -408,7 +423,12 @@ def add_LocalGatewayServicer_to_server(servicer, server):
             ),
             'AddReplica': grpc.unary_unary_rpc_method_handler(
                     servicer.AddReplica,
-                    request_deserializer=gateway__pb2.AddReplicaRequest.FromString,
+                    request_deserializer=gateway__pb2.ReplicaInfoWithAddr.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'PrepareToMigrate': grpc.unary_unary_rpc_method_handler(
+                    servicer.PrepareToMigrate,
+                    request_deserializer=gateway__pb2.ReplicaInfoWithAddr.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
@@ -570,7 +590,24 @@ class LocalGateway(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/AddReplica',
-            gateway__pb2.AddReplicaRequest.SerializeToString,
+            gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def PrepareToMigrate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/PrepareToMigrate',
+            gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
             gateway__pb2.Void.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

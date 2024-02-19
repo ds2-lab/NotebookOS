@@ -71,7 +71,13 @@ service LocalGateway {
   // SetClose request the gateway to close all kernels and stop.
   rpc SetClose(Void) returns (Void) {}
 
-  rpc AddReplica(AddReplicaRequest) returns (Void) {}
+  // Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
+  rpc AddReplica(ReplicaInfoWithAddr) returns (Void) {}
+
+  // Used to instruct a specific kernel replica to prepare to be migrated to a new node.
+  // This involves writing the contents of the etcd-raft data directory to HDFS so that
+  // it can be read back from HDFS by the new replica.
+  rpc PrepareToMigrate(ReplicaInfoWithAddr) returns (Void) {}
 }
 
 // The input for starting a kernel replica.
@@ -121,7 +127,8 @@ message MigrateKernelResponse {
   string hostname = 2;
 }
 
-message AddReplicaRequest {
+// Similar to ReplicaInfo, but instead of a persistentId field, this has a hostname field.
+message ReplicaInfoWithAddr {
   int32 id = 1;
   string hostname = 2;
   string kernelId = 3;

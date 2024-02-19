@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/colinmarc/hdfs"
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
@@ -121,6 +122,8 @@ type LogNode struct {
 	commitC     chan *commit
 	errorC      chan error // errors from raft session
 
+	hdfsClient *hdfs.Client // HDFS client for reading/writing the data directory during migrations.
+
 	id      int            // Client ID for raft session
 	peers   map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1.
 	join    bool           // Node is joining an existing cluster
@@ -163,9 +166,9 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
-func NewLogNode(store_path string, id int, peer_addresses []string, peer_ids []int, join bool) *LogNode {
-	if len(peer_addresses) != len(peer_ids) {
-		log.Fatalf("Received unequal number of peer addresses (%d) and peer node IDs (%d). They must be equal.\n", len(peer_addresses), len(peer_ids))
+func NewLogNode(store_path string, id int, hdfsHostname string, peerAddresses []string, peerIDs []int, join bool) *LogNode {
+	if len(peerAddresses) != len(peerIDs) {
+		log.Fatalf("Received unequal number of peer addresses (%d) and peer node IDs (%d). They must be equal.\n", len(peerAddresses), len(peerIDs))
 	}
 
 	fmt.Printf("Creating a new LogNode.\n")
@@ -200,14 +203,21 @@ func NewLogNode(store_path string, id int, peer_addresses []string, peer_ids []i
 	testId, _ := node.patchPropose(nil)
 	node.proposalPadding = len(testId)
 
-	node.peers = make(map[int]string, len(peer_addresses))
-	for i := 0; i < len(peer_addresses); i++ {
-		peer_addr := peer_addresses[i]
-		peer_id := peer_ids[i]
+	node.peers = make(map[int]string, len(peerAddresses))
+	for i := 0; i < len(peerAddresses); i++ {
+		peer_addr := peerAddresses[i]
+		peer_id := peerIDs[i]
 
 		node.logger.Debug("Discovered peer.", zap.String("peer_address", peer_addr), zap.Int("peer_id", peer_id))
 		node.peers[peer_id] = peer_addr
 	}
+
+	hdfsClient, err := hdfs.New(hdfsHostname)
+	if err != nil {
+		node.logger.Panic("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname))
+	}
+
+	node.hdfsClient = hdfsClient
 
 	return node
 }
@@ -474,6 +484,26 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 		nents = ents[node.appliedIndex-firstIdx+1:]
 	}
 	return nents
+}
+
+// Write the data directory for this Raft node to HDFS.
+func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
+	var hdfsDirPath string = fmt.Sprintf("/data-directories/data-directory-%d", node.id)
+
+	node.logger.Debug(fmt.Sprintf("Writing data directory \"%s\" to HDFS at path \"%s\" now.", node.waldir, hdfsDirPath), zap.String("data-directory", node.waldir), zap.String("hdfs-directory", hdfsDirPath))
+
+	// err := node.hdfsClient.MkdirAll(hdfsDirPath, os.FileMode(int(0777)))
+	// if err != nil {
+	// 	resolve(fmt.Sprintf("HDFS MkdirAll failed for path \"%s\"", hdfsDirPath), toCError(err))
+	// 	return
+	// }
+
+	err := node.hdfsClient.CopyToRemote(node.waldir, hdfsDirPath)
+	if err != nil {
+		node.logger.Error("HDFS CopyToRemove failed when writing data directory to HDFS.", zap.String("src", node.waldir), zap.String("dst", hdfsDirPath))
+		resolve(fmt.Sprintf("HDFS CopyToRemote failed for source path: \"%s\", destination path: \"%s\"", node.waldir, hdfsDirPath), toCError(err))
+		return
+	}
 }
 
 // publishEntries writes committed log entries to commit channel and returns
