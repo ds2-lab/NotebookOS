@@ -500,7 +500,7 @@ func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
 
 	err := node.hdfsClient.CopyToRemote(node.waldir, hdfsDirPath)
 	if err != nil {
-		node.logger.Error("HDFS CopyToRemove failed when writing data directory to HDFS.", zap.String("src", node.waldir), zap.String("dst", hdfsDirPath))
+		node.logger.Error("HDFS CopyToRemove failed when writing data directory to HDFS.", zap.String("src", node.waldir), zap.String("dst", hdfsDirPath), zap.String("error", err.Error()))
 		resolve(fmt.Sprintf("HDFS CopyToRemote failed for source path: \"%s\", destination path: \"%s\"", node.waldir, hdfsDirPath), toCError(err))
 		return
 	}

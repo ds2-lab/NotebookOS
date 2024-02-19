@@ -89,7 +89,8 @@ class DistributedKernel(IPythonKernel):
     # The initialization is triggered by kernel.js
     store: Optional[Union[str, asyncio.Future]] = None 
     synclog: RaftLog
-    synclog_stopped: bool 
+    synclog_stopped: bool # closed() called on synclog, during migration prep
+    synclog_removed: bool # synclog removed, during migration prep
     synchronizer: Synchronizer
     smr_nodes_map: dict
 
@@ -114,6 +115,7 @@ class DistributedKernel(IPythonKernel):
         
         self.smr_nodes_map = {}
         self.synclog_stopped = False 
+        self.synclog_removed = False 
         
         # Single node mode
         if not isinstance(self.smr_nodes, list) or len(self.smr_nodes) == 0:
@@ -418,6 +420,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
         try:
             await self.synclog.remove_node(self.smr_node_id)
+            self.synclog_removed = True 
             self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
         except Exception as e:
             self.log.error("Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
@@ -426,19 +429,18 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
         try:
             self.synclog.close()
+            self.synclog_stopped = True 
+            self.log.info("SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
         except Exception as e:
             self.log.error("Failed to close the SyncLog for replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
             return self.gen_error_response(e), False
-        
-        self.log.info("SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
        
         try:
             await self.synclog.write_data_dir_to_hdfs()
             self.log.info("Wrote etcd-Raft data directory to HDFS.")
-            self.synclog_stopped = True 
             return {'status': 'ok'}, True
         except Exception as e:
-            self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS.", self.smr_node_id, self.kernel_id)
+            self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s", self.smr_node_id, self.kernel_id, str(e))
             return self.gen_error_response(e), False
     
     async def do_shutdown(self, restart):
@@ -451,11 +453,18 @@ class DistributedKernel(IPythonKernel):
 
         # The value of self.synclog_stopped will be True if `prepare_to_migrate` was already called.
         if self.synclog:
-            if not self.synclog_stopped:
+            if not self.synclog_removed:
                 self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
                 await self.synclog.remove_node(self.smr_node_id)
                 self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
-                self.synclog.close()
+                
+            if not self.synclog_stopped:
+                self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
+                try:
+                    self.synclog.close()
+                    self.log.info("SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
+                except Exception:
+                     self.log.error("Failed to close the SyncLog for replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
             else:
                 self.log.info("I've already removed myself from the SMR cluster and closed my sync-log.")
 
