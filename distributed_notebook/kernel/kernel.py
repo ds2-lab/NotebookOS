@@ -147,7 +147,7 @@ class DistributedKernel(IPythonKernel):
         
         self.persistent_store_cv = asyncio.Condition()
         # Initialize to this. If we're part of a migration operation, then it will be set when we register with the local daemon.
-        self.data_directory = "" 
+        self.hdfs_data_directory = "" 
         
         connection_info = None 
         try:
@@ -208,7 +208,13 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
         
         response = self.daemon_registration_socket.recv(1024)
+        
+        if len(response) == 0:
+            self.log.error("Received empty (i.e., 0 bytes in length) response from local daemon during registration...")
+            exit(1)
+        
         self.log.info("Received %d byte(s) in response from LocalDaemon: %s", len(response), str(response))
+        
         response_dict = json.loads(response)
         self.smr_node_id = response_dict["smr_node_id"]
         self.hostname = response_dict["hostname"]
@@ -222,14 +228,22 @@ class DistributedKernel(IPythonKernel):
         # We also append ":<SMR_PORT>" to each address before storing it in the map.
         self.smr_nodes_map = {int(node_id_str): (node_addr + ":" + str(self.smr_port)) for node_id_str, node_addr in response_dict["replicas"].items()}
         
+        # If we're part of a migration operation, then we should receive both a Persistent ID AND an HDFS Data Directory.
+        data_directory_expected = False 
         if "persistent_id" in response_dict:
             self.log.info("Received persistent ID from registration: \"%s\"" % response_dict["persistent_id"])
-            self.log.info("I must be part of a migration operation!")
+            data_directory_expected = True 
             self.persistent_id = response_dict["persistent_id"]
         
-        if "data_directory" in response_dict:
-            self.log.info("Received path to data directory in HDFS from registration: \"%s\"" % response_dict["data_directory"])
-            self.data_directory = response_dict["data_directory"]
+        # If we received a persistent ID, then we should also receive an HDFS data directory path.
+        if data_directory_expected:
+            if "data_directory" in response_dict:
+                self.log.info("Received path to data directory in HDFS from registration: \"%s\"" % response_dict["data_directory"])
+                self.hdfs_data_directory = response_dict["data_directory"]
+            else:
+                self.log.error("Expected to receive HDFS data directory from registration payload.")
+                # TODO: Handle more gracefully.
+                exit(1) 
             
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
@@ -657,7 +671,7 @@ class DistributedKernel(IPythonKernel):
         
         self.log.debug("Creating RaftLog now.")
         try:
-            self.synclog = RaftLog(store, self.smr_node_id, self.hdfs_namenode_hostname, self.data_directory, addrs, ids, join=self.smr_join)
+            self.synclog = RaftLog(store, self.smr_node_id, self.hdfs_namenode_hostname, self.hdfs_data_directory, addrs, ids, join=self.smr_join)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
             exit(1) 

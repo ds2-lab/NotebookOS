@@ -333,9 +333,11 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		"replicas":    response.Replicas,
 	}
 
+	var hdfsDataDirectoryExpected bool = false
 	if response.PersistentId != nil && response.GetPersistentId() != "" {
 		d.log.Debug("Including persistent store ID \"%s\" in notification response to replica %d of kernel %s.", response.GetPersistentId(), response.Id, kernel.ID())
 		payload["persistent_id"] = response.GetPersistentId()
+		hdfsDataDirectoryExpected = true
 	} else {
 		d.log.Debug("No persistent ID to include in response.")
 	}
@@ -343,6 +345,9 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	if response.DataDirectory != nil && response.GetDataDirectory() != "" {
 		d.log.Debug("Including data directory \"%s\" in notification response to replica %d of kernel %s.", response.GetDataDirectory(), response.Id, kernel.ID())
 		payload["data_directory"] = response.GetDataDirectory()
+	} else if hdfsDataDirectoryExpected {
+		d.log.Error("Should have received a valid HDFS data directory for replica %d of kernel %s. Received: \"%s\"", response.Id, kernel.ID(), response.GetDataDirectory())
+		panic("Did not receive valid HDFS data directory when we should have.")
 	} else {
 		d.log.Debug("No data directory to include in response.")
 	}
@@ -410,21 +415,34 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
 		d.log.Debug("Received response from 'prepare-to-migrate' request.")
 
+		for i, frame := range msg.Frames {
+			d.log.Debug("Frame #%d: %s", i, string(frame))
+		}
+
 		var frames jupyter.JupyterFrames = msg.Frames
-		var dataDirectoryMessage types.MessageDataDirectory
+		var respMessage types.MessageDataDirectory
 		if err := frames.Validate(); err != nil {
 			d.log.Error("Failed to validate frames of `MessageDataDirectory` message: %v", err)
 			return err
 		}
-		err := frames.DecodeContent(&dataDirectoryMessage)
+		err := frames.DecodeContent(&respMessage)
 		if err != nil {
-			d.log.Error("Failed to decode content of `MessageDataDirectory` message: %v", err)
+			d.log.Error("Failed to decode Content frame of `MessageDataDirectory` message: %v", err)
 			return err
 		}
 
-		dataDirectory = dataDirectoryMessage.DataDirectory
+		// It seems like this particular message is sent in the 6th frame, which is the Buffers frame, rather than the Content frame.
+		if respMessage.NodeID == 0 {
+			err := frames.DecodeBuffers(&respMessage)
 
-		d.log.Debug("Data directory: %s", dataDirectory)
+			if err != nil {
+				d.log.Error("Failed to decode Buffer frame of `MessageDataDirectory` message: %v", err)
+				return err
+			}
+		}
+
+		dataDirectory = respMessage.DataDirectory
+		d.log.Debug("Response from 'prepare-to-migrate' request: %s", respMessage.String())
 
 		respWG.Done()
 		return nil

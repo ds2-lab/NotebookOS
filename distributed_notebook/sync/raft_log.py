@@ -57,6 +57,12 @@ class RaftLog:
     self._log.setLevel(logging.DEBUG)
     
     self._log.info("Creating LogNode %d now." % id)
+    self._log.info("_store: %s" % self._store)
+    self._log.info("hdfs_hostname: \"%s\"" % hdfs_hostname)
+    self._log.info("data_directory: \"%s\"" % data_directory)
+    self._log.info("peer_addrs: %s" % peer_addrs)
+    self._log.info("peer_ids: %s" % peer_ids)
+    self._log.info("join: %s" % join)
     self._node = NewLogNode(self._store, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join)
     
     if self._node == None:

@@ -260,13 +260,23 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 
 	// TODO(Ben): Read the data directory from HDFS.
 	if hdfs_data_directory != "" {
+		node.logger.Info(fmt.Sprintf("Reading data directory from HDFS now: %s.", hdfs_data_directory), zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
+
+		if hdfs_data_directory != node.data_dir {
+			node.logger.Error("The HDFS data directory and the local data directory must be the same; they are not.", zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
+			return nil
+		}
+
 		err := node.ReadDataDirectoryFromHDFS()
 
 		if err != nil {
+			node.logger.Error("Error while reading data directory from HDFS.", zap.Error(err), zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
 			return nil
 		}
 
 		node.logger.Info("Successfully read data directory from HDFS to local storage.")
+	} else {
+		node.logger.Info("Did not receive a valid HDFS data directory path. Not reading data directory from HDFS.", zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
 	}
 
 	return node

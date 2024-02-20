@@ -175,6 +175,14 @@ func (frames JupyterFrames) DecodeContent(out any) error {
 	return json.Unmarshal(frames[JupyterFrameContent], out)
 }
 
+func (frames JupyterFrames) DecodeBuffers(out any) error {
+	if len(frames) > JupyterFrameBuffers {
+		return json.Unmarshal(frames[JupyterFrameBuffers], out)
+	} else {
+		return ErrInvalidJupyterMessage
+	}
+}
+
 func (frames JupyterFrames) BuffersFrame() *JupyterFrame {
 	if len(frames) > JupyterFrameBuffers {
 		return jupyterFrame(frames[JupyterFrameBuffers])
