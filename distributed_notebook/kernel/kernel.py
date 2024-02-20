@@ -104,6 +104,7 @@ class DistributedKernel(IPythonKernel):
         self.control_msg_types = [
             *self.control_msg_types,
             "add_replica_request",
+            "update_replica_request",
             "prepare_to_migrate_request",
         ]
 
@@ -401,7 +402,36 @@ class DistributedKernel(IPythonKernel):
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
             return self.gen_error_response(e)
-    
+
+    async def do_shutdown(self, restart):
+        self.log.info("Replica %d of kernel %s is shutting down.", self.smr_node_id, self.kernel_id)
+        
+        if self.synchronizer:
+            self.log.info("Closing the Synchronizer.")
+            self.synchronizer.close()
+            self.log.info("Successfully closed the Synchronizer.")
+
+        # The value of self.synclog_stopped will be True if `prepare_to_migrate` was already called.
+        if self.synclog:
+            if not self.synclog_removed:
+                self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
+                await self.synclog.remove_node(self.smr_node_id)
+                self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
+                
+            if not self.synclog_stopped:
+                self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
+                try:
+                    self.synclog.close()
+                    self.log.info("SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
+                except Exception:
+                     self.log.error("Failed to close the SyncLog for replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
+            else:
+                self.log.info("I've already removed myself from the SMR cluster and closed my sync-log.")
+
+        # Give time for the "smr_node_removed" message to be sent.
+        # time.sleep(2)
+        return super().do_shutdown(restart)
+
     async def prepare_to_migrate(self):
         self.log.info("Preparing for migration of replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
         
@@ -434,51 +464,6 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s", self.smr_node_id, self.kernel_id, str(e))
             return self.gen_error_response(e), False
     
-    async def do_shutdown(self, restart):
-        self.log.info("Replica %d of kernel %s is shutting down.", self.smr_node_id, self.kernel_id)
-        
-        if self.synchronizer:
-            self.log.info("Closing the Synchronizer.")
-            self.synchronizer.close()
-            self.log.info("Successfully closed the Synchronizer.")
-
-        # The value of self.synclog_stopped will be True if `prepare_to_migrate` was already called.
-        if self.synclog:
-            if not self.synclog_removed:
-                self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
-                await self.synclog.remove_node(self.smr_node_id)
-                self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
-                
-            if not self.synclog_stopped:
-                self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
-                try:
-                    self.synclog.close()
-                    self.log.info("SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
-                except Exception:
-                     self.log.error("Failed to close the SyncLog for replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
-            else:
-                self.log.info("I've already removed myself from the SMR cluster and closed my sync-log.")
-
-        # Give time for the "smr_node_removed" message to be sent.
-        # time.sleep(2)
-        return super().do_shutdown(restart)
-    
-    async def do_add_replica(self, id, addr) -> tuple:
-        """Add a replica to the SMR cluster"""
-        if not await self.check_persistent_store():
-            return self.gen_error_response(err_wait_persistent_store)
-
-        self.log.info("Adding replica %d at addr %s now.", id, addr)
-
-        # We didn't check if synclog is ready
-        try:
-            await self.synclog.add_node(id, "http://{}".format(addr))
-            self.log.info("Replica {} at {} has joined the SMR cluster.".format(id, addr))
-            return {'status': 'ok'}, True
-        except Exception as e:
-            self.log.error("A replica fails to join: {}...".format(e))
-            return self.gen_error_response(e), False
-    
     async def prepare_to_migrate_request(self, stream, ident, parent):
         """
         Handle a "prepare-to-migrate" request sent by our local scheduler.
@@ -503,11 +488,27 @@ class DistributedKernel(IPythonKernel):
         
         self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident)
     
+    async def do_add_replica(self, id, addr) -> tuple:
+        """Add a replica to the SMR cluster"""
+        if not await self.check_persistent_store():
+            return self.gen_error_response(err_wait_persistent_store)
+
+        self.log.info("Adding replica %d at addr %s now.", id, addr)
+
+        # We didn't check if synclog is ready
+        try:
+            await self.synclog.add_node(id, "http://{}".format(addr))
+            self.log.info("Replica {} at {} has joined the SMR cluster.".format(id, addr))
+            return {'status': 'ok'}, True
+        except Exception as e:
+            self.log.error("A replica fails to join: {}...".format(e))
+            return self.gen_error_response(e), False
+    
     # customized control message handlers
     async def add_replica_request(self, stream, ident, parent):
         """Add a replica to the SMR cluster"""
         params = parent['content']
-        self.log.info("Received 'add-replica request' for replica with id %d, addr %s" % (params['id'], params['addr']))
+        self.log.info("Received 'add-replica' request for replica with id %d, addr %s" % (params['id'], params['addr']))
         
         async with self.persistent_store_cv:
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'? 
@@ -532,6 +533,51 @@ class DistributedKernel(IPythonKernel):
             self.session.send(self.iopub_socket, "smr_node_added", {"success": False, "persistent_id": self.persistent_id, "id": params['id'], "addr": params['addr'], "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added")) # type: ignore
         
         self.session.send(stream, "add_replica_reply", content, parent, ident=ident) # type: ignore
+
+    async def do_update_replica(self, id, addr) -> tuple:
+        """Update a replica to have a new address"""
+        if not await self.check_persistent_store():
+            return self.gen_error_response(err_wait_persistent_store)
+
+        self.log.info("Updating replica %d with new addr %s now.", id, addr)
+
+        # We didn't check if synclog is ready
+        try:
+            await self.synclog.update_node(id, "http://{}".format(addr))
+            self.log.info("Replica {} at {} has been updated.".format(id, addr))
+            return {'status': 'ok'}, True
+        except Exception as e:
+            self.log.error("Failed to update replica: {}...".format(e))
+            return self.gen_error_response(e), False
+
+    async def update_replica_request(self, stream, ident, parent):
+        """Update a replica to have a new address"""
+        params = parent['content']
+        self.log.info("Received 'update-replica' request for replica with id %d, addr %s" % (params['id'], params['addr']))
+        
+        async with self.persistent_store_cv:
+            # TODO(Ben): Do I need to use 'while', or can I just use 'if'? 
+            if not await self.check_persistent_store():
+                self.log.debug("Persistent store is not ready yet. Waiting to handle 'update-replica' request.")
+                await self.persistent_store_cv.wait()
+        
+        if 'id' not in params or 'addr' not in params:
+            return self.gen_error_response(err_invalid_request)
+
+        val = self.do_update_replica(params['id'], params['addr'])
+        if inspect.isawaitable(val):
+            content, success = await val
+        else:
+            content, success = val
+        
+        if success:
+            self.log.debug("Notifying session that SMR node was updated.")
+            self.session.send(self.iopub_socket, "smr_node_updated", {"success": True, "persistent_id": self.persistent_id, "id": params['id'], "addr": params['addr'], "kernel_id": self.kernel_id}, ident=self._topic("smr_node_updated")) # type: ignore
+        else:
+            self.log.debug("Notifying session that SMR node update failed.")
+            self.session.send(self.iopub_socket, "smr_node_updated", {"success": False, "persistent_id": self.persistent_id, "id": params['id'], "addr": params['addr'], "kernel_id": self.kernel_id}, ident=self._topic("smr_node_updated")) # type: ignore
+        
+        self.session.send(stream, "update_replica_reply", content, parent, ident=ident) # type: ignore
 
     def gen_simple_response(self, execution_count = 0):
         return {'status': 'ok',

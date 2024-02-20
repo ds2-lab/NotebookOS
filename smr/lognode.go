@@ -254,7 +254,13 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 
 	// TODO(Ben): Read the data directory from HDFS.
 	if hdfs_data_directory != "" {
-		node.ReadDataDirectoryFromHDFS()
+		err := node.ReadDataDirectoryFromHDFS()
+
+		if err != nil {
+			return nil
+		}
+
+		node.logger.Info("Successfully read data directory from HDFS to local storage.")
 	}
 
 	return node
@@ -322,6 +328,16 @@ func (node *LogNode) RemoveNode(id int, resolve ResolveCallback) {
 		NodeID: uint64(id),
 	}, ProposalDeadline)
 	go node.propose(ctx, node.manageNode, resolve, "remove node")
+}
+
+func (node *LogNode) UpdateNode(id int, addr string, resolve ResolveCallback) {
+	log.Printf("Proposing an update for node %d\n", id)
+	ctx := node.generateConfChange(&raftpb.ConfChange{
+		Type:    raftpb.ConfChangeUpdateNode,
+		NodeID:  uint64(id),
+		Context: []byte(addr),
+	}, ProposalDeadline)
+	go node.propose(ctx, node.manageNode, resolve, "update node")
 }
 
 func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, resolve ResolveCallback, msg string) {
@@ -430,6 +446,7 @@ func (node *LogNode) start() {
 	node.raftStorage = raft.NewMemoryStorage()
 	if node.isWALEnabled() {
 		oldwal = wal.Exist(node.waldir)
+		node.logger.Info(fmt.Sprintf("WAL is enabled. Old WAL available: %v.", node.waldir))
 		node.wal = node.replayWAL()
 		if node.wal == nil {
 			return
@@ -526,27 +543,41 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 
 // Read the data directory for this Raft node back from HDFS to local storage.
 //
-// In theory, the local filepath and HDFS filepath will be identical. But I am writing this such that they don't have to be.
-// What needs to be identical is the persistent ID, as the directory whose name is the persistent ID is itself the data directory.
-//
-// So, if the current local configuration has the data directory at:
-// /storage/persistent-storage/<persistent store ID>
-//
-// And the HDFS data directory path is:
-// /storage/store/<persistent store ID>
-//
-// Then we just copy the remote files into the /storage/persistent-storage/<persistent store ID> directory.
-func (node *LogNode) ReadDataDirectoryFromHDFS() {
+// This assumes the HDFS path and the local path are identical.
+func (node *LogNode) ReadDataDirectoryFromHDFS() error {
 	node.logger.Info(fmt.Sprintf("Walking the HDFS data directory \"%s\"", node.hdfs_data_directory), zap.String("directory", node.hdfs_data_directory))
-	node.hdfsClient.Walk(node.hdfs_data_directory, func(path string, info fs.FileInfo, err error) error {
+	walk_err := node.hdfsClient.Walk(node.hdfs_data_directory, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
 			node.logger.Info(fmt.Sprintf("Found remote directory \"%s\"", path), zap.String("directory", path))
+			err := os.MkdirAll(path, os.FileMode(int(0777)))
+			if err != nil {
+				// If we return an error from this function, then WalkDir will stop entirely and return that error.
+				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create local directory \"%s\": %v", path, err), zap.String("directory", path), zap.Error(err))
+				return err
+			}
+
+			node.logger.Info(fmt.Sprintf("Successfully created local directory \"%s\"", path), zap.String("directory", path))
+			// Convert the remote HDFS path to a local path based on the persistent store ID.
 		} else {
 			node.logger.Info(fmt.Sprintf("Found remote file \"%s\"", path), zap.String("file", path))
+			err := node.hdfsClient.CopyToLocal(path, path)
+
+			if err != nil {
+				// If we return an error from this function, then WalkDir will stop entirely and return that error.
+				node.logger.Error(fmt.Sprintf("Exception encountered while trying to copy remote-to-local for file \"%s\": %v", path, err), zap.String("file", path), zap.Error(err))
+				return err
+			}
+
+			node.logger.Info(fmt.Sprintf("Successfully copied remote HDFS file to local file system: \"%s\"", path), zap.String("file", path))
 		}
 
 		return nil
 	})
+
+	if walk_err != nil {
+		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\"): %v", node.data_dir, walk_err), zap.Error(walk_err))
+		return walk_err
+	}
 }
 
 // Write the data directory for this Raft node from local storage to HDFS.
@@ -618,11 +649,13 @@ func (node *LogNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool)
 			switch cc.Type {
 			case raftpb.ConfChangeAddNode:
 				if len(cc.Context) > 0 {
+					node.logger.Info(fmt.Sprintf("Adding a node to the cluster: node %d", cc.NodeID), zap.Uint64("node_id", cc.NodeID))
 					log.Println("Adding a node to the cluster: ", cc.NodeID)
 					node.transport.AddPeer(types.ID(cc.NodeID), []string{string(cc.Context)})
 				}
 			case raftpb.ConfChangeRemoveNode:
 				if cc.NodeID == uint64(node.id) {
+					node.logger.Info("I've been removed from the cluster! Shutting down.")
 					log.Println("I've been removed from the cluster! Shutting down.")
 					if ctx != nil {
 						ctx.Cancel()
@@ -630,6 +663,13 @@ func (node *LogNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool)
 					return nil, false
 				}
 				node.transport.RemovePeer(types.ID(cc.NodeID))
+			case raftpb.ConfChangeUpdateNode:
+				if len(cc.Context) > 0 {
+					node.logger.Info(fmt.Sprintf("Updating an existing node within cluster: node %d", cc.NodeID), zap.Uint64("node_id", cc.NodeID))
+					log.Println("Updating an existing node within cluster: ", cc.NodeID)
+					node.transport.UpdatePeer(types.ID(cc.NodeID), []string{string(cc.Context)})
+					node.transport.AddPeer(types.ID(cc.NodeID), []string{string(cc.Context)})
+				}
 			}
 
 			if ctx != nil {

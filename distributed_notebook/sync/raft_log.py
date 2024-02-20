@@ -58,6 +58,11 @@ class RaftLog:
     
     self._log.info("Creating LogNode %d now." % id)
     self._node = NewLogNode(self._store, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join)
+    
+    if self._node == None:
+      self._log.error("Failed to create the LogNode.")
+      raise ValueError("Could not create LogNode. See logs for details.")
+    
     self._log.info("Successfully created LogNode %d." % id)
     
     self._changeCallback = self._changeHandler  # No idea why this walkaround works
@@ -294,6 +299,14 @@ class RaftLog:
     self._node.AddNode(node_id, address, resolve)
     res = await future.result()
     self._log.info("Result of AddNode: %s" % str(res))
+    
+  async def update_node(self, node_id, address):
+    """Add a node to the cluster."""
+    future, resolve = self._get_callback()
+    self._log.info("Updating node %d with new addr %s." % (node_id, address))
+    self._node.UpdateNode(node_id, address, resolve)
+    res = await future.result()
+    self._log.info("Result of UpdateNode: %s" % str(res))
 
   async def remove_node(self, node_id):
     """Remove a node from the cluster."""
