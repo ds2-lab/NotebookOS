@@ -312,7 +312,12 @@ class RaftLog:
     """Remove a node from the cluster."""
     future, resolve = self._get_callback()
     self._log.info("Removing node %d from the SMR cluster." % node_id)
-    self._node.RemoveNode(node_id, resolve)
+    
+    try:
+      self._node.RemoveNode(node_id, resolve)
+    except Exception as ex:
+      self._log.error("Error in LogNode while removing replica %d: %s" % (node_id, str(ex)))
+    
     res = await future.result()
     self._log.info("Result of RemoveNode: %s" % str(res))
     

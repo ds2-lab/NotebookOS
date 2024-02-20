@@ -94,7 +94,7 @@ class DistributedKernel(IPythonKernel):
     store: Optional[Union[str, asyncio.Future]] = None 
     synclog: RaftLog
     synclog_stopped: bool # closed() called on synclog, during migration prep
-    synclog_removed: bool # synclog removed, during migration prep
+    remove_on_shutdown: bool # When migrating a replica, we do NOT want to remove the replica from the raft SMR cluster on shutdown.
     synchronizer: Synchronizer
     smr_nodes_map: dict
 
@@ -120,7 +120,7 @@ class DistributedKernel(IPythonKernel):
         
         self.smr_nodes_map = {}
         self.synclog_stopped = False 
-        self.synclog_removed = False 
+        self.remove_on_shutdown = True # By default, we do want to remove the replica from the raft smr cluster on shutdown. 
         
         # Single node mode
         if not isinstance(self.smr_nodes, list) or len(self.smr_nodes) == 0:
@@ -413,10 +413,14 @@ class DistributedKernel(IPythonKernel):
 
         # The value of self.synclog_stopped will be True if `prepare_to_migrate` was already called.
         if self.synclog:
-            if not self.synclog_removed:
+            if self.remove_on_shutdown:
                 self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
-                await self.synclog.remove_node(self.smr_node_id)
-                self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
+                try:
+                    await self.synclog.remove_node(self.smr_node_id)
+                    self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
+                except Exception as ex:
+                    self.log.error("Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
+                    return self.gen_error_response(e), False
                 
             if not self.synclog_stopped:
                 self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
@@ -435,17 +439,26 @@ class DistributedKernel(IPythonKernel):
     async def prepare_to_migrate(self):
         self.log.info("Preparing for migration of replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
         
-        if not self.synclog:
-            return 
+        # We don't want to remove this node from the SMR raft cluster when we shutdown the kernel, 
+        # as we're migrating the replica and want to reuse the ID when the raft process resumes
+        # on another node.
+        self.remove_on_shutdown = False 
         
-        self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
-        try:
-            await self.synclog.remove_node(self.smr_node_id)
-            self.synclog_removed = True 
-            self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
-        except Exception as e:
-            self.log.error("Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
-            return self.gen_error_response(e), False
+        if not self.synclog:
+            return
+        
+        # self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
+        # try:
+        #     await self.synclog.remove_node(self.smr_node_id)
+        #     self.synclog_removed = True 
+        #     self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
+        # except Exception as e:
+        #     self.log.error("Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
+        #     return self.gen_error_response(e), False
+        
+        #
+        # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
+        #
         
         self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
         try:
@@ -459,7 +472,7 @@ class DistributedKernel(IPythonKernel):
         try:
             data_dir_path = await self.synclog.write_data_dir_to_hdfs()
             self.log.info("Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % data_dir_path)
-            return {'status': 'ok', "data-dir": data_dir_path}, True
+            return {'status': 'ok', "data_directory": data_dir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
         except Exception as e:
             self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s", self.smr_node_id, self.kernel_id, str(e))
             return self.gen_error_response(e), False

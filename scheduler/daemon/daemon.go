@@ -333,14 +333,18 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		"replicas":    response.Replicas,
 	}
 
-	if response.PersistentId != nil {
+	if response.PersistentId != nil && response.GetPersistentId() != "" {
 		d.log.Debug("Including persistent store ID \"%s\" in notification response to replica %d of kernel %s.", response.GetPersistentId(), response.Id, kernel.ID())
 		payload["persistent_id"] = response.GetPersistentId()
+	} else {
+		d.log.Debug("No persistent ID to include in response.")
 	}
 
-	if response.DataDirectory != nil {
-		d.log.Debug("Including data directory \"%s\" in notification response to replica %d of kernel %s.", response.DataDirectory, response.Id, kernel.ID())
+	if response.DataDirectory != nil && response.GetDataDirectory() != "" {
+		d.log.Debug("Including data directory \"%s\" in notification response to replica %d of kernel %s.", response.GetDataDirectory(), response.Id, kernel.ID())
 		payload["data_directory"] = response.GetDataDirectory()
+	} else {
+		d.log.Debug("No data directory to include in response.")
 	}
 
 	payload_json, err := json.Marshal(payload)
@@ -409,14 +413,18 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 		var frames jupyter.JupyterFrames = msg.Frames
 		var dataDirectoryMessage types.MessageDataDirectory
 		if err := frames.Validate(); err != nil {
+			d.log.Error("Failed to validate frames of `MessageDataDirectory` message: %v", err)
 			return err
 		}
 		err := frames.DecodeContent(&dataDirectoryMessage)
 		if err != nil {
+			d.log.Error("Failed to decode content of `MessageDataDirectory` message: %v", err)
 			return err
 		}
 
 		dataDirectory = dataDirectoryMessage.DataDirectory
+
+		d.log.Debug("Data directory: %s", dataDirectory)
 
 		respWG.Done()
 		return nil

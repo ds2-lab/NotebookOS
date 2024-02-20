@@ -198,18 +198,24 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		num_changes:         0,
 		denied_changes:      0,
 		proposalRegistry:    hashmap.NewConcurrentMap[smrContext](32),
-		logger:              zap.NewExample(), // zap.NewExample(zap.IncreaseLevel(zapcore.DebugLevel)),
 		snapshotterReady:    make(chan LogSnapshotter, 1),
 		data_dir:            store_path,
 		hdfs_data_directory: hdfs_data_directory,
 		// rest of structure populated after WAL replay
 	}
+
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+	node.logger = logger
+
 	if store_path != "" {
 		node.waldir = path.Join(store_path, fmt.Sprintf("dnlog-%d", id))
 		node.snapdir = path.Join(store_path, fmt.Sprintf("dnlog-%d-snap", id))
 
-		node.logger.Info(fmt.Sprintf("LogNode %d WAL directory: \"%s\"", id, node.waldir))
-		node.logger.Info(fmt.Sprintf("LogNode %d Snapshot directory: \"%s\"", id, node.snapdir))
+		node.logger.Info(fmt.Sprintf("LogNode %d WAL directory: '%s'", id, node.waldir))
+		node.logger.Info(fmt.Sprintf("LogNode %d Snapshot directory: '%s'", id, node.snapdir))
 	}
 	testId, _ := node.patchPropose(nil)
 	node.proposalPadding = len(testId)
@@ -223,7 +229,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		node.peers[peer_id] = peer_addr
 	}
 
-	node.logger.Info(fmt.Sprintf("Connecting to HDFS at \"%s\"", hdfsHostname), zap.String("hostname", hdfsHostname))
+	node.logger.Info(fmt.Sprintf("Connecting to HDFS at '%s'", hdfsHostname), zap.String("hostname", hdfsHostname))
 
 	hdfsClient, err := hdfs.NewClient(hdfs.ClientOptions{
 		Addresses: []string{hdfsHostname},
@@ -235,7 +241,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		DatanodeDialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
 			port := strings.Split(address, ":")[1]                       // Get the port that the DataNode is using. Discard the IP address.
 			modified_address := fmt.Sprintf("%s:%s", "172.17.0.1", port) // Return the IP address that will enable the local k8s Pods to find the local DataNode.
-			node.logger.Info(fmt.Sprintf("Dialing HDFS DataNode. Original address \"%s\". Modified address: %s.\n", address, modified_address), zap.String("original_address", address), zap.String("modified_address", modified_address))
+			node.logger.Info(fmt.Sprintf("Dialing HDFS DataNode. Original address '%s'. Modified address: %s.\n", address, modified_address), zap.String("original_address", address), zap.String("modified_address", modified_address))
 			conn, err := (&net.Dialer{}).DialContext(ctx, network, modified_address)
 			if err != nil {
 				return nil, err
@@ -249,7 +255,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		node.logger.Panic("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname))
 	}
 
-	node.logger.Info(fmt.Sprintf("Successfully connected to HDFS at \"%s\"", hdfsHostname), zap.String("hostname", hdfsHostname))
+	node.logger.Info(fmt.Sprintf("Successfully connected to HDFS at '%s'", hdfsHostname), zap.String("hostname", hdfsHostname))
 	node.hdfsClient = hdfsClient
 
 	// TODO(Ben): Read the data directory from HDFS.
@@ -360,11 +366,6 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 		}
 	}
 	node.logger.Info("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
-	if msg == "add node" {
-		log.Printf("Value appended: \"add node\" (id: %s)\n", ctx.ID())
-	} else if msg == "remove node" {
-		log.Printf("Value appended: \"remove node\" (id: %s)\n", ctx.ID())
-	}
 	if resolve != nil {
 		resolve(msg, toCError(nil))
 	}
@@ -396,8 +397,14 @@ func (node *LogNode) WaitToClose() (lastErr error) {
 func (node *LogNode) Close() error {
 	node.close()
 
+	node.logger.Info("Waiting for Raft node to stop...")
+
 	// Wait for the goroutine to stop.
-	return node.WaitToClose()
+	lastErr := node.WaitToClose()
+
+	node.logger.Info("Closed LogNode.")
+
+	return lastErr
 }
 
 func (node *LogNode) close() {
@@ -442,11 +449,11 @@ func (node *LogNode) start() {
 		node.snapshotter = snap.New(zap.NewExample(), node.snapdir)
 	}
 
-	oldwal := false
+	oldWALExists := false
 	node.raftStorage = raft.NewMemoryStorage()
 	if node.isWALEnabled() {
-		oldwal = wal.Exist(node.waldir)
-		node.logger.Info(fmt.Sprintf("WAL is enabled. Old WAL available: %v.", node.waldir))
+		oldWALExists = wal.Exist(node.waldir)
+		node.logger.Info(fmt.Sprintf("WAL is enabled. Old WAL ('%s') available? %v .", node.waldir, oldWALExists))
 		node.wal = node.replayWAL()
 		if node.wal == nil {
 			return
@@ -472,7 +479,7 @@ func (node *LogNode) start() {
 		MaxUncommittedEntriesSize: 1 << 30,
 	}
 
-	if oldwal || node.join {
+	if oldWALExists || node.join {
 		node.node = raft.RestartNode(c)
 	} else {
 		node.node = raft.StartNode(c, rpeers)
@@ -545,37 +552,37 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 //
 // This assumes the HDFS path and the local path are identical.
 func (node *LogNode) ReadDataDirectoryFromHDFS() error {
-	node.logger.Info(fmt.Sprintf("Walking the HDFS data directory \"%s\"", node.hdfs_data_directory), zap.String("directory", node.hdfs_data_directory))
+	node.logger.Info(fmt.Sprintf("Walking the HDFS data directory '%s'", node.hdfs_data_directory), zap.String("directory", node.hdfs_data_directory))
 	walk_err := node.hdfsClient.Walk(node.hdfs_data_directory, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
-			node.logger.Info(fmt.Sprintf("Found remote directory \"%s\"", path), zap.String("directory", path))
+			node.logger.Info(fmt.Sprintf("Found remote directory '%s'", path), zap.String("directory", path))
 			err := os.MkdirAll(path, os.FileMode(int(0777)))
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create local directory \"%s\": %v", path, err), zap.String("directory", path), zap.Error(err))
+				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create local directory '%s': %v", path, err), zap.String("directory", path), zap.Error(err))
 				return err
 			}
 
-			node.logger.Info(fmt.Sprintf("Successfully created local directory \"%s\"", path), zap.String("directory", path))
+			node.logger.Info(fmt.Sprintf("Successfully created local directory '%s'", path), zap.String("directory", path))
 			// Convert the remote HDFS path to a local path based on the persistent store ID.
 		} else {
-			node.logger.Info(fmt.Sprintf("Found remote file \"%s\"", path), zap.String("file", path))
+			node.logger.Info(fmt.Sprintf("Found remote file '%s'", path), zap.String("file", path))
 			err := node.hdfsClient.CopyToLocal(path, path)
 
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.logger.Error(fmt.Sprintf("Exception encountered while trying to copy remote-to-local for file \"%s\": %v", path, err), zap.String("file", path), zap.Error(err))
+				node.logger.Error(fmt.Sprintf("Exception encountered while trying to copy remote-to-local for file '%s': %v", path, err), zap.String("file", path), zap.Error(err))
 				return err
 			}
 
-			node.logger.Info(fmt.Sprintf("Successfully copied remote HDFS file to local file system: \"%s\"", path), zap.String("file", path))
+			node.logger.Info(fmt.Sprintf("Successfully copied remote HDFS file to local file system: '%s'", path), zap.String("file", path))
 		}
 
 		return nil
 	})
 
 	if walk_err != nil {
-		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\"): %v", node.data_dir, walk_err), zap.Error(walk_err))
+		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory '%s'): %v", node.data_dir, walk_err), zap.Error(walk_err))
 		return walk_err
 	}
 
@@ -588,32 +595,32 @@ func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
 	walkdir_err := filepath.WalkDir(node.data_dir, func(path string, d os.DirEntry, err_arg error) error {
 		// Note: the first entry found is the base directory passed to filepath.WalkDir (node.data_dir in this case).
 		if d.IsDir() {
-			node.logger.Info(fmt.Sprintf("Found local directory \"%s\"", path), zap.String("directory", path))
+			node.logger.Info(fmt.Sprintf("Found local directory '%s'", path), zap.String("directory", path))
 			err := node.hdfsClient.MkdirAll(path, os.FileMode(int(0777)))
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\": %v", path, err), zap.String("directory", path), zap.Error(err))
+				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory '%s': %v", path, err), zap.String("directory", path), zap.Error(err))
 				return err
 			}
 
-			node.logger.Info(fmt.Sprintf("Successfully created HDFS directory \"%s\"", path), zap.String("directory", path))
+			node.logger.Info(fmt.Sprintf("Successfully created remote (HDFS) directory: '%s'", path), zap.String("directory", path))
 		} else {
-			node.logger.Info(fmt.Sprintf("Found local file \"%s\"", path), zap.String("file", path))
+			node.logger.Info(fmt.Sprintf("Found local file '%s'", path), zap.String("file", path))
 			err := node.hdfsClient.CopyToRemote(path, path)
 
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.logger.Error(fmt.Sprintf("Exception encountered while trying to copy local-to-remote for file \"%s\": %v", path, err), zap.String("file", path), zap.Error(err))
+				node.logger.Error(fmt.Sprintf("Exception encountered while trying to copy local-to-remote for file '%s': %v", path, err), zap.String("file", path), zap.Error(err))
 				return err
 			}
 
-			node.logger.Info(fmt.Sprintf("Successfully copied local file to HDFS: \"%s\"", path), zap.String("file", path))
+			node.logger.Info(fmt.Sprintf("Successfully copied local file to HDFS: '%s'", path), zap.String("file", path))
 		}
 		return nil
 	})
 
 	if walkdir_err != nil {
-		resolve(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\"): %v", node.data_dir, walkdir_err), toCError(walkdir_err))
+		resolve(fmt.Sprintf("Exception encountered while trying to create HDFS directory '%s'): %v", node.data_dir, walkdir_err), toCError(walkdir_err))
 		return
 	}
 
@@ -723,6 +730,7 @@ func (node *LogNode) isWALEnabled() bool {
 // openWAL returns a WAL ready for reading.
 func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 	if !wal.Exist(node.waldir) {
+		node.logger.Info(fmt.Sprintf("WAL directory \"%s\" does not already exist. Creating it now.", node.waldir), zap.String("directory", node.waldir))
 		if err := os.Mkdir(node.waldir, 0750); err != nil {
 			node.logFatalf("LogNode: cannot create dir for wal (%v)", err)
 			return nil
@@ -730,11 +738,11 @@ func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 
 		w, err := wal.Create(zap.NewExample(), node.waldir, nil)
 		if err != nil {
-			node.logFatalf("LogNode: create wal error (%v)", err)
+			node.logFatalf("LogNode: create WAL error (%v)", err)
 			return nil
 		}
 		w.Close()
-		node.logger.Info("Created wal direcotry", zap.String("uri", node.waldir))
+		node.logger.Info(fmt.Sprintf("Successfully created WAL direcotry: \"%s\"", node.waldir), zap.String("uri", node.waldir))
 	}
 
 	walsnap := walpb.Snapshot{}
@@ -751,6 +759,7 @@ func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 
 // replayWAL replays WAL entries into the raft instance.
 func (node *LogNode) replayWAL() *wal.WAL {
+	node.logger.Info("Replaying WAL now.")
 	snapshot := node.loadSnapshot()
 	// Restore kernal from snapshot
 	if snapshot != nil && !raft.IsEmptySnap(*snapshot) {
@@ -780,6 +789,8 @@ func (node *LogNode) replayWAL() *wal.WAL {
 
 	// append to storage so raft starts at the right place in log
 	node.raftStorage.Append(ents)
+
+	node.logger.Info("Finished replaying WAL.")
 
 	return w
 }
@@ -957,7 +968,7 @@ func (node *LogNode) serveChannels() {
 				} else {
 					confChangeCount++
 					cc.ConfChange.ID = confChangeCount
-					node.logger.Info("Proposing configuration change: %s", zap.String("conf-change", cc.ConfChange.String()))
+					node.logger.Info(fmt.Sprintf("Proposing configuration change: %s", cc.ConfChange.String()), zap.String("conf-change", cc.ConfChange.String()))
 					node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
 				}
 			}

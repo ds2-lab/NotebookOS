@@ -20,7 +20,8 @@ type MessageSMRReady struct {
 type MessageDataDirectory struct {
 	KernelId      string `json:"kernel_id"`
 	NodeID        int32  `json:"id"`
-	DataDirectory string `json:"data-dir"`
+	DataDirectory string `json:"data_directory"`
+	Status        string `json:"status"`
 }
 
 type MessageSMRNodeUpdated struct {
