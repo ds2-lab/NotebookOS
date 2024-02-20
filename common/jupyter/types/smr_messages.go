@@ -16,6 +16,12 @@ type MessageSMRReady struct {
 	PersistentID string `json:"persistent_id"`
 }
 
+type MessageDataDirectory struct {
+	KernelId      string `json:"kernel_id"`
+	NodeID        int32  `json:"id"`
+	DataDirectory string `json:"data-dir"`
+}
+
 type MessageSMRNodeUpdated struct {
 	MessageSMRReady
 	MessageSMRAddReplicaRequest

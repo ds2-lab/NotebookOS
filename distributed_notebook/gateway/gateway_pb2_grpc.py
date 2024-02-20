@@ -298,7 +298,7 @@ class LocalGatewayStub(object):
         self.PrepareToMigrate = channel.unary_unary(
                 '/gateway.LocalGateway/PrepareToMigrate',
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
-                response_deserializer=gateway__pb2.Void.FromString,
+                response_deserializer=gateway__pb2.PrepareToMigrateResponse.FromString,
                 )
 
 
@@ -429,7 +429,7 @@ def add_LocalGatewayServicer_to_server(servicer, server):
             'PrepareToMigrate': grpc.unary_unary_rpc_method_handler(
                     servicer.PrepareToMigrate,
                     request_deserializer=gateway__pb2.ReplicaInfo.FromString,
-                    response_serializer=gateway__pb2.Void.SerializeToString,
+                    response_serializer=gateway__pb2.PrepareToMigrateResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -608,6 +608,6 @@ class LocalGateway(object):
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/PrepareToMigrate',
             gateway__pb2.ReplicaInfo.SerializeToString,
-            gateway__pb2.Void.FromString,
+            gateway__pb2.PrepareToMigrateResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

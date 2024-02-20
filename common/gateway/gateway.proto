@@ -77,7 +77,7 @@ service LocalGateway {
   // Used to instruct a specific kernel replica to prepare to be migrated to a new node.
   // This involves writing the contents of the etcd-raft data directory to HDFS so that
   // it can be read back from HDFS by the new replica.
-  rpc PrepareToMigrate(ReplicaInfo) returns (Void) {}
+  rpc PrepareToMigrate(ReplicaInfo) returns (PrepareToMigrateResponse) {}
 }
 
 // The input for starting a kernel replica.
@@ -120,6 +120,12 @@ message SmrReadyNotification {
 // The replica id.
 message ReplicaId {
   int32 id = 1;
+}
+
+message PrepareToMigrateResponse {
+  int32 id = 1;
+  string kernelId = 2;
+  string dataDir = 3;
 }
 
 message MigrateKernelResponse {
@@ -173,6 +179,7 @@ message KernelRegistrationNotificationResponse {
   map<int32,string> replicas = 2;
   optional string persistentId = 3;
   int32 smrPort = 4;
+  optional string dataDirectory = 5;
 }
 
 // The status of a kernel.

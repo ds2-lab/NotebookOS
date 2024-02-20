@@ -349,7 +349,7 @@ type LocalGatewayClient interface {
 	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
 	// This involves writing the contents of the etcd-raft data directory to HDFS so that
 	// it can be read back from HDFS by the new replica.
-	PrepareToMigrate(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
+	PrepareToMigrate(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*PrepareToMigrateResponse, error)
 }
 
 type localGatewayClient struct {
@@ -441,8 +441,8 @@ func (c *localGatewayClient) AddReplica(ctx context.Context, in *ReplicaInfoWith
 	return out, nil
 }
 
-func (c *localGatewayClient) PrepareToMigrate(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error) {
-	out := new(Void)
+func (c *localGatewayClient) PrepareToMigrate(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*PrepareToMigrateResponse, error) {
+	out := new(PrepareToMigrateResponse)
 	err := c.cc.Invoke(ctx, LocalGateway_PrepareToMigrate_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -475,7 +475,7 @@ type LocalGatewayServer interface {
 	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
 	// This involves writing the contents of the etcd-raft data directory to HDFS so that
 	// it can be read back from HDFS by the new replica.
-	PrepareToMigrate(context.Context, *ReplicaInfo) (*Void, error)
+	PrepareToMigrate(context.Context, *ReplicaInfo) (*PrepareToMigrateResponse, error)
 	mustEmbedUnimplementedLocalGatewayServer()
 }
 
@@ -510,7 +510,7 @@ func (UnimplementedLocalGatewayServer) SetClose(context.Context, *Void) (*Void, 
 func (UnimplementedLocalGatewayServer) AddReplica(context.Context, *ReplicaInfoWithAddr) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddReplica not implemented")
 }
-func (UnimplementedLocalGatewayServer) PrepareToMigrate(context.Context, *ReplicaInfo) (*Void, error) {
+func (UnimplementedLocalGatewayServer) PrepareToMigrate(context.Context, *ReplicaInfo) (*PrepareToMigrateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrepareToMigrate not implemented")
 }
 func (UnimplementedLocalGatewayServer) mustEmbedUnimplementedLocalGatewayServer() {}

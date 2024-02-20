@@ -334,7 +334,13 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	if response.PersistentId != nil {
+		d.log.Debug("Including persistent store ID \"%s\" in notification response to replica %d of kernel %s.", response.GetPersistentId(), response.Id, kernel.ID())
 		payload["persistent_id"] = response.GetPersistentId()
+	}
+
+	if response.DataDirectory != nil {
+		d.log.Debug("Including data directory \"%s\" in notification response to replica %d of kernel %s.", response.DataDirectory, response.Id, kernel.ID())
+		payload["data_directory"] = response.GetDataDirectory()
 	}
 
 	payload_json, err := json.Marshal(payload)
@@ -371,14 +377,14 @@ func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
 	}
 }
 
-func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.ReplicaInfo) (*gateway.Void, error) {
+func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.ReplicaInfo) (*gateway.PrepareToMigrateResponse, error) {
 	kernelId := req.KernelId
 	replicaId := req.ReplicaId
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find KernelClient for kernel %s.", kernelId)
-		return gateway.VOID, ErrInvalidParameter
+		return nil, ErrInvalidParameter
 	}
 
 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypePrepareToMigrateRequest, kernel.Sessions()[0])
@@ -388,20 +394,45 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 	})
 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		d.log.Error("Error occurred while signing frames for prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
-		return gateway.VOID, err
+		return nil, err
 	}
 
 	msg := &zmq4.Msg{Frames: frames}
-	var wg sync.WaitGroup
-	wg.Add(1)
-	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, wg.Done, server.DefaultRequestTimeout)
+	var requestWG sync.WaitGroup
+	var respWG sync.WaitGroup
+	requestWG.Add(1)
+	respWG.Add(1)
+	var dataDirectory string // TODO(Ben): Assign this a value.
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+		d.log.Debug("Received response from 'prepare-to-migrate' request.")
+
+		var frames jupyter.JupyterFrames = msg.Frames
+		var dataDirectoryMessage types.MessageDataDirectory
+		if err := frames.Validate(); err != nil {
+			return err
+		}
+		err := frames.DecodeContent(&dataDirectoryMessage)
+		if err != nil {
+			return err
+		}
+
+		dataDirectory = dataDirectoryMessage.DataDirectory
+
+		respWG.Done()
+		return nil
+	}, requestWG.Done, server.DefaultRequestTimeout)
 	if err != nil {
 		d.log.Error("Error occurred while issuing prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
-		return gateway.VOID, err
+		return nil, err
 	}
-	wg.Wait()
+	requestWG.Wait()
+	respWG.Wait()
 
-	return gateway.VOID, nil
+	return &gateway.PrepareToMigrateResponse{
+		Id:       replicaId,
+		KernelId: kernelId,
+		DataDir:  dataDirectory,
+	}, nil
 }
 
 func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.ReplicaInfoWithAddr) (*gateway.Void, error) {

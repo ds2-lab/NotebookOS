@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -127,11 +128,14 @@ type LogNode struct {
 
 	hdfsClient *hdfs.Client // HDFS client for reading/writing the data directory during migrations.
 
-	id      int            // Client ID for raft session
-	peers   map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1.
-	join    bool           // Node is joining an existing cluster
-	waldir  string         // Path to WAL directory
-	snapdir string         // Path to snapshot directory
+	id    int            // Client ID for raft session
+	peers map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1.
+	join  bool           // Node is joining an existing cluster
+
+	waldir              string // Path to WAL directory
+	snapdir             string // Path to snapshot directory
+	data_dir            string // The raft data directory.
+	hdfs_data_directory string // The location of the backed-up data directory within HDFS. If it is the empty string, then it is invalid.
 
 	confState        raftpb.ConfState
 	snapshotIndex    uint64
@@ -169,7 +173,11 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
-func NewLogNode(store_path string, id int, hdfsHostname string, peerAddresses []string, peerIDs []int, join bool) *LogNode {
+//
+// The store_path is used as the actual data directory.
+// hdfs_data_directory is (possibly) the path to the data directory within HDFS, meaning
+// we were migrated and our data directory was written to HDFS so that we could retrieve it.
+func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_directory string, peerAddresses []string, peerIDs []int, join bool) *LogNode {
 	if len(peerAddresses) != len(peerIDs) {
 		log.Fatalf("Received unequal number of peer addresses (%d) and peer node IDs (%d). They must be equal.\n", len(peerAddresses), len(peerIDs))
 	}
@@ -177,21 +185,23 @@ func NewLogNode(store_path string, id int, hdfsHostname string, peerAddresses []
 	fmt.Printf("Creating a new LogNode.\n")
 
 	node := &LogNode{
-		proposeC:         make(chan *proposalContext),
-		confChangeC:      make(chan *confChangeContext),
-		commitC:          make(chan *commit),
-		errorC:           make(chan error, 1),
-		id:               id,
-		join:             join,
-		snapCount:        defaultSnapshotCount,
-		stopc:            make(chan struct{}),
-		httpstopc:        make(chan struct{}),
-		httpdonec:        make(chan struct{}),
-		num_changes:      0,
-		denied_changes:   0,
-		proposalRegistry: hashmap.NewConcurrentMap[smrContext](32),
-		logger:           zap.NewExample(), // zap.NewExample(zap.IncreaseLevel(zapcore.DebugLevel)),
-		snapshotterReady: make(chan LogSnapshotter, 1),
+		proposeC:            make(chan *proposalContext),
+		confChangeC:         make(chan *confChangeContext),
+		commitC:             make(chan *commit),
+		errorC:              make(chan error, 1),
+		id:                  id,
+		join:                join,
+		snapCount:           defaultSnapshotCount,
+		stopc:               make(chan struct{}),
+		httpstopc:           make(chan struct{}),
+		httpdonec:           make(chan struct{}),
+		num_changes:         0,
+		denied_changes:      0,
+		proposalRegistry:    hashmap.NewConcurrentMap[smrContext](32),
+		logger:              zap.NewExample(), // zap.NewExample(zap.IncreaseLevel(zapcore.DebugLevel)),
+		snapshotterReady:    make(chan LogSnapshotter, 1),
+		data_dir:            store_path,
+		hdfs_data_directory: hdfs_data_directory,
 		// rest of structure populated after WAL replay
 	}
 	if store_path != "" {
@@ -242,8 +252,10 @@ func NewLogNode(store_path string, id int, hdfsHostname string, peerAddresses []
 	node.logger.Info(fmt.Sprintf("Successfully connected to HDFS at \"%s\"", hdfsHostname), zap.String("hostname", hdfsHostname))
 	node.hdfsClient = hdfsClient
 
-	// For testing... try to create the WAL directory in HDFS.
-	// node.hdfsClient.MkdirAll(node.waldir, os.FileMode(int(0777)))
+	// TODO(Ben): Read the data directory from HDFS.
+	if hdfs_data_directory != "" {
+		node.ReadDataDirectoryFromHDFS()
+	}
 
 	return node
 }
@@ -512,26 +524,39 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 	return nents
 }
 
-// Write the data directory for this Raft node to HDFS.
-func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
-	// Create the WAL directory in HDFS. We preserve the file structure for simplicity.
-	// node.logger.Info(fmt.Sprintf("Creating HDFS directory \"%s\" now.", node.waldir), zap.String("directory", node.waldir))
-	// err := node.hdfsClient.MkdirAll(node.waldir, os.FileMode(int(0777)))
-	// if err != nil {
-	// 	// `MkdirAll` returns nil if directory exists. So, if there's an error, then something actually went wrong.
-	// 	// (That is, it's not just that the directory already existed.)
-	// 	node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\" (for WAL dir): %v", node.waldir, err), zap.String("directory", node.waldir), zap.Error(err))
-	// 	resolve(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\" (for WAL dir): %v", node.waldir, err), toCError(err))
-	// 	return
-	// }
-	// node.logger.Info(fmt.Sprintf("Successfully created HDFS directory \"%s\"", node.waldir), zap.String("directory", node.waldir))
+// Read the data directory for this Raft node back from HDFS to local storage.
+//
+// In theory, the local filepath and HDFS filepath will be identical. But I am writing this such that they don't have to be.
+// What needs to be identical is the persistent ID, as the directory whose name is the persistent ID is itself the data directory.
+//
+// So, if the current local configuration has the data directory at:
+// /storage/persistent-storage/<persistent store ID>
+//
+// And the HDFS data directory path is:
+// /storage/store/<persistent store ID>
+//
+// Then we just copy the remote files into the /storage/persistent-storage/<persistent store ID> directory.
+func (node *LogNode) ReadDataDirectoryFromHDFS() {
+	node.logger.Info(fmt.Sprintf("Walking the HDFS data directory \"%s\"", node.hdfs_data_directory), zap.String("directory", node.hdfs_data_directory))
+	node.hdfsClient.Walk(node.hdfs_data_directory, func(path string, info fs.FileInfo, err error) error {
+		if info.IsDir() {
+			node.logger.Info(fmt.Sprintf("Found remote directory \"%s\"", path), zap.String("directory", path))
+		} else {
+			node.logger.Info(fmt.Sprintf("Found remote file \"%s\"", path), zap.String("file", path))
+		}
 
+		return nil
+	})
+}
+
+// Write the data directory for this Raft node from local storage to HDFS.
+func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
 	// Walk through the entire etcd-raft data directory, copying each file one-at-a-time to HDFS.
-	walkdir_err := filepath.WalkDir(node.waldir, func(path string, d os.DirEntry, err_arg error) error {
-		// Note: the first entry found is the base directory passed to filepath.WalkDir (node.waldir in this case).
+	walkdir_err := filepath.WalkDir(node.data_dir, func(path string, d os.DirEntry, err_arg error) error {
+		// Note: the first entry found is the base directory passed to filepath.WalkDir (node.data_dir in this case).
 		if d.IsDir() {
-			node.logger.Info(fmt.Sprintf("Found directory \"%s\"", path), zap.String("directory", path))
-			err := node.hdfsClient.MkdirAll(node.waldir, os.FileMode(int(0777)))
+			node.logger.Info(fmt.Sprintf("Found local directory \"%s\"", path), zap.String("directory", path))
+			err := node.hdfsClient.MkdirAll(node.data_dir, os.FileMode(int(0777)))
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
 				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\": %v", path, err), zap.String("directory", path), zap.Error(err))
@@ -540,7 +565,7 @@ func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
 
 			node.logger.Info(fmt.Sprintf("Successfully created HDFS directory \"%s\"", path), zap.String("directory", path))
 		} else {
-			node.logger.Info(fmt.Sprintf("Found file \"%s\"", path), zap.String("file", path))
+			node.logger.Info(fmt.Sprintf("Found local file \"%s\"", path), zap.String("file", path))
 			err := node.hdfsClient.CopyToRemote(path, path)
 
 			if err != nil {
@@ -549,18 +574,18 @@ func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
 				return err
 			}
 
-			node.logger.Info(fmt.Sprintf("Successfully copied file to HDFS: \"%s\"", path), zap.String("file", path))
+			node.logger.Info(fmt.Sprintf("Successfully copied local file to HDFS: \"%s\"", path), zap.String("file", path))
 		}
 		return nil
 	})
 
 	if walkdir_err != nil {
-		resolve(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\"): %v", node.waldir, walkdir_err), toCError(walkdir_err))
+		resolve(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\"): %v", node.data_dir, walkdir_err), toCError(walkdir_err))
 		return
 	}
 
 	if resolve != nil {
-		resolve(fmt.Sprintf("copied data directory for replica %d", node.id), toCError(nil))
+		resolve(node.data_dir, toCError(nil))
 	}
 }
 

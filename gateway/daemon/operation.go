@@ -20,13 +20,14 @@ type addReplicaOperationImpl struct {
 	persistentId      string                          // Persistent ID of replica.
 	replicaHostname   string                          // The IP address of the new replica.
 	spec              *gateway.KernelReplicaSpec      // Spec for the new replica that is created during the add operation.
+	dataDirectory     string                          // Path to etcd-raft data directory in HDFS.
 
 	podStartedChannel        chan string   // Used to notify that the new Pod has started.
 	replicaRegisteredChannel chan struct{} // Used to notify that the new replica has registered with the Gateway.
 	replicaJoinedSmrChannel  chan struct{} // Used to notify that the new replica has joined its SMR cluster.
 }
 
-func NewAddReplicaOperation(client *client.DistributedKernelClient, spec *gateway.KernelReplicaSpec) AddReplicaOperation {
+func NewAddReplicaOperation(client *client.DistributedKernelClient, spec *gateway.KernelReplicaSpec, dataDirectory string) AddReplicaOperation {
 	op := &addReplicaOperationImpl{
 		id:                       uuid.New().String(),
 		client:                   client,
@@ -37,12 +38,18 @@ func NewAddReplicaOperation(client *client.DistributedKernelClient, spec *gatewa
 		podStarted:               false,
 		replicaJoinedSMR:         false,
 		replicaRegistered:        false,
+		dataDirectory:            dataDirectory,
 		podStartedChannel:        make(chan string, 1),
 		replicaRegisteredChannel: make(chan struct{}, 1),
 		replicaJoinedSmrChannel:  make(chan struct{}, 1),
 	}
 
 	return op
+}
+
+// Return the path to etcd-raft data directory in HDFS.
+func (op *addReplicaOperationImpl) DataDirectory() string {
+	return op.dataDirectory
 }
 
 // ToString

@@ -73,6 +73,10 @@ class DistributedKernel(IPythonKernel):
     kernel_id: Union[str, Unicode] = Unicode(
         help = """The ID of the kernel."""
     ).tag(config = False)
+    
+    data_directory: Union[str, Unicode] = Unicode(
+        help = """The etcd-raft WAL/data directory. This will always be equal to the empty string unless we're created during a migration operation."""
+    ).tag(config = False)
 
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
@@ -141,6 +145,8 @@ class DistributedKernel(IPythonKernel):
         self.log.info("HDFS NameNode hostname: \"%s\"" % self.hdfs_namenode_hostname)
         
         self.persistent_store_cv = asyncio.Condition()
+        # Initialize to this. If we're part of a migration operation, then it will be set when we register with the local daemon.
+        self.data_directory = "" 
         
         connection_info = None 
         try:
@@ -219,26 +225,15 @@ class DistributedKernel(IPythonKernel):
             self.log.info("Received persistent ID from registration: \"%s\"" % response_dict["persistent_id"])
             self.log.info("I must be part of a migration operation!")
             self.persistent_id = response_dict["persistent_id"]
+        
+        if "data_directory" in response_dict:
+            self.log.info("Received path to data directory in HDFS from registration: \"%s\"" % response_dict["data_directory"])
+            self.data_directory = response_dict["data_directory"]
             
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
         
-        # assert(self.smr_nodes[self.smr_node_id - 1] == (self.hostname + ":" + str(self.smr_port)))
         assert(self.smr_nodes_map[self.smr_node_id] == (self.hostname + ":" + str(self.smr_port)))
-        
-        # my_hostname = self.hostname + ":8080"
-        # # We may need to rearrange the SMR node list, depending on whether our IP is in the correct slot (relative to our SMR node ID).
-        # try:
-        #     idx = self.smr_nodes.index(my_hostname)
-        # except ValueError:
-        #     self.log.error("Expected to find hostname \"%s\" in SMR Nodes list. SMR Nodes list: %s" % (my_hostname, self.smr_nodes))
-        #     exit(1)
-        
-        # # Rearrange the SMR Nodes, as our hostname is not in the correct position.
-        # if idx != self.smr_node_id - 1:
-        #     tmp = self.smr_nodes[self.smr_node_id - 1]
-        #     self.smr_nodes[self.smr_node_id - 1] = my_hostname
-        #     self.smr_nodes[idx] = tmp 
         
         self.daemon_registration_socket.close()
     
@@ -253,10 +248,6 @@ class DistributedKernel(IPythonKernel):
             asyncio.run_coroutine_threadsafe(
                 self.init_persistent_store_on_start(self.persistent_id), self.control_thread.io_loop.asyncio_loop # type: ignore
             )
-
-    # # async def wait_and_close(self):
-    # #     await asyncio.sleep(30)
-    # #     self.synchronizer.close()
 
     async def init_persistent_store_on_start(self, persistent_id: str):
         self.log.info("Initializing Persistent Store on start, as persistent ID is available: \"%s\"" % persistent_id)
@@ -436,9 +427,9 @@ class DistributedKernel(IPythonKernel):
             return self.gen_error_response(e), False
        
         try:
-            await self.synclog.write_data_dir_to_hdfs()
-            self.log.info("Wrote etcd-Raft data directory to HDFS.")
-            return {'status': 'ok'}, True
+            data_dir_path = await self.synclog.write_data_dir_to_hdfs()
+            self.log.info("Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % data_dir_path)
+            return {'status': 'ok', "data-dir": data_dir_path}, True
         except Exception as e:
             self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s", self.smr_node_id, self.kernel_id, str(e))
             return self.gen_error_response(e), False
@@ -505,12 +496,10 @@ class DistributedKernel(IPythonKernel):
                 self.log.debug("Persistent store is not ready yet. Waiting to handle 'add-replica' request.")
                 await self.persistent_store_cv.wait()
         
-        val = await self.prepare_to_migrate()
+        content, success = await self.prepare_to_migrate()
         
-        if inspect.isawaitable(val):
-            content, success = await val
-        else:
-            content, success = val
+        if not success:
+            self.log.error("Failed to prepare to migrate...")
         
         self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident)
     
@@ -609,7 +598,7 @@ class DistributedKernel(IPythonKernel):
         
         self.log.debug("Creating RaftLog now.")
         try:
-            self.synclog = RaftLog(store, self.smr_node_id, self.hdfs_namenode_hostname, addrs, ids, join=self.smr_join)
+            self.synclog = RaftLog(store, self.smr_node_id, self.hdfs_namenode_hostname, self.data_directory, addrs, ids, join=self.smr_join)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
             exit(1) 
