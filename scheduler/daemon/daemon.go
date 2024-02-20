@@ -435,6 +435,41 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 	}, nil
 }
 
+func (d *SchedulerDaemon) UpdateReplicaAddr(ctx context.Context, req *gateway.ReplicaInfoWithAddr) (*gateway.Void, error) {
+	kernelId := req.KernelId
+	hostname := req.Hostname // The new hostname of the replica.
+	replicaId := req.Id
+
+	kernel, ok := d.kernels.Load(kernelId)
+	if !ok {
+		d.log.Error("Could not find KernelClient for kernel %s.", kernelId)
+		return gateway.VOID, ErrInvalidParameter
+	}
+
+	d.log.Debug("Informing replicas of kernel %s to update address of replica %d to %s.", kernelId, replicaId, hostname)
+	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeUpdateReplicaRequest, kernel.Sessions()[0])
+	frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
+		NodeID:  replicaId,
+		Address: hostname,
+	})
+	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+		d.log.Error("Error occurred while signing frames for update-replica request to kernel %s: %v", kernelId, err)
+		return gateway.VOID, err
+	}
+
+	msg := &zmq4.Msg{Frames: frames}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, wg.Done, server.DefaultRequestTimeout)
+	if err != nil {
+		d.log.Error("Error occurred while issuing update-replica request to kernel %s: %v", kernelId, err)
+		return gateway.VOID, err
+	}
+	wg.Wait()
+
+	return gateway.VOID, nil
+}
+
 func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.ReplicaInfoWithAddr) (*gateway.Void, error) {
 	kernelId := req.KernelId
 	hostname := req.Hostname

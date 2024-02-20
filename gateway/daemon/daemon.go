@@ -475,10 +475,46 @@ func (d *GatewayDaemon) issuePrepareMigrateRequest(kernelId string, nodeId int32
 	return dataDirectory
 }
 
-// Issue an 'add-replica' request to a random replica of a specific kernel, informing that kernel and its peers
+// Issue an 'update-replica' request to a random replica of a specific kernel, informing that replica and its peers
+// that the replica with ID = `nodeId` has a new peer address, namely `newAddress`.
+func (d *GatewayDaemon) issueUpdateReplicaRequest(kernelId string, nodeId int32, newAddress string) {
+	d.log.Info("Issuing 'update-replica' request to kernel %s for replica %d, newAddr = %s.", kernelId, nodeId, newAddress)
+
+	kernelClient, ok := d.kernels.Load(kernelId)
+	if !ok {
+		panic(fmt.Sprintf("Could not find distributed kernel client with ID %s.", kernelId))
+	}
+
+	targetReplica := kernelClient.GetReadyReplica()
+	if targetReplica == nil {
+		panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernelId))
+	}
+
+	host := targetReplica.Context().Value(client.CtxKernelHost).(core.Host)
+	if host == nil {
+		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
+	}
+
+	d.log.Debug("Issuing UpdateReplicaAddr RPC for replica %d of kernel %s.", nodeId, kernelId)
+	replicaInfo := &gateway.ReplicaInfoWithAddr{
+		Id:       nodeId,
+		KernelId: kernelId,
+		Hostname: fmt.Sprintf("%s:%d", newAddress, d.smrPort),
+	}
+
+	// Issue the 'update-replica' request. We panic if there was an error.
+	if _, err := host.UpdateReplicaAddr(context.TODO(), replicaInfo); err != nil {
+		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
+	}
+
+	d.log.Debug("Sucessfully updated peer address of replica %d of kernel %s to %s.", nodeId, kernelId, newAddress)
+	time.Sleep(time.Second * 5)
+}
+
+// Issue an 'add-replica' request to a random replica of a specific kernel, informing that replica and its peers
 // to add a new replica to the cluster (with ID `nodeId`).
 func (d *GatewayDaemon) issueAddNodeRequest(kernelId string, nodeId int32, address string) {
-	d.log.Info("Issuing 'add-replica' request to kernel %s fir new replica %d.", kernelId, nodeId)
+	d.log.Info("Issuing 'add-replica' request to kernel %s for replica %d.", kernelId, nodeId)
 
 	kernelClient, ok := d.kernels.Load(kernelId)
 	if !ok {
@@ -712,8 +748,10 @@ func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *
 
 	addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
 
+	d.issueUpdateReplicaRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
+
 	// Issue the AddNode request now, so that the node can join when it starts up.
-	d.issueAddNodeRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
+	// d.issueAddNodeRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
 
 	d.log.Debug("Done handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)
 

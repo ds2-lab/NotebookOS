@@ -74,6 +74,10 @@ service LocalGateway {
   // Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
   rpc AddReplica(ReplicaInfoWithAddr) returns (Void) {}
 
+  // Used to instruct a set of kernel replicas to update the peer address of a particular node.
+  // This is primarily used during migrations.
+  rpc UpdateReplicaAddr(ReplicaInfoWithAddr) returns (Void) {}
+
   // Used to instruct a specific kernel replica to prepare to be migrated to a new node.
   // This involves writing the contents of the etcd-raft data directory to HDFS so that
   // it can be read back from HDFS by the new replica.

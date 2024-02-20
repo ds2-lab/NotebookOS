@@ -295,6 +295,11 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
+        self.UpdateReplicaAddr = channel.unary_unary(
+                '/gateway.LocalGateway/UpdateReplicaAddr',
+                request_serializer=gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
         self.PrepareToMigrate = channel.unary_unary(
                 '/gateway.LocalGateway/PrepareToMigrate',
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
@@ -369,6 +374,14 @@ class LocalGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def UpdateReplicaAddr(self, request, context):
+        """Used to instruct a set of kernel replicas to update the peer address of a particular node.
+        This is primarily used during migrations.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def PrepareToMigrate(self, request, context):
         """Used to instruct a specific kernel replica to prepare to be migrated to a new node.
         This involves writing the contents of the etcd-raft data directory to HDFS so that
@@ -423,6 +436,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
             ),
             'AddReplica': grpc.unary_unary_rpc_method_handler(
                     servicer.AddReplica,
+                    request_deserializer=gateway__pb2.ReplicaInfoWithAddr.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'UpdateReplicaAddr': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateReplicaAddr,
                     request_deserializer=gateway__pb2.ReplicaInfoWithAddr.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
@@ -590,6 +608,23 @@ class LocalGateway(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/AddReplica',
+            gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def UpdateReplicaAddr(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/UpdateReplicaAddr',
             gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
             gateway__pb2.Void.FromString,
             options, channel_credentials,

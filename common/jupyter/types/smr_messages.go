@@ -9,6 +9,7 @@ const (
 
 	MessageTypeSMRLeadTask             = "smr_lead_task"
 	MessageTypeAddReplicaRequest       = "add_replica_request"
+	MessageTypeUpdateReplicaRequest    = "update_replica_request"
 	MessageTypePrepareToMigrateRequest = "prepare_to_migrate_request"
 )
 

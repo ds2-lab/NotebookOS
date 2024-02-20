@@ -331,7 +331,7 @@ func (node *LogNode) RemoveNode(id int, resolve ResolveCallback) {
 }
 
 func (node *LogNode) UpdateNode(id int, addr string, resolve ResolveCallback) {
-	log.Printf("Proposing an update for node %d\n", id)
+	log.Printf("Proposing an update for node %d to be at address %s\n", id, addr)
 	ctx := node.generateConfChange(&raftpb.ConfChange{
 		Type:    raftpb.ConfChangeUpdateNode,
 		NodeID:  uint64(id),
