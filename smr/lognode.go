@@ -20,14 +20,17 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/colinmarc/hdfs"
+	"github.com/colinmarc/hdfs/v2"
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
@@ -187,9 +190,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, peerAddresses []
 		num_changes:      0,
 		denied_changes:   0,
 		proposalRegistry: hashmap.NewConcurrentMap[smrContext](32),
-
-		logger: zap.NewExample(zap.IncreaseLevel(zapcore.DebugLevel)),
-
+		logger:           zap.NewExample(), // zap.NewExample(zap.IncreaseLevel(zapcore.DebugLevel)),
 		snapshotterReady: make(chan LogSnapshotter, 1),
 		// rest of structure populated after WAL replay
 	}
@@ -208,16 +209,41 @@ func NewLogNode(store_path string, id int, hdfsHostname string, peerAddresses []
 		peer_addr := peerAddresses[i]
 		peer_id := peerIDs[i]
 
-		node.logger.Debug("Discovered peer.", zap.String("peer_address", peer_addr), zap.Int("peer_id", peer_id))
+		node.logger.Info("Discovered peer.", zap.String("peer_address", peer_addr), zap.Int("peer_id", peer_id))
 		node.peers[peer_id] = peer_addr
 	}
 
-	hdfsClient, err := hdfs.New(hdfsHostname)
+	node.logger.Info(fmt.Sprintf("Connecting to HDFS at \"%s\"", hdfsHostname), zap.String("hostname", hdfsHostname))
+
+	hdfsClient, err := hdfs.NewClient(hdfs.ClientOptions{
+		Addresses: []string{hdfsHostname},
+		User:      "jovyan",
+		// Temporary work-around to deal with Kubernetes networking issues with HDFS.
+		// The HDFS NameNode returns the IP for the client to use to connect to the DataNode for reading/writing file blocks.
+		// At least for development/testing, I am using a local Kubernetes cluster and a local HDFS deployment.
+		// So, the HDFS NameNode returns the local IP address. But since Kubernetes Pods have their own local host, they cannot use this to connect to the HDFS DataNode.
+		DatanodeDialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
+			port := strings.Split(address, ":")[1]                       // Get the port that the DataNode is using. Discard the IP address.
+			modified_address := fmt.Sprintf("%s:%s", "172.17.0.1", port) // Return the IP address that will enable the local k8s Pods to find the local DataNode.
+			node.logger.Info(fmt.Sprintf("Dialing HDFS DataNode. Original address \"%s\". Modified address: %s.\n", address, modified_address), zap.String("original_address", address), zap.String("modified_address", modified_address))
+			conn, err := (&net.Dialer{}).DialContext(ctx, network, modified_address)
+			if err != nil {
+				return nil, err
+			}
+
+			return conn, nil
+		},
+	})
 	if err != nil {
+		node.logger.Error("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname))
 		node.logger.Panic("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname))
 	}
 
+	node.logger.Info(fmt.Sprintf("Successfully connected to HDFS at \"%s\"", hdfsHostname), zap.String("hostname", hdfsHostname))
 	node.hdfsClient = hdfsClient
+
+	// For testing... try to create the WAL directory in HDFS.
+	// node.hdfsClient.MkdirAll(node.waldir, os.FileMode(int(0777)))
 
 	return node
 }
@@ -247,21 +273,21 @@ func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
 
 // func (node *LogNode) propose(val []byte, resolve ResolveCallback, msg string) {
 // 	_, ctx := node.generateProposal(val, ProposalDeadline)
-// 	node.logger.Debug("Appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
+// 	node.logger.Info("Appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
 // 	if err := node.sendProposal(ctx); err != nil {
 // 		resolve(msg, toCError(err))
 // 		return
 // 	}
 // 	// Wait for committed or retry
 // 	for !node.waitProposal(ctx) {
-// 		node.logger.Debug("Retry appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
+// 		node.logger.Info("Retry appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
 // 		ctx.Reset(ProposalDeadline)
 // 		if err := node.sendProposal(ctx); err != nil {
 // 			resolve(msg, toCError(err))
 // 			return
 // 		}
 // 	}
-// 	node.logger.Debug("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
+// 	node.logger.Info("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
 // 	if resolve != nil {
 // 		resolve(msg, toCError(nil))
 // 	}
@@ -291,21 +317,21 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 		resolve = node.defaultResolveCallback
 	}
 
-	node.logger.Debug("Appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
+	node.logger.Info("Appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if err := proposer(ctx); err != nil {
 		resolve(msg, toCError(err))
 		return
 	}
 	// Wait for committed or retry
 	for !node.waitProposal(ctx) {
-		node.logger.Debug("Retry appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
+		node.logger.Info("Retry appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
 		ctx.Reset(ProposalDeadline)
 		if err := proposer(ctx); err != nil {
 			resolve(msg, toCError(err))
 			return
 		}
 	}
-	node.logger.Debug("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
+	node.logger.Info("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if msg == "add node" {
 		log.Printf("Value appended: \"add node\" (id: %s)\n", ctx.ID())
 	} else if msg == "remove node" {
@@ -347,7 +373,7 @@ func (node *LogNode) Close() error {
 }
 
 func (node *LogNode) close() {
-	node.logger.Debug("Closing nodes...")
+	node.logger.Info("Closing nodes...")
 	// Clear node channels
 	proposeC, confChangeC := node.proposeC, node.confChangeC
 	node.proposeC, node.confChangeC = nil, nil
@@ -488,21 +514,53 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 
 // Write the data directory for this Raft node to HDFS.
 func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
-	var hdfsDirPath string = fmt.Sprintf("/data-directories/data-directory-%d", node.id)
-
-	node.logger.Debug(fmt.Sprintf("Writing data directory \"%s\" to HDFS at path \"%s\" now.", node.waldir, hdfsDirPath), zap.String("data-directory", node.waldir), zap.String("hdfs-directory", hdfsDirPath))
-
-	// err := node.hdfsClient.MkdirAll(hdfsDirPath, os.FileMode(int(0777)))
+	// Create the WAL directory in HDFS. We preserve the file structure for simplicity.
+	// node.logger.Info(fmt.Sprintf("Creating HDFS directory \"%s\" now.", node.waldir), zap.String("directory", node.waldir))
+	// err := node.hdfsClient.MkdirAll(node.waldir, os.FileMode(int(0777)))
 	// if err != nil {
-	// 	resolve(fmt.Sprintf("HDFS MkdirAll failed for path \"%s\"", hdfsDirPath), toCError(err))
+	// 	// `MkdirAll` returns nil if directory exists. So, if there's an error, then something actually went wrong.
+	// 	// (That is, it's not just that the directory already existed.)
+	// 	node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\" (for WAL dir): %v", node.waldir, err), zap.String("directory", node.waldir), zap.Error(err))
+	// 	resolve(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\" (for WAL dir): %v", node.waldir, err), toCError(err))
 	// 	return
 	// }
+	// node.logger.Info(fmt.Sprintf("Successfully created HDFS directory \"%s\"", node.waldir), zap.String("directory", node.waldir))
 
-	err := node.hdfsClient.CopyToRemote(node.waldir, hdfsDirPath)
-	if err != nil {
-		node.logger.Error("HDFS CopyToRemove failed when writing data directory to HDFS.", zap.String("src", node.waldir), zap.String("dst", hdfsDirPath), zap.String("error", err.Error()))
-		resolve(fmt.Sprintf("HDFS CopyToRemote failed for source path: \"%s\", destination path: \"%s\"", node.waldir, hdfsDirPath), toCError(err))
+	// Walk through the entire etcd-raft data directory, copying each file one-at-a-time to HDFS.
+	walkdir_err := filepath.WalkDir(node.waldir, func(path string, d os.DirEntry, err_arg error) error {
+		// Note: the first entry found is the base directory passed to filepath.WalkDir (node.waldir in this case).
+		if d.IsDir() {
+			node.logger.Info(fmt.Sprintf("Found directory \"%s\"", path), zap.String("directory", path))
+			err := node.hdfsClient.MkdirAll(node.waldir, os.FileMode(int(0777)))
+			if err != nil {
+				// If we return an error from this function, then WalkDir will stop entirely and return that error.
+				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\": %v", path, err), zap.String("directory", path), zap.Error(err))
+				return err
+			}
+
+			node.logger.Info(fmt.Sprintf("Successfully created HDFS directory \"%s\"", path), zap.String("directory", path))
+		} else {
+			node.logger.Info(fmt.Sprintf("Found file \"%s\"", path), zap.String("file", path))
+			err := node.hdfsClient.CopyToRemote(path, path)
+
+			if err != nil {
+				// If we return an error from this function, then WalkDir will stop entirely and return that error.
+				node.logger.Error(fmt.Sprintf("Exception encountered while trying to copy local-to-remote for file \"%s\": %v", path, err), zap.String("file", path), zap.Error(err))
+				return err
+			}
+
+			node.logger.Info(fmt.Sprintf("Successfully copied file to HDFS: \"%s\"", path), zap.String("file", path))
+		}
+		return nil
+	})
+
+	if walkdir_err != nil {
+		resolve(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\"): %v", node.waldir, walkdir_err), toCError(walkdir_err))
 		return
+	}
+
+	if resolve != nil {
+		resolve(fmt.Sprintf("copied data directory for replica %d", node.id), toCError(nil))
 	}
 }
 
@@ -526,7 +584,7 @@ func (node *LogNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool)
 			var cc raftpb.ConfChange
 			cc.Unmarshal(ents[i].Data)
 
-			node.logger.Debug(fmt.Sprintf("incoming conf change: %v", &cc), zap.Int32("type", int32(cc.Type)), zap.Int("context length", len(cc.Context)))
+			node.logger.Info(fmt.Sprintf("incoming conf change: %v", &cc), zap.Int32("type", int32(cc.Type)), zap.Int("context length", len(cc.Context)))
 
 			// Call immidiately to restore valid cc.Context
 			ctx := node.doneConfChange(&cc)
@@ -737,7 +795,7 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 		return
 	}
 
-	node.logger.Debug("should snapshot passed")
+	node.logger.Info("should snapshot passed")
 
 	// wait until all committed entries are applied (or server is closed)
 	if applyDoneC != nil {
@@ -822,7 +880,7 @@ func (node *LogNode) serveChannels() {
 					proposeC = nil // Clear local channel.
 				} else {
 					// blocks until accepted by raft state machine
-					node.logger.Debug("Proposing something.")
+					node.logger.Info("Proposing something.")
 					node.node.Propose(ctx, ctx.Proposal)
 				}
 
@@ -832,7 +890,7 @@ func (node *LogNode) serveChannels() {
 				} else {
 					confChangeCount++
 					cc.ConfChange.ID = confChangeCount
-					node.logger.Debug("Proposing configuration change: %s", zap.String("conf-change", cc.ConfChange.String()))
+					node.logger.Info("Proposing configuration change: %s", zap.String("conf-change", cc.ConfChange.String()))
 					node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
 				}
 			}

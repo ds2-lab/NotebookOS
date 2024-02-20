@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 
 	corev1 "k8s.io/api/core/v1"
@@ -165,6 +166,19 @@ func testUpdateCloneSet() {
 	}
 }
 
+func testWalkDir() {
+	directory := "/home/bcarver2/go/distributed-notebook/smr"
+
+	filepath.WalkDir(directory, func(path string, d os.DirEntry, err error) error {
+		if d.IsDir() {
+			fmt.Printf("Found sub-directory \"%s\"\n", path)
+		} else {
+			fmt.Printf("Found file \"%s\"\n", path)
+		}
+		return nil
+	})
+}
+
 func main() {
-	testUpdateCloneSet()
+	testWalkDir()
 }
