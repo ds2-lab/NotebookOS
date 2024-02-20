@@ -578,6 +578,8 @@ func (node *LogNode) ReadDataDirectoryFromHDFS() error {
 		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\"): %v", node.data_dir, walk_err), zap.Error(walk_err))
 		return walk_err
 	}
+
+	return nil
 }
 
 // Write the data directory for this Raft node from local storage to HDFS.
@@ -587,7 +589,7 @@ func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
 		// Note: the first entry found is the base directory passed to filepath.WalkDir (node.data_dir in this case).
 		if d.IsDir() {
 			node.logger.Info(fmt.Sprintf("Found local directory \"%s\"", path), zap.String("directory", path))
-			err := node.hdfsClient.MkdirAll(node.data_dir, os.FileMode(int(0777)))
+			err := node.hdfsClient.MkdirAll(path, os.FileMode(int(0777)))
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
 				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory \"%s\": %v", path, err), zap.String("directory", path), zap.Error(err))

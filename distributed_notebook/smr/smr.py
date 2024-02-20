@@ -339,50 +339,6 @@ def Set_ProposalDeadline(value):
 
 # ---- Interfaces ---
 
-# Python type for interface smr.ReadCloser
-class ReadCloser(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Close(self):
-		"""Close() str"""
-		return _smr.smr_ReadCloser_Close(self.handle)
-	def Read(self, p):
-		"""Read(object p) object"""
-		return IntRet(handle=_smr.smr_ReadCloser_Read(self.handle, p.handle))
-
-# Python type for interface smr.WriteCloser
-class WriteCloser(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Close(self):
-		"""Close() str"""
-		return _smr.smr_WriteCloser_Close(self.handle)
-	def Write(self, p):
-		"""Write(object p) object"""
-		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
-
 # Python type for interface smr.LogSnapshotter
 class LogSnapshotter(go.GoClass):
 	""""""
@@ -436,8 +392,105 @@ class LogStorage(go.GoClass):
 		"""SaveSnapshot(object) """
 		_smr.smr_LogStorage_SaveSnapshot(self.handle, arg_0.handle, goRun)
 
+# Python type for interface smr.ReadCloser
+class ReadCloser(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_ReadCloser_Close(self.handle)
+	def Read(self, p):
+		"""Read(object p) object"""
+		return IntRet(handle=_smr.smr_ReadCloser_Read(self.handle, p.handle))
+
+# Python type for interface smr.WriteCloser
+class WriteCloser(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_WriteCloser_Close(self.handle)
+	def Write(self, p):
+		"""Write(object p) object"""
+		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
+
 
 # ---- Structs ---
+
+# Python type for struct smr.Bytes
+class Bytes(go.GoClass):
+	"""Wrapper of python bytes for buffered stream.\n"""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_Bytes_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.Bytes{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.Bytes ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def Bytes(self):
+		"""Bytes() []int
+		
+		Return the underlying byte slice as buffer.
+		"""
+		return go.Slice_byte(handle=_smr.smr_Bytes_Bytes(self.handle))
+	def Len(self):
+		"""Len() int
+		
+		Get the length of the underlying byte slice.
+		"""
+		return _smr.smr_Bytes_Len(self.handle)
 
 # Python type for struct smr.IntRet
 class IntRet(go.GoClass):
@@ -567,16 +620,27 @@ class LogNode(go.GoClass):
 	def RemoveNode(self, id, resolve, goRun=False):
 		"""RemoveNode(int id, callable resolve) """
 		_smr.smr_LogNode_RemoveNode(self.handle, id, resolve, goRun)
+	def UpdateNode(self, id, addr, resolve, goRun=False):
+		"""UpdateNode(int id, str addr, callable resolve) """
+		_smr.smr_LogNode_UpdateNode(self.handle, id, addr, resolve, goRun)
 	def WaitToClose(self):
 		"""WaitToClose() str lastErr"""
 		return _smr.smr_LogNode_WaitToClose(self.handle)
 	def Close(self):
 		"""Close() str"""
 		return _smr.smr_LogNode_Close(self.handle)
+	def ReadDataDirectoryFromHDFS(self):
+		"""ReadDataDirectoryFromHDFS() str
+		
+		Read the data directory for this Raft node back from HDFS to local storage.
+		
+		This assumes the HDFS path and the local path are identical.
+		"""
+		return _smr.smr_LogNode_ReadDataDirectoryFromHDFS(self.handle)
 	def WriteDataDirectoryToHDFS(self, resolve, goRun=False):
 		"""WriteDataDirectoryToHDFS(callable resolve) 
 		
-		Write the data directory for this Raft node to HDFS.
+		Write the data directory for this Raft node from local storage to HDFS.
 		"""
 		_smr.smr_LogNode_WriteDataDirectoryToHDFS(self.handle, resolve, goRun)
 	def Process(self, ctx, m):
@@ -731,59 +795,6 @@ class SMRContext(go.context_Context):
 		"""Cancel() """
 		_smr.smr_SMRContext_Cancel(self.handle, goRun)
 
-# Python type for struct smr.Bytes
-class Bytes(go.GoClass):
-	"""Wrapper of python bytes for buffered stream.\n"""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_Bytes_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.Bytes{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.Bytes ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def Bytes(self):
-		"""Bytes() []int
-		
-		Return the underlying byte slice as buffer.
-		"""
-		return go.Slice_byte(handle=_smr.smr_Bytes_Bytes(self.handle))
-	def Len(self):
-		"""Len() int
-		
-		Get the length of the underlying byte slice.
-		"""
-		return _smr.smr_Bytes_Len(self.handle)
-
 
 # ---- Slices ---
 
@@ -792,16 +803,20 @@ class Bytes(go.GoClass):
 
 
 # ---- Constructors ---
-def NewLogNode(store_path, id, hdfsHostname, peerAddresses, peerIDs, join):
-	"""NewLogNode(str store_path, int id, str hdfsHostname, []str peerAddresses, []int peerIDs, bool join) object
+def NewLogNode(store_path, id, hdfsHostname, hdfs_data_directory, peerAddresses, peerIDs, join):
+	"""NewLogNode(str store_path, int id, str hdfsHostname, str hdfs_data_directory, []str peerAddresses, []int peerIDs, bool join) object
 	
 	NewLogNode initiates a raft instance and returns a committed log entry
 	channel and error channel. Proposals for log updates are sent over the
 	provided the proposal channel. All log entries are replayed over the
 	commit channel, followed by a nil message (to indicate the channel is
 	current), then new log entries. To shutdown, close proposeC and read errorC.
+	
+	The store_path is used as the actual data directory.
+	hdfs_data_directory is (possibly) the path to the data directory within HDFS, meaning
+	we were migrated and our data directory was written to HDFS so that we could retrieve it.
 	"""
-	return LogNode(handle=_smr.smr_NewLogNode(store_path, id, hdfsHostname, peerAddresses.handle, peerIDs.handle, join))
+	return LogNode(handle=_smr.smr_NewLogNode(store_path, id, hdfsHostname, hdfs_data_directory, peerAddresses.handle, peerIDs.handle, join))
 def NewConfig():
 	"""NewConfig() object"""
 	return LogNodeConfig(handle=_smr.smr_NewConfig())
