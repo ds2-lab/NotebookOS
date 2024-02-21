@@ -446,7 +446,7 @@ func (d *GatewayDaemon) issuePrepareMigrateRequest(kernelId string, nodeId int32
 
 	targetReplica, err := kernelClient.GetReplicaByID(nodeId)
 	if err != nil {
-		d.log.Error("Could not find any ready replicas for kernel %s.", kernelId)
+		d.log.Error("Could not find replica with ID %d for kernel %s: %v", nodeId, kernelId, err)
 		panic(err)
 	}
 
@@ -833,6 +833,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		panic(fmt.Sprintf("KernelClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
+	// The replica is fully operational at this point, so record that it is ready.
 	replica.SetReady()
 	d.mutex.Unlock()
 
@@ -962,6 +963,15 @@ func (d *GatewayDaemon) migrate_removeFirst(ctx context.Context, in *gateway.Rep
 		d.log.Error("Failed to add new replica %d to kernel %s: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
 		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
 	}
+
+	replica, err := addReplicaOp.KernelClient().GetReplicaByID(addReplicaOp.ReplicaId())
+	if err != nil {
+		d.log.Error("Could not find replica %d for kernel %s after migration is supposed to have completed: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
+		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+	}
+
+	// The replica is fully operational at this point, so record that it is ready.
+	replica.SetReady()
 
 	return &gateway.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
 }
