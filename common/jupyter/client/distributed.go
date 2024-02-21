@@ -474,7 +474,8 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	}
 
 	// Send the request to all replicas.
-	statusCtx, _ := context.WithTimeout(context.Background(), server.DefaultRequestTimeout)
+	statusCtx, cancel := context.WithTimeout(context.Background(), server.DefaultRequestTimeout)
+	defer cancel()
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
 	if len(replicas) == 1 {
 		return replicas[0].(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done, server.DefaultRequestTimeout)
@@ -696,7 +697,7 @@ func (c *DistributedKernelClient) handleIOKernelStatus(replica *KernelClient, fr
 	}
 
 	status, msg := replica.BusyStatus()
-	c.log.Debug("reducing replica %d status %s to match %s", replica.ReplicaID(), status, c.busyStatus.expectingStatus)
+	// c.log.Debug("reducing replica %d status %s to match %s", replica.ReplicaID(), status, c.busyStatus.expectingStatus)
 	c.busyStatus.Reduce(replica.ReplicaID(), status, msg, c.pubIOMessage)
 	return nil
 }

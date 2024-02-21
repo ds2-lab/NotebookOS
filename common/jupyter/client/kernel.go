@@ -495,7 +495,7 @@ func (c *KernelClient) handleIOKernelStatus(kernel core.Kernel, frames types.Jup
 		return err
 	}
 
-	c.log.Debug("Handling IO Kernel Status for Kernel %v, Status %v.", kernel.ID(), status.Status)
+	// c.log.Debug("Handling IO Kernel Status for Kernel %v, Status %v.", kernel.ID(), status.Status)
 
 	c.busyStatus = status.Status
 	c.lastBStatusMsg = msg

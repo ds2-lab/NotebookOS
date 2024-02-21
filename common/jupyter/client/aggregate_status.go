@@ -91,6 +91,7 @@ func (s *AggregateKernelStatus) Status() string {
 
 // Collect initiate the status collection with actual number of replicas.
 func (s *AggregateKernelStatus) Collect(ctx context.Context, num_replicas int, replica_slots int, expecting string, publish KernelStatusPublisher) {
+	s.kernel.log.Debug("Collecting aggregate status for kernel %s, %d replicas.", s.kernel.id, num_replicas)
 	s.expectingStatus = expecting
 	if expecting == types.MessageKernelStatusIdle {
 		// Idle status is special, it requires all replicas to be idle.
@@ -123,6 +124,8 @@ func (s *AggregateKernelStatus) Collect(ctx context.Context, num_replicas int, r
 
 // Reduce reduces the received status against the expected status and called the handler if last collect has timed out.
 func (s *AggregateKernelStatus) Reduce(replicaId int32, status string, msg *zmq4.Msg, publish KernelStatusPublisher) {
+	// s.kernel.log.Debug("Reducing status \"%s\" for replica %d of kernel %s.", status, replicaId, s.kernel.id)
+
 	if s.IsResolved() && s.lastErr == nil {
 		// Ignore if the status has been collected without error.
 		return
@@ -158,14 +161,14 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 		}
 		statusMsg := ret.(*StatusMsg)
 		s.status = statusMsg.Status
-		s.kernel.log.Warn("Publishing status \"%v\" with message \"%v\", how \"%v\"", statusMsg.Status, statusMsg.Msg, statusMsg.How)
+		s.kernel.log.Debug("Publishing status \"%v\" for kernel %s; how \"%v\"", statusMsg.Status, s.kernel.id, statusMsg.How)
 		publish(statusMsg.Msg, statusMsg.Status, statusMsg.How)
 	} else if s.sampleMsg != nil {
 		// TODO: Not working here, need to regenerate the signature.
 		jFrames, _ := s.kernel.SkipIdentities(s.sampleMsg.Frames)
 		jFrames.ContentFrame().Set([]byte(fmt.Sprintf(KernelStatusFrameTemplate, status)))
 		jFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
-		s.kernel.log.Warn("Publishing sample status \"%v\" with message \"%v\", how: \"Synthesized status\"", status, s.sampleMsg)
+		s.kernel.log.Debug("Publishing sample status \"%v\" for kernel %s; how \"%v\"", status, s.kernel.id, s.sampleMsg)
 		publish(s.sampleMsg, status, "Synthesized status")
 	}
 

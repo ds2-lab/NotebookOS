@@ -373,9 +373,7 @@ class DistributedKernel(IPythonKernel):
                 await asyncio.ensure_future(self.init_persistent_store(code))
 
         try:
-            self.log.info("Toggling outstream now.")
             self.toggle_outstream(override=True, enable=False)
-            self.log.info("Successfully toggled outstream.")
 
             # Ensure persistent store is ready
             if not await self.check_persistent_store():
@@ -692,9 +690,11 @@ class DistributedKernel(IPythonKernel):
         return self.synclog
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):
+        self.log.debug("Running cell: %s" % str(raw_cell))
         self.source = raw_cell
         self.toggle_outstream(override=True, enable=True)
         result = self.old_run_cell(raw_cell, store_history=store_history, silent=silent, shell_futures=shell_futures, cell_id=cell_id)
+        self.log.debug("Ran cell %s: %s" % (str(raw_cell), str(result)))
         return result
 
     def transform_ast(self, node):
@@ -710,6 +710,16 @@ class DistributedKernel(IPythonKernel):
         if override:
             sys.stdout.disable = not enable # type: ignore
             sys.stderr.disable = not enable # type: ignore
+            
+            if sys.stdout.disable:
+                self.log.debug("stdout and stderr DISABLED.")
+            else:
+                self.log.debug("stdout and stderr ENABLED.")
         else:
             sys.stdout.disable = not sys.stdout.disable # type: ignore
             sys.stderr.disable = not sys.stderr.disable # type: ignore
+            
+            if sys.stdout.disable:
+                self.log.debug("stdout and stderr DISABLED.")
+            else:
+                self.log.debug("stdout and stderr ENABLED.")
