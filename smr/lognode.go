@@ -463,7 +463,7 @@ func (node *LogNode) start() {
 	node.raftStorage = raft.NewMemoryStorage()
 	if node.isWALEnabled() {
 		oldWALExists = wal.Exist(node.waldir)
-		node.logger.Info(fmt.Sprintf("WAL is enabled. Old WAL ('%s') available? %v .", node.waldir, oldWALExists))
+		node.logger.Info(fmt.Sprintf("WAL is enabled. Old WAL ('%s') available? %v", node.waldir, oldWALExists))
 		node.wal = node.replayWAL()
 		if node.wal == nil {
 			return
@@ -475,9 +475,8 @@ func (node *LogNode) start() {
 
 	rpeers := make([]raft.Peer, 0, len(node.peers))
 	for id, peer := range node.peers {
-		if peer != "" {
-			rpeers = append(rpeers, raft.Peer{ID: uint64(id)})
-		}
+		node.logger.Info(fmt.Sprintf("Adding rpeer %d at addr %s.", id, peer), zap.Int("id", id), zap.String("address", peer))
+		rpeers = append(rpeers, raft.Peer{ID: uint64(id)})
 	}
 	c := &raft.Config{
 		ID:                        uint64(node.id),
@@ -507,8 +506,8 @@ func (node *LogNode) start() {
 
 	node.transport.Start()
 	for id, peer := range node.peers {
-		// Allow holes in the peer list
-		if peer != "" && id != node.id {
+		if id != node.id {
+			node.logger.Info(fmt.Sprintf("Adding peer %d at addr %s.", id, peer), zap.Int("id", id), zap.String("address", peer))
 			node.transport.AddPeer(types.ID(id), []string{peer})
 		}
 	}
@@ -970,6 +969,7 @@ func (node *LogNode) serveChannels() {
 					// blocks until accepted by raft state machine
 					node.logger.Info("Proposing something.")
 					node.node.Propose(ctx, ctx.Proposal)
+					node.logger.Info("Finished proposing something.")
 				}
 
 			case cc, ok := <-confChangeC:
@@ -980,6 +980,7 @@ func (node *LogNode) serveChannels() {
 					cc.ConfChange.ID = confChangeCount
 					node.logger.Info(fmt.Sprintf("Proposing configuration change: %s", cc.ConfChange.String()), zap.String("conf-change", cc.ConfChange.String()))
 					node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
+					node.logger.Info("Finished proposing configuration change.")
 				}
 			}
 		}

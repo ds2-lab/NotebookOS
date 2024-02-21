@@ -389,6 +389,7 @@ func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
 func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.ReplicaInfo) (*gateway.PrepareToMigrateResponse, error) {
 	kernelId := req.KernelId
 	replicaId := req.ReplicaId
+	d.log.Debug("Preparing to migrate replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
@@ -397,7 +398,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 	}
 
 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypePrepareToMigrateRequest, kernel.Sessions()[0])
-	frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
+	frames.EncodeContent(&jupyter.MessageSMRAddOrUpdateReplicaRequest{
 		NodeID:  replicaId,
 		Address: kernel.Address(),
 	})
@@ -406,6 +407,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 		return nil, err
 	}
 
+	d.log.Debug("Sending Jupyter 'prepare-to-migrate' request to replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
 	msg := &zmq4.Msg{Frames: frames}
 	var requestWG sync.WaitGroup
 	var respWG sync.WaitGroup
@@ -452,6 +454,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 		return nil, err
 	}
 	requestWG.Wait()
+	d.log.Debug("Request sent. Waiting for response.")
 	respWG.Wait()
 
 	return &gateway.PrepareToMigrateResponse{
@@ -474,7 +477,7 @@ func (d *SchedulerDaemon) UpdateReplicaAddr(ctx context.Context, req *gateway.Re
 
 	d.log.Debug("Informing replicas of kernel %s to update address of replica %d to %s.", kernelId, replicaId, hostname)
 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeUpdateReplicaRequest, kernel.Sessions()[0])
-	frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
+	frames.EncodeContent(&jupyter.MessageSMRAddOrUpdateReplicaRequest{
 		NodeID:  replicaId,
 		Address: hostname,
 	})
@@ -509,7 +512,7 @@ func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.ReplicaIn
 
 	d.log.Debug("Now that replica %d of kernel %s (host=%s) has been added, notify the existing members.", replicaId, kernelId, hostname)
 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeAddReplicaRequest, kernel.Sessions()[0])
-	frames.EncodeContent(&jupyter.MessageSMRAddReplicaRequest{
+	frames.EncodeContent(&jupyter.MessageSMRAddOrUpdateReplicaRequest{
 		NodeID:  replicaId,
 		Address: hostname, // s.daemon.getInvoker(kernel).GetReplicaAddress(kernel.KernelSpec(), replicaId),
 	})

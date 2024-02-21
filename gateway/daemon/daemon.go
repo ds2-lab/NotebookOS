@@ -437,7 +437,7 @@ func (d *GatewayDaemon) SetID(ctx context.Context, hostId *gateway.HostId) (*gat
 //
 // Returns the path to the data directory in HDFS.
 func (d *GatewayDaemon) issuePrepareMigrateRequest(kernelId string, nodeId int32) string {
-	d.log.Info("Issuing 'prepare-to-migrate' request to replica %d of kernel %s.", nodeId, kernelId)
+	d.log.Info("Issuing 'prepare-to-migrate' request to replica %d of kernel %s now.", nodeId, kernelId)
 
 	kernelClient, ok := d.kernels.Load(kernelId)
 	if !ok {
@@ -460,6 +460,7 @@ func (d *GatewayDaemon) issuePrepareMigrateRequest(kernelId string, nodeId int32
 		KernelId:  kernelId,
 	}
 
+	d.log.Info("Calling PrepareToMigrate RPC targeting replica %d of kernel %s now.", nodeId, kernelId)
 	// Issue the 'prepare-to-migrate' request. We panic if there was an error.
 	resp, err := host.PrepareToMigrate(context.TODO(), replicaInfo)
 	if err != nil {

@@ -36,7 +36,7 @@ func (m MessageDataDirectory) String() string {
 
 type MessageSMRNodeUpdated struct {
 	MessageSMRReady
-	MessageSMRAddReplicaRequest
+	MessageSMRAddOrUpdateReplicaRequest
 	KernelId string `json:"kernel_id"`
 	Success  bool   `json:"success"`
 }
@@ -53,11 +53,11 @@ func (m MessageSMRLeadTask) String() string {
 	return fmt.Sprintf("MessageSMRLeadTask[GPURequired=%v]", m.GPURequired)
 }
 
-type MessageSMRAddReplicaRequest struct {
+type MessageSMRAddOrUpdateReplicaRequest struct {
 	NodeID  int32  `json:"id"`
 	Address string `json:"addr"`
 }
 
-func (m MessageSMRAddReplicaRequest) String() string {
-	return fmt.Sprintf("MessageSMRAddReplicaRequest[NodeID=%d, Address=%s]", m.NodeID, m.Address)
+func (m MessageSMRAddOrUpdateReplicaRequest) String() string {
+	return fmt.Sprintf("MessageSMRAddOrUpdateReplicaRequest[NodeID=%d, Address=%s]", m.NodeID, m.Address)
 }
