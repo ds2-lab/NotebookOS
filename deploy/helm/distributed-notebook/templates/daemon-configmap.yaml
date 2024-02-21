@@ -17,7 +17,7 @@ data:
     iopub-port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
     iosub-port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
     hdfs-namenode-endpoint: {{ .Values.hdfs.namenode_endpoint }}
-    debug: true
+    debug: {{ .Values.common.debug }}
     direct: false
     num-replicas: 3
     max-subscribed-ratio: 7.0

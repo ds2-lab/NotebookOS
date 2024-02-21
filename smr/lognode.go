@@ -252,11 +252,10 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 	})
 	if err != nil {
 		node.logger.Error("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname))
-		node.logger.Panic("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname))
+	} else {
+		node.logger.Info(fmt.Sprintf("Successfully connected to HDFS at '%s'", hdfsHostname), zap.String("hostname", hdfsHostname))
+		node.hdfsClient = hdfsClient
 	}
-
-	node.logger.Info(fmt.Sprintf("Successfully connected to HDFS at '%s'", hdfsHostname), zap.String("hostname", hdfsHostname))
-	node.hdfsClient = hdfsClient
 
 	// TODO(Ben): Read the data directory from HDFS.
 	if hdfs_data_directory != "" {
@@ -280,6 +279,11 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 	}
 
 	return node
+}
+
+// Return true if we successfully connected to HDFS.
+func (node *LogNode) ConnectedToHDFS() bool {
+	return node.hdfsClient != nil
 }
 
 func (node *LogNode) NumChanges() int {
@@ -363,14 +367,17 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 
 	node.logger.Info("Appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if err := proposer(ctx); err != nil {
+		node.logger.Error("Exception while propoising value.", zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
 		resolve(msg, toCError(err))
 		return
 	}
+	node.logger.Info("Proposed value. Waiting for committed or retry.", zap.String("key", msg), zap.String("id", ctx.ID()))
 	// Wait for committed or retry
 	for !node.waitProposal(ctx) {
 		node.logger.Info("Retry appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
 		ctx.Reset(ProposalDeadline)
 		if err := proposer(ctx); err != nil {
+			node.logger.Error("Exception while retrying value proposal.", zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
 			resolve(msg, toCError(err))
 			return
 		}
@@ -449,6 +456,8 @@ func (node *LogNode) close() {
 }
 
 func (node *LogNode) start() {
+	node.logger.Info(fmt.Sprintf("LogNode %d is starting.", node.id))
+
 	if node.isSnapEnabled() {
 		if !fileutil.Exist(node.snapdir) {
 			if err := os.Mkdir(node.snapdir, 0750); err != nil {
@@ -617,7 +626,13 @@ func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
 			node.logger.Info(fmt.Sprintf("Found local file '%s'", path), zap.String("file", path))
 			err := node.hdfsClient.CopyToRemote(path, path)
 
-			if err != nil {
+			// Based on the documentation within the HDFS package, we can just ignore an ErrReplicating.
+			// Specifically, if the datanodes have acknowledged all writes but not yet to the namenode,
+			// then this can return ErrReplicating (wrapped in an os.PathError). This indicates
+			// that all data has been written, but the lease is still open for the file.
+			// It is safe in this case to either ignore the error.
+			// exponential backoff.
+			if err != nil && !hdfs.IsErrReplicating(err) {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
 				node.logger.Error(fmt.Sprintf("Exception encountered while trying to copy local-to-remote for file '%s': %v", path, err), zap.String("file", path), zap.Error(err))
 				return err
@@ -937,6 +952,8 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 }
 
 func (node *LogNode) serveChannels() {
+	node.logger.Info(fmt.Sprintf("LogNode %d is serving channels.", node.id))
+
 	snap, err := node.raftStorage.Snapshot()
 	if err != nil {
 		node.panic(err)
@@ -964,26 +981,30 @@ func (node *LogNode) serveChannels() {
 			select {
 			case ctx, ok := <-proposeC:
 				if !ok || ctx == nil {
+					node.logger.Info("Clearing local proposal channel.")
 					proposeC = nil // Clear local channel.
 				} else {
 					// blocks until accepted by raft state machine
-					node.logger.Info("Proposing something.")
+					node.logger.Info(fmt.Sprintf("LogNode %d: proposing something.", node.id))
 					node.node.Propose(ctx, ctx.Proposal)
-					node.logger.Info("Finished proposing something.")
+					node.logger.Info(fmt.Sprintf("LogNode %d: finished proposing something.", node.id))
 				}
 
 			case cc, ok := <-confChangeC:
 				if !ok || cc == nil {
+					node.logger.Info("Clearing local confChange channel.")
 					confChangeC = nil // Clear local channel.
 				} else {
 					confChangeCount++
 					cc.ConfChange.ID = confChangeCount
-					node.logger.Info(fmt.Sprintf("Proposing configuration change: %s", cc.ConfChange.String()), zap.String("conf-change", cc.ConfChange.String()))
+					node.logger.Info(fmt.Sprintf("LogNode %d: proposing configuration change: %s", node.id, cc.ConfChange.String()), zap.String("conf-change", cc.ConfChange.String()))
 					node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
-					node.logger.Info("Finished proposing configuration change.")
+					node.logger.Info(fmt.Sprintf("LogNode %d: finished proposing configuration change.", node.id))
 				}
 			}
 		}
+
+		node.logger.Info("Client closed channel(s). Shutting down Raft (if it isn't already shutdown).")
 		// client closed channel; shutdown raft if not already
 		close(node.stopc)
 	}()
@@ -994,6 +1015,7 @@ func (node *LogNode) serveChannels() {
 		for {
 			select {
 			case commit := <-node.commitC:
+				node.logger.Info(fmt.Sprintf("LogNode %d: Applying commit to local state machine.", node.id))
 				for _, d := range commit.data {
 					realData, ctx := node.doneProposal(d)
 					id := ""
@@ -1022,7 +1044,9 @@ func (node *LogNode) serveChannels() {
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-node.node.Ready():
-			// node.logger.Info("ready", zap.Int("entries", len(rd.CommittedEntries)), zap.Uint64("commit", rd.HardState.Commit))
+			if len(rd.CommittedEntries) > 0 || rd.HardState.Commit > 0 {
+				node.logger.Info("ready", zap.Int("entries", len(rd.CommittedEntries)), zap.Uint64("commit", rd.HardState.Commit))
+			}
 			if node.wal != nil {
 				node.wal.Save(rd.HardState, rd.Entries)
 			}
@@ -1042,11 +1066,15 @@ func (node *LogNode) serveChannels() {
 			node.node.Advance()
 
 		case err := <-node.transport.ErrorC:
+			node.logger.Warn("Writing error", zap.Error(err))
+
 			// Write errors and close.
 			node.writeError(err)
 			node.close()
 
 		case <-node.stopc:
+			node.logger.Warn("Stopping")
+
 			node.stopServing()
 			return
 		}

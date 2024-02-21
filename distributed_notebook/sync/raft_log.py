@@ -68,6 +68,9 @@ class RaftLog:
     if self._node == None:
       self._log.error("Failed to create the LogNode.")
       raise ValueError("Could not create LogNode. See logs for details.")
+    elif not self._node.ConnectedToHDFS():
+      self._log.error("The LogNode failed to connect to HDFS.")
+      raise ValueError("The LogNode failed to connect to HDFS")
     
     self._log.info("Successfully created LogNode %d." % id)
     

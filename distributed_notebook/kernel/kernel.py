@@ -373,21 +373,31 @@ class DistributedKernel(IPythonKernel):
                 await asyncio.ensure_future(self.init_persistent_store(code))
 
         try:
+            self.log.info("Toggling outstream now.")
             self.toggle_outstream(override=True, enable=False)
+            self.log.info("Successfully toggled outstream.")
 
             # Ensure persistent store is ready
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
+            self.log.info("Calling synchronizer.ready(%d) now." % (self.synchronizer.execution_count + 1))
             # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchornized.
             self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1) # type: ignore
+            
+            self.log.info("Completed call to synchronizer.ready(%d) now. shell.execution_count: %d" % (self.synchronizer.execution_count + 1, self.shell.execution_count))
+            
             if self.shell.execution_count == 0: # type: ignore
+                self.log.debug("I will NOT leading this execution.")
                 raise err_failed_to_lead_execution
             
+            self.log.debug("I WILL lead this execution (%d)." % self.shell.execution_count)
             # Notify the client that we will lead the execution.
             self.session.send(self.iopub_socket, "smr_lead_task", {"gpu": False}, ident=self._topic("smr_lead_task")) # type: ignore
+
+            self.log.debug("Executing the following code now: %s" % code)
 
             # Execute code
             reply_routing = super().do_execute(
@@ -402,13 +412,15 @@ class DistributedKernel(IPythonKernel):
             # Disable stdout and stderr forwarding.
             self.toggle_outstream(override=True, enable=False)
             
+            self.log.debug("Synchronizing now.")
+            
             # Synchronize
             coro = self.synchronizer.sync(self.execution_ast, self.source)
             self.execution_ast = None
             self.source = None
             await coro
 
-            self.log.info("End of sync execution {}".format(self.execution_count - 1))
+            self.log.info("Synchronized. End of sync execution {}".format(self.execution_count - 1))
             return reply_content
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))

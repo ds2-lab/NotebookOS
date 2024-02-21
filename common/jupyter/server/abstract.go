@@ -496,11 +496,6 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 			} else {
 				matchReqId = rspId
 
-				// Automatically remove source kernel ID frame.
-				// if remove, _ := getOption(WROptionRemoveSourceKernelFrame).(bool); remove {
-				// 	msg.Frames = sourceKernel.RemoveSourceKernelFrame(msg.Frames, offset)
-				// }
-
 				// Automatically remove destination kernel ID frame.
 				if remove, _ := getOption(WROptionRemoveDestFrame).(bool); remove {
 					msg.Frames = dest.RemoveDestFrame(msg.Frames, offset)

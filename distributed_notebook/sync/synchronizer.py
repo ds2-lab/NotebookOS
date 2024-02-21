@@ -89,7 +89,7 @@ class Synchronizer:
         self._syncing = True
     elif val.key == KEY_SYNC_END:
       self._syncing = False
-      self._log.debug("exit execution syncing")
+      self._log.debug("exit execution syncing [1]")
       return
 
     try:
@@ -110,9 +110,9 @@ class Synchronizer:
       old_main_modules = sys.modules["__main__"]
       sys.modules["__main__"] = self._module
 
-      # print("restoring {}...".format(val.key))
+      self._log.debug("restoring {}...".format(val.key))
       diff = existed.update(val)
-      # print("{}:{}".format(val.key, type(diff)))
+      self._log.debug("{}:{}".format(val.key, type(diff)))
 
       sys.modules["__main__"] = old_main_modules
       # End of switch context
@@ -131,7 +131,7 @@ class Synchronizer:
 
       if val.end:
         self._syncing = False
-        self._log.debug("exit execution syncing")
+        self._log.debug("exit execution syncing [2]")
     except Exception as e:
       print_trace()
 
@@ -174,7 +174,7 @@ class Synchronizer:
       # execution_count updated.
       # self._referer.module_id = self._ast.execution_count # TODO: Verify this.
 
-      # self._log.debug("Syncing execution, ast: {}...".format(sync_ast))
+      self._log.debug("Syncing execution, ast: {}...".format(sync_ast))
       keys = self._ast.globals
       meta = SyncObjectMeta(batch=(str(sync_ast.term) if not checkpointing else "{}c".format(sync_ast.term)))
       # TODO: Recalculate the number of expected synchronizations within the execution.
@@ -189,11 +189,15 @@ class Synchronizer:
         # Because should_checkpoint_callback will be called during final append call, 
         # set the end of _syncing before the final append call.
         self._syncing = False
-
+      
+      self._log.debug("Appending value \"%s\" now." % sync_ast)
       await synclog.append(sync_ast)
+      self._log.debug("Successfully appended value \"%s\"." % sync_ast)
       for key in keys:
         synced = synced + 1
+        self._log.debug("Syncing key \"%s\" now." % key)
         await self.sync_key(synclog, key, self.global_ns[key], end_execution=synced==expected, checkpointing=checkpointing, meta=meta)
+        self._log.debug("Successfully synchronized key \"%s\"." % key)
       
       if checkpointing:
         checkpointer.close()

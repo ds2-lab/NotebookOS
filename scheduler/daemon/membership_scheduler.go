@@ -26,6 +26,11 @@ func NewMembershipScheduler(daemon *SchedulerDaemon) *MembershipScheduler {
 }
 
 func (s *MembershipScheduler) OnTaskStart(kernel core.Kernel, task *jupyter.MessageSMRLeadTask) error {
+	// return s.triggerMigration(kernel)
+	return nil
+}
+
+func (s *MembershipScheduler) triggerMigration(kernel core.Kernel) error {
 	persistentId := kernel.(*client.KernelClient).PersistentID()
 	s.log.Info("Triggering hard-coded migration of replica %d of kernel %s", kernel.(*client.KernelClient).ReplicaID(), kernel.ID())
 

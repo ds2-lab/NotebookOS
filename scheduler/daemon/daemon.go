@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
@@ -47,6 +48,7 @@ var (
 	ErrNoHandler        = status.Errorf(codes.NotFound, "handler not defined")
 	ErrNotImplemented   = status.Errorf(codes.Unimplemented, "not implemented in SchedulerDaemon")
 	ErrInvalidParameter = status.Errorf(codes.InvalidArgument, "invalid parameter")
+	ErrRequestFailed    = status.Errorf(codes.DeadlineExceeded, "could not complete kernel request in-time")
 
 	// Internal errors
 	ErrHeaderNotFound   = errors.New("message header not found")
@@ -410,52 +412,105 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 	d.log.Debug("Sending Jupyter 'prepare-to-migrate' request to replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
 	msg := &zmq4.Msg{Frames: frames}
 	var requestWG sync.WaitGroup
-	var respWG sync.WaitGroup
+	var requestReceived int32
 	requestWG.Add(1)
-	respWG.Add(1)
 	var dataDirectory string // TODO(Ben): Assign this a value.
-	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
-		d.log.Debug("Received response from 'prepare-to-migrate' request.")
 
-		for i, frame := range msg.Frames {
-			d.log.Debug("Frame #%d: %s", i, string(frame))
-		}
+	// Try 3 times to send the request.
+	var currentNumTries int = 0
+	var maxNumTries int = 3
+	var success bool = false
+	for currentNumTries < maxNumTries {
+		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+			d.log.Debug("Received response from 'prepare-to-migrate' request.")
 
-		var frames jupyter.JupyterFrames = msg.Frames
-		var respMessage types.MessageDataDirectory
-		if err := frames.Validate(); err != nil {
-			d.log.Error("Failed to validate frames of `MessageDataDirectory` message: %v", err)
-			return err
-		}
-		err := frames.DecodeContent(&respMessage)
-		if err != nil {
-			d.log.Error("Failed to decode Content frame of `MessageDataDirectory` message: %v", err)
-			return err
-		}
+			for i, frame := range msg.Frames {
+				d.log.Debug("Frame #%d: %s", i, string(frame))
+			}
 
-		// It seems like this particular message is sent in the 6th frame, which is the Buffers frame, rather than the Content frame.
-		if respMessage.NodeID == 0 {
-			err := frames.DecodeBuffers(&respMessage)
-
-			if err != nil {
-				d.log.Error("Failed to decode Buffer frame of `MessageDataDirectory` message: %v", err)
+			var frames jupyter.JupyterFrames = msg.Frames
+			var respMessage types.MessageDataDirectory
+			if err := frames.Validate(); err != nil {
+				d.log.Error("Failed to validate frames of `MessageDataDirectory` message: %v", err)
+				// Record that we've received the response.
+				swapped := atomic.CompareAndSwapInt32(&requestReceived, 0, 1)
+				if !swapped {
+					d.log.Warn("Apparently we've already received a request for prepare-to-migrate request sent to replica %d of kernel %s: %v", replicaId, kernelId)
+				}
 				return err
 			}
+			err := frames.DecodeContent(&respMessage)
+			if err != nil {
+				d.log.Error("Failed to decode Content frame of `MessageDataDirectory` message: %v", err)
+				// Record that we've received the response.
+				swapped := atomic.CompareAndSwapInt32(&requestReceived, 0, 1)
+				if !swapped {
+					d.log.Warn("Apparently we've already received a request for prepare-to-migrate request sent to replica %d of kernel %s: %v", replicaId, kernelId)
+				}
+				return err
+			}
+
+			// It seems like this particular message is sent in the 6th frame, which is the Buffers frame, rather than the Content frame.
+			if respMessage.NodeID == 0 {
+				err := frames.DecodeBuffers(&respMessage)
+
+				if err != nil {
+					d.log.Error("Failed to decode Buffer frame of `MessageDataDirectory` message: %v", err)
+					// Record that we've received the response.
+					swapped := atomic.CompareAndSwapInt32(&requestReceived, 0, 1)
+					if !swapped {
+						d.log.Warn("Apparently we've already received a request for prepare-to-migrate request sent to replica %d of kernel %s: %v", replicaId, kernelId)
+					}
+					return err
+				}
+			}
+
+			// Record that we've received the response.
+			swapped := atomic.CompareAndSwapInt32(&requestReceived, 0, 1)
+			if !swapped {
+				d.log.Warn("Apparently we've already received a request for prepare-to-migrate request sent to replica %d of kernel %s: %v", replicaId, kernelId)
+			}
+
+			dataDirectory = respMessage.DataDirectory
+			d.log.Debug("Response from 'prepare-to-migrate' request: %s", respMessage.String())
+
+			return nil
+		}, requestWG.Done, time.Second*5)
+		if err != nil {
+			d.log.Error("Error occurred while issuing prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
+			return nil, err
 		}
 
-		dataDirectory = respMessage.DataDirectory
-		d.log.Debug("Response from 'prepare-to-migrate' request: %s", respMessage.String())
+		requestWG.Wait()
 
-		respWG.Done()
-		return nil
-	}, requestWG.Done, server.DefaultRequestTimeout)
-	if err != nil {
-		d.log.Error("Error occurred while issuing prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
-		return nil, err
+		// Because of how requests are handled under the covers, the value of `requestReceived` will necessarily be 1 at this point
+		// if we received a response. This is because the handler is called BEFORE Done() is called on the 'requestWG'.
+		if atomic.LoadInt32(&requestReceived) == 0 {
+			d.log.Error("TIMED-OUT: 'Prepare-to-migrate' request to replica %d of kernel %s attempt %d/%d did not complete in time.", replicaId, kernelId, currentNumTries+1, maxNumTries)
+			currentNumTries++
+			sleepAmount := time.Millisecond * 1500 * time.Duration(currentNumTries)
+			time.Sleep(sleepAmount)
+			requestWG.Add(1)
+		} else {
+			d.log.Debug("Prepare-to-migrate request to replica %d of kernel %s succeeded. Data directory: \"%s\"", replicaId, kernelId, dataDirectory)
+			success = true
+
+			if dataDirectory == "" {
+				d.log.Error("Data directory is still the empty string despite the request completing successfully.")
+				success = false
+			}
+
+			break
+		}
 	}
-	requestWG.Wait()
-	d.log.Debug("Request sent. Waiting for response.")
-	respWG.Wait()
+
+	if !success {
+		return &gateway.PrepareToMigrateResponse{
+			Id:       -1,
+			KernelId: "",
+			DataDir:  "",
+		}, ErrRequestFailed
+	}
 
 	return &gateway.PrepareToMigrateResponse{
 		Id:       replicaId,
@@ -487,14 +542,49 @@ func (d *SchedulerDaemon) UpdateReplicaAddr(ctx context.Context, req *gateway.Re
 	}
 
 	msg := &zmq4.Msg{Frames: frames}
-	var wg sync.WaitGroup
-	wg.Add(1)
-	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, wg.Done, server.DefaultRequestTimeout)
-	if err != nil {
-		d.log.Error("Error occurred while issuing update-replica request to kernel %s: %v", kernelId, err)
-		return gateway.VOID, err
+
+	var currentNumTries int = 0
+	var maxNumTries int = 3
+	var success bool = false
+	for currentNumTries < maxNumTries {
+		var wg sync.WaitGroup
+		var requestReceived int32 = 0
+		wg.Add(1)
+		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+			d.log.Debug("Received response from 'update-replica' request.")
+
+			// Record that we've received the response.
+			swapped := atomic.CompareAndSwapInt32(&requestReceived, 0, 1)
+			if !swapped {
+				d.log.Warn("Apparently we've already received a request for prepare-to-migrate request sent to replica %d of kernel %s: %v", replicaId, kernelId)
+			}
+
+			return nil
+		}, wg.Done, time.Second*5)
+		if err != nil {
+			d.log.Error("Error occurred while issuing update-replica request to kernel %s: %v", kernelId, err)
+			return gateway.VOID, err
+		}
+		wg.Wait()
+
+		// Because of how requests are handled under the covers, the value of `requestReceived` will necessarily be 1 at this point
+		// if we received a response. This is because the handler is called BEFORE Done() is called on the 'requestWG'.
+		if atomic.LoadInt32(&requestReceived) == 0 {
+			d.log.Error("TIMED-OUT: 'Update-replica' request to replica %d of kernel %s did not complete in time.", replicaId, kernelId)
+			currentNumTries++
+			sleepAmount := time.Millisecond * 1500 * time.Duration(currentNumTries)
+			d.log.Error("Sleeping for %d ms before trying again.", sleepAmount)
+			time.Sleep(sleepAmount)
+			wg.Add(1)
+		} else {
+			success = true
+			break
+		}
 	}
-	wg.Wait()
+
+	if !success {
+		return gateway.VOID, ErrRequestFailed
+	}
 
 	return gateway.VOID, nil
 }
