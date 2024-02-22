@@ -6,6 +6,7 @@ metadata:
 data:
   # device-plugin-port: {{ .Values.local_daemon.device_plugin.port }}
   daemon.yml: | 
+    driver-grpc-port: {{ .Values.gateway.driver_grpc_port }}
     kernel-registry-port: {{ .Values.local_daemon.network.jupyter.kernel_registry_port }} 
     port: {{ .Values.local_daemon.network.port }}
     provisioner-port: {{ .Values.gateway.provisioner_port }}

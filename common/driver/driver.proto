@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+option go_package = "github.com/zhangjyr/distributed-notebook/common/driver";
+option java_multiple_files = true;
+option java_package = "com.github.zhangjyr.distributed-notebook.common.driver";
+option java_outer_classname = "DriverProto";
+
+package driver;
+
+service DistributedNotebookCluster {
+  // Return a list of all of the current kernel IDs.
+  rpc ListKernels(Void) returns (ListKernelsResponse) {}
+}
+
+message JupyterKernel {
+  string kernelId = 1;
+  int32 numReplicas = 2;
+  string status = 3;
+  string aggregateBusyStatus = 4;
+}
+
+message ListKernelsResponse {
+  int32 numKernels = 1;
+  repeated JupyterKernel kernels = 2;
+}
+
+message Void{}

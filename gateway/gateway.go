@@ -19,6 +19,7 @@ import (
 
 	"github.com/zhangjyr/distributed-notebook/common/consul"
 	"github.com/zhangjyr/distributed-notebook/common/core"
+	"github.com/zhangjyr/distributed-notebook/common/driver"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"
@@ -45,6 +46,7 @@ type Options struct {
 	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
 	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr      string `name:"consul" description:"Consul agent address."`
+	DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
 }
 
 func init() {
@@ -95,6 +97,12 @@ func main() {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
+	// Initialize workload driver listener
+	lisDriver, err := net.Listen("tcp", fmt.Sprintf(":%d", options.DriverGRPCPort))
+	if err != nil {
+		log.Fatalf("Failed to listen: %v", err)
+	}
+
 	// Build grpc options
 	gOpts := []grpc.ServerOption{
 		grpc.KeepaliveParams(keepalive.ServerParameters{
@@ -119,15 +127,20 @@ func main() {
 		log.Fatalf("Failed to listen on provisioner port: %v", err)
 	}
 
-	// Initialize internel grpc server
+	// Initialize internel gRPC server
 	provisioner := grpc.NewServer(gOpts...)
 	gateway.RegisterClusterGatewayServer(provisioner, srv)
 	logger.Info("Provisioning server listening at %v", lisHost.Addr())
 
-	// Initialize Jupyter grpc server
+	// Initialize Jupyter gRPC server
 	registrar := grpc.NewServer(gOpts...)
 	gateway.RegisterLocalGatewayServer(registrar, srv)
 	logger.Info("Jupyter server listening at %v", lis.Addr())
+
+	// Initialize gRPC server for the Workload Driver to connect to.
+	driverServer := grpc.NewServer(gOpts...)
+	driver.RegisterDistributedNotebookClusterServer(driverServer, srv)
+	logger.Info("Workload Driver gRPC server listening at %v", lisDriver.Addr())
 
 	// Register services in consul
 	if consulClient != nil {
@@ -166,6 +179,14 @@ func main() {
 		defer finalize(true)
 		if err := provisioner.Serve(lisHost); err != nil {
 			log.Fatalf("Error on serving host scheduler connections: %v", err)
+		}
+	}()
+
+	// Start workload driver gRPC server
+	go func() {
+		defer finalize(true)
+		if err := driverServer.Serve(lisDriver); err != nil {
+			log.Fatalf("Error on serving workload driver connections: %v", err)
 		}
 	}()
 

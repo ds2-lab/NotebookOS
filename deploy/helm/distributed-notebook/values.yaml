@@ -17,6 +17,10 @@ podSecurityContext: {}
 
 securityContext: {}
 
+workload_driver:
+  image: scusemua/workload-driver
+  image_tag: latest
+
 service:
   type: ClusterIP
   port: 80
@@ -25,6 +29,7 @@ hdfs:
   namenode_endpoint: "172.17.0.1:9000"
 
 gateway:
+  driver_grpc_port: 8079
   grpc_port: 8080
   provisioner_port: 8081
   image: scusemua/gateway

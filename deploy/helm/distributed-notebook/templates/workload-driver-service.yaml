@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+    creationTimestamp: null
+    name: workload-driver
+    labels:
+        app: workload-driver
+spec:
+    ports:
+        - name: tcp
+          port: 8000 # TODO(Ben): Make this configurable, such as via {{ .Values.workload_driver.http_port }}
+    selector:
+        app: workload-driver
+status:
+    loadBalancer: {}
