@@ -10,7 +10,7 @@ metadata:
   name: jupyter-notebook
 spec:
   ports:
-    - name: "{{ .Values.notebook_server.port }}"
+    - name: nb-server
       port: {{ .Values.notebook_server.port }}
     - name: tcp
       port: {{ .Values.local_daemon.network.service_port }}

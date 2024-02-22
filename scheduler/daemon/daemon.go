@@ -318,7 +318,6 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
-
 	// TODO(Ben): Contact the Gateway to notify it that we've registered one of the replicas.
 	response, err := d.Provisioner.NotifyKernelRegistered(ctx, kernelRegistrationNotification)
 	if err != nil {

@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/zhangjyr/distributed-notebook/common/core"
+	"github.com/zhangjyr/distributed-notebook/common/driver"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
@@ -85,6 +86,7 @@ type GatewayDaemonConfig func(*GatewayDaemon)
 type GatewayDaemon struct {
 	id string
 
+	driver.UnimplementedDistributedNotebookClusterServer
 	gateway.UnimplementedClusterGatewayServer
 	gateway.UnimplementedLocalGatewayServer
 	router *router.Router
@@ -1493,4 +1495,24 @@ func (d *GatewayDaemon) removeReplica(smrNodeId int32, kernelId string, wait boo
 	}
 
 	return nil
+}
+
+// Driver gRPC.
+func (d *GatewayDaemon) ListKernels(ctx context.Context, in *driver.Void) (*driver.ListKernelsResponse, error) {
+	resp := &driver.ListKernelsResponse{
+		Kernels: make([]*driver.JupyterKernel, 0, d.kernels.Len()),
+	}
+
+	d.kernels.Range(func(id string, kernel *client.DistributedKernelClient) bool {
+		respKernel := &driver.JupyterKernel{
+			KernelId:            kernel.ID(),
+			NumReplicas:         int32(kernel.Size()),
+			Status:              kernel.Status().String(),
+			AggregateBusyStatus: kernel.Status().String(),
+		}
+		resp.Kernels = append(resp.Kernels, respKernel)
+		return true
+	})
+
+	return resp, nil
 }

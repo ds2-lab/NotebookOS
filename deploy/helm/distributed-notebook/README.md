@@ -21,6 +21,17 @@ The `./values.yaml` file specifies default values to be used within the template
 
 # Installation
 
+For now, these instructions are written specifically for use with a [kind](https://kind.sigs.k8s.io/) Kubernetes cluster. That being said, they should largely apply to other types of Kubernetes clusters as well.
+
+## Creating the `kind` Kubernetes Cluster 
+
+To create the `kind` Kubernetes cluster, execute the following command:
+``` sh
+kind create cluster --config deploy/kind/kind-config.yaml
+```
+
+You can use a different `kind` cluster config file if desired; however, it will not be guaranteed to work if you use settings that differ from those in the provided configuration file. 
+
 ## Cluster Configuration
 The `distributed-notebook` project uses a State Machine Replication (SMR) protocol to provide data availability and fault tolerance. This protocol assigns an `SMR Node ID` to each distributed kernel replica. These IDs are expected to begin with 1 rather than 0. The distributed kernel replicas for each user session are deployed as a Kubernetes `StatefulSet` resource. Per the [Kubernetes documentation](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/): for a `StatefulSet` with _N_ replicas, each `Pod` in the `StatefulSet` will be assigned an integer ordinal that is unique over the `StatefulSet`. By default, pods will be assigned ordinals from 0 up through _N_-1.
 
@@ -43,7 +54,7 @@ Next, we install the `metrics-server`. With kind, we either need to enable `--ku
 
 For now, we will use the `--kubelet-insecure-tls` solution with the included `.yaml` file (found at `deploy/helm/distributed-notebook/metrics-server.yaml`):
 ``` sh
-kubectl apply -f ./metrics-server.yaml
+kubectl apply -f deploy/helm/distributed-notebook/metrics-server.yaml
 ```
 
 ### OpenKruise and the CloneSet Resource

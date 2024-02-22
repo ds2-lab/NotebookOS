@@ -10,6 +10,9 @@ metadata:
   name: gateway
 spec:
   ports:
+    - name: drvr-port
+      port: {{ .Values.gateway.driver_grpc_port }}
+      targetPort: {{ .Values.gateway.driver_grpc_port }}
     - name: jupyter
       port: {{ .Values.gateway.grpc_port }}
       targetPort: {{ .Values.gateway.grpc_port }}

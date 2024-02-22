@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  name: workload-driver
+  labels:
+    app: workload-driver
+spec:
+  replicas: 1
+  strategy: {}
+  selector:
+    matchLabels:
+      app: workload-driver
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: workload-driver
+    spec:
+      containers:
+        - command: ["go"]
+          args: ["run", "cmd/driver/main.go"]
+          image: {{ .Values.workload_driver.image }}:{{ .Values.workload_driver.image_tag}}
+          name: workload-driver
+          ports:
+            - name: tcp
+              containerPort: 8000 # TODO(Ben): Make this configurable, such as via {{ .Values.workload_driver.http_port }}
+          resources: {}
+      restartPolicy: Always
+status: {}

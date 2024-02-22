@@ -29,11 +29,11 @@ spec:
             - --NotebookApp.token=
             - --log-level=DEBUG
           image: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag}}
-          name: jupyter-notebook
-          ports:
-            - containerPort: {{ .Values.notebook_server.port }}
+          name: jupyter-notebook 
           resources: {}
           ports:
+          - name: nb-server
+            containerPort: {{ .Values.notebook_server.port }}
           - name: tcp
             containerPort: {{ .Values.local_daemon.network.service_port }}
           - name: hb-port
