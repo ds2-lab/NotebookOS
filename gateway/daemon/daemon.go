@@ -19,9 +19,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/zhangjyr/distributed-notebook/common/core"
-	"github.com/zhangjyr/distributed-notebook/common/driver"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
@@ -86,7 +86,6 @@ type GatewayDaemonConfig func(*GatewayDaemon)
 type GatewayDaemon struct {
 	id string
 
-	driver.UnimplementedDistributedNotebookClusterServer
 	gateway.UnimplementedClusterGatewayServer
 	gateway.UnimplementedLocalGatewayServer
 	router *router.Router
@@ -121,7 +120,7 @@ type GatewayDaemon struct {
 	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
 
 	// Responsible for orchestrating and managing migration operations.
-	migrationManager MigrationManager
+	// migrationManager MigrationManager
 
 	// We configure a pool of available ports through Kubernetes.
 	// This is the pool of ports. We use these ports to create ZMQ sockets for kernels.
@@ -936,6 +935,7 @@ func (d *GatewayDaemon) WaitKernel(ctx context.Context, in *gateway.KernelId) (*
 
 // ClusterGateway implementation.
 func (d *GatewayDaemon) ID(ctx context.Context, in *gateway.Void) (*gateway.ProvisionerId, error) {
+	d.log.Debug("Returning ID for RPC. ID=%s", d.id)
 	return &gateway.ProvisionerId{Id: d.id}, nil
 }
 
@@ -1004,7 +1004,11 @@ func (d *GatewayDaemon) migrate_removeFirst(ctx context.Context, in *gateway.Rep
 // 	return &gateway.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
 // }
 
-func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
+func (d *GatewayDaemon) GetKubernetesNode() ([]corev1.Node, error) {
+	return d.kubeClient.GetKubernetesNode()
+}
+
+func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.MigrationRequest) (*gateway.MigrateKernelResponse, error) {
 	// client, ok := d.kernels.Load(in.KernelId)
 	// if !ok {
 	// 	d.log.Error("Failed to find client of kernel %s.", in.KernelId)
@@ -1016,9 +1020,16 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Re
 	// 	return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, nil
 	// }
 
-	d.log.Debug("Migrating replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
+	replicaInfo := in.TargetReplica
+	targetNode := in.GetTargetNodeId()
 
-	return d.migrate_removeFirst(ctx, in)
+	if targetNode != "" {
+		d.log.Warn("Ignoring specified target node of \"%s\" for now.")
+	}
+
+	d.log.Debug("Migrating replica %d of kernel %s now.", replicaInfo.ReplicaId, replicaInfo.KernelId)
+
+	return d.migrate_removeFirst(ctx, replicaInfo)
 	// return d.migrate_removeLast(ctx, in)
 
 	// The ID of the replica that we're migrating.
@@ -1498,13 +1509,18 @@ func (d *GatewayDaemon) removeReplica(smrNodeId int32, kernelId string, wait boo
 }
 
 // Driver gRPC.
-func (d *GatewayDaemon) ListKernels(ctx context.Context, in *driver.Void) (*driver.ListKernelsResponse, error) {
-	resp := &driver.ListKernelsResponse{
-		Kernels: make([]*driver.JupyterKernel, 0, d.kernels.Len()),
+func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gateway.ListKernelsResponse, error) {
+	d.log.Debug("Serving ListKernels gRPC request. We currently have %d kernel(s).", d.kernels.Len())
+
+	resp := &gateway.ListKernelsResponse{
+		Kernels: make([]*gateway.DistributedJupyterKernel, 0, d.kernels.Len()),
 	}
 
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
 	d.kernels.Range(func(id string, kernel *client.DistributedKernelClient) bool {
-		respKernel := &driver.JupyterKernel{
+		respKernel := &gateway.DistributedJupyterKernel{
 			KernelId:            kernel.ID(),
 			NumReplicas:         int32(kernel.Size()),
 			Status:              kernel.Status().String(),

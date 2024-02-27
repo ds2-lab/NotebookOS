@@ -26,7 +26,7 @@ class ClusterGatewayStub(object):
                 )
         self.MigrateKernelReplica = channel.unary_unary(
                 '/gateway.ClusterGateway/MigrateKernelReplica',
-                request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
+                request_serializer=gateway__pb2.MigrationRequest.SerializeToString,
                 response_deserializer=gateway__pb2.MigrateKernelResponse.FromString,
                 )
         self.NotifyKernelRegistered = channel.unary_unary(
@@ -43,6 +43,11 @@ class ClusterGatewayStub(object):
                 '/gateway.ClusterGateway/SmrNodeAdded',
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
+                )
+        self.ListKernels = channel.unary_unary(
+                '/gateway.ClusterGateway/ListKernels',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.ListKernelsResponse.FromString,
                 )
 
 
@@ -94,6 +99,13 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListKernels(self, request, context):
+        """Return a list of all of the current kernel IDs.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -109,7 +121,7 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
             ),
             'MigrateKernelReplica': grpc.unary_unary_rpc_method_handler(
                     servicer.MigrateKernelReplica,
-                    request_deserializer=gateway__pb2.ReplicaInfo.FromString,
+                    request_deserializer=gateway__pb2.MigrationRequest.FromString,
                     response_serializer=gateway__pb2.MigrateKernelResponse.SerializeToString,
             ),
             'NotifyKernelRegistered': grpc.unary_unary_rpc_method_handler(
@@ -126,6 +138,11 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
                     servicer.SmrNodeAdded,
                     request_deserializer=gateway__pb2.ReplicaInfo.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'ListKernels': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListKernels,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.ListKernelsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -183,7 +200,7 @@ class ClusterGateway(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/MigrateKernelReplica',
-            gateway__pb2.ReplicaInfo.SerializeToString,
+            gateway__pb2.MigrationRequest.SerializeToString,
             gateway__pb2.MigrateKernelResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
@@ -236,6 +253,23 @@ class ClusterGateway(object):
         return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/SmrNodeAdded',
             gateway__pb2.ReplicaInfo.SerializeToString,
             gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def ListKernels(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/ListKernels',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.ListKernelsResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

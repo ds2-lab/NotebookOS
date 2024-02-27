@@ -1,7 +1,0 @@
-include ../env.mk
-
-build-smr-darwin:
-	export CGO_CFLAGS="-I$(PYTHON3_PATH)/include/python$(PYTHON3_VERSION) -fPIC -Ofast"
-	export CGO_LDFLAGS="-L$(PYTHON3_PATH)/lib -lpython$(PYTHON3_VERSION) -ldl -framework CoreFoundation"
-	go build -mod=mod -buildmode=c-shared -o _smr.cpython-39-darwin.so .
-	

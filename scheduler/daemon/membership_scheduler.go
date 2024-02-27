@@ -34,9 +34,11 @@ func (s *MembershipScheduler) triggerMigration(kernel core.Kernel) error {
 	persistentId := kernel.(*client.KernelClient).PersistentID()
 	s.log.Info("Triggering hard-coded migration of replica %d of kernel %s", kernel.(*client.KernelClient).ReplicaID(), kernel.ID())
 
-	resp, err := s.daemon.Provisioner.MigrateKernelReplica(context.Background(), &gateway.ReplicaInfo{
-		KernelId:     kernel.ID(),
-		ReplicaId:    kernel.(*client.KernelClient).ReplicaID(),
+	resp, err := s.daemon.Provisioner.MigrateKernelReplica(context.Background(), &gateway.MigrationRequest{
+		TargetReplica: &gateway.ReplicaInfo{
+			KernelId:  kernel.ID(),
+			ReplicaId: kernel.(*client.KernelClient).ReplicaID(),
+		},
 		PersistentId: persistentId,
 	})
 

@@ -6,6 +6,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -16,6 +17,9 @@ type KubeClient interface {
 
 	// Create a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
 	DeployDistributedKernels(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
+
+	// Return a list of the current kubernetes nodes.
+	GetKubernetesNode() ([]corev1.Node, error)
 
 	// Initiate a migration operation for a particular replica of a particular kernel. The migration will be carried out automatically by the migration manager once it has been initiated.
 	// InitiateKernelMigration(context.Context, *client.DistributedKernelClient, int32, *gateway.KernelReplicaSpec) (string, error)

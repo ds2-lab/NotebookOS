@@ -19,7 +19,6 @@ import (
 
 	"github.com/zhangjyr/distributed-notebook/common/consul"
 	"github.com/zhangjyr/distributed-notebook/common/core"
-	"github.com/zhangjyr/distributed-notebook/common/driver"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"
@@ -96,12 +95,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
+	logger.Info("Jupyter server listening at %v", lis.Addr())
 
 	// Initialize workload driver listener
-	lisDriver, err := net.Listen("tcp", fmt.Sprintf(":%d", options.DriverGRPCPort))
+	proxy := gateway.NewWebSocketProxyServer(fmt.Sprintf(":%d", options.DriverGRPCPort))
+	lisDriver, err := proxy.Listen()
 	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
+		log.Fatalf("Failed to listen with websocket proxy server: %v", err)
 	}
+	logger.Info("Workload Driver gRPC server listening at %v", lisDriver.Addr())
 
 	// Build grpc options
 	gOpts := []grpc.ServerOption{
@@ -126,21 +128,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to listen on provisioner port: %v", err)
 	}
+	logger.Info("Provisioning server listening at %v", lisHost.Addr())
 
 	// Initialize internel gRPC server
 	provisioner := grpc.NewServer(gOpts...)
 	gateway.RegisterClusterGatewayServer(provisioner, srv)
-	logger.Info("Provisioning server listening at %v", lisHost.Addr())
 
 	// Initialize Jupyter gRPC server
 	registrar := grpc.NewServer(gOpts...)
 	gateway.RegisterLocalGatewayServer(registrar, srv)
-	logger.Info("Jupyter server listening at %v", lis.Addr())
 
 	// Initialize gRPC server for the Workload Driver to connect to.
-	driverServer := grpc.NewServer(gOpts...)
-	driver.RegisterDistributedNotebookClusterServer(driverServer, srv)
-	logger.Info("Workload Driver gRPC server listening at %v", lisDriver.Addr())
+	// This does not use a two-way connection like the other ClusterGatewayServer.
+	// driverServer := grpc.NewServer(gOpts...)
+	// gateway.RegisterClusterGatewayServer(driverServer, srv)
 
 	// Register services in consul
 	if consulClient != nil {
@@ -185,7 +186,7 @@ func main() {
 	// Start workload driver gRPC server
 	go func() {
 		defer finalize(true)
-		if err := driverServer.Serve(lisDriver); err != nil {
+		if err := provisioner.Serve(lisDriver); err != nil {
 			log.Fatalf("Error on serving workload driver connections: %v", err)
 		}
 	}()

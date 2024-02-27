@@ -46,9 +46,9 @@ build-grpc-go:
   	--go-grpc_out=. --go-grpc_opt=paths=source_relative \
     common/gateway/gateway.proto
 
-	protoc --go_out=. --go_opt=paths=source_relative \
-  	--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-    common/driver/driver.proto 
+# protoc --go_out=. --go_opt=paths=source_relative \
+# --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+# common/driver/driver.proto 
 
 build-grpc-python:
 	python3 -m grpc_tools.protoc -Icommon/gateway \
@@ -62,15 +62,15 @@ else
 endif 
 
 # We probably don't need the Python gRPC bindings.
-	python3 -m grpc_tools.protoc -Icommon/driver \
-  	--python_out=distributed_notebook/driver \
-		--grpc_python_out=distributed_notebook/driver \
-    common/driver/driver.proto
-ifeq ($(shell uname -p), x86_64)
-	@sed -i -E 's/import driver_pb2 as driver__pb2/from . import driver_pb2 as driver__pb2/g' distributed_notebook/driver/driver_pb2_grpc.py
-else
-	@sed -Ei '' 's/import driver_pb2 as driver__pb2/from . import driver_pb2 as driver__pb2/g' distributed_notebook/driver/driver_pb2_grpc.py
-endif 
+# 	python3 -m grpc_tools.protoc -Icommon/driver \
+#   	--python_out=distributed_notebook/driver \
+# 		--grpc_python_out=distributed_notebook/driver \
+#     common/driver/driver.proto
+# ifeq ($(shell uname -p), x86_64)
+# 	@sed -i -E 's/import driver_pb2 as driver__pb2/from . import driver_pb2 as driver__pb2/g' distributed_notebook/driver/driver_pb2_grpc.py
+# else
+# 	@sed -Ei '' 's/import driver_pb2 as driver__pb2/from . import driver_pb2 as driver__pb2/g' distributed_notebook/driver/driver_pb2_grpc.py
+# endif 
 
 build-grpc: build-grpc-go build-grpc-python
 

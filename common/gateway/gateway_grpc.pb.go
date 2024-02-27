@@ -25,6 +25,7 @@ const (
 	ClusterGateway_NotifyKernelRegistered_FullMethodName = "/gateway.ClusterGateway/NotifyKernelRegistered"
 	ClusterGateway_SmrReady_FullMethodName               = "/gateway.ClusterGateway/SmrReady"
 	ClusterGateway_SmrNodeAdded_FullMethodName           = "/gateway.ClusterGateway/SmrNodeAdded"
+	ClusterGateway_ListKernels_FullMethodName            = "/gateway.ClusterGateway/ListKernels"
 )
 
 // ClusterGatewayClient is the client API for ClusterGateway service.
@@ -41,11 +42,13 @@ type ClusterGatewayClient interface {
 	//
 	// The function will simply remove the replica from the kernel without stopping it.
 	// The caller should stop the replica after confirmed that the new replica is ready.
-	MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*MigrateKernelResponse, error)
+	MigrateKernelReplica(ctx context.Context, in *MigrationRequest, opts ...grpc.CallOption) (*MigrateKernelResponse, error)
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
 	NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*KernelRegistrationNotificationResponse, error)
 	SmrReady(ctx context.Context, in *SmrReadyNotification, opts ...grpc.CallOption) (*Void, error)
 	SmrNodeAdded(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
+	// Return a list of all of the current kernel IDs.
+	ListKernels(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ListKernelsResponse, error)
 }
 
 type clusterGatewayClient struct {
@@ -74,7 +77,7 @@ func (c *clusterGatewayClient) RemoveHost(ctx context.Context, in *HostId, opts 
 	return out, nil
 }
 
-func (c *clusterGatewayClient) MigrateKernelReplica(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*MigrateKernelResponse, error) {
+func (c *clusterGatewayClient) MigrateKernelReplica(ctx context.Context, in *MigrationRequest, opts ...grpc.CallOption) (*MigrateKernelResponse, error) {
 	out := new(MigrateKernelResponse)
 	err := c.cc.Invoke(ctx, ClusterGateway_MigrateKernelReplica_FullMethodName, in, out, opts...)
 	if err != nil {
@@ -110,6 +113,15 @@ func (c *clusterGatewayClient) SmrNodeAdded(ctx context.Context, in *ReplicaInfo
 	return out, nil
 }
 
+func (c *clusterGatewayClient) ListKernels(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ListKernelsResponse, error) {
+	out := new(ListKernelsResponse)
+	err := c.cc.Invoke(ctx, ClusterGateway_ListKernels_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterGatewayServer is the server API for ClusterGateway service.
 // All implementations must embed UnimplementedClusterGatewayServer
 // for forward compatibility
@@ -124,11 +136,13 @@ type ClusterGatewayServer interface {
 	//
 	// The function will simply remove the replica from the kernel without stopping it.
 	// The caller should stop the replica after confirmed that the new replica is ready.
-	MigrateKernelReplica(context.Context, *ReplicaInfo) (*MigrateKernelResponse, error)
+	MigrateKernelReplica(context.Context, *MigrationRequest) (*MigrateKernelResponse, error)
 	// Notify the Gateway that a distributed kernel replica has started somewhere.
 	NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*KernelRegistrationNotificationResponse, error)
 	SmrReady(context.Context, *SmrReadyNotification) (*Void, error)
 	SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error)
+	// Return a list of all of the current kernel IDs.
+	ListKernels(context.Context, *Void) (*ListKernelsResponse, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -142,7 +156,7 @@ func (UnimplementedClusterGatewayServer) ID(context.Context, *Void) (*Provisione
 func (UnimplementedClusterGatewayServer) RemoveHost(context.Context, *HostId) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveHost not implemented")
 }
-func (UnimplementedClusterGatewayServer) MigrateKernelReplica(context.Context, *ReplicaInfo) (*MigrateKernelResponse, error) {
+func (UnimplementedClusterGatewayServer) MigrateKernelReplica(context.Context, *MigrationRequest) (*MigrateKernelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MigrateKernelReplica not implemented")
 }
 func (UnimplementedClusterGatewayServer) NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*KernelRegistrationNotificationResponse, error) {
@@ -153,6 +167,9 @@ func (UnimplementedClusterGatewayServer) SmrReady(context.Context, *SmrReadyNoti
 }
 func (UnimplementedClusterGatewayServer) SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SmrNodeAdded not implemented")
+}
+func (UnimplementedClusterGatewayServer) ListKernels(context.Context, *Void) (*ListKernelsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListKernels not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 
@@ -204,7 +221,7 @@ func _ClusterGateway_RemoveHost_Handler(srv interface{}, ctx context.Context, de
 }
 
 func _ClusterGateway_MigrateKernelReplica_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReplicaInfo)
+	in := new(MigrationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -216,7 +233,7 @@ func _ClusterGateway_MigrateKernelReplica_Handler(srv interface{}, ctx context.C
 		FullMethod: ClusterGateway_MigrateKernelReplica_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClusterGatewayServer).MigrateKernelReplica(ctx, req.(*ReplicaInfo))
+		return srv.(ClusterGatewayServer).MigrateKernelReplica(ctx, req.(*MigrationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -275,6 +292,24 @@ func _ClusterGateway_SmrNodeAdded_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterGateway_ListKernels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterGatewayServer).ListKernels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterGateway_ListKernels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterGatewayServer).ListKernels(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterGateway_ServiceDesc is the grpc.ServiceDesc for ClusterGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -305,6 +340,10 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SmrNodeAdded",
 			Handler:    _ClusterGateway_SmrNodeAdded_Handler,
+		},
+		{
+			MethodName: "ListKernels",
+			Handler:    _ClusterGateway_ListKernels_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

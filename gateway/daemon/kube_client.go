@@ -182,6 +182,17 @@ func (c *BasicKubeClient) PodCreated(obj interface{}) {
 	c.scaleUpChannels.Set(kernelId, channels)
 }
 
+// Return a list of the current kubernetes nodes.
+func (c *BasicKubeClient) GetKubernetesNode() ([]corev1.Node, error) {
+	nodes, err := c.kubeClientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		c.log.Error("Error while retrieving Kubernetes nodes: %v", err)
+		return nil, err
+	}
+
+	return nodes.Items, nil
+}
+
 // Function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
 func (c *BasicKubeClient) PodDeleted(obj interface{}) {
 	pod := obj.(*corev1.Pod)
@@ -481,11 +492,11 @@ func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, po
 
 		// Decrease the number of replicas.
 		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
-			panic(fmt.Errorf("Failed to set spec.replicas value for CloneSet \"%s\": %v", cloneset_id, err))
+			panic(fmt.Errorf("failed to set spec.replicas value for CloneSet \"%s\": %v", cloneset_id, err))
 		}
 
 		if err := unstructured.SetNestedField(result.Object, []interface{}{oldPodName}, "spec", "scaleStrategy", "podsToDelete"); err != nil {
-			panic(fmt.Errorf("Failed to set spec.scaleStrategy.podsToDelete value for CloneSet \"%s\": %v", cloneset_id, err))
+			panic(fmt.Errorf("failed to set spec.scaleStrategy.podsToDelete value for CloneSet \"%s\": %v", cloneset_id, err))
 		}
 
 		_, updateErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})

@@ -20,7 +20,7 @@ service ClusterGateway {
   // 
   // The function will simply remove the replica from the kernel without stopping it.
   // The caller should stop the replica after confirmed that the new replica is ready.
-  rpc MigrateKernelReplica(ReplicaInfo) returns (MigrateKernelResponse) {}
+  rpc MigrateKernelReplica(MigrationRequest) returns (MigrateKernelResponse) {}
 
   // Notify the Gateway that a distributed kernel replica has started somewhere.
   rpc NotifyKernelRegistered(KernelRegistrationNotification) returns (KernelRegistrationNotificationResponse) {}
@@ -29,7 +29,31 @@ service ClusterGateway {
 
   rpc SmrNodeAdded(ReplicaInfo) returns (Void) {}
 
-  // rpc SmrNodeRemoved(ReplicaInfo) returns (Void) {}
+  // Return a list of all of the current kernel IDs.
+  rpc ListKernels(Void) returns (ListKernelsResponse) {}
+
+  // Return a list of the Kubernetes nodes available within the Kubernetes cluster.
+  // rpc GetKubernetesNodes(Void) returns (GetKubernetesNodesResponse) {}
+}
+
+message JupyterKernelReplica {
+  string kernelId = 1;
+  int32 replicaId = 2;
+  string podId = 3;
+  string nodeId = 4;
+}
+
+message DistributedJupyterKernel {
+  string kernelId = 1;
+  int32 numReplicas = 2;
+  string status = 3;
+  string aggregateBusyStatus = 4;
+  repeated JupyterKernelReplica replicas = 5;
+}
+
+message ListKernelsResponse {
+  int32 numKernels = 1;
+  repeated DistributedJupyterKernel kernels = 2;
 }
 
 message ProvisionerId {
@@ -84,6 +108,23 @@ service LocalGateway {
   rpc PrepareToMigrate(ReplicaInfo) returns (PrepareToMigrateResponse) {}
 }
 
+// message GetKubernetesNodesResponse {
+//   repeated KubernetesNode nodes = 1;
+// }
+
+// message KubernetesNode {
+//   string nodeId = 1;
+//   repeated string pods = 2;
+//   float allocatableCPU = 3;
+//   float allocatableMemory = 4;
+//   float allocatableGPUs = 5;
+//   float allocatableVGPUs = 6;
+//   float allocatedCPU = 7;
+//   float allocatedMemory = 8;
+//   float allocatedGPUs = 9;
+//   float allocatedVGPUs = 10;
+// }
+
 // The input for starting a kernel replica.
 message KernelReplicaSpec {
   KernelSpec kernel = 1;
@@ -111,6 +152,12 @@ message KernelId {
 message ReplicaInfo {
   string kernelId = 1;
   int32 replicaId = 2;
+  string persistentId = 3;
+}
+
+message MigrationRequest {
+  ReplicaInfo targetReplica = 1;
+  optional string targetNodeId = 2;
   string persistentId = 3;
 }
 
@@ -168,6 +215,7 @@ message KernelConnectionInfo {
 	string key = 10;  // The key to use for signing messages.
 }
 
+// Used as an argument to the Cluster Gateway's NotifyKernelRegistered RPC.
 message KernelRegistrationNotification {
   KernelConnectionInfo connectionInfo = 1; // Connection information of the kernel.
   string kernelId = 2; // ID of the Kernel.
@@ -178,6 +226,7 @@ message KernelRegistrationNotification {
   string podName = 7; // The name of the Pod hosting the kernel container.
 }
 
+// Returned by the Cluster Gateway for the NotifyKernelRegistered RPC.
 message KernelRegistrationNotificationResponse {
   int32 id = 1;
   map<int32,string> replicas = 2;
