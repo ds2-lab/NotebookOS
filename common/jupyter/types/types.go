@@ -33,6 +33,11 @@ func (s KernelStatus) String() string {
 		return fmt.Sprintf("Error(%d)", s)
 	}
 
+	if s < 0 {
+		fmt.Printf("Kernel Status is unknown: %d\n", s)
+		return "Unknown"
+	}
+
 	return [...]string{"Running", "Initializing", "Exited"}[s]
 }
 
