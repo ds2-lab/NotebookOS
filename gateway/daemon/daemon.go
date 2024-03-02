@@ -717,7 +717,7 @@ func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *
 	addReplicaOp.SetReplicaHostname(in.KernelIp)
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, nil, nil)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil)
 	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
@@ -821,7 +821,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nil, nil)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, in.NodeName, nil, nil)
 	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
@@ -1526,7 +1526,21 @@ func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gat
 			Status:              kernel.Status().String(),
 			AggregateBusyStatus: kernel.Status().String(),
 		}
+
+		replicas := make([]*gateway.JupyterKernelReplica, 0, len(kernel.Replicas()))
+		for _, replica := range kernel.Replicas() {
+			kernelReplica := &gateway.JupyterKernelReplica{
+				KernelId:  replica.ID(),
+				ReplicaId: replica.ReplicaID(),
+				PodId:     replica.PodName(),
+				NodeId:    replica.NodeName(),
+			}
+			replicas = append(replicas, kernelReplica)
+		}
+		respKernel.Replicas = replicas
+
 		resp.Kernels = append(resp.Kernels, respKernel)
+
 		return true
 	})
 

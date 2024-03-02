@@ -50,8 +50,8 @@ type KernelClient struct {
 	shellListenPort       int           // Port that the KernelClient::shell socket listens on.
 	iopubListenPort       int           // Port that the KernelClient::iopub socket listens on.
 	kernelPodName         string        // Name of the Pod housing the associated distributed kernel replica container.
-
-	ready bool // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
+	kubernetesNodeName    string        // Name of the node that the Pod is running on.
+	ready                 bool          // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
 
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback
 	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback
@@ -63,7 +63,7 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback) *KernelClient {
 	client := &KernelClient{
 		id:                    spec.Kernel.Id,
 		replicaId:             spec.ReplicaId,
@@ -72,6 +72,7 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		shellListenPort:       shellListenPort,
 		iopubListenPort:       iopubListenPort,
 		kernelPodName:         kernelPodName,
+		kubernetesNodeName:    kubernetesNodeName,
 		smrNodeReadyCallback:  smrNodeReadyCallback,
 		smrNodeAddedCallback:  smrNodeAddedCallback,
 		// smrNodeRemovedCallback: smrNodeRemovedCallback,
@@ -102,6 +103,11 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 // Return the name of the Kubernetes Pod hosting the replica.
 func (c *KernelClient) PodName() string {
 	return c.kernelPodName
+}
+
+// Name of the node that the Pod is running on.
+func (c *KernelClient) NodeName() string {
+	return c.kubernetesNodeName
 }
 
 func (c *KernelClient) ShellListenPort() int {

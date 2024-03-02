@@ -224,6 +224,7 @@ message KernelRegistrationNotification {
   int32 replicaId = 5; // The SMR replica ID.
   string kernelIp = 6; // The hostname of the kernel itself (not its LocalDaemon).
   string podName = 7; // The name of the Pod hosting the kernel container.
+  string nodeName = 8; // Name of the node that the Pod is running on.
 }
 
 // Returned by the Cluster Gateway for the NotifyKernelRegistered RPC.

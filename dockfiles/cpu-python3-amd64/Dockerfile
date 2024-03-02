@@ -45,21 +45,17 @@ ADD dockfiles/cpu-python3-amd64/sample_notebooks/ /home/jovyan/sample_notebooks/
 RUN chmod -R 777 /home/jovyan/sample_notebooks/*
 RUN chown jovyan /home/jovyan/sample_notebooks/*
 
-# RUN chown jovyan /home/jovyan/datasets/*
-
-# ADD dockfiles/cpu-python3-amd64/kernel-entrypoint.sh /kernel-entrypoint.sh
-
-# Make sure we can execute the kernel-entrypoint.sh file.
-# RUN chmod +x /kernel-entrypoint.sh
-
 # Install kernel
 RUN cd /distributed_notebook \
     && python3 -m grpc_tools.protoc -Icommon/gateway \
-  	--python_out=distributed_notebook/gateway \
-		--grpc_python_out=distributed_notebook/gateway \
+    --python_out=distributed_notebook/gateway \
+    --grpc_python_out=distributed_notebook/gateway \
     common/gateway/gateway.proto \
-	&& sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
+    && sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
 RUN cd /distributed_notebook && ./install_kernel.sh
+
+# Copy the modified config file.
+COPY dockfiles/cpu-python3-amd64/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py
 
 # Switch back to jovyan
 USER jovyan:users

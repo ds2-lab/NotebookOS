@@ -34,7 +34,7 @@ func (s KernelStatus) String() string {
 	}
 
 	if s < 0 {
-		fmt.Printf("Kernel Status is unknown: %d\n", s)
+		// fmt.Printf("Kernel Status is unknown: %d\n", s)
 		return "Unknown"
 	}
 

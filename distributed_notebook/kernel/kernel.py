@@ -62,6 +62,10 @@ class DistributedKernel(IPythonKernel):
         help = """Kubernetes name of the Pod encapsulating this distributed kernel replica"""
     ).tag(config = False)
     
+    node_name: Union[str, Unicode] = Unicode(
+        help = """Kubernetes name of the Node on which the Pod is running"""
+    ).tag(config = False)
+    
     hostname: Union[str, Unicode] = Unicode(
         help = """Hostname of the Pod encapsulating this distributed kernel replica"""
     ).tag(config = False)
@@ -137,6 +141,7 @@ class DistributedKernel(IPythonKernel):
         session_id = os.environ.get("SESSION_ID", default = UNAVAILABLE)
         self.kernel_id = os.environ.get("KERNEL_ID", default = UNAVAILABLE) 
         self.pod_name = os.environ.get("POD_NAME", default = UNAVAILABLE)
+        self.node_name = os.environ.get("NODE_NAME", default = UNAVAILABLE)
         
         self.log.info("Connection file path: \"%s\"" % connection_file_path)
         self.log.info("IPython config file path: \"%s\"" % config_file_path)
@@ -193,6 +198,7 @@ class DistributedKernel(IPythonKernel):
             "numReplicas": len(self.smr_nodes_map), # len(config_info["smr_nodes"]),
             "join": self.smr_join, # config_info["smr_join"],
             "podName": self.pod_name,
+            "nodeName": self.node_name,
             "kernel": {
                 "id": self.kernel_id, #, config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 
                 "session": session_id, # config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix. 

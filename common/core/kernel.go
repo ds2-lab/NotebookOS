@@ -78,6 +78,9 @@ type KernelReplica interface {
 	// Return the name of the Kubernetes Pod hosting the replica.
 	PodName() string
 
+	// Name of the node that the Pod is running on.
+	NodeName() string
+
 	// InitializeIOSub initializes the io subscriber of the replica with customized handler.
 	InitializeIOSub(handler jupyter.MessageHandler, subscriptionTopic string) (*jupyter.Socket, error)
 

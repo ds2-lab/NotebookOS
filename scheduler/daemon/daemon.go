@@ -129,6 +129,7 @@ type KernelRegistrationPayload struct {
 	Join            bool                `json:"join,omitempty"`
 	PersistentId    *string             `json:"persistentId,omitempty"`
 	PodName         string              `json:"podName,omitempty"`
+	NodeName        string              `json:"nodeName,omitempty"`
 }
 
 // Incoming connection from local distributed kernel.
@@ -244,7 +245,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, d.smrReadyCallback, d.smrNodeAddedCallback)
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
