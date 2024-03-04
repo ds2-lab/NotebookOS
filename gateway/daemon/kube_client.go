@@ -270,6 +270,21 @@ func (c *BasicKubeClient) GatewayDaemon() *GatewayDaemon {
 	return c.gatewayDaemon
 }
 
+// Delete the Cloneset for the kernel identified by the given ID.
+func (c *BasicKubeClient) DeleteCloneset(kernelId string) error {
+	clonesetId := fmt.Sprintf("kernel-%s", kernelId)
+	c.log.Debug("Deleting Cloneset '%s' now.", clonesetId)
+	// Issue the Kubernetes API request to delete the CloneSet.
+	err := c.dynamicClient.Resource(clonesetRes).Namespace("default").Delete(context.TODO(), clonesetId, v1.DeleteOptions{})
+
+	if err != nil {
+		c.log.Error("Error encountered while deleting cloneset '%s': %v", clonesetId, err)
+		return err
+	}
+
+	return nil
+}
+
 // Create a new Kubernetes StatefulSet for the given Session.
 // Returns a tuple containing the connection info returned by the `prepareConnectionFileContents` function and an error,
 // which will be nil if there were no errors encountered while creating the StatefulSet and related components.

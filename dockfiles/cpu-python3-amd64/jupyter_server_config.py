@@ -140,7 +140,7 @@ c = get_config()  #noqa
 #  
 #          Takes precedence over allow_origin_pat.
 #  Default: ''
-# c.ServerApp.allow_origin = ''
+c.ServerApp.allow_origin = '*'
 
 ## Use a regular expression for the Access-Control-Allow-Origin header
 #  
@@ -546,7 +546,13 @@ c = get_config()  #noqa
 
 ## Supply overrides for the tornado.web.Application that the Jupyter server uses.
 #  Default: {}
-# c.ServerApp.tornado_settings = {}
+origin = '*'
+c.ServerApp.tornado_settings = {
+    'headers': {
+      'Access-Control-Allow-Origin': origin,
+   },
+}
+c.Spawner.args = ['--NotebookApp.allow_origin={0}'.format(origin)]
 
 ## Whether to trust or not X-Scheme/X-Forwarded-Proto and X-Real-Ip/X-Forwarded-
 #  For headerssent by the upstream reverse proxy. Necessary if the proxy handles

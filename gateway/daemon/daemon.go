@@ -100,11 +100,12 @@ type GatewayDaemon struct {
 	placer   core.Placer
 
 	// kernel members
-	transport   string
-	ip          string
-	kernels     hashmap.HashMap[string, *client.DistributedKernelClient]
-	kernelSpecs hashmap.HashMap[string, *gateway.KernelSpec]
-	log         logger.Logger
+	transport        string
+	ip               string
+	kernels          hashmap.HashMap[string, *client.DistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
+	kernelIdToKernel hashmap.HashMap[string, *client.DistributedKernelClient] // Map from Kernel ID to  *client.DistributedKernelClient.
+	kernelSpecs      hashmap.HashMap[string, *gateway.KernelSpec]
+	log              logger.Logger
 
 	// lifetime
 	closed  int32
@@ -165,6 +166,7 @@ func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClient
 		ip:                opts.IP,
 		availablePorts:    utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
 		kernels:           hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
+		kernelIdToKernel:  hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
 		kernelSpecs:       hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
 		// waitGroups:        hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
 		waitGroups:                       hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
@@ -608,7 +610,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 		}
 
 		// Initialize kernel with new context.
-		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions, listenPorts[0], listenPorts[1])
+		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString())
 		d.log.Debug("Initializing Shell Forwarder for new DistributedKernelClient \"%s\" now.", in.Id)
 		_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {
@@ -633,6 +635,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	// var created sync.WaitGroup
 	// created.Add(d.ClusterOptions.NumReplicas)
 
+	d.kernelIdToKernel.Store(in.Id, kernel)
 	d.kernels.Store(in.Id, kernel)
 	d.kernelSpecs.Store(in.Id, in)
 	d.waitGroups.Store(in.Id, created)
@@ -717,7 +720,7 @@ func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *
 	addReplicaOp.SetReplicaHostname(in.KernelIp)
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID())
 	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
@@ -821,7 +824,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, in.NodeName, nil, nil)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, in.NodeName, nil, nil, kernel.PersistentID())
 	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
@@ -847,10 +850,11 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 
 	waitGroup.WaitRegistered()
 
+	persistentId := kernel.PersistentID()
 	response := &gateway.KernelRegistrationNotificationResponse{
 		Id:            replicaId,
 		Replicas:      waitGroup.GetReplicas(),
-		PersistentId:  nil,
+		PersistentId:  &persistentId,
 		DataDirectory: nil,
 		SmrPort:       int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
 	}
@@ -895,6 +899,10 @@ func (d *GatewayDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (r
 	}
 	d.log.Info("Stopping %v, will restart %v", kernel, restart)
 	ret = gateway.VOID
+
+	var wg sync.WaitGroup
+	wg.Add(kernel.Size())
+
 	go func() {
 		err = d.errorf(kernel.Shutdown(d.placer.Reclaim, restart))
 		if err != nil {
@@ -902,6 +910,7 @@ func (d *GatewayDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (r
 			return
 		}
 
+		d.log.Debug("Clearing session records for kernel %s.", kernel)
 		// Clear session records.
 		for _, sess := range kernel.Sessions() {
 			d.kernels.Delete(sess)
@@ -912,6 +921,7 @@ func (d *GatewayDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (r
 			kernel.ClearSessions()
 		} else {
 			d.kernels.Delete(kernel.ID())
+			d.kernelIdToKernel.Delete(kernel.ID())
 
 			// Return the ports allocated to the kernel.
 			listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
@@ -919,7 +929,22 @@ func (d *GatewayDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (r
 
 			d.log.Debug("Cleaned kernel %s after kernel stopped.", kernel.ID())
 		}
+
+		wg.Done()
 	}()
+
+	wg.Wait()
+	d.log.Debug("Finished deleting kernel %s.", kernel.ID())
+
+	if !restart {
+		// Delete the CloneSet.
+		err := d.kubeClient.DeleteCloneset(kernel.ID())
+
+		if err != nil {
+			d.log.Error("Error encountered while deleting cloneset for kernel %s: %v", kernel.ID(), err)
+		}
+	}
+
 	return
 }
 
@@ -1510,18 +1535,20 @@ func (d *GatewayDaemon) removeReplica(smrNodeId int32, kernelId string, wait boo
 
 // Driver gRPC.
 func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gateway.ListKernelsResponse, error) {
-	d.log.Debug("Serving ListKernels gRPC request. We currently have %d kernel(s).", d.kernels.Len())
+	d.log.Debug("Serving ListKernels gRPC request. We currently have %d kernel(s).", d.kernelIdToKernel.Len())
 
 	resp := &gateway.ListKernelsResponse{
-		Kernels: make([]*gateway.DistributedJupyterKernel, 0, d.kernels.Len()),
+		Kernels: make([]*gateway.DistributedJupyterKernel, 0, max(d.kernelIdToKernel.Len(), 1)),
 	}
 
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	d.kernels.Range(func(id string, kernel *client.DistributedKernelClient) bool {
+	d.kernelIdToKernel.Range(func(id string, kernel *client.DistributedKernelClient) bool {
+		d.log.Debug("Will be returning Kernel %s with %d replica(s).", id, kernel.Size())
+
 		respKernel := &gateway.DistributedJupyterKernel{
-			KernelId:            kernel.ID(),
+			KernelId:            id,
 			NumReplicas:         int32(kernel.Size()),
 			Status:              kernel.Status().String(),
 			AggregateBusyStatus: kernel.Status().String(),
@@ -1530,7 +1557,7 @@ func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gat
 		replicas := make([]*gateway.JupyterKernelReplica, 0, len(kernel.Replicas()))
 		for _, replica := range kernel.Replicas() {
 			kernelReplica := &gateway.JupyterKernelReplica{
-				KernelId:  replica.ID(),
+				KernelId:  id,
 				ReplicaId: replica.ReplicaID(),
 				PodId:     replica.PodName(),
 				NodeId:    replica.NodeName(),

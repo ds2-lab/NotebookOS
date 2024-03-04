@@ -63,9 +63,10 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string) *KernelClient {
 	client := &KernelClient{
 		id:                    spec.Kernel.Id,
+		persistentId:          persistentId,
 		replicaId:             spec.ReplicaId,
 		spec:                  spec.Kernel,
 		addSourceKernelFrames: addSourceKernelFrames,
@@ -139,6 +140,15 @@ func (c *KernelClient) ReplicaID() int32 {
 // ReplicaID returns the replica ID.
 func (c *KernelClient) SetReplicaID(replicaId int32) {
 	c.replicaId = replicaId
+}
+
+// Set the value of the persistentId field.
+// This will panic if the persistentId has already been set to something other than the empty string.
+func (c *KernelClient) SetPersistentID(persistentId string) {
+	if c.persistentId != "" {
+		panic(fmt.Sprintf("Cannot set persistent ID of kernel %s. Persistent ID already set to value: '%s'", c.id, c.persistentId))
+	}
+	c.persistentId = persistentId
 }
 
 // PersistentID returns the persistent ID.
@@ -420,22 +430,6 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 	}
 
 	return nil
-}
-
-func (c *KernelClient) handleMsgWithKernelSourceFrame(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-	// c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
-	switch typ {
-	case types.IOMessage:
-		// msg.Frames = c.RemoveSourceKernelFrame(msg.Frames, -1)
-
-		if c.iopub != nil {
-			return c.iobroker.Publish(c, msg)
-		} else {
-			return ErrIOPubNotStarted
-		}
-	}
-
-	return ErrHandlerNotImplemented
 }
 
 func (c *KernelClient) handleMsg(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {

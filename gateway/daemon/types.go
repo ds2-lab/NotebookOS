@@ -18,6 +18,9 @@ type KubeClient interface {
 	// Create a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
 	DeployDistributedKernels(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
 
+	// Delete the Cloneset for the kernel identified by the given ID.
+	DeleteCloneset(kernelId string) error 
+
 	// Return a list of the current kubernetes nodes.
 	GetKubernetesNode() ([]corev1.Node, error)
 

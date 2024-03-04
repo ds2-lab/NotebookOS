@@ -61,6 +61,7 @@ type DistributedKernelClient struct {
 	replicas map[int32]core.KernelReplica
 	// size     int
 
+	persistentId    string
 	connectionInfo  *types.ConnectionInfo
 	shellListenPort int // Port that the KernelClient::shell socket listens on.
 	iopubListenPort int // Port that the KernelClient::iopub socket listens on.
@@ -75,9 +76,9 @@ type DistributedKernelClient struct {
 	cleaned chan struct{}
 }
 
-func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int) *DistributedKernelClient {
+func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string) *DistributedKernelClient {
 	kernel := &DistributedKernelClient{
-		id: spec.Id,
+		id: spec.Id, persistentId: persistentId,
 		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, func(s *server.AbstractServer) {
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort}
 			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort} // connectionInfo.IOSubPort}
@@ -115,6 +116,10 @@ func (c *DistributedKernelClient) ResetID(id string) {
 	if colorLog, ok := c.log.(*logger.ColorLogger); ok {
 		colorLog.Prefix = fmt.Sprintf("kernel(%s) ", id)
 	}
+}
+
+func (c *DistributedKernelClient) PersistentID() string {
+	return c.persistentId
 }
 
 // String returns a string representation of the client.

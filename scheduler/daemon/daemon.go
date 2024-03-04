@@ -245,7 +245,8 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback)
+	// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "")
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
@@ -335,11 +336,11 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		"replicas":    response.Replicas,
 	}
 
-	var hdfsDataDirectoryExpected bool = false
 	if response.PersistentId != nil && response.GetPersistentId() != "" {
 		d.log.Debug("Including persistent store ID \"%s\" in notification response to replica %d of kernel %s.", response.GetPersistentId(), response.Id, kernel.ID())
 		payload["persistent_id"] = response.GetPersistentId()
-		hdfsDataDirectoryExpected = true
+		kernel.SetPersistentID(response.GetPersistentId())
+		// hdfsDataDirectoryExpected = true
 	} else {
 		d.log.Debug("No persistent ID to include in response.")
 	}
@@ -347,9 +348,6 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	if response.DataDirectory != nil && response.GetDataDirectory() != "" {
 		d.log.Debug("Including data directory \"%s\" in notification response to replica %d of kernel %s.", response.GetDataDirectory(), response.Id, kernel.ID())
 		payload["data_directory"] = response.GetDataDirectory()
-	} else if hdfsDataDirectoryExpected {
-		d.log.Error("Should have received a valid HDFS data directory for replica %d of kernel %s. Received: \"%s\"", response.Id, kernel.ID(), response.GetDataDirectory())
-		panic("Did not receive valid HDFS data directory when we should have.")
 	} else {
 		d.log.Debug("No data directory to include in response.")
 	}
@@ -663,59 +661,6 @@ func (d *SchedulerDaemon) smrNodeAddedCallback(readyMessage *types.MessageSMRNod
 
 // StartKernel launches a new kernel.
 func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
-	// invoker := invoker.NewDockerInvoker(d.connectionOptions)
-	// connInfo, err := invoker.InvokeWithContext(ctx, in)
-	// if err != nil {
-	// 	return nil, status.Errorf(codes.Internal, err.Error())
-	// }
-
-	// // Initialize kernel client with new context.
-	// kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	// kernel := client.NewKernelClient(kernelCtx, in, connInfo)
-	// shell := d.router.Socket(jupyter.ShellMessage)
-	// if d.Options.DirectServer {
-	// 	var err error
-	// 	shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
-	// 	if err != nil {
-	// 		d.closeKernel(kernel, "failed initializing shell forwarder")
-	// 		return nil, status.Errorf(codes.Internal, err.Error())
-	// 	}
-	// }
-	// iopub, iosub, err := kernel.InitializeIOForwarder()
-	// if err != nil {
-	// 	d.closeKernel(kernel, "failed initializing io forwarder")
-	// 	return nil, status.Errorf(codes.Internal, err.Error())
-	// }
-	// if err := kernel.Validate(); err != nil {
-	// 	d.closeKernel(kernel, "validation error")
-	// 	return nil, status.Errorf(codes.Internal, err.Error())
-	// }
-
-	// // Handle kernel response.
-	// kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
-
-	// // Register kernel.
-	// d.kernels.Store(kernel.ID(), kernel)
-
-	// // Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
-	// for _, session := range kernel.Sessions() {
-	// 	d.kernels.Store(session, kernel)
-	// }
-
-	// info := &gateway.KernelConnectionInfo{
-	// 	Ip:              d.ip,
-	// 	Transport:       d.transport,
-	// 	ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
-	// 	ShellPort:       int32(shell.Port),
-	// 	StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
-	// 	HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-	// 	IopubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
-	// 	IosubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly. Possibly flip them so the Gateway can establish connections correctly. Need to rename them. Maybe IOSub and IOPub, and we just make sure they're assigned correctly.
-	// 	SignatureScheme: connInfo.SignatureScheme,
-	// 	Key:             connInfo.Key,
-	// }
-	// d.log.Info("Kernel %s started: %v", in.ID(), info)
-	// return info, nil
 	panic("Not supported.")
 }
 
