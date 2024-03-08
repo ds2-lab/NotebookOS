@@ -159,6 +159,10 @@ class Synchronizer:
     return 0
 
   async def sync(self, execution_ast, source: Optional[str]=None, checkpointer: Optional[Checkpointer]=None):
+    """
+    Note: `execution_ast` may be None if the user's code had a syntax error. 
+    TODO(Ben): See what happens if there are other errors, such as dividing by zero or array out-of-bounds.
+    """
     synclog = self._synclog
     checkpointing = checkpointer is not None
     if checkpointing:

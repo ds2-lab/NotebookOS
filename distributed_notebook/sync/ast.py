@@ -58,20 +58,27 @@ class SyncAST(ast.NodeVisitor):
     """Update AST with the AST of incremental execution and return SyncValue 
        for synchronization. The execution_count will increase by 1."""
     assert meta != None and isinstance(meta, str)
-    try:
-      self._source = meta
-      ret = None
-      if self._tree is None:
-        self._tree = self.visit(raw)
-        ret = self._tree
-      else:
-        incremental = self.visit(raw)
-        self._tree.body.extend(incremental.body)
-        ret = incremental
-    except Exception as e:
-      self._log.error("Failed to diff AST: {}".format(e))
-      raise e
-
+    
+    # The AST we're comparing against, raw, may be None if the user's code had a syntax error.
+    # In this case, we'll just increment our executions and return the existing self._tree field.
+    if raw != None:
+      try:
+        self._source = meta
+        ret = None
+        if self._tree is None:
+          self._tree = self.visit(raw)
+          ret = self._tree
+        else:
+          incremental = self.visit(raw)
+          self._tree.body.extend(incremental.body)
+          ret = incremental
+      except Exception as e:
+        self._log.error("Failed to diff AST: {}".format(e))
+        raise e
+    else:
+      # Reuse the existing _tree field.
+      ret = self._tree
+      
     self._executions = self._executions+1
     return SyncValue(self._executions, (ret, tuple(self._globals.keys())))
   

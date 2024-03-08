@@ -698,14 +698,13 @@ func (d *SchedulerDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) 
 		return nil, ErrKernelNotFound
 	}
 
-	d.log.Debug("Stopped kernel %s, replica %d.", in.Id, kernel.ReplicaID())
+	d.log.Debug("Stopping replica %d of kernel %s now.", kernel.ReplicaID(), in.Id)
 	err = d.stopKernel(ctx, kernel, false)
 	if err != nil {
 		return nil, d.errorf(err)
 	}
 
-	d.log.Debug("Stopped kernel %s, replica %d.", in.Id, kernel.ReplicaID())
-
+	d.log.Debug("Successfully stopped replica %d of kernel %s.", kernel.ReplicaID(), in.Id)
 	listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
 	err = d.availablePorts.ReturnPorts(listenPorts)
 	if err != nil {
@@ -737,9 +736,8 @@ func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel *client.KernelC
 		return err
 	}
 
-	wg.Wait()
-
 	d.log.Debug("Sent \"%s\" message to replica %d of kernel %s.", jupyter.MessageTypeShutdownRequest, kernel.ReplicaID(), kernel.ID())
+	wg.Wait()
 
 	// d.getInvoker(kernel).Close()
 	return nil

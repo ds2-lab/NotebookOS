@@ -36,10 +36,10 @@ func (s *MembershipScheduler) triggerMigration(kernel core.Kernel) error {
 
 	resp, err := s.daemon.Provisioner.MigrateKernelReplica(context.Background(), &gateway.MigrationRequest{
 		TargetReplica: &gateway.ReplicaInfo{
-			KernelId:  kernel.ID(),
-			ReplicaId: kernel.(*client.KernelClient).ReplicaID(),
+			KernelId:     kernel.ID(),
+			ReplicaId:    kernel.(*client.KernelClient).ReplicaID(),
+			PersistentId: persistentId,
 		},
-		PersistentId: persistentId,
 	})
 
 	if err != nil {

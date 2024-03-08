@@ -123,6 +123,7 @@ class DistributedKernel(IPythonKernel):
         self.log.error("TEST -- ERROR")
         
         self.smr_nodes_map = {}
+        self.execution_ast = None 
         self.synclog_stopped = False 
         self.remove_on_shutdown = True # By default, we do want to remove the replica from the raft smr cluster on shutdown. 
         
@@ -409,7 +410,10 @@ class DistributedKernel(IPythonKernel):
             # Disable stdout and stderr forwarding.
             self.toggle_outstream(override=True, enable=False)
             
-            self.log.debug("Synchronizing now.")
+            if self.execution_ast is None:
+                self.log.warn("Execution AST is None. Synchronization will likely fail...")
+            else:
+                self.log.debug("Synchronizing now. Execution AST is NOT None.")
             
             # Synchronize
             coro = self.synchronizer.sync(self.execution_ast, self.source)
@@ -433,17 +437,19 @@ class DistributedKernel(IPythonKernel):
             self.log.info("Closing the Synchronizer.")
             self.synchronizer.close()
             self.log.info("Successfully closed the Synchronizer.")
-
+        
         # The value of self.synclog_stopped will be True if `prepare_to_migrate` was already called.
-        if self.synclog:
-            if self.remove_on_shutdown:
-                self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
-                try:
+        if self.synclog and self.remove_on_shutdown:
+            self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
+            try:
+                async with asyncio.timeout(15):
                     await self.synclog.remove_node(self.smr_node_id)
                     self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
-                except Exception as ex:
-                    self.log.error("Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
-                    return self.gen_error_response(e), False
+            except TimeoutError:
+                self.log.error("Removing self (node %d) from the SMR cluster timed-out. Continuing onwards.", self.smr_node_id)
+            except Exception as ex:
+                self.log.error("Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
+                return self.gen_error_response(ex), False
                 
             if not self.synclog_stopped:
                 self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
@@ -455,8 +461,6 @@ class DistributedKernel(IPythonKernel):
             else:
                 self.log.info("I've already removed myself from the SMR cluster and closed my sync-log.")
 
-        # Give time for the "smr_node_removed" message to be sent.
-        # time.sleep(2)
         return super().do_shutdown(restart)
 
     async def prepare_to_migrate(self):

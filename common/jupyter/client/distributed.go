@@ -158,6 +158,11 @@ func (c *DistributedKernelClient) Status() types.KernelStatus {
 	return c.status
 }
 
+// Status returns the aggregate kernel busy status.
+func (c *DistributedKernelClient) AggregateBusyStatus() string {
+	return c.busyStatus.status
+}
+
 // BindSession binds a session ID to the client.
 func (c *DistributedKernelClient) BindSession(sess string) {
 	c.SessionManager.BindSession(sess)

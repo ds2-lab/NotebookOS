@@ -5,6 +5,7 @@ name: distributed-notebook
 nodes:
 - role: control-plane
 - role: worker
+  runtimeStorageDir: "/mnt/nvme0n1/docker/volumes"
   kubeadmConfigPatches:
   - |
     kind: JoinConfiguration
@@ -12,6 +13,7 @@ nodes:
       kubeletExtraArgs:
         system-reserved: memory=5Gi
 - role: worker
+  runtimeStorageDir: "/mnt/nvme0n1/docker/volumes"
   kubeadmConfigPatches:
   - |
     kind: JoinConfiguration
@@ -19,6 +21,7 @@ nodes:
       kubeletExtraArgs:
         system-reserved: memory=5Gi
 - role: worker
+  runtimeStorageDir: "/mnt/nvme0n1/docker/volumes"
   kubeadmConfigPatches:
   - |
     kind: JoinConfiguration
@@ -26,6 +29,7 @@ nodes:
       kubeletExtraArgs:
         system-reserved: memory=5Gi
 - role: worker
+  runtimeStorageDir: "/mnt/nvme0n1/docker/volumes"
   kubeadmConfigPatches:
   - |
     kind: JoinConfiguration
