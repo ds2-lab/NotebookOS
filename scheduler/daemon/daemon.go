@@ -317,6 +317,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		HostId:         d.id,
 		KernelIp:       remote_ip,
 		PodName:        registrationPayload.PodName,
+		NodeName:       registrationPayload.NodeName,
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
