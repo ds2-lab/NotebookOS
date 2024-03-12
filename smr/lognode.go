@@ -365,7 +365,7 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 		resolve = node.defaultResolveCallback
 	}
 
-	node.logger.Info("Appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
+	node.logger.Info("Proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if err := proposer(ctx); err != nil {
 		node.logger.Error("Exception while propoising value.", zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
 		resolve(msg, toCError(err))
@@ -374,7 +374,7 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	node.logger.Info("Proposed value. Waiting for committed or retry.", zap.String("key", msg), zap.String("id", ctx.ID()))
 	// Wait for committed or retry
 	for !node.waitProposal(ctx) {
-		node.logger.Info("Retry appending value", zap.String("key", msg), zap.String("id", ctx.ID()))
+		node.logger.Info("Retry proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
 		ctx.Reset(ProposalDeadline)
 		if err := proposer(ctx); err != nil {
 			node.logger.Error("Exception while retrying value proposal.", zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
@@ -1045,7 +1045,7 @@ func (node *LogNode) serveChannels() {
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-node.node.Ready():
 			if len(rd.CommittedEntries) > 0 || rd.HardState.Commit > 0 {
-				node.logger.Info("ready", zap.Int("entries", len(rd.CommittedEntries)), zap.Uint64("commit", rd.HardState.Commit))
+				node.logger.Info("ready", zap.Int("num-committed-entries", len(rd.CommittedEntries)), zap.Uint64("hardstate.commit", rd.HardState.Commit))
 			}
 			if node.wal != nil {
 				node.wal.Save(rd.HardState, rd.Entries)

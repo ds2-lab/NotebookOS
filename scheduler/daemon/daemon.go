@@ -23,7 +23,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -32,6 +31,8 @@ import (
 )
 
 const (
+	ShellExecuteRequest    = "execute_request"
+	ShellYieldExecute      = "yield_execute"
 	ShellKernelInfoRequest = "kernel_info_request"
 	ShellShutdownRequest   = "shutdown_request"
 
@@ -40,6 +41,10 @@ const (
 
 	KubeNodeLocalMountPoint        = "NODE_LOCAL_MOUNT_POINT"
 	KubeNodeLocalMountPointDefault = "/data"
+
+	// Passed within the metadata dict of an 'execute_request' ZMQ message.
+	// This indicates that a specific replica should execute the code.
+	TargetReplicaArg = "target_replica"
 )
 
 var (
@@ -51,10 +56,11 @@ var (
 	ErrRequestFailed    = status.Errorf(codes.DeadlineExceeded, "could not complete kernel request in-time")
 
 	// Internal errors
-	ErrHeaderNotFound   = errors.New("message header not found")
-	ErrKernelNotFound   = errors.New("kernel not found")
-	ErrKernelNotReady   = errors.New("kernel not ready")
-	ErrKernelIDRequired = errors.New("kernel id frame is required for kernel_info_request")
+	ErrHeaderNotFound           = errors.New("message header not found")
+	ErrKernelNotFound           = errors.New("kernel not found")
+	ErrKernelNotReady           = errors.New("kernel not ready")
+	ErrKernelIDRequired         = errors.New("kernel id frame is required for kernel_info_request")
+	ErrUnexpectedZMQMessageType = errors.New("received ZMQ message of unexpected type")
 
 	// Context keys
 	ctxKernelInvoker = utils.ContextKey("invoker")
@@ -66,8 +72,9 @@ type SchedulerDaemonConfig func(*SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
 	// If the scheduler serves jupyter notebook directly, set this to true.
-	DirectServer bool `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
-	SMRPort      int  `name:"smr_port" description:"Port used by the SMR protocol."`
+	DirectServer bool  `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
+	SMRPort      int   `name:"smr_port" description:"Port used by the SMR protocol."`
+	NumGPUs      int64 `name:"max-actual-gpu-per-node" json:"max-actual-gpu-per-node" yaml:"max-actual-gpu-per-node" description:"The total number of GPUs that should be available on each node."`
 }
 
 func (o SchedulerDaemonOptions) String() string {
@@ -115,6 +122,9 @@ type SchedulerDaemon struct {
 
 	availablePorts *utils.AvailablePorts
 
+	// Manages "actual" GPU allocations.
+	gpuManager *GpuManager
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -149,6 +159,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		cleaned:            make(chan struct{}),
 		kernelRegistryPort: kernelRegistryPort,
 		smrPort:            schedulerDaemonOptions.SMRPort,
+		gpuManager:         NewGpuManager(schedulerDaemonOptions.NumGPUs),
 		// devicePluginServer: deviceplugin.NewVirtualGpuPluginServer(devicePluginOpts),
 	}
 	for _, config := range configs {
@@ -297,14 +308,14 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	// d.log.Debug("iopub.Port: %d", d.iopub.Port)
 
 	info := &gateway.KernelConnectionInfo{
-		Ip:              d.ip, // TODO(Ben): What should this be? The local daemon's IP, but what is that?
+		Ip:              d.ip,
 		Transport:       d.transport,
 		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
 		ShellPort:       int32(shell.Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(iopub.Port), // TODO(Ben): Need to set these correctly.
-		IosubPort:       int32(iosub.Port), // TODO(Ben): Need to set these correctly.
+		IopubPort:       int32(iopub.Port), // TODO(Ben): Are these still needed? I think so...
+		IosubPort:       int32(iosub.Port), // TODO(Ben): Are these still needed? I think so...
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}
@@ -320,7 +331,6 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
-	// TODO(Ben): Contact the Gateway to notify it that we've registered one of the replicas.
 	response, err := d.Provisioner.NotifyKernelRegistered(ctx, kernelRegistrationNotification)
 	if err != nil {
 		d.log.Error("Error encountered while notifying Gateway of kernel registration: %v", err)
@@ -412,7 +422,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 	var requestWG sync.WaitGroup
 	var requestReceived int32
 	requestWG.Add(1)
-	var dataDirectory string // TODO(Ben): Assign this a value.
+	var dataDirectory string
 
 	// Try 3 times to send the request.
 	var currentNumTries int = 0
@@ -427,7 +437,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 			}
 
 			var frames jupyter.JupyterFrames = msg.Frames
-			var respMessage types.MessageDataDirectory
+			var respMessage jupyter.MessageDataDirectory
 			if err := frames.Validate(); err != nil {
 				d.log.Error("Failed to validate frames of `MessageDataDirectory` message: %v", err)
 				// Record that we've received the response.
@@ -622,22 +632,7 @@ func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.ReplicaIn
 	return gateway.VOID, nil
 }
 
-// func (d *SchedulerDaemon) smrNodeRemovedCallback(readyMessage *types.MessageSMRNodeUpdated) {
-// 	d.log.Debug("Replica %d of kernel %s has been removed from its SMR cluster.", readyMessage.NodeID, readyMessage.KernelId)
-
-// 	_, err := d.Provisioner.SmrNodeRemoved(context.TODO(), &gateway.ReplicaInfo{
-// 		KernelId:     readyMessage.KernelId,
-// 		ReplicaId:    readyMessage.NodeID,
-// 		PersistentId: readyMessage.PersistentID,
-// 	})
-
-// 	if err != nil {
-// 		// TODO(Ben): Handle this somehow.
-// 		d.log.Error("Error when informing Gateway of SMR Node-Removed for replica %d of kernel %s: %v", readyMessage.NodeID, readyMessage.KernelId, err)
-// 	}
-// }
-
-func (d *SchedulerDaemon) smrNodeAddedCallback(readyMessage *types.MessageSMRNodeUpdated) {
+func (d *SchedulerDaemon) smrNodeAddedCallback(readyMessage *jupyter.MessageSMRNodeUpdated) {
 	if readyMessage.Success {
 		d.log.Debug("Replica %d of kernel %s has successfully joined its SMR cluster.", readyMessage.NodeID, readyMessage.KernelId)
 	} else {
@@ -878,12 +873,84 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 		return ErrKernelNotReady
 	}
 
+	// TODO(Ben): We'll inspect here to determine if the message is an execute_request.
+	// If it is, then we'll see if we have enough resources for the kernel to (potentially) execute the code.
+	// If not, we'll change the message's header to "yield_execute".
+	d.log.Debug("Forwarding shell message to replica %d of kernel %s: %s", kernel.ReplicaID(), kernel.ID(), msg)
+	isExecuteRequest, err := d.isExecuteRequest(msg)
+	if err != nil {
+		// TODO(Ben): Handle this error more gracefully.
+		panic(err)
+	}
+
+	// If the message is an execute_request message, then we have some processing to do on it.
+	if isExecuteRequest {
+		msg = d.processExecuteRequest(msg, kernel)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := d.forwardRequest(ctx, kernel, jupyter.ShellMessage, msg, cancel); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.KernelClient) *zmq4.Msg {
+	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
+	var targetReplicaId int64 = -1
+
+	// TODO(Ben): Check GPU resources. If there are sufficiently-many GPUs available, then leave the message as-is.
+	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_execute" message.
+	// This will force the replica to necessarily yield the execution to the other replicas.
+	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
+	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
+	var metadataFrame *jupyter.JupyterFrame = frames.MetadataFrame()
+
+	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
+	if len(metadataFrame.Frame()) > 0 {
+		// Unmarshal the frame.
+		var metadataDict map[string]interface{}
+		err := metadataFrame.Decode(&metadataDict)
+		if err != nil {
+			d.log.Error("Error unmarshalling metadata frame for 'execute_request' message: %v", err)
+		} else {
+			d.log.Debug("Unmarshalled metadata frame for 'execute_request' message: %v", metadataDict)
+
+			// See if there are any notable custom arguments, such as a target replica.
+			if val, ok := metadataDict[TargetReplicaArg]; ok {
+				targetReplicaId, err = val.(json.Number).Int64()
+				if err != nil {
+					d.log.Error("Could not parse target replica ID in metadata for 'execute_request' message: %v", err)
+					targetReplicaId = -1
+				} else {
+					d.log.Debug("Found target replica argument for 'execute_request' message. Target replica: %d.", targetReplicaId)
+				}
+			}
+		}
+	}
+
+	// Check if another replica was specified as the one that should execute the code. If this is true, then we'll yield the execution.
+	var differentTargetReplicaSpecified bool = (targetReplicaId != -1 && targetReplicaId != int64(kernel.ReplicaID()))
+	/* TODO(Ben): The 0 is a place-holder. Need to check how many GPUs this kernel requires. The infrastructure for this isn't setup yet, though. */
+	var insufficientGPUs bool = d.gpuManager.IdleGPUs().LessThan(ZeroDecimal)
+
+	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
+	// - If there are insufficient GPUs on this node, then our replica will need to yield.
+	// - If one of the other replicas was explicitly specified as the target replica, then our replica will need to yield.
+	if insufficientGPUs || differentTargetReplicaSpecified {
+		d.log.Debug("Insufficient GPUs available (%s) for replica %d of kernel %s to execute code (%v required).", d.gpuManager.IdleGPUs(), kernel.ReplicaID(), kernel.ID(), 0 /* Placeholder */)
+
+		// Convert the message to a yield request.
+		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica in place of the original 'execute_request' message.
+		var err error
+		msg, err = d.convertExecuteRequestToYieldExecute(msg)
+		if err != nil {
+			panic(err) // TODO(Ben): Handle this error more gracefully.
+		}
+	}
+
+	return msg
 }
 
 func (d *SchedulerDaemon) StdinHandler(info router.RouterInfo, msg *zmq4.Msg) error {
@@ -907,6 +974,69 @@ func (d *SchedulerDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err 
 	}
 
 	return header.Session, true, nil
+}
+
+// Check if the given message is an "execute_request" message by examining the message's type field, which is found in the message's header.
+//
+// On success, the returned error will be nil. False will be returned if the given message is NOT an "execute_request" message.
+// If the given message IS an "execute_request" message, then true will be returned.
+//
+// If there's any error, such as when extracting the header, then the error will be non-nil, and the returned boolean flag is invalid
+// (i.e., it's value should not be interpreted or considered to be accurate).
+func (d *SchedulerDaemon) isExecuteRequest(msg *zmq4.Msg) (bool, error) {
+	header, err := d.headerFromFrames(msg.Frames)
+	if err != nil {
+		d.log.Error("Error while extracting header from Jupyter message: %v", err)
+		return false, err
+	}
+
+	err = nil
+	if header.MsgType == ShellExecuteRequest {
+		return true, err /* err is nil */
+	} else {
+		return false, err /* err is nil */
+	}
+}
+
+// Convert the given message to a "yield_execute" message.
+//
+// This will return a COPY of the original message with the type field modified to contact "yield_execute" instead of "execute_request".
+// On success, the returned error will be nil. If an error occurs, then the returned message will be nil, and the error will be non-nil.
+//
+// PRECONDITION: The given message must be an "execute_request" message.
+// This function will NOT check this. It should be checked before calling this function.
+func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg) (*zmq4.Msg, error) {
+	// Clone the original message.
+	var newMessage zmq4.Msg = msg.Clone()
+
+	// Extract the header.
+	_, header, err := d.headerFromMsg(&newMessage)
+	if err != nil {
+		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while extracting the header: %v", err)
+		return nil, err
+	}
+
+	// Change the message header.
+	header.MsgType = ShellYieldExecute
+
+	// Create a JupyterFrames struct by wrapping with the message's frames.
+	jFrames := jupyter.JupyterFrames(newMessage.Frames)
+	if err := jFrames.Validate(); err != nil {
+		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while validating the existing frames: %v", err)
+		return nil, err
+	}
+
+	// Replace the header with the new header (that has the 'yield_execute' MsgType).
+	err = jFrames.EncodeHeader(header)
+	if err != nil {
+		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while encoding the new message header: %v", err)
+		return nil, err
+	}
+
+	// Replace the frames of the cloned message.
+	newMessage.Frames = jFrames
+
+	return &newMessage, nil
 }
 
 func (d *SchedulerDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
@@ -978,14 +1108,30 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 }
 
 func (d *SchedulerDaemon) handleSMRLeadTask(kernel core.Kernel, frames jupyter.JupyterFrames, raw *zmq4.Msg) error {
-	var leadMessage jupyter.MessageSMRLeadTask
-	if err := frames.DecodeContent(&leadMessage); err != nil {
+	messageType, err := frames.GetMessageType()
+	if err != nil {
+		d.log.Error("Failed to extract message type from SMR Lead ZMQ message: %v", err)
 		return err
 	}
 
-	d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
-	go d.scheduler.OnTaskStart(kernel, &leadMessage)
-	return jupyter.ErrStopPropagation
+	if messageType == jupyter.MessageTypeSMRLeadTask {
+		var leadMessage jupyter.MessageSMRLeadTask
+		if err := frames.DecodeContent(&leadMessage); err != nil {
+			d.log.Error("Failed to decode content of SMR Lead ZMQ message: %v", err)
+			return err
+		}
+
+		d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
+		// TODO(Ben): Allocate GPUs to the kernel replica.
+		go d.scheduler.OnTaskStart(kernel, &leadMessage)
+		return jupyter.ErrStopPropagation
+	} else if messageType == jupyter.MessageTypeLeadAfterYield {
+		// TODO(Ben): Need a better way to propagate errors back to the user, either at the Jupyter Notebook or the Workload Driver.
+		panic(fmt.Sprintf("Our replica of kernel %s was selected to lead an execution after explicitly yielding.", kernel.ID()))
+	} else {
+		d.log.Error("Received message of unexpected type '%s' for SMR Lead ZMQ message topic.", messageType)
+		return ErrUnexpectedZMQMessageType
+	}
 }
 
 func (d *SchedulerDaemon) handleIgnoreMsg(kernel core.Kernel, frames jupyter.JupyterFrames, raw *zmq4.Msg) error {

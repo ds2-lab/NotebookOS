@@ -43,7 +43,7 @@ notebook_server:
 local_daemon:
   image: scusemua/daemon
   image_tag: latest
-  max_actual_gpu_per_node: 72
+  max_actual_gpu_per_node: 64
   num_virtual_gpus_per_node: 72 # 8 GPUs per Node * 3 Oversubscription Factor * 3 Replicas.
   gpu_allocation_granularity: 1
   device_plugin:

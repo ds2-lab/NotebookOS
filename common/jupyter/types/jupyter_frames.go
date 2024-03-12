@@ -127,6 +127,16 @@ func (frames JupyterFrames) HeaderFrame() *JupyterFrame {
 	return jupyterFrame(frames[JupyterFrameHeader])
 }
 
+func (frames JupyterFrames) GetMessageType() (string, error) {
+	var header MessageHeader
+	err := json.Unmarshal(frames[JupyterFrameHeader], &header)
+	if err != nil {
+		return "", err
+	}
+
+	return header.MsgType, nil
+}
+
 func (frames JupyterFrames) EncodeHeader(in any) (err error) {
 	frames[JupyterFrameHeader], err = json.Marshal(in)
 	return err

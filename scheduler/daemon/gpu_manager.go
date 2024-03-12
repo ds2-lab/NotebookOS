@@ -82,6 +82,30 @@ func NewGpuManager(gpus int64) *GpuManager {
 	return manager
 }
 
+// The total number of GPUs configured/present on this node.
+func (m *GpuManager) SpecGPUs() decimal.Decimal {
+	return m.specGPUs
+}
+
+// The number of GPUs that are uncommitted and therefore available on this node.
+// This quantity is equal to specGPUs - committedGPUs.
+func (m *GpuManager) IdleGPUs() decimal.Decimal {
+	return m.idleGPUs
+}
+
+// The number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
+func (m *GpuManager) CommittedGPUs() decimal.Decimal {
+	return m.committedGPUs
+}
+
+// The sum of the outstanding GPUs of all replicas scheduled onto this node.
+// Pending GPUs are not allocated or committed to a particular replica yet.
+// The time at which resources are actually committed to a replica depends upon the policy being used.
+// In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
+func (m *GpuManager) PendingGPUs() decimal.Decimal {
+	return m.pendingGPUs
+}
+
 // Try to allocate the requested number of GPUs for the specified replica of the specified kernel.
 // This will upgrade an existing Pending GPU request, if one exists. Otherwise, this will create a new GPU request.
 //
@@ -248,7 +272,7 @@ func (m *GpuManager) tryDeallocatePendingGPUs(replicaId int32, kernelId string) 
 // Create and return a string of the form "<KernelID>-<ReplicaID>".
 // This is used as a key to various maps belonging to the GPU Manager.
 func (m *GpuManager) getKey(replicaId int32, kernelId string) string {
-	return fmt.Sprintf("%s-%s", kernelId, replicaId)
+	return fmt.Sprintf("%s-%d", kernelId, replicaId)
 }
 
 // Return true if the given *gpuAllocation IS pending.
@@ -309,27 +333,4 @@ func (m *GpuManager) removeGpuAllocation(replicaId int32, kernelId string) error
 // Return the number of active allocations.
 func (m *GpuManager) NumAllocations() int {
 	return m.allocationIdMap.Len()
-}
-
-// Return the total number of GPUs configured/present on this node.
-func (m *GpuManager) SpecGPUs() decimal.Decimal {
-	return m.specGPUs
-}
-
-// Return the number of GPUs that are uncommitted and therefore available on this node. This quantity is equal to specGPUs - committedGPUs.
-func (m *GpuManager) IdleGPUs() decimal.Decimal {
-	return m.idleGPUs
-}
-
-// Return the number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
-func (m *GpuManager) CommittedGPUs() decimal.Decimal {
-	return m.committedGPUs
-}
-
-// Return the sum of the outstanding GPUs of all replicas scheduled onto this node.
-// Pending GPUs are not allocated or committed to a particular replica yet.
-// The time at which resources are actually committed to a replica depends upon the policy being used.
-// In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
-func (m *GpuManager) PendingGPUs() decimal.Decimal {
-	return m.pendingGPUs
 }

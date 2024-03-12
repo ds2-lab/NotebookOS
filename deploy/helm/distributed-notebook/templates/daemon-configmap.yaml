@@ -1,11 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: daemon-configmap 
-  namespace: default 
+  name: daemon-configmap
+  namespace: default
 data:
-  # device-plugin-port: {{ .Values.local_daemon.device_plugin.port }}
-  daemon.yml: | 
+  daemon.yml: |
     driver-grpc-port: {{ .Values.gateway.driver_grpc_port }}
     kernel-registry-port: {{ .Values.local_daemon.network.jupyter.kernel_registry_port }} 
     port: {{ .Values.local_daemon.network.port }}
@@ -28,6 +27,7 @@ data:
     ipython-config-path: {{ .Values.common.ipython_config_path }}
     smr-port: {{ .Values.smr.port }}
     kube-namespace: {{ .Values.namespace }}
+    max-actual-gpu-per-node: {{ .Values.local_daemon.max_actual_gpu_per_node }}
     starting-resource-port: {{ .Values.local_daemon.network.jupyter.starting_resource_port }}
     num-resource-ports: {{ mul (div .Values.local_daemon.max_actual_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 }}
     use-stateful-set: {{ .Values.common.use_stateful_set }}

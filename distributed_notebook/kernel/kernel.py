@@ -7,13 +7,12 @@ import logging
 import json
 import sys
 import socket
-import time 
 
 from typing import Union, Optional
 from traitlets import List, Integer, Unicode, Bool, Undefined
 from ipykernel.ipkernel import IPythonKernel
-from .iostream import OutStream
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
+from .util import extract_header
 
 class ExecutionYieldError(Exception):
     """Exception raised when execution is yielded."""
@@ -110,6 +109,11 @@ class DistributedKernel(IPythonKernel):
             "add_replica_request",
             "update_replica_request",
             "prepare_to_migrate_request",
+        ]
+        
+        self.self.msg_types = [
+            *self.self.msg_types,
+            "yield_execute",
         ]
 
         super().__init__(**kwargs)
@@ -357,7 +361,94 @@ class DistributedKernel(IPythonKernel):
         else:
             return True
 
+    async def execute_request(self, stream, ident, parent):
+        """Override for receiving specific instructions about which replica should execute some code."""
+        self.log.debug("execute_request called within the Distributed Python Kernel.")
+        await super().execute_request(stream, ident, parent)
+
+    async def yield_execute(self, code:str, silent:bool, store_history:bool=True, user_expressions:dict=None, allow_stdin:bool=False):
+        """
+        Similar to the do_execute method, but this method ALWAYS proposes "YIELD" instead of "LEAD".
+        Kernel replicas are directed to call this instead of do_execute by their local daemon if there are resource constraints
+        preventing them from being able to execute the user's code (e.g., insufficient GPUs available).
+
+        Args:
+            code (str): The code to be executed.
+            silent (bool): Whether to display output.
+            store_history (bool, optional): Whether to record this code in history and increase the execution count. If silent is True, this is implicitly False. Defaults to True.
+            user_expressions (dict, optional): Mapping of names to expressions to evaluate after the code has run. You can ignore this if you need to.. Defaults to None.
+            allow_stdin (bool, optional): Whether the frontend can provide input on request (e.g. for Python's raw_input()). Defaults to False.
+
+        Raises:
+            err_wait_persistent_store: If the persistent data store is not available yet.
+
+        Returns:
+            dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
+            https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
+        """
+        self.log.debug("yield_execute called for the following code:\n%s" % code)
+        
+        # Special code to initialize persistent store
+        if code[:len(key_persistent_id)] == key_persistent_id:
+            self.log.debug("Using special code to initialize persistent store: \"%s\"" % code)
+            return await asyncio.ensure_future(self.init_persistent_store(code))
+        
+        if not await self.check_persistent_store():
+            if 'persistent_id' in self.shell.user_ns:
+                self.persistent_id = self.shell.user_ns['persistent_id']
+                code = "persistent_id = \"%s\"" % self.persistent_id
+                await asyncio.ensure_future(self.init_persistent_store(code))
+
+        try:
+            self.toggle_outstream(override=True, enable=False)
+
+            # Ensure persistent store is ready
+            if not await self.check_persistent_store():
+                raise err_wait_persistent_store
+
+            self.log.info("Calling synchronizer.ready(%d) now with YIELD proposal." % (self.synchronizer.execution_count + 1))
+            # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
+            # Pass value > 0 to lead a specific execution.
+            # In either case, the execution will wait until states are synchornized.
+            self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1) # type: ignore
+            
+            self.log.info("Completed call to synchronizer.ready(%d) with YIELD proposal. shell.execution_count: %d" % (self.synchronizer.execution_count + 1, self.shell.execution_count))
+            
+            if self.shell.execution_count == 0: # type: ignore
+                self.log.debug("I will NOT leading this execution.")
+                raise err_failed_to_lead_execution
+            
+            self.log.error("I've been selected to lead this execution (%d), but I'm supposed to yield!" % self.shell.execution_count)
+            
+            # Notify the client that we will lead the execution.
+            self.session.send(self.iopub_socket, "smr_lead_after_yield", {"term": self.synchronizer.execution_count+1}, ident=self._topic("smr_lead_task")) 
+        except ExecutionYieldError as eye:
+            self.log.info("Execution yielded: {}".format(eye))
+            return self.gen_error_response(eye)
+        except Exception as e:
+            self.log.error("Execution error: {}...".format(e))
+            return self.gen_error_response(e)
+
     async def do_execute(self, code:str, silent:bool, store_history:bool=True, user_expressions:dict=None, allow_stdin:bool=False):
+        """
+        Execute user code. This is part of the official Jupyter kernel API.
+        Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
+
+        Args:
+            code (str): The code to be executed.
+            silent (bool): Whether to display output.
+            store_history (bool, optional): Whether to record this code in history and increase the execution count. If silent is True, this is implicitly False. Defaults to True.
+            user_expressions (dict, optional): Mapping of names to expressions to evaluate after the code has run. You can ignore this if you need to. Defaults to None.
+            allow_stdin (bool, optional): Whether the frontend can provide input on request (e.g. for Python's raw_input()). Defaults to False.
+
+        Raises:
+            err_wait_persistent_store: If the persistent data store is not available yet.
+            err_failed_to_lead_execution: If this kernel replica is not "selected" to execute the code.
+
+        Returns:
+            dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
+            https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
+        """
         self.log.info("DistributedKernel is preparing to execute some code: %s", code)
         
         # Special code to initialize persistent store
@@ -378,13 +469,13 @@ class DistributedKernel(IPythonKernel):
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
-            self.log.info("Calling synchronizer.ready(%d) now." % (self.synchronizer.execution_count + 1))
+            self.log.info("Calling synchronizer.ready(-1) now for term %d." % (self.synchronizer.execution_count + 1))
             # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchornized.
-            self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1) # type: ignore
+            self.shell.execution_count = await self.synchronizer.ready(-1) # type: ignore
             
-            self.log.info("Completed call to synchronizer.ready(%d) now. shell.execution_count: %d" % (self.synchronizer.execution_count + 1, self.shell.execution_count))
+            self.log.info("Completed call to synchronizer.ready(-1) for term %d. shell.execution_count: %d" % (self.synchronizer.execution_count + 1, self.shell.execution_count))
             
             if self.shell.execution_count == 0: # type: ignore
                 self.log.debug("I will NOT leading this execution.")
@@ -443,7 +534,7 @@ class DistributedKernel(IPythonKernel):
                     self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
                 except Exception as ex:
                     self.log.error("Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
-                    return self.gen_error_response(e), False
+                    return self.gen_error_response(ex), False
                 
             if not self.synclog_stopped:
                 self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")

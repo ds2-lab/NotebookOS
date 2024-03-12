@@ -31,6 +31,8 @@ import (
 )
 
 const (
+	ShellExecuteRequest    = "execute_request"
+	ShellYieldExecute      = "yield_execute"
 	ShellKernelInfoRequest = "kernel_info_request"
 	ShellShutdownRequest   = "shutdown_request"
 	KubernetesKernelName   = "kernel-%s"

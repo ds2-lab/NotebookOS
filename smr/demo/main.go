@@ -97,7 +97,7 @@ func main() {
 
 	nodes := make([]*smr.LogNode, n)
 	for i := 0; i < n; i++ {
-		nodes[i] = smr.NewLogNode(store, i+1, peers, false)
+		nodes[i] = smr.NewLogNode(store, i+1, "hdfs://", "", []string{}, []int{}, false)
 		if i == 0 {
 			nodes[i].Start(config)
 		} else {

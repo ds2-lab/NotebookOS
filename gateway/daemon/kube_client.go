@@ -461,7 +461,7 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string, podStartedChannel ch
 		channels = channels[:len(channels)-1]
 		c.scaleUpChannels.Set(kernelId, channels)
 
-		return errors.Wrapf(retryErr, "Error when attempting to scale-up CloneSet %s")
+		return errors.Wrapf(retryErr, "Error when attempting to scale-up CloneSet %s", cloneset_id)
 	}
 
 	return nil

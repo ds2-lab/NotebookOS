@@ -17,6 +17,7 @@ from .reader import readCloser
 from .file_log import FileLog
 
 KEY_LEAD = "_lead_"
+KEY_YIELD = "_yield_"
 MAX_MEMORY_OBJECT = 1024 * 1024
 
 class writeCloser:
@@ -115,11 +116,7 @@ class RaftLog:
       self._log.debug("Confirm committed: {}".format(id))
     else:
       self._log.debug("Get remote update {} bytes".format(sz))
-    
-  #   future = asyncio.run_coroutine_threadsafe(self._changeImpl(buff, id), self._start_loop)
-  #   return future.result()
-
-  # async def _changeImpl(self, buff, id) -> str:
+      
     reader = readCloser(ReadCloser(handle=rc), sz)
     try:
       syncval = pickle.load(reader)
@@ -232,8 +229,9 @@ class RaftLog:
     self._snapshotCallback = snapshotCallback
 
   async def lead(self, term) -> bool:
-    """Request to lead the update of a term. A following append call 
-       without leading status will fail."""
+    """
+    Request to lead the update of a term. A following append call without leading status will fail.
+    """
     if term == 0:
       term = self._leader_term + 1
     elif term <= self._leader_term:
