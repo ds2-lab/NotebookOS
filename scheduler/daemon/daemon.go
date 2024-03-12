@@ -328,6 +328,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		HostId:         d.id,
 		KernelIp:       remote_ip,
 		PodName:        registrationPayload.PodName,
+		NodeName:       registrationPayload.NodeName,
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
@@ -693,13 +694,13 @@ func (d *SchedulerDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) 
 		return nil, ErrKernelNotFound
 	}
 
-	d.log.Debug("Stopped kernel %s, replica %d.", in.Id, kernel.ReplicaID())
+	d.log.Debug("Stopping replica %d of kernel %s now.", kernel.ReplicaID(), in.Id)
 	err = d.stopKernel(ctx, kernel, false)
 	if err != nil {
 		return nil, d.errorf(err)
 	}
 
-	d.log.Debug("Stopped kernel %s, replica %d.", in.Id, kernel.ReplicaID())
+	d.log.Debug("Successfully stopped replica %d of kernel %s.", kernel.ReplicaID(), in.Id)
 
 	listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
 	err = d.availablePorts.ReturnPorts(listenPorts)
@@ -732,9 +733,9 @@ func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel *client.KernelC
 		return err
 	}
 
-	wg.Wait()
-
 	d.log.Debug("Sent \"%s\" message to replica %d of kernel %s.", jupyter.MessageTypeShutdownRequest, kernel.ReplicaID(), kernel.ID())
+
+	wg.Wait()
 
 	// d.getInvoker(kernel).Close()
 	return nil
@@ -873,21 +874,17 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 		return ErrKernelNotReady
 	}
 
+	d.log.Debug("Received shell message with %d frame(s) targeting replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
+
 	// TODO(Ben): We'll inspect here to determine if the message is an execute_request.
 	// If it is, then we'll see if we have enough resources for the kernel to (potentially) execute the code.
 	// If not, we'll change the message's header to "yield_execute".
-	d.log.Debug("Forwarding shell message to replica %d of kernel %s: %s", kernel.ReplicaID(), kernel.ID(), msg)
-	isExecuteRequest, err := d.isExecuteRequest(msg)
-	if err != nil {
-		// TODO(Ben): Handle this error more gracefully.
-		panic(err)
-	}
-
 	// If the message is an execute_request message, then we have some processing to do on it.
-	if isExecuteRequest {
+	if header.MsgType == ShellExecuteRequest {
 		msg = d.processExecuteRequest(msg, kernel)
 	}
 
+	d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := d.forwardRequest(ctx, kernel, jupyter.ShellMessage, msg, cancel); err != nil {
 		return err
@@ -976,28 +973,6 @@ func (d *SchedulerDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err 
 	return header.Session, true, nil
 }
 
-// Check if the given message is an "execute_request" message by examining the message's type field, which is found in the message's header.
-//
-// On success, the returned error will be nil. False will be returned if the given message is NOT an "execute_request" message.
-// If the given message IS an "execute_request" message, then true will be returned.
-//
-// If there's any error, such as when extracting the header, then the error will be non-nil, and the returned boolean flag is invalid
-// (i.e., it's value should not be interpreted or considered to be accurate).
-func (d *SchedulerDaemon) isExecuteRequest(msg *zmq4.Msg) (bool, error) {
-	header, err := d.headerFromFrames(msg.Frames)
-	if err != nil {
-		d.log.Error("Error while extracting header from Jupyter message: %v", err)
-		return false, err
-	}
-
-	err = nil
-	if header.MsgType == ShellExecuteRequest {
-		return true, err /* err is nil */
-	} else {
-		return false, err /* err is nil */
-	}
-}
-
 // Convert the given message to a "yield_execute" message.
 //
 // This will return a COPY of the original message with the type field modified to contact "yield_execute" instead of "execute_request".
@@ -1042,11 +1017,13 @@ func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg) (*z
 func (d *SchedulerDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
 	jFrames := jupyter.JupyterFrames(frames)
 	if err := jFrames.Validate(); err != nil {
+		d.log.Debug("Failed to validate message frames while extracting header.")
 		return nil, err
 	}
 
 	var header jupyter.MessageHeader
 	if err := jFrames.DecodeHeader(&header); err != nil {
+		d.log.Debug("Failed to decode header from message frames.")
 		return nil, err
 	}
 

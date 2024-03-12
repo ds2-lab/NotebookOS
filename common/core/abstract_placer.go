@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"time"
 
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 )
@@ -22,6 +23,11 @@ func (placer *AbstractPlacer) Reclaim(host Host, sess MetaSession, noop bool) er
 	if noop {
 		return nil
 	}
-	_, err := host.StopKernel(context.Background(), &gateway.KernelId{Id: sess.ID()})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	_, err := host.StopKernel(ctx, &gateway.KernelId{Id: sess.ID()})
+
 	return err
 }

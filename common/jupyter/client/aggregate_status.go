@@ -91,7 +91,7 @@ func (s *AggregateKernelStatus) Status() string {
 
 // Collect initiate the status collection with actual number of replicas.
 func (s *AggregateKernelStatus) Collect(ctx context.Context, num_replicas int, replica_slots int, expecting string, publish KernelStatusPublisher) {
-	s.kernel.log.Debug("Collecting aggregate status for kernel %s, %d replicas.", s.kernel.id, num_replicas)
+	// s.kernel.log.Debug("Collecting aggregate status for kernel %s, %d replicas.", s.kernel.id, num_replicas)
 	s.expectingStatus = expecting
 	if expecting == types.MessageKernelStatusIdle {
 		// Idle status is special, it requires all replicas to be idle.
@@ -156,19 +156,19 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 		ret, err := s.Result()
 		// Double check the promise error. Possibilities are the promise can be reseted with promise.ErrReset.
 		if err != nil || ret == nil {
-			s.kernel.log.Warn("Failed to obtain status result. Error: %v", err)
+			// s.kernel.log.Warn("Failed to obtain status result. Error: %v", err)
 			return
 		}
 		statusMsg := ret.(*StatusMsg)
 		s.status = statusMsg.Status
-		s.kernel.log.Debug("Publishing status \"%v\" for kernel %s; how \"%v\"", statusMsg.Status, s.kernel.id, statusMsg.How)
+		// s.kernel.log.Debug("Publishing status \"%v\" for kernel %s; how \"%v\"", statusMsg.Status, s.kernel.id, statusMsg.How)
 		publish(statusMsg.Msg, statusMsg.Status, statusMsg.How)
 	} else if s.sampleMsg != nil {
 		// TODO: Not working here, need to regenerate the signature.
 		jFrames, _ := s.kernel.SkipIdentities(s.sampleMsg.Frames)
 		jFrames.ContentFrame().Set([]byte(fmt.Sprintf(KernelStatusFrameTemplate, status)))
 		jFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
-		s.kernel.log.Debug("Publishing sample status \"%v\" for kernel %s; how \"%v\"", status, s.kernel.id, s.sampleMsg)
+		// s.kernel.log.Debug("Publishing sample status \"%v\" for kernel %s; how \"%v\"", status, s.kernel.id, s.sampleMsg)
 		publish(s.sampleMsg, status, "Synthesized status")
 	}
 

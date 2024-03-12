@@ -774,6 +774,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	hostId := in.HostId
 	kernelIp := in.KernelIp
 	kernelPodName := in.PodName
+	nodeName := in.NodeName
 
 	d.log.Info("Connection info: %v", connectionInfo)
 	d.log.Info("Session ID: %v", sessionId)
@@ -781,6 +782,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	d.log.Info("Kernel IP: %v", kernelIp)
 	d.log.Info("Pod name: %v", kernelPodName)
 	d.log.Info("Host ID: %v", hostId)
+	d.log.Info("Node ID: %v", nodeName)
 
 	d.mutex.Lock()
 
@@ -826,7 +828,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, in.NodeName, nil, nil, kernel.PersistentID())
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID())
 	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
@@ -939,11 +941,14 @@ func (d *GatewayDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (r
 	d.log.Debug("Finished deleting kernel %s.", kernel.ID())
 
 	if !restart {
+		d.log.Debug("Deleting cloneset of deleted kernel %s now.", kernel.ID())
 		// Delete the CloneSet.
 		err := d.kubeClient.DeleteCloneset(kernel.ID())
 
 		if err != nil {
 			d.log.Error("Error encountered while deleting cloneset for kernel %s: %v", kernel.ID(), err)
+		} else {
+			d.log.Debug("Successfully deleted cloneset of deleted kernel %s.", kernel.ID())
 		}
 	}
 
@@ -1049,6 +1054,19 @@ func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.Mi
 
 	replicaInfo := in.TargetReplica
 	targetNode := in.GetTargetNodeId()
+
+	if replicaInfo.GetPersistentId() == "" {
+		// Automatically populate the persistent ID field.
+		associatedKernel, loaded := d.kernels.Load(replicaInfo.KernelId)
+
+		if !loaded {
+			panic(fmt.Sprintf("Could not find kernel with ID %s during migration of that kernel's replica %d.", replicaInfo.KernelId, replicaInfo.ReplicaId))
+		}
+
+		replicaInfo.PersistentId = associatedKernel.PersistentID()
+
+		d.log.Debug("Automatically populated PersistentID field of migration request of replica %d of kernel %s: '%s'", replicaInfo.ReplicaId, replicaInfo.KernelId, replicaInfo.PersistentId)
+	}
 
 	if targetNode != "" {
 		d.log.Warn("Ignoring specified target node of \"%s\" for now.")
@@ -1547,13 +1565,13 @@ func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gat
 	defer d.mutex.Unlock()
 
 	d.kernelIdToKernel.Range(func(id string, kernel *client.DistributedKernelClient) bool {
-		d.log.Debug("Will be returning Kernel %s with %d replica(s).", id, kernel.Size())
+		d.log.Debug("Will be returning Kernel %s with %d replica(s) [%v] [%v].", id, kernel.Size(), kernel.Status(), kernel.AggregateBusyStatus())
 
 		respKernel := &gateway.DistributedJupyterKernel{
 			KernelId:            id,
 			NumReplicas:         int32(kernel.Size()),
 			Status:              kernel.Status().String(),
-			AggregateBusyStatus: kernel.Status().String(),
+			AggregateBusyStatus: kernel.AggregateBusyStatus(),
 		}
 
 		replicas := make([]*gateway.JupyterKernelReplica, 0, len(kernel.Replicas()))
