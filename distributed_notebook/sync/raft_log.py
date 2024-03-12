@@ -113,25 +113,38 @@ class RaftLog:
 
   def _changeHandler(self, rc, sz, id) -> bytes:
     if id != "":
-      self._log.debug("Confirm committed: {}".format(id))
+      self._log.debug("Confirm committed update {} of size {} bytes".format(id, sz))
     else:
-      self._log.debug("Get remote update {} bytes".format(sz))
+      self._log.debug("Received remote update of size {} bytes".format(sz))
       
     reader = readCloser(ReadCloser(handle=rc), sz)
     try:
       syncval = pickle.load(reader)
       if syncval.key == KEY_LEAD:
         # Mar 2023: Record the id of the unseen largest term.
-        self._log.debug("Get leading request: node {}, term {}, match {}...".format(syncval.val, syncval.term, self._id == syncval.val))
+        self._log.debug("Received leading request: node {}, term {}, match {}...".format(syncval.val, syncval.term, self._id == syncval.val))
+        
         if self._leader_term < syncval.term:
           self._leader_term = syncval.term
           self._leader_id = syncval.val
-        _leading = self._leading
+          
         # Set the future if the term is expected.
+        _leading = self._leading
         if _leading is not None and self._leader_term >= self._expected_term:
           self._start_loop.call_later(0, _leading.set_result, self._leader_term)
           self._leading = None # Ensure the future is set only once.
 
+        self._ignore_changes = self._ignore_changes + 1
+        
+        return GoNilError()
+      elif syncval.key == KEY_YIELD:
+        self._log.debug("Received yielding request: node {}, term {}, match {}...".format(syncval.val, syncval.term, self._id == syncval.val))
+        
+        # Set the future if the term is expected.
+        _leading = self._leading
+        if _leading is not None and self._leader_term >= self._expected_term:
+          self._start_loop.call_later(0, _leading.set_result, self._leader_term)
+        
         self._ignore_changes = self._ignore_changes + 1
         return GoNilError()
       elif id != "":
@@ -253,6 +266,32 @@ class RaftLog:
     wait, is_leading = self._is_leading(term)
     assert wait == False
     return is_leading
+  
+  async def yield_execution(self, term):
+    """
+    Request to lead the update of a term. A following append call without leading status will fail.
+    """
+    if term == 0:
+      term = self._leader_term + 1
+    elif term <= self._leader_term:
+      return False
+    
+    # Define the _leading future
+    self._expected_term = term
+    self._leading = self._start_loop.create_future()
+    # Append is blocking and ensure to gaining leading status if terms match.
+    await self.append(SyncValue(-1, self._id, term=term, key=KEY_YIELD))
+    # Validate the term
+    wait, is_leading = self._is_leading(term)
+    if not wait:
+      assert is_leading == False 
+    # Wait for the future to be set.
+    self._start_loop.run_until_complete(self._leading)
+    self._leading = None
+    # Validate the term
+    wait, is_leading = self._is_leading(term)
+    assert wait == False
+    assert is_leading == False 
   
   def _is_leading(self, term) -> Tuple[bool, bool]:
     """Check if the current node is leading, return (wait, is_leading)"""

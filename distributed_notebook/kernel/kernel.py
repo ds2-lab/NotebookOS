@@ -112,7 +112,7 @@ class DistributedKernel(IPythonKernel):
         ]
         
         self.self.msg_types = [
-            *self.self.msg_types,
+            *self.msg_types,
             "yield_execute",
         ]
 

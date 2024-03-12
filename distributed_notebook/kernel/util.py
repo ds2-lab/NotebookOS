@@ -1,3 +1,5 @@
+import typing as t
+
 def extract_header(msg_or_header: dict[str, t.Any]) -> dict[str, t.Any]:
     """Given a message or header, return the header."""
     if not msg_or_header:
