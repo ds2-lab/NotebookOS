@@ -111,7 +111,7 @@ class DistributedKernel(IPythonKernel):
             "prepare_to_migrate_request",
         ]
         
-        self.self.msg_types = [
+        self.msg_types = [
             *self.msg_types,
             "yield_execute",
         ]
