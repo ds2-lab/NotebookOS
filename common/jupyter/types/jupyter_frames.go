@@ -208,6 +208,23 @@ func (frames JupyterFrames) verify(signkey []byte) bool {
 	return hmac.Equal(expect, signature)
 }
 
+func (frames JupyterFrames) CreateSignature(signatureScheme string, key []byte, offset int) ([]byte, error) {
+	if err := frames.Validate(); err != nil {
+		return nil, err
+	} else if signatureScheme != JupyterSignatureScheme {
+		return nil, ErrNotSupportedSignatureScheme
+	}
+	return frames.signWithOffset(key, offset), nil
+}
+
+func (frames JupyterFrames) signWithOffset(signkey []byte, offset int) []byte {
+	mac := hmac.New(sha256.New, signkey)
+	for _, msgpart := range frames[JupyterFrameHeader+offset:] {
+		mac.Write(msgpart)
+	}
+	return mac.Sum(nil)
+}
+
 func (frames JupyterFrames) sign(signkey []byte) []byte {
 	mac := hmac.New(sha256.New, signkey)
 	for _, msgpart := range frames[JupyterFrameHeader:] {
