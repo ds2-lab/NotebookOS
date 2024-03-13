@@ -7,10 +7,12 @@ import logging
 import json
 import sys
 import socket
+import time
 
 from typing import Union, Optional
 from traitlets import List, Integer, Unicode, Bool, Undefined
 from ipykernel.ipkernel import IPythonKernel
+from ipykernel import jsonutil
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from .util import extract_header
 
@@ -367,7 +369,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("execute_request called within the Distributed Python Kernel.")
         await super().execute_request(stream, ident, parent)
 
-    async def yield_execute(self, code:str, silent:bool, store_history:bool=True, user_expressions:dict=None, allow_stdin:bool=False):
+    async def yield_execute(self, stream, ident, parent):
         """
         Similar to the do_execute method, but this method ALWAYS proposes "YIELD" instead of "LEAD".
         Kernel replicas are directed to call this instead of do_execute by their local daemon if there are resource constraints
@@ -387,18 +389,36 @@ class DistributedKernel(IPythonKernel):
             dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
-        self.log.debug("yield_execute called for the following code:\n%s" % code)
+        parent_header = extract_header(parent)
+        self._associate_new_top_level_threads_with(parent_header)
         
-        # Special code to initialize persistent store
-        if code[:len(key_persistent_id)] == key_persistent_id:
-            self.log.debug("Using special code to initialize persistent store: \"%s\"" % code)
-            return await asyncio.ensure_future(self.init_persistent_store(code))
-        
-        if not await self.check_persistent_store():
-            if 'persistent_id' in self.shell.user_ns:
-                self.persistent_id = self.shell.user_ns['persistent_id']
-                code = "persistent_id = \"%s\"" % self.persistent_id
-                await asyncio.ensure_future(self.init_persistent_store(code))
+        if not self.session:
+            return
+        try:
+            content = parent["content"]
+            code = content["code"]
+            silent = content.get("silent", False)
+            # store_history = content.get("store_history", not silent)
+            # user_expressions = content.get("user_expressions", {})
+            # allow_stdin = content.get("allow_stdin", False)
+            # cell_meta = parent.get("metadata", {})
+            # cell_id = cell_meta.get("cellId")
+        except Exception:
+            self.log.error("Got bad msg: ")
+            self.log.error("%s", parent)
+            return
+
+        stop_on_error = content.get("stop_on_error", True)
+
+        metadata = self.init_metadata(parent)
+
+        # Re-broadcast our input for the benefit of listening clients, and
+        # start computing output
+        if not silent:
+            self.execution_count += 1
+            self._publish_execute_input(code, parent, self.execution_count)
+
+        self.log.debug("yield_execute has been called.")
 
         try:
             self.toggle_outstream(override=True, enable=False)
@@ -433,6 +453,33 @@ class DistributedKernel(IPythonKernel):
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
             return self.gen_error_response(e)
+
+        # Flush output before sending the reply.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        # FIXME: on rare occasions, the flush doesn't seem to make it to the
+        # clients... This seems to mitigate the problem, but we definitely need
+        # to better understand what's going on.
+        if self._execute_sleep:
+            time.sleep(self._execute_sleep)
+
+        # Send the reply.
+        reply_content = jsonutil.json_clean(reply_content)
+        metadata = self.finish_metadata(parent, metadata, reply_content)
+
+        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+            stream,
+            "execute_reply",
+            reply_content,
+            parent,
+            metadata=metadata,
+            ident=ident,
+        )
+
+        self.log.debug("%s", reply_msg)
+
+        if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
+            self._abort_queues()
 
     async def do_execute(self, code:str, silent:bool, store_history:bool=True, user_expressions:dict=None, allow_stdin:bool=False):
         """
@@ -741,13 +788,13 @@ class DistributedKernel(IPythonKernel):
         self.shell.transform_ast = self.transform_ast # type: ignore
         
         # Get synclog for synchronization.
-        synclog = await self.get_synclog(store_path)
+        sync_log = await self.get_synclog(store_path)
         
         self.log.info("Creating Synchronizer now.")
 
         # Start the synchronizer. 
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
-        self.synchronizer = Synchronizer(synclog, module = self.shell.user_module, opts=CHECKPOINT_AUTO) # type: ignore
+        self.synchronizer = Synchronizer(sync_log, module = self.shell.user_module, opts=CHECKPOINT_AUTO) # type: ignore
 
         self.log.info("Created Synchronizer. Starting Synchronizer now.")
 
@@ -760,7 +807,7 @@ class DistributedKernel(IPythonKernel):
         
         self.log.info("Started Synchronizer.")
 
-    async def get_synclog(self, store_path):
+    async def get_synclog(self, store_path)->RaftLog:
         assert isinstance(self.smr_nodes, list)
         assert isinstance(self.smr_nodes_map, dict)
         assert isinstance(self.smr_node_id, int)

@@ -50,10 +50,10 @@ class RaftLog:
   _snapshotCallback: Optional[Callable[[Any], bytes]] = None # The callback to be called when a snapshot is needed.
 
   def __init__(self, base_path: str, id: int, hdfs_hostname:str, data_directory:str, peer_addrs: Iterable[str], peer_ids: Iterable[int], join: bool = False):
-    self._store = base_path
-    self._id = id
+    self._store: str = base_path
+    self._id: int = id
     self.ensure_path(self._store)
-    self._offloader = FileLog(self._store)
+    self._offloader: FileLog = FileLog(self._store)
     self._log = logging.getLogger(__class__.__name__ + str(id))
     self._log.setLevel(logging.DEBUG)
     
@@ -245,6 +245,7 @@ class RaftLog:
     """
     Request to lead the update of a term. A following append call without leading status will fail.
     """
+    self._log.debug("RaftLog %d is proposing to lead term %d" % (self._id, term))
     if term == 0:
       term = self._leader_term + 1
     elif term <= self._leader_term:
@@ -258,6 +259,7 @@ class RaftLog:
     # Validate the term
     wait, is_leading = self._is_leading(term)
     if not wait:
+      self._log.debug("RaftLog %d is returning from lead for term %d with is_leading=%s" % (self._id, term, str(is_leading)))
       return is_leading
     # Wait for the future to be set.
     self._start_loop.run_until_complete(self._leading)
@@ -265,12 +267,14 @@ class RaftLog:
     # Validate the term
     wait, is_leading = self._is_leading(term)
     assert wait == False
+    self._log.debug("RaftLog %d is returning from lead for term %d with is_leading=%s" % (self._id, term, str(is_leading)))
     return is_leading
   
   async def yield_execution(self, term):
     """
     Request to lead the update of a term. A following append call without leading status will fail.
     """
+    self._log.debug("RaftLog %d is proposing to yield term %d" % (self._id, term))
     if term == 0:
       term = self._leader_term + 1
     elif term <= self._leader_term:
@@ -292,6 +296,7 @@ class RaftLog:
     wait, is_leading = self._is_leading(term)
     assert wait == False
     assert is_leading == False 
+    self._log.debug("RaftLog %d is returning from yield_execution for term %d" % (self._id, term))
   
   def _is_leading(self, term) -> Tuple[bool, bool]:
     """Check if the current node is leading, return (wait, is_leading)"""

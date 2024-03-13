@@ -25,7 +25,7 @@ class Synchronizer:
   _module: types.ModuleType
   _async_loop: asyncio.AbstractEventLoop
 
-  def __init__(self, synclog: SyncLog, module:Optional[types.ModuleType]=None, ns = None, opts = 0):
+  def __init__(self, sync_log: SyncLog, module:Optional[types.ModuleType]=None, ns = None, opts = 0):
     if module is None and ns is not None:
       self._module = SyncModule() # type: ignore
       ns.setdefault("__name__", "__main__")
@@ -36,8 +36,8 @@ class Synchronizer:
       self._module = module
 
     # Set callbacks for synclog
-    synclog.set_should_checkpoint_callback(self.should_checkpoint_callback)
-    synclog.set_checkpoint_callback(self.checkpoint_callback)
+    sync_log.set_should_checkpoint_callback(self.should_checkpoint_callback)
+    sync_log.set_checkpoint_callback(self.checkpoint_callback)
     
     self._log = logging.getLogger(__class__.__name__)
     self._log.setLevel(logging.DEBUG)
@@ -48,7 +48,7 @@ class Synchronizer:
     self._opts = opts
     self._syncing = False  # Avoid checkpoint in the middle of syncing.
 
-    self._synclog = synclog
+    self._synclog: SyncLog = sync_log
 
 
   def start(self):
@@ -135,7 +135,7 @@ class Synchronizer:
     except Exception as e:
       print_trace()
       
-  async def propose_lead(self, execution_count) -> int:
+  async def propose_lead(self, execution_count: int) -> int:
     """Propose to lead the next execution.
     
     Wait the ready of the synchronization and propose to lead a execution.
@@ -143,6 +143,7 @@ class Synchronizer:
     Note that if the execution_count is 0, the execution is guaranteed to be
     granted, which may cause duplication execution.
     """
+    self._log.debug("Synchronizer is proposing to lead term %d" % execution_count)
     try:
       # Propose to lead specified term. 
       # Term 0 tries to lead the next term whatever and will always success.
@@ -158,7 +159,7 @@ class Synchronizer:
     # Failed to lead the term
     return 0 
   
-  async def propose_yield(self, execution_count) -> int:
+  async def propose_yield(self, execution_count: int) -> int:
     """Propose to yield the next execution to another replica.
     
     Wait the ready of the synchronization and propose to lead a execution.
@@ -166,10 +167,11 @@ class Synchronizer:
     Note that if the execution_count is 0, the execution is guaranteed to be
     granted, which may cause duplication execution.
     """
+    self._log.debug("Synchronizer is proposing to yield term %d" % execution_count)
     try:
       # Propose to lead specified term. 
       # Term 0 tries to lead the next term whatever and will always success.
-      if await self._synclog.lead(execution_count):
+      if await self._synclog.yield_execution(execution_count):
         # Synchronized, execution_count was updated to last execution.
         self._async_loop = asyncio.get_running_loop() # Update async_loop.
         return self._synclog.term
