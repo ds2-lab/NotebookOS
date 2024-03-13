@@ -134,15 +134,15 @@ class Synchronizer:
         self._log.debug("exit execution syncing [2]")
     except Exception as e:
       print_trace()
-
-  async def ready(self, execution_count) -> int:
-    """Wait the ready of the synchronization and propose to lead a execution.
-       Returns the execution count that granted to lead or 0 if denied.
-       Note that if the execution_count is 0, the execution is guaranteed to be
-       granted, which may cause duplication execution."""
-    if execution_count < 0:
-      return 0
+      
+  async def propose_lead(self, execution_count) -> int:
+    """Propose to lead the next execution.
     
+    Wait the ready of the synchronization and propose to lead a execution.
+    Returns the execution count that granted to lead or 0 if denied.
+    Note that if the execution_count is 0, the execution is guaranteed to be
+    granted, which may cause duplication execution.
+    """
     try:
       # Propose to lead specified term. 
       # Term 0 tries to lead the next term whatever and will always success.
@@ -156,7 +156,48 @@ class Synchronizer:
       print_trace()
     
     # Failed to lead the term
-    return 0
+    return 0 
+  
+  async def propose_yield(self, execution_count) -> int:
+    """Propose to yield the next execution to another replica.
+    
+    Wait the ready of the synchronization and propose to lead a execution.
+    Returns the execution count that granted to lead or 0 if denied.
+    Note that if the execution_count is 0, the execution is guaranteed to be
+    granted, which may cause duplication execution.
+    """
+    try:
+      # Propose to lead specified term. 
+      # Term 0 tries to lead the next term whatever and will always success.
+      if await self._synclog.lead(execution_count):
+        # Synchronized, execution_count was updated to last execution.
+        self._async_loop = asyncio.get_running_loop() # Update async_loop.
+        return self._synclog.term
+    except SyncError as se:
+      self._log.warning("SyncError: {}".format(se))
+    except Exception as e:
+      print_trace()
+    
+    # Failed to lead the term
+    return 0 
+  
+  async def ready(self, execution_count:int, lead:bool) -> int:
+    """
+    Wait the ready of the synchronization and propose to lead a execution.
+    Returns the execution count that granted to lead or 0 if denied.
+    Note that if the execution_count is 0, the execution is guaranteed to be
+    granted, which may cause duplication execution.
+    
+    Pass 'True' for the 'lead' parameter to propose LEAD.
+    Pass 'False' for the 'lead' parameter to propose YIELD.
+    """
+    if execution_count < 0:
+      return 0
+    
+    if lead:
+      return await self.propose_lead(execution_count)
+    else:
+      return await self.propose_yield(execution_count)
 
   async def sync(self, execution_ast, source: Optional[str]=None, checkpointer: Optional[Checkpointer]=None):
     """

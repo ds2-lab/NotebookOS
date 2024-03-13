@@ -408,10 +408,14 @@ class DistributedKernel(IPythonKernel):
                 raise err_wait_persistent_store
 
             self.log.info("Calling synchronizer.ready(%d) now with YIELD proposal." % (self.synchronizer.execution_count + 1))
+
+            # Pass 'True' for the 'lead' parameter to propose LEAD.
+            # Pass 'False' for the 'lead' parameter to propose YIELD.
+            #
             # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchornized.
-            self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1) # type: ignore
+            self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1, False) # type: ignore
             
             self.log.info("Completed call to synchronizer.ready(%d) with YIELD proposal. shell.execution_count: %d" % (self.synchronizer.execution_count + 1, self.shell.execution_count))
             
@@ -470,13 +474,17 @@ class DistributedKernel(IPythonKernel):
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
-            self.log.info("Calling synchronizer.ready(-1) now for term %d." % (self.synchronizer.execution_count + 1))
+            self.log.info("Calling synchronizer.ready(%d) now with LEAD proposal." % (self.synchronizer.execution_count + 1))
+            
+            # Pass 'True' for the 'lead' parameter to propose LEAD.
+            # Pass 'False' for the 'lead' parameter to propose YIELD.
+            #
             # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchornized.
-            self.shell.execution_count = await self.synchronizer.ready(-1) # type: ignore
+            self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1, True) # type: ignore
             
-            self.log.info("Completed call to synchronizer.ready(-1) for term %d. shell.execution_count: %d" % (self.synchronizer.execution_count + 1, self.shell.execution_count))
+            self.log.info("Completed call to synchronizer.ready(%d) with LEAD proposal. shell.execution_count: %d" % (self.synchronizer.execution_count + 1, self.shell.execution_count))
             
             if self.shell.execution_count == 0: # type: ignore
                 self.log.debug("I will NOT leading this execution.")

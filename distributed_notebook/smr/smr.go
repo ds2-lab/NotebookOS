@@ -8,8 +8,8 @@ package main
 
 /*
 
-#cgo CFLAGS: -I/usr/local/include/python3.11 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion
-#cgo LDFLAGS: -L"/home/bcarver2/miniconda3/lib/" -lpython3.11 -lcrypt -lpthread -ldl  -lutil -lm -lm
+#cgo CFLAGS: -I/home/bcarver2/miniconda3/include/python3.11 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion
+#cgo LDFLAGS: -L/home/bcarver2/miniconda3/lib -lpython3.11 -lpthread -ldl  -lutil -lm
 
 // #define Py_LIMITED_API // need full API for PyRun*
 #include <Python.h>

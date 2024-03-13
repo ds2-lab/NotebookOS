@@ -842,7 +842,8 @@ func (d *SchedulerDaemon) kernelShellHandler(info core.KernelInfo, typ jupyter.M
 }
 
 func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	kernelId, header, err := d.headerFromMsg(msg)
+	d.log.Debug("Received shell message with %d frame(s): %s", len(msg.Frames), msg)
+	kernelId, header, offset, err := d.headerAndOffsetFromMsg(msg)
 	if err != nil {
 		return err
 	}
@@ -874,14 +875,14 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 		return ErrKernelNotReady
 	}
 
-	d.log.Debug("Received shell message with %d frame(s) targeting replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
+	d.log.Debug("Shell message with %d frame(s) is targeting replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
 
 	// TODO(Ben): We'll inspect here to determine if the message is an execute_request.
 	// If it is, then we'll see if we have enough resources for the kernel to (potentially) execute the code.
 	// If not, we'll change the message's header to "yield_execute".
 	// If the message is an execute_request message, then we have some processing to do on it.
 	if header.MsgType == ShellExecuteRequest {
-		msg = d.processExecuteRequest(msg, kernel)
+		msg = d.processExecuteRequest(msg, kernel, header, offset)
 	}
 
 	d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
@@ -893,7 +894,7 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	return nil
 }
 
-func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.KernelClient) *zmq4.Msg {
+func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.KernelClient, header *jupyter.MessageHeader, offset int) *zmq4.Msg {
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	var targetReplicaId int64 = -1
 
@@ -901,7 +902,7 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.Ke
 	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_execute" message.
 	// This will force the replica to necessarily yield the execution to the other replicas.
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
-	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
+	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames[offset:])
 	var metadataFrame *jupyter.JupyterFrame = frames.MetadataFrame()
 
 	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
@@ -941,7 +942,7 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.Ke
 		// Convert the message to a yield request.
 		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica in place of the original 'execute_request' message.
 		var err error
-		msg, err = d.convertExecuteRequestToYieldExecute(msg)
+		msg, err = d.convertExecuteRequestToYieldExecute(msg, header, offset)
 		if err != nil {
 			panic(err) // TODO(Ben): Handle this error more gracefully.
 		}
@@ -980,30 +981,24 @@ func (d *SchedulerDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err 
 //
 // PRECONDITION: The given message must be an "execute_request" message.
 // This function will NOT check this. It should be checked before calling this function.
-func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg) (*zmq4.Msg, error) {
+func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg, header *jupyter.MessageHeader, offset int) (*zmq4.Msg, error) {
+	var err error
+
 	// Clone the original message.
 	var newMessage zmq4.Msg = msg.Clone()
-
-	// Extract the header.
-	_, header, err := d.headerFromMsg(&newMessage)
-	if err != nil {
-		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while extracting the header: %v", err)
-		return nil, err
-	}
 
 	// Change the message header.
 	header.MsgType = ShellYieldExecute
 
 	// Create a JupyterFrames struct by wrapping with the message's frames.
 	jFrames := jupyter.JupyterFrames(newMessage.Frames)
-	if err := jFrames.Validate(); err != nil {
+	if err = jFrames.Validate(); err != nil {
 		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while validating the existing frames: %v", err)
 		return nil, err
 	}
 
 	// Replace the header with the new header (that has the 'yield_execute' MsgType).
-	err = jFrames.EncodeHeader(header)
-	if err != nil {
+	if jFrames[jupyter.JupyterFrameHeader+offset], err = json.Marshal(header); err != nil {
 		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while encoding the new message header: %v", err)
 		return nil, err
 	}
@@ -1036,6 +1031,14 @@ func (d *SchedulerDaemon) headerFromMsg(msg *zmq4.Msg) (kernelId string, header 
 	header, err = d.headerFromFrames(msg.Frames[offset:])
 
 	return kernelId, header, err
+}
+
+func (d *SchedulerDaemon) headerAndOffsetFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, offset int, err error) {
+	kernelId, _, offset = d.router.ExtractDestFrame(msg.Frames)
+
+	header, err = d.headerFromFrames(msg.Frames[offset:])
+
+	return kernelId, header, offset, err
 }
 
 func (d *SchedulerDaemon) kernelFromMsg(msg *zmq4.Msg) (kernel *client.KernelClient, err error) {
