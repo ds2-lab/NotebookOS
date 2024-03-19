@@ -47,3 +47,24 @@ spec:
   type: LoadBalancer
 status:
   loadBalancer: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: gateway-provisioner
+  name: gateway-provisioner
+spec:
+  ports:
+      port: {{ .Values.gateway.provisioner_port }}
+      targetPort: {{ .Values.gateway.provisioner_port }}
+  selector:
+    app: gateway 
+    io.kompose.service: gateway
+  type: LoadBalancer
+status:
+  loadBalancer: {}

@@ -339,6 +339,11 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
                 response_deserializer=gateway__pb2.PrepareToMigrateResponse.FromString,
                 )
+        self.GetGpuInfo = channel.unary_unary(
+                '/gateway.LocalGateway/GetGpuInfo',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.GpuInfo.FromString,
+                )
 
 
 class LocalGatewayServicer(object):
@@ -425,6 +430,13 @@ class LocalGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetGpuInfo(self, request, context):
+        """Return the current GPU resource metrics on the node.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_LocalGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -482,6 +494,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
                     servicer.PrepareToMigrate,
                     request_deserializer=gateway__pb2.ReplicaInfo.FromString,
                     response_serializer=gateway__pb2.PrepareToMigrateResponse.SerializeToString,
+            ),
+            'GetGpuInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetGpuInfo,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.GpuInfo.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -678,5 +695,22 @@ class LocalGateway(object):
         return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/PrepareToMigrate',
             gateway__pb2.ReplicaInfo.SerializeToString,
             gateway__pb2.PrepareToMigrateResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def GetGpuInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/GetGpuInfo',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.GpuInfo.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

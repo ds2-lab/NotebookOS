@@ -362,6 +362,7 @@ const (
 	LocalGateway_AddReplica_FullMethodName         = "/gateway.LocalGateway/AddReplica"
 	LocalGateway_UpdateReplicaAddr_FullMethodName  = "/gateway.LocalGateway/UpdateReplicaAddr"
 	LocalGateway_PrepareToMigrate_FullMethodName   = "/gateway.LocalGateway/PrepareToMigrate"
+	LocalGateway_GetGpuInfo_FullMethodName         = "/gateway.LocalGateway/GetGpuInfo"
 )
 
 // LocalGatewayClient is the client API for LocalGateway service.
@@ -393,6 +394,8 @@ type LocalGatewayClient interface {
 	// This involves writing the contents of the etcd-raft data directory to HDFS so that
 	// it can be read back from HDFS by the new replica.
 	PrepareToMigrate(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*PrepareToMigrateResponse, error)
+	// Return the current GPU resource metrics on the node.
+	GetGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GpuInfo, error)
 }
 
 type localGatewayClient struct {
@@ -502,6 +505,15 @@ func (c *localGatewayClient) PrepareToMigrate(ctx context.Context, in *ReplicaIn
 	return out, nil
 }
 
+func (c *localGatewayClient) GetGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GpuInfo, error) {
+	out := new(GpuInfo)
+	err := c.cc.Invoke(ctx, LocalGateway_GetGpuInfo_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalGatewayServer is the server API for LocalGateway service.
 // All implementations must embed UnimplementedLocalGatewayServer
 // for forward compatibility
@@ -531,6 +543,8 @@ type LocalGatewayServer interface {
 	// This involves writing the contents of the etcd-raft data directory to HDFS so that
 	// it can be read back from HDFS by the new replica.
 	PrepareToMigrate(context.Context, *ReplicaInfo) (*PrepareToMigrateResponse, error)
+	// Return the current GPU resource metrics on the node.
+	GetGpuInfo(context.Context, *Void) (*GpuInfo, error)
 	mustEmbedUnimplementedLocalGatewayServer()
 }
 
@@ -570,6 +584,9 @@ func (UnimplementedLocalGatewayServer) UpdateReplicaAddr(context.Context, *Repli
 }
 func (UnimplementedLocalGatewayServer) PrepareToMigrate(context.Context, *ReplicaInfo) (*PrepareToMigrateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrepareToMigrate not implemented")
+}
+func (UnimplementedLocalGatewayServer) GetGpuInfo(context.Context, *Void) (*GpuInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetGpuInfo not implemented")
 }
 func (UnimplementedLocalGatewayServer) mustEmbedUnimplementedLocalGatewayServer() {}
 
@@ -782,6 +799,24 @@ func _LocalGateway_PrepareToMigrate_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalGateway_GetGpuInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).GetGpuInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalGateway_GetGpuInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).GetGpuInfo(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalGateway_ServiceDesc is the grpc.ServiceDesc for LocalGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -832,6 +867,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PrepareToMigrate",
 			Handler:    _LocalGateway_PrepareToMigrate_Handler,
+		},
+		{
+			MethodName: "GetGpuInfo",
+			Handler:    _LocalGateway_GetGpuInfo_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

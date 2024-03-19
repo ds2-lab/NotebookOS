@@ -69,6 +69,7 @@ type GpuManager struct {
 // Create and return a new GPU Manager.
 func NewGpuManager(gpus int64) *GpuManager {
 	manager := &GpuManager{
+		id:                           uuid.NewString(),
 		allocationIdMap:              hashmap.NewCornelkMap[string, *gpuAllocation](16),
 		allocationKernelReplicaMap:   hashmap.NewCornelkMap[string, *gpuAllocation](16),
 		pendingAllocIdMap:            hashmap.NewCornelkMap[string, *gpuAllocation](16),
@@ -333,4 +334,9 @@ func (m *GpuManager) removeGpuAllocation(replicaId int32, kernelId string) error
 // Return the number of active allocations.
 func (m *GpuManager) NumAllocations() int {
 	return m.allocationIdMap.Len()
+}
+
+// Return the number of pending allocations.
+func (m *GpuManager) NumPendingAllocations() int {
+	return m.pendingAllocIdMap.Len()
 }
