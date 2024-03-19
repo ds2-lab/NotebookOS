@@ -1,4 +1,5 @@
-FROM quay.io/jupyter/scipy-notebook:latest
+FROM quay.io/jupyter/base-notebook:latest
+# FROM quay.io/jupyter/scipy-notebook:latest
 
 # IMPORTANT: This is expected to be built using the provided Makefile from the build context ../.. 
 
@@ -7,7 +8,7 @@ ENV LANG=C.UTF-8 \
     JUPYTER_ALLOW_INSECURE_WRITES=1
 
 # Install amd version of pytorch and torchvision
-RUN python3 -m pip install torch torchvision
+# RUN python3 -m pip install torch torchvision
 RUN python3 -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0
 
 # Prepare directories to have them owned by the user jovyan
@@ -29,8 +30,8 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip -y
 #     && cd ./DistributedKernelFrontendExtension \
 #     && pip install .
 
-RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
-RUN chmod -R 777 /home/jovyan/datasets/*
+# RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
+# RUN chmod -R 777 /home/jovyan/datasets/*
 
 # Add files
 ADD common/gateway /distributed_notebook/common/gateway
