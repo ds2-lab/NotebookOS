@@ -730,7 +730,7 @@ func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel *client.KernelC
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done, time.Second*5)
+	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done, time.Second*60)
 	if err != nil {
 		return err
 	}
