@@ -905,7 +905,7 @@ func (d *GatewayDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (r
 	ret = gateway.VOID
 
 	var wg sync.WaitGroup
-	wg.Add(kernel.Size())
+	wg.Add(1)
 
 	go func() {
 		err = d.errorf(kernel.Shutdown(d.placer.Reclaim, restart))
@@ -1184,6 +1184,8 @@ func (d *GatewayDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) erro
 	if err != nil {
 		return err
 	}
+
+	d.log.Debug("Forwarding shell message to kernel %s: %s", kernelId, msg)
 
 	kernel, ok := d.kernels.Load(header.Session)
 	if !ok && header.MsgType == ShellKernelInfoRequest {
