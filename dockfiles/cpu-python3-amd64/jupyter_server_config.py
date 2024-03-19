@@ -9,16 +9,16 @@ c = get_config()  #noqa
 
 ## The date format used by logging formatters for %(asctime)s
 #  Default: '%Y-%m-%d %H:%M:%S'
-# c.Application.log_datefmt = '%Y-%m-%d %H:%M:%S'
+c.Application.log_datefmt = '%Y-%m-%d %H:%M:%S'
 
 ## The Logging format template
 #  Default: '[%(name)s]%(highlevel)s %(message)s'
-# c.Application.log_format = '[%(name)s]%(highlevel)s %(message)s'
+c.Application.log_format = '[%(name)s]%(highlevel)s %(message)s'
 
 ## Set the log level by value or name.
 #  Choices: any of [0, 10, 20, 30, 40, 50, 'DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL']
 #  Default: 30
-# c.Application.log_level = 30
+c.Application.log_level = 'DEBUG'
 
 ## Configure additional log handlers.
 #  
@@ -403,7 +403,15 @@ c.ServerApp.allow_origin = '*'
 
 ## 
 #  See also: Application.logging_config
-# c.ServerApp.logging_config = {}
+c.ServerApp.logging_config = {
+   "version": 1,
+   "loggers": {
+      "ServerApp": {
+         "level": "DEBUG",
+         "handlers": ["console"],
+      },
+   },
+}
 
 ## The login handler class to use.
 #  Default: 'jupyter_server.auth.login.LegacyLoginHandler'
@@ -766,7 +774,7 @@ c.Spawner.args = ['--NotebookApp.allow_origin={0}'.format(origin)]
 
 ## Debug output in the Session
 #  Default: False
-# c.Session.debug = False
+c.Session.debug = True 
 
 ## The maximum number of digests to remember.
 #  
