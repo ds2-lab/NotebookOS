@@ -427,7 +427,7 @@ func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
 	}
 }
 
-func (d *SchedulerDaemon) GetGpuInfo(ctx context.Context) *gateway.GpuInfo {
+func (d *SchedulerDaemon) GetGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.GpuInfo, error) {
 	gpuInfo := &gateway.GpuInfo{
 		SpecGPUs:              int32(d.gpuManager.specGPUs.InexactFloat64()),
 		IdleGPUs:              int32(d.gpuManager.idleGPUs.InexactFloat64()),
@@ -439,7 +439,7 @@ func (d *SchedulerDaemon) GetGpuInfo(ctx context.Context) *gateway.GpuInfo {
 		LocalDaemonID:         d.id,
 	}
 
-	return gpuInfo
+	return gpuInfo, nil
 }
 
 func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.ReplicaInfo) (*gateway.PrepareToMigrateResponse, error) {
