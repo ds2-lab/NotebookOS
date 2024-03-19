@@ -42,10 +42,11 @@ type HostScheduler struct {
 func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval time.Duration) (*HostScheduler, error) {
 	id := uuid.New().String()
 	scheduler := &HostScheduler{
-		LocalGatewayClient: gateway.NewLocalGatewayClient(conn),
-		addr:               addr,
-		conn:               conn,
-		meta:               hashmap.NewCornelkMap[string, interface{}](10),
+		LocalGatewayClient:     gateway.NewLocalGatewayClient(conn),
+		addr:                   addr,
+		conn:                   conn,
+		meta:                   hashmap.NewCornelkMap[string, interface{}](10),
+		gpuInfoRefreshInterval: gpuInfoRefreshInterval,
 	}
 
 	config.InitLogger(&scheduler.log, scheduler)
@@ -76,7 +77,7 @@ func (s *HostScheduler) pollForGpuInfo() {
 			s.gpuInfoMutex.Unlock()
 
 			gpuInfoJson, _ := json.Marshal(s.gpuInfo)
-			s.log.Debug("Refreshed GPU info: %s", string(gpuInfoJson))
+			s.log.Debug("Refreshed GPU info: %s. Will refresh in %v.", string(gpuInfoJson), s.gpuInfoRefreshInterval)
 		}
 
 		time.Sleep(s.gpuInfoRefreshInterval)

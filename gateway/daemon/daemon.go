@@ -433,7 +433,7 @@ func (d *GatewayDaemon) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := NewHostScheduler(incoming.RemoteAddr().String(), gConn, time.Duration(5)*time.Second)
+	host, err := NewHostScheduler(incoming.RemoteAddr().String(), gConn, time.Duration(30)*time.Second)
 	if err == nil {
 		d.cluster.GetHostManager().Store(host.ID(), host)
 	} else if err == errRestoreRequired {
