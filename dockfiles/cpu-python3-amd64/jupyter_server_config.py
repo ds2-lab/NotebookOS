@@ -341,7 +341,7 @@ c.ServerApp.allow_origin = '*'
 # c.ServerApp.ip = 'localhost'
 
 ## Supply extra arguments that will be passed to Jinja environment.
-#  Default: {}
+#  Default: {} 
 # c.ServerApp.jinja_environment_options = {}
 
 ## Extra variables to supply to jinja templates when rendering.
@@ -395,7 +395,7 @@ c.ServerApp.log_datefmt = '%Y-%m-%d %H:%M:%S'
 
 ## The Logging format template
 #  See also: Application.log_format
-c.ServerApp.log_format = '[%(name)s]%(highlevel)s %(message)s'
+c.ServerApp.log_format = '[%(asctime)s,%(msecs).03d] [%(levelname)s] [%(name)s] %(message)s'
 
 ## Set the log level by value or name.
 #  See also: Application.log_level
