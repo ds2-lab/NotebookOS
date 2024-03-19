@@ -391,15 +391,15 @@ c.ServerApp.allow_origin = '*'
 
 ## The date format used by logging formatters for %(asctime)s
 #  See also: Application.log_datefmt
-# c.ServerApp.log_datefmt = '%Y-%m-%d %H:%M:%S'
+c.ServerApp.log_datefmt = '%Y-%m-%d %H:%M:%S'
 
 ## The Logging format template
 #  See also: Application.log_format
-# c.ServerApp.log_format = '[%(name)s]%(highlevel)s %(message)s'
+c.ServerApp.log_format = '[%(name)s]%(highlevel)s %(message)s'
 
 ## Set the log level by value or name.
 #  See also: Application.log_level
-# c.ServerApp.log_level = 30
+c.ServerApp.log_level = 'DEBUG'
 
 ## 
 #  See also: Application.logging_config
