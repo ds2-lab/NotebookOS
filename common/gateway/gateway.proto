@@ -138,7 +138,7 @@ message KernelReplicaSpec {
 message ResourceSpec {
   int32 cpu = 1;  // In 1/100 core.
   int32 memory = 2; // In MB.
-  int32 gpu = 3; // In 1/100 core.
+  int32 gpu = 3; // Number of GPUs.
 }
 
 // The kernel id.

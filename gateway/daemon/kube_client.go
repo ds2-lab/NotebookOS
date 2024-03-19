@@ -591,6 +591,23 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 				},
 			},
 		},
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{
+						MatchExpressions: []corev1.NodeSelectorRequirement{
+							{
+								Key:      "schedule-kernels",
+								Operator: corev1.NodeSelectorOpIn,
+								Values: []string{
+									kernel.Id,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	storage_resource, err := resource.ParseQuantity("128Mi")
@@ -819,6 +836,15 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 // - connectionInfo (*jupyter.ConnectionInfo): The connection info of the distributed kernel.
 // - headlessServiceName (string): The name of the headless Kubernetes service that was created to manage the networking of the Pods of the CloneSet.
 func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) {
+	var kernelResourceRequirements *gateway.ResourceSpec = kernel.GetResource()
+	if kernelResourceRequirements == nil {
+		kernelResourceRequirements = &gateway.ResourceSpec{
+			Gpu:    0,
+			Cpu:    0,
+			Memory: 0,
+		}
+	}
+
 	// Define the CloneSet.
 	cloneSetDefinition := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -884,6 +910,18 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 								"name":    "kernel",
 								"image":   "scusemua/jupyter:latest",
 								"command": []string{"/kernel-entrypoint/kernel-entrypoint.sh"},
+								"resources": map[string]interface{}{
+									"limits": map[string]interface{}{
+										"memory":                         fmt.Sprintf("%dMi", kernelResourceRequirements.Memory),
+										"cpu":                            fmt.Sprintf("%dm", kernelResourceRequirements.Cpu),
+										"ds2-lab.github.io/deflated-gpu": kernelResourceRequirements.Gpu,
+									},
+									"requests": map[string]interface{}{
+										"memory":                         fmt.Sprintf("%dMi", kernelResourceRequirements.Memory),
+										"cpu":                            fmt.Sprintf("%dm", kernelResourceRequirements.Cpu),
+										"ds2-lab.github.io/deflated-gpu": kernelResourceRequirements.Gpu,
+									},
+								},
 								"ports": []map[string]interface{}{
 									{
 										"containerPort": 8888,
@@ -913,7 +951,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 								"volumeMounts": []map[string]interface{}{
 									{
 										"name":      "kernel-configmap",
-										"mountPath": fmt.Sprintf("%s", c.configDir),
+										"mountPath": c.configDir,
 									},
 									{
 										"name":      "kernel-entrypoint",
