@@ -11,9 +11,9 @@ spec:
       limits:
         memory: 128Mi
         cpu: "1"
-        ds2-lab.github.io/deflated-gpu: 70
+        ds2-lab.github.io/deflated-gpu: "70"
       requests:
         memory: 32Mi
         cpu: "0.2"
-        ds2-lab.github.io/deflated-gpu: 70
+        ds2-lab.github.io/deflated-gpu: "70"
   nodeName: distributed-notebook-worker2

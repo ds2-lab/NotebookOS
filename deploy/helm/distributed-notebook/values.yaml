@@ -73,6 +73,7 @@ common:
   node_local_pvc_mount_point: "node_local"
   use_stateful_set: false # If true, use StatefulSets for the distributed kernel replica pods. If false, use CloneSets.
   debug: true
+  scheduling_policy: "default" # Options are "default", "static", and "dynamic" for now.
 
 ingress:
   enabled: false

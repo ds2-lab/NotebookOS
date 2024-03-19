@@ -74,9 +74,10 @@ type SchedulerDaemonConfig func(*SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
 	// If the scheduler serves jupyter notebook directly, set this to true.
-	DirectServer bool  `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
-	SMRPort      int   `name:"smr_port" description:"Port used by the SMR protocol."`
-	NumGPUs      int64 `name:"max-actual-gpu-per-node" json:"max-actual-gpu-per-node" yaml:"max-actual-gpu-per-node" description:"The total number of GPUs that should be available on each node."`
+	DirectServer     bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
+	SMRPort          int    `name:"smr_port" description:"Port used by the SMR protocol."`
+	NumGPUs          int64  `name:"max-actual-gpu-per-node" json:"max-actual-gpu-per-node" yaml:"max-actual-gpu-per-node" description:"The total number of GPUs that should be available on each node."`
+	SchedulingPolicy string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
 }
 
 func (o SchedulerDaemonOptions) String() string {
@@ -92,6 +93,7 @@ type SchedulerDaemon struct {
 	// Options
 	id string
 
+	schedulingPolicy string
 	gateway.UnimplementedLocalGatewayServer
 	router    *router.Router
 	scheduler core.HostScheduler
@@ -177,6 +179,32 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 			daemon.log.Warn("No ip set because of missing configuration and failed to get ip: %v", err)
 		} else {
 			daemon.ip = ip
+		}
+	}
+
+	switch schedulerDaemonOptions.SchedulingPolicy {
+	case "default":
+		{
+			daemon.schedulingPolicy = "default"
+			daemon.log.Debug("Using the 'DEFAULT' scheduling policy.")
+		}
+	case "static":
+		{
+			daemon.schedulingPolicy = "static"
+			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
+
+			panic("The 'STATIC' scheduling policy is not yet supported.")
+		}
+	case "dynamic":
+		{
+			daemon.schedulingPolicy = "dynamic"
+			daemon.log.Debug("Using the 'DYNAMIC' scheduling policy.")
+
+			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+		}
+	default:
+		{
+			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", schedulerDaemonOptions.SchedulingPolicy))
 		}
 	}
 

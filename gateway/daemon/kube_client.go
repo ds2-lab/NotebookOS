@@ -73,11 +73,12 @@ type BasicKubeClient struct {
 	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
 	scaleDownChannels      *cmap.ConcurrentMap[string, chan struct{}] // Mapping from Pod name a channel, each of which would correspond to a scale-down operation.
 	hdfsNameNodeEndpoint   string                                     // Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
+	schedulingPolicy       string                                     // Scheduling policy.
 	// newPodWaiters          *cmap.ConcurrentMap[string, chan AddReplicaOperation] // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
 	log logger.Logger
 }
 
-func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *DaemonKubeClientOptions) *BasicKubeClient {
+func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDaemonOptions) *BasicKubeClient {
 	scaleUpChannels := cmap.New[[]chan string]()
 	scaleDownChannels := cmap.New[chan struct{}]()
 
@@ -85,16 +86,16 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 		configDir:              utils.GetEnv(KubeSharedConfigDir, KubeSharedConfigDirDefault),
 		ipythonConfigPath:      utils.GetEnv(IPythonConfigPath, IPythonConfigPathDefault),
 		nodeLocalMountPoint:    utils.GetEnv(KubeNodeLocalMountPoint, KubeNodeLocalMountPointDefault),
-		localDaemonServiceName: daemonKubeClientOptions.LocalDaemonServiceName,
-		localDaemonServicePort: daemonKubeClientOptions.LocalDaemonServicePort,
-		smrPort:                daemonKubeClientOptions.SMRPort,
-		kubeNamespace:          daemonKubeClientOptions.KubeNamespace,
+		localDaemonServiceName: clusterDaemonOptions.LocalDaemonServiceName,
+		localDaemonServicePort: clusterDaemonOptions.LocalDaemonServicePort,
+		smrPort:                clusterDaemonOptions.SMRPort,
+		kubeNamespace:          clusterDaemonOptions.KubeNamespace,
 		gatewayDaemon:          gatewayDaemon,
-		useStatefulSet:         daemonKubeClientOptions.UseStatefulSet,
+		useStatefulSet:         clusterDaemonOptions.UseStatefulSet,
 		scaleUpChannels:        &scaleUpChannels,
 		scaleDownChannels:      &scaleDownChannels,
 		podWatcherStopChan:     make(chan struct{}),
-		hdfsNameNodeEndpoint:   daemonKubeClientOptions.HDFSNameNodeEndpoint,
+		hdfsNameNodeEndpoint:   clusterDaemonOptions.HDFSNameNodeEndpoint,
 	}
 
 	if client.hdfsNameNodeEndpoint == "" {
@@ -135,14 +136,31 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, daemonKubeClientOptions *Daemon
 		os.Mkdir(client.configDir, os.ModePerm)
 	}
 
-	// smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
-	// if smrPort == 0 {
-	// 	smrPort = KernelSMRPortDefault
-	// }
+	switch clusterDaemonOptions.SchedulingPolicy {
+	case "default":
+		{
+			client.schedulingPolicy = "default"
+			client.log.Debug("Using the 'DEFAULT' scheduling policy.")
+		}
+	case "static":
+		{
+			client.schedulingPolicy = "static"
+			client.log.Debug("Using the 'STATIC' scheduling policy.")
 
-	// client.smrPort = smrPort
+			panic("The 'STATIC' scheduling policy is not yet supported.")
+		}
+	case "dynamic":
+		{
+			client.schedulingPolicy = "dynamic"
+			client.log.Debug("Using the 'DYNAMIC' scheduling policy.")
 
-	// client.migrationManager = NewMigrationManager()
+			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+		}
+	default:
+		{
+			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", clusterDaemonOptions.SchedulingPolicy))
+		}
+	}
 
 	client.createPodWatcher("default")
 
@@ -845,6 +863,56 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 		}
 	}
 
+	// If we're using the "default" scheduling policy, then they will just have podAntiAffinity.
+	// If we're using static or dynamic scheduling, then the nodes will have a nodeAffinity in addition to the podAntiAffinity.
+	var affinity map[string]interface{}
+	if c.schedulingPolicy == "static" || c.schedulingPolicy == "dynamic" {
+		affinity = map[string]interface{}{
+			"podAntiAffinity": map[string]interface{}{
+				"requiredDuringSchedulingIgnoredDuringExecution": []map[string]interface{}{
+					{
+						"topologyKey": "kubernetes.io/hostname",
+						"labelSelector": map[string]interface{}{
+							"matchLabels": map[string]interface{}{
+								"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
+							},
+						},
+					},
+				},
+			},
+			"nodeAffinity": map[string]interface{}{
+				"requiredDuringSchedulingIgnoredDuringExecution": map[string]interface{}{
+					"nodeSelectorTerms": []map[string]interface{}{
+						{
+							"matchExpressions": map[string]interface{}{
+								"key":      "schedule-kernels",
+								"operator": "In",
+								"values": []string{
+									kernel.GetId(),
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	} else {
+		affinity = map[string]interface{}{
+			"podAntiAffinity": map[string]interface{}{
+				"requiredDuringSchedulingIgnoredDuringExecution": []map[string]interface{}{
+					{
+						"topologyKey": "kubernetes.io/hostname",
+						"labelSelector": map[string]interface{}{
+							"matchLabels": map[string]interface{}{
+								"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
 	// Define the CloneSet.
 	cloneSetDefinition := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -875,20 +943,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 						},
 					},
 					"spec": map[string]interface{}{
-						"affinity": map[string]interface{}{
-							"podAntiAffinity": map[string]interface{}{
-								"requiredDuringSchedulingIgnoredDuringExecution": []map[string]interface{}{
-									{
-										"topologyKey": "kubernetes.io/hostname",
-										"labelSelector": map[string]interface{}{
-											"matchLabels": map[string]interface{}{
-												"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
-											},
-										},
-									},
-								},
-							},
-						},
+						"affinity": affinity,
 						"volumes": []map[string]interface{}{
 							{
 								"name": "kernel-configmap",
@@ -914,12 +969,12 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 									"limits": map[string]interface{}{
 										"memory":                         fmt.Sprintf("%dMi", kernelResourceRequirements.Memory),
 										"cpu":                            fmt.Sprintf("%dm", kernelResourceRequirements.Cpu),
-										"ds2-lab.github.io/deflated-gpu": kernelResourceRequirements.Gpu,
+										"ds2-lab.github.io/deflated-gpu": fmt.Sprintf("%d", kernelResourceRequirements.Gpu),
 									},
 									"requests": map[string]interface{}{
 										"memory":                         fmt.Sprintf("%dMi", kernelResourceRequirements.Memory),
 										"cpu":                            fmt.Sprintf("%dm", kernelResourceRequirements.Cpu),
-										"ds2-lab.github.io/deflated-gpu": kernelResourceRequirements.Gpu,
+										"ds2-lab.github.io/deflated-gpu": fmt.Sprintf("%d", kernelResourceRequirements.Gpu),
 									},
 								},
 								"ports": []map[string]interface{}{

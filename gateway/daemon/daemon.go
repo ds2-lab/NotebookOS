@@ -60,7 +60,7 @@ var (
 	ErrKernelIDRequired      = errors.New("kernel id frame is required for kernel_info_request")
 )
 
-type DaemonKubeClientOptions struct {
+type ClusterDaemonOptions struct {
 	LocalDaemonServiceName  string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
 	LocalDaemonServicePort  int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
 	GlobalDaemonServiceName string `name:"global-daemon-service-name" description:"Name of the Kubernetes service that manages the global networking of local daemons."`
@@ -69,9 +69,10 @@ type DaemonKubeClientOptions struct {
 	KubeNamespace           string `name:"kube-namespace" description:"Kubernetes namespace that all of these components reside in."`
 	UseStatefulSet          bool   `name:"use-stateful-set" description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
 	HDFSNameNodeEndpoint    string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
+	SchedulingPolicy        string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
 }
 
-func (o DaemonKubeClientOptions) String() string {
+func (o ClusterDaemonOptions) String() string {
 	return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HDFSNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HDFSNameNodeEndpoint)
 }
 
@@ -88,6 +89,7 @@ type GatewayDaemonConfig func(*GatewayDaemon)
 type GatewayDaemon struct {
 	id string
 
+	schedulingPolicy string
 	gateway.UnimplementedClusterGatewayServer
 	gateway.UnimplementedLocalGatewayServer
 	router *router.Router
@@ -160,7 +162,7 @@ type GatewayDaemon struct {
 	kubeClient KubeClient
 }
 
-func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClientOptions, configs ...GatewayDaemonConfig) *GatewayDaemon {
+func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *ClusterDaemonOptions, configs ...GatewayDaemonConfig) *GatewayDaemon {
 	daemon := &GatewayDaemon{
 		id:                uuid.New().String(),
 		connectionOptions: opts,
@@ -173,12 +175,12 @@ func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClient
 		// waitGroups:        hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
 		waitGroups:                       hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
 		cleaned:                          make(chan struct{}),
-		smrPort:                          daemonKubeClientOptions.SMRPort,
+		smrPort:                          clusterDaemonOptions.SMRPort,
 		addReplicaOperations:             hashmap.NewCornelkMap[string, AddReplicaOperation](64),
 		activeAddReplicaOpsPerKernel:     hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, AddReplicaOperation]](64),
 		addReplicaOperationsByNewPodName: hashmap.NewCornelkMap[string, AddReplicaOperation](64),
 		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan AddReplicaOperation](64),
-		hdfsNameNodeEndpoint:             daemonKubeClientOptions.HDFSNameNodeEndpoint,
+		hdfsNameNodeEndpoint:             clusterDaemonOptions.HDFSNameNodeEndpoint,
 		// smrNodeRemovedNotifications:      hashmap.NewCornelkMap[string, chan struct{}](64),
 	}
 	for _, config := range configs {
@@ -198,7 +200,33 @@ func New(opts *jupyter.ConnectionInfo, daemonKubeClientOptions *DaemonKubeClient
 		}
 	}
 
-	daemon.kubeClient = NewKubeClient(daemon, daemonKubeClientOptions)
+	daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
+
+	switch clusterDaemonOptions.SchedulingPolicy {
+	case "default":
+		{
+			daemon.schedulingPolicy = "default"
+			daemon.log.Debug("Using the 'DEFAULT' scheduling policy.")
+		}
+	case "static":
+		{
+			daemon.schedulingPolicy = "static"
+			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
+
+			panic("The 'STATIC' scheduling policy is not yet supported.")
+		}
+	case "dynamic":
+		{
+			daemon.schedulingPolicy = "dynamic"
+			daemon.log.Debug("Using the 'DYNAMIC' scheduling policy.")
+
+			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+		}
+	default:
+		{
+			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", clusterDaemonOptions.SchedulingPolicy))
+		}
+	}
 
 	return daemon
 }

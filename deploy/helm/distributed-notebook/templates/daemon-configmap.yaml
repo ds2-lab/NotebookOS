@@ -33,3 +33,4 @@ data:
     use-stateful-set: {{ .Values.common.use_stateful_set }}
     device-plugin-path: {{ .Values.local_daemon.device_plugin.path }}
     num-virtual-gpus-per-node: {{ .Values.local_daemon.num_virtual_gpus_per_node }}
+    scheduling-policy: {{ .Values.common.scheduling_policy }}

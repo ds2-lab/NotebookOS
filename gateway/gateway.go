@@ -39,7 +39,7 @@ type Options struct {
 	config.LoggerOptions
 	types.ConnectionInfo
 	core.CoreOptions
-	daemon.DaemonKubeClientOptions
+	daemon.ClusterDaemonOptions
 
 	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
 	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
@@ -119,7 +119,7 @@ func main() {
 	}
 
 	// Initialize daemon
-	srv := daemon.New(&options.ConnectionInfo, &options.DaemonKubeClientOptions, func(srv *daemon.GatewayDaemon) {
+	srv := daemon.New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv *daemon.GatewayDaemon) {
 		srv.ClusterOptions = options.CoreOptions
 	})
 

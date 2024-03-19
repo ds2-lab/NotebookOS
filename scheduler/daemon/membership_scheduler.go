@@ -40,7 +40,6 @@ func (s *MembershipScheduler) triggerMigration(kernel core.Kernel) error {
 			ReplicaId:    kernel.(*client.KernelClient).ReplicaID(),
 			PersistentId: persistentId,
 		},
-		PersistentId: persistentId,
 	})
 
 	if err != nil {
