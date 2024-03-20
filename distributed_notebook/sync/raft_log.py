@@ -166,7 +166,7 @@ class RaftLog:
       }
 
     numProposalsReceived:int = len(self.proposals_per_term[proposal.term])
-    self._log.debug("Received %d proposals in term %d so far." % (numProposalsReceived, proposal.term)) 
+    self._log.debug("Received %d proposal(s) in term %d so far." % (numProposalsReceived, proposal.term)) 
     
     discarded:bool = False 
     # If this is the first 'LEAD' proposal we're receiving in this term, then take note of the time.
@@ -188,7 +188,8 @@ class RaftLog:
       
     # Check if this is the first 'LEAD' proposal we're receiving this term. 
     # If so, and if we're not discarding the proposal, then record that it is the first 'LEAD' proposal. 
-    if not discarded and proposal.key == KEY_SYNC and self.first_lead_proposal_received_per_term.get(proposal.term, None) == None:
+    if not discarded and proposal.key == KEY_LEAD and self.first_lead_proposal_received_per_term.get(proposal.term, None) == None:
+      self._log.debug("'LEAD' proposal from Node %d is first LEAD proposal in term %d." % (proposal.val, proposal.term))
       self.first_lead_proposal_received_per_term[proposal.term] = proposal 
 
     self._ignore_changes = self._ignore_changes + 1
@@ -232,16 +233,21 @@ class RaftLog:
     
     This should be called after all 3 proposals are collected, or after we've collected N proposals and discarded the others due to timeouts.
     """
-    num_proposals:int = self.proposals_per_term[term]
-    num_discarded:int = self.num_proposals_discarded[term]
+    if self.decisions_proposed.get(term, False):
+      self._log.debug("We've already proposed a decision for term %d." % term)
+      return GoNilError()
+    
+    self._log.debug("Preparing to make decision proposal for term %d." % term)
+    num_proposals:int = len(self.proposals_per_term[term])
+    num_discarded:int = self.num_proposals_discarded.get(term, 0)
     winningProposal: SyncValue | None = None 
+    
+    if num_proposals == 0:
+      self._log.error("Erroneously found that we've received 0 proposals so far in term %d." % term)
+      raise ValueError("Erroneously found that we've received 0 proposals so far in term %d." % term)
     
     if (num_proposals + num_discarded) < 3:
       self._log.debug("We've not received enough proposals yet to propose a decision (received: %d, discarded: %d)." % (num_proposals, num_discarded))
-      return GoNilError()
-    
-    if self.decisions_proposed.get(term, False):
-      self._log.debug("We've already proposed a decision for term %d." % term)
       return GoNilError()
     
     self._log.debug("Received enough proposals to propose a decision (received: %d, discarded: %d)." % (num_proposals, num_discarded))
@@ -349,8 +355,9 @@ class RaftLog:
       return GoNilError()
     except Exception as ex:
       self._log.error("Failed to handle change: {}".format(ex))
-      print_trace()
-      return GoError(ex)
+      print_trace(limit = 10)
+      raise ex 
+      # return GoError(ex)
     # pickle will close the reader
     # finally:
     #   reader.close()
