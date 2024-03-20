@@ -282,10 +282,16 @@ class RaftLog:
       # TODO(Ben): The system needs to be able to observe this, which I think it can, as it can see which replicas are yielding.
       raise ValueError("we did not receive any 'LEAD' proposals during term %d, and we've not implemented the procedure(s) for handling this scenario" % term)
     
+    self._log.debug("Proposing that Node %d lead execution for term %d." % (winningProposal.val, winningProposal.term))
+    
     self.decisions_proposed[term] = True 
     # Propose the second-round confirmation. 
-    future: Future = self.append_decision(SyncValue(None, self.winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC))
-    self._start_loop.run_until_complete(future)
+    # self._async_loop.call_later(0, self.append_decision, SyncValue(None, winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC))
+    
+    future:Future = asyncio.run_coroutine_threadsafe(self.append_decision(SyncValue(None, winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC)), self._async_loop)
+    future.result()
+    
+    self._log.debug("Finished proposing decision for term %d." % term)
     
     return GoNilError()
 
@@ -505,7 +511,7 @@ class RaftLog:
     else:
       return True, False
   
-  def append_decision(self, val: SyncValue)->Future:
+  async def append_decision(self, val: SyncValue)->Future:
     """Append the difference of the value of specified key to the synchronization queue"""
     # Ensure key is specified and is 'SYNC'.  
     if val.key != KEY_SYNC:
@@ -516,7 +522,7 @@ class RaftLog:
       self._ignore_changes = self._ignore_changes + 1
     
     if val.val is not None and type(val.val) is bytes and len(val.val) > MAX_MEMORY_OBJECT:
-      val = self._start_loop.run_until_complete(self._offload(val))
+      val = await self._offload(val)
       
     # Serialize the value. 
     dumped = pickle.dumps(val)
@@ -524,7 +530,7 @@ class RaftLog:
     # Propose and wait the future.
     future, resolve = self._get_callback()
     self._node.Propose(NewBytes(dumped), resolve, val.key)
-    return future 
+    await future.result()
   
   async def append(self, val: SyncValue):
     """Append the difference of the value of specified key to the synchronization queue"""
