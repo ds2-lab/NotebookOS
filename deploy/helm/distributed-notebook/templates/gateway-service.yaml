@@ -60,8 +60,9 @@ metadata:
   name: gateway-provisioner
 spec:
   ports:
-      port: {{ .Values.gateway.provisioner_port }}
-      targetPort: {{ .Values.gateway.provisioner_port }}
+      - name: provisioner
+        port: {{ .Values.gateway.grpc_port }}
+        targetPort: {{ .Values.gateway.grpc_port }}
   selector:
     app: gateway 
     io.kompose.service: gateway
