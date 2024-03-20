@@ -1,5 +1,6 @@
 from typing import Tuple, Optional, Any
 from typing_extensions import Protocol, runtime_checkable
+from time import strftime, localtime
 import time 
 
 KEY_SYNC_END = "_end_"
@@ -10,7 +11,7 @@ OP_SYNC_DEL = "del"
 class SyncValue:
   """A value for log proposal."""
 
-  def __init__(self, tag, val: Any, term:int=0, timestamp:float = time.time(), key:Optional[str]=None, op:Optional[str]=None, prmap:Optional[list[str]]=None, end:bool=False):
+  def __init__(self, tag, val: Any, term:int=0, timestamp:Optional[float] = time.time(), key:Optional[str]=None, op:Optional[str]=None, prmap:Optional[list[str]]=None, end:bool=False):
     self.term:int = term
     self.key:str = key
     self.prmap = prmap
@@ -21,6 +22,9 @@ class SyncValue:
     self.timestamp:float = timestamp # The time at which the proposal/value was issued.
 
     self._reset = False
+  
+  def __str__(self)->str:
+    return "SyncValue[Key='%s',Term=%d,Timestamp='%s',Tag='%s']" % (self.key, self.term, strftime('%Y-%m-%d %H:%M:%S', localtime(self.timestamp)), str(self.tag))
   
   @property
   def reset(self):

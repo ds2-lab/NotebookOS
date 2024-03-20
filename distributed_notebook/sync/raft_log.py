@@ -121,9 +121,14 @@ class RaftLog:
     reader = readCloser(ReadCloser(handle=rc), sz)
     try:
       syncval:SyncValue = pickle.load(reader)
+      
+      time_str:str = "N/A"
+      if hasattr(syncval, "timestamp"):
+        time_str = strftime('%Y-%m-%d %H:%M:%S', localtime(syncval.timestamp))
+      
       if syncval.key == KEY_LEAD:
         # Mar 2023: Record the id of the unseen largest term.
-        self._log.debug("Received LEAD req: node {}, term {}, timestamp {} ({}), match {}...".format(syncval.val, syncval.term, syncval.timestamp, strftime('%Y-%m-%d %H:%M:%S', syncval.timestamp), self._id == syncval.val))
+        self._log.debug("Received LEAD req: node {}, term {}, timestamp {} ({}), match {}...".format(syncval.val, syncval.term, syncval.timestamp, time_str, self._id == syncval.val))
         
         if self._leader_term < syncval.term:
           self._leader_term = syncval.term
@@ -139,7 +144,7 @@ class RaftLog:
         
         return GoNilError()
       elif syncval.key == KEY_YIELD:
-        self._log.debug("Received yielding request: node {}, term {}, timestamp {} ({}), match {}...".format(syncval.val, syncval.term, syncval.timestamp, strftime('%Y-%m-%d %H:%M:%S', syncval.timestamp), self._id == syncval.val))
+        self._log.debug("Received yielding request: node {}, term {}, timestamp {} ({}), match {}...".format(syncval.val, syncval.term, syncval.timestamp, time_str, self._id == syncval.val))
         
         # Set the future if the term is expected.
         _leading = self._leading

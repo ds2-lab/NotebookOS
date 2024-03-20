@@ -237,9 +237,9 @@ class Synchronizer:
         # set the end of _syncing before the final append call.
         self._syncing = False
       
-      self._log.debug("Appending value \"%s\" now." % sync_ast)
+      self._log.debug("Appending value \"%s\" now." % str(sync_ast))
       await synclog.append(sync_ast)
-      self._log.debug("Successfully appended value \"%s\"." % sync_ast)
+      self._log.debug("Successfully appended value \"%s\"." % str(sync_ast))
       for key in keys:
         synced = synced + 1
         self._log.debug("Syncing key \"%s\" now." % key)
