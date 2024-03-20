@@ -71,12 +71,13 @@ class RaftLog:
     self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
     self.proposals_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> dict. Inner dict is map from SMR node ID -> proposal.
     self.own_proposal_times: Dict[int, float] = {} # Mapping from term number -> the time at which we proposed LEAD/YIELD in that term.
-    self.first_lead_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first proposal received in that term. 
+    self.first_lead_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first 'LEAD' proposal received in that term. 
+    self.first_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first proposal received in that term. 
     self.timeout_durations: Dict[int, float] = {} # Mapping from term number -> the timeout (in seconds) for that term.
     self.discard_after: Dict[int, float] = {} # Mapping from term number -> the time after which received proposals will be discarded.
     self.num_proposals_discarded: Dict[int, int] = {} # Mapping from term number -> the number of proposals that were discarded in that term.
-    self.sync_proposals_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first (and therefore accepted) SYNC proposal from that term.
-    self.terms_decided: Dict[int, bool] = {} # Mapping from term number -> boolean flag indicating whether we've proposed (but not necessarily committed) a decision for the given term yet.
+    self.sync_proposals_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first SYNC proposal committed during that term.
+    self.decisions_proposed: Dict[int, bool] = {} # Mapping from term number -> boolean flag indicating whether we've proposed (but not necessarily committed) a decision for the given term yet.
     
     if self._node == None:
       self._log.error("Failed to create the LogNode.")
@@ -166,22 +167,29 @@ class RaftLog:
     numProposalsReceived:int = len(self.proposals_per_term[proposal.term])
     self._log.debug("Received %d proposals in term %d so far.", numProposalsReceived, proposal.term) 
     
+    discarded:bool = False 
     # If this is the first 'LEAD' proposal we're receiving in this term, then take note of the time.
-    if proposal.key == KEY_LEAD and self.first_lead_proposal_received_per_term.get(proposal.term, None) is None: # if numProposalsReceived == 1:
-      timeout: float = 2 * (time.time() - proposal.timestamp)
+    if self.first_proposal_received_per_term.get(proposal.term, None) is None: # if numProposalsReceived == 1:
+      timeout: float = min(5 * (time.time() - proposal.timestamp), 10) # Timeout of 10 seconds at-most.
       self.timeout_durations[proposal.term] = timeout
       self.discard_after[proposal.term] = proposal.timestamp + timeout
-      self.first_lead_proposal_received_per_term[proposal.term] = proposal 
+      self.first_proposal_received_per_term[proposal.term] = proposal 
       
       self._log.debug("Timeout for term %d will be %.6f seconds. Will discard any proposals received after time %s." % (proposal.term, timeout, datetime.datetime.fromtimestamp(self.discard_after[proposal.term]).strftime('%Y-%m-%d %H:%M:%S.%f')))
-    elif self.first_lead_proposal_received_per_term.get(proposal.term, None) is not None and received_at > self.discard_after[proposal.term]:
+    elif self.first_proposal_received_per_term.get(proposal.term, None) is not None and received_at > self.discard_after[proposal.term]:
       # If we've received at least one 'LEAD' proposal, then the timeout has been set, so we check if we need to discard this proposal. 
       self._log.debug("Term %d proposal from node %d was received after timeout. Will be discarding.", proposal.term, proposal.val)
       
       # Increment the 'num-discarded' counter.
       num_discarded: int = self.num_proposals_discarded.get(proposal.term, 0)
       self.num_proposals_discarded[proposal.term] = num_discarded + 1
-    
+      discarded = True 
+      
+    # Check if this is the first 'LEAD' proposal we're receiving this term. 
+    # If so, and if we're not discarding the proposal, then record that it is the first 'LEAD' proposal. 
+    if not discarded and proposal.key == KEY_SYNC and self.first_lead_proposal_received_per_term.get(proposal.term, None) == None:
+      self.first_lead_proposal_received_per_term[proposal.term] = proposal 
+
     self._ignore_changes = self._ignore_changes + 1
     return self._makeDecision(proposal.term)
     
@@ -231,7 +239,7 @@ class RaftLog:
       self._log.debug("We've not received enough proposals yet to propose a decision (received: %d, discarded: %d)." % (num_proposals, num_discarded))
       return GoNilError()
     
-    if self.terms_decided.get(term, False):
+    if self.decisions_proposed.get(term, False):
       self._log.debug("We've already proposed a decision for term %d." % term)
       return GoNilError()
     
@@ -267,8 +275,9 @@ class RaftLog:
       # TODO(Ben): The system needs to be able to observe this, which I think it can, as it can see which replicas are yielding.
       raise ValueError("we did not receive any 'LEAD' proposals during term %d, and we've not implemented the procedure(s) for handling this scenario" % term)
     
+    self.decisions_proposed[term] = True 
     # Propose the second-round confirmation. 
-    future: Future = self.append_sync(SyncValue(None, self._id, timestamp = time.time(), term=term, key=KEY_LEAD))
+    future: Future = self.append_decision(SyncValue(None, self.winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC))
     self._start_loop.run_until_complete(future)
     
     return GoNilError()
@@ -279,6 +288,12 @@ class RaftLog:
     Args:
         proposal (SyncValue): The proposed value.
     """
+    if self.sync_proposals_per_term.get(proposal.term, None) != None:
+      self._log.debug("We've already received a 'SYNC' proposal during term %d. Ignoring.", proposal.term)
+      return GoNilError()
+
+    self.sync_proposals_per_term[proposal.term] = proposal 
+    
     if self._leader_term < proposal.term:
       self._log.debug("Our 'leader_term' (%d) < 'leader_term' of latest commit (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value).", self._leader_term, proposal.term, proposal.term, proposal.val)
       self._leader_term = proposal.term
@@ -295,6 +310,8 @@ class RaftLog:
       self._leading = None # Ensure the future is set only once.
 
     self._ignore_changes = self._ignore_changes + 1
+    
+    return GoNilError()
 
   def _handleOtherProposal(self, proposal: SyncValue) -> bytes:
     """
@@ -316,7 +333,7 @@ class RaftLog:
       syncval:SyncValue = pickle.load(reader)
 
       if self._isProposal(syncval):
-        self._handleProposal(syncval, received_at = received_at)
+        return self._handleProposal(syncval, received_at = received_at)
       elif id != "":
         # Skip state updates from current node.
         return GoNilError()
@@ -480,33 +497,26 @@ class RaftLog:
     else:
       return True, False
   
-  def append_sync(self, val: SyncValue)->Future:
+  def append_decision(self, val: SyncValue)->Future:
     """Append the difference of the value of specified key to the synchronization queue"""
-    if val.key != KEY_LEAD:
-      self._leader_term = val.term
-
+    # Ensure key is specified and is 'SYNC'.  
+    if val.key != KEY_SYNC:
+      raise ValueError("Cannot append value with key '%s' using `append_decision` method.", val.key)
+    
     if val.op is None or val.op == "":
       # Count _ignore_changes
       self._ignore_changes = self._ignore_changes + 1
+    
+    if val.val is not None and type(val.val) is bytes and len(val.val) > MAX_MEMORY_OBJECT:
+      val = self._start_loop.run_until_complete(self._offload(val))
+      
+    # Serialize the value. 
+    dumped = pickle.dumps(val)
 
-    # Ensure key is specified.
-    if val.key is not None:
-      if val.val is not None and type(val.val) is bytes and len(val.val) > MAX_MEMORY_OBJECT:
-        val = self._start_loop.run_until_complete(self._offload(val))
-        
-      # Serialize the value. 
-      # start_time = time.time()
-      dumped = pickle.dumps(val)
-      # self._log.debug("Time elapsed in dump syncValue: {}".format(time.time() - start_time))
-
-      # self._log.debug("Time elapsed in python before appending: {}, {}".format(time.time() - start_time, len(dumped)))
-      # converted = Slice_byte(handle=id(dumped))
-      # self._log.debug("Time elapsed in after converted: {}, {}".format(time.time() - start_time, len(converted)))
-
-      # Propose and wait the future.
-      future, resolve = self._get_callback()
-      self._node.Propose(NewBytes(dumped), resolve, val.key)
-      return future 
+    # Propose and wait the future.
+    future, resolve = self._get_callback()
+    self._node.Propose(NewBytes(dumped), resolve, val.key)
+    return future 
   
   async def append(self, val: SyncValue):
     """Append the difference of the value of specified key to the synchronization queue"""
