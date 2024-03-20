@@ -16,7 +16,7 @@ kernel_json = {
             "provisioner_name": "gateway-provisioner",
             "config": {
                 # TODO(Ben): DNS Lookup fails if you include the ":8080" port here...
-                "gateway": "gateway-provisioner" # "gateway:8080"
+                "gateway": "gateway:8080"
             }
         }
     }
