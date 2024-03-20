@@ -1,5 +1,6 @@
 from typing import Tuple, Optional, Any
 from typing_extensions import Protocol, runtime_checkable
+import time 
 
 KEY_SYNC_END = "_end_"
 OP_SYNC_ADD = "add"
@@ -9,14 +10,15 @@ OP_SYNC_DEL = "del"
 class SyncValue:
   """A value for log proposal."""
 
-  def __init__(self, tag, val: Any, term:int=0, key:Optional[str]=None, op:Optional[str]=None, prmap:Optional[list[str]]=None, end:bool=False):
-    self.term = term
-    self.key = key
+  def __init__(self, tag, val: Any, term:int=0, timestamp:float = time.time(), key:Optional[str]=None, op:Optional[str]=None, prmap:Optional[list[str]]=None, end:bool=False):
+    self.term:int = term
+    self.key:str = key
     self.prmap = prmap
     self.tag = tag
     self.val = val
     self.end = end
     self.op = op
+    self.timestamp:float = timestamp # The time at which the proposal/value was issued.
 
     self._reset = False
   

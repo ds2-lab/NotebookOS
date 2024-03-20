@@ -6,6 +6,7 @@ import logging
 import time
 import ctypes
 from typing import Tuple, List, Callable, Optional, Any, Iterable
+from time import strftime, localtime
 
 from ..smr.smr import NewLogNode, NewConfig, NewBytes, Bytes, WriteCloser, ReadCloser
 from ..smr.go import Slice_string, Slice_int
@@ -119,10 +120,10 @@ class RaftLog:
       
     reader = readCloser(ReadCloser(handle=rc), sz)
     try:
-      syncval = pickle.load(reader)
+      syncval:SyncValue = pickle.load(reader)
       if syncval.key == KEY_LEAD:
         # Mar 2023: Record the id of the unseen largest term.
-        self._log.debug("Received leading request: node {}, term {}, match {}...".format(syncval.val, syncval.term, self._id == syncval.val))
+        self._log.debug("Received LEAD req: node {}, term {}, timestamp {} ({}), match {}...".format(syncval.val, syncval.term, syncval.timestamp, strftime('%Y-%m-%d %H:%M:%S', syncval.timestamp), self._id == syncval.val))
         
         if self._leader_term < syncval.term:
           self._leader_term = syncval.term
@@ -138,7 +139,7 @@ class RaftLog:
         
         return GoNilError()
       elif syncval.key == KEY_YIELD:
-        self._log.debug("Received yielding request: node {}, term {}, match {}...".format(syncval.val, syncval.term, self._id == syncval.val))
+        self._log.debug("Received yielding request: node {}, term {}, timestamp {} ({}), match {}...".format(syncval.val, syncval.term, syncval.timestamp, strftime('%Y-%m-%d %H:%M:%S', syncval.timestamp), self._id == syncval.val))
         
         # Set the future if the term is expected.
         _leading = self._leading
@@ -255,7 +256,7 @@ class RaftLog:
     self._expected_term = term
     self._leading = self._start_loop.create_future()
     # Append is blocking and ensure to gaining leading status if terms match.
-    await self.append(SyncValue(None, self._id, term=term, key=KEY_LEAD))
+    await self.append(SyncValue(None, self._id, timestamp = time.time(), term=term, key=KEY_LEAD))
     # Validate the term
     wait, is_leading = self._is_leading(term)
     if not wait:
@@ -284,7 +285,7 @@ class RaftLog:
     self._expected_term = term
     self._leading = self._start_loop.create_future()
     # Append is blocking and ensure to gaining leading status if terms match.
-    await self.append(SyncValue(-1, self._id, term=term, key=KEY_YIELD))
+    await self.append(SyncValue(-1, self._id, timestamp = time.time(), term=term, key=KEY_YIELD))
     # Validate the term
     wait, is_leading = self._is_leading(term)
     if not wait:
