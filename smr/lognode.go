@@ -163,7 +163,8 @@ type LogNode struct {
 	// Bridges
 	config *LogNodeConfig
 
-	logger *zap.Logger
+	logger        *zap.Logger
+	sugaredLogger *zap.SugaredLogger
 }
 
 var defaultSnapshotCount uint64 = 10000
@@ -209,6 +210,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		panic(err)
 	}
 	node.logger = logger
+	node.sugaredLogger = logger.Sugar()
 
 	if store_path != "" {
 		node.waldir = path.Join(store_path, fmt.Sprintf("dnlog-%d", id))
@@ -1015,13 +1017,14 @@ func (node *LogNode) serveChannels() {
 		for {
 			select {
 			case commit := <-node.commitC:
-				node.logger.Info(fmt.Sprintf("LogNode %d: Applying commit to local state machine.", node.id))
-				for _, d := range commit.data {
+				node.logger.Info(fmt.Sprintf("LogNode %d: Applying commit with %d data item(s) to local state machine.", node.id, len(commit.data)))
+				for idx, d := range commit.data {
 					realData, ctx := node.doneProposal(d)
 					id := ""
 					if ctx != nil {
 						id = ctx.ID()
 					}
+					node.sugaredLogger.Infof("LogNode %d: Applying data item %d/%d to local state machine.", node.id, idx+1, len(commit.data))
 					if err := fromCError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
 						node.logFatalf("LogNode: Error on replay state (%v)", err)
 					}

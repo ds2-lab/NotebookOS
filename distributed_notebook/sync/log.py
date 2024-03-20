@@ -1,7 +1,7 @@
 from typing import Tuple, Optional, Any
 from typing_extensions import Protocol, runtime_checkable
-from time import strftime, localtime
 import time 
+import datetime
 
 KEY_SYNC_END = "_end_"
 OP_SYNC_ADD = "add"
@@ -24,7 +24,8 @@ class SyncValue:
     self._reset = False
   
   def __str__(self)->str:
-    return "SyncValue[Key='%s',Term=%d,Timestamp='%s',Tag='%s']" % (self.key, self.term, strftime('%Y-%m-%d %H:%M:%S', localtime(self.timestamp)), str(self.tag))
+    ts:str = datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
+    return "SyncValue[Key='%s',Term=%d,Timestamp='%s',Tag='%s']" % (self.key, self.term, ts, str(self.tag))
   
   @property
   def reset(self):
