@@ -13,7 +13,7 @@ c.Application.log_datefmt = '%Y-%m-%d %H:%M:%S'
 
 ## The Logging format template
 #  Default: '[%(name)s]%(highlevel)s %(message)s'
-c.Application.log_format = '[%(name)s]%(highlevel)s %(message)s'
+c.Application.log_format = '%(asctime)s [%(name)s] %(message)s'
 
 ## Set the log level by value or name.
 #  Choices: any of [0, 10, 20, 30, 40, 50, 'DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL']
