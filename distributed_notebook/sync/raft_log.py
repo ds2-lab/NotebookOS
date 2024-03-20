@@ -143,6 +143,7 @@ class RaftLog:
     # 'SYNC' proposals are handled a little differently. 
     # We don't want them to be counted with the other proposals.
     if proposal.key == KEY_SYNC:
+      self._log.debug("Received 'SYNC' proposal from Node %d in term %d." % (proposal.val, proposal.term))
       return self._handleSyncProposal(proposal)
     
     time_str = datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -165,7 +166,7 @@ class RaftLog:
       }
 
     numProposalsReceived:int = len(self.proposals_per_term[proposal.term])
-    self._log.debug("Received %d proposals in term %d so far.", numProposalsReceived, proposal.term) 
+    self._log.debug("Received %d proposals in term %d so far." % (numProposalsReceived, proposal.term)) 
     
     discarded:bool = False 
     # If this is the first 'LEAD' proposal we're receiving in this term, then take note of the time.
@@ -178,7 +179,7 @@ class RaftLog:
       self._log.debug("Timeout for term %d will be %.6f seconds. Will discard any proposals received after time %s." % (proposal.term, timeout, datetime.datetime.fromtimestamp(self.discard_after[proposal.term]).strftime('%Y-%m-%d %H:%M:%S.%f')))
     elif self.first_proposal_received_per_term.get(proposal.term, None) is not None and received_at > self.discard_after[proposal.term]:
       # If we've received at least one 'LEAD' proposal, then the timeout has been set, so we check if we need to discard this proposal. 
-      self._log.debug("Term %d proposal from node %d was received after timeout. Will be discarding.", proposal.term, proposal.val)
+      self._log.debug("Term %d proposal from node %d was received after timeout. Will be discarding." % (proposal.term, proposal.val))
       
       # Increment the 'num-discarded' counter.
       num_discarded: int = self.num_proposals_discarded.get(proposal.term, 0)
@@ -271,7 +272,7 @@ class RaftLog:
     # If the winning proposal is still None, then we just didn't receive any 'LEAD' proposals this term.
     # Depending on the scheduling policy, we'll either dynamically create a new replica, or we'll migrate existing replicas.
     if winningProposal == None:
-      self._log.warn("We didn't receive any 'LEAD' proposals during term %d.", term)
+      self._log.warn("We didn't receive any 'LEAD' proposals during term %d." % term)
       # TODO(Ben): The system needs to be able to observe this, which I think it can, as it can see which replicas are yielding.
       raise ValueError("we did not receive any 'LEAD' proposals during term %d, and we've not implemented the procedure(s) for handling this scenario" % term)
     
@@ -289,23 +290,23 @@ class RaftLog:
         proposal (SyncValue): The proposed value.
     """
     if self.sync_proposals_per_term.get(proposal.term, None) != None:
-      self._log.debug("We've already received a 'SYNC' proposal during term %d. Ignoring.", proposal.term)
+      self._log.debug("We've already received a 'SYNC' proposal during term %d. Ignoring." % proposal.term)
       return GoNilError()
 
     self.sync_proposals_per_term[proposal.term] = proposal 
     
     if self._leader_term < proposal.term:
-      self._log.debug("Our 'leader_term' (%d) < 'leader_term' of latest commit (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value).", self._leader_term, proposal.term, proposal.term, proposal.val)
+      self._log.debug("Our 'leader_term' (%d) < 'leader_term' of latest commit (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value)." % (self._leader_term, proposal.term, proposal.term, proposal.val))
       self._leader_term = proposal.term
       self._leader_id = proposal.val
       
       self.winners_per_term[proposal.term] = proposal.val
-      self._log.debug("Node %d has won in term %d.", proposal.val, proposal.term)
+      self._log.debug("Node %d has won in term %d." % (proposal.val, proposal.term))
       
     # Set the future if the term is expected.
     _leading = self._leading
     if _leading is not None and self._leader_term >= self._expected_term:
-      self._log.debug("leader_term=%d, expected_term=%d. Setting result on '_leading' future to %d.", self._leader_term, self._expected_term, self._leader_term)
+      self._log.debug("leader_term=%d, expected_term=%d. Setting result on '_leading' future to %d." % (self._leader_term, self._expected_term, self._leader_term))
       self._start_loop.call_later(0, _leading.set_result, self._leader_term)
       self._leading = None # Ensure the future is set only once.
 
@@ -338,7 +339,7 @@ class RaftLog:
         # Skip state updates from current node.
         return GoNilError()
 
-      self._log.debug("Setting _leader_term (currently %d) to %d.", self._leader_term, syncval.term)
+      self._log.debug("Setting _leader_term (currently %d) to %d." % (self._leader_term, syncval.term))
       self._leader_term = syncval.term
       # For values synchronized from other replicas or replayed, count _ignore_changes
       if syncval.op is None or syncval.op == "":
@@ -346,10 +347,10 @@ class RaftLog:
       self._handler(self._load(syncval))
 
       return GoNilError()
-    except Exception as e:
-      self._log.error("Failed to handle change: {}".format(e))
+    except Exception as ex:
+      self._log.error("Failed to handle change: {}".format(ex))
       print_trace()
-      return GoError(e)
+      return GoError(ex)
     # pickle will close the reader
     # finally:
     #   reader.close()
@@ -501,7 +502,7 @@ class RaftLog:
     """Append the difference of the value of specified key to the synchronization queue"""
     # Ensure key is specified and is 'SYNC'.  
     if val.key != KEY_SYNC:
-      raise ValueError("Cannot append value with key '%s' using `append_decision` method.", val.key)
+      raise ValueError("Cannot append value with key '%s' using `append_decision` method." % val.key)
     
     if val.op is None or val.op == "":
       # Count _ignore_changes
