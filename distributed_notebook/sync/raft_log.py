@@ -5,7 +5,7 @@ import asyncio
 import logging
 import time
 from typing import Tuple, Callable, Optional, Any, Iterable, Dict
-import datetime 
+import datetime
 
 from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser
 from ..smr.go import Slice_string, Slice_int
@@ -56,9 +56,8 @@ class RaftLog:
     self._id: int = id
     self.ensure_path(self._store)
     self._offloader: FileLog = FileLog(self._store)
-    self._log = logging.getLogger(__class__.__name__ + str(id))
-    self._log.setLevel(logging.DEBUG)
-    
+    self._log: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
+
     self._log.info("Creating LogNode %d now." % id)
     self._log.info("_store: %s" % self._store)
     self._log.info("hdfs_hostname: \"%s\"" % hdfs_hostname)
@@ -67,33 +66,33 @@ class RaftLog:
     self._log.info("peer_ids: %s" % peer_ids)
     self._log.info("join: %s" % join)
     self._node = NewLogNode(self._store, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join)
-    
+
     self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
     self.proposals_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> dict. Inner dict is map from SMR node ID -> proposal.
     self.own_proposal_times: Dict[int, float] = {} # Mapping from term number -> the time at which we proposed LEAD/YIELD in that term.
-    self.first_lead_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first 'LEAD' proposal received in that term. 
-    self.first_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first proposal received in that term. 
+    self.first_lead_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first 'LEAD' proposal received in that term.
+    self.first_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first proposal received in that term.
     self.timeout_durations: Dict[int, float] = {} # Mapping from term number -> the timeout (in seconds) for that term.
     self.discard_after: Dict[int, float] = {} # Mapping from term number -> the time after which received proposals will be discarded.
     self.num_proposals_discarded: Dict[int, int] = {} # Mapping from term number -> the number of proposals that were discarded in that term.
     self.sync_proposals_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first SYNC proposal committed during that term.
     self.decisions_proposed: Dict[int, bool] = {} # Mapping from term number -> boolean flag indicating whether we've proposed (but not necessarily committed) a decision for the given term yet.
-    
+
     if self._node == None:
       self._log.error("Failed to create the LogNode.")
       raise ValueError("Could not create LogNode. See logs for details.")
     elif not self._node.ConnectedToHDFS():
       self._log.error("The LogNode failed to connect to HDFS.")
       raise ValueError("The LogNode failed to connect to HDFS")
-    
+
     self._log.info("Successfully created LogNode %d." % id)
-    
-    self.proposal_handlers = {
-      KEY_LEAD: self._handleLeadProposal,
-      KEY_YIELD: self._handleYieldProposal,
+
+    # self.proposal_handlers = {
+    #   KEY_LEAD: self._handleLeadProposal,
+    #   KEY_YIELD: self._handleYieldProposal,
       # KEY_SYNC: self._handleSyncProposal, # We don't include KEY_SYNC here as we call it explicitly.
-    }
-    
+    # }
+
     self._changeCallback = self._changeHandler  # No idea why this walkaround works
     self._restoreCallback = self._restore       # No idea why this walkaround works
     self._ignore_changes = 0
@@ -103,7 +102,7 @@ class RaftLog:
   def num_changes(self) -> int:
     """The number of incremental changes since first term or the latest checkpoint."""
     return self._node.NumChanges() - self._ignore_changes
-  
+
   @property
   def term(self) -> int:
     """Current term."""
@@ -122,14 +121,31 @@ class RaftLog:
     if self._snapshotCallback is not None:
       config = config.WithSnapshotCallback(self._snapshotCallback)
 
+    self._log.debug("Starting LogNode now.")
+
     self._async_loop = asyncio.get_running_loop()
     self._start_loop = self._async_loop
+
+    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
+    self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
+    self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
+    self._log.debug("self._start_loop == asyncio.get_running_loop(): %s" % str(self._start_loop == asyncio.get_running_loop()))
+    self._log.debug("self._async_loop == asyncio.get_running_loop(): %s" % str(self._async_loop == asyncio.get_running_loop()))
+
     self._node.Start(config)
+    self._log.info("Started LogNode.")
+
+    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
+    self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
+    self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
+    self._log.debug("self._start_loop == asyncio.get_running_loop(): %s" % str(self._start_loop == asyncio.get_running_loop()))
+    self._log.debug("self._async_loop == asyncio.get_running_loop(): %s" % str(self._async_loop == asyncio.get_running_loop()))
+
     self._log.info("Started RaftLog.")
 
   def _isProposal(self, syncval:SyncValue):
     return syncval.key == KEY_LEAD or syncval.key == KEY_YIELD or syncval.key == KEY_SYNC
-  
+
   def _handleProposal(self, proposal: SyncValue, received_at: float = time.time()) -> bytes:
     """Handle a LEAD/YIELD proposal.
 
@@ -137,23 +153,23 @@ class RaftLog:
         proposal (SyncValue): the committed proposal.
         received_at (float): the time at which we received this proposal.
     """
-    # 'SYNC' proposals are handled a little differently. 
+    # 'SYNC' proposals are handled a little differently.
     # We don't want them to be counted with the other proposals.
     if proposal.key == KEY_SYNC:
       return self._handleSyncProposal(proposal)
-    
+
     time_str = datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
     self._log.debug("Received {} req: node {}, term {}, timestamp {} ({}), match {}...".format(proposal.key, proposal.val, proposal.term, proposal.timestamp, time_str, self._id == proposal.val))
-    
+
     if proposal.term in self.proposals_per_term:
       proposals = self.proposals_per_term[proposal.term]
-      
+
       if proposal.val in proposals:
         self._log.error("Received multiple proposals from Node %d in term %d." % (proposal.val, proposal.term))
         raise ValueError("Received multiple proposals from Node %d in term %d." % (proposal.val, proposal.term))
       else:
-        proposals[proposal.val] = proposal 
-      
+        proposals[proposal.val] = proposal
+
       self.proposals_per_term[proposal.term] = proposals
     else:
       self.proposals_per_term[proposal.term] = {
@@ -162,40 +178,40 @@ class RaftLog:
       }
 
     numProposalsReceived:int = len(self.proposals_per_term[proposal.term])
-    self._log.debug("Received %d proposal(s) in term %d so far." % (numProposalsReceived, proposal.term)) 
-    
-    discarded:bool = False 
+    self._log.debug("Received %d proposal(s) in term %d so far." % (numProposalsReceived, proposal.term))
+
+    discarded:bool = False
     # If this is the first 'LEAD' proposal we're receiving in this term, then take note of the time.
     if self.first_proposal_received_per_term.get(proposal.term, None) is None: # if numProposalsReceived == 1:
       timeout: float = min(5 * (time.time() - proposal.timestamp), 10) # Timeout of 10 seconds at-most.
       self.timeout_durations[proposal.term] = timeout
       self.discard_after[proposal.term] = proposal.timestamp + timeout
-      self.first_proposal_received_per_term[proposal.term] = proposal 
-      
+      self.first_proposal_received_per_term[proposal.term] = proposal
+
       self._log.debug("Timeout for term %d will be %.6f seconds. Will discard any proposals received after time %s." % (proposal.term, timeout, datetime.datetime.fromtimestamp(self.discard_after[proposal.term]).strftime('%Y-%m-%d %H:%M:%S.%f')))
     elif self.first_proposal_received_per_term.get(proposal.term, None) is not None and received_at > self.discard_after[proposal.term]:
-      # If we've received at least one 'LEAD' proposal, then the timeout has been set, so we check if we need to discard this proposal. 
+      # If we've received at least one 'LEAD' proposal, then the timeout has been set, so we check if we need to discard this proposal.
       self._log.debug("Term %d proposal from node %d was received after timeout. Will be discarding." % (proposal.term, proposal.val))
-      
+
       # Increment the 'num-discarded' counter.
       num_discarded: int = self.num_proposals_discarded.get(proposal.term, 0)
       self.num_proposals_discarded[proposal.term] = num_discarded + 1
-      discarded = True 
-      
-    # Check if this is the first 'LEAD' proposal we're receiving this term. 
-    # If so, and if we're not discarding the proposal, then record that it is the first 'LEAD' proposal. 
+      discarded = True
+
+    # Check if this is the first 'LEAD' proposal we're receiving this term.
+    # If so, and if we're not discarding the proposal, then record that it is the first 'LEAD' proposal.
     if not discarded and proposal.key == KEY_LEAD and self.first_lead_proposal_received_per_term.get(proposal.term, None) == None:
       self._log.debug("'LEAD' proposal from Node %d is first LEAD proposal in term %d." % (proposal.val, proposal.term))
-      self.first_lead_proposal_received_per_term[proposal.term] = proposal 
+      self.first_lead_proposal_received_per_term[proposal.term] = proposal
 
     self._ignore_changes = self._ignore_changes + 1
     return self._makeDecision(proposal.term)
-    
+
     # Default to '_handleOtherProposal' in case of an erroneous key field.
     # return self.proposal_handlers.get(proposal.key, self._handleOtherProposal)(proposal)
 
-  def _handleLeadProposal(self, proposal: SyncValue) -> bytes:
-    """Handle a LEAD proposal."""
+  # def _handleLeadProposal(self, proposal: SyncValue) -> bytes:
+  #   """Handle a LEAD proposal."""
     # if self._leader_term < proposal.term:
     #   self._log.debug("Our 'leader_term' (%d) < 'leader_term' of latest commit (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value).", self._leader_term, proposal.term, proposal.term, proposal.val)
     #   self._leader_term = proposal.term
@@ -203,7 +219,7 @@ class RaftLog:
 
     #   self.winners_per_term[proposal.term] = proposal.val
     #   self._log.debug("Node %d has won in term %d.", proposal.val, proposal.term)
-      
+
     # # Set the future if the term is expected.
     # _leading = self._leading
     # if _leading is not None and self._leader_term >= self._expected_term:
@@ -211,41 +227,41 @@ class RaftLog:
     #   self._start_loop.call_later(0, _leading.set_result, self._leader_term)
     #   self._leading = None # Ensure the future is set only once.
 
-    self._ignore_changes = self._ignore_changes + 1
-    return GoNilError()
+    # self._ignore_changes = self._ignore_changes + 1
+    # return GoNilError()
 
-  def _handleYieldProposal(self, proposal: SyncValue) -> bytes:
+  # def _handleYieldProposal(self, proposal: SyncValue) -> bytes:
     # Set the future if the term is expected.
     # _leading = self._leading
     # if _leading is not None and self._leader_term >= self._expected_term:
     #   self._log.debug("leader_term=%d, expected_term=%d. Setting result on '_leading' future to %d.", self._leader_term, self._expected_term, self._leader_term)
     #   self._start_loop.call_later(0, _leading.set_result, self._leader_term)
-    
-    self._ignore_changes = self._ignore_changes + 1
-    return GoNilError()
+
+    # self._ignore_changes = self._ignore_changes + 1
+    # return GoNilError()
 
   def _makeDecision(self, term: int) -> bytes:
     """Make a decision on who should execute the code for the given term.
-    
+
     This should be called after all 3 proposals are collected, or after we've collected N proposals and discarded the others due to timeouts.
     """
     if self.decisions_proposed.get(term, False):
       self._log.debug("We've already proposed a decision for term %d." % term)
       return GoNilError()
-    
+
     self._log.debug("Preparing to make decision proposal for term %d." % term)
     num_proposals:int = len(self.proposals_per_term[term])
     num_discarded:int = self.num_proposals_discarded.get(term, 0)
-    winningProposal: SyncValue | None = None 
-    
+    winningProposal: SyncValue | None = None
+
     if num_proposals == 0:
       self._log.error("Erroneously found that we've received 0 proposals so far in term %d." % term)
       raise ValueError("Erroneously found that we've received 0 proposals so far in term %d." % term)
-    
+
     if (num_proposals + num_discarded) < 3:
       self._log.debug("We've not received enough proposals yet to propose a decision (received: %d, discarded: %d)." % (num_proposals, num_discarded))
       return GoNilError()
-    
+
     self._log.debug("Received enough proposals to propose a decision (received: %d, discarded: %d)." % (num_proposals, num_discarded))
     # First, check if the winner of the last term issued a LEAD proposal this term.
     # If they did, then we'll propose a decision that they get to lead again.
@@ -253,41 +269,40 @@ class RaftLog:
     last_winner_id:int | None = self.winners_per_term.get(term, None)
     if last_winner_id is not None:
       last_winner_proposal:SyncValue = self.proposals_per_term.get(last_winner_id, None)
-      
+
       if last_winner_proposal != None:
         self._log.debug("Last term (%d) winner, node %d, proposed '%s'." % (term - 1, last_winner_id, last_winner_proposal.key))
-        
+
         if last_winner_proposal.key == KEY_LEAD:
           self._log.debug("Proposing decision that last term (%d) winner, node %d, leads this term (%d) as well." % (term-1, last_winner_id, term))
-          
+
           winningProposal = last_winner_proposal
         else:
           self._log.debug("Will propose first 'LEAD' proposal of this term (%d) as leader." % term)
       else:
         self._log.warn("No proposal received from previous term (%d) winner, node %d." % (term - 1, last_winner_id))
-    
+
     # If the winning proposal is still done, then we aren't defaulting to the previous term's leader.
     # Get the first 'LEAD' proposal that we received this term.
     if winningProposal == None:
       winningProposal = self.first_lead_proposal_received_per_term.get(term, None)
-      
+
     # If the winning proposal is still None, then we just didn't receive any 'LEAD' proposals this term.
     # Depending on the scheduling policy, we'll either dynamically create a new replica, or we'll migrate existing replicas.
     if winningProposal == None:
       self._log.warn("We didn't receive any 'LEAD' proposals during term %d." % term)
       # TODO(Ben): The system needs to be able to observe this, which I think it can, as it can see which replicas are yielding.
       raise ValueError("we did not receive any 'LEAD' proposals during term %d, and we've not implemented the procedure(s) for handling this scenario" % term)
-    
+
     self._log.debug("Will propose that Node %d lead execution for term %d." % (winningProposal.val, winningProposal.term))
-    self._async_loop.get_debug
     self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
     self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
     self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
-    self.decisions_proposed[term] = True 
+    self.decisions_proposed[term] = True
     
-    # Propose the second-round confirmation. 
-    self._async_loop.call_later(0, self.append_decision, SyncValue(None, self._id, proposed_node = winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC))
-    
+    # Propose the second-round confirmation.
+    self._async_loop.call_soon_threadsafe(self.append_decision, SyncValue(None, self._id, proposed_node = winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC))
+
     return GoNilError()
 
   def _handleSyncProposal(self, proposal: SyncValue) -> bytes:
@@ -297,23 +312,23 @@ class RaftLog:
         proposal (SyncValue): The proposed value.
     """
     self._log.debug("Received 'SYNC' proposal from Node %d in term %s proposing that Node %d wins." % (proposal.val, proposal.term, proposal.proposed_node))
-    
+
     if self.sync_proposals_per_term.get(proposal.term, None) != None:
       self._log.debug("We've already received a 'SYNC' proposal during term %d. Ignoring." % proposal.term)
       return GoNilError()
 
-    self.sync_proposals_per_term[proposal.term] = proposal 
-    
+    self.sync_proposals_per_term[proposal.term] = proposal
+
     if self._leader_term < proposal.term:
       self._log.debug("Our 'leader_term' (%d) < 'leader_term' of latest committed 'SYNC' (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value)." % (self._leader_term, proposal.term, proposal.term, proposal.proposed_node))
       self._leader_term = proposal.term
       self._leader_id = proposal.proposed_node
-      
+
       self.winners_per_term[proposal.term] = proposal.proposed_node
       self._log.debug("Node %d has won in term %d as proposed by node %d." % (proposal.proposed_node, proposal.term, proposal.val))
     else:
       self._log.debug("Our leader_term (%d) > 'leader_term' of latest committed 'SYNC' message (%d)..." % (self._leader_term, proposal.term))
-      
+
     # Set the future if the term is expected.
     _leading = self._leading
     if _leading is not None and self._leader_term >= self._expected_term:
@@ -322,7 +337,7 @@ class RaftLog:
       self._leading = None # Ensure the future is set only once.
 
     self._ignore_changes = self._ignore_changes + 1
-    
+
     return GoNilError()
 
   def _handleOtherProposal(self, proposal: SyncValue) -> bytes:
@@ -334,12 +349,12 @@ class RaftLog:
 
   def _changeHandler(self, rc, sz: int, id: str) -> bytes:
     received_at:float = time.time()
-    
+
     if id != "":
       self._log.debug("Our proposal {} of size {} bytes was committed.".format(id, sz))
     else:
       self._log.debug("Received remote update of size {} bytes".format(sz))
-      
+
     reader = readCloser(ReadCloser(handle=rc), sz)
     try:
       syncval:SyncValue = pickle.load(reader)
@@ -361,7 +376,7 @@ class RaftLog:
     except Exception as ex:
       self._log.error("Failed to handle change: {}".format(ex))
       print_trace(limit = 10)
-      raise ex 
+      raise ex
       # return GoError(ex)
     # pickle will close the reader
     # finally:
@@ -386,7 +401,7 @@ class RaftLog:
     # unpickler will close the reader
     # finally:
     #   reader.close()
-    
+
     # Recount _ignore_changes
     self._ignore_changes = 0
     restored = 0
@@ -412,12 +427,12 @@ class RaftLog:
     if callback is None:
       self._shouldSnapshotCallback = None
       return
-    
+
     def shouldSnapshotCallback(logNode):
       # Initialize object using LogNode(handle=logNode) if neccessary.
       # print("in direct shouldSnapshotCallback")
       return callback(self)
-    
+
     self._shouldSnapshotCallback = shouldSnapshotCallback
 
   def set_checkpoint_callback(self, callback):
@@ -445,11 +460,17 @@ class RaftLog:
     Request to lead the update of a term. A following append call without leading status will fail.
     """
     self._log.debug("RaftLog %d is proposing to lead term %d" % (self._id, term))
+    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
+    self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
+    self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
+    self._log.debug("self._start_loop == asyncio.get_running_loop(): %s" % str(self._start_loop == asyncio.get_running_loop()))
+    self._log.debug("self._async_loop == asyncio.get_running_loop(): %s" % str(self._async_loop == asyncio.get_running_loop()))
+
     if term == 0:
       term = self._leader_term + 1
     elif term <= self._leader_term:
       return False
-    
+
     # Define the _leading future
     self._expected_term = term
     self._leading = self._start_loop.create_future()
@@ -458,21 +479,57 @@ class RaftLog:
     # Append is blocking. We are guaranteed to gain leading status if terms match.
     await self.append(SyncValue(None, self._id, timestamp = time.time(), term=term, key=KEY_LEAD))
     self._log.debug("RaftLog %d: appended LEAD proposal for term %d." % (self._id, term))
+
     # Validate the term
     wait, is_leading = self._is_leading(term)
     if not wait:
       self._log.debug("RaftLog %d: returning from lead for term %d without waiting, is_leading=%s" % (self._id, term, str(is_leading)))
       return is_leading
+
     # Wait for the future to be set.
+    if self._start_loop.is_running():
+      self._log.warn("_start_loop is already running... this is unexpected.")
+      self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
+      self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
+      self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
+      self._log.debug("self._start_loop == asyncio.get_running_loop(): %s" % str(self._start_loop == asyncio.get_running_loop()))
+      self._log.debug("self._async_loop == asyncio.get_running_loop(): %s" % str(self._async_loop == asyncio.get_running_loop()))
+      self._log.debug("waiting on _leading Future to be resolved.")
+
+    # my_loop = asyncio.get_running_loop()
+    # my_target = my_loop.create_future()
+    # async def wait_target():
+    #   try:
+    #     result = await self._leading
+    #   except Exception as ex:
+    #     self._log.error("Failed to await self.leading: %s" % str(ex))
+    #     my_loop.call_soon_threadsafe(my_target.set_exception, ex)
+    #     return 
+    #   my_loop.call_soon_threadsafe(my_target.set_result, result)
+    
+    # if self._start_loop.is_running():
+    #   self._log.debug("_start_loop IS running...")
+    #   if self._leading.get_loop() != asyncio.get_running_loop():
+    #     self._log.debug("Doing something unholy")
+    #     self._leading.get_loop().call_soon_threadsafe(wait_target)
+    #     await my_target
+    #   else:
+    #     self._log.debug("The running event loop IS _start_loop? So, we're gonna await _leading.")
+    #     await self._leading
+    # else:
+    #   self._log.debug("_start_loop is NOT running yet. Calling 'run_until_complete' for _leading now.")
+    self._log.debug("waiting on _leading Future to be resolved.")
     self._start_loop.run_until_complete(self._leading)
+
     self._leading = None
+
     # Validate the term
     wait, is_leading = self._is_leading(term)
     assert wait == False
     self._log.debug("RaftLog %d: returning from lead for term %d after waiting, is_leading=%s" % (self._id, term, str(is_leading)))
     self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s", str(self._start_loop.is_closed()), str(self._start_loop.is_running()))
     return is_leading
-  
+
   async def yield_execution(self, term) -> bool:
     """
     Request to lead the update of a term. A following append call without leading status will fail.
@@ -482,31 +539,44 @@ class RaftLog:
       term = self._leader_term + 1
     elif term <= self._leader_term:
       return False
-    
+
     # Define the _leading future
     self._expected_term = term
     self._leading = self._start_loop.create_future()
     self.own_proposal_times[term] = time.time()
     self._log.debug("RaftLog %d: appending YIELD proposal for term %d." % (self._id, term))
+
     # Append is blocking.
     await self.append(SyncValue(-1, self._id, timestamp = time.time(), term=term, key=KEY_YIELD))
     self._log.debug("RaftLog %d: appended YIELD proposal for term %d." % (self._id, term))
+
     # Validate the term
     wait, is_leading = self._is_leading(term)
     if not wait:
-      assert is_leading == False 
+      assert is_leading == False
       self._log.debug("RaftLog %d: returning from yield_execution for term %d without waiting" % (self._id, term, str(is_leading)))
+
     # Wait for the future to be set.
+    # if self._start_loop.is_running():
+    #   self._log.warn("_start_loop is already running... this is unexpected.")
+    #   self._log.warn("waiting on _leading Future to be resolved.")
+    #   self._start_loop.call_soon_threadsafe(self._leading)
+    # else:
+    #   self._log.warn("waiting on _leading Future to be resolved.")
+    self._log.debug("waiting on _leading Future to be resolved.")
     self._start_loop.run_until_complete(self._leading)
+
     self._leading = None
+
     # Validate the term
     wait, is_leading = self._is_leading(term)
     assert wait == False
-    assert is_leading == False 
+    assert is_leading == False
     self._log.debug("RaftLog %d: returning from yield_execution for term %d after waiting" % (self._id, term))
     self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s", str(self._start_loop.is_closed()), str(self._start_loop.is_running()))
+
     return False
-  
+
   def _is_leading(self, term) -> Tuple[bool, bool]:
     """Check if the current node is leading, return (wait, is_leading)"""
     if self._leader_term > term:
@@ -515,33 +585,33 @@ class RaftLog:
       return False, self._leader_id == self._id
     else:
       return True, False
-  
-  async def append_decision(self, val: SyncValue)->Future:
+
+  async def append_decision(self, val: SyncValue):
     """Append the difference of the value of specified key to the synchronization queue
-    
+
     This method is specifically used for proposing/appending 'SYNC' proposals.
     """
-    # Ensure key is specified and is 'SYNC'.  
+    # Ensure key is specified and is 'SYNC'.
     if val.key != KEY_SYNC:
       raise ValueError("Cannot append value with key '%s' using `append_decision` method." % val.key)
-    
+
     self._log.debug("Proposing/appending 'SYNC' proposal for term %d, node %d.", val.term, val.val)
-    
+
     if val.op is None or val.op == "":
       # Count _ignore_changes
       self._ignore_changes = self._ignore_changes + 1
-    
+
     if val.val is not None and type(val.val) is bytes and len(val.val) > MAX_MEMORY_OBJECT:
       val = await self._offload(val)
-      
-    # Serialize the value. 
+
+    # Serialize the value.
     dumped = pickle.dumps(val)
 
     # Propose and wait the future.
     future, resolve = self._get_callback()
     self._node.Propose(NewBytes(dumped), resolve, val.key)
     await future.result()
-  
+
   async def append(self, val: SyncValue):
     """Append the difference of the value of specified key to the synchronization queue"""
     if val.key != KEY_LEAD:
@@ -555,8 +625,8 @@ class RaftLog:
     if val.key is not None:
       if val.val is not None and type(val.val) is bytes and len(val.val) > MAX_MEMORY_OBJECT:
         val = await self._offload(val)
-        
-      # Serialize the value. 
+
+      # Serialize the value.
       dumped = pickle.dumps(val)
 
       # Propose and wait the future.
@@ -574,39 +644,39 @@ class RaftLog:
 
   async def add_node(self, node_id, address):
     """Add a node to the cluster."""
-    future, resolve = self._get_callback()
     self._log.info("Adding node %d at addr %s to the SMR cluster." % (node_id, address))
+    future, resolve = self._get_callback()
     self._node.AddNode(node_id, address, resolve)
     res = await future.result()
     self._log.info("Result of AddNode: %s" % str(res))
-    
+
   async def update_node(self, node_id, address):
     """Add a node to the cluster."""
-    future, resolve = self._get_callback()
     self._log.info("Updating node %d with new addr %s." % (node_id, address))
+    future, resolve = self._get_callback()
     self._node.UpdateNode(node_id, address, resolve)
     res = await future.result()
     self._log.info("Result of UpdateNode: %s" % str(res))
 
   async def remove_node(self, node_id):
     """Remove a node from the cluster."""
-    future, resolve = self._get_callback()
     self._log.info("Removing node %d from the SMR cluster." % node_id)
-    
+    future, resolve = self._get_callback()
+
     try:
       self._node.RemoveNode(node_id, resolve)
     except Exception as ex:
       self._log.error("Error in LogNode while removing replica %d: %s" % (node_id, str(ex)))
-    
+
     res = await future.result()
     self._log.info("Result of RemoveNode: %s" % str(res))
-    
+
   async def write_data_dir_to_hdfs(self):
     """
     Write the contents of the etcd-Raft data directory to HDFS.
     """
-    future, resolve = self._get_callback()
     self._log.info("Writing etcd-Raft data directory to HDFS.")
+    future, resolve = self._get_callback()
     self._node.WriteDataDirectoryToHDFS(resolve)
     data_dir_path = await future.result()
     return data_dir_path
@@ -642,12 +712,24 @@ class RaftLog:
     val = self._offloader._load(val.val.path)
     val.end = valEnd
     return val
-  
+
   def _get_callback(self):
     """Get the future object for the specified key."""
-    # Prepare callback settings. 
+    # Prepare callback settings.
     # Callback can be called from a different thread. Schedule the result of the future object to the await thread.
     loop = asyncio.get_running_loop()
+
+    if loop == self._async_loop:
+      self._log.debug("Registering callback future on _async_loop. _async_loop.is_running: %s" % str(self._async_loop.is_running()))
+    elif loop == self._start_loop:
+      self._log.debug("Registering callback future on _start_loop. _start_loop.is_running: %s" % str(self._start_loop.is_running()))
+    else:
+      self._log.debug("Registering callback future on unknown loop. loop.is_running: %s" % str(loop.is_running()))
+
+    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
+    self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
+    self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
+
     future = Future(loop=loop)
     self._async_loop = loop
     def resolve(key, err):

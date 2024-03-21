@@ -31,7 +31,7 @@ enable_storage = True
 
 UNAVAILABLE:str = "N/A" # Used as the value for an environment variable that was not set.
 
-logging.basicConfig(level=logging.DEBUG, format = '%(asctime)s:%(name)s:%(levelname)s:%(message)s')
+logging.basicConfig(level=logging.DEBUG, format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
