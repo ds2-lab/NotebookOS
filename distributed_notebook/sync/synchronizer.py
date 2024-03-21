@@ -148,14 +148,19 @@ class Synchronizer:
       # Propose to lead specified term. 
       # Term 0 tries to lead the next term whatever and will always success.
       if await self._synclog.lead(execution_count):
+        self._log.debug("We won the election to lead term %d" % execution_count)
         # Synchronized, execution_count was updated to last execution.
         self._async_loop = asyncio.get_running_loop() # Update async_loop.
         return self._synclog.term
     except SyncError as se:
       self._log.warning("SyncError: {}".format(se))
-    except Exception as e:
       print_trace()
+    except Exception as e:
+      self._log.error("Exception encountered while proposing LEAD: %s" % str(e))
+      print_trace()
+      raise e 
     
+    self._log.debug("We lost the election to lead term %d" % execution_count)
     # Failed to lead the term
     return 0 
   
@@ -169,18 +174,18 @@ class Synchronizer:
     """
     self._log.debug("Synchronizer is proposing to yield term %d" % execution_count)
     try:
-      # Propose to lead specified term. 
-      # Term 0 tries to lead the next term whatever and will always success.
       if await self._synclog.yield_execution(execution_count):
-        # Synchronized, execution_count was updated to last execution.
-        self._async_loop = asyncio.get_running_loop() # Update async_loop.
-        return self._synclog.term
+        self._log.error("synclog.yield_exection returned true despite the fact that we're yielding...")
+        raise ValueError("synclog.yield_exection returned true despite the fact that we're yielding")
     except SyncError as se:
       self._log.warning("SyncError: {}".format(se))
+      print_trace()
     except Exception as e:
+      self._log.error("Exception encountered while proposing YIELD: %s" % str(e))
       print_trace()
     
-    # Failed to lead the term
+    self._log.debug("Successfully yielded the execution to another replica for term %d" % execution_count)
+    # Failed to lead the term, which is what we want to happen since we're YIELDING.
     return 0 
   
   async def ready(self, execution_count:int, lead:bool) -> int:
@@ -197,9 +202,15 @@ class Synchronizer:
       return 0
     
     if lead:
-      return await self.propose_lead(execution_count)
+      self._log.debug("Synchronizer::Ready(LEAD): Proposing to lead now.")
+      res = await self.propose_lead(execution_count)
+      self._log.debug("Synchronizer::Ready(LEAD): Done with proposal protocol for lead. Result: %d" % res)
+      return res 
     else:
-      return await self.propose_yield(execution_count)
+      self._log.debug("Synchronizer::Ready(YIELD): Proposing to yield now.")
+      res = await self.propose_yield(execution_count)
+      self._log.debug("Synchronizer::Ready(YIELD): Done with proposal protocol for yield. Result: %d" % res)
+      return res 
 
   async def sync(self, execution_ast, source: Optional[str]=None, checkpointer: Optional[Checkpointer]=None):
     """

@@ -124,6 +124,8 @@ type GatewayDaemon struct {
 	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
 	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
 
+	activeExecutions hashmap.HashMap[string, *client.ActiveExecution]
+
 	// Responsible for orchestrating and managing migration operations.
 	// migrationManager MigrationManager
 
@@ -180,6 +182,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *ClusterDaemonOption
 		activeAddReplicaOpsPerKernel:     hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, AddReplicaOperation]](64),
 		addReplicaOperationsByNewPodName: hashmap.NewCornelkMap[string, AddReplicaOperation](64),
 		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan AddReplicaOperation](64),
+		activeExecutions:                 hashmap.NewCornelkMap[string, *client.ActiveExecution](64),
 		hdfsNameNodeEndpoint:             clusterDaemonOptions.HDFSNameNodeEndpoint,
 		// smrNodeRemovedNotifications:      hashmap.NewCornelkMap[string, chan struct{}](64),
 	}
@@ -922,6 +925,7 @@ func (d *GatewayDaemon) KillKernel(ctx context.Context, in *gateway.KernelId) (r
 func (d *GatewayDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
+		d.log.Error("Could not find Kernel %s; cannot stop kernel.", in.GetId())
 		return nil, ErrKernelNotFound
 	}
 
@@ -1213,8 +1217,6 @@ func (d *GatewayDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) erro
 		return err
 	}
 
-	d.log.Debug("Forwarding shell message to kernel %s: %s", kernelId, msg)
-
 	kernel, ok := d.kernels.Load(header.Session)
 	if !ok && header.MsgType == ShellKernelInfoRequest {
 		// Register kernel on ShellKernelInfoRequest
@@ -1224,6 +1226,7 @@ func (d *GatewayDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) erro
 
 		kernel, ok = d.kernels.Load(kernelId)
 		if !ok {
+			d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", kernelId, header.MsgID, header.MsgType, header.Session)
 			return ErrKernelNotFound
 		}
 
@@ -1231,12 +1234,25 @@ func (d *GatewayDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) erro
 		d.kernels.Store(header.Session, kernel)
 	}
 	if kernel == nil {
+		d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", kernelId, header.MsgID, header.MsgType, header.Session)
 		return ErrKernelNotFound
 	}
 
 	// Check availability
 	if kernel.Status() != jupyter.KernelStatusRunning {
 		return ErrKernelNotReady
+	}
+
+	if header.MsgType == ShellExecuteRequest {
+		d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernelId, msg)
+
+		activeExecution := client.NewActiveExecution(kernelId, header.Session, 1, kernel.Size())
+		d.activeExecutions.Store(header.MsgID, activeExecution)
+		kernel.SetActiveExecution(activeExecution)
+
+		d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernelId, activeExecution)
+	} else {
+		d.log.Debug("Forwarding shell message to kernel %s: %s", kernelId, msg)
 	}
 
 	if err := d.forwardRequest(kernel, jupyter.ShellMessage, msg); err != nil {
@@ -1314,13 +1330,15 @@ func (d *GatewayDaemon) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *j
 }
 
 func (d *GatewayDaemon) kernelFromMsg(msg *zmq4.Msg) (*client.DistributedKernelClient, error) {
-	id, _, err := d.idFromMsg(msg)
+	kernelId, header, err := d.headerFromMsg(msg)
 	if err != nil {
 		return nil, err
 	}
 
-	kernel, ok := d.kernels.Load(id)
+	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
+
+		d.log.Error("Cannot find kernel %s specified in %v message %s of type '%v'.", kernelId, header.MsgType, header.MsgID, header.MsgType)
 		return nil, ErrKernelNotFound
 	}
 
@@ -1398,6 +1416,7 @@ func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, opts AddReplicaWaitO
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
+		d.log.Error("Cannot add replica %d to kernel %s: cannot find kernel %s", in.ReplicaId, kernelId, kernelId)
 		return nil, d.errorf(ErrKernelNotFound)
 	}
 

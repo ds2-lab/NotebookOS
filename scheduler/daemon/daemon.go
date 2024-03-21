@@ -1089,8 +1089,6 @@ func (d *SchedulerDaemon) verifyFrames(signkey []byte, signatureScheme string, o
 
 	if !verified {
 		d.log.Error("Failed to verify JFrames.\nExpect: '%v'\nSignature: '%v'", expect, signature)
-	} else {
-		d.log.Debug("Successfully verified JFrames. Signature: '%v'", signature)
 	}
 
 	return verified

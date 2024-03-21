@@ -124,11 +124,8 @@ class RaftLog:
 
     self._async_loop = asyncio.get_running_loop()
     self._start_loop = self._async_loop
-    # self._node.StartWait(config)
     self._node.Start(config)
     self._log.info("Started RaftLog.")
-    # self._closed = Future(self._start_loop)
-    # return self._closed.future
 
   def _isProposal(self, syncval:SyncValue):
     return syncval.key == KEY_LEAD or syncval.key == KEY_YIELD or syncval.key == KEY_SYNC
@@ -143,7 +140,6 @@ class RaftLog:
     # 'SYNC' proposals are handled a little differently. 
     # We don't want them to be counted with the other proposals.
     if proposal.key == KEY_SYNC:
-      self._log.debug("Received 'SYNC' proposal from Node %d in term %d." % (proposal.val, proposal.term))
       return self._handleSyncProposal(proposal)
     
     time_str = datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -282,16 +278,15 @@ class RaftLog:
       # TODO(Ben): The system needs to be able to observe this, which I think it can, as it can see which replicas are yielding.
       raise ValueError("we did not receive any 'LEAD' proposals during term %d, and we've not implemented the procedure(s) for handling this scenario" % term)
     
-    self._log.debug("Proposing that Node %d lead execution for term %d." % (winningProposal.val, winningProposal.term))
-    
+    self._log.debug("Will propose that Node %d lead execution for term %d." % (winningProposal.val, winningProposal.term))
+    self._async_loop.get_debug
+    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
+    self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
+    self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
     self.decisions_proposed[term] = True 
+    
     # Propose the second-round confirmation. 
-    # self._async_loop.call_later(0, self.append_decision, SyncValue(None, winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC))
-    
-    future:Future = asyncio.run_coroutine_threadsafe(self.append_decision(SyncValue(None, winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC)), self._async_loop)
-    future.result()
-    
-    self._log.debug("Finished proposing decision for term %d." % term)
+    self._async_loop.call_later(0, self.append_decision, SyncValue(None, self._id, proposed_node = winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC))
     
     return GoNilError()
 
@@ -301,6 +296,8 @@ class RaftLog:
     Args:
         proposal (SyncValue): The proposed value.
     """
+    self._log.debug("Received 'SYNC' proposal from Node %d in term %s proposing that Node %d wins." % (proposal.val, proposal.term, proposal.proposed_node))
+    
     if self.sync_proposals_per_term.get(proposal.term, None) != None:
       self._log.debug("We've already received a 'SYNC' proposal during term %d. Ignoring." % proposal.term)
       return GoNilError()
@@ -308,12 +305,14 @@ class RaftLog:
     self.sync_proposals_per_term[proposal.term] = proposal 
     
     if self._leader_term < proposal.term:
-      self._log.debug("Our 'leader_term' (%d) < 'leader_term' of latest commit (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value)." % (self._leader_term, proposal.term, proposal.term, proposal.val))
+      self._log.debug("Our 'leader_term' (%d) < 'leader_term' of latest committed 'SYNC' (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value)." % (self._leader_term, proposal.term, proposal.term, proposal.proposed_node))
       self._leader_term = proposal.term
-      self._leader_id = proposal.val
+      self._leader_id = proposal.proposed_node
       
-      self.winners_per_term[proposal.term] = proposal.val
-      self._log.debug("Node %d has won in term %d." % (proposal.val, proposal.term))
+      self.winners_per_term[proposal.term] = proposal.proposed_node
+      self._log.debug("Node %d has won in term %d as proposed by node %d." % (proposal.proposed_node, proposal.term, proposal.val))
+    else:
+      self._log.debug("Our leader_term (%d) > 'leader_term' of latest committed 'SYNC' message (%d)..." % (self._leader_term, proposal.term))
       
     # Set the future if the term is expected.
     _leading = self._leading
@@ -431,9 +430,7 @@ class RaftLog:
     def snapshotCallback(wc) -> bytes:
       try:
         checkpointer = Checkpoint(writeCloser(WriteCloser(handle=wc)))
-        # asyncio.run_coroutine_threadsafe(callback(checkpointer), self._async_loop)
         callback(checkpointer)
-        # checkpointer.close()
         # Reset _ignore_changes
         self._ignore_changes = 0
         return GoNilError()
@@ -457,12 +454,14 @@ class RaftLog:
     self._expected_term = term
     self._leading = self._start_loop.create_future()
     self.own_proposal_times[term] = time.time()
+    self._log.debug("RaftLog %d: appending LEAD proposal for term %d." % (self._id, term))
     # Append is blocking. We are guaranteed to gain leading status if terms match.
     await self.append(SyncValue(None, self._id, timestamp = time.time(), term=term, key=KEY_LEAD))
+    self._log.debug("RaftLog %d: appended LEAD proposal for term %d." % (self._id, term))
     # Validate the term
     wait, is_leading = self._is_leading(term)
     if not wait:
-      self._log.debug("RaftLog %d is returning from lead for term %d with is_leading=%s" % (self._id, term, str(is_leading)))
+      self._log.debug("RaftLog %d: returning from lead for term %d without waiting, is_leading=%s" % (self._id, term, str(is_leading)))
       return is_leading
     # Wait for the future to be set.
     self._start_loop.run_until_complete(self._leading)
@@ -470,14 +469,15 @@ class RaftLog:
     # Validate the term
     wait, is_leading = self._is_leading(term)
     assert wait == False
-    self._log.debug("RaftLog %d is returning from lead for term %d with is_leading=%s" % (self._id, term, str(is_leading)))
+    self._log.debug("RaftLog %d: returning from lead for term %d after waiting, is_leading=%s" % (self._id, term, str(is_leading)))
+    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s", str(self._start_loop.is_closed()), str(self._start_loop.is_running()))
     return is_leading
   
-  async def yield_execution(self, term):
+  async def yield_execution(self, term) -> bool:
     """
     Request to lead the update of a term. A following append call without leading status will fail.
     """
-    self._log.debug("RaftLog %d is proposing to yield term %d" % (self._id, term))
+    self._log.debug("RaftLog %d: proposing to yield term %d" % (self._id, term))
     if term == 0:
       term = self._leader_term + 1
     elif term <= self._leader_term:
@@ -487,12 +487,15 @@ class RaftLog:
     self._expected_term = term
     self._leading = self._start_loop.create_future()
     self.own_proposal_times[term] = time.time()
+    self._log.debug("RaftLog %d: appending YIELD proposal for term %d." % (self._id, term))
     # Append is blocking.
     await self.append(SyncValue(-1, self._id, timestamp = time.time(), term=term, key=KEY_YIELD))
+    self._log.debug("RaftLog %d: appended YIELD proposal for term %d." % (self._id, term))
     # Validate the term
     wait, is_leading = self._is_leading(term)
     if not wait:
       assert is_leading == False 
+      self._log.debug("RaftLog %d: returning from yield_execution for term %d without waiting" % (self._id, term, str(is_leading)))
     # Wait for the future to be set.
     self._start_loop.run_until_complete(self._leading)
     self._leading = None
@@ -500,7 +503,9 @@ class RaftLog:
     wait, is_leading = self._is_leading(term)
     assert wait == False
     assert is_leading == False 
-    self._log.debug("RaftLog %d is returning from yield_execution for term %d" % (self._id, term))
+    self._log.debug("RaftLog %d: returning from yield_execution for term %d after waiting" % (self._id, term))
+    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s", str(self._start_loop.is_closed()), str(self._start_loop.is_running()))
+    return False
   
   def _is_leading(self, term) -> Tuple[bool, bool]:
     """Check if the current node is leading, return (wait, is_leading)"""
@@ -512,10 +517,15 @@ class RaftLog:
       return True, False
   
   async def append_decision(self, val: SyncValue)->Future:
-    """Append the difference of the value of specified key to the synchronization queue"""
+    """Append the difference of the value of specified key to the synchronization queue
+    
+    This method is specifically used for proposing/appending 'SYNC' proposals.
+    """
     # Ensure key is specified and is 'SYNC'.  
     if val.key != KEY_SYNC:
       raise ValueError("Cannot append value with key '%s' using `append_decision` method." % val.key)
+    
+    self._log.debug("Proposing/appending 'SYNC' proposal for term %d, node %d.", val.term, val.val)
     
     if val.op is None or val.op == "":
       # Count _ignore_changes
@@ -547,13 +557,7 @@ class RaftLog:
         val = await self._offload(val)
         
       # Serialize the value. 
-      # start_time = time.time()
       dumped = pickle.dumps(val)
-      # self._log.debug("Time elapsed in dump syncValue: {}".format(time.time() - start_time))
-
-      # self._log.debug("Time elapsed in python before appending: {}, {}".format(time.time() - start_time, len(dumped)))
-      # converted = Slice_byte(handle=id(dumped))
-      # self._log.debug("Time elapsed in after converted: {}, {}".format(time.time() - start_time, len(converted)))
 
       # Propose and wait the future.
       future, resolve = self._get_callback()

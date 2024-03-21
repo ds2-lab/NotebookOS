@@ -70,6 +70,9 @@ type DistributedKernelClient struct {
 
 	nextNodeId int32
 
+	// The current execution request that is being processed by the kernels.
+	activeExecution *ActiveExecution
+
 	log     logger.Logger
 	mu      sync.RWMutex
 	closing int32
@@ -107,6 +110,14 @@ func (c *DistributedKernelClient) ShellListenPort() int {
 
 func (c *DistributedKernelClient) IOPubListenPort() int {
 	return c.iopubListenPort
+}
+
+func (c *DistributedKernelClient) ActiveExecution() *ActiveExecution {
+	return c.activeExecution
+}
+
+func (c *DistributedKernelClient) SetActiveExecution(activeExecution *ActiveExecution) {
+	c.activeExecution = activeExecution
 }
 
 // ResetID resets the kernel ID.
@@ -463,7 +474,15 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	forwarder := func(replica core.KernelInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
 		execErr, yield := c.handleShellError(replica.(*KernelClient), msg)
 		if yield {
-			c.log.Debug("Discard %v response from %v: %v", typ, replica, execErr)
+			if c.activeExecution != nil {
+				c.log.Debug("Received 'YIELD' proposal from %v: %v", replica, execErr)
+				replicaId := replica.(*KernelClient).replicaId
+
+				c.activeExecution.ReceivedYieldProposal(replicaId)
+			} else {
+				c.log.Error("Received 'YIELD' proposal from %v, but we have no active execution...", replica)
+			}
+
 			return
 		}
 

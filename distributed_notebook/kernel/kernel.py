@@ -797,7 +797,7 @@ class DistributedKernel(IPythonKernel):
         self.synchronizer = Synchronizer(sync_log, module = self.shell.user_module, opts=CHECKPOINT_AUTO) # type: ignore
 
         self.log.info("Created Synchronizer. Starting Synchronizer now.")
-
+        
         # if self.control_thread:
         #     control_loop = self.control_thread.io_loop
         # else:
