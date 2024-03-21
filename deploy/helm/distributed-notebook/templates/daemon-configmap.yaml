@@ -34,3 +34,5 @@ data:
     device-plugin-path: {{ .Values.local_daemon.device_plugin.path }}
     num-virtual-gpus-per-node: {{ .Values.local_daemon.num_virtual_gpus_per_node }}
     scheduling-policy: {{ .Values.common.scheduling_policy }}
+    notebook-image-name: {{ .Values.notebook_server.image }}
+    notebook-image-tag: {{ .Values.notebook_server.image_tag }}

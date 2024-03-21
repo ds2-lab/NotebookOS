@@ -74,6 +74,8 @@ type BasicKubeClient struct {
 	scaleDownChannels      *cmap.ConcurrentMap[string, chan struct{}] // Mapping from Pod name a channel, each of which would correspond to a scale-down operation.
 	hdfsNameNodeEndpoint   string                                     // Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
 	schedulingPolicy       string                                     // Scheduling policy.
+	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
+	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
 	// newPodWaiters          *cmap.ConcurrentMap[string, chan AddReplicaOperation] // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
 	log logger.Logger
 }
@@ -96,6 +98,8 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDa
 		scaleDownChannels:      &scaleDownChannels,
 		podWatcherStopChan:     make(chan struct{}),
 		hdfsNameNodeEndpoint:   clusterDaemonOptions.HDFSNameNodeEndpoint,
+		notebookImageName:      clusterDaemonOptions.NotebookImageName,
+		notebookImageTag:       clusterDaemonOptions.NotebookImageTag,
 	}
 
 	if client.hdfsNameNodeEndpoint == "" {
@@ -694,7 +698,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 					Containers: []corev1.Container{
 						{
 							Name:  "kernel",
-							Image: "scusemua/jupyter:latest", // TODO(Ben): Don't hardcode this.
+							Image: fmt.Sprintf("%s:%s", c.notebookImageName, c.notebookImageTag), // TODO(Ben): Don't hardcode this.
 							Command: []string{
 								"/kernel-entrypoint/kernel-entrypoint.sh",
 							},
@@ -963,7 +967,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 						"containers": []map[string]interface{}{
 							{
 								"name":    "kernel",
-								"image":   "scusemua/jupyter:latest",
+								"image":   fmt.Sprintf("%s:%s", c.notebookImageName, c.notebookImageTag),
 								"command": []string{"/kernel-entrypoint/kernel-entrypoint.sh"},
 								"resources": map[string]interface{}{
 									"limits": map[string]interface{}{
