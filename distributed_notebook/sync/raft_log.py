@@ -126,23 +126,23 @@ class RaftLog:
     self._async_loop = asyncio.get_running_loop()
     self._start_loop = self._async_loop
 
-    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
-    self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
-    self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
-    self._log.debug("self._start_loop == asyncio.get_running_loop(): %s" % str(self._start_loop == asyncio.get_running_loop()))
-    self._log.debug("self._async_loop == asyncio.get_running_loop(): %s" % str(self._async_loop == asyncio.get_running_loop()))
+    self._printIOLoopInformationDebug()
 
     self._node.Start(config)
     self._log.info("Started LogNode.")
 
+    self._printIOLoopInformationDebug()
+
+    self._log.info("Started RaftLog.")
+
+  def _printIOLoopInformationDebug(self):
+    """Print some debug information about the IO loops."""
     self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
     self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
     self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
     self._log.debug("self._start_loop == asyncio.get_running_loop(): %s" % str(self._start_loop == asyncio.get_running_loop()))
     self._log.debug("self._async_loop == asyncio.get_running_loop(): %s" % str(self._async_loop == asyncio.get_running_loop()))
-
-    self._log.info("Started RaftLog.")
-
+  
   def _isProposal(self, syncval:SyncValue):
     return syncval.key == KEY_LEAD or syncval.key == KEY_YIELD or syncval.key == KEY_SYNC
 
@@ -295,9 +295,7 @@ class RaftLog:
       raise ValueError("we did not receive any 'LEAD' proposals during term %d, and we've not implemented the procedure(s) for handling this scenario" % term)
 
     self._log.debug("Will propose that Node %d lead execution for term %d." % (winningProposal.val, winningProposal.term))
-    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
-    self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
-    self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
+    self._printIOLoopInformationDebug()
     self.decisions_proposed[term] = True
     
     # Propose the second-round confirmation.
@@ -460,11 +458,7 @@ class RaftLog:
     Request to lead the update of a term. A following append call without leading status will fail.
     """
     self._log.debug("RaftLog %d is proposing to lead term %d" % (self._id, term))
-    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
-    self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
-    self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
-    self._log.debug("self._start_loop == asyncio.get_running_loop(): %s" % str(self._start_loop == asyncio.get_running_loop()))
-    self._log.debug("self._async_loop == asyncio.get_running_loop(): %s" % str(self._async_loop == asyncio.get_running_loop()))
+    self._printIOLoopInformationDebug()
 
     if term == 0:
       term = self._leader_term + 1
@@ -489,11 +483,7 @@ class RaftLog:
     # Wait for the future to be set.
     if self._start_loop.is_running():
       self._log.warn("_start_loop is already running... this is unexpected.")
-      self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
-      self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
-      self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
-      self._log.debug("self._start_loop == asyncio.get_running_loop(): %s" % str(self._start_loop == asyncio.get_running_loop()))
-      self._log.debug("self._async_loop == asyncio.get_running_loop(): %s" % str(self._async_loop == asyncio.get_running_loop()))
+      self._printIOLoopInformationDebug()
       self._log.debug("waiting on _leading Future to be resolved.")
 
     # my_loop = asyncio.get_running_loop()
@@ -527,7 +517,7 @@ class RaftLog:
     wait, is_leading = self._is_leading(term)
     assert wait == False
     self._log.debug("RaftLog %d: returning from lead for term %d after waiting, is_leading=%s" % (self._id, term, str(is_leading)))
-    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s", str(self._start_loop.is_closed()), str(self._start_loop.is_running()))
+    self._printIOLoopInformationDebug()
     return is_leading
 
   async def yield_execution(self, term) -> bool:
@@ -573,7 +563,7 @@ class RaftLog:
     assert wait == False
     assert is_leading == False
     self._log.debug("RaftLog %d: returning from yield_execution for term %d after waiting" % (self._id, term))
-    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s", str(self._start_loop.is_closed()), str(self._start_loop.is_running()))
+    self._printIOLoopInformationDebug()
 
     return False
 
@@ -726,9 +716,7 @@ class RaftLog:
     else:
       self._log.debug("Registering callback future on unknown loop. loop.is_running: %s" % str(loop.is_running()))
 
-    self._log.debug("self._start_loop.is_closed: %s, self._start_loop.is_running: %s" % (str(self._start_loop.is_closed()), str(self._start_loop.is_running())))
-    self._log.debug("self._async_loop.is_closed: %s, self._async_loop.is_running: %s" % (str(self._async_loop.is_closed()), str(self._async_loop.is_running())))
-    self._log.debug("self._start_loop == self._async_loop: %s" % str(self._start_loop == self._async_loop))
+    self._printIOLoopInformationDebug()
 
     future = Future(loop=loop)
     self._async_loop = loop
