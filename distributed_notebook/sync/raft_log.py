@@ -484,7 +484,6 @@ class RaftLog:
     if self._start_loop.is_running():
       self._log.warn("_start_loop is already running... this is unexpected.")
       self._printIOLoopInformationDebug()
-      self._log.debug("waiting on _leading Future to be resolved.")
 
     # my_loop = asyncio.get_running_loop()
     # my_target = my_loop.create_future()
@@ -544,7 +543,6 @@ class RaftLog:
     wait, is_leading = self._is_leading(term)
     if not wait:
       assert is_leading == False
-      self._log.debug("RaftLog %d: returning from yield_execution for term %d without waiting" % (self._id, term, str(is_leading)))
 
     # Wait for the future to be set.
     # if self._start_loop.is_running():
@@ -562,7 +560,7 @@ class RaftLog:
     wait, is_leading = self._is_leading(term)
     assert wait == False
     assert is_leading == False
-    self._log.debug("RaftLog %d: returning from yield_execution for term %d after waiting" % (self._id, term))
+    self._log.debug("RaftLog %d: returning from yield_execution for term %d" % (self._id, term))
     self._printIOLoopInformationDebug()
 
     return False
