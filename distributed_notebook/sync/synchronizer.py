@@ -183,6 +183,7 @@ class Synchronizer:
     except Exception as e:
       self._log.error("Exception encountered while proposing YIELD: %s" % str(e))
       print_trace()
+      raise e
     
     self._log.debug("Successfully yielded the execution to another replica for term %d" % execution_count)
     # Failed to lead the term, which is what we want to happen since we're YIELDING.

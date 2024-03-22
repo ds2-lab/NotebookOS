@@ -389,6 +389,7 @@ class DistributedKernel(IPythonKernel):
             dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
+        self.log.info("DistributedKernel is preparing to yield the execution of some code to another replica.")
         parent_header = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
         
