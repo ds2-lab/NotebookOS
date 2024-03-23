@@ -344,7 +344,7 @@ class RaftLog:
     _leading = self._leading
     if _leading is not None and self._leader_term >= self._expected_term:
       self._log.debug("leader_term=%d, expected_term=%d. Setting result on '_leading' future to %d." % (self._leader_term, self._expected_term, self._leader_term))
-      self._start_loop.call_soon_threadsafe(_leading.set_result, self._leader_term)
+      self._start_loop.call_later(_leading.set_result, self._leader_term)
       self._leading = None # Ensure the future is set only once.
     else:
       self._log.debug("Skipping setting result on _leading. _leading is None: %s. self._leader_term (%d) >= self._expected_term (%d): %s." % (self._leading == None, self._leader_term, self._expected_term, self._leader_term >= self._expected_term))
@@ -472,7 +472,7 @@ class RaftLog:
     """
     Request to lead the update of a term. A following append call without leading status will fail.
     """
-    self._log.debug("RaftLog %d is proposing to lead term %d" % (self._id, term))
+    self._log.debug("RaftLog %d is proposing to lead term %d. Current leader term: %d." % (self._id, term, self._leader_term))
     self._printIOLoopInformationDebug()
 
     if term == 0:
@@ -491,7 +491,7 @@ class RaftLog:
     await self.append(SyncValue(None, self._id, timestamp = time.time(), term=term, key=KEY_LEAD))
     self._log.debug("RaftLog %d: appended LEAD proposal for term %d." % (self._id, term))
     
-    decisionProposal: SyncValue = await self._decisionProposalFuture
+    decisionProposal: SyncValue = await _decisionProposalFuture
     self._decisionProposalFuture = None 
     self._log.debug("RaftLog %d: Got decision to propose: I think Node %d should win in term %d." % (self._id, decisionProposal.proposed_node, decisionProposal.term))
     
@@ -499,7 +499,7 @@ class RaftLog:
       raise ValueError("Received decision proposal with different term: %d. Expected: %d." % (decisionProposal.term, term))
     
     self._log.debug("RaftLog %d: Appending decision proposal now." % decisionProposal.term)
-    await self.append(decisionProposal)
+    await self.append_decision(decisionProposal)
     self._log.debug("RaftLog %d: Successfully appended decision proposal now." % decisionProposal.term)
     self.decisions_proposed[term] = True
 
@@ -523,7 +523,9 @@ class RaftLog:
         It returns when the self._leading Future resolves.
         """
         try:
+          self._log.debug("Awaiting _leading in hack.")
           result = await self._leading
+          self._log.debug("Successfully awaited _leading in hack.")
         except Exception as ex:
           self._log.error("Failed to await self._leading: %s" % str(ex))
           current_loop.call_soon_threadsafe(target.set_exception, ex)
@@ -553,7 +555,7 @@ class RaftLog:
     """
     Request to lead the update of a term. A following append call without leading status will fail.
     """
-    self._log.debug("RaftLog %d: proposing to yield term %d" % (self._id, term))
+    self._log.debug("RaftLog %d: proposing to yield term %d. Current leader term: %d." % (self._id, term, self._leader_term))
     if term == 0:
       term = self._leader_term + 1
     elif term <= self._leader_term:
@@ -561,6 +563,8 @@ class RaftLog:
 
     # Define the _leading future
     self._expected_term = term
+    self._decisionProposalFuture = asyncio.get_running_loop().create_future() 
+    _decisionProposalFuture = self._decisionProposalFuture
     self._leading = self._start_loop.create_future()
     self.own_proposal_times[term] = time.time()
     self._log.debug("RaftLog %d: appending YIELD proposal for term %d." % (self._id, term))
@@ -568,6 +572,10 @@ class RaftLog:
     # Append is blocking.
     await self.append(SyncValue(-1, self._id, timestamp = time.time(), term=term, key=KEY_YIELD))
     self._log.debug("RaftLog %d: appended YIELD proposal for term %d." % (self._id, term))
+
+    decisionProposal: SyncValue = await _decisionProposalFuture
+    self._decisionProposalFuture = None 
+    self._log.debug("RaftLog %d: Got decision to propose: I think Node %d should win in term %d." % (self._id, decisionProposal.proposed_node, decisionProposal.term))
 
     # Validate the term
     wait, is_leading = self._is_leading(term)
@@ -662,6 +670,7 @@ class RaftLog:
   async def append(self, val: SyncValue):
     """Append the difference of the value of specified key to the synchronization queue"""
     if val.key != KEY_LEAD and val.key != KEY_YIELD:
+      self._log.debug("[Append] setting _leader_term (currently %d) to %d." % (self._leader_term, val.term))
       self._leader_term = val.term
 
     if val.op is None or val.op == "":
