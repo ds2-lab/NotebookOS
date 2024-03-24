@@ -70,7 +70,7 @@ class RaftLog:
     self._node = NewLogNode(self._store, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join)
 
     self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
-    self.proposals_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> dict. Inner dict is map from SMR node ID -> proposal.
+    self.proposals_per_term: Dict[int, Dict[int, SyncValue]] = {} # Mapping from term number -> dict. Inner dict is map from SMR node ID -> proposal.
     self.own_proposal_times: Dict[int, float] = {} # Mapping from term number -> the time at which we proposed LEAD/YIELD in that term.
     self.first_lead_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first 'LEAD' proposal received in that term.
     self.first_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first proposal received in that term.
@@ -274,11 +274,13 @@ class RaftLog:
     # First, check if the winner of the last term issued a LEAD proposal this term.
     # If they did, then we'll propose a decision that they get to lead again.
     # Otherwise, accept the first LEAD proposal of the term.
-    last_winner_id:int | None = self.winners_per_term.get(term, None)
+    last_winner_id:int | None = self.winners_per_term.get(term - 1, None)
     if last_winner_id is not None:
-      last_winner_proposal:SyncValue = self.proposals_per_term.get(last_winner_id, None)
+      last_term_proposals: Dict[int, SyncValue] = self.proposals_per_term.get(term, None)
+      last_winner_proposal:SyncValue = last_term_proposals.get(last_winner_id, None)
 
       if last_winner_proposal != None:
+        self._log.debug("last_winner_proposal: %s" % str(last_winner_proposal))
         self._log.debug("Last term (%d) winner, node %d, proposed '%s'." % (term - 1, last_winner_id, last_winner_proposal.key))
 
         if last_winner_proposal.key == KEY_LEAD:
@@ -289,10 +291,13 @@ class RaftLog:
           self._log.debug("Will propose first 'LEAD' proposal of this term (%d) as leader." % term)
       else:
         self._log.warn("No proposal received from previous term (%d) winner, node %d." % (term - 1, last_winner_id))
-
+    else:
+      self._log.warn("I don't know who won the last term...")
+      
     # If the winning proposal is still done, then we aren't defaulting to the previous term's leader.
     # Get the first 'LEAD' proposal that we received this term.
     if winningProposal == None:
+      self._log.debug("Proposing first 'LEAD' proposal that we received as the winner...")
       winningProposal = self.first_lead_proposal_received_per_term.get(term, None)
 
     # If the winning proposal is still None, then we just didn't receive any 'LEAD' proposals this term.

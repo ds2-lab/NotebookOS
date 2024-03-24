@@ -26,7 +26,7 @@ class SyncValue:
   
   def __str__(self)->str:
     ts:str = datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
-    return "SyncValue[Key='%s',Term=%d,Timestamp='%s',Tag='%s']" % (self.key, self.term, ts, str(self.tag))
+    return "SyncValue[Key='%s',Term=%d,Timestamp='%s',Tag='%s',Val='%s']" % (self.key, self.term, ts, str(self.tag), str(self.value)[0:25])
   
   @property
   def reset(self):
