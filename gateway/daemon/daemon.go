@@ -56,6 +56,8 @@ var (
 	ErrHeaderNotFound        = errors.New("message header not found")
 	ErrKernelNotFound        = errors.New("kernel not found")
 	ErrKernelNotReady        = errors.New("kernel not ready")
+	ErrKernelSpecNotFound    = errors.New("kernel spec not found")
+	ErrResourceSpecNotFound  = errors.New("the kernel does not have a resource spec included with its kernel spec")
 	ErrInvalidJupyterMessage = errors.New("invalid jupter message")
 	ErrKernelIDRequired      = errors.New("kernel id frame is required for kernel_info_request")
 )
@@ -798,6 +800,39 @@ func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *
 	return response, nil
 }
 
+// Under the static scheduling policy, we dynamically create a new replica to execute
+// code when the existing replicas are unable to do so due to resource contention.
+//
+// Possible errors:
+// - ErrKernelSpecNotFound: If there is no mapping from the provided kernel's ID to a kernel spec.
+// - ErrResourceSpecNotFound: If there is no resource spec included within the kernel spec of the specified kernel.
+func (d *GatewayDaemon) AddReplicaDynamic(ctx context.Context, in *gateway.KernelId) error {
+	// Steps:
+	// - Identify a target node with sufficient resources to serve an execution request for the associated kernel.
+	// - Add a label to that node to ensure the new replica is scheduled onto that node.
+	// - Increase the size of the associated kernel's Cloneset.
+
+	kernelSpec, ok := d.kernelSpecs.Load(in.Id)
+	if !ok {
+		d.log.Error("Could not load kernel spec associated with kernel %s", in.Id)
+		return ErrKernelSpecNotFound
+	}
+
+	resourceSpec := kernelSpec.GetResource()
+	if resourceSpec == nil {
+		d.log.Error("Kernel %s does not have a resource spec included with its kernel spec.", in.Id)
+		return ErrResourceSpecNotFound
+	}
+
+	// Identify a target node with sufficient resources to serve an execution request for the associated kernel.
+
+	// Add a label to that node to ensure the new replica is scheduled onto that node.
+
+	// Increase the size of the associated kernel's Cloneset.
+
+	return nil
+}
+
 func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelRegistrationNotification) (*gateway.KernelRegistrationNotificationResponse, error) {
 	d.log.Info("Received kernel registration notification.")
 
@@ -1070,8 +1105,8 @@ func (d *GatewayDaemon) migrate_removeFirst(ctx context.Context, in *gateway.Rep
 // 	return &gateway.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
 // }
 
-func (d *GatewayDaemon) GetKubernetesNode() ([]corev1.Node, error) {
-	return d.kubeClient.GetKubernetesNode()
+func (d *GatewayDaemon) GetKubernetesNodes() ([]corev1.Node, error) {
+	return d.kubeClient.GetKubernetesNodes()
 }
 
 func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.MigrationRequest) (*gateway.MigrateKernelResponse, error) {

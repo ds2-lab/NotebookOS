@@ -54,6 +54,8 @@ const (
 var (
 	kubeStorageBase = "/storage"                                                                                       // TODO(Ben): Don't hard-code this. What should this be?
 	clonesetRes     = schema.GroupVersionResource{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "clonesets"} // Identifier for Kubernetes CloneSet resources.
+
+	ErrNodeNotFound = errors.New("could not find kubernetes node with the specified name")
 )
 
 type BasicKubeClient struct {
@@ -171,6 +173,56 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDa
 	return client
 }
 
+// Add 'NoExecute' and 'NoSchedule' taints to the specified node to prevent Pods from being scheduled onto it,
+// and to evict any existing pods that are already scheduled onto it.
+func (c *BasicKubeClient) AddSchedulingTaintsToNode(nodeName string) error {
+	var patchData string = `{
+		"spec": {
+			"taints": [
+				{
+					"effect": "NoExecute",
+					"key": "key1",
+					"value": "value1"
+				},
+				{
+					"effect": "NoSchedule",
+					"key": "key1",
+					"value": "value1"
+				}
+			]
+		}
+	}`
+
+	_, err := c.kubeClientset.CoreV1().Nodes().Patch(context.Background(), nodeName, types.StrategicMergePatchType, []byte(patchData), v1.PatchOptions{FieldValidation: "strict"})
+	if err != nil {
+		c.log.Error("Failed to add 'NoExecute' and 'NoSchedule' taints to Kubernetes node '%s': %v", nodeName, err)
+		return err
+	}
+
+	c.log.Debug("Successfully added 'NoExecute' and 'NoSchedule' taints to Kubernetes node '%s'", nodeName)
+
+	return nil
+}
+
+// Remove all taints from the specified Kubernetes node.
+func (c *BasicKubeClient) RemoveAllTaintsFromNode(nodeName string) error {
+	var patchData string = `{
+		"spec": {
+			"taints": null
+		}
+	}`
+
+	_, err := c.kubeClientset.CoreV1().Nodes().Patch(context.Background(), nodeName, types.StrategicMergePatchType, []byte(patchData), v1.PatchOptions{FieldValidation: "strict"})
+	if err != nil {
+		c.log.Error("Failed to remove taints from Kubernetes node '%s': %v", nodeName, err)
+		return err
+	}
+
+	c.log.Debug("Successfully removed all taints from Kubernetes node '%s'", nodeName)
+
+	return nil
+}
+
 // Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
 func (c *BasicKubeClient) PodCreated(obj interface{}) {
 	pod := obj.(*corev1.Pod)
@@ -205,7 +257,7 @@ func (c *BasicKubeClient) PodCreated(obj interface{}) {
 }
 
 // Return a list of the current kubernetes nodes.
-func (c *BasicKubeClient) GetKubernetesNode() ([]corev1.Node, error) {
+func (c *BasicKubeClient) GetKubernetesNodes() ([]corev1.Node, error) {
 	nodes, err := c.kubeClientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		c.log.Error("Error while retrieving Kubernetes nodes: %v", err)
@@ -213,6 +265,27 @@ func (c *BasicKubeClient) GetKubernetesNode() ([]corev1.Node, error) {
 	}
 
 	return nodes.Items, nil
+}
+
+// Return the node with the given name, or nil of that node cannot be found.
+func (c *BasicKubeClient) GetKubernetesNode(nodeName string) (*corev1.Node, error) {
+	nodes, err := c.kubeClientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("metadata.name=%s", nodeName),
+	})
+
+	if err != nil {
+		c.log.Error("Error while retrieving Kubernetes nodes: %v", err)
+		return nil, err
+	}
+
+	if len(nodes.Items) == 0 {
+		c.log.Error("Failed to find Kubernetes node with name \"%s\"", nodeName)
+		return nil, ErrNodeNotFound
+	} else if len(nodes.Items) > 1 {
+		c.log.Warn("Multiple nodes returned for query concerning node with name \"%s\"", nodeName)
+	}
+
+	return &nodes.Items[0], nil
 }
 
 // Function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
@@ -244,33 +317,6 @@ func (c *BasicKubeClient) PodUpdated(oldObj interface{}, newObj interface{}) {
 			oldPod.Namespace, oldPod.Name, newPod.Status.Phase)
 	}
 }
-
-// Wait for us to receive a pod-created notification for the given Pod, which managed to start running
-// and register with us before we received the pod-created notification. Once received, return the
-// associated migration operation.
-// func (c *BasicKubeClient) WaitForNewPodNotification(newPodName string) AddReplicaOperation {
-// 	c.mutex.Lock()
-
-// 	// First, try to get the migration operation, in case we received the notification since the time we made the call to WaitForNewPodNotification.
-// 	op, ok := c.migrationOperationsByNewPodName.Get(newPodName)
-// 	if ok {
-// 		c.mutex.Unlock()
-// 		return op
-// 	}
-
-// 	_ = c.newPodWaiters.SetIfAbsent(newPodName, make(chan AddReplicaOperation))
-// 	channel, _ := c.newPodWaiters.Get(newPodName)
-
-// 	c.mutex.Unlock()
-
-// 	c.log.Debug("Waiting on channel for pod-created notification for new pod \"%s\"", newPodName)
-// 	select {
-// 	case op := <-channel:
-// 		{
-// 			return op
-// 		}
-// 	}
-// }
 
 // func (c *BasicKubeClient) GetMigrationOperationByNewPod(newPodName string) (MigrationOperation, bool) {
 // 	return c.migrationManager.GetMigrationOperationByNewPod(newPodName)

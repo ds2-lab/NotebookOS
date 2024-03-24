@@ -19,28 +19,21 @@ type KubeClient interface {
 	DeployDistributedKernels(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
 
 	// Delete the Cloneset for the kernel identified by the given ID.
-	DeleteCloneset(kernelId string) error 
+	DeleteCloneset(kernelId string) error
 
 	// Return a list of the current kubernetes nodes.
-	GetKubernetesNode() ([]corev1.Node, error)
+	GetKubernetesNodes() ([]corev1.Node, error)
 
-	// Initiate a migration operation for a particular replica of a particular kernel. The migration will be carried out automatically by the migration manager once it has been initiated.
-	// InitiateKernelMigration(context.Context, *client.DistributedKernelClient, int32, *gateway.KernelReplicaSpec) (string, error)
+	// Return the node with the given name, or nil of that node cannot be found.
+	GetKubernetesNode() (*corev1.Node, error)
+	
+	// Add the specified label to the specified node.
+	// Returns nil on success; otherwise, returns an error.
+	AddLabelToNode(nodeId string, labelKey string, labelValue string) error
 
-	// Return the migration operation associated with the given Pod name, such that the Pod with the given name was created for the given migration operation.
-	// GetMigrationOperationByNewPod(string) (MigrationOperation, bool)
-
-	// Check if the given Migration Operation has finished. This is called twice: when the new replica registers with the Gateway,
-	// and when the old Pod is deleted. Whichever of those two events happens last will be the one that designates the operation has having completed.
-	// CheckIfMigrationCompleted(MigrationOperation) bool
-
-	// Wait for us to receive a pod-created notification for the given Pod, which managed to start running
-	// and register with us before we received the pod-created notification. Once received, return the
-	// associated migration operation.
-	// WaitForNewPodNotification(string) AddReplicaOperation
-
-	// Return the migration operation associated with the given Kernel ID and new SMR Node ID.
-	// GetMigrationOperationByKernelIdAndNewReplicaId(string, int32) (MigrationOperation, bool)
+	// Remove the specified label from the specified node.
+	// Returns nil on success; otherwise, returns an error.
+	RemoveLabelFromNode(nodeId string, labelKey string, labelValue string) error
 
 	// Scale-up a CloneSet by increasing its number of replicas by 1.
 	// Accepts as a parameter a chan string that can be used to wait until the new Pod has been created.
