@@ -13,22 +13,10 @@ var (
 	ErrDeviceAlreadyFree      = errors.New("device is already marked as free")
 )
 
-// Devices wraps a map[string]*Device with some functions.
-type Devices map[string]*Device
-
 type Device struct {
 	pluginapi.Device
 	Index     int
 	Allocated bool
-}
-
-// Alias for length.
-func (d *Devices) Size() int {
-	return len(*d)
-}
-
-func (d *Devices) Length() int {
-	return len(*d)
 }
 
 // Return an error (ErrDeviceAlreadyAllocated) if the device is already marked as allocated.
@@ -67,6 +55,18 @@ func BuildDevice(index int) *Device {
 	dev.Health = pluginapi.Healthy
 
 	return &dev
+}
+
+// Devices wraps a map[string]*Device with some functions.
+type Devices map[string]*Device
+
+// Alias for length.
+func (d Devices) Size() int {
+	return len(d)
+}
+
+func (d Devices) Length() int {
+	return len(d)
 }
 
 func (ds Devices) Insert(device *Device) {

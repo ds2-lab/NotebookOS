@@ -72,10 +72,17 @@ type ResourceManager interface {
 	// The number of free, unallocated devices.
 	NumFreeDevices() int
 
+	// Allocate a specific Device identified by the device's ID.
 	// Returns ErrDeviceNotFound if the specified device cannot be found.
 	// Return ErrDeviceAlreadyAllocated if the specified device is already marked as allocated.
 	// Otherwise, return nil.
-	AllocateDevice(string) error
+	AllocateSpecificDevice(string) error
+
+	// Allocate n devices.
+	// The allocation is performed all at once.
+	// If there is an insufficient number of devices available to fulfil the entire request, then no devices are allocated and an error is returned.
+	// If the allocation is performed successfully, then a slice containing the allocated devices is returned, along with a nil error.
+	AllocateDevices(int) ([]string, []*pluginapi.DeviceSpec, error)
 
 	// Returns ErrDeviceNotFound if the specified device cannot be found.
 	// Return ErrDeviceAlreadyAllocated if the specified device is already marked as free.

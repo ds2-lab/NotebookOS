@@ -151,30 +151,49 @@ func (v *virtualGpuAllocator) allocate(ctx context.Context, req *pluginapi.Alloc
 
 	if candidatePod != nil {
 		// Allocate resources to the Pod.
+		resp, err := v.doAllocate(numVirtualGPUsRequested, candidatePod)
+
+		if err != nil {
+			responses := &pluginapi.AllocateResponse{
+				ContainerResponses: []*pluginapi.ContainerAllocateResponse{resp},
+			}
+			v.log.Info("Returning the following value from virtualGpuPluginServerImpl::Allocate: %v", responses)
+			klog.V(2).Infof("Returning the following value from virtualGpuPluginServerImpl::Allocate: %v", responses)
+			return responses, nil
+		} else {
+			errorMessage := fmt.Sprintf("failed to allocate vGPUs to pod %s(%s) because: %v", string(candidatePod.UID), candidatePod.Name, err)
+			v.log.Error(errorMessage)
+			klog.Error(errorMessage)
+			return nil, fmt.Errorf(errorMessage)
+		}
 	} else {
-		errorMessage := fmt.Sprintf("Could not find candidate Pod for request %v, allocation failed.", request)
+		errorMessage := fmt.Sprintf("could not find candidate Pod for request %v, allocation failed.", request)
 		v.log.Error(errorMessage)
 		klog.Error(errorMessage)
 		return nil, fmt.Errorf(errorMessage)
 	}
+}
 
-	responses := pluginapi.AllocateResponse{}
-	for range req.ContainerRequests {
-		responses.ContainerResponses = append(responses.ContainerResponses, &pluginapi.ContainerAllocateResponse{
-			Devices: []*pluginapi.DeviceSpec{
-				{
-					// We use "/dev/fuse" for these virtual devices.
-					ContainerPath: "/dev/fuse",
-					HostPath:      "/dev/fuse",
-					Permissions:   "mrw",
-				},
-			},
-		})
+// This actually performs the allocation of GPUs to a particular pod.
+func (v *virtualGpuAllocator) doAllocate(vgpusRequired int32, candidatePod *corev1.Pod) (*pluginapi.ContainerAllocateResponse, error) {
+	allocatedDeviceIDs, deviceSpecs, err := v.resourceManager.AllocateDevices(int(vgpusRequired))
+
+	if err != nil {
+		return nil, err
 	}
 
-	v.log.Info("Returning the following value from virtualGpuPluginServerImpl::Allocate: %v", responses)
-	klog.V(2).Infof("Returning the following value from virtualGpuPluginServerImpl::Allocate: %v", responses)
-	return &responses, nil
+	// Store the allocation.
+	allocation := &allocation{
+		DeviceIDs: allocatedDeviceIDs,
+	}
+	v.allocations[string(candidatePod.UID)] = allocation
+
+	// TODO(Ben): Add more in-depth logic for allocation here. This works, but doesn't hook into the new, more detailed architecture that I just setup.
+	response := &pluginapi.ContainerAllocateResponse{
+		Devices: deviceSpecs,
+	}
+
+	return response, nil
 }
 
 // This returns GPU resources that were allocated to Pods that have since been terminated.

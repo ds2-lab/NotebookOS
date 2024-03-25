@@ -2,10 +2,14 @@ package device
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"k8s.io/klog/v2"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
 type resourceManagerImpl struct {
@@ -14,20 +18,22 @@ type resourceManagerImpl struct {
 
 	resource         string
 	devices          Devices
-	allocatedDevices Devices
-	freeDevices      Devices
+	allocatedDevices *orderedmap.OrderedMap[string, *Device]
+	freeDevices      *orderedmap.OrderedMap[string, *Device]
 }
 
 var (
-	ErrDeviceNotFound = errors.New("the specified device cannot be found")
+	ErrDeviceNotFound                 = errors.New("the specified device cannot be found")
+	ErrInsufficientResourcesAvailable = errors.New("there are insufficient resources available to fulfill the request in its entirety")
+	// ErrAllocationError                = errors.New("unexpected error encountered while performing device allocation")
 )
 
 func NewResourceManager(resource string, numVirtualGPUs int) ResourceManager {
 	m := &resourceManagerImpl{
 		resource:         resource,
 		devices:          make(Devices),
-		allocatedDevices: make(Devices),
-		freeDevices:      make(Devices),
+		allocatedDevices: orderedmap.NewOrderedMap[string, *Device](),
+		freeDevices:      orderedmap.NewOrderedMap[string, *Device](),
 	}
 
 	config.InitLogger(&m.log, m)
@@ -36,7 +42,7 @@ func NewResourceManager(resource string, numVirtualGPUs int) ResourceManager {
 	for i = 0; i < numVirtualGPUs; i++ {
 		dev := BuildDevice(i)
 		m.devices.Insert(dev)
-		m.freeDevices.Insert(dev)
+		m.freeDevices.Set(dev.ID, dev)
 	}
 
 	m.log.Debug("ResourceManager has started with %d device(s).", m.devices.Size())
@@ -55,10 +61,12 @@ func (m *resourceManagerImpl) GetDevice(id string) (*Device, error) {
 	return nil, ErrDeviceNotFound
 }
 
+// Allocate a specific Device identified by the device's ID.
+//
 // Returns ErrDeviceNotFound if the specified device cannot be found.
 // Return ErrDeviceAlreadyAllocated if the specified device is already marked as allocated.
 // Otherwise, return nil.
-func (m *resourceManagerImpl) AllocateDevice(id string) error {
+func (m *resourceManagerImpl) AllocateSpecificDevice(id string) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -70,8 +78,8 @@ func (m *resourceManagerImpl) AllocateDevice(id string) error {
 
 	err := device.MarkAllocated()
 	if err == nil {
-		m.freeDevices.Remove(device)
-		m.allocatedDevices.Insert(device)
+		m.freeDevices.Delete(device.ID)
+		m.allocatedDevices.Set(device.ID, device)
 		m.log.Debug("Allocated Device: %s", device.ID)
 		return nil
 	} else {
@@ -79,6 +87,48 @@ func (m *resourceManagerImpl) AllocateDevice(id string) error {
 	}
 
 	return err
+}
+
+// Allocate n devices. The allocation is performed all at once.
+//
+// If there is an insufficient number of devices available to fulfill the entire request, then no devices are allocated and an ErrInsufficientResourcesAvailable error is returned.
+// If the allocation is performed successfully, then a slice containing the IDs of the allocated devices is returned along with a slice of DeviceSpecs (one for each allocated device) and a nil error.
+func (m *resourceManagerImpl) AllocateDevices(n int) ([]string, []*pluginapi.DeviceSpec, error) {
+	m.Lock()
+	defer m.Unlock()
+
+	// Check if there are enough resources to fulfill the entire request.
+	if m.freeDevices.Len() < n {
+		return nil, nil, ErrInsufficientResourcesAvailable
+	}
+
+	// Gather all of the devices that we're going to allocate.
+	allocatedDeviceIDs := make([]string, 0, n)
+	deviceSpecs := make([]*pluginapi.DeviceSpec, 0, n)
+	for el := m.freeDevices.Front(); el != nil; el = el.Next() {
+		allocatedDeviceIDs = append(allocatedDeviceIDs, el.Value.ID)
+	}
+
+	// Allocate each individual device.
+	for _, deviceID := range allocatedDeviceIDs {
+		err := m.AllocateSpecificDevice(deviceID)
+		if err != nil {
+			errorMessage := fmt.Sprintf("Failed to allocate device %s: %v", deviceID, err)
+			m.log.Error(errorMessage)
+			klog.Errorf(errorMessage)
+
+			return nil, nil, fmt.Errorf(errorMessage)
+		}
+
+		deviceSpecs = append(deviceSpecs, &pluginapi.DeviceSpec{
+			// We use "/dev/fuse" for these virtual devices.
+			ContainerPath: "/dev/fuse",
+			HostPath:      "/dev/fuse",
+			Permissions:   "mrw",
+		})
+	}
+
+	return allocatedDeviceIDs, deviceSpecs, nil
 }
 
 // Returns ErrDeviceNotFound if the specified device cannot be found.
@@ -96,8 +146,8 @@ func (m *resourceManagerImpl) FreeDevice(id string) error {
 
 	err := device.MarkFree()
 	if err == nil {
-		m.allocatedDevices.Remove(device)
-		m.freeDevices.Insert(device)
+		m.allocatedDevices.Delete(device.ID)
+		m.freeDevices.Set(device.ID, device)
 		m.log.Debug("Freed Device: %s", device.ID)
 		return nil
 	} else {
@@ -117,13 +167,13 @@ func (m *resourceManagerImpl) NumDevices() int {
 func (m *resourceManagerImpl) NumFreeDevices() int {
 	m.Lock()
 	defer m.Unlock()
-	return len(m.freeDevices)
+	return m.freeDevices.Len()
 }
 
 func (m *resourceManagerImpl) NumAllocatedDevices() int {
 	m.Lock()
 	defer m.Unlock()
-	return len(m.allocatedDevices)
+	return m.allocatedDevices.Len()
 }
 
 func (m *resourceManagerImpl) Resource() string {
