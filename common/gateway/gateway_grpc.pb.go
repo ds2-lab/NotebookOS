@@ -375,6 +375,8 @@ type LocalGatewayClient interface {
 	GetVirtualGPUs(ctx context.Context, in *Void, opts ...grpc.CallOption) (*VirtualGpuInfo, error)
 	// Set the maximum number of vGPU resources availabe on the node.
 	SetTotalVirtualGPUs(ctx context.Context, in *SetVirtualGPUsRequest, opts ...grpc.CallOption) (*VirtualGpuInfo, error)
+	// Return the current vGPU allocations on this node.
+	GetVirtualGpuAllocations(ctx context.Context, in *Void, opts ...grpc.CallOption) (*VirtualGpuAllocations, error)
 }
 
 type localGatewayClient struct {
@@ -511,6 +513,15 @@ func (c *localGatewayClient) SetTotalVirtualGPUs(ctx context.Context, in *SetVir
 	return out, nil
 }
 
+func (c *localGatewayClient) GetVirtualGpuAllocations(ctx context.Context, in *Void, opts ...grpc.CallOption) (*VirtualGpuAllocations, error) {
+	out := new(VirtualGpuAllocations)
+	err := c.cc.Invoke(ctx, "/gateway.LocalGateway/GetVirtualGpuAllocations", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalGatewayServer is the server API for LocalGateway service.
 // All implementations must embed UnimplementedLocalGatewayServer
 // for forward compatibility
@@ -546,6 +557,8 @@ type LocalGatewayServer interface {
 	GetVirtualGPUs(context.Context, *Void) (*VirtualGpuInfo, error)
 	// Set the maximum number of vGPU resources availabe on the node.
 	SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error)
+	// Return the current vGPU allocations on this node.
+	GetVirtualGpuAllocations(context.Context, *Void) (*VirtualGpuAllocations, error)
 	mustEmbedUnimplementedLocalGatewayServer()
 }
 
@@ -594,6 +607,9 @@ func (UnimplementedLocalGatewayServer) GetVirtualGPUs(context.Context, *Void) (*
 }
 func (UnimplementedLocalGatewayServer) SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetTotalVirtualGPUs not implemented")
+}
+func (UnimplementedLocalGatewayServer) GetVirtualGpuAllocations(context.Context, *Void) (*VirtualGpuAllocations, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetVirtualGpuAllocations not implemented")
 }
 func (UnimplementedLocalGatewayServer) mustEmbedUnimplementedLocalGatewayServer() {}
 
@@ -860,6 +876,24 @@ func _LocalGateway_SetTotalVirtualGPUs_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalGateway_GetVirtualGpuAllocations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).GetVirtualGpuAllocations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gateway.LocalGateway/GetVirtualGpuAllocations",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).GetVirtualGpuAllocations(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalGateway_ServiceDesc is the grpc.ServiceDesc for LocalGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -922,6 +956,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetTotalVirtualGPUs",
 			Handler:    _LocalGateway_SetTotalVirtualGPUs_Handler,
+		},
+		{
+			MethodName: "GetVirtualGpuAllocations",
+			Handler:    _LocalGateway_GetVirtualGpuAllocations_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

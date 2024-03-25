@@ -1032,6 +1032,15 @@ func (d *SchedulerDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err 
 	return header.Session, true, nil
 }
 
+// Return the current vGPU allocations on this node.
+func (d *SchedulerDaemon) GetVirtualGpuAllocations(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuAllocations, error) {
+	allocations := &gateway.VirtualGpuAllocations{
+		Allocations: d.virtualGpuPluginServer.GetAllocations(),
+	}
+
+	return allocations, nil
+}
+
 func (d *SchedulerDaemon) GetVirtualGPUs(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuInfo, error) {
 	response := &gateway.VirtualGpuInfo{
 		TotalVirtualGPUs:     int32(d.virtualGpuPluginServer.NumVirtualGPUs()),
@@ -1057,6 +1066,12 @@ func (d *SchedulerDaemon) SetTotalVirtualGPUs(ctx context.Context, in *gateway.S
 		}
 
 		return response, fmt.Errorf("ErrInvalidParameter %w : cannot decrease the total number of vGPUs below the number of allocated vGPUs", ErrInvalidParameter)
+	}
+
+	err := d.virtualGpuPluginServer.SetTotalVirtualGPUs(newNumVirtualGPUs)
+	if err != nil {
+		d.log.Error("Failed to set the total number of virtual GPUs to new value %d: %v", newNumVirtualGPUs, err)
+		return nil, err
 	}
 
 	response, err := d.GetVirtualGPUs(ctx, &gateway.Void{})

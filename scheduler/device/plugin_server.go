@@ -13,6 +13,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/pkg/errors"
+	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/client-go/kubernetes"
@@ -32,12 +33,8 @@ const (
 )
 
 var (
-	ErrInvalidValue = errors.New("the number of virtual GPUs cannot be decreased below the number of already-allocated virtual GPUs")
+	ErrInvalidResourceAdjustment = errors.New("the number of virtual GPUs cannot be decreased below the number of already-allocated virtual GPUs")
 )
-
-type allocation struct {
-	DeviceIDs []string `json:"device_ids"`
-}
 
 type virtualGpuPluginServerImpl struct {
 	srv        *grpc.Server
@@ -74,6 +71,11 @@ func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName str
 	config.InitLogger(&server.log, server)
 
 	return server
+}
+
+// Return the map of allocations, which is Pod UID -> allocation.
+func (v *virtualGpuPluginServerImpl) GetAllocations() map[string]*gateway.VirtualGpuAllocation {
+	return v.allocator.getAllocations()
 }
 
 // Return the options for this DevicePlugin that will be passed to the Kubelet during registration.

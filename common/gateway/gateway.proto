@@ -115,6 +115,9 @@ service LocalGateway {
 
   // Set the maximum number of vGPU resources availabe on the node.
   rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
+
+  // Return the current vGPU allocations on this node. 
+  rpc GetVirtualGpuAllocations(Void) returns (VirtualGpuAllocations) {}
 }
 
 // message GetKubernetesNodesResponse {
@@ -133,6 +136,14 @@ service LocalGateway {
 //   float allocatedGPUs = 9;
 //   float allocatedVGPUs = 10;
 // }
+
+message VirtualGpuAllocations {
+  map<string,VirtualGpuAllocation> allocations = 1;
+}
+
+message VirtualGpuAllocation {
+  repeated string deviceIDs = 1;
+}
 
 message SetVirtualGPUsRequest {
   int32 value = 1;

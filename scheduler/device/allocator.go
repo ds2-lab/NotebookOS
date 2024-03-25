@@ -9,6 +9,7 @@ import (
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,14 +37,14 @@ type virtualGpuAllocator struct {
 	stopChan        chan interface{}
 
 	// Mapping from PodID to its allocation.
-	allocations map[string]*allocation
+	allocations map[string]*gateway.VirtualGpuAllocation
 }
 
 func newVirtualGpuAllocator(opts *VirtualGpuPluginServerOptions, nodeName string) *virtualGpuAllocator {
 	allocator := &virtualGpuAllocator{
 		opts:        opts,
 		stopChan:    make(chan interface{}),
-		allocations: make(map[string]*allocation),
+		allocations: make(map[string]*gateway.VirtualGpuAllocation),
 		nodeName:    nodeName,
 	}
 	config.InitLogger(&allocator.log, allocator)
@@ -64,6 +65,11 @@ func newVirtualGpuAllocator(opts *VirtualGpuPluginServerOptions, nodeName string
 	allocator.kubeClient = clientset
 
 	return allocator
+}
+
+// Return the map of allocations, which is Pod UID -> allocation.
+func (v *virtualGpuAllocator) getAllocations() map[string]*gateway.VirtualGpuAllocation {
+	return v.allocations
 }
 
 func (v *virtualGpuAllocator) ResourceName() string {
@@ -101,12 +107,11 @@ func (v *virtualGpuAllocator) setTotalVirtualGPUs(value int32) error {
 	defer v.Unlock()
 
 	if value < int32(v.numAllocatedVirtualGPUs()) {
-		return ErrInvalidValue
+		return ErrInvalidResourceAdjustment
 	}
 
 	// TODO(Ben): Modify the total number of virtual GPUs.
-
-	return nil
+	return v.resourceManager.SetTotalNumDevices(value)
 }
 
 // Allocate is called during container creation so that the Device
@@ -183,7 +188,7 @@ func (v *virtualGpuAllocator) doAllocate(vgpusRequired int32, candidatePod *core
 	}
 
 	// Store the allocation.
-	allocation := &allocation{
+	allocation := &gateway.VirtualGpuAllocation{
 		DeviceIDs: allocatedDeviceIDs,
 	}
 	v.allocations[string(candidatePod.UID)] = allocation
@@ -216,7 +221,7 @@ func (v *virtualGpuAllocator) clearTerminatedPods() {
 			continue
 		}
 
-		for _, deviceID := range allocation.DeviceIDs {
+		for _, deviceID := range allocation.GetDeviceIDs() {
 			err := v.resourceManager.FreeDevice(deviceID)
 			if err != nil {
 				v.log.Error("Failed to free vGPU %s: %v", deviceID, err)

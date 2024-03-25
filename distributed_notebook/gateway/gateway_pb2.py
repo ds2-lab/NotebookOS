@@ -14,7 +14,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rgateway.proto\x12\x07gateway\"Z\n\x14JupyterKernelReplica\x12\x10\n\x08kernelId\x18\x01 \x01(\t\x12\x11\n\treplicaId\x18\x02 \x01(\x05\x12\r\n\x05podId\x18\x03 \x01(\t\x12\x0e\n\x06nodeId\x18\x04 \x01(\t\"\x9f\x01\n\x18\x44istributedJupyterKernel\x12\x10\n\x08kernelId\x18\x01 \x01(\t\x12\x13\n\x0bnumReplicas\x18\x02 \x01(\x05\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x1b\n\x13\x61ggregateBusyStatus\x18\x04 \x01(\t\x12/\n\x08replicas\x18\x05 \x03(\x0b\x32\x1d.gateway.JupyterKernelReplica\"]\n\x13ListKernelsResponse\x12\x12\n\nnumKernels\x18\x01 \x01(\x05\x12\x32\n\x07kernels\x18\x02 \x03(\x0b\x32!.gateway.DistributedJupyterKernel\"\x1b\n\rProvisionerId\x12\n\n\x02id\x18\x01 \x01(\t\"$\n\x08HostSpec\x12\n\n\x02ip\x18\x01 \x01(\t\x12\x0c\n\x04port\x18\x02 \x01(\x05\"\x14\n\x06HostId\x12\n\n\x02id\x18\x01 \x01(\t\"&\n\x15SetVirtualGPUsRequest\x12\r\n\x05value\x18\x01 \x01(\x05\"a\n\x0eVirtualGpuInfo\x12\x18\n\x10totalVirtualGPUs\x18\x01 \x01(\x05\x12\x1c\n\x14\x61llocatedVirtualGPUs\x18\x02 \x01(\x05\x12\x17\n\x0f\x66reeVirtualGPUs\x18\x03 \x01(\x05\"\xbf\x01\n\x07GpuInfo\x12\x10\n\x08specGPUs\x18\x01 \x01(\x05\x12\x10\n\x08idleGPUs\x18\x02 \x01(\x05\x12\x15\n\rcommittedGPUs\x18\x03 \x01(\x05\x12\x13\n\x0bpendingGPUs\x18\x04 \x01(\x05\x12\x1d\n\x15numPendingAllocations\x18\x05 \x01(\x05\x12\x16\n\x0enumAllocations\x18\x06 \x01(\x05\x12\x16\n\x0egpuSchedulerID\x18\x07 \x01(\t\x12\x15\n\rlocalDaemonID\x18\x08 \x01(\t\"\xac\x01\n\x11KernelReplicaSpec\x12#\n\x06kernel\x18\x01 \x01(\x0b\x32\x13.gateway.KernelSpec\x12\x11\n\treplicaId\x18\x02 \x01(\x05\x12\x13\n\x0bnumReplicas\x18\x03 \x01(\x05\x12\x10\n\x08replicas\x18\x04 \x03(\t\x12\x0c\n\x04join\x18\x05 \x01(\x08\x12\x19\n\x0cpersistentId\x18\x06 \x01(\tH\x00\x88\x01\x01\x42\x0f\n\r_persistentId\"8\n\x0cResourceSpec\x12\x0b\n\x03\x63pu\x18\x01 \x01(\x05\x12\x0e\n\x06memory\x18\x02 \x01(\x05\x12\x0b\n\x03gpu\x18\x03 \x01(\x05\"d\n\x08KernelId\x12\n\n\x02id\x18\x01 \x01(\t\x12\x14\n\x07restart\x18\x02 \x01(\x08H\x00\x88\x01\x01\x12\x19\n\x0cpersistentId\x18\x03 \x01(\tH\x01\x88\x01\x01\x42\n\n\x08_restartB\x0f\n\r_persistentId\"H\n\x0bReplicaInfo\x12\x10\n\x08kernelId\x18\x01 \x01(\t\x12\x11\n\treplicaId\x18\x02 \x01(\x05\x12\x14\n\x0cpersistentId\x18\x03 \x01(\t\"k\n\x10MigrationRequest\x12+\n\rtargetReplica\x18\x01 \x01(\x0b\x32\x14.gateway.ReplicaInfo\x12\x19\n\x0ctargetNodeId\x18\x02 \x01(\tH\x00\x88\x01\x01\x42\x0f\n\r_targetNodeId\"b\n\x14SmrReadyNotification\x12\x10\n\x08kernelId\x18\x01 \x01(\t\x12\x11\n\treplicaId\x18\x02 \x01(\x05\x12\x14\n\x0cpersistentId\x18\x03 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x04 \x01(\t\"\x17\n\tReplicaId\x12\n\n\x02id\x18\x01 \x01(\x05\"I\n\x18PrepareToMigrateResponse\x12\n\n\x02id\x18\x01 \x01(\x05\x12\x10\n\x08kernelId\x18\x02 \x01(\t\x12\x0f\n\x07\x64\x61taDir\x18\x03 \x01(\t\"5\n\x15MigrateKernelResponse\x12\n\n\x02id\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\"E\n\x13ReplicaInfoWithAddr\x12\n\n\x02id\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\x12\x10\n\x08kernelId\x18\x03 \x01(\t\"\x86\x01\n\nKernelSpec\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0f\n\x07session\x18\x02 \x01(\t\x12\x0c\n\x04\x61rgv\x18\x03 \x03(\t\x12\x17\n\x0fsignatureScheme\x18\x04 \x01(\t\x12\x0b\n\x03key\x18\x05 \x01(\t\x12\'\n\x08resource\x18\x06 \x01(\x0b\x32\x15.gateway.ResourceSpec\"\xcc\x01\n\x14KernelConnectionInfo\x12\n\n\x02ip\x18\x01 \x01(\t\x12\x11\n\ttransport\x18\x02 \x01(\t\x12\x13\n\x0b\x63ontrolPort\x18\x03 \x01(\x05\x12\x11\n\tshellPort\x18\x04 \x01(\x05\x12\x11\n\tstdinPort\x18\x05 \x01(\x05\x12\x0e\n\x06hbPort\x18\x06 \x01(\x05\x12\x11\n\tiopubPort\x18\x07 \x01(\x05\x12\x11\n\tiosubPort\x18\x08 \x01(\x05\x12\x17\n\x0fsignatureScheme\x18\t \x01(\t\x12\x0b\n\x03key\x18\n \x01(\t\"\xd4\x01\n\x1eKernelRegistrationNotification\x12\x35\n\x0e\x63onnectionInfo\x18\x01 \x01(\x0b\x32\x1d.gateway.KernelConnectionInfo\x12\x10\n\x08kernelId\x18\x02 \x01(\t\x12\x11\n\tsessionId\x18\x03 \x01(\t\x12\x0e\n\x06hostId\x18\x04 \x01(\t\x12\x11\n\treplicaId\x18\x05 \x01(\x05\x12\x10\n\x08kernelIp\x18\x06 \x01(\t\x12\x0f\n\x07podName\x18\x07 \x01(\t\x12\x10\n\x08nodeName\x18\x08 \x01(\t\"\xa1\x02\n&KernelRegistrationNotificationResponse\x12\n\n\x02id\x18\x01 \x01(\x05\x12O\n\x08replicas\x18\x02 \x03(\x0b\x32=.gateway.KernelRegistrationNotificationResponse.ReplicasEntry\x12\x19\n\x0cpersistentId\x18\x03 \x01(\tH\x00\x88\x01\x01\x12\x0f\n\x07smrPort\x18\x04 \x01(\x05\x12\x1a\n\rdataDirectory\x18\x05 \x01(\tH\x01\x88\x01\x01\x1a/\n\rReplicasEntry\x12\x0b\n\x03key\x18\x01 \x01(\x05\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\x42\x0f\n\r_persistentIdB\x10\n\x0e_dataDirectory\"\x1e\n\x0cKernelStatus\x12\x0e\n\x06status\x18\x01 \x01(\x05\"\x06\n\x04Void2\xeb\x03\n\x0e\x43lusterGateway\x12-\n\x02ID\x12\r.gateway.Void\x1a\x16.gateway.ProvisionerId\"\x00\x12.\n\nRemoveHost\x12\x0f.gateway.HostId\x1a\r.gateway.Void\"\x00\x12S\n\x14MigrateKernelReplica\x12\x19.gateway.MigrationRequest\x1a\x1e.gateway.MigrateKernelResponse\"\x00\x12t\n\x16NotifyKernelRegistered\x12\'.gateway.KernelRegistrationNotification\x1a/.gateway.KernelRegistrationNotificationResponse\"\x00\x12:\n\x08SmrReady\x12\x1d.gateway.SmrReadyNotification\x1a\r.gateway.Void\"\x00\x12\x35\n\x0cSmrNodeAdded\x12\x14.gateway.ReplicaInfo\x1a\r.gateway.Void\"\x00\x12<\n\x0bListKernels\x12\r.gateway.Void\x1a\x1c.gateway.ListKernelsResponse\"\x00\x32\xeb\x06\n\x0cLocalGateway\x12+\n\x05SetID\x12\x0f.gateway.HostId\x1a\x0f.gateway.HostId\"\x00\x12\x43\n\x0bStartKernel\x12\x13.gateway.KernelSpec\x1a\x1d.gateway.KernelConnectionInfo\"\x00\x12Q\n\x12StartKernelReplica\x12\x1a.gateway.KernelReplicaSpec\x1a\x1d.gateway.KernelConnectionInfo\"\x00\x12=\n\x0fGetKernelStatus\x12\x11.gateway.KernelId\x1a\x15.gateway.KernelStatus\"\x00\x12\x30\n\nKillKernel\x12\x11.gateway.KernelId\x1a\r.gateway.Void\"\x00\x12\x30\n\nStopKernel\x12\x11.gateway.KernelId\x1a\r.gateway.Void\"\x00\x12\x38\n\nWaitKernel\x12\x11.gateway.KernelId\x1a\x15.gateway.KernelStatus\"\x00\x12*\n\x08SetClose\x12\r.gateway.Void\x1a\r.gateway.Void\"\x00\x12;\n\nAddReplica\x12\x1c.gateway.ReplicaInfoWithAddr\x1a\r.gateway.Void\"\x00\x12\x42\n\x11UpdateReplicaAddr\x12\x1c.gateway.ReplicaInfoWithAddr\x1a\r.gateway.Void\"\x00\x12M\n\x10PrepareToMigrate\x12\x14.gateway.ReplicaInfo\x1a!.gateway.PrepareToMigrateResponse\"\x00\x12/\n\nGetGpuInfo\x12\r.gateway.Void\x1a\x10.gateway.GpuInfo\"\x00\x12:\n\x0eGetVirtualGPUs\x12\r.gateway.Void\x1a\x17.gateway.VirtualGpuInfo\"\x00\x12P\n\x13SetTotalVirtualGPUs\x12\x1e.gateway.SetVirtualGPUsRequest\x1a\x17.gateway.VirtualGpuInfo\"\x00\x42\x82\x01\n7com.github.zhangjyr.distributed-notebook.common.gatewayB\x0cGatewayProtoP\x01Z7github.com/zhangjyr/distributed-notebook/common/gatewayb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rgateway.proto\x12\x07gateway\"Z\n\x14JupyterKernelReplica\x12\x10\n\x08kernelId\x18\x01 \x01(\t\x12\x11\n\treplicaId\x18\x02 \x01(\x05\x12\r\n\x05podId\x18\x03 \x01(\t\x12\x0e\n\x06nodeId\x18\x04 \x01(\t\"\x9f\x01\n\x18\x44istributedJupyterKernel\x12\x10\n\x08kernelId\x18\x01 \x01(\t\x12\x13\n\x0bnumReplicas\x18\x02 \x01(\x05\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x1b\n\x13\x61ggregateBusyStatus\x18\x04 \x01(\t\x12/\n\x08replicas\x18\x05 \x03(\x0b\x32\x1d.gateway.JupyterKernelReplica\"]\n\x13ListKernelsResponse\x12\x12\n\nnumKernels\x18\x01 \x01(\x05\x12\x32\n\x07kernels\x18\x02 \x03(\x0b\x32!.gateway.DistributedJupyterKernel\"\x1b\n\rProvisionerId\x12\n\n\x02id\x18\x01 \x01(\t\"$\n\x08HostSpec\x12\n\n\x02ip\x18\x01 \x01(\t\x12\x0c\n\x04port\x18\x02 \x01(\x05\"\x14\n\x06HostId\x12\n\n\x02id\x18\x01 \x01(\t\"\xb0\x01\n\x15VirtualGpuAllocations\x12\x44\n\x0b\x61llocations\x18\x01 \x03(\x0b\x32/.gateway.VirtualGpuAllocations.AllocationsEntry\x1aQ\n\x10\x41llocationsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12,\n\x05value\x18\x02 \x01(\x0b\x32\x1d.gateway.VirtualGpuAllocation:\x02\x38\x01\")\n\x14VirtualGpuAllocation\x12\x11\n\tdeviceIDs\x18\x01 \x03(\t\"&\n\x15SetVirtualGPUsRequest\x12\r\n\x05value\x18\x01 \x01(\x05\"a\n\x0eVirtualGpuInfo\x12\x18\n\x10totalVirtualGPUs\x18\x01 \x01(\x05\x12\x1c\n\x14\x61llocatedVirtualGPUs\x18\x02 \x01(\x05\x12\x17\n\x0f\x66reeVirtualGPUs\x18\x03 \x01(\x05\"\xbf\x01\n\x07GpuInfo\x12\x10\n\x08specGPUs\x18\x01 \x01(\x05\x12\x10\n\x08idleGPUs\x18\x02 \x01(\x05\x12\x15\n\rcommittedGPUs\x18\x03 \x01(\x05\x12\x13\n\x0bpendingGPUs\x18\x04 \x01(\x05\x12\x1d\n\x15numPendingAllocations\x18\x05 \x01(\x05\x12\x16\n\x0enumAllocations\x18\x06 \x01(\x05\x12\x16\n\x0egpuSchedulerID\x18\x07 \x01(\t\x12\x15\n\rlocalDaemonID\x18\x08 \x01(\t\"\xac\x01\n\x11KernelReplicaSpec\x12#\n\x06kernel\x18\x01 \x01(\x0b\x32\x13.gateway.KernelSpec\x12\x11\n\treplicaId\x18\x02 \x01(\x05\x12\x13\n\x0bnumReplicas\x18\x03 \x01(\x05\x12\x10\n\x08replicas\x18\x04 \x03(\t\x12\x0c\n\x04join\x18\x05 \x01(\x08\x12\x19\n\x0cpersistentId\x18\x06 \x01(\tH\x00\x88\x01\x01\x42\x0f\n\r_persistentId\"8\n\x0cResourceSpec\x12\x0b\n\x03\x63pu\x18\x01 \x01(\x05\x12\x0e\n\x06memory\x18\x02 \x01(\x05\x12\x0b\n\x03gpu\x18\x03 \x01(\x05\"d\n\x08KernelId\x12\n\n\x02id\x18\x01 \x01(\t\x12\x14\n\x07restart\x18\x02 \x01(\x08H\x00\x88\x01\x01\x12\x19\n\x0cpersistentId\x18\x03 \x01(\tH\x01\x88\x01\x01\x42\n\n\x08_restartB\x0f\n\r_persistentId\"H\n\x0bReplicaInfo\x12\x10\n\x08kernelId\x18\x01 \x01(\t\x12\x11\n\treplicaId\x18\x02 \x01(\x05\x12\x14\n\x0cpersistentId\x18\x03 \x01(\t\"k\n\x10MigrationRequest\x12+\n\rtargetReplica\x18\x01 \x01(\x0b\x32\x14.gateway.ReplicaInfo\x12\x19\n\x0ctargetNodeId\x18\x02 \x01(\tH\x00\x88\x01\x01\x42\x0f\n\r_targetNodeId\"b\n\x14SmrReadyNotification\x12\x10\n\x08kernelId\x18\x01 \x01(\t\x12\x11\n\treplicaId\x18\x02 \x01(\x05\x12\x14\n\x0cpersistentId\x18\x03 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x04 \x01(\t\"\x17\n\tReplicaId\x12\n\n\x02id\x18\x01 \x01(\x05\"I\n\x18PrepareToMigrateResponse\x12\n\n\x02id\x18\x01 \x01(\x05\x12\x10\n\x08kernelId\x18\x02 \x01(\t\x12\x0f\n\x07\x64\x61taDir\x18\x03 \x01(\t\"5\n\x15MigrateKernelResponse\x12\n\n\x02id\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\"E\n\x13ReplicaInfoWithAddr\x12\n\n\x02id\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\x12\x10\n\x08kernelId\x18\x03 \x01(\t\"\x86\x01\n\nKernelSpec\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0f\n\x07session\x18\x02 \x01(\t\x12\x0c\n\x04\x61rgv\x18\x03 \x03(\t\x12\x17\n\x0fsignatureScheme\x18\x04 \x01(\t\x12\x0b\n\x03key\x18\x05 \x01(\t\x12\'\n\x08resource\x18\x06 \x01(\x0b\x32\x15.gateway.ResourceSpec\"\xcc\x01\n\x14KernelConnectionInfo\x12\n\n\x02ip\x18\x01 \x01(\t\x12\x11\n\ttransport\x18\x02 \x01(\t\x12\x13\n\x0b\x63ontrolPort\x18\x03 \x01(\x05\x12\x11\n\tshellPort\x18\x04 \x01(\x05\x12\x11\n\tstdinPort\x18\x05 \x01(\x05\x12\x0e\n\x06hbPort\x18\x06 \x01(\x05\x12\x11\n\tiopubPort\x18\x07 \x01(\x05\x12\x11\n\tiosubPort\x18\x08 \x01(\x05\x12\x17\n\x0fsignatureScheme\x18\t \x01(\t\x12\x0b\n\x03key\x18\n \x01(\t\"\xd4\x01\n\x1eKernelRegistrationNotification\x12\x35\n\x0e\x63onnectionInfo\x18\x01 \x01(\x0b\x32\x1d.gateway.KernelConnectionInfo\x12\x10\n\x08kernelId\x18\x02 \x01(\t\x12\x11\n\tsessionId\x18\x03 \x01(\t\x12\x0e\n\x06hostId\x18\x04 \x01(\t\x12\x11\n\treplicaId\x18\x05 \x01(\x05\x12\x10\n\x08kernelIp\x18\x06 \x01(\t\x12\x0f\n\x07podName\x18\x07 \x01(\t\x12\x10\n\x08nodeName\x18\x08 \x01(\t\"\xa1\x02\n&KernelRegistrationNotificationResponse\x12\n\n\x02id\x18\x01 \x01(\x05\x12O\n\x08replicas\x18\x02 \x03(\x0b\x32=.gateway.KernelRegistrationNotificationResponse.ReplicasEntry\x12\x19\n\x0cpersistentId\x18\x03 \x01(\tH\x00\x88\x01\x01\x12\x0f\n\x07smrPort\x18\x04 \x01(\x05\x12\x1a\n\rdataDirectory\x18\x05 \x01(\tH\x01\x88\x01\x01\x1a/\n\rReplicasEntry\x12\x0b\n\x03key\x18\x01 \x01(\x05\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\x42\x0f\n\r_persistentIdB\x10\n\x0e_dataDirectory\"\x1e\n\x0cKernelStatus\x12\x0e\n\x06status\x18\x01 \x01(\x05\"\x06\n\x04Void2\xeb\x03\n\x0e\x43lusterGateway\x12-\n\x02ID\x12\r.gateway.Void\x1a\x16.gateway.ProvisionerId\"\x00\x12.\n\nRemoveHost\x12\x0f.gateway.HostId\x1a\r.gateway.Void\"\x00\x12S\n\x14MigrateKernelReplica\x12\x19.gateway.MigrationRequest\x1a\x1e.gateway.MigrateKernelResponse\"\x00\x12t\n\x16NotifyKernelRegistered\x12\'.gateway.KernelRegistrationNotification\x1a/.gateway.KernelRegistrationNotificationResponse\"\x00\x12:\n\x08SmrReady\x12\x1d.gateway.SmrReadyNotification\x1a\r.gateway.Void\"\x00\x12\x35\n\x0cSmrNodeAdded\x12\x14.gateway.ReplicaInfo\x1a\r.gateway.Void\"\x00\x12<\n\x0bListKernels\x12\r.gateway.Void\x1a\x1c.gateway.ListKernelsResponse\"\x00\x32\xb8\x07\n\x0cLocalGateway\x12+\n\x05SetID\x12\x0f.gateway.HostId\x1a\x0f.gateway.HostId\"\x00\x12\x43\n\x0bStartKernel\x12\x13.gateway.KernelSpec\x1a\x1d.gateway.KernelConnectionInfo\"\x00\x12Q\n\x12StartKernelReplica\x12\x1a.gateway.KernelReplicaSpec\x1a\x1d.gateway.KernelConnectionInfo\"\x00\x12=\n\x0fGetKernelStatus\x12\x11.gateway.KernelId\x1a\x15.gateway.KernelStatus\"\x00\x12\x30\n\nKillKernel\x12\x11.gateway.KernelId\x1a\r.gateway.Void\"\x00\x12\x30\n\nStopKernel\x12\x11.gateway.KernelId\x1a\r.gateway.Void\"\x00\x12\x38\n\nWaitKernel\x12\x11.gateway.KernelId\x1a\x15.gateway.KernelStatus\"\x00\x12*\n\x08SetClose\x12\r.gateway.Void\x1a\r.gateway.Void\"\x00\x12;\n\nAddReplica\x12\x1c.gateway.ReplicaInfoWithAddr\x1a\r.gateway.Void\"\x00\x12\x42\n\x11UpdateReplicaAddr\x12\x1c.gateway.ReplicaInfoWithAddr\x1a\r.gateway.Void\"\x00\x12M\n\x10PrepareToMigrate\x12\x14.gateway.ReplicaInfo\x1a!.gateway.PrepareToMigrateResponse\"\x00\x12/\n\nGetGpuInfo\x12\r.gateway.Void\x1a\x10.gateway.GpuInfo\"\x00\x12:\n\x0eGetVirtualGPUs\x12\r.gateway.Void\x1a\x17.gateway.VirtualGpuInfo\"\x00\x12P\n\x13SetTotalVirtualGPUs\x12\x1e.gateway.SetVirtualGPUsRequest\x1a\x17.gateway.VirtualGpuInfo\"\x00\x12K\n\x18GetVirtualGpuAllocations\x12\r.gateway.Void\x1a\x1e.gateway.VirtualGpuAllocations\"\x00\x42\x82\x01\n7com.github.zhangjyr.distributed-notebook.common.gatewayB\x0cGatewayProtoP\x01Z7github.com/zhangjyr/distributed-notebook/common/gatewayb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -22,6 +22,8 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'gateway_pb2', _globals)
 if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['DESCRIPTOR']._options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n7com.github.zhangjyr.distributed-notebook.common.gatewayB\014GatewayProtoP\001Z7github.com/zhangjyr/distributed-notebook/common/gateway'
+  _globals['_VIRTUALGPUALLOCATIONS_ALLOCATIONSENTRY']._options = None
+  _globals['_VIRTUALGPUALLOCATIONS_ALLOCATIONSENTRY']._serialized_options = b'8\001'
   _globals['_KERNELREGISTRATIONNOTIFICATIONRESPONSE_REPLICASENTRY']._options = None
   _globals['_KERNELREGISTRATIONNOTIFICATIONRESPONSE_REPLICASENTRY']._serialized_options = b'8\001'
   _globals['_JUPYTERKERNELREPLICA']._serialized_start=26
@@ -36,48 +38,54 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['_HOSTSPEC']._serialized_end=440
   _globals['_HOSTID']._serialized_start=442
   _globals['_HOSTID']._serialized_end=462
-  _globals['_SETVIRTUALGPUSREQUEST']._serialized_start=464
-  _globals['_SETVIRTUALGPUSREQUEST']._serialized_end=502
-  _globals['_VIRTUALGPUINFO']._serialized_start=504
-  _globals['_VIRTUALGPUINFO']._serialized_end=601
-  _globals['_GPUINFO']._serialized_start=604
-  _globals['_GPUINFO']._serialized_end=795
-  _globals['_KERNELREPLICASPEC']._serialized_start=798
-  _globals['_KERNELREPLICASPEC']._serialized_end=970
-  _globals['_RESOURCESPEC']._serialized_start=972
-  _globals['_RESOURCESPEC']._serialized_end=1028
-  _globals['_KERNELID']._serialized_start=1030
-  _globals['_KERNELID']._serialized_end=1130
-  _globals['_REPLICAINFO']._serialized_start=1132
-  _globals['_REPLICAINFO']._serialized_end=1204
-  _globals['_MIGRATIONREQUEST']._serialized_start=1206
-  _globals['_MIGRATIONREQUEST']._serialized_end=1313
-  _globals['_SMRREADYNOTIFICATION']._serialized_start=1315
-  _globals['_SMRREADYNOTIFICATION']._serialized_end=1413
-  _globals['_REPLICAID']._serialized_start=1415
-  _globals['_REPLICAID']._serialized_end=1438
-  _globals['_PREPARETOMIGRATERESPONSE']._serialized_start=1440
-  _globals['_PREPARETOMIGRATERESPONSE']._serialized_end=1513
-  _globals['_MIGRATEKERNELRESPONSE']._serialized_start=1515
-  _globals['_MIGRATEKERNELRESPONSE']._serialized_end=1568
-  _globals['_REPLICAINFOWITHADDR']._serialized_start=1570
-  _globals['_REPLICAINFOWITHADDR']._serialized_end=1639
-  _globals['_KERNELSPEC']._serialized_start=1642
-  _globals['_KERNELSPEC']._serialized_end=1776
-  _globals['_KERNELCONNECTIONINFO']._serialized_start=1779
-  _globals['_KERNELCONNECTIONINFO']._serialized_end=1983
-  _globals['_KERNELREGISTRATIONNOTIFICATION']._serialized_start=1986
-  _globals['_KERNELREGISTRATIONNOTIFICATION']._serialized_end=2198
-  _globals['_KERNELREGISTRATIONNOTIFICATIONRESPONSE']._serialized_start=2201
-  _globals['_KERNELREGISTRATIONNOTIFICATIONRESPONSE']._serialized_end=2490
-  _globals['_KERNELREGISTRATIONNOTIFICATIONRESPONSE_REPLICASENTRY']._serialized_start=2408
-  _globals['_KERNELREGISTRATIONNOTIFICATIONRESPONSE_REPLICASENTRY']._serialized_end=2455
-  _globals['_KERNELSTATUS']._serialized_start=2492
-  _globals['_KERNELSTATUS']._serialized_end=2522
-  _globals['_VOID']._serialized_start=2524
-  _globals['_VOID']._serialized_end=2530
-  _globals['_CLUSTERGATEWAY']._serialized_start=2533
-  _globals['_CLUSTERGATEWAY']._serialized_end=3024
-  _globals['_LOCALGATEWAY']._serialized_start=3027
-  _globals['_LOCALGATEWAY']._serialized_end=3902
+  _globals['_VIRTUALGPUALLOCATIONS']._serialized_start=465
+  _globals['_VIRTUALGPUALLOCATIONS']._serialized_end=641
+  _globals['_VIRTUALGPUALLOCATIONS_ALLOCATIONSENTRY']._serialized_start=560
+  _globals['_VIRTUALGPUALLOCATIONS_ALLOCATIONSENTRY']._serialized_end=641
+  _globals['_VIRTUALGPUALLOCATION']._serialized_start=643
+  _globals['_VIRTUALGPUALLOCATION']._serialized_end=684
+  _globals['_SETVIRTUALGPUSREQUEST']._serialized_start=686
+  _globals['_SETVIRTUALGPUSREQUEST']._serialized_end=724
+  _globals['_VIRTUALGPUINFO']._serialized_start=726
+  _globals['_VIRTUALGPUINFO']._serialized_end=823
+  _globals['_GPUINFO']._serialized_start=826
+  _globals['_GPUINFO']._serialized_end=1017
+  _globals['_KERNELREPLICASPEC']._serialized_start=1020
+  _globals['_KERNELREPLICASPEC']._serialized_end=1192
+  _globals['_RESOURCESPEC']._serialized_start=1194
+  _globals['_RESOURCESPEC']._serialized_end=1250
+  _globals['_KERNELID']._serialized_start=1252
+  _globals['_KERNELID']._serialized_end=1352
+  _globals['_REPLICAINFO']._serialized_start=1354
+  _globals['_REPLICAINFO']._serialized_end=1426
+  _globals['_MIGRATIONREQUEST']._serialized_start=1428
+  _globals['_MIGRATIONREQUEST']._serialized_end=1535
+  _globals['_SMRREADYNOTIFICATION']._serialized_start=1537
+  _globals['_SMRREADYNOTIFICATION']._serialized_end=1635
+  _globals['_REPLICAID']._serialized_start=1637
+  _globals['_REPLICAID']._serialized_end=1660
+  _globals['_PREPARETOMIGRATERESPONSE']._serialized_start=1662
+  _globals['_PREPARETOMIGRATERESPONSE']._serialized_end=1735
+  _globals['_MIGRATEKERNELRESPONSE']._serialized_start=1737
+  _globals['_MIGRATEKERNELRESPONSE']._serialized_end=1790
+  _globals['_REPLICAINFOWITHADDR']._serialized_start=1792
+  _globals['_REPLICAINFOWITHADDR']._serialized_end=1861
+  _globals['_KERNELSPEC']._serialized_start=1864
+  _globals['_KERNELSPEC']._serialized_end=1998
+  _globals['_KERNELCONNECTIONINFO']._serialized_start=2001
+  _globals['_KERNELCONNECTIONINFO']._serialized_end=2205
+  _globals['_KERNELREGISTRATIONNOTIFICATION']._serialized_start=2208
+  _globals['_KERNELREGISTRATIONNOTIFICATION']._serialized_end=2420
+  _globals['_KERNELREGISTRATIONNOTIFICATIONRESPONSE']._serialized_start=2423
+  _globals['_KERNELREGISTRATIONNOTIFICATIONRESPONSE']._serialized_end=2712
+  _globals['_KERNELREGISTRATIONNOTIFICATIONRESPONSE_REPLICASENTRY']._serialized_start=2630
+  _globals['_KERNELREGISTRATIONNOTIFICATIONRESPONSE_REPLICASENTRY']._serialized_end=2677
+  _globals['_KERNELSTATUS']._serialized_start=2714
+  _globals['_KERNELSTATUS']._serialized_end=2744
+  _globals['_VOID']._serialized_start=2746
+  _globals['_VOID']._serialized_end=2752
+  _globals['_CLUSTERGATEWAY']._serialized_start=2755
+  _globals['_CLUSTERGATEWAY']._serialized_end=3246
+  _globals['_LOCALGATEWAY']._serialized_start=3249
+  _globals['_LOCALGATEWAY']._serialized_end=4201
 # @@protoc_insertion_point(module_scope)

@@ -3,6 +3,7 @@ package device
 import (
 	"errors"
 
+	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
@@ -44,6 +45,8 @@ type VirtualGpuPluginServer interface {
 	NumVirtualGPUs() int             // Return the total number of vGPUs.
 	NumAllocatedVirtualGPUs() int    // Return the number of vGPUs that are presently allocated.
 	NumFreeVirtualGPUs() int         // Return the number of vGPUs that are presently free/not allocated.
+
+	GetAllocations() map[string]*gateway.VirtualGpuAllocation // Return the map of allocations, which is Pod UID -> allocation.
 }
 
 // Implements the PodResourcesLister interface.
@@ -88,4 +91,8 @@ type ResourceManager interface {
 	// Return ErrDeviceAlreadyAllocated if the specified device is already marked as free.
 	// Otherwise, return nil.
 	FreeDevice(string) error
+
+	// Modify the total number of resources that are available.
+	// This will return an error if this value is less than the number of allocated devices.
+	SetTotalNumDevices(int32) error
 }

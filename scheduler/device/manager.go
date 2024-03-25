@@ -20,6 +20,11 @@ type resourceManagerImpl struct {
 	devices          Devices
 	allocatedDevices *orderedmap.OrderedMap[string, *Device]
 	freeDevices      *orderedmap.OrderedMap[string, *Device]
+
+	// The index of the largest device.
+	// The device with this index could be removed if the admin adjusts the number of devices that are available,
+	// in which case there would be no device that actually had this index.
+	largestDeviceIndex int
 }
 
 var (
@@ -44,6 +49,8 @@ func NewResourceManager(resource string, numVirtualGPUs int) ResourceManager {
 		m.devices.Insert(dev)
 		m.freeDevices.Set(dev.ID, dev)
 	}
+
+	m.largestDeviceIndex = int(numVirtualGPUs - 1)
 
 	m.log.Debug("ResourceManager has started with %d device(s).", m.devices.Size())
 
@@ -70,6 +77,18 @@ func (m *resourceManagerImpl) AllocateSpecificDevice(id string) error {
 	m.Lock()
 	defer m.Unlock()
 
+	return m.__allocateSpecificDeviceUnsafe(id)
+}
+
+// Allocate a specific Device identified by the device's ID.
+// This does the actual allocation.
+//
+// The lock MUST be held before calling this method.
+//
+// Returns ErrDeviceNotFound if the specified device cannot be found.
+// Return ErrDeviceAlreadyAllocated if the specified device is already marked as allocated.
+// Otherwise, return nil.
+func (m *resourceManagerImpl) __allocateSpecificDeviceUnsafe(id string) error {
 	device := m.devices.GetByID(id)
 
 	if device == nil {
@@ -87,6 +106,72 @@ func (m *resourceManagerImpl) AllocateSpecificDevice(id string) error {
 	}
 
 	return err
+}
+
+// Modify the total number of resources that are available.
+// This will return an error if this value is less than the number of allocated devices.
+func (m *resourceManagerImpl) SetTotalNumDevices(value int32) error {
+	m.Lock()
+	defer m.Unlock()
+
+	if value < int32(m.allocatedDevices.Len()) {
+		return ErrInvalidResourceAdjustment
+	}
+
+	if value >= int32(m.allocatedDevices.Len()) {
+		return m.__unsafeDecreaseTotalNumDevices(value)
+	} else {
+		return m.__unsafeIncreaseTotalNumDevices(value)
+	}
+}
+
+// Increase the total number of devices available.
+//
+// The lock MUST be held before calling this method.
+//
+// If `value` is greater than the current number of devices, then this panics.
+func (m *resourceManagerImpl) __unsafeDecreaseTotalNumDevices(value int32) error {
+	if value < int32(len(m.devices)) {
+		panic(fmt.Sprintf("cannot decrease number of devices from %d to %d (%d > %d)", len(m.devices), value, value, len(m.devices)))
+	}
+
+	numDevicesToRemove := int32(len(m.devices)) - value
+	if numDevicesToRemove == 0 {
+		// Nothing to do.
+		return nil
+	}
+
+	m.log.Debug("Removing %d device(s) so that there is a total of %d devices (current: %d).", numDevicesToRemove, value, int32(len(m.devices)))
+	return nil
+}
+
+// Decrease the total number of devices available.
+//
+// The lock MUST be held before calling this method.
+//
+// If `value` is less than the current number of devices, then this panics.
+func (m *resourceManagerImpl) __unsafeIncreaseTotalNumDevices(value int32) error {
+	if value > int32(len(m.devices)) {
+		panic(fmt.Sprintf("cannot increase number of devices from %d to %d (%d < %d)", len(m.devices), value, value, len(m.devices)))
+	}
+
+	numDevicesToCreate := value - int32(len(m.devices))
+	if numDevicesToCreate == 0 {
+		// Nothing to do.
+		return nil
+	}
+
+	m.log.Debug("Adding %d device(s) so that there is a total of %d devices (current: %d).", numDevicesToCreate, value, int32(len(m.devices)))
+	var i int32
+	deviceIndex := m.largestDeviceIndex + 1
+	for i = 0; i < numDevicesToCreate; i++ {
+		dev := BuildDevice(deviceIndex)
+		m.devices.Insert(dev)
+		m.freeDevices.Set(dev.ID, dev)
+
+		deviceIndex += 1
+	}
+	return nil
 }
 
 // Allocate n devices. The allocation is performed all at once.
@@ -111,7 +196,7 @@ func (m *resourceManagerImpl) AllocateDevices(n int) ([]string, []*pluginapi.Dev
 
 	// Allocate each individual device.
 	for _, deviceID := range allocatedDeviceIDs {
-		err := m.AllocateSpecificDevice(deviceID)
+		err := m.__allocateSpecificDeviceUnsafe(deviceID)
 		if err != nil {
 			errorMessage := fmt.Sprintf("Failed to allocate device %s: %v", deviceID, err)
 			m.log.Error(errorMessage)

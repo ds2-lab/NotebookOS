@@ -15,8 +15,8 @@ var (
 
 type Device struct {
 	pluginapi.Device
-	Index     int
-	Allocated bool
+	Index     int  `json:"index"`
+	Allocated bool `json:"allocated"`
 }
 
 // Return an error (ErrDeviceAlreadyAllocated) if the device is already marked as allocated.
