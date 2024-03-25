@@ -68,6 +68,10 @@ spec:
               value: "{{ .Values.common.config_file_dir }}"
             - name: IPYTHON_CONFIG_PATH
               value: {{ .Values.common.ipython_config_path }}
+            - name: NODE_NAME # The full name of the Node.
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name 
       restartPolicy: Always
       serviceAccountName: gateway-service-account
       volumes:

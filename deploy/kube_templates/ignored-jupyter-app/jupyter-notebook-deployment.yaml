@@ -36,6 +36,10 @@ spec:
             - mountPath: /home/jovyan/distibuted-notebook
               name: jupyter-notebook-claim1
           env:
+            - name: NODE_NAME # The full name of the Node.
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name 
             - name: JUPYTER_ALLOW_INSECURE_WRITES
               value: "true"
       restartPolicy: Always

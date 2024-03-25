@@ -15,6 +15,8 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
@@ -29,30 +31,47 @@ const (
 	deviceListEnvvar = "VISIBLE_VGPU_DEVICES"
 )
 
-type virtualGpuPluginServerImpl struct {
-	srv             *grpc.Server
-	socketFile      string // Fully-qualified path.
-	opts            *VirtualGpuPluginServerOptions
-	log             logger.Logger
-	resourceManager ResourceManager
-	stop            chan interface{}
+var (
+	ErrInvalidValue = errors.New("the number of virtual GPUs cannot be decreased below the number of already-allocated virtual GPUs")
+)
 
-	VirtualGPUs int
+type allocation struct {
+	DeviceIDs []string `json:"device_ids"`
 }
 
-func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions) VirtualGpuPluginServer {
+type virtualGpuPluginServerImpl struct {
+	srv        *grpc.Server
+	socketFile string // Fully-qualified path.
+	opts       *VirtualGpuPluginServerOptions
+	log        logger.Logger
+
+	allocator *virtualGpuAllocator
+}
+
+func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName string) VirtualGpuPluginServer {
 	socketFile := filepath.Join(opts.DevicePluginPath, vgpuSocketName)
 
 	server := &virtualGpuPluginServerImpl{
 		srv:        grpc.NewServer(),
 		socketFile: socketFile,
 		opts:       opts,
-		stop:       make(chan interface{}),
+		allocator:  newVirtualGpuAllocator(opts, nodeName),
 	}
 
-	config.InitLogger(&server.log, server)
+	kubeConfig, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
 
-	server.resourceManager = NewResourceManager(server.ResourceName(), opts.NumVirtualGPUs)
+	// Creates the Clientset.
+	clientset, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	NewPodCache(clientset, nodeName)
+
+	config.InitLogger(&server.log, server)
 
 	return server
 }
@@ -66,7 +85,22 @@ func (v *virtualGpuPluginServerImpl) getDevicePluginOptions() *pluginapi.DeviceP
 }
 
 func (v *virtualGpuPluginServerImpl) apiDevices() []*pluginapi.Device {
-	return v.resourceManager.Devices().GetPluginDevices()
+	return v.allocator.apiDevices()
+}
+
+// Return the total number of vGPUs.
+func (v *virtualGpuPluginServerImpl) NumVirtualGPUs() int {
+	return v.allocator.numVirtualGPUs()
+}
+
+// Return the number of vGPUs that are presently allocated.
+func (v *virtualGpuPluginServerImpl) NumAllocatedVirtualGPUs() int {
+	return v.allocator.numAllocatedVirtualGPUs()
+}
+
+// Return the number of vGPUs that are presently free/not allocated.
+func (v *virtualGpuPluginServerImpl) NumFreeVirtualGPUs() int {
+	return v.allocator.numFreeVirtualGPUs()
 }
 
 func (v *virtualGpuPluginServerImpl) SocketName() string {
@@ -84,9 +118,9 @@ func (v *virtualGpuPluginServerImpl) ResourceName() string {
 func (v *virtualGpuPluginServerImpl) Stop() {
 	v.log.Warn("Stopping Virtual GPU resource server.")
 	klog.Warning("Stopping Virtual GPU resource server.")
+	podCache.stopChan <- struct{}{} // Stop the Pod WatchDog.
 	v.srv.Stop()
-	close(v.stop)
-	v.stop = nil
+	v.allocator.stop()
 
 	v.log.Warn("Virtual GPU resource server has stopped.")
 	klog.Warning("Virtual GPU resource server has stopped.")
@@ -210,108 +244,20 @@ func (v *virtualGpuPluginServerImpl) watchDevicePluginSocket() error {
 	}
 }
 
+// Set the total number of vGPUs to a new value.
+// This will return an error if the specified value is less than the number of currently-allocated vGPUs.
+func (v *virtualGpuPluginServerImpl) SetTotalVirtualGPUs(value int32) error {
+	return v.allocator.setTotalVirtualGPUs(value)
+}
+
 /** DevicePlugin implementation. */
 
 // Allocate is called during container creation so that the Device
 // Plugin can run device specific operations and instruct Kubelet
 // of the steps to make the Device available in the container
 func (v *virtualGpuPluginServerImpl) Allocate(ctx context.Context, req *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
-	v.log.Info("virtualGpuPluginServerImpl::Allocate called. Request: %v", req)
-	klog.V(2).Infof("%+v allocation request for vcore", req)
-
-	responses := pluginapi.AllocateResponse{}
-
-	// for _, req := range req.ContainerRequests {
-	// 	for _, id := range req.DevicesIDs {
-	// 		v.log.Info("Checking if we have device %s now.", id)
-	// 		klog.V(2).Infof("Checking if we have device %s now.", id)
-
-	// 		if !v.resourceManager.Devices().Contains(id) {
-	// 			v.log.Error("We do NOT have a vGPU device with ID=%s.", id)
-	// 			klog.V(2).Infof("We do NOT have a vGPU device with ID=%s.", id)
-	// 			return nil, fmt.Errorf("invalid allocation request for '%s': unknown device: %s", v.resourceManager.Resource(), id)
-	// 		}
-	// 	}
-
-	// 	response, err := v.getAllocateResponse(req.DevicesIDs)
-	// 	if err != nil {
-	// 		return nil, fmt.Errorf("failed to get allocate response: %v", err)
-	// 	}
-
-	// 	responses.ContainerResponses = append(responses.ContainerResponses, response)
-	// }
-
-	for range req.ContainerRequests {
-		responses.ContainerResponses = append(responses.ContainerResponses, &pluginapi.ContainerAllocateResponse{
-			Devices: []*pluginapi.DeviceSpec{
-				{
-					// We use "/dev/fuse" for these virtual devices.
-					ContainerPath: "/dev/fuse",
-					HostPath:      "/dev/fuse",
-					Permissions:   "mrw",
-				},
-			},
-		})
-	}
-
-	v.log.Info("Returning the following value from virtualGpuPluginServerImpl::Allocate: %v", responses)
-	klog.V(2).Infof("Returning the following value from virtualGpuPluginServerImpl::Allocate: %v", responses)
-	return &responses, nil
+	return v.allocator.allocate(ctx, req)
 }
-
-// func (v *virtualGpuPluginServerImpl) getAllocateResponse(requestIds []string) (*pluginapi.ContainerAllocateResponse, error) {
-// 	deviceIDs := v.resourceManager.Devices().Subset(requestIds).GetIndices()
-
-// 	response := pluginapi.ContainerAllocateResponse{}
-
-// 	// All Dummy values. Don't mean anything. Virtual GPUs don't really exist.
-// 	response.Envs = v.apiEnvs(deviceListEnvvar, []string{deviceListAsVolumeMountsContainerPathRoot})
-// 	response.Mounts = v.apiMounts(deviceIDs)
-// 	response.Devices = v.apiDeviceSpecs(requestIds)
-
-// 	return &response, nil
-// }
-
-// getAllocateResponseForCDI returns the allocate response for the specified device IDs.
-// This response contains the annotations required to trigger CDI injection in the container engine or nvidia-container-runtime.
-// func (v *virtualGpuPluginServerImpl) getAllocateResponseForCDI(responseID string, deviceIDs []string) (pluginapi.ContainerAllocateResponse, error) {
-// 	response := pluginapi.ContainerAllocateResponse{}
-// 	return response, nil
-// }
-
-// func (v *virtualGpuPluginServerImpl) apiDeviceSpecs(ids []string) []*pluginapi.DeviceSpec {
-// 	var specs []*pluginapi.DeviceSpec
-// 	for _, id := range ids {
-// 		spec := &pluginapi.DeviceSpec{
-// 			ContainerPath: id, // Dummy values. Don't mean anything. Virtual GPUs don't really exist.
-// 			HostPath:      id, // Dummy values. Don't mean anything. Virtual GPUs don't really exist.
-// 			Permissions:   "rw",
-// 		}
-// 		specs = append(specs, spec)
-// 	}
-
-// 	return specs
-// }
-
-// func (v *virtualGpuPluginServerImpl) apiMounts(deviceIndices []int) []*pluginapi.Mount {
-// 	var mounts []*pluginapi.Mount
-
-// 	for _, idx := range deviceIndices {
-// 		mount := &pluginapi.Mount{
-// 			HostPath:      deviceListAsVolumeMountsHostPath,                                                 // Dummy values. Don't mean anything. Virtual GPUs don't really exist.
-// 			ContainerPath: filepath.Join(deviceListAsVolumeMountsContainerPathRoot, fmt.Sprintf("%d", idx)), // Dummy values. Don't mean anything. Virtual GPUs don't really exist.
-// 		}
-// 		mounts = append(mounts, mount)
-// 	}
-
-// 	return mounts
-// }
-
-// func (v *virtualGpuPluginServerImpl) apiEnvs(envvar string, deviceIDs []string) map[string]string {
-// 	return map[string]string{
-// 		envvar: strings.Join(deviceIDs, ","),
-// 	}
-// }
 
 // ListAndWatch returns a stream of List of Devices
 // Whenever a Device state change or a Device disappears, ListAndWatch
@@ -329,6 +275,7 @@ func (v *virtualGpuPluginServerImpl) ListAndWatch(e *pluginapi.Empty, s pluginap
 		time.Sleep(time.Second)
 	}
 
+	v.log.Debug("ListAndWatch exiting.")
 	klog.V(2).Info("ListAndWatch exiting.")
 	return nil
 }

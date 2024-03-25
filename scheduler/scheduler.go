@@ -110,9 +110,12 @@ func main() {
 	// 	opts = append(opts, tlsopt)
 	// }
 
+	nodeName := os.Getenv("NODE_NAME")
+	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName)
+
 	// Initialize grpc server
 	srv := grpc.NewServer(gOpts...)
-	scheduler := daemon.New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort)
+	scheduler := daemon.New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort, devicePluginServer, nodeName)
 	gateway.RegisterLocalGatewayServer(srv, scheduler)
 
 	// Initialize gRPC listener
@@ -175,8 +178,6 @@ func main() {
 		logger.Info("Successfully registered in consul")
 	}
 
-	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions)
-
 	// Start detecting stop signals
 	done.Add(1)
 	go func() {
@@ -219,7 +220,7 @@ func main() {
 
 					// Recreate the DevicePlugin server.
 					log.Println("Recreating the DevicePlugin server now.")
-					devicePluginServer = device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions)
+					devicePluginServer = device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName)
 				} else {
 					log.Fatalf("Error during device plugin serving: %v", err)
 				}

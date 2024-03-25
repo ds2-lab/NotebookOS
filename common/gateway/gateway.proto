@@ -109,6 +109,12 @@ service LocalGateway {
 
   // Return the current GPU resource metrics on the node.
   rpc GetGpuInfo(Void) returns (GpuInfo) {}
+
+  // Return the current vGPU (or "deflated GPU") resource metrics on the node.
+  rpc GetVirtualGPUs(Void) returns (VirtualGpuInfo) {}
+
+  // Set the maximum number of vGPU resources availabe on the node.
+  rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
 }
 
 // message GetKubernetesNodesResponse {
@@ -127,6 +133,17 @@ service LocalGateway {
 //   float allocatedGPUs = 9;
 //   float allocatedVGPUs = 10;
 // }
+
+message SetVirtualGPUsRequest {
+  int32 value = 1;
+}
+
+// Encapsulates the current vGPU (or "deflated GPU") resource usage on a paritcular node. 
+message VirtualGpuInfo {
+  int32 totalVirtualGPUs = 1;
+  int32 allocatedVirtualGPUs = 2;
+  int32 freeVirtualGPUs = 3;
+}
 
 // Encapsulates the current GPU resource usage on a paritcular node. 
 message GpuInfo {

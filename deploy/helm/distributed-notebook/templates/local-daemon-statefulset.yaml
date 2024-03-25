@@ -138,7 +138,7 @@ spec:
         env:
           - name: NUM_RESOURCE_PORTS
             value: "{{ printf "%d" (div .Values.local_daemon.max_actual_gpu_per_node .Values.local_daemon.gpu_allocation_granularity ) }}"
-          - name: NODE_NAME # The full name of the Pod.
+          - name: NODE_NAME # The full name of the Node.
             valueFrom:
               fieldRef:
                 fieldPath: metadata.name 

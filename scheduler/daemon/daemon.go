@@ -29,6 +29,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 
+	"github.com/zhangjyr/distributed-notebook/scheduler/device"
 	"github.com/zhangjyr/distributed-notebook/scheduler/invoker"
 )
 
@@ -91,7 +92,10 @@ func (o SchedulerDaemonOptions) String() string {
 // TODO: Synchronize resource status using replica network (e.g., control socket). Synchoronization message should load-balance between replicas mapped the same host.
 type SchedulerDaemon struct {
 	// Options
-	id string
+	id       string
+	nodeName string
+
+	virtualGpuPluginServer device.VirtualGpuPluginServer
 
 	schedulingPolicy string
 	gateway.UnimplementedLocalGatewayServer
@@ -151,12 +155,13 @@ type KernelRegistrationClient struct {
 	conn net.Conn
 }
 
-func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *SchedulerDaemonOptions, kernelRegistryPort int, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
+func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *SchedulerDaemonOptions, kernelRegistryPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
 	ip := os.Getenv("POD_IP")
 	daemon := &SchedulerDaemon{
 		connectionOptions:  connectionOptions,
 		transport:          "tcp",
 		ip:                 ip,
+		nodeName:           nodeName,
 		kernels:            hashmap.NewCornelkMap[string, *client.KernelClient](1000),
 		availablePorts:     utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
 		closed:             make(chan struct{}),
@@ -1025,6 +1030,42 @@ func (d *SchedulerDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err 
 	}
 
 	return header.Session, true, nil
+}
+
+func (d *SchedulerDaemon) GetVirtualGPUs(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuInfo, error) {
+	response := &gateway.VirtualGpuInfo{
+		TotalVirtualGPUs:     int32(d.virtualGpuPluginServer.NumVirtualGPUs()),
+		AllocatedVirtualGPUs: int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()),
+		FreeVirtualGPUs:      int32(d.virtualGpuPluginServer.NumFreeVirtualGPUs()),
+	}
+
+	return response, nil
+}
+
+// Adjust the total number of virtual GPUs available on this node.
+// This operation will fail if the new number of virtual GPUs is less than the number of allocated GPUs.
+// For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
+// this function is called with the new total number specified as 32, then the operation will fail.
+// In this case (when the operation fails), an ErrInvalidParameter is returned.
+func (d *SchedulerDaemon) SetTotalVirtualGPUs(ctx context.Context, in *gateway.SetVirtualGPUsRequest) (*gateway.VirtualGpuInfo, error) {
+	newNumVirtualGPUs := in.GetValue()
+	if newNumVirtualGPUs < int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()) {
+		response := &gateway.VirtualGpuInfo{
+			TotalVirtualGPUs:     int32(d.virtualGpuPluginServer.NumVirtualGPUs()),
+			AllocatedVirtualGPUs: int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()),
+			FreeVirtualGPUs:      int32(d.virtualGpuPluginServer.NumFreeVirtualGPUs()),
+		}
+
+		return response, fmt.Errorf("ErrInvalidParameter %w : cannot decrease the total number of vGPUs below the number of allocated vGPUs", ErrInvalidParameter)
+	}
+
+	response, err := d.GetVirtualGPUs(ctx, &gateway.Void{})
+	if err != nil {
+		d.log.Error("Unexpected error while getting the new virtual GPU info: %v", err)
+		return nil, err
+	}
+
+	return response, nil
 }
 
 // Convert the given message to a "yield_execute" message.

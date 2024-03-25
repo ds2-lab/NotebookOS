@@ -1,10 +1,16 @@
 package device
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+)
+
+var (
+	ErrDeviceAlreadyAllocated = errors.New("device is already marked as allocated")
+	ErrDeviceAlreadyFree      = errors.New("device is already marked as free")
 )
 
 // Devices wraps a map[string]*Device with some functions.
@@ -12,7 +18,39 @@ type Devices map[string]*Device
 
 type Device struct {
 	pluginapi.Device
-	Index int
+	Index     int
+	Allocated bool
+}
+
+// Alias for length.
+func (d *Devices) Size() int {
+	return len(*d)
+}
+
+func (d *Devices) Length() int {
+	return len(*d)
+}
+
+// Return an error (ErrDeviceAlreadyAllocated) if the device is already marked as allocated.
+// Otherwise, return nil.
+func (d *Device) MarkAllocated() error {
+	if d.Allocated {
+		return ErrDeviceAlreadyAllocated
+	}
+
+	d.Allocated = true
+	return nil
+}
+
+// Return an error (ErrDeviceAlreadyFree) if the device is already marked as free.
+// Otherwise, return nil.
+func (d *Device) MarkFree() error {
+	if !d.Allocated {
+		return ErrDeviceAlreadyFree
+	}
+
+	d.Allocated = false
+	return nil
 }
 
 func (d *Device) String() string {
@@ -21,7 +59,10 @@ func (d *Device) String() string {
 
 func BuildDevice(index int) *Device {
 	dev := Device{}
-	dev.ID = uuid.New().String()
+	deviceUuid := uuid.New().String()
+	deviceId := fmt.Sprintf("Virtual-GPU-%d", index)
+	dev.ID = fmt.Sprintf("%s-%s", deviceId, deviceUuid[0:36-len(deviceId)]) // This will be problematic if the index is a number with ~35 digits.
+
 	dev.Index = index
 	dev.Health = pluginapi.Healthy
 
@@ -30,6 +71,10 @@ func BuildDevice(index int) *Device {
 
 func (ds Devices) Insert(device *Device) {
 	ds[device.ID] = device
+}
+
+func (ds Devices) Remove(device *Device) {
+	delete(ds, device.ID)
 }
 
 // Contains checks if Devices contains devices matching all ids.

@@ -1,10 +1,14 @@
 package device
 
-import "errors"
+import (
+	"errors"
+
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+)
 
 const (
-	VDeviceAnnotation = "ds2-lab.github.io/deflated-gpu"
-	GPUAssigned       = "ds2-lab.github.io/gpu-assigned"
+	VDeviceAnnotation  = "ds2-lab.github.io/deflated-gpu"
+	VirtualGPUAssigned = "ds2-lab.github.io/gpu-assigned"
 
 	ClusterNameAnnotation = "clusterName"
 
@@ -12,8 +16,20 @@ const (
 )
 
 var (
-	ErrSocketDeleted = errors.New("DevicePlugin Socket deleted.")
+	ErrSocketDeleted = errors.New("the DevicePlugin Socket has been deleted")
 )
+
+type Allocator interface {
+	// Allocate allows the plugin to replace the server Allocate(). Plugin can return
+	// UseDefaultAllocateMethod if the default server allocation is anyhow preferred
+	// for the particular allocation request.
+	Allocate(*pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error)
+}
+
+type PreferredAllocator interface {
+	// GetPreferredAllocation defines the list of devices preferred for allocating next.
+	GetPreferredAllocation(*pluginapi.PreferredAllocationRequest) (*pluginapi.PreferredAllocationResponse, error)
+}
 
 // Implements the DevicePlugin interface.
 // https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins/#device-plugin-implementation
@@ -23,6 +39,11 @@ type VirtualGpuPluginServer interface {
 	SocketName() string   // Returns just the name of the device plugin socket.
 	SocketFile() string   // Returns fully-qualified path to device plugin socket file.
 	ResourceName() string // The name of the resource made available by this plugin.
+
+	SetTotalVirtualGPUs(int32) error // Set the total number of vGPUs to a new value. This will return an error if the specified value is less than the number of currently-allocated vGPUs.
+	NumVirtualGPUs() int             // Return the total number of vGPUs.
+	NumAllocatedVirtualGPUs() int    // Return the number of vGPUs that are presently allocated.
+	NumFreeVirtualGPUs() int         // Return the number of vGPUs that are presently free/not allocated.
 }
 
 // Implements the PodResourcesLister interface.
@@ -36,6 +57,28 @@ type VirtualGpuListerServer interface {
 }
 
 type ResourceManager interface {
+	// Return the name of the resource managed by this instance of ResourceManager.
 	Resource() string
+
+	// Return all of the devices.
 	Devices() Devices
+
+	// Return the total number of devices.
+	NumDevices() int
+
+	// The number of currently-allocated devices.
+	NumAllocatedDevices() int
+
+	// The number of free, unallocated devices.
+	NumFreeDevices() int
+
+	// Returns ErrDeviceNotFound if the specified device cannot be found.
+	// Return ErrDeviceAlreadyAllocated if the specified device is already marked as allocated.
+	// Otherwise, return nil.
+	AllocateDevice(string) error
+
+	// Returns ErrDeviceNotFound if the specified device cannot be found.
+	// Return ErrDeviceAlreadyAllocated if the specified device is already marked as free.
+	// Otherwise, return nil.
+	FreeDevice(string) error
 }

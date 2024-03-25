@@ -25,15 +25,15 @@ type KubeClient interface {
 	GetKubernetesNodes() ([]corev1.Node, error)
 
 	// Return the node with the given name, or nil of that node cannot be found.
-	GetKubernetesNode() (*corev1.Node, error)
-	
+	GetKubernetesNode(string) (*corev1.Node, error)
+
 	// Add the specified label to the specified node.
 	// Returns nil on success; otherwise, returns an error.
-	AddLabelToNode(nodeId string, labelKey string, labelValue string) error
+	// AddLabelToNode(nodeId string, labelKey string, labelValue string) error
 
 	// Remove the specified label from the specified node.
 	// Returns nil on success; otherwise, returns an error.
-	RemoveLabelFromNode(nodeId string, labelKey string, labelValue string) error
+	// RemoveLabelFromNode(nodeId string, labelKey string, labelValue string) error
 
 	// Scale-up a CloneSet by increasing its number of replicas by 1.
 	// Accepts as a parameter a chan string that can be used to wait until the new Pod has been created.
