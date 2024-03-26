@@ -1,28 +1,26 @@
 package device
 
 import (
-	"context"
+	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+)
+
+var (
+	ErrAllocationNotFound = errors.New("could not find an allocation associated with the specified pod")
 )
 
 type virtualGpuAllocatorImpl struct {
@@ -113,17 +111,17 @@ func (v *virtualGpuAllocatorImpl) apiDevices() []*pluginapi.Device {
 }
 
 // Return the total number of vGPUs.
-func (v *virtualGpuAllocatorImpl) numVirtualGPUs() int {
+func (v *virtualGpuAllocatorImpl) NumVirtualGPUs() int {
 	return v.resourceManager.NumDevices()
 }
 
 // Return the number of vGPUs that are presently allocated.
-func (v *virtualGpuAllocatorImpl) numAllocatedVirtualGPUs() int {
+func (v *virtualGpuAllocatorImpl) NumAllocatedVirtualGPUs() int {
 	return v.resourceManager.NumAllocatedDevices()
 }
 
 // Return the number of vGPUs that are presently free/not allocated.
-func (v *virtualGpuAllocatorImpl) numFreeVirtualGPUs() int {
+func (v *virtualGpuAllocatorImpl) NumFreeVirtualGPUs() int {
 	return v.resourceManager.NumFreeDevices()
 }
 
@@ -134,11 +132,11 @@ func (v *virtualGpuAllocatorImpl) stop() {
 
 // Set the total number of vGPUs to a new value.
 // This will return an error if the specified value is less than the number of currently-allocated vGPUs.
-func (v *virtualGpuAllocatorImpl) setTotalVirtualGPUs(value int32) error {
+func (v *virtualGpuAllocatorImpl) SetTotalVirtualGPUs(value int32) error {
 	v.Lock()
 	defer v.Unlock()
 
-	if value < int32(v.numAllocatedVirtualGPUs()) {
+	if value < int32(v.NumAllocatedVirtualGPUs()) {
 		return ErrInvalidResourceAdjustment
 	}
 
@@ -156,13 +154,13 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 	// Requests are always sent one-at-a-time.
 	var request *pluginapi.ContainerAllocateRequest = req.ContainerRequests[0]
 
-	v.log.Info("virtualGpuPluginServerImpl::Allocate called. %d vGPU(s) requested.", len(request.DevicesIDs))
+	v.log.Debug("virtualGpuPluginServerImpl::Allocate called. %d vGPU(s) requested.", len(request.DevicesIDs))
 	klog.V(2).Infof("virtualGpuPluginServerImpl::Allocate called. %d vGPU(s) requested.", len(request.DevicesIDs))
 
 	v.clearTerminatedPods()
 	var candidatePod *corev1.Pod
 
-	candidatePods, err := getCandidatePodsForAllocation(v.kubeClient, v.nodeName)
+	candidatePods, err := v.getCandidatePodsForAllocation()
 	if err != nil {
 		errorMessage := fmt.Sprintf("Failed to retrieve candidate pods for allocation because: %v", err)
 		v.log.Error(errorMessage)
@@ -190,7 +188,7 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 		// Allocate resources to the Pod.
 		resp, err := v.doAllocate(numVirtualGPUsRequested, candidatePod)
 
-		if err != nil {
+		if err == nil {
 			responses := &pluginapi.AllocateResponse{
 				ContainerResponses: []*pluginapi.ContainerAllocateResponse{resp},
 			}
@@ -204,7 +202,7 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 			return nil, fmt.Errorf(errorMessage)
 		}
 	} else {
-		errorMessage := fmt.Sprintf("could not find candidate Pod for request %v, allocation failed.", request)
+		errorMessage := fmt.Sprintf("could not find candidate Pod for request for %d vGPUs, allocation failed.", len(request.DevicesIDs))
 		v.log.Error(errorMessage)
 		klog.Error(errorMessage)
 		return nil, fmt.Errorf(errorMessage)
@@ -213,9 +211,13 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 
 // This actually performs the allocation of GPUs to a particular pod.
 func (v *virtualGpuAllocatorImpl) doAllocate(vgpusRequired int32, candidatePod *corev1.Pod) (*pluginapi.ContainerAllocateResponse, error) {
+	v.log.Debug("Allocating %d vGPU(s) to Pod %s(%s) now.", vgpusRequired, candidatePod.UID, candidatePod.Name)
+	klog.V(2).Infof("Allocating %d vGPU(s) to Pod %s(%s) now.", vgpusRequired, candidatePod.UID, candidatePod.Name)
 	allocatedDeviceIDs, deviceSpecs, err := v.resourceManager.AllocateDevices(int(vgpusRequired))
 
 	if err != nil {
+		v.log.Error("Failed to allocate %d vGPU(s) to Pod %s(%s) because: %v", vgpusRequired, candidatePod.UID, candidatePod.Name, err)
+		klog.Errorf("Failed to allocate %d vGPU(s) to Pod %s(%s) because: %v", vgpusRequired, candidatePod.UID, candidatePod.Name, err)
 		return nil, err
 	}
 
@@ -230,7 +232,31 @@ func (v *virtualGpuAllocatorImpl) doAllocate(vgpusRequired int32, candidatePod *
 		Devices: deviceSpecs,
 	}
 
+	v.log.Debug("Successfully allocated %d vGPU(s) to Pod %s(%s).", vgpusRequired, candidatePod.UID, candidatePod.Name)
+	klog.V(2).Infof("Successfully allocated %d vGPU(s) to Pod %s(%s).", vgpusRequired, candidatePod.UID, candidatePod.Name)
+
 	return response, nil
+}
+
+// Return the number of individual allocations.
+func (v *virtualGpuAllocatorImpl) NumAllocations() int {
+	return len(v.allocations)
+}
+
+// Return the ResourceManager used by the Allocator.
+func (v *virtualGpuAllocatorImpl) ResourceManager() ResourceManager {
+	return v.resourceManager
+}
+
+// Return an allocation for a particular pod identified by its UID.
+// Returns an `ErrAllocationNotFound` error if no allocation is found.
+func (v *virtualGpuAllocatorImpl) GetAllocationForPod(podUID string) (*gateway.VirtualGpuAllocation, error) {
+	allocation, ok := v.allocations[podUID]
+	if !ok {
+		return nil, ErrAllocationNotFound
+	}
+
+	return allocation, nil
 }
 
 // This returns GPU resources that were allocated to Pods that have since been terminated.
@@ -275,18 +301,25 @@ func (v *virtualGpuAllocatorImpl) clearTerminatedPods() {
 }
 
 // Return the Pods that may be the target of an allocation request (that was just received).
-func getCandidatePodsForAllocation(kubeClient kubernetes.Interface, nodeName string) ([]*corev1.Pod, error) {
+func (v *virtualGpuAllocatorImpl) getCandidatePodsForAllocation() ([]*corev1.Pod, error) {
+	v.log.Debug("Getting candidate Pods for new allocation request now...")
+
 	candidatePods := []*corev1.Pod{}
-	allPods, err := getPodsRunningOnNode(kubeClient, nodeName, string(corev1.PodPending))
+	allPods, err := v.podCache.GetPodsRunningOnNode(v.nodeName, string(corev1.PodPending))
 	if err != nil {
-		klog.Errorf("Failed to get Pods running on node %s because: %v", nodeName, err)
+		klog.Errorf("Failed to get Pods running on node %s because: %v", v.nodeName, err)
 		return candidatePods, err
 	}
 
+	v.log.Debug("Found %d pod(s) running on node %s.", len(allPods), v.nodeName)
+	klog.V(1).Infof("Found %d pod(s) running on node %s.", len(allPods), v.nodeName)
 	for _, pod := range allPods {
 		current := pod
 		if podRequiresVirtualGPUs(&current) && !podHasVirtualGPUsAllocated(&current) {
 			candidatePods = append(candidatePods, &current)
+		} else {
+			v.log.Debug("Pod %s(%s) does not require vGPUs.", pod.UID, pod.Name)
+			klog.V(1).Infof("Pod %s(%s) does not require vGPUs.", pod.UID, pod.Name)
 		}
 	}
 
@@ -297,50 +330,7 @@ func getCandidatePodsForAllocation(kubeClient kubernetes.Interface, nodeName str
 			getCreationTimeOfPod(pod))
 	}
 
+	v.log.Debug("Found %d pod(s) for new allocation request.", len(candidatePods))
+
 	return sortPodsByCreationTime(candidatePods), nil
-}
-
-// Return the Pods running on the specified node.
-// Optionally return only the Pods in a particular phase by passing a pod phase via the `podPhase` parameter.
-// If you do not want to restrict the Pods to any particular phase, then pass the empty string for the `podPhase` parameter.
-func getPodsRunningOnNode(kubeClient kubernetes.Interface, nodeName string, podPhase string) ([]corev1.Pod, error) {
-	if nodeName == "" {
-		nodeName, _ = os.Hostname()
-	}
-
-	var pods []corev1.Pod
-	var selector fields.Selector
-
-	if podPhase == "" {
-		selector = fields.SelectorFromSet(fields.Set{
-			"spec.nodeName": nodeName,
-		})
-	} else {
-		selector = fields.SelectorFromSet(fields.Set{
-			"spec.nodeName": nodeName,
-			"status.phase":  podPhase,
-		})
-	}
-
-	deadline := time.Minute
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), deadline)
-	defer deadlineCancel()
-	err := wait.PollUntilContextTimeout(deadlineCtx, time.Second, deadline, true, func(ctx context.Context) (bool, error) {
-		podList, err := kubeClient.CoreV1().Pods(corev1.NamespaceAll).List(ctx, metav1.ListOptions{
-			FieldSelector: selector.String(),
-			LabelSelector: labels.Everything().String(),
-		})
-		if err != nil {
-			return false, err
-		} else {
-			pods = podList.Items
-		}
-		return true, nil
-	})
-
-	if err != nil {
-		return pods, fmt.Errorf("failed to retrieve list of Pods running on node %s because: %v", nodeName, err)
-	}
-
-	return pods, nil
 }

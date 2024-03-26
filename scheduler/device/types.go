@@ -23,11 +23,28 @@ var (
 	ErrSocketDeleted = errors.New("the DevicePlugin Socket has been deleted")
 )
 
+// Performs allocations on behalf of a VirtualGpuPluginServer.
 type Allocator interface {
 	// Allocate allows the plugin to replace the server Allocate(). Plugin can return
 	// UseDefaultAllocateMethod if the default server allocation is anyhow preferred
 	// for the particular allocation request.
 	Allocate(*pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error)
+
+	// Return the ResourceManager used by the Allocator.
+	ResourceManager() ResourceManager
+
+	// Set the total number of vGPUs to a new value.
+	// This will return an error if the specified value is less than the number of currently-allocated vGPUs.
+	SetTotalVirtualGPUs(int32) error
+
+	NumVirtualGPUs() int          // Return the total number of vGPUs.
+	NumAllocatedVirtualGPUs() int // Return the number of vGPUs that are presently allocated.
+	NumFreeVirtualGPUs() int      // Return the number of vGPUs that are presently free/not allocated.
+	NumAllocations() int          // Return the number of individual allocations.
+
+	// Return an allocation for a particular pod identified by its UID.
+	// Returns an `ErrAllocationNotFound` error if no allocation is found.
+	GetAllocationForPod(string) (*gateway.VirtualGpuAllocation, error)
 }
 
 type PreferredAllocator interface {
@@ -69,6 +86,7 @@ type VirtualGpuListerServer interface {
 	ResourceName() string // The name of the resource made available by this plugin.
 }
 
+// Performs low-level device allocations on behalf of an Allocator.
 type ResourceManager interface {
 	// Return the name of the resource managed by this instance of ResourceManager.
 	Resource() string
@@ -107,12 +125,20 @@ type ResourceManager interface {
 	SetTotalNumDevices(int32) error
 }
 
+// Using type alias so we can mock this.
+// See https://github.com/golang/mock/issues/621#issuecomment-1094351718 for details.
+type StringSet = sets.Set[string]
+
 // Serves as a WatchDog of the Pods on this node that consume vGPUs.
-// type StringSet = sets.Set[string]
 type PodCache interface {
-	GetActivePodIDs() sets.Set[string]          // Get the IDs of all active (i.e., non-terminated) Pods on the Node. This only returns Pods that consume vGPUs.
+	GetActivePodIDs() StringSet                 // Get the IDs of all active (i.e., non-terminated) Pods on the Node. This only returns Pods that consume vGPUs.
 	GetActivePods() map[string]*corev1.Pod      // Get all active (i.e., non-terminated) Pods on the Node. This only returns Pods that consume vGPUs.
 	GetPod(string, string) (*corev1.Pod, error) // Given a namespace and the Pod's name, return the Kubernetes Pod.
 	Informer() informersCore.PodInformer        // Return the Kubernetes Informer used by the PodCache.
 	StopChan() chan struct{}                    // Return the channel used to stop the PodCache.
+
+	// Return the Pods running on the specified node.
+	// Optionally return only the Pods in a particular phase by passing a pod phase via the `podPhase` parameter.
+	// If you do not want to restrict the Pods to any particular phase, then pass the empty string for the `podPhase` parameter.
+	GetPodsRunningOnNode(nodeName string, podPhase string) ([]corev1.Pod, error)
 }

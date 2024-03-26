@@ -1,13 +1,18 @@
 package device
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	informersCore "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -61,7 +66,7 @@ func NewPodCache(kubeClient kubernetes.Interface, nodeName string) PodCache {
 	return podCache
 }
 
-func (c *podCacheImpl) GetActivePodIDs() sets.Set[string] {
+func (c *podCacheImpl) GetActivePodIDs() StringSet {
 	activePodIDs := sets.New[string]()
 
 	for _, value := range c.informer.Informer().GetStore().List() {
@@ -132,4 +137,49 @@ func (c *podCacheImpl) StopChan() chan struct{} {
 
 func (c *podCacheImpl) Informer() informersCore.PodInformer {
 	return c.informer
+}
+
+// Return the Pods running on the specified node.
+// Optionally return only the Pods in a particular phase by passing a pod phase via the `podPhase` parameter.
+// If you do not want to restrict the Pods to any particular phase, then pass the empty string for the `podPhase` parameter.
+func (c *podCacheImpl) GetPodsRunningOnNode(nodeName string, podPhase string) ([]corev1.Pod, error) {
+	if nodeName == "" {
+		nodeName, _ = os.Hostname()
+	}
+
+	var pods []corev1.Pod
+	var selector fields.Selector
+
+	if podPhase == "" {
+		selector = fields.SelectorFromSet(fields.Set{
+			"spec.nodeName": nodeName,
+		})
+	} else {
+		selector = fields.SelectorFromSet(fields.Set{
+			"spec.nodeName": nodeName,
+			"status.phase":  podPhase,
+		})
+	}
+
+	deadline := time.Minute
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), deadline)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, time.Second, deadline, true, func(ctx context.Context) (bool, error) {
+		podList, err := c.kubeClient.CoreV1().Pods(corev1.NamespaceAll).List(ctx, metav1.ListOptions{
+			FieldSelector: selector.String(),
+			LabelSelector: labels.Everything().String(),
+		})
+		if err != nil {
+			return false, err
+		} else {
+			pods = podList.Items
+		}
+		return true, nil
+	})
+
+	if err != nil {
+		return pods, fmt.Errorf("failed to retrieve list of Pods running on node %s because: %v", nodeName, err)
+	}
+
+	return pods, nil
 }

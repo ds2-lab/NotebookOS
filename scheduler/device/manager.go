@@ -192,6 +192,11 @@ func (m *resourceManagerImpl) AllocateDevices(n int) ([]string, []*pluginapi.Dev
 	deviceSpecs := make([]*pluginapi.DeviceSpec, 0, n)
 	for el := m.freeDevices.Front(); el != nil; el = el.Next() {
 		allocatedDeviceIDs = append(allocatedDeviceIDs, el.Value.ID)
+
+		// Stop once we've allocated `n` devices.
+		if len(allocatedDeviceIDs) == n {
+			break
+		}
 	}
 
 	// Allocate each individual device.

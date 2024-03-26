@@ -8,7 +8,6 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/sets"
 	gateway "github.com/zhangjyr/distributed-notebook/common/gateway"
 	device "github.com/zhangjyr/distributed-notebook/scheduler/device"
 	v1 "k8s.io/api/core/v1"
@@ -54,6 +53,105 @@ func (mr *MockAllocatorMockRecorder) Allocate(arg0 interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Allocate", reflect.TypeOf((*MockAllocator)(nil).Allocate), arg0)
 }
 
+// GetAllocationForPod mocks base method.
+func (m *MockAllocator) GetAllocationForPod(arg0 string) (*gateway.VirtualGpuAllocation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllocationForPod", arg0)
+	ret0, _ := ret[0].(*gateway.VirtualGpuAllocation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllocationForPod indicates an expected call of GetAllocationForPod.
+func (mr *MockAllocatorMockRecorder) GetAllocationForPod(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllocationForPod", reflect.TypeOf((*MockAllocator)(nil).GetAllocationForPod), arg0)
+}
+
+// NumAllocatedVirtualGPUs mocks base method.
+func (m *MockAllocator) NumAllocatedVirtualGPUs() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumAllocatedVirtualGPUs")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumAllocatedVirtualGPUs indicates an expected call of NumAllocatedVirtualGPUs.
+func (mr *MockAllocatorMockRecorder) NumAllocatedVirtualGPUs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumAllocatedVirtualGPUs", reflect.TypeOf((*MockAllocator)(nil).NumAllocatedVirtualGPUs))
+}
+
+// NumAllocations mocks base method.
+func (m *MockAllocator) NumAllocations() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumAllocations")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumAllocations indicates an expected call of NumAllocations.
+func (mr *MockAllocatorMockRecorder) NumAllocations() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumAllocations", reflect.TypeOf((*MockAllocator)(nil).NumAllocations))
+}
+
+// NumFreeVirtualGPUs mocks base method.
+func (m *MockAllocator) NumFreeVirtualGPUs() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumFreeVirtualGPUs")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumFreeVirtualGPUs indicates an expected call of NumFreeVirtualGPUs.
+func (mr *MockAllocatorMockRecorder) NumFreeVirtualGPUs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumFreeVirtualGPUs", reflect.TypeOf((*MockAllocator)(nil).NumFreeVirtualGPUs))
+}
+
+// NumVirtualGPUs mocks base method.
+func (m *MockAllocator) NumVirtualGPUs() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumVirtualGPUs")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumVirtualGPUs indicates an expected call of NumVirtualGPUs.
+func (mr *MockAllocatorMockRecorder) NumVirtualGPUs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumVirtualGPUs", reflect.TypeOf((*MockAllocator)(nil).NumVirtualGPUs))
+}
+
+// ResourceManager mocks base method.
+func (m *MockAllocator) ResourceManager() device.ResourceManager {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResourceManager")
+	ret0, _ := ret[0].(device.ResourceManager)
+	return ret0
+}
+
+// ResourceManager indicates an expected call of ResourceManager.
+func (mr *MockAllocatorMockRecorder) ResourceManager() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceManager", reflect.TypeOf((*MockAllocator)(nil).ResourceManager))
+}
+
+// SetTotalVirtualGPUs mocks base method.
+func (m *MockAllocator) SetTotalVirtualGPUs(arg0 int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetTotalVirtualGPUs", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetTotalVirtualGPUs indicates an expected call of SetTotalVirtualGPUs.
+func (mr *MockAllocatorMockRecorder) SetTotalVirtualGPUs(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetTotalVirtualGPUs", reflect.TypeOf((*MockAllocator)(nil).SetTotalVirtualGPUs), arg0)
+}
+
 // MockPreferredAllocator is a mock of PreferredAllocator interface.
 type MockPreferredAllocator struct {
 	ctrl     *gomock.Controller
@@ -90,6 +188,157 @@ func (m *MockPreferredAllocator) GetPreferredAllocation(arg0 *v1beta1.PreferredA
 func (mr *MockPreferredAllocatorMockRecorder) GetPreferredAllocation(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPreferredAllocation", reflect.TypeOf((*MockPreferredAllocator)(nil).GetPreferredAllocation), arg0)
+}
+
+// MockVirtualGpuAllocator is a mock of VirtualGpuAllocator interface.
+type MockVirtualGpuAllocator struct {
+	ctrl     *gomock.Controller
+	recorder *MockVirtualGpuAllocatorMockRecorder
+}
+
+// MockVirtualGpuAllocatorMockRecorder is the mock recorder for MockVirtualGpuAllocator.
+type MockVirtualGpuAllocatorMockRecorder struct {
+	mock *MockVirtualGpuAllocator
+}
+
+// NewMockVirtualGpuAllocator creates a new mock instance.
+func NewMockVirtualGpuAllocator(ctrl *gomock.Controller) *MockVirtualGpuAllocator {
+	mock := &MockVirtualGpuAllocator{ctrl: ctrl}
+	mock.recorder = &MockVirtualGpuAllocatorMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockVirtualGpuAllocator) EXPECT() *MockVirtualGpuAllocatorMockRecorder {
+	return m.recorder
+}
+
+// Allocate mocks base method.
+func (m *MockVirtualGpuAllocator) Allocate(arg0 *v1beta1.AllocateRequest) (*v1beta1.AllocateResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Allocate", arg0)
+	ret0, _ := ret[0].(*v1beta1.AllocateResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Allocate indicates an expected call of Allocate.
+func (mr *MockVirtualGpuAllocatorMockRecorder) Allocate(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Allocate", reflect.TypeOf((*MockVirtualGpuAllocator)(nil).Allocate), arg0)
+}
+
+// GetAllocationForPod mocks base method.
+func (m *MockVirtualGpuAllocator) GetAllocationForPod(arg0 string) (*gateway.VirtualGpuAllocation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllocationForPod", arg0)
+	ret0, _ := ret[0].(*gateway.VirtualGpuAllocation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllocationForPod indicates an expected call of GetAllocationForPod.
+func (mr *MockVirtualGpuAllocatorMockRecorder) GetAllocationForPod(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllocationForPod", reflect.TypeOf((*MockVirtualGpuAllocator)(nil).GetAllocationForPod), arg0)
+}
+
+// GetDevices mocks base method.
+func (m *MockVirtualGpuAllocator) GetDevices() device.Devices {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevices")
+	ret0, _ := ret[0].(device.Devices)
+	return ret0
+}
+
+// GetDevices indicates an expected call of GetDevices.
+func (mr *MockVirtualGpuAllocatorMockRecorder) GetDevices() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevices", reflect.TypeOf((*MockVirtualGpuAllocator)(nil).GetDevices))
+}
+
+// NumAllocatedVirtualGPUs mocks base method.
+func (m *MockVirtualGpuAllocator) NumAllocatedVirtualGPUs() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumAllocatedVirtualGPUs")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumAllocatedVirtualGPUs indicates an expected call of NumAllocatedVirtualGPUs.
+func (mr *MockVirtualGpuAllocatorMockRecorder) NumAllocatedVirtualGPUs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumAllocatedVirtualGPUs", reflect.TypeOf((*MockVirtualGpuAllocator)(nil).NumAllocatedVirtualGPUs))
+}
+
+// NumAllocations mocks base method.
+func (m *MockVirtualGpuAllocator) NumAllocations() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumAllocations")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumAllocations indicates an expected call of NumAllocations.
+func (mr *MockVirtualGpuAllocatorMockRecorder) NumAllocations() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumAllocations", reflect.TypeOf((*MockVirtualGpuAllocator)(nil).NumAllocations))
+}
+
+// NumFreeVirtualGPUs mocks base method.
+func (m *MockVirtualGpuAllocator) NumFreeVirtualGPUs() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumFreeVirtualGPUs")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumFreeVirtualGPUs indicates an expected call of NumFreeVirtualGPUs.
+func (mr *MockVirtualGpuAllocatorMockRecorder) NumFreeVirtualGPUs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumFreeVirtualGPUs", reflect.TypeOf((*MockVirtualGpuAllocator)(nil).NumFreeVirtualGPUs))
+}
+
+// NumVirtualGPUs mocks base method.
+func (m *MockVirtualGpuAllocator) NumVirtualGPUs() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumVirtualGPUs")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumVirtualGPUs indicates an expected call of NumVirtualGPUs.
+func (mr *MockVirtualGpuAllocatorMockRecorder) NumVirtualGPUs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumVirtualGPUs", reflect.TypeOf((*MockVirtualGpuAllocator)(nil).NumVirtualGPUs))
+}
+
+// ResourceManager mocks base method.
+func (m *MockVirtualGpuAllocator) ResourceManager() device.ResourceManager {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResourceManager")
+	ret0, _ := ret[0].(device.ResourceManager)
+	return ret0
+}
+
+// ResourceManager indicates an expected call of ResourceManager.
+func (mr *MockVirtualGpuAllocatorMockRecorder) ResourceManager() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceManager", reflect.TypeOf((*MockVirtualGpuAllocator)(nil).ResourceManager))
+}
+
+// SetTotalVirtualGPUs mocks base method.
+func (m *MockVirtualGpuAllocator) SetTotalVirtualGPUs(arg0 int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetTotalVirtualGPUs", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetTotalVirtualGPUs indicates an expected call of SetTotalVirtualGPUs.
+func (mr *MockVirtualGpuAllocatorMockRecorder) SetTotalVirtualGPUs(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetTotalVirtualGPUs", reflect.TypeOf((*MockVirtualGpuAllocator)(nil).SetTotalVirtualGPUs), arg0)
 }
 
 // MockVirtualGpuPluginServer is a mock of VirtualGpuPluginServer interface.
@@ -519,10 +768,10 @@ func (m *MockPodCache) EXPECT() *MockPodCacheMockRecorder {
 }
 
 // GetActivePodIDs mocks base method.
-func (m *MockPodCache) GetActivePodIDs() sets.Set[string] {
+func (m *MockPodCache) GetActivePodIDs() device.StringSet {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetActivePodIDs")
-	ret0, _ := ret[0].(sets.Set[string])
+	ret0, _ := ret[0].(device.StringSet)
 	return ret0
 }
 
@@ -559,6 +808,21 @@ func (m *MockPodCache) GetPod(arg0, arg1 string) (*v1.Pod, error) {
 func (mr *MockPodCacheMockRecorder) GetPod(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPod", reflect.TypeOf((*MockPodCache)(nil).GetPod), arg0, arg1)
+}
+
+// GetPodsRunningOnNode mocks base method.
+func (m *MockPodCache) GetPodsRunningOnNode(nodeName, podPhase string) ([]v1.Pod, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPodsRunningOnNode", nodeName, podPhase)
+	ret0, _ := ret[0].([]v1.Pod)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPodsRunningOnNode indicates an expected call of GetPodsRunningOnNode.
+func (mr *MockPodCacheMockRecorder) GetPodsRunningOnNode(nodeName, podPhase interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPodsRunningOnNode", reflect.TypeOf((*MockPodCache)(nil).GetPodsRunningOnNode), nodeName, podPhase)
 }
 
 // Informer mocks base method.

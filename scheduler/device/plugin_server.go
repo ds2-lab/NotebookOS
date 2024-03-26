@@ -94,17 +94,17 @@ func (v *virtualGpuPluginServerImpl) apiDevices() []*pluginapi.Device {
 
 // Return the total number of vGPUs.
 func (v *virtualGpuPluginServerImpl) NumVirtualGPUs() int {
-	return v.allocator.numVirtualGPUs()
+	return v.allocator.NumVirtualGPUs()
 }
 
 // Return the number of vGPUs that are presently allocated.
 func (v *virtualGpuPluginServerImpl) NumAllocatedVirtualGPUs() int {
-	return v.allocator.numAllocatedVirtualGPUs()
+	return v.allocator.NumAllocatedVirtualGPUs()
 }
 
 // Return the number of vGPUs that are presently free/not allocated.
 func (v *virtualGpuPluginServerImpl) NumFreeVirtualGPUs() int {
-	return v.allocator.numFreeVirtualGPUs()
+	return v.allocator.NumFreeVirtualGPUs()
 }
 
 func (v *virtualGpuPluginServerImpl) SocketName() string {
@@ -251,7 +251,7 @@ func (v *virtualGpuPluginServerImpl) watchDevicePluginSocket() error {
 // Set the total number of vGPUs to a new value.
 // This will return an error if the specified value is less than the number of currently-allocated vGPUs.
 func (v *virtualGpuPluginServerImpl) SetTotalVirtualGPUs(value int32) error {
-	return v.allocator.setTotalVirtualGPUs(value)
+	return v.allocator.SetTotalVirtualGPUs(value)
 }
 
 /** DevicePlugin implementation. */
