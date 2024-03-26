@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -16,6 +17,7 @@ var (
 	ErrInsufficientGPUs            = errors.New("there are insufficient GPUs available to satisfy the allocation request")
 	ErrAllocationNotFound          = errors.New("could not find the requested GPU allocation")
 	ErrAllocationPartiallyNotFound = errors.New("the requested GPU allocation was found only in one of the various internal mappings (rather than within all of the mappings)")
+	ErrNoPendingAllocationFound    = errors.New("a pending allocation could not be found when allocating actual GPUs")
 
 	ZeroDecimal decimal.Decimal = decimal.NewFromFloat(0.0)
 )
@@ -47,9 +49,10 @@ func (a *gpuAllocation) String() string {
 
 // Manages the "actual" GPUs that are allocated to kernel replicas at training-time.
 type GpuManager struct {
+	sync.Mutex
+
 	id  string        // Unique ID of the scheduler.
 	log logger.Logger // Logger.
-	mu  sync.Mutex    // Mutex.
 
 	/* Allocation Maps. */
 	/* We maintain several maps of allocations to facilitate retrieving allocations */
@@ -79,6 +82,8 @@ func NewGpuManager(gpus int64) *GpuManager {
 		committedGPUs:                ZeroDecimal.Copy(),       // Initially, there are 0 committed GPUs.
 		pendingGPUs:                  ZeroDecimal.Copy(),       // Initially, there are 0 pending GPUs.
 	}
+
+	config.InitLogger(&manager.log, manager)
 
 	return manager
 }
@@ -113,11 +118,12 @@ func (m *GpuManager) PendingGPUs() decimal.Decimal {
 // Returns:
 // - nil on success.
 // - ErrInsufficientGPUs if there are not enough GPUs available to satisfy the allocation request.
+// - ErrNoPendingAllocationFound: if an allocation is attempted before a pending allocation is created.
 //
 // NOTE: This function will acquire the mutex; the mutex should not be held when this function is called.
 func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kernelId string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.Lock()
+	defer m.Unlock()
 
 	// If the request is for more GPUs than we have available (at all or just what isn't already allocated), then we'll return an error indicating that this is the case.
 	if numGPUs.GreaterThan(m.specGPUs) {
@@ -126,12 +132,14 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 
 	// TODO(Ben): Is it strictly the case that there should already be an associated pending allocation?
 	// We'll see as we continue with the implementation.
-	allocation, exists := m.tryDeallocatePendingGPUs(replicaId, kernelId)
+	allocation, exists := m.__unsafeTryDeallocatePendingGPUs(replicaId, kernelId)
 
-	// If the allocation does not already exist, then we'll just create a new one.
+	m.log.Debug("Allocating %s committed GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
+
+	// If the allocation does not already exist, then we'll return an ErrNoPendingAllocationFound error.
 	// If it does, then we'll reuse it after first flipping its pending flag to false.
 	if !exists {
-		allocation = newGpuAllocation(numGPUs, replicaId, kernelId, false)
+		return ErrNoPendingAllocationFound
 	} else {
 		// Allocation already existed.
 		m.assertPending(allocation)
@@ -139,15 +147,17 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 	}
 
 	// Update resource counts.
-	m.pendingGPUs = m.pendingGPUs.Sub(numGPUs)
+	// The pending GPUs should have already been deallocated in the call above to __unsafeTryDeallocatePendingGPUs.
+	// In doing so, idleGPUs would have been incremented. Thus, we decrement them again here...
 	m.committedGPUs = m.committedGPUs.Add(numGPUs)
+	m.idleGPUs = m.idleGPUs.Sub(numGPUs)
 
 	// Store allocation in the relevant mappings.
 	key := m.getKey(replicaId, kernelId)
 	m.allocationKernelReplicaMap.Store(key, allocation)
 	m.allocationIdMap.Store(allocation.id, allocation)
 
-	m.log.Debug("Allocated %d actual GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
+	m.log.Debug("Allocated %s committed GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
 
 	return nil
 }
@@ -160,8 +170,8 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 //
 // NOTE: This function will acquire the mutex; the mutex should not be held when this function is called.
 func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int32, kernelId string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.Lock()
+	defer m.Unlock()
 
 	// If the request is for more GPUs than we have available at all, then we'll return an error indicating that this is the case.
 	if numGPUs.GreaterThan(m.specGPUs) || m.idleGPUs.LessThan(numGPUs) {
@@ -179,7 +189,7 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 	m.pendingAllocKernelReplicaMap.Store(key, allocation)
 	m.pendingAllocIdMap.Store(allocation.id, allocation)
 
-	m.log.Debug("Allocated %d pending GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
+	m.log.Debug("Allocated %s pending GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
 
 	return nil
 }
@@ -191,8 +201,8 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 //
 // NOTE: This function will acquire the mutex; the mutex should not be held when this function is called.
 func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.Lock()
+	defer m.Unlock()
 
 	key := m.getKey(replicaId, kernelId)
 
@@ -205,6 +215,8 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 	m.assertNotPending(allocation)
 	allocation.pending = true
 
+	m.log.Debug("Deallocating %s committed GPU(s) from replica %d of kernel %s.", allocation.numGPUs.StringFixed(0), replicaId, kernelId)
+
 	// Update resource counts. We don't increment idle GPUs until the pending GPU request has been released too.
 	m.committedGPUs = m.committedGPUs.Sub(allocation.numGPUs)
 	m.pendingGPUs = m.pendingGPUs.Add(allocation.numGPUs)
@@ -216,21 +228,20 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 	m.pendingAllocKernelReplicaMap.Store(key, allocation)
 	m.pendingAllocIdMap.Store(allocation.id, allocation)
 
+	m.log.Debug("Deallocated %s committed GPU(s) from replica %d of kernel %s.", allocation.numGPUs.StringFixed(0), replicaId, kernelId)
+
 	// Now, release the pending GPUs.
 	// This will increment the number of idle GPUs available.
-	return m.releasePendingGPUs(replicaId, kernelId)
+	return m.__unsafeReleasePendingGPUs(replicaId, kernelId)
 }
 
 // Returns nil on success.
 // Returns ErrAllocationNotFound if there is no "actual" GPU allocation (as opposed to a "pending" GPU allocation) for the specified kernel replica.
 //
 // NOTE: This function will acquire the mutex; the mutex should not be held when this function is called.
-func (m *GpuManager) releasePendingGPUs(replicaId int32, kernelId string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+func (m *GpuManager) __unsafeReleasePendingGPUs(replicaId int32, kernelId string) error {
 	// We just call the helper method for this.
-	_, existed := m.tryDeallocatePendingGPUs(replicaId, kernelId)
+	_, existed := m.__unsafeTryDeallocatePendingGPUs(replicaId, kernelId)
 
 	if !existed {
 		return ErrAllocationNotFound
@@ -249,25 +260,27 @@ func (m *GpuManager) releasePendingGPUs(replicaId int32, kernelId string) error 
 // - GpuManager::ReleasePendingGPUs
 //
 // IMPORTANT: This function must be called with the mutex already held!
-func (m *GpuManager) tryDeallocatePendingGPUs(replicaId int32, kernelId string) (*gpuAllocation, bool) {
+func (m *GpuManager) __unsafeTryDeallocatePendingGPUs(replicaId int32, kernelId string) (*gpuAllocation, bool) {
 	key := m.getKey(replicaId, kernelId)
 	pendingAllocation, pendingAllocationExists := m.pendingAllocKernelReplicaMap.Load(key)
 
 	// If there was a pending allocation, then deallocate it now that we've "actually" allocated the GPUs.
 	if pendingAllocationExists {
-		m.log.Debug("Deallocating all pending GPUs for replica %d of kernel %s.", replicaId, kernelId)
+		m.log.Debug("Deallocating %s pending GPU(s) for replica %d of kernel %s.", pendingAllocation.numGPUs.StringFixed(0), replicaId, kernelId)
 
 		m.assertPending(pendingAllocation)
 		m.pendingAllocKernelReplicaMap.Delete(key)
 		m.pendingAllocIdMap.Delete(pendingAllocation.id)
 
 		// Decrement the pending GPU count by the number of GPUs specified in the allocation.
-		m.pendingGPUs.Sub(pendingAllocation.numGPUs)
-		m.idleGPUs.Add(pendingAllocation.numGPUs)
+		m.pendingGPUs = m.pendingGPUs.Sub(pendingAllocation.numGPUs)
+		m.idleGPUs = m.idleGPUs.Add(pendingAllocation.numGPUs)
 
-		m.log.Debug("Removed %d pending GPU(s) from replica %d of kernel %s.", pendingAllocation.numGPUs.StringFixed(0), replicaId, kernelId)
+		m.log.Debug("Deallocated %s pending GPU(s) from replica %d of kernel %s.", pendingAllocation.numGPUs.StringFixed(0), replicaId, kernelId)
 
 		return pendingAllocation, true
+	} else {
+		m.log.Warn("Could not find pending GPU allocation for replica %d of kernel %s.", replicaId, kernelId)
 	}
 
 	return nil, false
@@ -297,41 +310,6 @@ func (m *GpuManager) assertNotPending(allocation *gpuAllocation) bool {
 	}
 
 	panic(fmt.Sprintf("GPU Allocation IS pending: %v", allocation))
-}
-
-// Create and return a GPU allocation.
-// The allocation is stored within the GPU Manager's various maps before being returned.
-func (m *GpuManager) createGpuAllocation(numGPUs decimal.Decimal, replicaId int32, kernelId string) *gpuAllocation {
-	allocation := newGpuAllocation(numGPUs, replicaId, kernelId, false)
-
-	/* Store the allocation in the various maps. */
-
-	key := m.getKey(replicaId, kernelId)
-	m.allocationKernelReplicaMap.Store(key, allocation)
-
-	m.allocationIdMap.Store(allocation.id, allocation)
-
-	return allocation
-}
-
-func (m *GpuManager) removeGpuAllocation(replicaId int32, kernelId string) error {
-	// First, load and delete the allocation from the `allocationKernelReplicaMap` map.
-	key := m.getKey(replicaId, kernelId)
-	allocation, exists := m.allocationKernelReplicaMap.LoadAndDelete(key)
-
-	if !exists {
-		m.log.Error("Could not find allocation associated with replica %d of kernel %s.", replicaId, kernelId)
-		return ErrAllocationNotFound
-	}
-
-	// Next, load and delete the allocation from the `allocationIdMap`, using the id of the allocation we just loaded above.
-	_, exists = m.allocationIdMap.LoadAndDelete(allocation.id)
-	if !exists {
-		m.log.Error("Allocation %v was found only in the `allocationKernelReplicaMap` map, but not in the `allocationIdMap`.", allocation)
-		return ErrAllocationPartiallyNotFound
-	}
-
-	return nil
 }
 
 // Return the number of active allocations.
