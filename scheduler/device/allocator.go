@@ -171,8 +171,8 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 	var numVirtualGPUsRequested int32 = int32(len(request.DevicesIDs))
 	for _, pod := range candidatePods {
 		if _, ok := v.allocations[string(pod.UID)]; ok {
-			v.log.Debug("Pod %s has already been allocated GPUs. Continuing our search.", string(pod.UID))
-			klog.V(2).Infof("Pod %s has already been allocated GPUs. Continuing our search.", string(pod.UID))
+			v.log.Debug("Pod %s(%s) has already been allocated (%d) GPUs. Continuing our search.", string(pod.UID), pod.Name, len(v.allocations[string(pod.UID)].DeviceIDs))
+			klog.V(2).Infof("Pod %s(%s) has already been allocated (%d) GPUs. Continuing our search.", string(pod.UID), pod.Name, len(v.allocations[string(pod.UID)].DeviceIDs))
 			continue
 		}
 
@@ -181,6 +181,10 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 			klog.V(2).Infof("Found candidate Pod %s(%s) with requested vGPUs = %d.", string(pod.UID), pod.Name, numVirtualGPUsRequested)
 			candidatePod = pod
 			break
+		} else {
+			vGPUs := pod.Spec.Containers[0].Resources.Limits[VDeviceAnnotation]
+			v.log.Debug("Pod %s(%s) requires %d vGPU(s), whereas our request is for %d vGPU(s). Continuing our search.", string(pod.UID), pod.Name, vGPUs.Value(), len(request.DevicesIDs))
+			klog.V(2).Infof("Pod %s(%s) requires %d vGPU(s), whereas our request is for %d vGPU(s). Continuing our search.", string(pod.UID), pod.Name, vGPUs.Value(), len(request.DevicesIDs))
 		}
 	}
 
@@ -210,6 +214,8 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 }
 
 // This actually performs the allocation of GPUs to a particular pod.
+//
+// The lock MUST be held before calling this method.
 func (v *virtualGpuAllocatorImpl) doAllocate(vgpusRequired int32, candidatePod *corev1.Pod) (*pluginapi.ContainerAllocateResponse, error) {
 	v.log.Debug("Allocating %d vGPU(s) to Pod %s(%s) now.", vgpusRequired, candidatePod.UID, candidatePod.Name)
 	klog.V(2).Infof("Allocating %d vGPU(s) to Pod %s(%s) now.", vgpusRequired, candidatePod.UID, candidatePod.Name)
@@ -260,6 +266,8 @@ func (v *virtualGpuAllocatorImpl) GetAllocationForPod(podUID string) (*gateway.V
 }
 
 // This returns GPU resources that were allocated to Pods that have since been terminated.
+//
+// The lock MUST be held before calling this method.
 func (v *virtualGpuAllocatorImpl) clearTerminatedPods() {
 	v.log.Debug("Clearing terminated Pods now.")
 
@@ -296,8 +304,8 @@ func (v *virtualGpuAllocatorImpl) clearTerminatedPods() {
 		delete(v.allocations, podId)
 	}
 
-	v.log.Debug("Freed %d vGPU(s) from old, terminated Pods.", numFreedDevices)
-	klog.V(2).Infof("Freed %d vGPU(s) from old, terminated Pods.", numFreedDevices)
+	v.log.Debug("Freed %d vGPU(s) from old, terminated Pods. There is/are now %d free vGPU(s).", numFreedDevices, v.NumFreeVirtualGPUs())
+	klog.V(2).Infof("Freed %d vGPU(s) from old, terminated Pods. There is/are now %d free vGPU(s).", numFreedDevices, v.NumFreeVirtualGPUs())
 }
 
 // Return the Pods that may be the target of an allocation request (that was just received).
