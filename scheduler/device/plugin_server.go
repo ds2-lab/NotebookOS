@@ -41,8 +41,9 @@ type virtualGpuPluginServerImpl struct {
 	socketFile string // Fully-qualified path.
 	opts       *VirtualGpuPluginServerOptions
 	log        logger.Logger
+	podCache   PodCache
 
-	allocator *virtualGpuAllocator
+	allocator *virtualGpuAllocatorImpl
 }
 
 func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName string) VirtualGpuPluginServer {
@@ -52,7 +53,6 @@ func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName str
 		srv:        grpc.NewServer(),
 		socketFile: socketFile,
 		opts:       opts,
-		allocator:  newVirtualGpuAllocator(opts, nodeName),
 	}
 
 	kubeConfig, err := rest.InClusterConfig()
@@ -66,7 +66,9 @@ func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName str
 		panic(err.Error())
 	}
 
-	NewPodCache(clientset, nodeName)
+	podCache := NewPodCache(clientset, nodeName)
+	server.podCache = podCache
+	server.allocator = NewVirtualGpuAllocator(opts, nodeName, podCache).(*virtualGpuAllocatorImpl)
 
 	config.InitLogger(&server.log, server)
 
@@ -120,7 +122,7 @@ func (v *virtualGpuPluginServerImpl) ResourceName() string {
 func (v *virtualGpuPluginServerImpl) Stop() {
 	v.log.Warn("Stopping Virtual GPU resource server.")
 	klog.Warning("Stopping Virtual GPU resource server.")
-	podCache.stopChan <- struct{}{} // Stop the Pod WatchDog.
+	v.podCache.StopChan() <- struct{}{} // Stop the Pod WatchDog.
 	v.srv.Stop()
 	v.allocator.stop()
 
@@ -258,7 +260,7 @@ func (v *virtualGpuPluginServerImpl) SetTotalVirtualGPUs(value int32) error {
 // Plugin can run device specific operations and instruct Kubelet
 // of the steps to make the Device available in the container
 func (v *virtualGpuPluginServerImpl) Allocate(ctx context.Context, req *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
-	return v.allocator.allocate(ctx, req)
+	return v.allocator.Allocate(req)
 }
 
 // ListAndWatch returns a stream of List of Devices

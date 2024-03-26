@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
@@ -19,11 +19,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
-type virtualGpuAllocator struct {
+type virtualGpuAllocatorImpl struct {
 	sync.Mutex
 
 	log logger.Logger
@@ -36,25 +38,50 @@ type virtualGpuAllocator struct {
 	resourceManager ResourceManager
 	stopChan        chan interface{}
 
+	podCache PodCache
+
 	// Mapping from PodID to its allocation.
 	allocations map[string]*gateway.VirtualGpuAllocation
 }
 
-func newVirtualGpuAllocator(opts *VirtualGpuPluginServerOptions, nodeName string) *virtualGpuAllocator {
-	allocator := &virtualGpuAllocator{
-		opts:        opts,
-		stopChan:    make(chan interface{}),
-		allocations: make(map[string]*gateway.VirtualGpuAllocation),
-		nodeName:    nodeName,
+// Creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.
+func NewVirtualGpuAllocatorForTesting(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache) VirtualGpuAllocator {
+	var kubeconfig string
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = filepath.Join(home, ".kube", "config")
+	} else {
+		panic("Cannot find Kubernetes config!")
 	}
-	config.InitLogger(&allocator.log, allocator)
 
-	allocator.resourceManager = NewResourceManager(allocator.ResourceName(), opts.NumVirtualGPUs)
+	// use the current context in kubeconfig
+	kubeConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		panic(err.Error())
+	}
 
+	return newVirtualGpuAllocatorImpl(opts, nodeName, podCache, kubeConfig)
+}
+
+func NewVirtualGpuAllocator(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache) VirtualGpuAllocator {
 	kubeConfig, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
 	}
+
+	return newVirtualGpuAllocatorImpl(opts, nodeName, podCache, kubeConfig)
+}
+
+func newVirtualGpuAllocatorImpl(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, kubeConfig *rest.Config) VirtualGpuAllocator {
+	allocator := &virtualGpuAllocatorImpl{
+		opts:        opts,
+		stopChan:    make(chan interface{}),
+		allocations: make(map[string]*gateway.VirtualGpuAllocation),
+		nodeName:    nodeName,
+		podCache:    podCache,
+	}
+	config.InitLogger(&allocator.log, allocator)
+
+	allocator.resourceManager = NewResourceManager(allocator.ResourceName(), opts.NumVirtualGPUs)
 
 	// Creates the Clientset.
 	clientset, err := kubernetes.NewForConfig(kubeConfig)
@@ -68,41 +95,46 @@ func newVirtualGpuAllocator(opts *VirtualGpuPluginServerOptions, nodeName string
 }
 
 // Return the map of allocations, which is Pod UID -> allocation.
-func (v *virtualGpuAllocator) getAllocations() map[string]*gateway.VirtualGpuAllocation {
+func (v *virtualGpuAllocatorImpl) getAllocations() map[string]*gateway.VirtualGpuAllocation {
 	return v.allocations
 }
 
-func (v *virtualGpuAllocator) ResourceName() string {
+// Return the Devices that are managed by this allocator and its underlying resource manager.
+func (v *virtualGpuAllocatorImpl) GetDevices() Devices {
+	return v.resourceManager.Devices()
+}
+
+func (v *virtualGpuAllocatorImpl) ResourceName() string {
 	return VDeviceAnnotation
 }
 
-func (v *virtualGpuAllocator) apiDevices() []*pluginapi.Device {
+func (v *virtualGpuAllocatorImpl) apiDevices() []*pluginapi.Device {
 	return v.resourceManager.Devices().GetPluginDevices()
 }
 
 // Return the total number of vGPUs.
-func (v *virtualGpuAllocator) numVirtualGPUs() int {
+func (v *virtualGpuAllocatorImpl) numVirtualGPUs() int {
 	return v.resourceManager.NumDevices()
 }
 
 // Return the number of vGPUs that are presently allocated.
-func (v *virtualGpuAllocator) numAllocatedVirtualGPUs() int {
+func (v *virtualGpuAllocatorImpl) numAllocatedVirtualGPUs() int {
 	return v.resourceManager.NumAllocatedDevices()
 }
 
 // Return the number of vGPUs that are presently free/not allocated.
-func (v *virtualGpuAllocator) numFreeVirtualGPUs() int {
+func (v *virtualGpuAllocatorImpl) numFreeVirtualGPUs() int {
 	return v.resourceManager.NumFreeDevices()
 }
 
-func (v *virtualGpuAllocator) stop() {
+func (v *virtualGpuAllocatorImpl) stop() {
 	close(v.stopChan)
 	v.stopChan = nil
 }
 
 // Set the total number of vGPUs to a new value.
 // This will return an error if the specified value is less than the number of currently-allocated vGPUs.
-func (v *virtualGpuAllocator) setTotalVirtualGPUs(value int32) error {
+func (v *virtualGpuAllocatorImpl) setTotalVirtualGPUs(value int32) error {
 	v.Lock()
 	defer v.Unlock()
 
@@ -117,15 +149,15 @@ func (v *virtualGpuAllocator) setTotalVirtualGPUs(value int32) error {
 // Allocate is called during container creation so that the Device
 // Plugin can run device specific operations and instruct Kubelet
 // of the steps to make the Device available in the container
-func (v *virtualGpuAllocator) allocate(ctx context.Context, req *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
+func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
 	v.Lock()
 	defer v.Unlock()
 
-	v.log.Info("virtualGpuPluginServerImpl::Allocate called. Request: %v", req)
-	klog.V(2).Infof("%+v allocation request for vcore", req)
-
 	// Requests are always sent one-at-a-time.
 	var request *pluginapi.ContainerAllocateRequest = req.ContainerRequests[0]
+
+	v.log.Info("virtualGpuPluginServerImpl::Allocate called. %d vGPU(s) requested.", len(request.DevicesIDs))
+	klog.V(2).Infof("virtualGpuPluginServerImpl::Allocate called. %d vGPU(s) requested.", len(request.DevicesIDs))
 
 	v.clearTerminatedPods()
 	var candidatePod *corev1.Pod
@@ -180,7 +212,7 @@ func (v *virtualGpuAllocator) allocate(ctx context.Context, req *pluginapi.Alloc
 }
 
 // This actually performs the allocation of GPUs to a particular pod.
-func (v *virtualGpuAllocator) doAllocate(vgpusRequired int32, candidatePod *corev1.Pod) (*pluginapi.ContainerAllocateResponse, error) {
+func (v *virtualGpuAllocatorImpl) doAllocate(vgpusRequired int32, candidatePod *corev1.Pod) (*pluginapi.ContainerAllocateResponse, error) {
 	allocatedDeviceIDs, deviceSpecs, err := v.resourceManager.AllocateDevices(int(vgpusRequired))
 
 	if err != nil {
@@ -202,13 +234,17 @@ func (v *virtualGpuAllocator) doAllocate(vgpusRequired int32, candidatePod *core
 }
 
 // This returns GPU resources that were allocated to Pods that have since been terminated.
-func (v *virtualGpuAllocator) clearTerminatedPods() {
-	activePodIDs := podCache.GetActivePodIDs()
+func (v *virtualGpuAllocatorImpl) clearTerminatedPods() {
+	v.log.Debug("Clearing terminated Pods now.")
 
-	lastActivePodIDs := sets.NewString()
-	for podId, _ := range v.allocations {
+	activePodIDs := v.podCache.GetActivePodIDs()
+
+	lastActivePodIDs := sets.New[string]()
+	for podId := range v.allocations {
 		lastActivePodIDs.Insert(podId)
 	}
+
+	v.log.Debug("Previous number of active Pods: %d. Current: %d.", len(activePodIDs), len(lastActivePodIDs))
 
 	toBeRemoved := lastActivePodIDs.Difference(activePodIDs)
 
@@ -239,9 +275,9 @@ func (v *virtualGpuAllocator) clearTerminatedPods() {
 }
 
 // Return the Pods that may be the target of an allocation request (that was just received).
-func getCandidatePodsForAllocation(kubeClient kubernetes.Interface, nodeName string) ([]*v1.Pod, error) {
-	candidatePods := []*v1.Pod{}
-	allPods, err := getPodsRunningOnNode(kubeClient, nodeName, string(v1.PodPending))
+func getCandidatePodsForAllocation(kubeClient kubernetes.Interface, nodeName string) ([]*corev1.Pod, error) {
+	candidatePods := []*corev1.Pod{}
+	allPods, err := getPodsRunningOnNode(kubeClient, nodeName, string(corev1.PodPending))
 	if err != nil {
 		klog.Errorf("Failed to get Pods running on node %s because: %v", nodeName, err)
 		return candidatePods, err
@@ -290,7 +326,7 @@ func getPodsRunningOnNode(kubeClient kubernetes.Interface, nodeName string, podP
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), deadline)
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, time.Second, deadline, true, func(ctx context.Context) (bool, error) {
-		podList, err := kubeClient.CoreV1().Pods(v1.NamespaceAll).List(ctx, metav1.ListOptions{
+		podList, err := kubeClient.CoreV1().Pods(corev1.NamespaceAll).List(ctx, metav1.ListOptions{
 			FieldSelector: selector.String(),
 			LabelSelector: labels.Everything().String(),
 		})

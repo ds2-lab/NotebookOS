@@ -27,21 +27,17 @@ func verifyNotRunning(containerStatuses []corev1.ContainerStatus) bool {
 	return true
 }
 
-var (
-	podCache *PodCache
-)
-
 // Encapsulates the Pods running on this node that require vGPUs.
 // If a Pod is running on this node but does not require any vGPUs, then it will not be included in this cache.
-type PodCache struct {
+type podCacheImpl struct {
 	kubeClient kubernetes.Interface
 	nodeName   string
 	informer   informersCore.PodInformer
 	stopChan   chan struct{}
 }
 
-func NewPodCache(kubeClient kubernetes.Interface, nodeName string) {
-	podCache = new(PodCache)
+func NewPodCache(kubeClient kubernetes.Interface, nodeName string) PodCache {
+	podCache := &podCacheImpl{}
 
 	podCache.kubeClient = kubeClient
 	podCache.nodeName = nodeName
@@ -62,10 +58,11 @@ func NewPodCache(kubeClient kubernetes.Interface, nodeName string) {
 	}
 
 	klog.V(2).Infof("PodCache WatchDog is now running")
+	return podCache
 }
 
-func (c *PodCache) GetActivePodIDs() sets.String {
-	activePodIDs := sets.NewString()
+func (c *podCacheImpl) GetActivePodIDs() sets.Set[string] {
+	activePodIDs := sets.New[string]()
 
 	for _, value := range c.informer.Informer().GetStore().List() {
 		pod, ok := value.(*corev1.Pod)
@@ -88,7 +85,7 @@ func (c *PodCache) GetActivePodIDs() sets.String {
 	return activePodIDs
 }
 
-func (c *PodCache) GetActivePods() map[string]*corev1.Pod {
+func (c *podCacheImpl) GetActivePods() map[string]*corev1.Pod {
 	activePods := make(map[string]*corev1.Pod)
 
 	for _, value := range c.informer.Informer().GetStore().List() {
@@ -112,7 +109,7 @@ func (c *PodCache) GetActivePods() map[string]*corev1.Pod {
 	return activePods
 }
 
-func (c *PodCache) GetPod(namespace string, podName string) (*corev1.Pod, error) {
+func (c *podCacheImpl) GetPod(namespace string, podName string) (*corev1.Pod, error) {
 	pod, err := c.informer.Lister().Pods(namespace).Get(podName)
 	if err != nil {
 		return nil, err
@@ -129,10 +126,10 @@ func (c *PodCache) GetPod(namespace string, podName string) (*corev1.Pod, error)
 	return pod, nil
 }
 
-func (c *PodCache) StopChan() chan struct{} {
+func (c *podCacheImpl) StopChan() chan struct{} {
 	return c.stopChan
 }
 
-func (c *PodCache) Informer() informersCore.PodInformer {
+func (c *podCacheImpl) Informer() informersCore.PodInformer {
 	return c.informer
 }

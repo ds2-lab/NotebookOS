@@ -60,6 +60,11 @@ func BuildDevice(index int) *Device {
 // Devices wraps a map[string]*Device with some functions.
 type Devices map[string]*Device
 
+// Return the Devices struct as a map[string]*Device.
+func (d Devices) AsMap() map[string]*Device {
+	return map[string]*Device(d)
+}
+
 // Alias for length.
 func (d Devices) Size() int {
 	return len(d)

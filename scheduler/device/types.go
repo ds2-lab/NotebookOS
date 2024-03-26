@@ -4,6 +4,9 @@ import (
 	"errors"
 
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	informersCore "k8s.io/client-go/informers/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
@@ -30,6 +33,13 @@ type Allocator interface {
 type PreferredAllocator interface {
 	// GetPreferredAllocation defines the list of devices preferred for allocating next.
 	GetPreferredAllocation(*pluginapi.PreferredAllocationRequest) (*pluginapi.PreferredAllocationResponse, error)
+}
+
+type VirtualGpuAllocator interface {
+	Allocator
+
+	// Return the Devices that are managed by this allocator and its underlying resource manager.
+	GetDevices() Devices
 }
 
 // Implements the DevicePlugin interface.
@@ -95,4 +105,14 @@ type ResourceManager interface {
 	// Modify the total number of resources that are available.
 	// This will return an error if this value is less than the number of allocated devices.
 	SetTotalNumDevices(int32) error
+}
+
+// Serves as a WatchDog of the Pods on this node that consume vGPUs.
+// type StringSet = sets.Set[string]
+type PodCache interface {
+	GetActivePodIDs() sets.Set[string]          // Get the IDs of all active (i.e., non-terminated) Pods on the Node. This only returns Pods that consume vGPUs.
+	GetActivePods() map[string]*corev1.Pod      // Get all active (i.e., non-terminated) Pods on the Node. This only returns Pods that consume vGPUs.
+	GetPod(string, string) (*corev1.Pod, error) // Given a namespace and the Pod's name, return the Kubernetes Pod.
+	Informer() informersCore.PodInformer        // Return the Kubernetes Informer used by the PodCache.
+	StopChan() chan struct{}                    // Return the channel used to stop the PodCache.
 }
