@@ -35,65 +35,66 @@ func firstNDeviceIDs(d device.Devices, n int) []string {
 	return deviceIDs
 }
 
-func spoofPods(n int, podsWithVGPUs int, numVGPUs int) (device.StringSet, []corev1.Pod, map[string]*corev1.Pod) {
+func getDeviceIDs(d device.Devices, startIdx int, endIdx int) []string {
+	if startIdx > endIdx || startIdx < 0 || endIdx > d.Size() {
+		panic("invalid indices specified")
+	}
+
+	deviceIDs := make([]string, 0, endIdx-startIdx)
+	for i := startIdx; i < endIdx; i++ {
+		deviceID := d.GetByIndex(i).ID
+		deviceIDs = append(deviceIDs, deviceID)
+	}
+
+	return deviceIDs
+}
+
+func spoofPods(startIndex int, endIndex int, podsWithVGPUs int, numVGPUs int) (device.StringSet, []corev1.Pod, map[string]*corev1.Pod) {
+	var n int = endIndex - startIndex
 	activePodIDs := sets.New[string]()
 	activePods := make([]corev1.Pod, 0, n)
 	activePodsMap := make(map[string]*corev1.Pod)
 
-	cpu, err := resource.ParseQuantity("100m")
-	if err != nil {
-		panic(err)
-	}
-
-	mem, err := resource.ParseQuantity("100Mi")
-	if err != nil {
-		panic(err)
-	}
-
-	vgpu, err := resource.ParseQuantity(fmt.Sprintf("%d", numVGPUs))
-	if err != nil {
-		panic(err)
-	}
+	cpu, _ := resource.ParseQuantity("100m")
+	mem, _ := resource.ParseQuantity("100Mi")
+	vgpu, _ := resource.ParseQuantity(fmt.Sprintf("%d", numVGPUs))
 
 	noVgpu, err := resource.ParseQuantity(fmt.Sprintf("%d", 0))
 	if err != nil {
 		panic(err)
 	}
 
+	var idx int = startIndex
 	for i := 0; i < podsWithVGPUs; i++ {
-		pod := spoofPod(i+1, cpu, mem, vgpu)
+		pod := spoofPod(idx, cpu, mem, vgpu, corev1.PodPending)
 		activePodIDs.Insert(string(pod.UID))
 		activePods = append(activePods, pod)
 		activePodsMap[string(pod.UID)] = &pod
+
+		idx += 1
 	}
 
 	for i := podsWithVGPUs; i < n; i++ {
-		pod := spoofPod(i+1, cpu, mem, noVgpu)
+		pod := spoofPod(idx, cpu, mem, noVgpu, corev1.PodPending)
 		activePodIDs.Insert(string(pod.UID))
 		activePods = append(activePods, pod)
 		activePodsMap[string(pod.UID)] = &pod
+
+		idx += 1
 	}
 
 	return activePodIDs, activePods, activePodsMap
 }
 
-func spoofPod(id int, cpu resource.Quantity, mem resource.Quantity, vgpu resource.Quantity) corev1.Pod {
+func spoofPod(id int, cpu resource.Quantity, mem resource.Quantity, vgpu resource.Quantity, phase corev1.PodPhase) corev1.Pod {
 	pod := corev1.Pod{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Pod",
-			APIVersion: "v1",
-		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("pod-%d", id),
-			Namespace: "default",
-			UID:       types.UID(uuid.NewString()),
+			Name: fmt.Sprintf("pod-%d", id),
+			UID:  types.UID(uuid.NewString()),
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:            "nginx",
-					Image:           "nginx",
-					ImagePullPolicy: "Always",
 					Resources: corev1.ResourceRequirements{
 						Limits: corev1.ResourceList{
 							"cpu":                    cpu,
@@ -105,7 +106,7 @@ func spoofPod(id int, cpu resource.Quantity, mem resource.Quantity, vgpu resourc
 			},
 		},
 		Status: corev1.PodStatus{
-			Phase: corev1.PodPending,
+			Phase: phase,
 		},
 	}
 
@@ -142,13 +143,6 @@ var _ = Describe("Allocator Tests", func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		mockPodCache = mock_device.NewMockPodCache(mockCtrl)
 
-		numSpoofedPods = 4
-		activePodIDs, activePods, _ := spoofPods(numSpoofedPods, 1, 4)
-
-		mockPodCache.EXPECT().GetActivePodIDs().Return(activePodIDs).Times(1)
-		// mockPodCache.EXPECT().GetActivePods().Return(activePodsMap).Times(1)
-		mockPodCache.EXPECT().GetPodsRunningOnNode(nodeName, string(corev1.PodPending)).Return(activePods, nil).Times(2)
-
 		opts = &device.VirtualGpuPluginServerOptions{
 			NumVirtualGPUs:   64,
 			DevicePluginPath: "/var/lib/kubelet/device-plugins/",
@@ -163,13 +157,59 @@ var _ = Describe("Allocator Tests", func() {
 	})
 
 	It("should allocate resources using the public Allocate DevicePlugin API", func() {
-		requestSize := 4
+		request1Size := 4
 		totalVirtualGPUs := 64
 
-		req := &v1beta1.AllocateRequest{
+		startIndex := 0
+		endIndex := 4
+		numSpoofedPods = endIndex - startIndex
+		activePodIDs, activePods, _ := spoofPods(startIndex, endIndex, 1, 4)
+
+		getActivePodIDs1 := mockPodCache.EXPECT().GetActivePodIDs().Return(activePodIDs).Times(1)
+		// mockPodCache.EXPECT().GetActivePods().Return(activePodsMap).Times(1)
+		getPodsRunningOnNode1 := mockPodCache.EXPECT().GetPodsRunningOnNode(nodeName, string(corev1.PodPending)).Return(activePods, nil).Times(2)
+
+		cpu, _ := resource.ParseQuantity("100m")
+		mem, _ := resource.ParseQuantity("100Mi")
+		vgpu, _ := resource.ParseQuantity(fmt.Sprintf("%d", 8))
+		newPod := corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: fmt.Sprintf("pod-%d", 5),
+				UID:  types.UID(uuid.NewString()),
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Limits: corev1.ResourceList{
+								"cpu":                    cpu,
+								"mem":                    mem,
+								device.VDeviceAnnotation: vgpu,
+							},
+						},
+					},
+				},
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodPending,
+			},
+		}
+
+		activePodIDs2 := activePodIDs.Clone()
+		activePodIDs2.Insert(string(newPod.UID))
+		activePods2 := append(activePods, newPod)
+
+		for i := 0; i < endIndex; i++ {
+			activePods2[i].Status.Phase = corev1.PodRunning
+		}
+
+		mockPodCache.EXPECT().GetActivePodIDs().Return(activePodIDs2).Times(1).After(getActivePodIDs1)
+		mockPodCache.EXPECT().GetPodsRunningOnNode(nodeName, string(corev1.PodPending)).Return(activePods2, nil).Times(2).After(getPodsRunningOnNode1)
+
+		req1 := &v1beta1.AllocateRequest{
 			ContainerRequests: []*v1beta1.ContainerAllocateRequest{
 				{
-					DevicesIDs: firstNDeviceIDs(allDevices, requestSize),
+					DevicesIDs: firstNDeviceIDs(allDevices, request1Size),
 				},
 			},
 		}
@@ -185,13 +225,13 @@ var _ = Describe("Allocator Tests", func() {
 		Expect(len(allPods)).To(Equal(numSpoofedPods))
 		Expect(err).To(BeNil())
 
-		resp, err := allocator.Allocate(req)
+		resp1, err := allocator.Allocate(req1)
 
 		Expect(err).To(BeNil())
-		Expect(resp).ToNot(BeNil())
+		Expect(resp1).ToNot(BeNil())
 		Expect(allocator.NumVirtualGPUs()).To(Equal(totalVirtualGPUs))
-		Expect(allocator.NumFreeVirtualGPUs()).To(Equal(totalVirtualGPUs - requestSize))
-		Expect(allocator.NumAllocatedVirtualGPUs()).To(Equal(requestSize))
+		Expect(allocator.NumFreeVirtualGPUs()).To(Equal(totalVirtualGPUs - request1Size))
+		Expect(allocator.NumAllocatedVirtualGPUs()).To(Equal(request1Size))
 		Expect(allocator.NumAllocations()).To(Equal(1))
 
 		gpuPods := getGpuPods(allPods)
@@ -201,10 +241,50 @@ var _ = Describe("Allocator Tests", func() {
 		Expect(err).To(BeNil())
 		Expect(allocation).ToNot(BeNil())
 		Expect(allocation.DeviceIDs).ToNot(BeNil())
-		Expect(len(allocation.DeviceIDs)).To(Equal(requestSize))
+		Expect(len(allocation.DeviceIDs)).To(Equal(request1Size))
 		for idx, deviceId := range allocation.DeviceIDs {
 			// The first `requestSize` Devices to be allocated should have IDs in the order that they were generated by the ResourceManager.
 			prefix := fmt.Sprintf("Virtual-GPU-%d", idx)
+			Expect(deviceId[0:len(prefix)]).To(Equal(prefix))
+		}
+
+		request2Size := 8
+		startIdx := request1Size
+		endIdx := startIdx + request2Size
+		req2 := &v1beta1.AllocateRequest{
+			ContainerRequests: []*v1beta1.ContainerAllocateRequest{
+				{
+					DevicesIDs: getDeviceIDs(allDevices, startIdx, endIdx),
+				},
+			},
+		}
+
+		allPods, err = mockPodCache.GetPodsRunningOnNode(nodeName, string(corev1.PodPending))
+		for idx, pod := range allPods {
+			GinkgoWriter.Printf("Pods %d/%d '%s': %v\n\n", idx+1, len(allPods), pod.Name, pod)
+		}
+		Expect(len(allPods)).To(Equal(5))
+		Expect(err).To(BeNil())
+
+		resp2, err := allocator.Allocate(req2)
+		Expect(err).To(BeNil())
+		Expect(resp2).ToNot(BeNil())
+		Expect(allocator.NumVirtualGPUs()).To(Equal(totalVirtualGPUs))
+		Expect(allocator.NumFreeVirtualGPUs()).To(Equal(totalVirtualGPUs - (request1Size + request2Size)))
+		Expect(allocator.NumAllocatedVirtualGPUs()).To(Equal(request1Size + request2Size))
+		Expect(allocator.NumAllocations()).To(Equal(2))
+
+		gpuPods = getGpuPods(allPods)
+		Expect(len(gpuPods)).To(Equal(2))
+		gpuPod = gpuPods[1]
+		allocation, err = allocator.GetAllocationForPod(string(gpuPod.UID))
+		Expect(err).To(BeNil())
+		Expect(allocation).ToNot(BeNil())
+		Expect(allocation.DeviceIDs).ToNot(BeNil())
+		Expect(len(allocation.DeviceIDs)).To(Equal(request2Size))
+		for idx, deviceId := range allocation.DeviceIDs {
+			// The first `requestSize` Devices to be allocated should have IDs in the order that they were generated by the ResourceManager.
+			prefix := fmt.Sprintf("Virtual-GPU-%d", idx+request1Size)
 			Expect(deviceId[0:len(prefix)]).To(Equal(prefix))
 		}
 	})
