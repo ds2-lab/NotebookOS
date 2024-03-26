@@ -17,6 +17,7 @@ import (
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -937,7 +938,7 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 
 	d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := d.forwardRequest(ctx, kernel, jupyter.ShellMessage, msg, cancel); err != nil {
+	if err := kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, msg, d.kernelResponseForwarder, cancel, time.Second*1); err != nil {
 		return err
 	}
 
@@ -952,8 +953,8 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.Ke
 	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_execute" message.
 	// This will force the replica to necessarily yield the execution to the other replicas.
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
-	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames[offset:])
-	var metadataFrame *jupyter.JupyterFrame = frames.MetadataFrame()
+	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
+	var metadataFrame *jupyter.JupyterFrame = frames[offset:].MetadataFrame()
 
 	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
 	if len(metadataFrame.Frame()) > 0 {
@@ -979,28 +980,55 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.Ke
 		}
 	}
 
-	// Check if another replica was specified as the one that should execute the code. If this is true, then we'll yield the execution.
-	var differentTargetReplicaSpecified bool = (targetReplicaId != -1 && targetReplicaId != kernel.ReplicaID())
-	/* TODO(Ben): The 0 is a place-holder. Need to check how many GPUs this kernel requires. The infrastructure for this isn't setup yet, though. */
-	var insufficientGPUs bool = d.gpuManager.IdleGPUs().LessThan(ZeroDecimal)
-	// var err error
+	var (
+		// Check if another replica was specified as the one that should execute the code. If this is true, then we'll yield the execution.
+		differentTargetReplicaSpecified bool = (targetReplicaId != -1 && targetReplicaId != kernel.ReplicaID())
+
+		// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
+		err error
+
+		// The number of GPUs required by this kernel replica.
+		requiredGPUs decimal.Decimal = decimal.NewFromFloat(kernel.Spec().GPU())
+	)
+
+	// If the error is non-nil, then there weren't enough idle GPUs available.
+	if !differentTargetReplicaSpecified {
+		// Only bother trying to allocate GPUs if the request isn't explicitly targeting another replica.
+		err = d.gpuManager.AllocatePendingGPUs(requiredGPUs, kernel.ReplicaID(), kernel.ID())
+	}
 
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.
 	// - If one of the other replicas was explicitly specified as the target replica, then our replica will need to yield.
-	if insufficientGPUs {
-		d.log.Debug("Insufficient GPUs available (%s) for replica %d of kernel %s to execute code (%v required).", d.gpuManager.IdleGPUs(), kernel.ReplicaID(), kernel.ID(), 0 /* Placeholder */)
-
+	if err != nil || differentTargetReplicaSpecified {
+		// Log message depends on which condition was true (first).
+		if err != nil {
+			d.log.Debug("Insufficient GPUs available (%s) for replica %d of kernel %s to execute code (%v required).", d.gpuManager.IdleGPUs(), kernel.ReplicaID(), kernel.ID(), 0 /* Placeholder */)
+		} else {
+			d.log.Debug("Replica %d of kernel %s is targeted, while we have replica %d running on this node.", targetReplicaId, kernel.ID(), kernel.ReplicaID() /* Placeholder */)
+		}
 		// Convert the message to a yield request.
 		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica in place of the original 'execute_request' message.
 		msg, _ = d.convertExecuteRequestToYieldExecute(msg, header, offset, kernel)
-	} else if differentTargetReplicaSpecified {
-		d.log.Debug("Replica %d of kernel %s is targeted, while we have replica %d running on this node.", targetReplicaId, kernel.ID(), kernel.ReplicaID() /* Placeholder */)
+	} else {
+		// Include the current number of idle GPUs availabe.
+		idleGPUs := d.gpuManager.IdleGPUs()
+		var metadata map[string]interface{} = make(map[string]interface{})
+		metadata["idle-gpus"] = idleGPUs
 
-		// Convert the message to a yield request.
-		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica in place of the original 'execute_request' message.
-		msg, _ = d.convertExecuteRequestToYieldExecute(msg, header, offset, kernel)
-	} else if verified := d.verifyFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
+		err := frames[offset:].EncodeMetadata(metadata)
+		if err != nil {
+			d.log.Error("Failed to encode metadata frame because: %v", err)
+			panic(err)
+		}
+
+		// Regenerate the signature.
+		framesWithoutIdentities, _ := kernel.SkipIdentities(frames)
+		framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+		msg.Frames = framesWithoutIdentities
+	}
+
+	if verified := d.verifyFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
 		// Just for debugging.
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'.", kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
@@ -1224,7 +1252,7 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
 	}
-	// d.log.Debug("Forwarding %v response from %v.", socket, from)
+	d.log.Debug("Forwarding %v response from %v: %v", socket, from, msg)
 	return socket.Send(*msg)
 }
 
@@ -1242,8 +1270,14 @@ func (d *SchedulerDaemon) handleSMRLeadTask(kernel core.Kernel, frames jupyter.J
 			return err
 		}
 
+		client := kernel.(*client.KernelClient)
+
 		d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
-		// TODO(Ben): Allocate GPUs to the kernel replica.
+		err := d.gpuManager.AllocateGPUs(decimal.NewFromFloat(client.Spec().GPU()), client.ReplicaID(), client.ID())
+		if err != nil {
+			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", client.ReplicaID(), client.ID(), err)
+			panic(err) // TODO(Ben): Handle gracefully.
+		}
 		go d.scheduler.OnTaskStart(kernel, &leadMessage)
 		return jupyter.ErrStopPropagation
 	} else if messageType == jupyter.MessageTypeLeadAfterYield {

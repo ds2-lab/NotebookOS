@@ -63,7 +63,7 @@ type GpuManager struct {
 	specGPUs      decimal.Decimal // The total number of GPUs configured/present on this node.
 	idleGPUs      decimal.Decimal // The number of GPUs that are uncommitted and therefore available on this node. This quantity is equal to specGPUs - committedGPUs.
 	committedGPUs decimal.Decimal // The number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
-	pendingGPUs   decimal.Decimal // The sum of the outstanding GPUs of all replicas scheduled onto this node. Pending GPUs are not allocated or committed to a particular replica yet. The time at which resources are actually committed to a replica depends upon the policy being used. In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
+	pendingGPUs   decimal.Decimal // GPUs that have been reserved for a replica that may or may not win its election. These cannot be allocated to another replica until the replica in question loses its election.
 }
 
 // Create and return a new GPU Manager.
@@ -120,7 +120,7 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 	defer m.mu.Unlock()
 
 	// If the request is for more GPUs than we have available (at all or just what isn't already allocated), then we'll return an error indicating that this is the case.
-	if numGPUs.GreaterThan(m.specGPUs) || numGPUs.GreaterThan(m.idleGPUs) {
+	if numGPUs.GreaterThan(m.specGPUs) {
 		return ErrInsufficientGPUs
 	}
 
@@ -139,7 +139,7 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 	}
 
 	// Update resource counts.
-	m.idleGPUs = m.idleGPUs.Sub(numGPUs)
+	m.pendingGPUs = m.pendingGPUs.Sub(numGPUs)
 	m.committedGPUs = m.committedGPUs.Add(numGPUs)
 
 	// Store allocation in the relevant mappings.
@@ -164,7 +164,7 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 	defer m.mu.Unlock()
 
 	// If the request is for more GPUs than we have available at all, then we'll return an error indicating that this is the case.
-	if numGPUs.GreaterThan(m.specGPUs) {
+	if numGPUs.GreaterThan(m.specGPUs) || m.idleGPUs.LessThan(numGPUs) {
 		return ErrInsufficientGPUs
 	}
 
@@ -172,6 +172,7 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 
 	// Update resource counts.
 	m.pendingGPUs = m.pendingGPUs.Add(numGPUs)
+	m.idleGPUs = m.idleGPUs.Sub(numGPUs)
 
 	// Store allocation in the relevant mappings.
 	key := m.getKey(replicaId, kernelId)
@@ -204,8 +205,7 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 	m.assertNotPending(allocation)
 	allocation.pending = true
 
-	// Update resource counts.
-	m.idleGPUs = m.idleGPUs.Add(allocation.numGPUs)
+	// Update resource counts. We don't increment idle GPUs until the pending GPU request has been released too.
 	m.committedGPUs = m.committedGPUs.Sub(allocation.numGPUs)
 	m.pendingGPUs = m.pendingGPUs.Add(allocation.numGPUs)
 
@@ -216,14 +216,16 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 	m.pendingAllocKernelReplicaMap.Store(key, allocation)
 	m.pendingAllocIdMap.Store(allocation.id, allocation)
 
-	return nil
+	// Now, release the pending GPUs.
+	// This will increment the number of idle GPUs available.
+	return m.releasePendingGPUs(replicaId, kernelId)
 }
 
 // Returns nil on success.
 // Returns ErrAllocationNotFound if there is no "actual" GPU allocation (as opposed to a "pending" GPU allocation) for the specified kernel replica.
 //
 // NOTE: This function will acquire the mutex; the mutex should not be held when this function is called.
-func (m *GpuManager) ReleasePendingGPUs(replicaId int32, kernelId string) error {
+func (m *GpuManager) releasePendingGPUs(replicaId int32, kernelId string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -261,6 +263,7 @@ func (m *GpuManager) tryDeallocatePendingGPUs(replicaId int32, kernelId string) 
 
 		// Decrement the pending GPU count by the number of GPUs specified in the allocation.
 		m.pendingGPUs.Sub(pendingAllocation.numGPUs)
+		m.idleGPUs.Add(pendingAllocation.numGPUs)
 
 		m.log.Debug("Removed %d pending GPU(s) from replica %d of kernel %s.", pendingAllocation.numGPUs.StringFixed(0), replicaId, kernelId)
 
