@@ -128,6 +128,7 @@ func getGpuPods(pods []corev1.Pod) []corev1.Pod {
 
 var _ = Describe("Allocator Tests", func() {
 	config.LogLevel = logger.LOG_LEVEL_ALL
+	totalVirtualGPUs := 64
 
 	var (
 		allocator    device.VirtualGpuAllocator
@@ -141,9 +142,10 @@ var _ = Describe("Allocator Tests", func() {
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		mockPodCache = mock_device.NewMockPodCache(mockCtrl)
+		totalVirtualGPUs = 64
 
 		opts = &device.VirtualGpuPluginServerOptions{
-			NumVirtualGPUs:   64,
+			NumVirtualGPUs:   totalVirtualGPUs,
 			DevicePluginPath: "/var/lib/kubelet/device-plugins/",
 		}
 
@@ -155,9 +157,36 @@ var _ = Describe("Allocator Tests", func() {
 		mockCtrl.Finish()
 	})
 
+	It("should be able to increase its total number of virtual GPUs", func() {
+		Expect(allocator.NumVirtualGPUs()).To(Equal(totalVirtualGPUs))
+		Expect(allocator.NumFreeVirtualGPUs()).To(Equal(totalVirtualGPUs))
+		Expect(allocator.NumAllocatedVirtualGPUs()).To(BeZero())
+
+		var adjustedVirtualGPUs int = 128
+		Expect(adjustedVirtualGPUs > totalVirtualGPUs).To(BeTrue())
+		allocator.SetTotalVirtualGPUs(int32(adjustedVirtualGPUs))
+
+		Expect(allocator.NumVirtualGPUs()).To(Equal(adjustedVirtualGPUs))
+		Expect(allocator.NumFreeVirtualGPUs()).To(Equal(adjustedVirtualGPUs))
+		Expect(allocator.NumAllocatedVirtualGPUs()).To(BeZero())
+	})
+
+	It("should be able to decrease its total number of virtual GPUs", func() {
+		Expect(allocator.NumVirtualGPUs()).To(Equal(totalVirtualGPUs))
+		Expect(allocator.NumFreeVirtualGPUs()).To(Equal(totalVirtualGPUs))
+		Expect(allocator.NumAllocatedVirtualGPUs()).To(BeZero())
+
+		var adjustedVirtualGPUs int = 32
+		Expect(adjustedVirtualGPUs < totalVirtualGPUs).To(BeTrue())
+		allocator.SetTotalVirtualGPUs(int32(adjustedVirtualGPUs))
+
+		Expect(allocator.NumVirtualGPUs()).To(Equal(adjustedVirtualGPUs))
+		Expect(allocator.NumFreeVirtualGPUs()).To(Equal(adjustedVirtualGPUs))
+		Expect(allocator.NumAllocatedVirtualGPUs()).To(BeZero())
+	})
+
 	It("should allocate resources using the public Allocate DevicePlugin API", func() {
 		request1Size := 4
-		totalVirtualGPUs := 64
 
 		startIndex := 0
 		endIndex := 1

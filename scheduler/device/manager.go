@@ -114,15 +114,26 @@ func (m *resourceManagerImpl) SetTotalNumDevices(value int32) error {
 	m.Lock()
 	defer m.Unlock()
 
-	if value < int32(m.allocatedDevices.Len()) {
+	originalNumDevices := m.__unsafeNumDevices()
+
+	if value < int32(m.__unsafeNumAllocatedDevices()) {
 		return ErrInvalidResourceAdjustment
 	}
 
-	if value >= int32(m.allocatedDevices.Len()) {
-		return m.__unsafeDecreaseTotalNumDevices(value)
+	var err error
+	if value >= int32(m.__unsafeNumDevices()) {
+		err = m.__unsafeIncreaseTotalNumDevices(value)
 	} else {
-		return m.__unsafeIncreaseTotalNumDevices(value)
+		err = m.__unsafeDecreaseTotalNumDevices(value)
 	}
+
+	// If there was no error and yet we don't have the correct number of devices,
+	// then something went wrong that we didn't catch, so we panic.
+	if err == nil && int32(m.__unsafeNumDevices()) != value {
+		m.log.Error("No error occurred, yet we have the incorrect number of devices now. Originally: %d. Expected: %d. Actual: %d.", originalNumDevices, value, m.__unsafeNumDevices())
+	}
+
+	return err
 }
 
 // Increase the total number of devices available.
@@ -130,8 +141,9 @@ func (m *resourceManagerImpl) SetTotalNumDevices(value int32) error {
 // The lock MUST be held before calling this method.
 //
 // If `value` is greater than the current number of devices, then this panics.
+// If `value` is greater than the current number of free devices, then this panics.
 func (m *resourceManagerImpl) __unsafeDecreaseTotalNumDevices(value int32) error {
-	if value < int32(len(m.devices)) {
+	if value > int32(len(m.devices)) {
 		panic(fmt.Sprintf("cannot decrease number of devices from %d to %d (%d > %d)", len(m.devices), value, value, len(m.devices)))
 	}
 
@@ -142,6 +154,23 @@ func (m *resourceManagerImpl) __unsafeDecreaseTotalNumDevices(value int32) error
 	}
 
 	m.log.Debug("Removing %d device(s) so that there is a total of %d devices (current: %d).", numDevicesToRemove, value, int32(len(m.devices)))
+
+	var toRemove []*Device = make([]*Device, 0, numDevicesToRemove)
+	for el := m.freeDevices.Front(); el != nil; el = el.Next() {
+		device := el.Value
+		toRemove = append(toRemove, device)
+
+		// Break once we have accumulated enough devices to remove.
+		if int32(len(toRemove)) == numDevicesToRemove {
+			break
+		}
+	}
+
+	for _, device := range toRemove {
+		m.devices.Remove(device)
+		m.freeDevices.Delete(device.ID)
+	}
+
 	return nil
 }
 
@@ -151,7 +180,7 @@ func (m *resourceManagerImpl) __unsafeDecreaseTotalNumDevices(value int32) error
 //
 // If `value` is less than the current number of devices, then this panics.
 func (m *resourceManagerImpl) __unsafeIncreaseTotalNumDevices(value int32) error {
-	if value > int32(len(m.devices)) {
+	if value < int32(len(m.devices)) {
 		panic(fmt.Sprintf("cannot increase number of devices from %d to %d (%d < %d)", len(m.devices), value, value, len(m.devices)))
 	}
 
@@ -251,18 +280,30 @@ func (m *resourceManagerImpl) FreeDevice(id string) error {
 func (m *resourceManagerImpl) NumDevices() int {
 	m.Lock()
 	defer m.Unlock()
+	return m.__unsafeNumDevices()
+}
+
+func (m *resourceManagerImpl) __unsafeNumDevices() int {
 	return len(m.devices)
 }
 
 func (m *resourceManagerImpl) NumFreeDevices() int {
 	m.Lock()
 	defer m.Unlock()
+	return m.__unsafeNumFreeDevices()
+}
+
+func (m *resourceManagerImpl) __unsafeNumFreeDevices() int {
 	return m.freeDevices.Len()
 }
 
 func (m *resourceManagerImpl) NumAllocatedDevices() int {
 	m.Lock()
 	defer m.Unlock()
+	return m.__unsafeNumAllocatedDevices()
+}
+
+func (m *resourceManagerImpl) __unsafeNumAllocatedDevices() int {
 	return m.allocatedDevices.Len()
 }
 

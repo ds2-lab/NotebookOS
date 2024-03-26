@@ -140,7 +140,6 @@ func (v *virtualGpuAllocatorImpl) SetTotalVirtualGPUs(value int32) error {
 		return ErrInvalidResourceAdjustment
 	}
 
-	// TODO(Ben): Modify the total number of virtual GPUs.
 	return v.resourceManager.SetTotalNumDevices(value)
 }
 
