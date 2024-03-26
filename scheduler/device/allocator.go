@@ -176,7 +176,7 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 			continue
 		}
 
-		if getVirtualGpuRequirementsOfPod(pod) == numVirtualGPUsRequested {
+		if GetVirtualGpuRequirementsOfPod(pod) == numVirtualGPUsRequested {
 			v.log.Debug("Found candidate Pod %s(%s) with requested vGPUs = %d.", string(pod.UID), pod.Name, numVirtualGPUsRequested)
 			klog.V(2).Infof("Found candidate Pod %s(%s) with requested vGPUs = %d.", string(pod.UID), pod.Name, numVirtualGPUsRequested)
 			candidatePod = pod
@@ -315,7 +315,7 @@ func (v *virtualGpuAllocatorImpl) getCandidatePodsForAllocation() ([]*corev1.Pod
 	klog.V(1).Infof("Found %d pod(s) running on node %s.", len(allPods), v.nodeName)
 	for _, pod := range allPods {
 		current := pod
-		if podRequiresVirtualGPUs(&current) && !podHasVirtualGPUsAllocated(&current) {
+		if PodRequiresVirtualGPUs(&current) && !PodHasVirtualGPUsAllocated(&current) {
 			candidatePods = append(candidatePods, &current)
 		} else {
 			v.log.Debug("Pod %s(%s) does not require vGPUs.", pod.UID, pod.Name)
@@ -327,7 +327,7 @@ func (v *virtualGpuAllocatorImpl) getCandidatePodsForAllocation() ([]*corev1.Pod
 		klog.V(3).Infof("candidate pod %s in ns %s with creation-timestamp %d is found.",
 			pod.Name,
 			pod.Namespace,
-			getCreationTimeOfPod(pod))
+			GetCreationTimeOfPod(pod))
 	}
 
 	v.log.Debug("Found %d pod(s) for new allocation request.", len(candidatePods))

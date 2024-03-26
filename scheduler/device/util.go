@@ -39,12 +39,12 @@ func waitForDevicePluginServer(sock string, timeout time.Duration) error {
 
 // Return true if the Pod is terminated.
 // Otherwise, return false.
-func isPodTerminated(pod *corev1.Pod) bool {
+func IsPodTerminated(pod *corev1.Pod) bool {
 	return pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded || (pod.DeletionTimestamp != nil && verifyNotRunning(pod.Status.ContainerStatuses))
 }
 
 // Return the number of virtual GPUs required by the given Pod.
-func getVirtualGpuRequirementsOfPod(pod *corev1.Pod) int32 {
+func GetVirtualGpuRequirementsOfPod(pod *corev1.Pod) int32 {
 	var numVirtualGPUsRequired int32 = 0
 
 	for _, container := range pod.Spec.Containers {
@@ -57,12 +57,12 @@ func getVirtualGpuRequirementsOfPod(pod *corev1.Pod) int32 {
 }
 
 // Return true if the Pod requires vGPUs. Otherwise, return false.
-func podRequiresVirtualGPUs(pod *corev1.Pod) bool {
-	return getVirtualGpuRequirementsOfPod(pod) > 0
+func PodRequiresVirtualGPUs(pod *corev1.Pod) bool {
+	return GetVirtualGpuRequirementsOfPod(pod) > 0
 }
 
 // Check if pod has already been assigned
-func podHasVirtualGPUsAllocated(pod *corev1.Pod) bool {
+func PodHasVirtualGPUsAllocated(pod *corev1.Pod) bool {
 	if assigned, ok := pod.ObjectMeta.Annotations[VirtualGPUAssigned]; !ok {
 		klog.V(3).Infof("No assigned flag for pod %s in namespace %s",
 			pod.Name,
@@ -78,7 +78,7 @@ func podHasVirtualGPUsAllocated(pod *corev1.Pod) bool {
 	return true
 }
 
-func getCreationTimeOfPod(pod *v1.Pod) (predicateTime uint64) {
+func GetCreationTimeOfPod(pod *v1.Pod) (predicateTime uint64) {
 	return uint64(pod.ObjectMeta.CreationTimestamp.UnixNano())
 }
 
@@ -89,7 +89,7 @@ func (pods PodsOrderedByCreationTime) Len() int {
 }
 
 func (pods PodsOrderedByCreationTime) Less(i, j int) bool {
-	return getCreationTimeOfPod(pods[i]) <= getCreationTimeOfPod(pods[j])
+	return GetCreationTimeOfPod(pods[i]) <= GetCreationTimeOfPod(pods[j])
 }
 
 func (pods PodsOrderedByCreationTime) Swap(i, j int) {

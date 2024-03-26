@@ -76,11 +76,11 @@ func (c *podCacheImpl) GetActivePodIDs() StringSet {
 		}
 
 		// Don't return Pods that have been terminated.
-		if isPodTerminated(pod) {
+		if IsPodTerminated(pod) {
 			continue
 		}
 
-		if !podRequiresVirtualGPUs(pod) {
+		if !PodRequiresVirtualGPUs(pod) {
 			continue
 		}
 
@@ -100,11 +100,11 @@ func (c *podCacheImpl) GetActivePods() map[string]*corev1.Pod {
 		}
 
 		// Don't return Pods that have been terminated.
-		if isPodTerminated(pod) {
+		if IsPodTerminated(pod) {
 			continue
 		}
 
-		if !podRequiresVirtualGPUs(pod) {
+		if !PodRequiresVirtualGPUs(pod) {
 			continue
 		}
 
@@ -120,11 +120,11 @@ func (c *podCacheImpl) GetPod(namespace string, podName string) (*corev1.Pod, er
 		return nil, err
 	}
 
-	if isPodTerminated(pod) {
+	if IsPodTerminated(pod) {
 		return nil, fmt.Errorf("the specified Pod has been terminated")
 	}
 
-	if !podRequiresVirtualGPUs(pod) {
+	if !PodRequiresVirtualGPUs(pod) {
 		return nil, fmt.Errorf("the specified Pod does not require GPUs")
 	}
 
