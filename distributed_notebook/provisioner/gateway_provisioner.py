@@ -149,7 +149,7 @@ class GatewayProvisioner(KernelProvisionerBase):
         This method is called from `KernelManager.launch_kernel()` during the
         kernel manager's start kernel sequence.
         """
-        self._log.info("launch_kernel[kwargs: %s]" % str(kwargs))
+        self.log.info("launch_kernel[kwargs: %s]" % str(kwargs))
         try:
             resourceSpec = gateway_pb2.ResourceSpec(
                 cpu=0,

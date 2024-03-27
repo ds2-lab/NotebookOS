@@ -844,6 +844,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	kernelIp := in.KernelIp
 	kernelPodName := in.PodName
 	nodeName := in.NodeName
+	resourceSpec := in.ResourceSpec
 
 	d.log.Info("Connection info: %v", connectionInfo)
 	d.log.Info("Session ID: %v", sessionId)
@@ -852,6 +853,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	d.log.Info("Pod name: %v", kernelPodName)
 	d.log.Info("Host ID: %v", hostId)
 	d.log.Info("Node ID: %v", nodeName)
+	d.log.Debug("Resource spec: %v", resourceSpec)
 
 	d.mutex.Lock()
 
@@ -888,6 +890,15 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	// If this is the first replica we're registering, then its ID should be 1.
 	// The size will be 0, so we'll assign it a replica ID of 0 + 1 = 1.
 	var replicaId int32 = int32(kernel.Size()) + 1
+
+	if kernelSpec.Resource == nil && resourceSpec != nil {
+		d.log.Debug("Setting ResourceSpec of Kernel %s to %v", kernel.ID(), resourceSpec)
+		kernelSpec.Resource = resourceSpec
+
+		if kernel.KernelSpec().Resource == nil {
+			kernel.KernelSpec().Resource = resourceSpec
+		}
+	}
 
 	// We're registering a new replica, so the number of replicas is based on the cluster configuration.
 	replicaSpec := &gateway.KernelReplicaSpec{

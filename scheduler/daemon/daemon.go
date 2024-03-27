@@ -289,7 +289,8 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		PersistentId: registrationPayload.PersistentId,
 	}
 
-	d.log.Debug("kernelReplicaSpec: %v", kernelReplicaSpec)
+	d.log.Debug("Kernel replica spec: %v", kernelReplicaSpec)
+	d.log.Debug("Kernel resource spec: %v", registrationPayload.ResourceSpec)
 
 	listenPorts, err := d.availablePorts.RequestPorts()
 	if err != nil {
@@ -370,6 +371,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		KernelIp:       remote_ip,
 		PodName:        registrationPayload.PodName,
 		NodeName:       registrationPayload.NodeName,
+		ResourceSpec:   registrationPayload.ResourceSpec,
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
