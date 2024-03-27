@@ -54,6 +54,16 @@ class ClusterGatewayStub(object):
                 request_serializer=gateway__pb2.SetVirtualGPUsRequest.SerializeToString,
                 response_deserializer=gateway__pb2.VirtualGpuInfo.FromString,
                 )
+        self.GetActualGpuInfo = channel.unary_unary(
+                '/gateway.ClusterGateway/GetActualGpuInfo',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.ClusterActualGpuInfo.FromString,
+                )
+        self.GetVirtualGpuInfo = channel.unary_unary(
+                '/gateway.ClusterGateway/GetVirtualGpuInfo',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.ClusterVirtualGpuInfo.FromString,
+                )
 
 
 class ClusterGatewayServicer(object):
@@ -118,6 +128,20 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetActualGpuInfo(self, request, context):
+        """Return the current GPU resource metrics on the node.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetVirtualGpuInfo(self, request, context):
+        """Return the current vGPU (or "deflated GPU") resource metrics on the node.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -160,6 +184,16 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
                     servicer.SetTotalVirtualGPUs,
                     request_deserializer=gateway__pb2.SetVirtualGPUsRequest.FromString,
                     response_serializer=gateway__pb2.VirtualGpuInfo.SerializeToString,
+            ),
+            'GetActualGpuInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetActualGpuInfo,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.ClusterActualGpuInfo.SerializeToString,
+            ),
+            'GetVirtualGpuInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetVirtualGpuInfo,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.ClusterVirtualGpuInfo.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -307,6 +341,40 @@ class ClusterGateway(object):
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
+    @staticmethod
+    def GetActualGpuInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/GetActualGpuInfo',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.ClusterActualGpuInfo.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def GetVirtualGpuInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/GetVirtualGpuInfo',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.ClusterVirtualGpuInfo.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
 
 class LocalGatewayStub(object):
     """The juypter gateway service for host local kernels.
@@ -373,13 +441,13 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
                 response_deserializer=gateway__pb2.PrepareToMigrateResponse.FromString,
                 )
-        self.GetGpuInfo = channel.unary_unary(
-                '/gateway.LocalGateway/GetGpuInfo',
+        self.GetActualGpuInfo = channel.unary_unary(
+                '/gateway.LocalGateway/GetActualGpuInfo',
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.GpuInfo.FromString,
                 )
-        self.GetVirtualGPUs = channel.unary_unary(
-                '/gateway.LocalGateway/GetVirtualGPUs',
+        self.GetVirtualGpuInfo = channel.unary_unary(
+                '/gateway.LocalGateway/GetVirtualGpuInfo',
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.VirtualGpuInfo.FromString,
                 )
@@ -479,14 +547,14 @@ class LocalGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def GetGpuInfo(self, request, context):
+    def GetActualGpuInfo(self, request, context):
         """Return the current GPU resource metrics on the node.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def GetVirtualGPUs(self, request, context):
+    def GetVirtualGpuInfo(self, request, context):
         """Return the current vGPU (or "deflated GPU") resource metrics on the node.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -565,13 +633,13 @@ def add_LocalGatewayServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.ReplicaInfo.FromString,
                     response_serializer=gateway__pb2.PrepareToMigrateResponse.SerializeToString,
             ),
-            'GetGpuInfo': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetGpuInfo,
+            'GetActualGpuInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetActualGpuInfo,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.GpuInfo.SerializeToString,
             ),
-            'GetVirtualGPUs': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetVirtualGPUs,
+            'GetVirtualGpuInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetVirtualGpuInfo,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.VirtualGpuInfo.SerializeToString,
             ),
@@ -784,7 +852,7 @@ class LocalGateway(object):
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def GetGpuInfo(request,
+    def GetActualGpuInfo(request,
             target,
             options=(),
             channel_credentials=None,
@@ -794,14 +862,14 @@ class LocalGateway(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/GetGpuInfo',
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/GetActualGpuInfo',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.GpuInfo.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def GetVirtualGPUs(request,
+    def GetVirtualGpuInfo(request,
             target,
             options=(),
             channel_credentials=None,
@@ -811,7 +879,7 @@ class LocalGateway(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/GetVirtualGPUs',
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/GetVirtualGpuInfo',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.VirtualGpuInfo.FromString,
             options, channel_credentials,

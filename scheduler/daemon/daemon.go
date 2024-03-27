@@ -437,7 +437,7 @@ func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
 	}
 }
 
-func (d *SchedulerDaemon) GetGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.GpuInfo, error) {
+func (d *SchedulerDaemon) GetActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.GpuInfo, error) {
 	gpuInfo := &gateway.GpuInfo{
 		SpecGPUs:              int32(d.gpuManager.specGPUs.InexactFloat64()),
 		IdleGPUs:              int32(d.gpuManager.idleGPUs.InexactFloat64()),
@@ -1077,7 +1077,7 @@ func (d *SchedulerDaemon) GetVirtualGpuAllocations(ctx context.Context, in *gate
 	return allocations, nil
 }
 
-func (d *SchedulerDaemon) GetVirtualGPUs(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuInfo, error) {
+func (d *SchedulerDaemon) GetVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuInfo, error) {
 	response := &gateway.VirtualGpuInfo{
 		TotalVirtualGPUs:     int32(d.virtualGpuPluginServer.NumVirtualGPUs()),
 		AllocatedVirtualGPUs: int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()),
@@ -1112,7 +1112,7 @@ func (d *SchedulerDaemon) SetTotalVirtualGPUs(ctx context.Context, in *gateway.S
 		return nil, err
 	}
 
-	response, err := d.GetVirtualGPUs(ctx, &gateway.Void{})
+	response, err := d.GetVirtualGpuInfo(ctx, &gateway.Void{})
 	if err != nil {
 		d.log.Error("Unexpected error while getting the new virtual GPU info: %v", err)
 		return nil, err

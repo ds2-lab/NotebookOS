@@ -34,6 +34,22 @@ service ClusterGateway {
 
   // Set the maximum number of vGPU resources availabe on a particular node (identified by the local daemon).
   rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
+
+  // Return the current GPU resource metrics on the node.
+  rpc GetActualGpuInfo(Void) returns (ClusterActualGpuInfo) {}
+
+  // Return the current vGPU (or "deflated GPU") resource metrics on the node.
+  rpc GetVirtualGpuInfo(Void) returns (ClusterVirtualGpuInfo) {}
+}
+
+// Mapping from Kubernetes node name to the actual GPU info for that node.
+message ClusterActualGpuInfo {
+  map<string,GpuInfo> gpuInfo = 1;
+}
+
+// Mapping from Kubernetes node name to the virtual GPU info for that node.
+message ClusterVirtualGpuInfo {
+  map<string,VirtualGpuInfo> gpuInfo = 1;
 }
 
 message JupyterKernelReplica {
@@ -109,10 +125,10 @@ service LocalGateway {
   rpc PrepareToMigrate(ReplicaInfo) returns (PrepareToMigrateResponse) {}
 
   // Return the current GPU resource metrics on the node.
-  rpc GetGpuInfo(Void) returns (GpuInfo) {}
+  rpc GetActualGpuInfo(Void) returns (GpuInfo) {}
 
   // Return the current vGPU (or "deflated GPU") resource metrics on the node.
-  rpc GetVirtualGPUs(Void) returns (VirtualGpuInfo) {}
+  rpc GetVirtualGpuInfo(Void) returns (VirtualGpuInfo) {}
 
   // Set the maximum number of vGPU resources availabe on the node.
   rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}

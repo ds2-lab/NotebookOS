@@ -77,7 +77,7 @@ func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval
 
 func (s *HostScheduler) pollForGpuInfo() {
 	for {
-		resp, err := s.LocalGatewayClient.GetGpuInfo(context.Background(), &gateway.Void{})
+		resp, err := s.LocalGatewayClient.GetActualGpuInfo(context.Background(), &gateway.Void{})
 		if err != nil {
 			s.log.Error("Failed to refresh GPU info from Scheduler %s on Node %s: %v", s.id, s.nodeName, err)
 		} else {

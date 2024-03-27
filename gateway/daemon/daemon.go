@@ -1046,6 +1046,46 @@ func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*ga
 	return gateway.VOID, nil
 }
 
+// Return the current GPU resource metrics on the node.
+func (d *GatewayDaemon) GetActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
+	resp := &gateway.ClusterActualGpuInfo{
+		GpuInfo: make(map[string]*gateway.GpuInfo),
+	}
+
+	d.cluster.GetHostManager().Range(func(hostId string, host core.Host) (contd bool) {
+		data, err := host.GetActualGpuInfo(ctx, in)
+		if err != nil {
+			d.log.Error("Failed to retrieve actual GPU info from Local Daemon %s on node %s because: %v", hostId, host.NodeName(), err)
+			resp.GpuInfo[host.NodeName()] = nil
+		} else {
+			resp.GpuInfo[host.NodeName()] = data
+		}
+		return true
+	})
+
+	return resp, nil
+}
+
+// Return the current vGPU (or "deflated GPU") resource metrics on the node.
+func (d *GatewayDaemon) GetVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterVirtualGpuInfo, error) {
+	resp := &gateway.ClusterVirtualGpuInfo{
+		GpuInfo: make(map[string]*gateway.VirtualGpuInfo),
+	}
+
+	d.cluster.GetHostManager().Range(func(hostId string, host core.Host) (contd bool) {
+		data, err := host.GetVirtualGpuInfo(ctx, in)
+		if err != nil {
+			d.log.Error("Failed to retrieve virtual GPU info from Local Daemon %s on node %s because: %v", hostId, host.NodeName(), err)
+			resp.GpuInfo[host.NodeName()] = nil
+		} else {
+			resp.GpuInfo[host.NodeName()] = data
+		}
+		return true
+	})
+
+	return resp, nil
+}
+
 // Adjust the total number of virtual GPUs available on a particular node.
 //
 // This operation will fail if the new number of virtual GPUs is less than the number of allocated GPUs.

@@ -261,8 +261,13 @@ func (v *virtualGpuPluginServerImpl) ListAndWatch(e *pluginapi.Empty, s pluginap
 	v.log.Info("virtualGpuPluginServerImpl::ListAndWatch called.")
 	klog.V(2).Infof("ListAndWatch request for vcore")
 
+	v.log.Debug("Sending first/initial 'ListAndWatchResponse' now. Number of vGPUs: %d.", v.NumVirtualGPUs())
+	klog.V(3).Infof("Sending first/initial 'ListAndWatchResponse' now. Number of vGPUs: %d.", v.NumVirtualGPUs())
 	if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: v.apiDevices()}); err != nil {
 		return err
+	} else {
+		v.log.Debug("Successfully sent first/initial 'ListAndWatchResponse'", v.NumVirtualGPUs())
+		klog.V(3).Info("Successfully sent sent first/initial 'ListAndWatchResponse'")
 	}
 
 	// We don't send unhealthy state.
@@ -271,12 +276,19 @@ func (v *virtualGpuPluginServerImpl) ListAndWatch(e *pluginapi.Empty, s pluginap
 		select {
 		case <-v.totalNumVirtualGpusChanged:
 			{
+				v.log.Debug("Total number of vGPUs changed (%d). Sending 'ListAndWatchResponse' now", v.NumVirtualGPUs())
+				klog.V(2).Infof("Total number of vGPUs changed (%d). Sending 'ListAndWatchResponse' now", v.NumVirtualGPUs())
 				if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: v.apiDevices()}); err != nil {
 					return err
+				} else {
+					v.log.Debug("Successfully sent 'ListAndWatchResponse'")
+					klog.V(2).Info("Successfully sent 'ListAndWatchResponse'")
 				}
 			}
 		case <-v.allocator.stopChan:
 			{
+				v.log.Warn("Received 'STOP' notification in ListAndWatch.")
+				klog.Warning("Received 'STOP' notification in ListAndWatch.")
 				running = false
 				break
 			}
