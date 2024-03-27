@@ -39,6 +39,8 @@ type ClusterGatewayClient interface {
 	SmrNodeAdded(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ListKernelsResponse, error)
+	// Set the maximum number of vGPU resources availabe on a particular node (identified by the local daemon).
+	SetTotalVirtualGPUs(ctx context.Context, in *SetVirtualGPUsRequest, opts ...grpc.CallOption) (*VirtualGpuInfo, error)
 }
 
 type clusterGatewayClient struct {
@@ -112,6 +114,15 @@ func (c *clusterGatewayClient) ListKernels(ctx context.Context, in *Void, opts .
 	return out, nil
 }
 
+func (c *clusterGatewayClient) SetTotalVirtualGPUs(ctx context.Context, in *SetVirtualGPUsRequest, opts ...grpc.CallOption) (*VirtualGpuInfo, error) {
+	out := new(VirtualGpuInfo)
+	err := c.cc.Invoke(ctx, "/gateway.ClusterGateway/SetTotalVirtualGPUs", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterGatewayServer is the server API for ClusterGateway service.
 // All implementations must embed UnimplementedClusterGatewayServer
 // for forward compatibility
@@ -133,6 +144,8 @@ type ClusterGatewayServer interface {
 	SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(context.Context, *Void) (*ListKernelsResponse, error)
+	// Set the maximum number of vGPU resources availabe on a particular node (identified by the local daemon).
+	SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -160,6 +173,9 @@ func (UnimplementedClusterGatewayServer) SmrNodeAdded(context.Context, *ReplicaI
 }
 func (UnimplementedClusterGatewayServer) ListKernels(context.Context, *Void) (*ListKernelsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListKernels not implemented")
+}
+func (UnimplementedClusterGatewayServer) SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetTotalVirtualGPUs not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 
@@ -300,6 +316,24 @@ func _ClusterGateway_ListKernels_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterGateway_SetTotalVirtualGPUs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetVirtualGPUsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterGatewayServer).SetTotalVirtualGPUs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gateway.ClusterGateway/SetTotalVirtualGPUs",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterGatewayServer).SetTotalVirtualGPUs(ctx, req.(*SetVirtualGPUsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterGateway_ServiceDesc is the grpc.ServiceDesc for ClusterGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -334,6 +368,10 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListKernels",
 			Handler:    _ClusterGateway_ListKernels_Handler,
+		},
+		{
+			MethodName: "SetTotalVirtualGPUs",
+			Handler:    _ClusterGateway_SetTotalVirtualGPUs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

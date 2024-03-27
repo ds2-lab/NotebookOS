@@ -60,6 +60,7 @@ var (
 	ErrResourceSpecNotFound  = errors.New("the kernel does not have a resource spec included with its kernel spec")
 	ErrInvalidJupyterMessage = errors.New("invalid jupter message")
 	ErrKernelIDRequired      = errors.New("kernel id frame is required for kernel_info_request")
+	ErrDaemonNotFoundOnNode  = errors.New("could not find a local daemon on the specified kubernetes node")
 )
 
 type ClusterDaemonOptions struct {
@@ -554,39 +555,39 @@ func (d *GatewayDaemon) issueUpdateReplicaRequest(kernelId string, nodeId int32,
 
 // Issue an 'add-replica' request to a random replica of a specific kernel, informing that replica and its peers
 // to add a new replica to the cluster (with ID `nodeId`).
-func (d *GatewayDaemon) issueAddNodeRequest(kernelId string, nodeId int32, address string) {
-	d.log.Info("Issuing 'add-replica' request to kernel %s for replica %d.", kernelId, nodeId)
+// func (d *GatewayDaemon) issueAddNodeRequest(kernelId string, nodeId int32, address string) {
+// 	d.log.Info("Issuing 'add-replica' request to kernel %s for replica %d.", kernelId, nodeId)
 
-	kernelClient, ok := d.kernels.Load(kernelId)
-	if !ok {
-		panic(fmt.Sprintf("Could not find distributed kernel client with ID %s.", kernelId))
-	}
+// 	kernelClient, ok := d.kernels.Load(kernelId)
+// 	if !ok {
+// 		panic(fmt.Sprintf("Could not find distributed kernel client with ID %s.", kernelId))
+// 	}
 
-	targetReplica := kernelClient.GetReadyReplica()
-	if targetReplica == nil {
-		panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernelId))
-	}
+// 	targetReplica := kernelClient.GetReadyReplica()
+// 	if targetReplica == nil {
+// 		panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernelId))
+// 	}
 
-	host := targetReplica.Context().Value(client.CtxKernelHost).(core.Host)
-	if host == nil {
-		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
-	}
+// 	host := targetReplica.Context().Value(client.CtxKernelHost).(core.Host)
+// 	if host == nil {
+// 		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
+// 	}
 
-	d.log.Debug("Issuing AddReplica RPC for new replica %d of kernel %s.", nodeId, kernelId)
-	replicaInfo := &gateway.ReplicaInfoWithAddr{
-		Id:       nodeId,
-		KernelId: kernelId,
-		Hostname: fmt.Sprintf("%s:%d", address, d.smrPort),
-	}
+// 	d.log.Debug("Issuing AddReplica RPC for new replica %d of kernel %s.", nodeId, kernelId)
+// 	replicaInfo := &gateway.ReplicaInfoWithAddr{
+// 		Id:       nodeId,
+// 		KernelId: kernelId,
+// 		Hostname: fmt.Sprintf("%s:%d", address, d.smrPort),
+// 	}
 
-	// Issue the 'add-replica' request. We panic if there was an error.
-	if _, err := host.AddReplica(context.TODO(), replicaInfo); err != nil {
-		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
-	}
+// 	// Issue the 'add-replica' request. We panic if there was an error.
+// 	if _, err := host.AddReplica(context.TODO(), replicaInfo); err != nil {
+// 		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
+// 	}
 
-	d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", kernelId, nodeId)
-	time.Sleep(time.Second * 5)
-}
+// 	d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", kernelId, nodeId)
+// 	time.Sleep(time.Second * 5)
+// }
 
 func (d *GatewayDaemon) SmrReady(ctx context.Context, smrReadyNotification *gateway.SmrReadyNotification) (*gateway.Void, error) {
 	kernelId := smrReadyNotification.KernelId
@@ -1045,6 +1046,38 @@ func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*ga
 	return gateway.VOID, nil
 }
 
+// Adjust the total number of virtual GPUs available on a particular node.
+//
+// This operation will fail if the new number of virtual GPUs is less than the number of allocated GPUs.
+// For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
+// this function is called with the new total number specified as 32, then the operation will fail.
+// In this case (when the operation fails), an ErrInvalidParameter is returned.
+func (d *GatewayDaemon) SetTotalVirtualGPUs(ctx context.Context, in *gateway.SetVirtualGPUsRequest) (*gateway.VirtualGpuInfo, error) {
+	var targetHost core.Host
+	d.cluster.GetHostManager().Range(func(hostId string, host core.Host) bool {
+		if host.NodeName() == in.GetKubernetesNodeName() {
+			targetHost = host
+			return false
+		}
+
+		return true
+	})
+
+	// If we didn't find a local daemon running on a node with the specified name, then return an error.
+	if targetHost == nil {
+		d.log.Error("Could not find a Local Daemon running on Kubernetes node %s.", in.KubernetesNodeName)
+		return nil, ErrDaemonNotFoundOnNode
+	}
+
+	d.log.Debug("Attempting to set vGPUs available on node %s to %d.", in.KubernetesNodeName, in.Value)
+	resp, err := targetHost.SetTotalVirtualGPUs(ctx, in)
+	if err != nil {
+		d.log.Error("Failed to set vGPUs available on node %s to %d because: %v", in.KubernetesNodeName, in.Value, err)
+	}
+
+	return resp, err
+}
+
 func (d *GatewayDaemon) migrate_removeFirst(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
 	// We pass 'false' for `wait` here, as we don't really need to wait for the CloneSet to scale-down.
 	// As long as the replica is stopped, we can continue.
@@ -1308,19 +1341,19 @@ func (d *GatewayDaemon) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
-func (d *GatewayDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
-	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
-	if kernelId != "" {
-		return kernelId, false, nil
-	}
+// func (d *GatewayDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
+// 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
+// 	if kernelId != "" {
+// 		return kernelId, false, nil
+// 	}
 
-	header, err := d.headerFromFrames(msg.Frames[offset:])
-	if err != nil {
-		return "", false, err
-	}
+// 	header, err := d.headerFromFrames(msg.Frames[offset:])
+// 	if err != nil {
+// 		return "", false, err
+// 	}
 
-	return header.Session, true, nil
-}
+// 	return header.Session, true, nil
+// }
 
 func (d *GatewayDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
 	jFrames := jupyter.JupyterFrames(frames)
@@ -1430,13 +1463,13 @@ func (d *GatewayDaemon) cleanUp() {
 	close(d.cleaned)
 }
 
-func (d *GatewayDaemon) closeReplica(host core.Host, kernel *client.DistributedKernelClient, replica *client.KernelClient, replicaId int, reason string) {
-	defer replica.Close()
+// func (d *GatewayDaemon) closeReplica(host core.Host, kernel *client.DistributedKernelClient, replica *client.KernelClient, replicaId int, reason string) {
+// 	defer replica.Close()
 
-	if err := d.placer.Reclaim(host, kernel, false); err != nil {
-		d.log.Warn("Failed to close kernel(%s:%d) after %s, failure: %v", kernel.ID(), replicaId, reason, err)
-	}
-}
+// 	if err := d.placer.Reclaim(host, kernel, false); err != nil {
+// 		d.log.Warn("Failed to close kernel(%s:%d) after %s, failure: %v", kernel.ID(), replicaId, reason, err)
+// 	}
+// }
 
 // Add a new replica to a particular distributed kernel.
 // This is only used for adding new replicas beyond the base set of replicas created
@@ -1495,38 +1528,21 @@ func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, opts AddReplicaWaitO
 
 	// Always wait for the scale-out operation to complete and the new Pod to be created.
 	var newPodName string
-	select {
-	case newPodName = <-addReplicaOp.PodStartedChannel():
-		{
-			d.log.Debug("New Pod %s has been created for kernel %s.", newPodName, kernelId)
-			addReplicaOp.SetPodName(newPodName)
-			d.addReplicaOperationsByNewPodName.Store(newPodName, addReplicaOp)
 
-			d.mutex.Lock()
+	<-addReplicaOp.PodStartedChannel()
+	d.log.Debug("New Pod %s has been created for kernel %s.", newPodName, kernelId)
+	addReplicaOp.SetPodName(newPodName)
+	d.addReplicaOperationsByNewPodName.Store(newPodName, addReplicaOp)
 
-			channel, ok := d.addReplicaNewPodNotifications.Load(newPodName)
+	d.mutex.Lock()
 
-			if ok {
-				channel <- addReplicaOp
-			}
+	channel, ok := d.addReplicaNewPodNotifications.Load(newPodName)
 
-			d.mutex.Unlock()
-			break
-		}
+	if ok {
+		channel <- addReplicaOp
 	}
 
-	// var regWg sync.WaitGroup
-	// regWg.Add(1)
-	// go func() {
-	// 	select {
-	// 	case _ = <-addReplicaOp.ReplicaRegisteredChannel():
-	// 		{
-	// 			d.log.Debug("New replica %d for kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
-	// 			regWg.Done()
-	// 			break
-	// 		}
-	// 	}
-	// }()
+	d.mutex.Unlock()
 
 	if opts.WaitRegistered() {
 		d.log.Debug("Waiting for new replica %d of kernel %s to register.", addReplicaOp.ReplicaId(), kernelId)
@@ -1592,15 +1608,6 @@ func (d *GatewayDaemon) removeReplica(smrNodeId int32, kernelId string, wait boo
 		return err
 	}
 
-	// d.log.Debug("Waiting to receive notification that replica %d of kernel %s has been removed from its SMR cluster.", smrNodeId, kernelId)
-	// select {
-	// case _ = <-nodeRemovedNotificationChannel:
-	// 	{
-	// 		d.log.Debug("Successfully removed replica %d of kernel %s.", smrNodeId, kernelId)
-	// 		d.smrNodeRemovedNotifications.Delete(channelMapKey)
-	// 	}
-	// }
-
 	wg, ok := d.waitGroups.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find WaitGroup for kernel %s after removing replica %d of said kernel...", kernelId, smrNodeId)
@@ -1627,14 +1634,17 @@ func (d *GatewayDaemon) removeReplica(smrNodeId int32, kernelId string, wait boo
 		return err
 	}
 
-	if wait {
-		select {
-		case <-podStoppedChannel:
-			{
-				d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
-			}
-		}
-	}
+	<-podStoppedChannel
+	d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
+
+	// if wait {
+	// 	select {
+	// 	case <-podStoppedChannel:
+	// 		{
+	// 			d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
+	// 		}
+	// 	}
+	// }
 
 	return nil
 }

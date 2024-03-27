@@ -20,6 +20,7 @@ import (
 var (
 	errRestoreRequired        = errors.New("restore required")
 	errExpectingHostScheduler = errors.New("expecting HostScheduler")
+	errNodeNameUnspecified    = errors.New("no kubernetes node name returned for HostScheduler")
 )
 
 type HostScheduler struct {
@@ -32,13 +33,17 @@ type HostScheduler struct {
 
 	log logger.Logger
 
-	id   string
-	addr string
-	conn *grpc.ClientConn
+	id       string
+	addr     string
+	nodeName string
+	conn     *grpc.ClientConn
 
 	gpuInfoMutex sync.Mutex
 }
 
+// This will return an errRestoreRequired error if the IDs don't match.
+// This will return an errNodeNameUnspecified error if there is no NodeName returned by the scheduler.
+// If both these errors occur, then only a errNodeNameUnspecified will be returned.
 func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval time.Duration) (*HostScheduler, error) {
 	id := uuid.New().String()
 	scheduler := &HostScheduler{
@@ -56,10 +61,14 @@ func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval
 		return nil, err
 	}
 
-	if confirmedId.Id != id {
+	if confirmedId.NodeName == "" {
+		err = errNodeNameUnspecified
+	} else if confirmedId.Id != id {
 		err = errRestoreRequired
 	}
+
 	scheduler.id = confirmedId.Id
+	scheduler.nodeName = confirmedId.NodeName
 
 	go scheduler.pollForGpuInfo()
 
@@ -86,6 +95,10 @@ func (s *HostScheduler) pollForGpuInfo() {
 
 func (s *HostScheduler) ID() string {
 	return s.id
+}
+
+func (s *HostScheduler) NodeName() string {
+	return s.nodeName
 }
 
 func (s *HostScheduler) Addr() string {

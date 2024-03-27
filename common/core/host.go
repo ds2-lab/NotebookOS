@@ -25,6 +25,9 @@ type Host interface {
 	// ID returns the host id.
 	ID() string
 
+	// Returns the name of the Kubernetes host that the node is running on.
+	NodeName() string
+
 	// Addr returns the host address.
 	Addr() string
 

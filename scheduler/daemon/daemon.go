@@ -223,10 +223,14 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 func (d *SchedulerDaemon) SetID(ctx context.Context, in *gateway.HostId) (*gateway.HostId, error) {
 	// If id has been set(e.g., restored after restart), return the original id.
 	if d.id != "" {
-		return &gateway.HostId{Id: d.id}, nil
+		return &gateway.HostId{
+			Id:       d.id,
+			NodeName: d.nodeName,
+		}, nil
 	}
 
 	d.id = in.Id
+	in.NodeName = d.nodeName
 	return in, nil
 }
 

@@ -49,6 +49,11 @@ class ClusterGatewayStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.ListKernelsResponse.FromString,
                 )
+        self.SetTotalVirtualGPUs = channel.unary_unary(
+                '/gateway.ClusterGateway/SetTotalVirtualGPUs',
+                request_serializer=gateway__pb2.SetVirtualGPUsRequest.SerializeToString,
+                response_deserializer=gateway__pb2.VirtualGpuInfo.FromString,
+                )
 
 
 class ClusterGatewayServicer(object):
@@ -106,6 +111,13 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SetTotalVirtualGPUs(self, request, context):
+        """Set the maximum number of vGPU resources availabe on a particular node (identified by the local daemon).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -143,6 +155,11 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
                     servicer.ListKernels,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.ListKernelsResponse.SerializeToString,
+            ),
+            'SetTotalVirtualGPUs': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetTotalVirtualGPUs,
+                    request_deserializer=gateway__pb2.SetVirtualGPUsRequest.FromString,
+                    response_serializer=gateway__pb2.VirtualGpuInfo.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -270,6 +287,23 @@ class ClusterGateway(object):
         return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/ListKernels',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.ListKernelsResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def SetTotalVirtualGPUs(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/SetTotalVirtualGPUs',
+            gateway__pb2.SetVirtualGPUsRequest.SerializeToString,
+            gateway__pb2.VirtualGpuInfo.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

@@ -20,7 +20,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -193,7 +192,7 @@ func (c *BasicKubeClient) AddSchedulingTaintsToNode(nodeName string) error {
 		}
 	}`
 
-	_, err := c.kubeClientset.CoreV1().Nodes().Patch(context.Background(), nodeName, types.StrategicMergePatchType, []byte(patchData), v1.PatchOptions{FieldValidation: "strict"})
+	_, err := c.kubeClientset.CoreV1().Nodes().Patch(context.Background(), nodeName, types.StrategicMergePatchType, []byte(patchData), metav1.PatchOptions{FieldValidation: "strict"})
 	if err != nil {
 		c.log.Error("Failed to add 'NoExecute' and 'NoSchedule' taints to Kubernetes node '%s': %v", nodeName, err)
 		return err
@@ -212,7 +211,7 @@ func (c *BasicKubeClient) RemoveAllTaintsFromNode(nodeName string) error {
 		}
 	}`
 
-	_, err := c.kubeClientset.CoreV1().Nodes().Patch(context.Background(), nodeName, types.StrategicMergePatchType, []byte(patchData), v1.PatchOptions{FieldValidation: "strict"})
+	_, err := c.kubeClientset.CoreV1().Nodes().Patch(context.Background(), nodeName, types.StrategicMergePatchType, []byte(patchData), metav1.PatchOptions{FieldValidation: "strict"})
 	if err != nil {
 		c.log.Error("Failed to remove taints from Kubernetes node '%s': %v", nodeName, err)
 		return err
@@ -343,7 +342,7 @@ func (c *BasicKubeClient) DeleteCloneset(kernelId string) error {
 	clonesetId := fmt.Sprintf("kernel-%s", kernelId)
 	c.log.Debug("Deleting Cloneset '%s' now.", clonesetId)
 	// Issue the Kubernetes API request to delete the CloneSet.
-	err := c.dynamicClient.Resource(clonesetRes).Namespace("default").Delete(context.TODO(), clonesetId, v1.DeleteOptions{})
+	err := c.dynamicClient.Resource(clonesetRes).Namespace("default").Delete(context.TODO(), clonesetId, metav1.DeleteOptions{})
 
 	if err != nil {
 		c.log.Error("Error encountered while deleting cloneset '%s': %v", clonesetId, err)
@@ -429,26 +428,26 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 // https://openkruise.io/docs/user-manuals/cloneset/#selective-pod-deletion
 //
 // Currently unusued. We can modify the CloneSet directly.
-func (c *BasicKubeClient) addKruiseDeleteLabelToPod(podName string, podNamespace string) error {
-	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		payload := `{"metadata": {"labels": {"apps.kruise.io/specified-delete": "true"}}}`
-		_, updateErr := c.kubeClientset.CoreV1().Pods(podNamespace).Patch(context.Background(), podName, types.MergePatchType, []byte(payload), metav1.PatchOptions{})
-		if updateErr != nil {
-			c.log.Error("Error when updating labels for Pod \"%s\": %v", podName, updateErr)
-			return errors.Wrapf(updateErr, fmt.Sprintf("Failed to add deletion label to Pod \"%s\".", podName))
-		}
+// func (c *BasicKubeClient) addKruiseDeleteLabelToPod(podName string, podNamespace string) error {
+// 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+// 		payload := `{"metadata": {"labels": {"apps.kruise.io/specified-delete": "true"}}}`
+// 		_, updateErr := c.kubeClientset.CoreV1().Pods(podNamespace).Patch(context.Background(), podName, types.MergePatchType, []byte(payload), metav1.PatchOptions{})
+// 		if updateErr != nil {
+// 			c.log.Error("Error when updating labels for Pod \"%s\": %v", podName, updateErr)
+// 			return errors.Wrapf(updateErr, fmt.Sprintf("Failed to add deletion label to Pod \"%s\".", podName))
+// 		}
 
-		c.log.Debug("Pod %s labelled successfully.", podName)
-		return nil
-	})
+// 		c.log.Debug("Pod %s labelled successfully.", podName)
+// 		return nil
+// 	})
 
-	if retryErr != nil {
-		c.log.Error("Failed to update metadata labels for old Pod %s/%s", podNamespace, podName)
-		return retryErr
-	}
+// 	if retryErr != nil {
+// 		c.log.Error("Failed to update metadata labels for old Pod %s/%s", podNamespace, podName)
+// 		return retryErr
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 // Scale-up a CloneSet by increasing its number of replicas by 1.
 //
@@ -490,7 +489,7 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string, podStartedChannel ch
 		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
 
 		if getErr != nil {
-			panic(fmt.Errorf("Failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
+			panic(fmt.Errorf("failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
 		}
 
 		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
@@ -505,7 +504,7 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string, podStartedChannel ch
 
 		// Increase the number of replicas.
 		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
-			panic(fmt.Errorf("Failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
+			panic(fmt.Errorf("failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
 		}
 
 		_, updateErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
@@ -551,7 +550,7 @@ func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, po
 		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
 
 		if getErr != nil {
-			panic(fmt.Errorf("Failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
+			panic(fmt.Errorf("failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
 		}
 
 		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
@@ -622,7 +621,7 @@ func (c *BasicKubeClient) createPodWatcher(namespace string) {
 
 	// start to sync and call list
 	if !cache.WaitForCacheSync(c.podWatcherStopChan, podInformer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("Timed out waiting for caches to sync"))
+		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 		return
 	}
 
@@ -643,7 +642,7 @@ func (c *BasicKubeClient) createPodWatcher(namespace string) {
 // - headlessServiceName (string): The name of the headless Kubernetes service that was created to manage the networking of the Pods of the StatefulSet.
 func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) {
 	// Create the StatefulSet of distributed kernel replicas.
-	statefulSetsClient := c.kubeClientset.AppsV1().StatefulSets(v1.NamespaceDefault)
+	statefulSetsClient := c.kubeClientset.AppsV1().StatefulSets(metav1.NamespaceDefault)
 	var replicas int32 = 3
 	var storageClassName string = "local-path"
 	var affinity corev1.Affinity = corev1.Affinity{
@@ -651,7 +650,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
 				{
 					TopologyKey: "kubernetes.io/hostname",
-					LabelSelector: &v1.LabelSelector{
+					LabelSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
 						},
@@ -684,11 +683,11 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 	}
 	var defaultMode int32 = 0777
 	statefulSet := &appsv1.StatefulSet{
-		TypeMeta: v1.TypeMeta{
+		TypeMeta: metav1.TypeMeta{
 			Kind:       "StatefulSet",
-			APIVersion: "apps/v1",
+			APIVersion: "apps/metav1",
 		},
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
 				"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
 				"app":    fmt.Sprintf("kernel-%s", kernel.Id),
@@ -701,14 +700,14 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 				Start: 1, // We want to start at 1, as we also use the ordinals as the SMR Node IDs, and those are expected to begin at 1.
 			},
 			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{}},
-			Selector: &v1.LabelSelector{
+			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"app": fmt.Sprintf("kernel-%s", kernel.Id),
 				},
 			},
 			ServiceName: headlessServiceName,
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: v1.ObjectMeta{
+				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
 						"kernel": fmt.Sprintf("kernel-%s", kernel.Id),
 						"app":    fmt.Sprintf("kernel-%s", kernel.Id),
@@ -781,7 +780,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 								},
 								{
 									Name:      "kernel-configmap",
-									MountPath: fmt.Sprintf("%s", c.configDir),
+									MountPath: c.configDir,
 									ReadOnly:  false,
 								},
 								{
@@ -874,7 +873,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Name: "node-local",
 					},
 					Spec: corev1.PersistentVolumeClaimSpec{
@@ -893,7 +892,11 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 		},
 	}
 
-	_, err = statefulSetsClient.Create(ctx, statefulSet, v1.CreateOptions{})
+	_, err = statefulSetsClient.Create(ctx, statefulSet, metav1.CreateOptions{})
+
+	if err != nil {
+		c.log.Error("Failed to create StatefulSet for kernel %s because: %v", kernel.Id, err)
+	}
 }
 
 // Create a CloneSet for a particular distributed kernel.
@@ -1150,7 +1153,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 	}
 
 	// Issue the Kubernetes API request to create the CloneSet.
-	_, err := c.dynamicClient.Resource(clonesetRes).Namespace("default").Create(context.TODO(), cloneSetDefinition, v1.CreateOptions{})
+	_, err := c.dynamicClient.Resource(clonesetRes).Namespace("default").Create(context.TODO(), cloneSetDefinition, metav1.CreateOptions{})
 
 	if err != nil {
 		panic(err.Error())
@@ -1162,11 +1165,11 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJson []byte, configJson []byte, kernel *gateway.KernelSpec) {
 	// Construct the ConfigMap. We'll mount this to the Pods.
 	connectionFileConfigMap := &corev1.ConfigMap{
-		TypeMeta: v1.TypeMeta{
+		TypeMeta: metav1.TypeMeta{
 			Kind:       "ConfigMap",
-			APIVersion: "v1",
+			APIVersion: "metav1",
 		},
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("kernel-%s-configmap", kernel.Id),
 			Namespace: "default", // TODO(Ben): Don't hardcode the namespace.
 		},
@@ -1178,7 +1181,7 @@ func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJso
 
 	// Create the ConfigMap using the Kubernetes API.
 	// TODO(Ben): Don't hardcode the namespace.
-	_, err := c.kubeClientset.CoreV1().ConfigMaps("default").Create(ctx, connectionFileConfigMap, v1.CreateOptions{})
+	_, err := c.kubeClientset.CoreV1().ConfigMaps("default").Create(ctx, connectionFileConfigMap, metav1.CreateOptions{})
 	if err != nil {
 		c.log.Error("Error creating ConfigMap for connection file for Session %s.", kernel.Id)
 		panic(err)
@@ -1261,16 +1264,16 @@ func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *gat
 			ClusterIP: "None", // Headless.
 			Type:      corev1.ServiceTypeClusterIP,
 		},
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:   serviceName,
 			Labels: map[string]string{"app": fmt.Sprintf("kernel-%s", kernel.Id)},
 		},
-		TypeMeta: v1.TypeMeta{
+		TypeMeta: metav1.TypeMeta{
 			Kind:       "Service",
-			APIVersion: "v1",
+			APIVersion: "metav1",
 		},
 	}
-	_, err := svcClient.Create(ctx, svc, v1.CreateOptions{})
+	_, err := svcClient.Create(ctx, svc, metav1.CreateOptions{})
 	if err != nil {
 		c.log.Error("Error creating Service for StatefulSet for Session %s.", kernel.Id)
 		panic(err)

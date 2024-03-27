@@ -43,11 +43,11 @@ type migrationOperationImpl struct {
 	newReplicaHostname   string                          // The IP address of the new replica.
 	newSpec              *gateway.KernelReplicaSpec      // Spec for the new replica that is created during the migration.
 
-	podStartedMu   sync.Mutex // Used to signal that the new Pod has started.
-	podStartedCond *sync.Cond // Used with the podStartedCond condition variable.
+	// podStartedMu   sync.Mutex // Used to signal that the new Pod has started.
+	// podStartedCond *sync.Cond // Used with the podStartedCond condition variable.
 
-	podStoppedMu   sync.Mutex // Used to signal that the old Pod has stopped.
-	podStoppedCond *sync.Cond // Used with the podStoppedCond condition variable.
+	// podStoppedMu   sync.Mutex // Used to signal that the old Pod has stopped.
+	// podStoppedCond *sync.Cond // Used with the podStoppedCond condition variable.
 
 	opCompletedMu   sync.Mutex // Used with the opCompletedCond condition variable.
 	opCompletedCond *sync.Cond // Used to signal that the Migration has completed.
@@ -316,7 +316,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 		result, getErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
 
 		if getErr != nil {
-			panic(fmt.Errorf("Failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
+			panic(fmt.Errorf("failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
 		}
 
 		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
@@ -331,7 +331,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 
 		// Increase the number of replicas.
 		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
-			panic(fmt.Errorf("Failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
+			panic(fmt.Errorf("failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
 		}
 
 		_, updateErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})

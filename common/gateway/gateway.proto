@@ -32,8 +32,8 @@ service ClusterGateway {
   // Return a list of all of the current kernel IDs.
   rpc ListKernels(Void) returns (ListKernelsResponse) {}
 
-  // Return a list of the Kubernetes nodes available within the Kubernetes cluster.
-  // rpc GetKubernetesNodes(Void) returns (GetKubernetesNodesResponse) {}
+  // Set the maximum number of vGPU resources availabe on a particular node (identified by the local daemon).
+  rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
 }
 
 message JupyterKernelReplica {
@@ -67,6 +67,7 @@ message HostSpec {
 
 message HostId {
   string id = 1;
+  string nodeName = 2; // The name of the Kubernetes node that the Host is running on.
 }
 
 // The juypter gateway service for host local kernels.
@@ -147,6 +148,7 @@ message VirtualGpuAllocation {
 
 message SetVirtualGPUsRequest {
   int32 value = 1;
+  string kubernetesNodeName = 2;
 }
 
 // Encapsulates the current vGPU (or "deflated GPU") resource usage on a paritcular node. 
