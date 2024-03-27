@@ -38,12 +38,14 @@ type virtualGpuAllocatorImpl struct {
 
 	podCache PodCache
 
+	vgpusChangedChan chan interface{}
+
 	// Mapping from PodID to its allocation.
 	allocations map[string]*gateway.VirtualGpuAllocation
 }
 
 // Creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.
-func NewVirtualGpuAllocatorForTesting(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache) VirtualGpuAllocator {
+func NewVirtualGpuAllocatorForTesting(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
 	var kubeconfig string
 	if home := homedir.HomeDir(); home != "" {
 		kubeconfig = filepath.Join(home, ".kube", "config")
@@ -57,25 +59,26 @@ func NewVirtualGpuAllocatorForTesting(opts *VirtualGpuPluginServerOptions, nodeN
 		panic(err.Error())
 	}
 
-	return newVirtualGpuAllocatorImpl(opts, nodeName, podCache, kubeConfig)
+	return newVirtualGpuAllocatorImpl(opts, nodeName, podCache, kubeConfig, vgpusChangedChan)
 }
 
-func NewVirtualGpuAllocator(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache) VirtualGpuAllocator {
+func NewVirtualGpuAllocator(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
 	kubeConfig, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
 	}
 
-	return newVirtualGpuAllocatorImpl(opts, nodeName, podCache, kubeConfig)
+	return newVirtualGpuAllocatorImpl(opts, nodeName, podCache, kubeConfig, vgpusChangedChan)
 }
 
-func newVirtualGpuAllocatorImpl(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, kubeConfig *rest.Config) VirtualGpuAllocator {
+func newVirtualGpuAllocatorImpl(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, kubeConfig *rest.Config, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
 	allocator := &virtualGpuAllocatorImpl{
-		opts:        opts,
-		stopChan:    make(chan interface{}),
-		allocations: make(map[string]*gateway.VirtualGpuAllocation),
-		nodeName:    nodeName,
-		podCache:    podCache,
+		opts:             opts,
+		stopChan:         make(chan interface{}),
+		allocations:      make(map[string]*gateway.VirtualGpuAllocation),
+		nodeName:         nodeName,
+		podCache:         podCache,
+		vgpusChangedChan: vgpusChangedChan,
 	}
 	config.InitLogger(&allocator.log, allocator)
 
@@ -140,7 +143,14 @@ func (v *virtualGpuAllocatorImpl) SetTotalVirtualGPUs(value int32) error {
 		return ErrInvalidResourceAdjustment
 	}
 
-	return v.resourceManager.SetTotalNumDevices(value)
+	err := v.resourceManager.SetTotalNumDevices(value)
+	if err == nil {
+		go func() {
+			v.vgpusChangedChan <- struct{}{}
+		}()
+	}
+
+	return err /* Will be nil if there was no error */
 }
 
 // Allocate is called during container creation so that the Device

@@ -36,6 +36,9 @@ type virtualGpuPluginServerImpl struct {
 	log        logger.Logger
 	podCache   PodCache
 
+	stopChan                   chan interface{}
+	totalNumVirtualGpusChanged chan interface{}
+
 	allocator *virtualGpuAllocatorImpl
 }
 
@@ -43,9 +46,11 @@ func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName str
 	socketFile := filepath.Join(opts.DevicePluginPath, vgpuSocketName)
 
 	server := &virtualGpuPluginServerImpl{
-		srv:        grpc.NewServer(),
-		socketFile: socketFile,
-		opts:       opts,
+		srv:                        grpc.NewServer(),
+		socketFile:                 socketFile,
+		opts:                       opts,
+		totalNumVirtualGpusChanged: make(chan interface{}),
+		stopChan:                   make(chan interface{}),
 	}
 
 	podCache := NewPodCache(nodeName)
@@ -53,7 +58,7 @@ func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName str
 		panic("Failed to create PodCache.")
 	}
 	server.podCache = podCache
-	server.allocator = NewVirtualGpuAllocator(opts, nodeName, podCache).(*virtualGpuAllocatorImpl)
+	server.allocator = NewVirtualGpuAllocator(opts, nodeName, podCache, server.totalNumVirtualGpusChanged).(*virtualGpuAllocatorImpl)
 
 	config.InitLogger(&server.log, server)
 
@@ -108,6 +113,7 @@ func (v *virtualGpuPluginServerImpl) Stop() {
 	v.log.Warn("Stopping Virtual GPU resource server.")
 	klog.Warning("Stopping Virtual GPU resource server.")
 	v.podCache.StopChan() <- struct{}{} // Stop the Pod WatchDog.
+	v.stopChan <- struct{}{}
 	v.srv.Stop()
 	v.allocator.stop()
 
@@ -260,8 +266,21 @@ func (v *virtualGpuPluginServerImpl) ListAndWatch(e *pluginapi.Empty, s pluginap
 	}
 
 	// We don't send unhealthy state.
-	for {
-		time.Sleep(time.Second)
+	var running bool = true
+	for running {
+		select {
+		case <-v.totalNumVirtualGpusChanged:
+			{
+				if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: v.apiDevices()}); err != nil {
+					return err
+				}
+			}
+		case <-v.allocator.stopChan:
+			{
+				running = false
+				break
+			}
+		}
 	}
 
 	v.log.Debug("ListAndWatch exiting.")

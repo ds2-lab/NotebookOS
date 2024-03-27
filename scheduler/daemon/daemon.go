@@ -449,6 +449,8 @@ func (d *SchedulerDaemon) GetGpuInfo(ctx context.Context, in *gateway.Void) (*ga
 		LocalDaemonID:         d.id,
 	}
 
+	d.log.Debug("Returning GPU information: %v", gpuInfo)
+
 	return gpuInfo, nil
 }
 
