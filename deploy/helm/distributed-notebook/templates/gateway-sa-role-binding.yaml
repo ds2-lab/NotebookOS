@@ -5,7 +5,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: pod-access-role
+  name: cluster-gateway-role
 subjects:
 - kind: ServiceAccount
   name: gateway-service-account
