@@ -1053,14 +1053,19 @@ func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*ga
 // this function is called with the new total number specified as 32, then the operation will fail.
 // In this case (when the operation fails), an ErrInvalidParameter is returned.
 func (d *GatewayDaemon) SetTotalVirtualGPUs(ctx context.Context, in *gateway.SetVirtualGPUsRequest) (*gateway.VirtualGpuInfo, error) {
+	d.log.Debug("Recevied 'SetTotalVirtualGPUs' request targeting node %s with %d vGPU(s).", in.KubernetesNodeName, in.Value)
 	var targetHost core.Host
+	d.log.Debug("We currently have %d LocalDaemons connected.", d.cluster.GetHostManager().Len())
 	d.cluster.GetHostManager().Range(func(hostId string, host core.Host) bool {
 		if host.NodeName() == in.GetKubernetesNodeName() {
+			d.log.Debug("Found LocalDaemon running on target node %s.", in.KubernetesNodeName)
 			targetHost = host
-			return false
+			return false // Stop looping.
+		} else {
+			d.log.Debug("LocalDaemon %s is running on different node: %s.", host.ID(), host.NodeName())
 		}
 
-		return true
+		return true // Continue looping.
 	})
 
 	// If we didn't find a local daemon running on a node with the specified name, then return an error.
