@@ -19,16 +19,16 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ClusterGateway_ID_FullMethodName                     = "/gateway.ClusterGateway/ID"
-	ClusterGateway_RemoveHost_FullMethodName             = "/gateway.ClusterGateway/RemoveHost"
-	ClusterGateway_MigrateKernelReplica_FullMethodName   = "/gateway.ClusterGateway/MigrateKernelReplica"
-	ClusterGateway_NotifyKernelRegistered_FullMethodName = "/gateway.ClusterGateway/NotifyKernelRegistered"
-	ClusterGateway_SmrReady_FullMethodName               = "/gateway.ClusterGateway/SmrReady"
-	ClusterGateway_SmrNodeAdded_FullMethodName           = "/gateway.ClusterGateway/SmrNodeAdded"
-	ClusterGateway_ListKernels_FullMethodName            = "/gateway.ClusterGateway/ListKernels"
-	ClusterGateway_SetTotalVirtualGPUs_FullMethodName    = "/gateway.ClusterGateway/SetTotalVirtualGPUs"
-	ClusterGateway_GetActualGpuInfo_FullMethodName       = "/gateway.ClusterGateway/GetActualGpuInfo"
-	ClusterGateway_GetVirtualGpuInfo_FullMethodName      = "/gateway.ClusterGateway/GetVirtualGpuInfo"
+	ClusterGateway_ID_FullMethodName                       = "/gateway.ClusterGateway/ID"
+	ClusterGateway_RemoveHost_FullMethodName               = "/gateway.ClusterGateway/RemoveHost"
+	ClusterGateway_MigrateKernelReplica_FullMethodName     = "/gateway.ClusterGateway/MigrateKernelReplica"
+	ClusterGateway_NotifyKernelRegistered_FullMethodName   = "/gateway.ClusterGateway/NotifyKernelRegistered"
+	ClusterGateway_SmrReady_FullMethodName                 = "/gateway.ClusterGateway/SmrReady"
+	ClusterGateway_SmrNodeAdded_FullMethodName             = "/gateway.ClusterGateway/SmrNodeAdded"
+	ClusterGateway_ListKernels_FullMethodName              = "/gateway.ClusterGateway/ListKernels"
+	ClusterGateway_SetTotalVirtualGPUs_FullMethodName      = "/gateway.ClusterGateway/SetTotalVirtualGPUs"
+	ClusterGateway_GetClusterActualGpuInfo_FullMethodName  = "/gateway.ClusterGateway/GetClusterActualGpuInfo"
+	ClusterGateway_GetClusterVirtualGpuInfo_FullMethodName = "/gateway.ClusterGateway/GetClusterVirtualGpuInfo"
 )
 
 // ClusterGatewayClient is the client API for ClusterGateway service.
@@ -55,9 +55,9 @@ type ClusterGatewayClient interface {
 	// Set the maximum number of vGPU resources availabe on a particular node (identified by the local daemon).
 	SetTotalVirtualGPUs(ctx context.Context, in *SetVirtualGPUsRequest, opts ...grpc.CallOption) (*VirtualGpuInfo, error)
 	// Return the current GPU resource metrics on the node.
-	GetActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterActualGpuInfo, error)
+	GetClusterActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterActualGpuInfo, error)
 	// Return the current vGPU (or "deflated GPU") resource metrics on the node.
-	GetVirtualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterVirtualGpuInfo, error)
+	GetClusterVirtualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterVirtualGpuInfo, error)
 }
 
 type clusterGatewayClient struct {
@@ -140,18 +140,18 @@ func (c *clusterGatewayClient) SetTotalVirtualGPUs(ctx context.Context, in *SetV
 	return out, nil
 }
 
-func (c *clusterGatewayClient) GetActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterActualGpuInfo, error) {
+func (c *clusterGatewayClient) GetClusterActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterActualGpuInfo, error) {
 	out := new(ClusterActualGpuInfo)
-	err := c.cc.Invoke(ctx, ClusterGateway_GetActualGpuInfo_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, ClusterGateway_GetClusterActualGpuInfo_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *clusterGatewayClient) GetVirtualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterVirtualGpuInfo, error) {
+func (c *clusterGatewayClient) GetClusterVirtualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterVirtualGpuInfo, error) {
 	out := new(ClusterVirtualGpuInfo)
-	err := c.cc.Invoke(ctx, ClusterGateway_GetVirtualGpuInfo_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, ClusterGateway_GetClusterVirtualGpuInfo_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -182,9 +182,9 @@ type ClusterGatewayServer interface {
 	// Set the maximum number of vGPU resources availabe on a particular node (identified by the local daemon).
 	SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error)
 	// Return the current GPU resource metrics on the node.
-	GetActualGpuInfo(context.Context, *Void) (*ClusterActualGpuInfo, error)
+	GetClusterActualGpuInfo(context.Context, *Void) (*ClusterActualGpuInfo, error)
 	// Return the current vGPU (or "deflated GPU") resource metrics on the node.
-	GetVirtualGpuInfo(context.Context, *Void) (*ClusterVirtualGpuInfo, error)
+	GetClusterVirtualGpuInfo(context.Context, *Void) (*ClusterVirtualGpuInfo, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -216,11 +216,11 @@ func (UnimplementedClusterGatewayServer) ListKernels(context.Context, *Void) (*L
 func (UnimplementedClusterGatewayServer) SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetTotalVirtualGPUs not implemented")
 }
-func (UnimplementedClusterGatewayServer) GetActualGpuInfo(context.Context, *Void) (*ClusterActualGpuInfo, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetActualGpuInfo not implemented")
+func (UnimplementedClusterGatewayServer) GetClusterActualGpuInfo(context.Context, *Void) (*ClusterActualGpuInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetClusterActualGpuInfo not implemented")
 }
-func (UnimplementedClusterGatewayServer) GetVirtualGpuInfo(context.Context, *Void) (*ClusterVirtualGpuInfo, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetVirtualGpuInfo not implemented")
+func (UnimplementedClusterGatewayServer) GetClusterVirtualGpuInfo(context.Context, *Void) (*ClusterVirtualGpuInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetClusterVirtualGpuInfo not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 
@@ -379,38 +379,38 @@ func _ClusterGateway_SetTotalVirtualGPUs_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ClusterGateway_GetActualGpuInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ClusterGateway_GetClusterActualGpuInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Void)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ClusterGatewayServer).GetActualGpuInfo(ctx, in)
+		return srv.(ClusterGatewayServer).GetClusterActualGpuInfo(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ClusterGateway_GetActualGpuInfo_FullMethodName,
+		FullMethod: ClusterGateway_GetClusterActualGpuInfo_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClusterGatewayServer).GetActualGpuInfo(ctx, req.(*Void))
+		return srv.(ClusterGatewayServer).GetClusterActualGpuInfo(ctx, req.(*Void))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ClusterGateway_GetVirtualGpuInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ClusterGateway_GetClusterVirtualGpuInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Void)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ClusterGatewayServer).GetVirtualGpuInfo(ctx, in)
+		return srv.(ClusterGatewayServer).GetClusterVirtualGpuInfo(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ClusterGateway_GetVirtualGpuInfo_FullMethodName,
+		FullMethod: ClusterGateway_GetClusterVirtualGpuInfo_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClusterGatewayServer).GetVirtualGpuInfo(ctx, req.(*Void))
+		return srv.(ClusterGatewayServer).GetClusterVirtualGpuInfo(ctx, req.(*Void))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -455,12 +455,12 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ClusterGateway_SetTotalVirtualGPUs_Handler,
 		},
 		{
-			MethodName: "GetActualGpuInfo",
-			Handler:    _ClusterGateway_GetActualGpuInfo_Handler,
+			MethodName: "GetClusterActualGpuInfo",
+			Handler:    _ClusterGateway_GetClusterActualGpuInfo_Handler,
 		},
 		{
-			MethodName: "GetVirtualGpuInfo",
-			Handler:    _ClusterGateway_GetVirtualGpuInfo_Handler,
+			MethodName: "GetClusterVirtualGpuInfo",
+			Handler:    _ClusterGateway_GetClusterVirtualGpuInfo_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
