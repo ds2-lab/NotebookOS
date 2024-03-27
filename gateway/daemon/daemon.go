@@ -1046,8 +1046,20 @@ func (d *GatewayDaemon) RemoveHost(ctx context.Context, in *gateway.HostId) (*ga
 	return gateway.VOID, nil
 }
 
+// This is the single-node version of the function; it's only supposed to be issued to local daemons.
+// The cluster-level version of this method is 'GetClusterActualGpuInfo'.
+func (d *GatewayDaemon) GetActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.GpuInfo, error) {
+	return nil, ErrNotImplemented
+}
+
+// This is the single-node version of the function; it's only supposed to be issued to local daemons.
+// The cluster-level version of this method is 'GetClusterVirtualGpuInfo'.
+func (d *GatewayDaemon) GetVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuInfo, error) {
+	return nil, ErrNotImplemented
+}
+
 // Return the current GPU resource metrics on the node.
-func (d *GatewayDaemon) GetActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
+func (d *GatewayDaemon) GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
 	resp := &gateway.ClusterActualGpuInfo{
 		GpuInfo: make(map[string]*gateway.GpuInfo),
 	}
@@ -1067,7 +1079,7 @@ func (d *GatewayDaemon) GetActualGpuInfo(ctx context.Context, in *gateway.Void) 
 }
 
 // Return the current vGPU (or "deflated GPU") resource metrics on the node.
-func (d *GatewayDaemon) GetVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterVirtualGpuInfo, error) {
+func (d *GatewayDaemon) GetClusterVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterVirtualGpuInfo, error) {
 	resp := &gateway.ClusterVirtualGpuInfo{
 		GpuInfo: make(map[string]*gateway.VirtualGpuInfo),
 	}
