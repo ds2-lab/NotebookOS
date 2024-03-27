@@ -1070,6 +1070,8 @@ func (d *SchedulerDaemon) GetVirtualGpuAllocations(ctx context.Context, in *gate
 		Allocations: d.virtualGpuPluginServer.GetAllocations(),
 	}
 
+	d.log.Debug("Returning vGPU allocations: %v", d.virtualGpuPluginServer.GetAllocations())
+
 	return allocations, nil
 }
 
@@ -1079,6 +1081,8 @@ func (d *SchedulerDaemon) GetVirtualGPUs(ctx context.Context, in *gateway.Void) 
 		AllocatedVirtualGPUs: int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()),
 		FreeVirtualGPUs:      int32(d.virtualGpuPluginServer.NumFreeVirtualGPUs()),
 	}
+
+	d.log.Debug("Returning vGPU information: %v", response)
 
 	return response, nil
 }

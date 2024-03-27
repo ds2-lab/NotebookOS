@@ -1078,6 +1078,10 @@ func (d *GatewayDaemon) SetTotalVirtualGPUs(ctx context.Context, in *gateway.Set
 	resp, err := targetHost.SetTotalVirtualGPUs(ctx, in)
 	if err != nil {
 		d.log.Error("Failed to set vGPUs available on node %s to %d because: %v", in.KubernetesNodeName, in.Value, err)
+	} else if resp.TotalVirtualGPUs != in.Value {
+		d.log.Error("Expected available vGPUs on node %s to be %d; however, it is actually %d...", in.KubernetesNodeName, in.Value, resp.TotalVirtualGPUs)
+	} else {
+		d.log.Debug("Successfully set vGPUs available on node %s to %d.", in.KubernetesNodeName, in.Value)
 	}
 
 	return resp, err
