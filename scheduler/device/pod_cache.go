@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/mason-leap-lab/go-utils/logger"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,15 +41,19 @@ type podCacheImpl struct {
 	nodeName   string
 	informer   informersCore.PodInformer
 	stopChan   chan struct{}
+	log        logger.Logger
 }
 
 func NewPodCache(kubeClient kubernetes.Interface, nodeName string) PodCache {
-	podCache := &podCacheImpl{}
+	podCache := &podCacheImpl{
+		nodeName:   nodeName,
+		kubeClient: kubeClient,
+		stopChan:   make(chan struct{}),
+	}
 
-	podCache.kubeClient = kubeClient
-	podCache.nodeName = nodeName
-	podCache.stopChan = make(chan struct{})
+	config.InitLogger(&podCache.log, podCache)
 
+	podCache.log.Debug("Creating InformerFactory now.")
 	informerFactory := informers.NewSharedInformerFactoryWithOptions(kubeClient, time.Minute,
 		informers.WithTweakListOptions(func(lo *v1.ListOptions) {
 			lo.FieldSelector = fields.OneTermEqualSelector("spec.nodeName", nodeName).String()
@@ -55,14 +61,17 @@ func NewPodCache(kubeClient kubernetes.Interface, nodeName string) PodCache {
 
 	podCache.informer = informerFactory.Core().V1().Pods()
 
+	podCache.log.Debug("Starting informer now.")
 	go podCache.informer.Informer().Run(podCache.stopChan)
 
+	podCache.log.Debug("Waiting for Informer to synchronize...")
 	// Wait for the informer to synchronize before returning.
 	for !podCache.informer.Informer().HasSynced() {
 		time.Sleep(time.Second)
 	}
 
-	klog.V(2).Infof("PodCache WatchDog is now running")
+	podCache.log.Debug("Informer has synchronized successfully. PodCache WatchDog is now running.")
+	klog.V(2).Infof("PodCache WatchDog is now running.")
 	return podCache
 }
 
