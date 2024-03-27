@@ -458,7 +458,7 @@ func (d *GatewayDaemon) Accept() (net.Conn, error) {
 		return conn, nil
 	}
 
-	d.log.Info("Incoming host scheduler %v connected", host)
+	d.log.Info("Incoming host scheduler %s (node = %s) connected", host.ID(), host.NodeName())
 	return conn, nil
 }
 
