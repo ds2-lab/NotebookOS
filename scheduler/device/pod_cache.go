@@ -13,11 +13,13 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	informersCore "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 )
 
@@ -54,10 +56,11 @@ func NewPodCache(kubeClient kubernetes.Interface, nodeName string) PodCache {
 	config.InitLogger(&podCache.log, podCache)
 
 	podCache.log.Debug("Creating InformerFactory now.")
-	informerFactory := informers.NewSharedInformerFactoryWithOptions(kubeClient, time.Minute,
+	informerFactory := informers.NewSharedInformerFactoryWithOptions(kubeClient, time.Second*30,
 		informers.WithTweakListOptions(func(lo *v1.ListOptions) {
 			lo.FieldSelector = fields.OneTermEqualSelector("spec.nodeName", nodeName).String()
-		}))
+		}),
+		informers.WithNamespace("default") /* TODO(Ben): Make the namespace configurable. */)
 
 	podCache.informer = informerFactory.Core().V1().Pods()
 
@@ -65,10 +68,27 @@ func NewPodCache(kubeClient kubernetes.Interface, nodeName string) PodCache {
 	go podCache.informer.Informer().Run(podCache.stopChan)
 
 	podCache.log.Debug("Waiting for Informer to synchronize...")
-	// Wait for the informer to synchronize before returning.
-	for !podCache.informer.Informer().HasSynced() {
-		time.Sleep(time.Second)
+
+	// Start to sync and call list
+	if !cache.WaitForCacheSync(podCache.stopChan, podCache.informer.Informer().HasSynced) {
+		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
+		return nil
 	}
+
+	podCache.informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			pod := obj.(*corev1.Pod)
+			podCache.log.Debug("Pod created: %s/%s", pod.Namespace, pod.Name)
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			pod := newObj.(*corev1.Pod)
+			podCache.log.Debug("Pod updated: %s/%s", pod.Namespace, pod.Name)
+		},
+		DeleteFunc: func(obj interface{}) {
+			pod := obj.(*corev1.Pod)
+			podCache.log.Debug("Pod deleted: %s/%s", pod.Namespace, pod.Name)
+		},
+	})
 
 	podCache.log.Debug("Informer has synchronized successfully. PodCache WatchDog is now running.")
 	klog.V(2).Infof("PodCache WatchDog is now running.")

@@ -167,6 +167,7 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDa
 		}
 	}
 
+	// TODO(Ben): Make the namespace configurable.
 	client.createPodWatcher("default")
 
 	return client
@@ -615,7 +616,7 @@ func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, po
 // an API that is registered with the SharedInformer to handle Pod-started and Pod-stopped events.
 func (c *BasicKubeClient) createPodWatcher(namespace string) {
 	// create shared informers for resources in all known API group versions with a reSync period and namespace
-	factory := informers.NewSharedInformerFactoryWithOptions(c.kubeClientset, 10*time.Second, informers.WithNamespace(namespace))
+	factory := informers.NewSharedInformerFactoryWithOptions(c.kubeClientset, 15*time.Second, informers.WithNamespace(namespace))
 	podInformer := factory.Core().V1().Pods().Informer()
 	go factory.Start(c.podWatcherStopChan)
 

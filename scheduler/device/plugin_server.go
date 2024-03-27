@@ -67,6 +67,9 @@ func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName str
 	}
 
 	podCache := NewPodCache(clientset, nodeName)
+	if podCache == nil {
+		panic("Failed to create PodCache.")
+	}
 	server.podCache = podCache
 	server.allocator = NewVirtualGpuAllocator(opts, nodeName, podCache).(*virtualGpuAllocatorImpl)
 
