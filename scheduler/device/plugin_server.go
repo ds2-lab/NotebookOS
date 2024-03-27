@@ -266,7 +266,7 @@ func (v *virtualGpuPluginServerImpl) ListAndWatch(e *pluginapi.Empty, s pluginap
 	if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: v.apiDevices()}); err != nil {
 		return err
 	} else {
-		v.log.Debug("Successfully sent first/initial 'ListAndWatchResponse'", v.NumVirtualGPUs())
+		v.log.Debug("Successfully sent first/initial 'ListAndWatchResponse': %v", v.NumVirtualGPUs())
 		klog.V(3).Info("Successfully sent sent first/initial 'ListAndWatchResponse'")
 	}
 
