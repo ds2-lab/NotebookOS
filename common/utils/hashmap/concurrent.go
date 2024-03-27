@@ -60,7 +60,7 @@ func (m *ConcurrentMap[K, V]) Range(cb func(K, V) bool) {
 	next := true
 	for item := range m.backend.IterBuffered() {
 		if next {
-			next = !cb(K(item.Key), item.Val)
+			next = cb(K(item.Key), item.Val)
 		}
 		// iterate over all items to drain the channel
 	}
