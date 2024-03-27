@@ -235,7 +235,7 @@ class DistributedKernel(IPythonKernel):
             "nodeName": self.node_name,
             "resourceSpec": {
                 "cpu": self.spec_cpu,
-                "mem": self.spec_mem,
+                "memory": self.spec_mem,
                 "gpu": self.spec_gpu,
             },
             "kernel": {

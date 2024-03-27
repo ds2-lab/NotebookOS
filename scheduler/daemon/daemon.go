@@ -140,15 +140,16 @@ type SchedulerDaemon struct {
 }
 
 type KernelRegistrationPayload struct {
-	SignatureScheme string              `json:"signature_scheme"`
-	Key             string              `json:"key"`
-	Kernel          *gateway.KernelSpec `json:"kernel,omitempty"`
-	ReplicaId       int32               `json:"replicaId,omitempty"`
-	NumReplicas     int32               `json:"numReplicas,omitempty"`
-	Join            bool                `json:"join,omitempty"`
-	PersistentId    *string             `json:"persistentId,omitempty"`
-	PodName         string              `json:"podName,omitempty"`
-	NodeName        string              `json:"nodeName,omitempty"`
+	SignatureScheme string                `json:"signature_scheme"`
+	Key             string                `json:"key"`
+	Kernel          *gateway.KernelSpec   `json:"kernel,omitempty"`
+	ResourceSpec    *gateway.ResourceSpec `json:"resourceSpec,omitempty"`
+	ReplicaId       int32                 `json:"replicaId,omitempty"`
+	NumReplicas     int32                 `json:"numReplicas,omitempty"`
+	Join            bool                  `json:"join,omitempty"`
+	PersistentId    *string               `json:"persistentId,omitempty"`
+	PodName         string                `json:"podName,omitempty"`
+	NodeName        string                `json:"nodeName,omitempty"`
 }
 
 // Incoming connection from local distributed kernel.
