@@ -103,6 +103,7 @@ spec:
         command: ["./scheduler"]
         args: ["-yaml", "{{ .Values.common.config_file_dir }}/daemon.yml", "-debug", "-v"]
         resources: {}
+        serviceAccountName: local-daemon-service-account
         ports:
         - name: tcp
           containerPort: {{ .Values.local_daemon.network.service_port }}
