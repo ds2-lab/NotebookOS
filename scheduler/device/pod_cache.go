@@ -10,7 +10,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/runtime"
@@ -69,7 +68,7 @@ func NewPodCache(nodeName string) PodCache {
 
 	podCache.log.Debug("Creating InformerFactory now.")
 	informerFactory := informers.NewSharedInformerFactoryWithOptions(clientset, time.Second*30,
-		informers.WithTweakListOptions(func(lo *v1.ListOptions) {
+		informers.WithTweakListOptions(func(lo *metav1.ListOptions) {
 			lo.FieldSelector = fields.OneTermEqualSelector("spec.nodeName", nodeName).String()
 		}),
 		informers.WithNamespace("default") /* TODO(Ben): Make the namespace configurable. */)

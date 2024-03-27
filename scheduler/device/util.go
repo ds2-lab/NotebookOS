@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -78,11 +77,11 @@ func PodHasVirtualGPUsAllocated(pod *corev1.Pod) bool {
 	return true
 }
 
-func GetCreationTimeOfPod(pod *v1.Pod) (predicateTime uint64) {
+func GetCreationTimeOfPod(pod *corev1.Pod) (predicateTime uint64) {
 	return uint64(pod.ObjectMeta.CreationTimestamp.UnixNano())
 }
 
-type PodsOrderedByCreationTime []*v1.Pod
+type PodsOrderedByCreationTime []*corev1.Pod
 
 func (pods PodsOrderedByCreationTime) Len() int {
 	return len(pods)
@@ -96,11 +95,11 @@ func (pods PodsOrderedByCreationTime) Swap(i, j int) {
 	pods[i], pods[j] = pods[j], pods[i]
 }
 
-func sortPodsByCreationTime(pods []*v1.Pod) []*v1.Pod {
+func sortPodsByCreationTime(pods []*corev1.Pod) []*corev1.Pod {
 	newPodList := make(PodsOrderedByCreationTime, 0, len(pods))
 	for _, v := range pods {
 		newPodList = append(newPodList, v)
 	}
 	sort.Sort(newPodList)
-	return []*v1.Pod(newPodList)
+	return []*corev1.Pod(newPodList)
 }

@@ -23,11 +23,6 @@ import (
 
 const (
 	vgpuSocketName = "vgpu.sock"
-
-	deviceListAsVolumeMountsHostPath          = "/dev/null"
-	deviceListAsVolumeMountsContainerPathRoot = "/var/run/vgpu-devices"
-
-	deviceListEnvvar = "VISIBLE_VGPU_DEVICES"
 )
 
 var (
