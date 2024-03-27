@@ -80,10 +80,6 @@ type Cluster interface {
 	// GetHostManager returns the host manager of the cluster.
 	GetHostManager() hashmap.HashMap[string, Host]
 
-	// GetHostManager returns the host manager of the cluster.
-	// This version of the manager assocites Kubernetes node names with hosts.
-	GetNodeHostManager() hashmap.HashMap[string, Host]
-
 	// AddIndex adds an index to the cluster. For each category and expected value, there can be only one index.
 	AddIndex(index ClusterIndexProvider) error
 }
@@ -106,10 +102,6 @@ func (c *cluster) RequestHost(spec types.Spec) promise.Promise {
 
 func (c *cluster) ReleaseHost(id string) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
-}
-
-func (c *cluster) GetNodeHostManager() hashmap.HashMap[string, Host] {
-	return c
 }
 
 func (c *cluster) GetHostManager() hashmap.HashMap[string, Host] {

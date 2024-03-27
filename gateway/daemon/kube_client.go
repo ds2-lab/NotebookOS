@@ -1121,6 +1121,18 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 										"value": fmt.Sprintf("%s/connection-file.json", c.configDir),
 									},
 									{
+										"name":  "SPEC_CPU",
+										"value": fmt.Sprintf("%d", kernelResourceRequirements.Cpu),
+									},
+									{
+										"name":  "SPEC_MEM",
+										"value": fmt.Sprintf("%d", kernelResourceRequirements.Memory),
+									},
+									{
+										"name":  "SPEC_GPU",
+										"value": fmt.Sprintf("%d", kernelResourceRequirements.Gpu),
+									},
+									{
 										"name":  IPythonConfigPath,
 										"value": c.ipythonConfigPath,
 									},

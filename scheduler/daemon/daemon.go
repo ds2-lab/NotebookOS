@@ -994,8 +994,14 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.Ke
 		err error
 
 		// The number of GPUs required by this kernel replica.
-		requiredGPUs decimal.Decimal = decimal.NewFromFloat(kernel.Spec().GPU())
+		requiredGPUs decimal.Decimal
 	)
+
+	if kernel.Spec() == nil {
+		requiredGPUs = ZeroDecimal.Copy()
+	} else {
+		requiredGPUs = decimal.NewFromFloat(kernel.Spec().GPU())
+	}
 
 	// If the error is non-nil, then there weren't enough idle GPUs available.
 	if !differentTargetReplicaSpecified {

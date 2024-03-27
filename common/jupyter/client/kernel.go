@@ -158,7 +158,7 @@ func (c *KernelClient) PersistentID() string {
 
 // Spec returns the resource spec
 func (c *KernelClient) Spec() protocol.Spec {
-	return c.spec.Resource
+	return c.spec.GetResource()
 }
 
 // KernelSpec returns the kernel spec.

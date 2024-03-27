@@ -152,7 +152,7 @@ func (c *DistributedKernelClient) SourceKernelID() string {
 }
 
 func (s *DistributedKernelClient) Spec() protocol.Spec {
-	return s.spec.Resource
+	return s.spec.GetResource()
 }
 
 func (s *DistributedKernelClient) KernelSpec() *gateway.KernelSpec {
