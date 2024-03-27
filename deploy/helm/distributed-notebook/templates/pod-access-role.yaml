@@ -10,7 +10,6 @@ rules:
   resources: 
   - "events"
   - "pods"
-  - "customresourcedefinition.apiextensions.k8s.io/clonesets.apps.kruise.io"
   verbs: 
   - "get"
   - "list"

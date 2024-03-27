@@ -79,7 +79,7 @@ func (s *HostScheduler) pollForGpuInfo() {
 	for {
 		resp, err := s.LocalGatewayClient.GetGpuInfo(context.Background(), &gateway.Void{})
 		if err != nil {
-			s.log.Error("Failed to refresh GPU info: %v", err)
+			s.log.Error("Failed to refresh GPU info from Scheduler %s on Node %s: %v", s.id, s.nodeName, err)
 		} else {
 			s.gpuInfoMutex.Lock()
 			s.gpuInfo = resp
