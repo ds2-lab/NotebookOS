@@ -159,18 +159,18 @@ type KernelRegistrationClient struct {
 func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *SchedulerDaemonOptions, kernelRegistryPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
 	ip := os.Getenv("POD_IP")
 	daemon := &SchedulerDaemon{
-		connectionOptions:  connectionOptions,
-		transport:          "tcp",
-		ip:                 ip,
-		nodeName:           nodeName,
-		kernels:            hashmap.NewCornelkMap[string, *client.KernelClient](1000),
-		availablePorts:     utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
-		closed:             make(chan struct{}),
-		cleaned:            make(chan struct{}),
-		kernelRegistryPort: kernelRegistryPort,
-		smrPort:            schedulerDaemonOptions.SMRPort,
-		gpuManager:         NewGpuManager(schedulerDaemonOptions.NumGPUs),
-		// devicePluginServer: deviceplugin.NewVirtualGpuPluginServer(devicePluginOpts),
+		connectionOptions:      connectionOptions,
+		transport:              "tcp",
+		ip:                     ip,
+		nodeName:               nodeName,
+		kernels:                hashmap.NewCornelkMap[string, *client.KernelClient](1000),
+		availablePorts:         utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
+		closed:                 make(chan struct{}),
+		cleaned:                make(chan struct{}),
+		kernelRegistryPort:     kernelRegistryPort,
+		smrPort:                schedulerDaemonOptions.SMRPort,
+		gpuManager:             NewGpuManager(schedulerDaemonOptions.NumGPUs),
+		virtualGpuPluginServer: virtualGpuPluginServer,
 	}
 	for _, config := range configs {
 		config(daemon)
