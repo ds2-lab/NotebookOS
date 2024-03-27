@@ -16,8 +16,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
@@ -55,18 +53,7 @@ func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName str
 		opts:       opts,
 	}
 
-	kubeConfig, err := rest.InClusterConfig()
-	if err != nil {
-		panic(err.Error())
-	}
-
-	// Creates the Clientset.
-	clientset, err := kubernetes.NewForConfig(kubeConfig)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	podCache := NewPodCache(clientset, nodeName)
+	podCache := NewPodCache(nodeName)
 	if podCache == nil {
 		panic("Failed to create PodCache.")
 	}

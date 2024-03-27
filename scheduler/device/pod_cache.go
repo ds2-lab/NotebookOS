@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/informers"
 	informersCore "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 )
@@ -46,17 +47,28 @@ type podCacheImpl struct {
 	log        logger.Logger
 }
 
-func NewPodCache(kubeClient kubernetes.Interface, nodeName string) PodCache {
+func NewPodCache(nodeName string) PodCache {
+	kubeConfig, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// Creates the Clientset.
+	clientset, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	podCache := &podCacheImpl{
 		nodeName:   nodeName,
-		kubeClient: kubeClient,
+		kubeClient: clientset,
 		stopChan:   make(chan struct{}),
 	}
 
 	config.InitLogger(&podCache.log, podCache)
 
 	podCache.log.Debug("Creating InformerFactory now.")
-	informerFactory := informers.NewSharedInformerFactoryWithOptions(kubeClient, time.Second*30,
+	informerFactory := informers.NewSharedInformerFactoryWithOptions(clientset, time.Second*30,
 		informers.WithTweakListOptions(func(lo *v1.ListOptions) {
 			lo.FieldSelector = fields.OneTermEqualSelector("spec.nodeName", nodeName).String()
 		}),
