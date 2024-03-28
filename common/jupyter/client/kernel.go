@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -18,6 +19,8 @@ import (
 
 var (
 	heartbeatInterval = time.Second
+
+	ErrResourceSpecAlreadySet = errors.New("kernel already has a resource spec set")
 )
 
 type SMRNodeReadyNotificationCallback func(*KernelClient)
@@ -140,6 +143,16 @@ func (c *KernelClient) ReplicaID() int32 {
 // ReplicaID returns the replica ID.
 func (c *KernelClient) SetReplicaID(replicaId int32) {
 	c.replicaId = replicaId
+}
+
+// Will return an error if the client already has a resource spec set.
+func (c *KernelClient) SetResourceSpec(resourceSpec *gateway.ResourceSpec) error {
+	if c.spec.Resource != nil {
+		return fmt.Errorf("ErrResourceSpecAlreadySet %w : %s", ErrResourceSpecAlreadySet, fmt.Sprintf("kernel %s already has a resource spec associated with it", c.id))
+	}
+
+	c.spec.Resource = resourceSpec
+	return nil
 }
 
 // Set the value of the persistentId field.

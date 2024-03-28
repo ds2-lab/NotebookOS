@@ -140,16 +140,19 @@ type SchedulerDaemon struct {
 }
 
 type KernelRegistrationPayload struct {
-	SignatureScheme string                `json:"signature_scheme"`
-	Key             string                `json:"key"`
-	Kernel          *gateway.KernelSpec   `json:"kernel,omitempty"`
-	ResourceSpec    *gateway.ResourceSpec `json:"resourceSpec,omitempty"`
-	ReplicaId       int32                 `json:"replicaId,omitempty"`
-	NumReplicas     int32                 `json:"numReplicas,omitempty"`
-	Join            bool                  `json:"join,omitempty"`
-	PersistentId    *string               `json:"persistentId,omitempty"`
-	PodName         string                `json:"podName,omitempty"`
-	NodeName        string                `json:"nodeName,omitempty"`
+	SignatureScheme string              `json:"signature_scheme"`
+	Key             string              `json:"key"`
+	Kernel          *gateway.KernelSpec `json:"kernel,omitempty"`
+	// ResourceSpec    *gateway.ResourceSpec `json:"resourceSpec,omitempty"`
+	ReplicaId    int32   `json:"replicaId,omitempty"`
+	NumReplicas  int32   `json:"numReplicas,omitempty"`
+	Join         bool    `json:"join,omitempty"`
+	PersistentId *string `json:"persistentId,omitempty"`
+	PodName      string  `json:"podName,omitempty"`
+	NodeName     string  `json:"nodeName,omitempty"`
+	Cpu          int32   `json:"cpu,omitempty"`
+	Memory       int32   `json:"memory,omitempty"`
+	Gpu          int32   `json:"gpu,omitempty"`
 }
 
 // Incoming connection from local distributed kernel.
@@ -265,6 +268,8 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		return
 	}
 
+	d.log.Debug("Received registration payload: %v", registrationPayload)
+
 	invoker := invoker.NewDockerInvoker(d.connectionOptions)
 	connInfo := &jupyter.ConnectionInfo{
 		IP:              remote_ip,
@@ -290,7 +295,18 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	d.log.Debug("Kernel replica spec: %v", kernelReplicaSpec)
-	d.log.Debug("Kernel resource spec: %v", registrationPayload.ResourceSpec)
+	// d.log.Debug("Kernel resource spec: %v", registrationPayload.ResourceSpec)
+
+	// if registrationPayload.ResourceSpec == nil {
+	// 	d.log.Error("ResourceSpec is null for some reason...")
+	// 	registrationPayload.ResourceSpec = &gateway.ResourceSpec{
+	// 		Cpu:    registrationPayload.Cpu,
+	// 		Memory: registrationPayload.Memory,
+	// 		Gpu:    registrationPayload.Gpu,
+	// 	}
+	// } else {
+	// 	d.log.Debug("ResourceSpec is supposedly NOT nil: %v", registrationPayload.ResourceSpec)
+	// }
 
 	listenPorts, err := d.availablePorts.RequestPorts()
 	if err != nil {
@@ -371,7 +387,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		KernelIp:       remote_ip,
 		PodName:        registrationPayload.PodName,
 		NodeName:       registrationPayload.NodeName,
-		ResourceSpec:   registrationPayload.ResourceSpec,
+		// ResourceSpec:   registrationPayload.ResourceSpec,
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
@@ -383,6 +399,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.", response.Id, response.Replicas)
 
 	kernel.SetReplicaID(response.Id)
+	kernel.SetResourceSpec(response.ResourceSpec)
 
 	payload := map[string]interface{}{
 		"smr_node_id": response.Id,

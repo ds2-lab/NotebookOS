@@ -53,14 +53,15 @@ var (
 	ErrFailedToRemove     = status.Errorf(codes.Internal, "replica removal failed")
 
 	// Internal errors
-	ErrHeaderNotFound        = errors.New("message header not found")
-	ErrKernelNotFound        = errors.New("kernel not found")
-	ErrKernelNotReady        = errors.New("kernel not ready")
-	ErrKernelSpecNotFound    = errors.New("kernel spec not found")
-	ErrResourceSpecNotFound  = errors.New("the kernel does not have a resource spec included with its kernel spec")
-	ErrInvalidJupyterMessage = errors.New("invalid jupter message")
-	ErrKernelIDRequired      = errors.New("kernel id frame is required for kernel_info_request")
-	ErrDaemonNotFoundOnNode  = errors.New("could not find a local daemon on the specified kubernetes node")
+	ErrHeaderNotFound            = errors.New("message header not found")
+	ErrKernelNotFound            = errors.New("kernel not found")
+	ErrKernelNotReady            = errors.New("kernel not ready")
+	ErrKernelSpecNotFound        = errors.New("kernel spec not found")
+	ErrResourceSpecNotFound      = errors.New("the kernel does not have a resource spec included with its kernel spec")
+	ErrResourceSpecNotRegistered = errors.New("there is no resource spec registered with the kernel")
+	ErrInvalidJupyterMessage     = errors.New("invalid jupter message")
+	ErrKernelIDRequired          = errors.New("kernel id frame is required for kernel_info_request")
+	ErrDaemonNotFoundOnNode      = errors.New("could not find a local daemon on the specified kubernetes node")
 )
 
 type ClusterDaemonOptions struct {
@@ -92,6 +93,8 @@ type GatewayDaemonConfig func(*GatewayDaemon)
 // https://jupyter-client.readthedocs.io/en/stable/messaging.html
 // https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
 type GatewayDaemon struct {
+	sync.Mutex
+
 	id string
 
 	schedulingPolicy string
@@ -109,12 +112,15 @@ type GatewayDaemon struct {
 	placer   core.Placer
 
 	// kernel members
-	transport        string
-	ip               string
-	kernels          hashmap.HashMap[string, *client.DistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
-	kernelIdToKernel hashmap.HashMap[string, *client.DistributedKernelClient] // Map from Kernel ID to  *client.DistributedKernelClient.
-	kernelSpecs      hashmap.HashMap[string, *gateway.KernelSpec]
-	log              logger.Logger
+	transport                                   string
+	ip                                          string
+	kernels                                     hashmap.HashMap[string, *client.DistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
+	kernelIdToKernel                            hashmap.HashMap[string, *client.DistributedKernelClient] // Map from Kernel ID to  *client.DistributedKernelClient.
+	kernelSpecs                                 hashmap.HashMap[string, *gateway.KernelSpec]
+	kernelResourceSpecs                         hashmap.HashMap[string, *gateway.ResourceSpec] // KernelID --> ResourceSpec.
+	kernelResourceSpecRegistrationNotifications hashmap.HashMap[string, *sync.WaitGroup]       // KernelID --> chan.
+
+	log logger.Logger
 
 	// lifetime
 	closed  int32
@@ -123,7 +129,6 @@ type GatewayDaemon struct {
 	// Makes certain operations atomic, specifically operations that target the same
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
 	// by multiple concurrent RPC requests).
-	mutex           sync.Mutex
 	addReplicaMutex sync.Mutex
 
 	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
@@ -171,15 +176,16 @@ type GatewayDaemon struct {
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *ClusterDaemonOptions, configs ...GatewayDaemonConfig) *GatewayDaemon {
 	daemon := &GatewayDaemon{
-		id:                uuid.New().String(),
-		connectionOptions: opts,
-		transport:         "tcp",
-		ip:                opts.IP,
-		availablePorts:    utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
-		kernels:           hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
-		kernelIdToKernel:  hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
-		kernelSpecs:       hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
-		// waitGroups:        hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
+		id:                  uuid.New().String(),
+		connectionOptions:   opts,
+		transport:           "tcp",
+		ip:                  opts.IP,
+		availablePorts:      utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
+		kernels:             hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
+		kernelIdToKernel:    hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
+		kernelSpecs:         hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
+		kernelResourceSpecs: hashmap.NewCornelkMap[string, *gateway.ResourceSpec](100),
+		kernelResourceSpecRegistrationNotifications: hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
 		waitGroups:                       hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
 		cleaned:                          make(chan struct{}),
 		smrPort:                          clusterDaemonOptions.SMRPort,
@@ -642,6 +648,16 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	if !ok {
 		d.log.Debug("Did not find existing KernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
 
+		// Create the WaitGroup used to notify that the kernel's resource spec has been registered if it has not already been created.
+		d.Lock()
+		if _, ok := d.kernelResourceSpecRegistrationNotifications.Load(in.Id); !ok {
+			d.log.Debug("Creating 'ResourceSpecRegistration' WaitGroup in StartKernel for kernel %s.", in.Id)
+			var wg sync.WaitGroup
+			wg.Add(1)
+			d.kernelResourceSpecRegistrationNotifications.Store(in.Id, &wg)
+		}
+		d.Unlock()
+
 		listenPorts, err := d.availablePorts.RequestPorts()
 		if err != nil {
 			panic(err)
@@ -693,6 +709,11 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	// Wait for all replicas to be created.
 	created.Wait()
 
+	resourceSpecWg, _ := d.kernelResourceSpecRegistrationNotifications.Load(in.Id)
+	resourceSpecWg.Wait()
+	resourceSpec, _ := d.kernelResourceSpecs.Load(in.Id)
+	kernel.SetResourceSpec(resourceSpec, false)
+
 	if kernel.Size() == 0 {
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
 	}
@@ -738,11 +759,11 @@ func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *
 		channel := make(chan AddReplicaOperation, 1)
 		d.addReplicaNewPodNotifications.Store(in.PodName, channel)
 
-		d.mutex.Unlock()
+		d.Unlock()
 		d.log.Debug("Waiting to receive AddReplicaNotification on NewPodNotification channel. NewPodName: %s.", in.PodName)
 		// Just need to provide a mechanism to wait until we receive the pod-created notification, and get the migration operation that way.
 		addReplicaOp = <-channel
-		d.mutex.Lock()
+		d.Lock()
 
 		// Clean up mapping. Don't need it anymore.
 		d.addReplicaNewPodNotifications.Delete(in.PodName)
@@ -787,7 +808,7 @@ func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *
 		SmrPort:       int32(d.smrPort),
 	}
 
-	d.mutex.Unlock()
+	d.Unlock()
 
 	addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
 
@@ -844,7 +865,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	kernelIp := in.KernelIp
 	kernelPodName := in.PodName
 	nodeName := in.NodeName
-	resourceSpec := in.ResourceSpec
+	// resourceSpec := in.ResourceSpec
 
 	d.log.Info("Connection info: %v", connectionInfo)
 	d.log.Info("Session ID: %v", sessionId)
@@ -853,9 +874,9 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	d.log.Info("Pod name: %v", kernelPodName)
 	d.log.Info("Host ID: %v", hostId)
 	d.log.Info("Node ID: %v", nodeName)
-	d.log.Debug("Resource spec: %v", resourceSpec)
+	// d.log.Debug("Resource spec: %v", resourceSpec)
 
-	d.mutex.Lock()
+	d.Lock()
 
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
@@ -887,18 +908,30 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		d.log.Debug("There are 0 active add-replica operations targeting kernel %s.", kernel.ID())
 	}
 
+	var (
+		resourceSpecRegistrationNotification *sync.WaitGroup
+		ok                                   bool
+	)
+	if resourceSpecRegistrationNotification, ok = d.kernelResourceSpecRegistrationNotifications.Load(in.KernelId); !ok {
+		d.log.Error("'ResourceSpecRegistration' WaitGroup for kernel %s does not exist... Will create it now, but this is wrong.", in.KernelId)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		resourceSpecRegistrationNotification = &wg
+		d.kernelResourceSpecRegistrationNotifications.Store(in.KernelId, resourceSpecRegistrationNotification)
+	}
+
 	// If this is the first replica we're registering, then its ID should be 1.
 	// The size will be 0, so we'll assign it a replica ID of 0 + 1 = 1.
 	var replicaId int32 = int32(kernel.Size()) + 1
 
-	if kernelSpec.Resource == nil && resourceSpec != nil {
-		d.log.Debug("Setting ResourceSpec of Kernel %s to %v", kernel.ID(), resourceSpec)
-		kernelSpec.Resource = resourceSpec
+	// if kernelSpec.Resource == nil && resourceSpec != nil {
+	// 	d.log.Debug("Setting ResourceSpec of Kernel %s to %v", kernel.ID(), resourceSpec)
+	// 	kernelSpec.Resource = resourceSpec
 
-		if kernel.KernelSpec().Resource == nil {
-			kernel.KernelSpec().Resource = resourceSpec
-		}
-	}
+	// 	if kernel.KernelSpec().Resource == nil {
+	// 		kernel.KernelSpec().Resource = resourceSpec
+	// 	}
+	// }
 
 	// We're registering a new replica, so the number of replicas is based on the cluster configuration.
 	replicaSpec := &gateway.KernelReplicaSpec{
@@ -923,11 +956,18 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 
 	// The replica is fully operational at this point, so record that it is ready.
 	replica.SetReady()
-	d.mutex.Unlock()
+	d.Unlock()
 
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
 	waitGroup.SetReplica(replicaId, kernelIp)
-	waitGroup.Register()
+	resourceSpecRegistrationNotification.Wait()
+
+	resourceSpec, ok := d.kernelResourceSpecs.Load(kernelId)
+	if !ok {
+		d.log.Error("Expected to find ResourceSpec for kernel %s already registered.", kernelId)
+		return nil, ErrResourceSpecNotRegistered
+	}
+	replica.SetResourceSpec(resourceSpec)
 
 	d.log.Debug("Done registering KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	d.log.Debug("WaitGroup for Kernel \"%s\": %s", kernelId, waitGroup.String())
@@ -940,6 +980,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		Replicas:      waitGroup.GetReplicas(),
 		PersistentId:  &persistentId,
 		DataDirectory: nil,
+		ResourceSpec:  resourceSpec,
 		SmrPort:       int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
 	}
 
@@ -1044,6 +1085,41 @@ func (d *GatewayDaemon) WaitKernel(ctx context.Context, in *gateway.KernelId) (*
 	}
 
 	return d.statusErrorf(kernel.WaitClosed(), nil)
+}
+
+// Register a ResourceSpec definining the resource limits/maximum resources required by a particular kernel.
+// If I find a nice way to pass this directly through the usual Jupyter launch-kernel path, then I'll use that instead.
+func (d *GatewayDaemon) RegisterKernelResourceSpec(ctx context.Context, in *gateway.ResourceSpecRegistration) (*gateway.Void, error) {
+	d.Lock()
+	defer d.Unlock()
+
+	d.log.Debug("Registering ResourceSpec for kernel %s: %v", in.KernelId, in.ResourceSpec)
+
+	var (
+		existingResourceSpec  *gateway.ResourceSpec
+		ok                    bool
+		notificationWaitGroup *sync.WaitGroup
+	)
+
+	if existingResourceSpec, ok = d.kernelResourceSpecs.Load(in.KernelId); ok {
+		d.log.Error("Already have a resource spec registered for kernel %s: %v", in.KernelId, existingResourceSpec)
+		return nil, ErrInvalidParameter
+	}
+
+	d.kernelResourceSpecs.Store(in.KernelId, in.ResourceSpec)
+
+	if notificationWaitGroup, ok = d.kernelResourceSpecRegistrationNotifications.Load(in.KernelId); !ok {
+		d.log.Debug("Creating 'ResourceSpecRegistration' channel in RegisterKernelResourceSpec for kernel %s.", in.KernelId)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		notificationWaitGroup = &wg
+		d.kernelResourceSpecRegistrationNotifications.Store(in.KernelId, notificationWaitGroup)
+	}
+
+	// Decrement the WaitGroup immediately, as we're registering the ResourceSpec for the kernel right now.
+	notificationWaitGroup.Done()
+
+	return gateway.VOID, nil
 }
 
 // ClusterGateway implementation.
@@ -1606,7 +1682,7 @@ func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, opts AddReplicaWaitO
 	addReplicaOp.SetPodName(newPodName)
 	d.addReplicaOperationsByNewPodName.Store(newPodName, addReplicaOp)
 
-	d.mutex.Lock()
+	d.Lock()
 
 	channel, ok := d.addReplicaNewPodNotifications.Load(newPodName)
 
@@ -1614,7 +1690,7 @@ func (d *GatewayDaemon) addReplica(in *gateway.ReplicaInfo, opts AddReplicaWaitO
 		channel <- addReplicaOp
 	}
 
-	d.mutex.Unlock()
+	d.Unlock()
 
 	if opts.WaitRegistered() {
 		d.log.Debug("Waiting for new replica %d of kernel %s to register.", addReplicaOp.ReplicaId(), kernelId)
@@ -1729,8 +1805,8 @@ func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gat
 		Kernels: make([]*gateway.DistributedJupyterKernel, 0, max(d.kernelIdToKernel.Len(), 1)),
 	}
 
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
+	d.Lock()
+	defer d.Unlock()
 
 	d.kernelIdToKernel.Range(func(id string, kernel *client.DistributedKernelClient) bool {
 		d.log.Debug("Will be returning Kernel %s with %d replica(s) [%v] [%v].", id, kernel.Size(), kernel.Status(), kernel.AggregateBusyStatus())

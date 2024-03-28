@@ -19,16 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ClusterGateway_ID_FullMethodName                       = "/gateway.ClusterGateway/ID"
-	ClusterGateway_RemoveHost_FullMethodName               = "/gateway.ClusterGateway/RemoveHost"
-	ClusterGateway_MigrateKernelReplica_FullMethodName     = "/gateway.ClusterGateway/MigrateKernelReplica"
-	ClusterGateway_NotifyKernelRegistered_FullMethodName   = "/gateway.ClusterGateway/NotifyKernelRegistered"
-	ClusterGateway_SmrReady_FullMethodName                 = "/gateway.ClusterGateway/SmrReady"
-	ClusterGateway_SmrNodeAdded_FullMethodName             = "/gateway.ClusterGateway/SmrNodeAdded"
-	ClusterGateway_ListKernels_FullMethodName              = "/gateway.ClusterGateway/ListKernels"
-	ClusterGateway_SetTotalVirtualGPUs_FullMethodName      = "/gateway.ClusterGateway/SetTotalVirtualGPUs"
-	ClusterGateway_GetClusterActualGpuInfo_FullMethodName  = "/gateway.ClusterGateway/GetClusterActualGpuInfo"
-	ClusterGateway_GetClusterVirtualGpuInfo_FullMethodName = "/gateway.ClusterGateway/GetClusterVirtualGpuInfo"
+	ClusterGateway_ID_FullMethodName                         = "/gateway.ClusterGateway/ID"
+	ClusterGateway_RemoveHost_FullMethodName                 = "/gateway.ClusterGateway/RemoveHost"
+	ClusterGateway_MigrateKernelReplica_FullMethodName       = "/gateway.ClusterGateway/MigrateKernelReplica"
+	ClusterGateway_NotifyKernelRegistered_FullMethodName     = "/gateway.ClusterGateway/NotifyKernelRegistered"
+	ClusterGateway_SmrReady_FullMethodName                   = "/gateway.ClusterGateway/SmrReady"
+	ClusterGateway_SmrNodeAdded_FullMethodName               = "/gateway.ClusterGateway/SmrNodeAdded"
+	ClusterGateway_ListKernels_FullMethodName                = "/gateway.ClusterGateway/ListKernels"
+	ClusterGateway_SetTotalVirtualGPUs_FullMethodName        = "/gateway.ClusterGateway/SetTotalVirtualGPUs"
+	ClusterGateway_GetClusterActualGpuInfo_FullMethodName    = "/gateway.ClusterGateway/GetClusterActualGpuInfo"
+	ClusterGateway_GetClusterVirtualGpuInfo_FullMethodName   = "/gateway.ClusterGateway/GetClusterVirtualGpuInfo"
+	ClusterGateway_RegisterKernelResourceSpec_FullMethodName = "/gateway.ClusterGateway/RegisterKernelResourceSpec"
 )
 
 // ClusterGatewayClient is the client API for ClusterGateway service.
@@ -58,6 +59,9 @@ type ClusterGatewayClient interface {
 	GetClusterActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterActualGpuInfo, error)
 	// Return the current vGPU (or "deflated GPU") resource metrics on the node.
 	GetClusterVirtualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterVirtualGpuInfo, error)
+	// Register a ResourceSpec definining the resource limits/maximum resources required by a particular kernel.
+	// If I find a nice way to pass this directly through the usual Jupyter launch-kernel path, then I'll use that instead.
+	RegisterKernelResourceSpec(ctx context.Context, in *ResourceSpecRegistration, opts ...grpc.CallOption) (*Void, error)
 }
 
 type clusterGatewayClient struct {
@@ -158,6 +162,15 @@ func (c *clusterGatewayClient) GetClusterVirtualGpuInfo(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *clusterGatewayClient) RegisterKernelResourceSpec(ctx context.Context, in *ResourceSpecRegistration, opts ...grpc.CallOption) (*Void, error) {
+	out := new(Void)
+	err := c.cc.Invoke(ctx, ClusterGateway_RegisterKernelResourceSpec_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterGatewayServer is the server API for ClusterGateway service.
 // All implementations must embed UnimplementedClusterGatewayServer
 // for forward compatibility
@@ -185,6 +198,9 @@ type ClusterGatewayServer interface {
 	GetClusterActualGpuInfo(context.Context, *Void) (*ClusterActualGpuInfo, error)
 	// Return the current vGPU (or "deflated GPU") resource metrics on the node.
 	GetClusterVirtualGpuInfo(context.Context, *Void) (*ClusterVirtualGpuInfo, error)
+	// Register a ResourceSpec definining the resource limits/maximum resources required by a particular kernel.
+	// If I find a nice way to pass this directly through the usual Jupyter launch-kernel path, then I'll use that instead.
+	RegisterKernelResourceSpec(context.Context, *ResourceSpecRegistration) (*Void, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -221,6 +237,9 @@ func (UnimplementedClusterGatewayServer) GetClusterActualGpuInfo(context.Context
 }
 func (UnimplementedClusterGatewayServer) GetClusterVirtualGpuInfo(context.Context, *Void) (*ClusterVirtualGpuInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetClusterVirtualGpuInfo not implemented")
+}
+func (UnimplementedClusterGatewayServer) RegisterKernelResourceSpec(context.Context, *ResourceSpecRegistration) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterKernelResourceSpec not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 
@@ -415,6 +434,24 @@ func _ClusterGateway_GetClusterVirtualGpuInfo_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterGateway_RegisterKernelResourceSpec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResourceSpecRegistration)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterGatewayServer).RegisterKernelResourceSpec(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterGateway_RegisterKernelResourceSpec_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterGatewayServer).RegisterKernelResourceSpec(ctx, req.(*ResourceSpecRegistration))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterGateway_ServiceDesc is the grpc.ServiceDesc for ClusterGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -461,6 +498,10 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetClusterVirtualGpuInfo",
 			Handler:    _ClusterGateway_GetClusterVirtualGpuInfo_Handler,
+		},
+		{
+			MethodName: "RegisterKernelResourceSpec",
+			Handler:    _ClusterGateway_RegisterKernelResourceSpec_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

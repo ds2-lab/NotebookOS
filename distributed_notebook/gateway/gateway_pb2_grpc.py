@@ -64,6 +64,11 @@ class ClusterGatewayStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.ClusterVirtualGpuInfo.FromString,
                 )
+        self.RegisterKernelResourceSpec = channel.unary_unary(
+                '/gateway.ClusterGateway/RegisterKernelResourceSpec',
+                request_serializer=gateway__pb2.ResourceSpecRegistration.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
 
 
 class ClusterGatewayServicer(object):
@@ -142,6 +147,14 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RegisterKernelResourceSpec(self, request, context):
+        """Register a ResourceSpec definining the resource limits/maximum resources required by a particular kernel.
+        If I find a nice way to pass this directly through the usual Jupyter launch-kernel path, then I'll use that instead.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -194,6 +207,11 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
                     servicer.GetClusterVirtualGpuInfo,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.ClusterVirtualGpuInfo.SerializeToString,
+            ),
+            'RegisterKernelResourceSpec': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterKernelResourceSpec,
+                    request_deserializer=gateway__pb2.ResourceSpecRegistration.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -372,6 +390,23 @@ class ClusterGateway(object):
         return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/GetClusterVirtualGpuInfo',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.ClusterVirtualGpuInfo.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def RegisterKernelResourceSpec(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/RegisterKernelResourceSpec',
+            gateway__pb2.ResourceSpecRegistration.SerializeToString,
+            gateway__pb2.Void.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

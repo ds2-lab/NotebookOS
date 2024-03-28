@@ -159,6 +159,27 @@ func (s *DistributedKernelClient) KernelSpec() *gateway.KernelSpec {
 	return s.spec
 }
 
+// Will return an error if the DistributedKernelClient or any of the replcias already have a resource spec set.
+func (c *DistributedKernelClient) SetResourceSpec(resourceSpec *gateway.ResourceSpec, onReplicas bool) error {
+	if c.spec.Resource != nil {
+		return fmt.Errorf("ErrResourceSpecAlreadySet %w : %s", ErrResourceSpecAlreadySet, fmt.Sprintf("kernel %s already has a resource spec associated with it", c.id))
+	}
+
+	c.spec.Resource = resourceSpec
+
+	if onReplicas {
+		for _, replica := range c.replicas {
+			err := replica.(*KernelClient).SetResourceSpec(resourceSpec)
+			if err != nil {
+				c.log.Error("Replica %d of kernel %s already has a resource spec associated with it.", replica.ReplicaID(), c.id)
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 // ConnectionInfo returns the connection info.
 func (c *DistributedKernelClient) ConnectionInfo() *types.ConnectionInfo {
 	return c.server.Meta

@@ -233,11 +233,11 @@ class DistributedKernel(IPythonKernel):
             "join": self.smr_join,  # config_info["smr_join"],
             "podName": self.pod_name,
             "nodeName": self.node_name,
-            "resourceSpec": {
-                "cpu": self.spec_cpu,
-                "memory": self.spec_mem,
-                "gpu": self.spec_gpu,
-            },
+            # "resourceSpec": {
+            #     "cpu": self.spec_cpu,
+            #     "memory": self.spec_mem,
+            #     "gpu": self.spec_gpu,
+            # },
             "kernel": {
                 # , config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix.
                 "id": self.kernel_id,
