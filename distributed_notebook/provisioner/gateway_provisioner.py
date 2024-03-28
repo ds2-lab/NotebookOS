@@ -151,18 +151,12 @@ class GatewayProvisioner(KernelProvisionerBase):
         """
         self.log.info("launch_kernel[kwargs: %s]" % str(kwargs))
         try:
-            resourceSpec = gateway_pb2.ResourceSpec(
-                cpu=0,
-                mem=0,
-                gpu=0
-            )
             spec = gateway_pb2.KernelSpec(
                 id=self._kernel_id,
                 session=self.parent.session.session,
                 argv=cmd,
                 signatureScheme=self.parent.session.signature_scheme,
-                key=self.parent.session.key,
-                resource=resourceSpec)
+                key=self.parent.session.key)
             connectionInfo = self._get_stub().StartKernel(spec)
             self.launched = True
 
