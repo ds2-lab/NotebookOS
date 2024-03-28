@@ -75,7 +75,8 @@ message DistributedJupyterKernel {
   int32 numReplicas = 2;
   string status = 3;
   string aggregateBusyStatus = 4;
-  repeated JupyterKernelReplica replicas = 5;
+  KernelSpec kernelSpec = 5;
+  repeated JupyterKernelReplica replicas = 6;
 }
 
 message ListKernelsResponse {

@@ -1816,6 +1816,7 @@ func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gat
 			NumReplicas:         int32(kernel.Size()),
 			Status:              kernel.Status().String(),
 			AggregateBusyStatus: kernel.AggregateBusyStatus(),
+			KernelSpec:          kernel.KernelSpec(),
 		}
 
 		replicas := make([]*gateway.JupyterKernelReplica, 0, len(kernel.Replicas()))
