@@ -227,21 +227,13 @@ class DistributedKernel(IPythonKernel):
             "op": "register",
             "signature_scheme": connection_info["signature_scheme"],
             "key": connection_info["key"],
-            "replicaId": self.smr_node_id,  # config_info["smr_node_id"],
-            # len(config_info["smr_nodes"]),
+            "replicaId": self.smr_node_id,
             "numReplicas": len(self.smr_nodes_map),
-            "join": self.smr_join,  # config_info["smr_join"],
+            "join": self.smr_join,
             "podName": self.pod_name,
             "nodeName": self.node_name,
-            # "resourceSpec": {
-            #     "cpu": self.spec_cpu,
-            #     "memory": self.spec_mem,
-            #     "gpu": self.spec_gpu,
-            # },
             "kernel": {
-                # , config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix.
                 "id": self.kernel_id,
-                # config_info["smr_nodes"][0][7:-7], # Chop off the kernel- prefix and :<port> suffix.
                 "session": session_id,
                 "signature_scheme": connection_info["signature_scheme"],
                 "key": connection_info["key"],

@@ -88,16 +88,22 @@ func NewPodCache(nodeName string) PodCache {
 
 	podCache.informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			pod := obj.(*corev1.Pod)
-			podCache.log.Debug("Pod created: %s/%s", pod.Namespace, pod.Name)
+			pod, ok := obj.(*corev1.Pod)
+			if ok {
+				podCache.log.Debug("Pod created: %s/%s", pod.Namespace, pod.Name)
+			}
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			pod := newObj.(*corev1.Pod)
-			podCache.log.Debug("Pod updated: %s/%s", pod.Namespace, pod.Name)
+			pod, ok := newObj.(*corev1.Pod)
+			if ok {
+				podCache.log.Debug("Pod updated: %s/%s", pod.Namespace, pod.Name)
+			}
 		},
 		DeleteFunc: func(obj interface{}) {
-			pod := obj.(*corev1.Pod)
-			podCache.log.Debug("Pod deleted: %s/%s", pod.Namespace, pod.Name)
+			pod, ok := obj.(*corev1.Pod)
+			if ok {
+				podCache.log.Debug("Pod deleted: %s/%s", pod.Namespace, pod.Name)
+			}
 		},
 	})
 
