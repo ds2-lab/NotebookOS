@@ -2,4 +2,4 @@
 
 __version__ = '0.1'
 
-__all__ = ["demo", "kernel"]
+__all__ = ["demo", "kernel", "manager", "provisioner", "handlers"]

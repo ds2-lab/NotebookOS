@@ -293,7 +293,7 @@ c.ServerApp.allow_origin = '*'
 
 # handlers that should be loaded at higher priority than the default services
 #  Default: []
-# c.ServerApp.extra_services = []
+c.ServerApp.extra_services = ['distributed_notebook.handlers.session_handler']
 
 # Extra paths to search for serving static files.
 #
@@ -497,7 +497,7 @@ c.ServerApp.logging_config = {
 
 # The session manager class to use.
 #  Default: 'builtins.object'
-# c.ServerApp.session_manager_class = 'builtins.object'
+c.ServerApp.session_manager_class = 'distributed_notebook.manager.DistributedSessionManager' # 'builtins.object'
 
 # Instead of starting the Application, dump configuration to stdout
 #  See also: Application.show_config
