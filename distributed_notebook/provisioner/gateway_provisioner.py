@@ -149,7 +149,8 @@ class GatewayProvisioner(KernelProvisionerBase):
         This method is called from `KernelManager.launch_kernel()` during the
         kernel manager's start kernel sequence.
         """
-        self.log.info("launch_kernel[self.parent: %s]" % str(self.parent))
+        self.log.info("Lauching kernel %s now. Session: %s." %
+                      (self._kernel_id, str(self.parent)))
         try:
             spec = gateway_pb2.KernelSpec(
                 id=self._kernel_id,

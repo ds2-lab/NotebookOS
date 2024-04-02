@@ -357,7 +357,7 @@ func (c *BasicKubeClient) DeleteCloneset(kernelId string) error {
 // Returns a tuple containing the connection info returned by the `prepareConnectionFileContents` function and an error,
 // which will be nil if there were no errors encountered while creating the StatefulSet and related components.
 func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
-	c.log.Debug("Creating StatefulSet for Session %s.", kernel.Id)
+	c.log.Debug("Creating Kubernetes resources for Kernel %s [Session: %s].", kernel.Id, kernel.Session)
 
 	// Prepare the *jupyter.ConnectionInfo.
 	connectionInfo, err := c.prepareConnectionFileContents(kernel)
