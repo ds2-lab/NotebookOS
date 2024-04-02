@@ -149,7 +149,7 @@ class GatewayProvisioner(KernelProvisionerBase):
         This method is called from `KernelManager.launch_kernel()` during the
         kernel manager's start kernel sequence.
         """
-        self.log.info("launch_kernel[self.parent: %s]" % str(self.parent))
+        self.log.info("launch_kernel[self.parent.session.session: %s]" % str(self.parent.session.session))
         try:
             spec = gateway_pb2.KernelSpec(
                 id=self._kernel_id,
@@ -223,6 +223,8 @@ class GatewayProvisioner(KernelProvisionerBase):
         :meth:`launch_kernel()`.
         """
         self._kernel_id = self.kernel_id
+        
+        self.log.debug("Pre-launching kernel. self.kernel_id=%s, self._kernel_id=%s" % (str(self.kernel_id), str(self._kernel_id)))
 
         # cmd is a must key to return.
         return await super().pre_launch(cmd=self.kernel_spec.argv, **kwargs)
@@ -245,6 +247,7 @@ class GatewayProvisioner(KernelProvisionerBase):
         """
         provisioner_info = await super().get_provisioner_info()
         provisioner_info['gateway'] = self.gateway
+        self.log.debug("Getting provisioner info: %s" % str(provisioner_info))
         return provisioner_info
 
     async def load_provisioner_info(self, provisioner_info: Dict) -> None:
@@ -256,6 +259,7 @@ class GatewayProvisioner(KernelProvisionerBase):
         provisioner.
         NOTE: The superclass method must always be called first to ensure proper deserialization.
         """
+        self.log.debug("Loading provisioner info: %s" % str(provisioner_info))
         self.gateway = provisioner_info['gateway']
 
     def _get_stub(self) -> LocalGatewayStub:

@@ -284,8 +284,8 @@ class DistributedKernel(IPythonKernel):
                           response_dict["data_directory"])
             self.hdfs_data_directory = response_dict["data_directory"]
 
-        self.log.info(
-            "Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
+        self.log.info("[SMR-NODE-ID-ASSIGNED]%d" %  self.smr_node_id)
+        self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
 
         assert (self.smr_nodes_map[self.smr_node_id] == (

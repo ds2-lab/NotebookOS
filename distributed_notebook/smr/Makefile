@@ -5,13 +5,13 @@
 GOCMD=go
 GOBUILD=$(GOCMD) build -mod=mod
 GOIMPORTS=goimports
-PYTHON=/home/bcarver2/miniconda3/bin/python3
+PYTHON=/usr/bin/python3
 LIBEXT=.so
 
 # get the CC and flags used to build python:
 GCC = $(shell $(GOCMD) env CC)
-CFLAGS = -I/home/bcarver2/miniconda3/include/python3.11
-LDFLAGS = -L/home/bcarver2/miniconda3/lib -lpython3.11 -lpthread -ldl  -lutil -lm
+CFLAGS = -I/usr/include/python3.10
+LDFLAGS = -L/usr/lib/x86_64-linux-gnu -lpython3.10 -lcrypt -ldl  -lm -lm
 
 all: gen build
 
