@@ -399,7 +399,10 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.", response.Id, response.Replicas)
 
 	kernel.SetReplicaID(response.Id)
-	kernel.SetResourceSpec(response.ResourceSpec)
+
+	if response.ResourceSpec != nil {
+		kernel.SetResourceSpec(response.ResourceSpec)
+	}
 
 	payload := map[string]interface{}{
 		"smr_node_id": response.Id,
