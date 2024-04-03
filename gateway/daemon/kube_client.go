@@ -237,7 +237,8 @@ func (c *BasicKubeClient) PodCreated(obj interface{}) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	kernelId := pod.Name[7:43]
+	// The first seven characters are "kernel-", and the last 6 characters are "-<ID>", where <ID> is a 5-character.
+	kernelId := pod.Name[7:strings.LastIndex(pod.Name, "-")]
 	channels, ok := c.scaleUpChannels.Get(kernelId)
 
 	if !ok || len(channels) == 0 {
