@@ -85,6 +85,8 @@ class DistributedSessionManager(SessionManager):
         resource_spec : dict[str, int]
             the resource specification for the new session. kernels of this session will be created with these resource limits within Kubernetes.
         """
+        self.log.info("DistributedSessionManager is starting a new Kernel for Session %s: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, ResourceSpec=%s" % (session_id, path, name, type, kernel_name, kernel_id, str(resource_spec)))
+        
         # allow contents manager to specify kernels cwd
         kernel_path = await ensure_async(self.contents_manager.get_kernel_path(path=path))
 

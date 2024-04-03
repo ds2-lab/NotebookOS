@@ -20,10 +20,8 @@ class DistributedKernelManager(MappingKernelManager):
         :param kwargs:
         :return: string-ized version 4 uuid
         """
-        self.log.info("Generating new Kernel ID. KWARGS (%d): %s" % (len(kwargs), str(list(kwargs.keys()))))
         traceback.print_stack()
         kernelId:str = str(uuid.uuid4())
-        self.log.info("Generated kernel ID: %s" % kernelId)
         
         return kernelId
 
@@ -32,3 +30,5 @@ class DistributedKernelManager(MappingKernelManager):
         ) -> str:
         self.log.info("_async_start_kernel() called. kernel_id = %s, path = %s, kwargs = %s" % (kernel_id, str(path), str(kwargs)))
         return await super()._async_start_kernel(kernel_id = kernel_id, path = path, **kwargs)
+
+    start_kernel = _async_start_kernel

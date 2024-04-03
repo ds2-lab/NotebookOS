@@ -65,7 +65,7 @@ class SessionRootHandler(jupyter_server_handlers.SessionRootHandler):
         kernel = model.get("kernel", {})
         resource_spec = model.get("resource_spec", {})
         kernel_name = kernel.get("name", None)
-        kernel_id = kernel.get("id", None)
+        kernel_id = kernel.get("kernel_id", None)
 
         if not kernel_id and not kernel_name:
             self.log.debug("No kernel specified, using default kernel")

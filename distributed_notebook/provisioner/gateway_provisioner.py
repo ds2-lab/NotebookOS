@@ -165,7 +165,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                 argv=cmd,
                 signatureScheme=self.parent.session.signature_scheme,
                 key=self.parent.session.key,
-                resource=resource_spec)
+                resourceSpec=resource_spec)
             connectionInfo = self._get_stub().StartKernel(spec)
             self.launched = True
 
