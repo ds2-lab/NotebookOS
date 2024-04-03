@@ -356,7 +356,7 @@ c.ServerApp.extra_services = ['distributed_notebook.handlers.session_handler']
 
 # The kernel manager class to use.
 #  Default: 'jupyter_server.services.kernels.kernelmanager.MappingKernelManager'
-c.ServerApp.kernel_manager_class = 'distributed_notebook.manager.DistributedKernelManager'
+c.ServerApp.kernel_manager_class = 'distributed_notebook.manager.distributed_kernel_manager.DistributedKernelManager'
 # 'jupyter_server.services.kernels.kernelmanager.MappingKernelManager'
 
 # The kernel spec manager class to use. Should be a subclass of
@@ -497,7 +497,7 @@ c.ServerApp.logging_config = {
 
 # The session manager class to use.
 #  Default: 'builtins.object'
-c.ServerApp.session_manager_class = 'distributed_notebook.manager.DistributedSessionManager' # 'builtins.object'
+c.ServerApp.session_manager_class = 'distributed_notebook.manager.distributed_session_manager.DistributedSessionManager' # 'builtins.object'
 
 # Instead of starting the Application, dump configuration to stdout
 #  See also: Application.show_config

@@ -270,7 +270,7 @@ message KernelSpec {
   repeated string argv = 3;
 	string signatureScheme = 4; // The signature scheme to use.
   string key = 5; // The key to use for signing messages.
-  ResourceSpec resource = 6;
+  ResourceSpec resourceSpec = 6; // Resource requirements of the kernel.
 }
 
 // The connection info for a kernel.

@@ -150,13 +150,22 @@ class GatewayProvisioner(KernelProvisionerBase):
         kernel manager's start kernel sequence.
         """
         self.log.info("launch_kernel[self.parent.session.session: %s]" % str(self.parent.session.session))
+        
+        if "resource_spec" in kwargs:
+            resource_spec:dict[str,int] = kwargs["resource_spec"]
+            self.log.debug("Received resource spec for kernel %s: %s" % (self.kernel_id, str(kwargs["resource_spec"])))
+        else:
+            resource_spec:dict[str,int] = {"cpu": 0, "gpu": 0, "memory": 0}
+            self.log.error("Did not receive a resource spec for kernel %s." % self.kernel_id)
+        
         try:
             spec = gateway_pb2.KernelSpec(
                 id=self._kernel_id,
                 session=self.parent.session.session,
                 argv=cmd,
                 signatureScheme=self.parent.session.signature_scheme,
-                key=self.parent.session.key)
+                key=self.parent.session.key,
+                resource=resource_spec)
             connectionInfo = self._get_stub().StartKernel(spec)
             self.launched = True
 
@@ -225,6 +234,11 @@ class GatewayProvisioner(KernelProvisionerBase):
         self._kernel_id = self.kernel_id
         
         self.log.debug("Pre-launching kernel. self.kernel_id=%s, self._kernel_id=%s" % (str(self.kernel_id), str(self._kernel_id)))
+        
+        if "resource_spec" in kwargs:
+            self.log.debug("Received resource spec for kernel %s: %s" % (self.kernel_id, str(kwargs["resource_spec"])))
+        else:
+            self.log.error("Did not receive a resource spec for kernel %s." % self.kernel_id)
 
         # cmd is a must key to return.
         return await super().pre_launch(cmd=self.kernel_spec.argv, **kwargs)

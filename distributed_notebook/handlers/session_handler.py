@@ -5,8 +5,9 @@ from jupyter_client.kernelspec import NoSuchKernel
 from jupyter_server.utils import url_path_join
 import jsonpatch
 import sys 
+import json
 
-from typing import List
+from typing import List, Any
 
 try:
     from jupyter_client.jsonutil import json_default
@@ -27,13 +28,15 @@ class SessionRootHandler(jupyter_server_handlers.SessionRootHandler):
         
         Creates a new session.
         """
-        print("<<< USING CUSTOM SESSION POST HANDLER >>>")
         self.log.info("<<< USING CUSTOM SESSION POST HANDLER >>>")
         
         # (unless a session already exists for the named session)
         sm = self.session_manager
 
-        model = self.get_json_body()
+        model: dict[str, Any] = self.get_json_body()
+        
+        self.log.info("HTTP POST --> /api/sessions JSON body: %s" % str(model))
+        
         if model is None:
             raise web.HTTPError(400, "No JSON data provided")
 
@@ -57,8 +60,10 @@ class SessionRootHandler(jupyter_server_handlers.SessionRootHandler):
         except KeyError as e:
             raise web.HTTPError(400, "Missing field in JSON data: type") from e
 
+        session_id = model.get("id", None)
         name = model.get("name", None)
         kernel = model.get("kernel", {})
+        resource_spec = model.get("resource_spec", {})
         kernel_name = kernel.get("name", None)
         kernel_id = kernel.get("id", None)
 
@@ -71,10 +76,14 @@ class SessionRootHandler(jupyter_server_handlers.SessionRootHandler):
             s_model = await sm.get_session(path=path)
         else:
             try:
+                # We need to be using our custom manager here, as it accepts the session ID and resource spec as keyword arguments.
+                # The default Session Manager does not. 
                 s_model = await sm.create_session(
                     path=path,
                     kernel_name=kernel_name,
                     kernel_id=kernel_id,
+                    session_id=session_id, 
+                    resource_spec = resource_spec,
                     name=name,
                     type=mtype,
                 )
