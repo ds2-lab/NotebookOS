@@ -13,7 +13,7 @@ c.Application.log_datefmt = '%Y-%m-%d %H:%M:%S'
 
 # The Logging format template
 #  Default: '[%(name)s]%(highlevel)s %(message)s'
-c.Application.log_format = '%(asctime)s [%(name)s] %(message)s'
+c.Application.log_format = '[%(asctime)s,%(msecs).03d] [%(levelname)s] [%(name)s %(filename)s:%(lineno)d] %(message)s'
 
 # Set the log level by value or name.
 #  Choices: any of [0, 10, 20, 30, 40, 50, 'DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL']
@@ -102,11 +102,11 @@ c.Application.log_level = 'DEBUG'
 
 # The Logging format template
 #  See also: Application.log_format
-# c.JupyterApp.log_format = '[%(name)s]%(highlevel)s %(message)s'
+c.JupyterApp.log_format = '[%(asctime)s,%(msecs).03d] [%(levelname)s] [%(name)s %(filename)s:%(lineno)d] %(message)s'
 
 # Set the log level by value or name.
 #  See also: Application.log_level
-# c.JupyterApp.log_level = 30
+c.JupyterApp.log_level = 'DEBUG'
 
 ##
 #  See also: Application.logging_config
@@ -356,7 +356,7 @@ c.ServerApp.extra_services = ['distributed_notebook.handlers.session_handler']
 
 # The kernel manager class to use.
 #  Default: 'jupyter_server.services.kernels.kernelmanager.MappingKernelManager'
-c.ServerApp.kernel_manager_class = 'distributed_notebook.manager.distributed_kernel_manager.DistributedKernelManager'
+# c.ServerApp.kernel_manager_class = 'distributed_notebook.manager.distributed_kernel_manager.DistributedKernelManager'
 # 'jupyter_server.services.kernels.kernelmanager.MappingKernelManager'
 
 # The kernel spec manager class to use. Should be a subclass of
@@ -396,7 +396,7 @@ c.ServerApp.log_datefmt = '%Y-%m-%d %H:%M:%S'
 
 # The Logging format template
 #  See also: Application.log_format
-c.ServerApp.log_format = '[%(asctime)s,%(msecs).03d] [%(levelname)s] [%(name)s] %(message)s'
+c.ServerApp.log_format = '[%(asctime)s,%(msecs).03d] [%(levelname)s] [%(name)s %(filename)s:%(lineno)d] %(message)s'
 
 # Set the log level by value or name.
 #  See also: Application.log_level
