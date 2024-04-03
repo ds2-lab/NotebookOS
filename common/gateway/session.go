@@ -4,7 +4,7 @@ import "github.com/zhangjyr/distributed-notebook/common/types"
 
 // Session implementation
 func (x *KernelReplicaSpec) Spec() types.Spec {
-	return x.Kernel.Resource
+	return x.Kernel.ResourceSpec
 }
 
 func (x *KernelReplicaSpec) ID() string {

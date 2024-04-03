@@ -908,7 +908,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 // - connectionInfo (*jupyter.ConnectionInfo): The connection info of the distributed kernel.
 // - headlessServiceName (string): The name of the headless Kubernetes service that was created to manage the networking of the Pods of the CloneSet.
 func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) {
-	var kernelResourceRequirements *gateway.ResourceSpec = kernel.GetResource()
+	var kernelResourceRequirements *gateway.ResourceSpec = kernel.GetResourceSpec()
 	if kernelResourceRequirements == nil {
 		kernelResourceRequirements = &gateway.ResourceSpec{
 			Gpu:    0,

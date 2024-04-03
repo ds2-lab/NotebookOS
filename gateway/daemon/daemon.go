@@ -112,13 +112,11 @@ type GatewayDaemon struct {
 	placer   core.Placer
 
 	// kernel members
-	transport                                   string
-	ip                                          string
-	kernels                                     hashmap.HashMap[string, *client.DistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
-	kernelIdToKernel                            hashmap.HashMap[string, *client.DistributedKernelClient] // Map from Kernel ID to  *client.DistributedKernelClient.
-	kernelSpecs                                 hashmap.HashMap[string, *gateway.KernelSpec]
-	kernelResourceSpecs                         hashmap.HashMap[string, *gateway.ResourceSpec] // KernelID --> ResourceSpec.
-	kernelResourceSpecRegistrationNotifications hashmap.HashMap[string, *sync.WaitGroup]       // KernelID --> chan.
+	transport        string
+	ip               string
+	kernels          hashmap.HashMap[string, *client.DistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
+	kernelIdToKernel hashmap.HashMap[string, *client.DistributedKernelClient] // Map from Kernel ID to  *client.DistributedKernelClient.
+	kernelSpecs      hashmap.HashMap[string, *gateway.KernelSpec]
 
 	log logger.Logger
 
@@ -176,16 +174,14 @@ type GatewayDaemon struct {
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *ClusterDaemonOptions, configs ...GatewayDaemonConfig) *GatewayDaemon {
 	daemon := &GatewayDaemon{
-		id:                  uuid.New().String(),
-		connectionOptions:   opts,
-		transport:           "tcp",
-		ip:                  opts.IP,
-		availablePorts:      utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
-		kernels:             hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
-		kernelIdToKernel:    hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
-		kernelSpecs:         hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
-		kernelResourceSpecs: hashmap.NewCornelkMap[string, *gateway.ResourceSpec](100),
-		kernelResourceSpecRegistrationNotifications: hashmap.NewCornelkMap[string, *sync.WaitGroup](100),
+		id:                               uuid.New().String(),
+		connectionOptions:                opts,
+		transport:                        "tcp",
+		ip:                               opts.IP,
+		availablePorts:                   utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
+		kernels:                          hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
+		kernelIdToKernel:                 hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
+		kernelSpecs:                      hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
 		waitGroups:                       hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
 		cleaned:                          make(chan struct{}),
 		smrPort:                          clusterDaemonOptions.SMRPort,
@@ -648,16 +644,6 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	if !ok {
 		d.log.Debug("Did not find existing KernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
 
-		// Create the WaitGroup used to notify that the kernel's resource spec has been registered if it has not already been created.
-		d.Lock()
-		if _, ok := d.kernelResourceSpecRegistrationNotifications.Load(in.Id); !ok {
-			d.log.Debug("Creating 'ResourceSpecRegistration' WaitGroup in StartKernel for kernel %s.", in.Id)
-			var wg sync.WaitGroup
-			wg.Add(1)
-			d.kernelResourceSpecRegistrationNotifications.Store(in.Id, &wg)
-		}
-		d.Unlock()
-
 		listenPorts, err := d.availablePorts.RequestPorts()
 		if err != nil {
 			panic(err)
@@ -708,13 +694,8 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 
 	d.log.Debug("Waiting for all 3 replicas of new kernel %s to register.", in.Id)
 	// Wait for all replicas to be created.
-	created.WaitRegistered()
+	created.Wait()
 	d.log.Debug("All 3 replicas of new kernel %s have registered.", in.Id)
-
-	resourceSpecWg, _ := d.kernelResourceSpecRegistrationNotifications.Load(in.Id)
-	resourceSpecWg.Wait()
-	resourceSpec, _ := d.kernelResourceSpecs.Load(in.Id)
-	kernel.SetResourceSpec(resourceSpec, false)
 
 	if kernel.Size() == 0 {
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
@@ -842,7 +823,7 @@ func (d *GatewayDaemon) AddReplicaDynamic(ctx context.Context, in *gateway.Kerne
 		return ErrKernelSpecNotFound
 	}
 
-	resourceSpec := kernelSpec.GetResource()
+	resourceSpec := kernelSpec.GetResourceSpec()
 	if resourceSpec == nil {
 		d.log.Error("Kernel %s does not have a resource spec included with its kernel spec.", in.Id)
 		return ErrResourceSpecNotFound
@@ -867,7 +848,6 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	kernelIp := in.KernelIp
 	kernelPodName := in.PodName
 	nodeName := in.NodeName
-	// resourceSpec := in.ResourceSpec
 
 	d.log.Info("Connection info: %v", connectionInfo)
 	d.log.Info("Session ID: %v", sessionId)
@@ -876,7 +856,6 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	d.log.Info("Pod name: %v", kernelPodName)
 	d.log.Info("Host ID: %v", hostId)
 	d.log.Info("Node ID: %v", nodeName)
-	// d.log.Debug("Resource spec: %v", resourceSpec)
 
 	d.Lock()
 
@@ -908,18 +887,6 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		return result, err
 	} else {
 		d.log.Debug("There are 0 active add-replica operations targeting kernel %s.", kernel.ID())
-	}
-
-	var (
-		resourceSpecRegistrationNotification *sync.WaitGroup
-		ok                                   bool
-	)
-	if resourceSpecRegistrationNotification, ok = d.kernelResourceSpecRegistrationNotifications.Load(in.KernelId); !ok {
-		d.log.Error("'ResourceSpecRegistration' WaitGroup for kernel %s does not exist... Will create it now, but this is wrong.", in.KernelId)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		resourceSpecRegistrationNotification = &wg
-		d.kernelResourceSpecRegistrationNotifications.Store(in.KernelId, resourceSpecRegistrationNotification)
 	}
 
 	// If this is the first replica we're registering, then its ID should be 1.
@@ -958,16 +925,6 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 	d.log.Debug("WaitGroup for Kernel \"%s\": %s", kernelId, waitGroup.String())
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
 	waitGroup.WaitRegistered()
-	resourceSpecRegistrationNotification.Wait()
-
-	resourceSpec, ok := d.kernelResourceSpecs.Load(kernelId)
-	if !ok {
-		d.log.Error("Expected to find ResourceSpec for kernel %s already registered.", kernelId)
-		resourceSpec = &gateway.ResourceSpec{Cpu: 0, Gpu: 0, Memory: 0}
-		return nil, ErrResourceSpecNotRegistered
-	} else {
-		replica.SetResourceSpec(resourceSpec)
-	}
 
 	persistentId := kernel.PersistentID()
 	response := &gateway.KernelRegistrationNotificationResponse{
@@ -975,7 +932,6 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		Replicas:      waitGroup.GetReplicas(),
 		PersistentId:  &persistentId,
 		DataDirectory: nil,
-		ResourceSpec:  resourceSpec,
 		SmrPort:       int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
 	}
 
@@ -1080,47 +1036,6 @@ func (d *GatewayDaemon) WaitKernel(ctx context.Context, in *gateway.KernelId) (*
 	}
 
 	return d.statusErrorf(kernel.WaitClosed(), nil)
-}
-
-// Register a ResourceSpec definining the resource limits/maximum resources required by a particular kernel.
-// If I find a nice way to pass this directly through the usual Jupyter launch-kernel path, then I'll use that instead.
-func (d *GatewayDaemon) RegisterKernelResourceSpec(ctx context.Context, in *gateway.ResourceSpecRegistration) (*gateway.Void, error) {
-	d.Lock()
-	defer d.Unlock()
-
-	if in.ResourceSpec == nil {
-		d.log.Error("Recevied NULL ResourceSpec during registration of kernel %s", in.KernelId)
-		return gateway.VOID, ErrInvalidParameter
-	}
-
-	d.log.Info("Registering ResourceSpec for kernel %s [cpu=%d, gpu=%d, mem=%d]", in.KernelId, in.ResourceSpec.Cpu, in.ResourceSpec.Gpu, in.ResourceSpec.Memory)
-
-	var (
-		existingResourceSpec  *gateway.ResourceSpec
-		ok                    bool
-		notificationWaitGroup *sync.WaitGroup
-	)
-
-	if existingResourceSpec, ok = d.kernelResourceSpecs.Load(in.KernelId); ok {
-		d.log.Error("Already have a resource spec registered for kernel %s: %v", in.KernelId, existingResourceSpec)
-		return nil, ErrInvalidParameter
-	}
-
-	d.kernelResourceSpecs.Store(in.KernelId, in.ResourceSpec)
-
-	if notificationWaitGroup, ok = d.kernelResourceSpecRegistrationNotifications.Load(in.KernelId); !ok {
-		d.log.Debug("Creating 'ResourceSpecRegistration' channel in RegisterKernelResourceSpec for kernel %s.", in.KernelId)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		notificationWaitGroup = &wg
-		d.kernelResourceSpecRegistrationNotifications.Store(in.KernelId, notificationWaitGroup)
-		d.log.Debug("Created 'ResourceSpecRegistration' channel in RegisterKernelResourceSpec for kernel %s.", in.KernelId)
-	}
-
-	// Decrement the WaitGroup immediately, as we're registering the ResourceSpec for the kernel right now.
-	notificationWaitGroup.Done()
-
-	return gateway.VOID, nil
 }
 
 // ClusterGateway implementation.
@@ -1451,23 +1366,6 @@ func (d *GatewayDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) erro
 
 		kernel.BindSession(header.Session)
 		d.kernels.Store(header.Session, kernel)
-
-		if spec, ok := d.kernelResourceSpecs.Load(header.Session); ok {
-			d.log.Debug("Session %s is associated with Kernel %s. Found ResourceSpec.", header.Session, kernelId)
-
-			d.Lock()
-			kernel.SetResourceSpec(spec, true)
-
-			wg, ok := d.kernelResourceSpecRegistrationNotifications.Load(kernelId)
-
-			if ok {
-				wg.Done()
-			} else {
-				d.log.Error("Could not find ResourceSpec WaitGroup for kernel %s.", kernelId)
-			}
-
-			d.Unlock()
-		}
 	}
 	if kernel == nil {
 		d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", kernelId, header.MsgID, header.MsgType, header.Session)

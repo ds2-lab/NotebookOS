@@ -43,7 +43,7 @@ service ClusterGateway {
 
   // Register a ResourceSpec definining the resource limits/maximum resources required by a particular kernel.
   // If I find a nice way to pass this directly through the usual Jupyter launch-kernel path, then I'll use that instead.
-  rpc RegisterKernelResourceSpec(ResourceSpecRegistration) returns (Void) {}
+  // rpc RegisterKernelResourceSpec(ResourceSpecRegistration) returns (Void) {}
 }
 
 // Used to register the ResourceSpec to be used by a particular kernel.

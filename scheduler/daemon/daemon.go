@@ -400,10 +400,6 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 
 	kernel.SetReplicaID(response.Id)
 
-	if response.ResourceSpec != nil {
-		kernel.SetResourceSpec(response.ResourceSpec)
-	}
-
 	payload := map[string]interface{}{
 		"smr_node_id": response.Id,
 		"hostname":    remote_ip,

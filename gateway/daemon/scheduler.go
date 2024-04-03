@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -84,9 +83,6 @@ func (s *HostScheduler) pollForGpuInfo() {
 			s.gpuInfoMutex.Lock()
 			s.gpuInfo = resp
 			s.gpuInfoMutex.Unlock()
-
-			gpuInfoJson, _ := json.Marshal(s.gpuInfo)
-			s.log.Debug("Refreshed GPU info from Scheduler %s on Node %s: %s. Will refresh in %v.", s.id, s.nodeName, string(gpuInfoJson), s.gpuInfoRefreshInterval)
 		}
 
 		time.Sleep(s.gpuInfoRefreshInterval)

@@ -145,16 +145,6 @@ func (c *KernelClient) SetReplicaID(replicaId int32) {
 	c.replicaId = replicaId
 }
 
-// Will return an error if the client already has a resource spec set.
-func (c *KernelClient) SetResourceSpec(resourceSpec *gateway.ResourceSpec) error {
-	if c.spec.Resource != nil {
-		return fmt.Errorf("ErrResourceSpecAlreadySet %w : %s", ErrResourceSpecAlreadySet, fmt.Sprintf("kernel %s already has a resource spec associated with it", c.id))
-	}
-
-	c.spec.Resource = resourceSpec
-	return nil
-}
-
 // Set the value of the persistentId field.
 // This will panic if the persistentId has already been set to something other than the empty string.
 func (c *KernelClient) SetPersistentID(persistentId string) {
@@ -171,7 +161,7 @@ func (c *KernelClient) PersistentID() string {
 
 // Spec returns the resource spec
 func (c *KernelClient) Spec() protocol.Spec {
-	return c.spec.GetResource()
+	return c.spec.GetResourceSpec()
 }
 
 // KernelSpec returns the kernel spec.
