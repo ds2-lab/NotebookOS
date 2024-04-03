@@ -20,10 +20,7 @@ class DistributedKernelManager(MappingKernelManager):
         :param kwargs:
         :return: string-ized version 4 uuid
         """
-        traceback.print_stack()
-        kernelId:str = str(uuid.uuid4())
-        
-        return kernelId
+        return str(uuid.uuid4())
 
     async def _async_start_kernel(  # type:ignore[override]
             self, *, kernel_id: str | None = None, path: ApiPath | None = None, **kwargs: str
