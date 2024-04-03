@@ -22,7 +22,7 @@ type KernelInfo interface {
 	ID() string
 
 	// Spec returns resource spec.
-	Spec() types.Spec
+	ResourceSpec() *gateway.ResourceSpec
 
 	// KernelSpec returns kernel spec.
 	KernelSpec() *gateway.KernelSpec

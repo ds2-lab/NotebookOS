@@ -1,7 +1,7 @@
 package core
 
 import (
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/zhangjyr/distributed-notebook/common/gateway"
 )
 
 // Session defines the interface for a jupyter session.
@@ -11,5 +11,5 @@ type MetaSession interface {
 	ID() string
 
 	// Spec returns the resource specs of the session.
-	Spec() types.Spec
+	ResourceSpec() *gateway.ResourceSpec
 }

@@ -1715,7 +1715,7 @@ func (d *GatewayDaemon) removeReplica(smrNodeId int32, kernelId string, wait boo
 
 // Driver gRPC.
 func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gateway.ListKernelsResponse, error) {
-	d.log.Debug("Serving ListKernels gRPC request. We currently have %d kernel(s).", d.kernelIdToKernel.Len())
+	// d.log.Debug("Serving ListKernels gRPC request. We currently have %d kernel(s).", d.kernelIdToKernel.Len())
 
 	resp := &gateway.ListKernelsResponse{
 		Kernels: make([]*gateway.DistributedJupyterKernel, 0, max(d.kernelIdToKernel.Len(), 1)),
@@ -1725,7 +1725,7 @@ func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gat
 	defer d.Unlock()
 
 	d.kernelIdToKernel.Range(func(id string, kernel *client.DistributedKernelClient) bool {
-		d.log.Debug("Will be returning Kernel %s with %d replica(s) [%v] [%v].", id, kernel.Size(), kernel.Status(), kernel.AggregateBusyStatus())
+		// d.log.Debug("Will be returning Kernel %s with %d replica(s) [%v] [%v].", id, kernel.Size(), kernel.Status(), kernel.AggregateBusyStatus())
 
 		respKernel := &gateway.DistributedJupyterKernel{
 			KernelId:            id,

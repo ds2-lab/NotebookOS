@@ -1,9 +1,7 @@
 package gateway
 
-import "github.com/zhangjyr/distributed-notebook/common/types"
-
 // Session implementation
-func (x *KernelReplicaSpec) Spec() types.Spec {
+func (x *KernelReplicaSpec) ResourceSpec() *ResourceSpec {
 	return x.Kernel.ResourceSpec
 }
 

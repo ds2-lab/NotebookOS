@@ -468,7 +468,7 @@ func (d *SchedulerDaemon) GetActualGpuInfo(ctx context.Context, in *gateway.Void
 		LocalDaemonID:         d.id,
 	}
 
-	d.log.Debug("Returning GPU information: %v", gpuInfo)
+	// d.log.Debug("Returning GPU information: %v", gpuInfo)
 
 	return gpuInfo, nil
 }
@@ -1016,10 +1016,10 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.Ke
 		requiredGPUs decimal.Decimal
 	)
 
-	if kernel.Spec() == nil {
+	if kernel.ResourceSpec() == nil {
 		requiredGPUs = ZeroDecimal.Copy()
 	} else {
-		requiredGPUs = decimal.NewFromFloat(kernel.Spec().GPU())
+		requiredGPUs = decimal.NewFromFloat(kernel.ResourceSpec().GPU())
 	}
 
 	// If the error is non-nil, then there weren't enough idle GPUs available.
@@ -1308,7 +1308,7 @@ func (d *SchedulerDaemon) handleSMRLeadTask(kernel core.Kernel, frames jupyter.J
 		client := kernel.(*client.KernelClient)
 
 		d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
-		err := d.gpuManager.AllocateGPUs(decimal.NewFromFloat(client.Spec().GPU()), client.ReplicaID(), client.ID())
+		err := d.gpuManager.AllocateGPUs(decimal.NewFromFloat(client.ResourceSpec().GPU()), client.ReplicaID(), client.ID())
 		if err != nil {
 			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", client.ReplicaID(), client.ID(), err)
 			panic(err) // TODO(Ben): Handle gracefully.

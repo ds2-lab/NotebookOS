@@ -14,7 +14,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	protocol "github.com/zhangjyr/distributed-notebook/common/types"
 )
 
 var (
@@ -160,7 +159,7 @@ func (c *KernelClient) PersistentID() string {
 }
 
 // Spec returns the resource spec
-func (c *KernelClient) Spec() protocol.Spec {
+func (c *KernelClient) ResourceSpec() *gateway.ResourceSpec {
 	return c.spec.GetResourceSpec()
 }
 

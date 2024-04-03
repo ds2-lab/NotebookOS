@@ -15,7 +15,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	protocol "github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 
@@ -151,7 +150,7 @@ func (c *DistributedKernelClient) SourceKernelID() string {
 	return c.id
 }
 
-func (s *DistributedKernelClient) Spec() protocol.Spec {
+func (s *DistributedKernelClient) ResourceSpec() *gateway.ResourceSpec {
 	return s.spec.GetResourceSpec()
 }
 
