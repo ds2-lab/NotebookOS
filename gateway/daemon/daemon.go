@@ -637,7 +637,7 @@ func (d *GatewayDaemon) SmrNodeAdded(ctx context.Context, replicaInfo *gateway.R
 
 // StartKernel launches a new kernel.
 func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
-	d.log.Debug("GatewayDaemon::StartKernel[KernelId=%s, Session=%s].", in.Id, in.Session)
+	d.log.Info("GatewayDaemon::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v].", in.Id, in.Session, in.ResourceSpec)
 
 	// Try to find existing kernel by session id first. The kernel that associated with the session id will not be clear during restart.
 	kernel, ok := d.kernels.Load(in.Id)
