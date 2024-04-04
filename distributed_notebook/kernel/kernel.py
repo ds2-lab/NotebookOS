@@ -553,8 +553,10 @@ class DistributedKernel(IPythonKernel):
             dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
-        self.log.info(
-            "DistributedKernel is preparing to execute some code: %s", code)
+        if len(code) > 0:
+            self.log.info("DistributedKernel is preparing to execute some code: %s", code)
+        else:
+            self.log.warning("DistributedKernel is preparing to execute empty codeblock...")
 
         # Special code to initialize persistent store
         if code[:len(key_persistent_id)] == key_persistent_id:
@@ -944,6 +946,7 @@ class DistributedKernel(IPythonKernel):
         return result
 
     def transform_ast(self, node):
+        self.log.debug("Assigning execution_tree to %s" % str(node))
         self.execution_ast = node
         return node
 

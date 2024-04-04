@@ -2,7 +2,7 @@ import asyncio
 import sys
 import types
 import logging
-import time
+import traceback
 from typing import Any, Optional, Union
 
 from .log import Checkpointer, SyncLog, SyncValue, KEY_SYNC_END
@@ -218,6 +218,7 @@ class Synchronizer:
     Note: `execution_ast` may be None if the user's code had a syntax error. 
     TODO(Ben): See what happens if there are other errors, such as dividing by zero or array out-of-bounds.
     """
+    self._log.debug("Synchronizing execution AST: %s" % str(execution_ast))
     synclog = self._synclog
     checkpointing = checkpointer is not None
     if checkpointing:
@@ -241,6 +242,7 @@ class Synchronizer:
       synced = 0
 
       self._syncing = True
+      self._log.debug("Setting sync_ast.term to term of AST: %d" % (self._ast.execution_count))
       sync_ast.term = self._ast.execution_count
       sync_ast.key = KEY_SYNC_AST
       if expected == 0:
@@ -261,9 +263,14 @@ class Synchronizer:
       if checkpointing:
         checkpointer.close()
     except SyncError as se:
-      self._log.warning("SyncError: {}".format(se))
+      tb = traceback.format_exc()
+      self._log.error("SyncError: {}".format(se))
+      self._log.error(tb)
+      
     except Exception as e:
-      print_trace()
+      tb = traceback.format_exc()
+      self._log.error("Exception Encountered: %s" % str(e))
+      self._log.error(tb)
 
   async def sync_key(self, synclog, key, val, end_execution=False, checkpointing=False, meta=None):
     existed = None

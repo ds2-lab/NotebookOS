@@ -485,6 +485,7 @@ class RaftLog:
     if term == 0:
       term = self._leader_term + 1
     elif term <= self._leader_term:
+      self._log.warn("Trying to lead term %d, but _leader_term is %d...", term, self._leader_term)
       return False
 
     # Define the _leading future
