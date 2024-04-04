@@ -8,7 +8,7 @@ KernelName = NewType("KernelName", str)
 ModelName = NewType("ModelName", str)
 
 class DistributedSessionManager(SessionManager):
-    kernel_manager = Instance("distributed_notebook.manager.distributed_kernel_manager.DistributedKernelManager")
+    # kernel_manager = Instance("distributed_notebook.manager.distributed_kernel_manager.DistributedKernelManager")
 
     def __init__(self, *args, **kwargs):
         """Initialize a record list."""
