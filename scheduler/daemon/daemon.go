@@ -295,18 +295,6 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	d.log.Debug("Kernel replica spec: %v", kernelReplicaSpec)
-	// d.log.Debug("Kernel resource spec: %v", registrationPayload.ResourceSpec)
-
-	// if registrationPayload.ResourceSpec == nil {
-	// 	d.log.Error("ResourceSpec is null for some reason...")
-	// 	registrationPayload.ResourceSpec = &gateway.ResourceSpec{
-	// 		Cpu:    registrationPayload.Cpu,
-	// 		Memory: registrationPayload.Memory,
-	// 		Gpu:    registrationPayload.Gpu,
-	// 	}
-	// } else {
-	// 	d.log.Debug("ResourceSpec is supposedly NOT nil: %v", registrationPayload.ResourceSpec)
-	// }
 
 	listenPorts, err := d.availablePorts.RequestPorts()
 	if err != nil {
@@ -397,7 +385,9 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.", response.Id, response.Replicas)
+	d.log.Debug("Resource spec for kernel %s: %v", kernel.ID(), response.ResourceSpec)
 
+	kernel.SetResourceSpec(response.ResourceSpec)
 	kernel.SetReplicaID(response.Id)
 
 	payload := map[string]interface{}{
@@ -1056,7 +1046,7 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.Ke
 		// Regenerate the signature.
 		framesWithoutIdentities, _ := kernel.SkipIdentities(frames)
 		framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
-		msg.Frames = framesWithoutIdentities
+		// msg.Frames = framesWithoutIdentities
 	}
 
 	if verified := d.verifyFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {

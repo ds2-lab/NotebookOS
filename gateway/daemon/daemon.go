@@ -931,6 +931,7 @@ func (d *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *gateway.
 		Id:            replicaId,
 		Replicas:      waitGroup.GetReplicas(),
 		PersistentId:  &persistentId,
+		ResourceSpec:  kernelSpec.ResourceSpec,
 		DataDirectory: nil,
 		SmrPort:       int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
 	}
@@ -1743,7 +1744,7 @@ func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gat
 				PodId:     replica.PodName(),
 				NodeId:    replica.NodeName(),
 			}
-			replicas = append(replicas, kernelReplica)
+			replicas[replica.ReplicaID()] = kernelReplica
 		}
 		respKernel.Replicas = replicas
 

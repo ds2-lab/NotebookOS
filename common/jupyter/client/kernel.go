@@ -163,6 +163,10 @@ func (c *KernelClient) ResourceSpec() *gateway.ResourceSpec {
 	return c.spec.GetResourceSpec()
 }
 
+func (c *KernelClient) SetResourceSpec(spec *gateway.ResourceSpec) {
+	c.spec.ResourceSpec = spec
+}
+
 // KernelSpec returns the kernel spec.
 func (c *KernelClient) KernelSpec() *gateway.KernelSpec {
 	return c.spec
