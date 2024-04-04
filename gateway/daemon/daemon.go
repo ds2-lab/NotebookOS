@@ -1744,7 +1744,7 @@ func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gat
 				PodId:     replica.PodName(),
 				NodeId:    replica.NodeName(),
 			}
-			replicas[replica.ReplicaID()] = kernelReplica
+			replicas = append(replicas, kernelReplica)
 		}
 		respKernel.Replicas = replicas
 

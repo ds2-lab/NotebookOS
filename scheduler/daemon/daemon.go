@@ -948,7 +948,9 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	// If not, we'll change the message's header to "yield_execute".
 	// If the message is an execute_request message, then we have some processing to do on it.
 	if header.MsgType == ShellExecuteRequest {
+		d.log.Debug("Processing 'execute-request': %v", msg)
 		msg = d.processExecuteRequest(msg, kernel, header, offset)
+		d.log.Debug("Processed 'execute-request': %v", msg)
 	}
 
 	d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
@@ -1042,6 +1044,8 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.Ke
 			d.log.Error("Failed to encode metadata frame because: %v", err)
 			panic(err)
 		}
+
+		d.log.Debug("Including idle-gpus (%d) in request metadata.", idleGPUs)
 
 		// Regenerate the signature.
 		framesWithoutIdentities, _ := kernel.SkipIdentities(frames)
