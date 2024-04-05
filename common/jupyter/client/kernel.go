@@ -25,7 +25,94 @@ var (
 type SMRNodeReadyNotificationCallback func(*KernelClient)
 type SMRNodeUpdatedNotificationCallback func(*types.MessageSMRNodeUpdated) // For node-added or node-removed notifications.
 
-// KernelClient offers a simple interface to communicate with a kernel.
+// KernelReplicaClient offers a simple interface to communicate with a kernel replica.
+type KernelReplicaClient interface {
+	core.Kernel
+	server.Server
+
+	// InitializeIOForwarder initializes the IOPub serving.
+	InitializeShellForwarder(handler core.KernelMessageHandler) (*types.Socket, error)
+
+	// InitializeIOForwarder initializes the IOPub serving.
+	// Returns Pub socket, Sub socket, error.
+	InitializeIOForwarder() (*types.Socket, error)
+
+	// Initialize the ZMQ SUB socket for handling IO messages from the Jupyter kernel.
+	// If the provided types.MessageHandler parameter is nil, then we will use the default handler. (The default handler is KernelClient::InitializeIOSub.)
+	// The ZMQ socket is subscribed to the specified topic, which should be "" (i.e., the empty string) if no subscription is desired.
+	InitializeIOSub(handler types.MessageHandler, subscriptionTopic string) (*types.Socket, error)
+
+	// Validate validates the kernel connections.
+	// If IOPub has been initialized, it will also validate the IOPub connection and start the IOPub forwarder.
+	Validate() error
+
+	ShellListenPort() int
+
+	IOPubListenPort() int
+
+	RequestDestID() string
+
+	// Return the name of the Kubernetes Pod hosting the replica.
+	PodName() string
+
+	SourceKernelID() string
+
+	// ReplicaID returns the replica ID.
+	ReplicaID() int32
+
+	// AddIOHandler adds a handler for a specific IOPub topic.
+	// The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
+	AddIOHandler(topic string, handler KernelMessageBrokerHandler) error
+
+	// ID returns the kernel ID.
+	ID() string
+
+	// Session returns the associated session ID.
+	Sessions() []string
+
+	// Set the ResourceSpec of the kernel.
+	SetResourceSpec(spec *gateway.ResourceSpec)
+
+	SetReplicaID(replicaId int32)
+
+	// PersistentID returns the persistent ID.
+	PersistentID() string
+
+	// Address returns the address of the kernel.
+	Address() string
+
+	// String returns a string representation of the client.
+	String() string
+
+	// Returns true if the replica has registered and joined its SMR cluster.
+	// Only used by the Cluster Gateway, not by the Local Daemon.
+	IsReady() bool
+
+	// Designate the replica as ready.
+	// Only used by the Cluster Gateway, not by the Local Daemon.
+	SetReady()
+
+	// Socket returns the serve socket the kernel is listening on.
+	Socket(typ types.MessageType) *types.Socket
+
+	// ConnectionInfo returns the connection info.
+	ConnectionInfo() *types.ConnectionInfo
+
+	// Status returns the kernel status.
+	Status() types.KernelStatus
+
+	// BusyStatus returns the kernel busy status.
+	BusyStatus() (string, *zmq4.Msg)
+
+	// BindSession binds a session ID to the client.
+	BindSession(sess string)
+
+	// RequestWithHandler sends a request and handles the response.
+	RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func(), timeout time.Duration) error
+}
+
+// Implementation of the KernelReplicaClient interface.
+//
 // All sockets except IOPub are connected on dialing.
 //
 // Each replica of a particular Distributed Kernel will have a corresponding KernelClient.
@@ -139,7 +226,6 @@ func (c *KernelClient) ReplicaID() int32 {
 	return c.replicaId
 }
 
-// ReplicaID returns the replica ID.
 func (c *KernelClient) SetReplicaID(replicaId int32) {
 	c.replicaId = replicaId
 }

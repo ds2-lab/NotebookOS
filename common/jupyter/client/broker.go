@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/go-zeromq/zmq4"
+	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
@@ -14,6 +16,8 @@ const (
 type MessageTopicRecognizer[R any, T any] func(msg R) (string, T)
 
 type MessageBrokerHandler[S any, T any, R any] func(source S, msg T, raw R) error
+
+type KernelMessageBrokerHandler = MessageBrokerHandler[core.Kernel, types.JupyterFrames, *zmq4.Msg]
 
 // MessageBroker is a general message broker that offers simple event handling.
 // Users will need to provide the type of message source(S), raw message(R), normalized message(T), and a topic recognizer.

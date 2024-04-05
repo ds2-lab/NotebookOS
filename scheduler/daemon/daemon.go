@@ -115,7 +115,7 @@ type SchedulerDaemon struct {
 	// members
 	transport string
 	ip        string
-	kernels   hashmap.HashMap[string, *client.KernelClient]
+	kernels   hashmap.HashMap[string, client.KernelReplicaClient]
 	log       logger.Logger
 
 	// The IOPub socket that the Gateway subscribes to.
@@ -167,7 +167,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		transport:              "tcp",
 		ip:                     ip,
 		nodeName:               nodeName,
-		kernels:                hashmap.NewCornelkMap[string, *client.KernelClient](1000),
+		kernels:                hashmap.NewCornelkMap[string, client.KernelReplicaClient](1000),
 		availablePorts:         utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
 		closed:                 make(chan struct{}),
 		cleaned:                make(chan struct{}),
@@ -777,7 +777,7 @@ func (d *SchedulerDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) 
 	return gateway.VOID, nil
 }
 
-func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel *client.KernelClient, ignoreReply bool) (err error) {
+func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel client.KernelReplicaClient, ignoreReply bool) (err error) {
 	if ignoreReply {
 		kernel.AddIOHandler(jupyter.IOTopicShutdown, d.handleIgnoreMsg)
 	}
@@ -962,7 +962,7 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	return nil
 }
 
-func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel *client.KernelClient, header *jupyter.MessageHeader, offset int) *zmq4.Msg {
+func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.KernelReplicaClient, header *jupyter.MessageHeader, offset int) *zmq4.Msg {
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	var targetReplicaId int32 = -1
 
@@ -1147,7 +1147,7 @@ func (d *SchedulerDaemon) SetTotalVirtualGPUs(ctx context.Context, in *gateway.S
 //
 // PRECONDITION: The given message must be an "execute_request" message.
 // This function will NOT check this. It should be checked before calling this function.
-func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg, header *jupyter.MessageHeader, offset int, kernel *client.KernelClient) (*zmq4.Msg, error) {
+func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg, header *jupyter.MessageHeader, offset int, kernel client.KernelReplicaClient) (*zmq4.Msg, error) {
 	d.log.Debug("Converting 'execute_request' message to 'yield_request' message.")
 
 	var err error
@@ -1239,7 +1239,7 @@ func (d *SchedulerDaemon) headerAndOffsetFromMsg(msg *zmq4.Msg) (kernelId string
 	return kernelId, header, offset, err
 }
 
-func (d *SchedulerDaemon) kernelFromMsg(msg *zmq4.Msg) (kernel *client.KernelClient, err error) {
+func (d *SchedulerDaemon) kernelFromMsg(msg *zmq4.Msg) (kernel client.KernelReplicaClient, err error) {
 	id, _, err := d.idFromMsg(msg)
 	if err != nil {
 		return nil, err
@@ -1258,7 +1258,7 @@ func (d *SchedulerDaemon) kernelFromMsg(msg *zmq4.Msg) (kernel *client.KernelCli
 	return kernel, nil
 }
 
-func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel *client.KernelClient, typ jupyter.MessageType, msg *zmq4.Msg, done func()) (err error) {
+func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel client.KernelReplicaClient, typ jupyter.MessageType, msg *zmq4.Msg, done func()) (err error) {
 	if kernel == nil {
 		kernel, err = d.kernelFromMsg(msg)
 		if err != nil {
@@ -1330,7 +1330,7 @@ func (d *SchedulerDaemon) errorf(err error) error {
 	return status.Errorf(codes.Internal, err.Error())
 }
 
-func (d *SchedulerDaemon) statusErrorf(kernel *client.KernelClient, status jupyter.KernelStatus, err error) (*gateway.KernelStatus, error) {
+func (d *SchedulerDaemon) statusErrorf(kernel client.KernelReplicaClient, status jupyter.KernelStatus, err error) (*gateway.KernelStatus, error) {
 	if err != nil {
 		return nil, d.errorf(err)
 	}
@@ -1350,7 +1350,7 @@ func (d *SchedulerDaemon) getInvoker(kernel core.Kernel) invoker.KernelInvoker {
 	return kernel.Context().Value(ctxKernelInvoker).(invoker.KernelInvoker)
 }
 
-func (d *SchedulerDaemon) closeKernel(kernel *client.KernelClient, reason string) {
+func (d *SchedulerDaemon) closeKernel(kernel client.KernelReplicaClient, reason string) {
 	if err := d.getInvoker(kernel).Close(); err != nil {
 		d.log.Warn("Failed to close %v after %s, failure: %v", kernel, reason, err)
 	}
@@ -1377,12 +1377,12 @@ func (d *SchedulerDaemon) cleanUp() {
 	}
 }
 
-func (d *SchedulerDaemon) clearHandler(_ string, kernel *client.KernelClient) (contd bool) {
+func (d *SchedulerDaemon) clearHandler(_ string, kernel client.KernelReplicaClient) (contd bool) {
 	d.getInvoker(kernel).Close()
 	return true
 }
 
-func (d *SchedulerDaemon) gcHandler(kernelId string, kernel *client.KernelClient) (contd bool) {
+func (d *SchedulerDaemon) gcHandler(kernelId string, kernel client.KernelReplicaClient) (contd bool) {
 	if d.getInvoker(kernel).Expired(cleanUpInterval) {
 		d.kernels.Delete(kernelId)
 		if kernelId == kernel.ID() {

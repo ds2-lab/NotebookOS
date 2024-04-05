@@ -74,6 +74,15 @@ type SourceKernel interface {
 	RemoveSourceKernelFrame(frames [][]byte, jOffset int) (oldFrams [][]byte)
 }
 
+type Server interface {
+	ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int)
+
+	// GenerateKernelFrame appends a frame contains the kernel ID to the given ZMQ frames.
+	AddDestFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]byte, reqID string)
+
+	SkipIdentities(frames [][]byte) (types.JupyterFrames, int)
+}
+
 // AbstractServer implements the basic socket serving useful for a Jupyter server. Embed this struct in your server implementation.
 type AbstractServer struct {
 	Meta *types.ConnectionInfo
