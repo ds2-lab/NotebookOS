@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
@@ -21,6 +22,7 @@ func NewRandomPlacer(cluster Cluster, opts *CoreOptions) *RandomPlacer {
 		opts:    opts,
 	}
 	cluster.AddIndex(placer.index)
+	config.InitLogger(&placer.log, placer)
 	return placer
 }
 

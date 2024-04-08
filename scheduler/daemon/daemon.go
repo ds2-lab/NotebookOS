@@ -753,7 +753,7 @@ func (d *SchedulerDaemon) KillKernel(ctx context.Context, in *gateway.KernelId) 
 
 // StopKernel stops a kernel.
 func (d *SchedulerDaemon) StopKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
-	d.log.Debug("Received instruction to stop kernel %s.", in.Id)
+	d.log.Info("Received instruction to stop kernel %s.", in.Id)
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find kernel with ID %s", in.Id)

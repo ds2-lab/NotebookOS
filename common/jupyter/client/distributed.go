@@ -667,10 +667,12 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 
 // Shutdown releases all replicas and closes the session.
 func (c *distributedKernelClientImpl) Shutdown(remover ReplicaRemover, restart bool) error {
+	c.log.Debug("Shutting down Kernel %s.", c.id)
 	c.mu.RLock()
 
 	if c.status == types.KernelStatusExited {
 		c.mu.RUnlock()
+		c.log.Warn("Kernel %s has already exited; there's no need to shutdown.", c.id)
 		return nil
 	}
 
@@ -690,6 +692,8 @@ func (c *distributedKernelClientImpl) Shutdown(remover ReplicaRemover, restart b
 			if host, err := c.stopReplicaLocked(replica.(*KernelClient), remover, false); err != nil {
 				c.log.Warn("Failed to stop %v on host %v: %v", replica, host, err)
 				return
+			} else {
+				c.log.Debug("Successfully stopped replica %v on host %s.", replica, host)
 			}
 		}(replica)
 	}

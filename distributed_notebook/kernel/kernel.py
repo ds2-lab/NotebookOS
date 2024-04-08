@@ -140,8 +140,9 @@ class DistributedKernel(IPythonKernel):
         self.execution_ast = None
         self.smr_nodes_map = {}
         self.synclog_stopped = False
-        # By default, we do want to remove the replica from the raft smr cluster on shutdown.
-        self.remove_on_shutdown = True
+        # By default, we do not want to remove the replica from the raft SMR cluster on shutdown.
+        # We'll only do this if we're explicitly told to do so.
+        self.remove_on_shutdown = False
 
         # Single node mode
         if not isinstance(self.smr_nodes, list) or len(self.smr_nodes) == 0:
