@@ -85,6 +85,8 @@ func NewGpuManager(gpus int64) *GpuManager {
 
 	config.InitLogger(&manager.log, manager)
 
+	manager.log.Debug("GPU Manager initialized with %s GPUs.", manager.specGPUs.StringFixed(0))
+
 	return manager
 }
 
@@ -110,6 +112,30 @@ func (m *GpuManager) CommittedGPUs() decimal.Decimal {
 // In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
 func (m *GpuManager) PendingGPUs() decimal.Decimal {
 	return m.pendingGPUs
+}
+
+// Return the number of pending GPUs associated with the kernel identified by the given ID.
+func (m *GpuManager) GetPendingGPUsAssociatedWithKernel(replicaId int32, kernelId string) decimal.Decimal {
+	key := m.getKey(replicaId, kernelId)
+	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
+	if !ok {
+		m.log.Warn("There is no pending allocation associated with replica %d of kernel %s.", replicaId, kernelId)
+		return ZeroDecimal.Copy()
+	}
+
+	return alloc.numGPUs
+}
+
+// Return the number of actual GPUs associated with the kernel identified by the given ID.
+func (m *GpuManager) GetActualGPUsAssociatedWithKernel(replicaId int32, kernelId string) decimal.Decimal {
+	key := m.getKey(replicaId, kernelId)
+	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
+	if !ok {
+		m.log.Warn("There is no pending allocation associated with replica %d of kernel %s.", replicaId, kernelId)
+		return ZeroDecimal.Copy()
+	}
+
+	return alloc.numGPUs
 }
 
 // Try to allocate the requested number of GPUs for the specified replica of the specified kernel.
@@ -172,6 +198,8 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int32, kernelId string) error {
 	m.Lock()
 	defer m.Unlock()
+
+	m.log.Debug("Attempting to allocate %s pending GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
 
 	// If the request is for more GPUs than we have available at all, then we'll return an error indicating that this is the case.
 	if numGPUs.GreaterThan(m.specGPUs) || m.idleGPUs.LessThan(numGPUs) {

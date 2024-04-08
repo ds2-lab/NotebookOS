@@ -1009,9 +1009,11 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 	)
 
 	if kernel.ResourceSpec() == nil {
+		d.log.Error("Kernel %s (replica %d) does not have a ResourceSpec associated with it...", kernel.ID(), kernel.ReplicaID())
 		requiredGPUs = ZeroDecimal.Copy()
 	} else {
-		requiredGPUs = decimal.NewFromFloat(kernel.ResourceSpec().GPU())
+		d.log.Debug("Kernel %s requires %d GPU(s).", kernel.ID(), kernel.ResourceSpec().GetGpu())
+		requiredGPUs = decimal.NewFromFloat(float64(kernel.ResourceSpec().GetGpu()))
 	}
 
 	// If the error is non-nil, then there weren't enough idle GPUs available.
@@ -1045,7 +1047,7 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 			panic(err)
 		}
 
-		d.log.Debug("Including idle-gpus (%d) in request metadata.", idleGPUs)
+		d.log.Debug("Including idle-gpus (%s) in request metadata.", idleGPUs.StringFixed(0))
 
 		// Regenerate the signature.
 		framesWithoutIdentities, _ := kernel.SkipIdentities(frames)
