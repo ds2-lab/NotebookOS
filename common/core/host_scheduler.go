@@ -6,4 +6,5 @@ import (
 
 type HostScheduler interface {
 	OnTaskStart(Kernel, *jupyter.MessageSMRLeadTask) error
+	OnTaskEnd(Kernel, *jupyter.Message)
 }

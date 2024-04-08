@@ -32,6 +32,7 @@ import (
 
 const (
 	ShellExecuteRequest    = "execute_request"
+	ShellExecuteReply      = "execute_reply"
 	ShellYieldExecute      = "yield_execute"
 	ShellKernelInfoRequest = "kernel_info_request"
 	ShellShutdownRequest   = "shutdown_request"
@@ -1395,6 +1396,19 @@ func (d *GatewayDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) erro
 	return nil
 }
 
+func (d *GatewayDaemon) processExecutionReply(msg *zmq4.Msg, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
+	kernelId := kernel.ID()
+	d.log.Debug("Received execute-reply from kernel %s.", kernelId)
+
+	_, ok := d.activeExecutions.Load(kernelId)
+	if !ok {
+		d.log.Error("No active execution registered for kernel %s...", kernelId)
+		return
+	}
+
+	d.activeExecutions.Delete(kernelId)
+}
+
 func (d *GatewayDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernel.ID(), msg)
 
@@ -1512,7 +1526,25 @@ func (d *GatewayDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyte
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
 	}
-	// d.log.Debug("Forwarding %v response to %v [addr=%v].", socket.Type.String(), from, socket.Addr().String())
+
+	if typ == jupyter.ShellMessage {
+		kernelId, header, err := d.headerFromMsg(msg)
+
+		if err != nil {
+			d.log.Error("Failed to extract header from %v message.", typ)
+			return socket.Send(*msg)
+		}
+
+		if header.MsgType == ShellExecuteReply {
+			kernel, ok := d.kernels.Load(kernelId)
+			if !ok {
+				d.log.Error("Could not find kernel associated with Session %s", header.Session)
+			} else {
+				d.processExecutionReply(msg, kernel, header)
+			}
+		}
+	}
+
 	return socket.Send(*msg)
 }
 
