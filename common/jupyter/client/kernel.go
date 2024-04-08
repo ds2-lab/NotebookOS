@@ -116,13 +116,13 @@ type KernelReplicaClient interface {
 // All sockets except IOPub are connected on dialing.
 //
 // Each replica of a particular Distributed Kernel will have a corresponding KernelClient.
-// These KernelClients are then wrapped/managed by a DistributedKernelClient, which is only
+// These KernelClients are then wrapped/managed by a distributedKernelClientImpl, which is only
 // used by the Gateway.
 //
 // Used by both the Gateway and Local Daemon components.
 type KernelClient struct {
 	*server.BaseServer
-	*SessionManager
+	SessionManager
 	client *server.AbstractServer
 
 	id                    string

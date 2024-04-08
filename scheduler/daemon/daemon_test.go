@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/go-zeromq/zmq4"
-	"github.com/golang/mock/gomock"
 	"github.com/mason-leap-lab/go-utils/config"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -16,6 +15,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"github.com/zhangjyr/distributed-notebook/scheduler/device"
 	"github.com/zhangjyr/distributed-notebook/scheduler/mock_device"
+	"go.uber.org/mock/gomock"
 )
 
 const (

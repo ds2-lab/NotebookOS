@@ -7,9 +7,9 @@ package mock_device
 import (
 	reflect "reflect"
 
-	gomock "github.com/golang/mock/gomock"
 	gateway "github.com/zhangjyr/distributed-notebook/common/gateway"
 	device "github.com/zhangjyr/distributed-notebook/scheduler/device"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	v10 "k8s.io/client-go/informers/core/v1"
 	v1beta1 "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"

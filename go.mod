@@ -11,7 +11,6 @@ require (
 	github.com/elliotchance/orderedmap/v2 v2.2.0
 	github.com/fsnotify/fsnotify v1.5.1
 	github.com/go-zeromq/zmq4 v0.16.0
-	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20180507213350-8e809c8a8645
 	github.com/hashicorp/consul/api v1.15.2
@@ -31,6 +30,7 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2
 	go.etcd.io/etcd/raft/v3 v3.5.2
 	go.etcd.io/etcd/server/v3 v3.5.2
+	go.uber.org/mock v0.4.0
 	go.uber.org/zap v1.21.0
 	google.golang.org/grpc v1.58.3
 	google.golang.org/protobuf v1.33.0

@@ -3,7 +3,6 @@ package device_test
 import (
 	"fmt"
 
-	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
@@ -11,6 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/zhangjyr/distributed-notebook/scheduler/device"
 	"github.com/zhangjyr/distributed-notebook/scheduler/mock_device"
+	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

@@ -10,11 +10,11 @@ import (
 	time "time"
 
 	zmq4 "github.com/go-zeromq/zmq4"
-	gomock "github.com/golang/mock/gomock"
 	core "github.com/zhangjyr/distributed-notebook/common/core"
 	gateway "github.com/zhangjyr/distributed-notebook/common/gateway"
 	client "github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"go.uber.org/mock/gomock"
 )
 
 // MockKernelReplicaClient is a mock of KernelReplicaClient interface.

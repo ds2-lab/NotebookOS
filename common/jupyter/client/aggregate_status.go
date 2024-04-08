@@ -56,15 +56,15 @@ type AggregateKernelStatus struct {
 
 	mu sync.Mutex
 
-	kernel           *DistributedKernelClient // The client that manages all the replicas.
-	expectingStatus  string                   // Expected status.
-	expectingMatches int32                    // The number of collected status that matches the expected status.
-	allowViolation   bool                     // If true, the status collection will stop on status dismatch.
-	collecting       int32                    // The number of replicas that are collecting status.
-	collectedMap     map[int32]int32          // Map from replica ID to its status.
-	numCollected     int32                    // Number of statuses we've collected.
-	matches          int32                    // The number of collected status that matches the expected status.
-	status           string                   // The last resolved status.
+	kernel           *distributedKernelClientImpl // The client that manages all the replicas.
+	expectingStatus  string                       // Expected status.
+	expectingMatches int32                        // The number of collected status that matches the expected status.
+	allowViolation   bool                         // If true, the status collection will stop on status dismatch.
+	collecting       int32                        // The number of replicas that are collecting status.
+	collectedMap     map[int32]int32              // Map from replica ID to its status.
+	numCollected     int32                        // Number of statuses we've collected.
+	matches          int32                        // The number of collected status that matches the expected status.
+	status           string                       // The last resolved status.
 	sampleMsg        *zmq4.Msg
 	lastErr          error
 
@@ -72,7 +72,7 @@ type AggregateKernelStatus struct {
 }
 
 // NewAggregateKernelStatus creates a new aggregate status with configured number of replicas.
-func NewAggregateKernelStatus(kernel *DistributedKernelClient, num_replicas int) *AggregateKernelStatus {
+func NewAggregateKernelStatus(kernel *distributedKernelClientImpl, num_replicas int) *AggregateKernelStatus {
 	resetEmptyCollectedMap(num_replicas + 1) // + 1, as the first slot is the current number of statuses collected.
 	return &AggregateKernelStatus{
 		Promise:      promise.Resolved(),

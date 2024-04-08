@@ -40,6 +40,10 @@ const (
 	ConfigFileFormat       = "config-%s-*.json"     // "*" is a placeholder for random string
 
 	ErrorHostname = "ERROR" // We return this from certain gRPC calls when there's an error.
+
+	// Passed within the metadata dict of an 'execute_request' ZMQ message.
+	// This indicates that a specific replica should execute the code.
+	TargetReplicaArg = "target_replica"
 )
 
 var (
@@ -114,8 +118,8 @@ type GatewayDaemon struct {
 	// kernel members
 	transport        string
 	ip               string
-	kernels          hashmap.HashMap[string, *client.DistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
-	kernelIdToKernel hashmap.HashMap[string, *client.DistributedKernelClient] // Map from Kernel ID to  *client.DistributedKernelClient.
+	kernels          hashmap.HashMap[string, client.DistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
+	kernelIdToKernel hashmap.HashMap[string, client.DistributedKernelClient] // Map from Kernel ID to  client.DistributedKernelClient.
 	kernelSpecs      hashmap.HashMap[string, *gateway.KernelSpec]
 
 	log logger.Logger
@@ -179,8 +183,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *ClusterDaemonOption
 		transport:                        "tcp",
 		ip:                               opts.IP,
 		availablePorts:                   utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
-		kernels:                          hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
-		kernelIdToKernel:                 hashmap.NewCornelkMap[string, *client.DistributedKernelClient](1000),
+		kernels:                          hashmap.NewCornelkMap[string, client.DistributedKernelClient](1000),
+		kernelIdToKernel:                 hashmap.NewCornelkMap[string, client.DistributedKernelClient](1000),
 		kernelSpecs:                      hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
 		waitGroups:                       hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
 		cleaned:                          make(chan struct{}),
@@ -642,7 +646,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 	// Try to find existing kernel by session id first. The kernel that associated with the session id will not be clear during restart.
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
-		d.log.Debug("Did not find existing KernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
+		d.log.Debug("Did not find existing KernelClient with KernelID=\"%s\". Creating new distributedKernelClientImpl now.", in.Id)
 
 		listenPorts, err := d.availablePorts.RequestPorts()
 		if err != nil {
@@ -651,13 +655,13 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 
 		// Initialize kernel with new context.
 		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString())
-		d.log.Debug("Initializing Shell Forwarder for new DistributedKernelClient \"%s\" now.", in.Id)
+		d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 		_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {
 			kernel.Close()
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
-		d.log.Debug("Initializing IO Forwarder for new DistributedKernelClient \"%s\" now.", in.Id)
+		d.log.Debug("Initializing IO Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 
 		_, err = kernel.InitializeIOForwarder()
 
@@ -727,7 +731,7 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 // TODO(Ben): Do I really need the main lock for this function?
 // IMPORTANT: This must be called with the main mutex held.
 // IMPORTANT: This will release the main mutex before returning.
-func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *gateway.KernelRegistrationNotification, kernel *client.DistributedKernelClient, waitGroup *registrationWaitGroups) (*gateway.KernelRegistrationNotificationResponse, error) {
+func (d *GatewayDaemon) handleAddedReplicaRegistration(ctx context.Context, in *gateway.KernelRegistrationNotification, kernel client.DistributedKernelClient, waitGroup *registrationWaitGroups) (*gateway.KernelRegistrationNotificationResponse, error) {
 	addReplicaOp, ok := d.addReplicaOperationsByNewPodName.Load(in.PodName)
 
 	// If we cannot find the migration operation, then we have an unlikely race here.
@@ -1379,13 +1383,7 @@ func (d *GatewayDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) erro
 	}
 
 	if header.MsgType == ShellExecuteRequest {
-		d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernelId, msg)
-
-		activeExecution := client.NewActiveExecution(kernelId, header.Session, 1, kernel.Size())
-		d.activeExecutions.Store(header.MsgID, activeExecution)
-		kernel.SetActiveExecution(activeExecution)
-
-		d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernelId, activeExecution)
+		d.processExecuteRequest(msg, kernel, header)
 	} else {
 		d.log.Debug("Forwarding shell message to kernel %s: %s", kernelId, msg)
 	}
@@ -1395,6 +1393,16 @@ func (d *GatewayDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) erro
 	}
 
 	return nil
+}
+
+func (d *GatewayDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
+	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernel.ID(), msg)
+
+	activeExecution := client.NewActiveExecution(kernel.ID(), header.Session, 1, kernel.Size())
+	d.activeExecutions.Store(header.MsgID, activeExecution)
+	kernel.SetActiveExecution(activeExecution)
+
+	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernel.ID(), activeExecution)
 }
 
 func (d *GatewayDaemon) StdinHandler(info router.RouterInfo, msg *zmq4.Msg) error {
@@ -1464,7 +1472,7 @@ func (d *GatewayDaemon) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *j
 	return kernelId, header, err
 }
 
-func (d *GatewayDaemon) kernelFromMsg(msg *zmq4.Msg) (*client.DistributedKernelClient, error) {
+func (d *GatewayDaemon) kernelFromMsg(msg *zmq4.Msg) (client.DistributedKernelClient, error) {
 	kernelId, header, err := d.headerFromMsg(msg)
 	if err != nil {
 		return nil, err
@@ -1484,7 +1492,7 @@ func (d *GatewayDaemon) kernelFromMsg(msg *zmq4.Msg) (*client.DistributedKernelC
 	return kernel, nil
 }
 
-func (d *GatewayDaemon) forwardRequest(kernel *client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
+func (d *GatewayDaemon) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
 	if kernel == nil {
 		kernel, err = d.kernelFromMsg(msg)
 		if err != nil {
@@ -1528,7 +1536,7 @@ func (d *GatewayDaemon) cleanUp() {
 	close(d.cleaned)
 }
 
-// func (d *GatewayDaemon) closeReplica(host core.Host, kernel *client.DistributedKernelClient, replica *client.KernelClient, replicaId int, reason string) {
+// func (d *GatewayDaemon) closeReplica(host core.Host, kernel client.DistributedKernelClient, replica *client.KernelClient, replicaId int, reason string) {
 // 	defer replica.Close()
 
 // 	if err := d.placer.Reclaim(host, kernel, false); err != nil {
@@ -1725,7 +1733,7 @@ func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gat
 	d.Lock()
 	defer d.Unlock()
 
-	d.kernelIdToKernel.Range(func(id string, kernel *client.DistributedKernelClient) bool {
+	d.kernelIdToKernel.Range(func(id string, kernel client.DistributedKernelClient) bool {
 		// d.log.Debug("Will be returning Kernel %s with %d replica(s) [%v] [%v].", id, kernel.Size(), kernel.Status(), kernel.AggregateBusyStatus())
 
 		respKernel := &gateway.DistributedJupyterKernel{
