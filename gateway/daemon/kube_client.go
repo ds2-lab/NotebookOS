@@ -1167,7 +1167,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 	}
 
 	// Issue the Kubernetes API request to create the CloneSet.
-	_, err := c.dynamicClient.Resource(clonesetRes).Namespace("default").Create(context.TODO(), cloneSetDefinition, metav1.CreateOptions{})
+	_, err := c.dynamicClient.Resource(clonesetRes).Namespace("default").Create(ctx, cloneSetDefinition, metav1.CreateOptions{})
 
 	if err != nil {
 		panic(err.Error())

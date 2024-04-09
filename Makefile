@@ -88,3 +88,7 @@ scheduler: build-scheduler
 	
 test:
 	cd distributed_notebook && pytest
+
+mock:
+	mockgen -source=common/jupyter/client/distributed.go -destination=common/jupyter/mock_client/mock_distributed.go
+	mockgen -source=common/jupyter/client/kernel.go -destination=common/jupyter/mock_client/mock_kernel.go

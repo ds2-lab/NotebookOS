@@ -419,6 +419,30 @@ func (c *KernelClient) RequestWithHandler(ctx context.Context, prompt string, ty
 	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done, timeout)
 }
 
+// func (c *KernelClient) headerFromFrames(frames [][]byte) (*types.MessageHeader, error) {
+// 	jFrames := types.JupyterFrames(frames)
+// 	if err := jFrames.Validate(); err != nil {
+// 		c.log.Debug("Failed to validate message frames while extracting header.")
+// 		return nil, err
+// 	}
+
+// 	var header types.MessageHeader
+// 	if err := jFrames.DecodeHeader(&header); err != nil {
+// 		c.log.Debug("Failed to decode header from message frames.")
+// 		return nil, err
+// 	}
+
+// 	return &header, nil
+// }
+
+// func (c *KernelClient) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *types.MessageHeader, err error) {
+// 	kernelId, _, offset := c.ExtractDestFrame(msg.Frames)
+
+// 	header, err = c.headerFromFrames(msg.Frames[offset:])
+
+// 	return kernelId, header, err
+// }
+
 func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func(), timeout time.Duration) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady

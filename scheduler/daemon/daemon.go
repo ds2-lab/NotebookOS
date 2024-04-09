@@ -49,6 +49,9 @@ const (
 	// Passed within the metadata dict of an 'execute_request' ZMQ message.
 	// This indicates that a specific replica should execute the code.
 	TargetReplicaArg = "target_replica"
+
+	YieldInsufficientGPUs         YieldReason = "YieldInsufficientGPUs"         // Yield because there are not enough GPUs available.
+	YieldDifferentReplicaTargeted YieldReason = "YieldDifferentReplicaTargeted" // Yield because another replica was explicitly targeted.
 )
 
 var (
@@ -72,6 +75,7 @@ var (
 	cleanUpInterval = time.Minute
 )
 
+type YieldReason string
 type SchedulerDaemonConfig func(*SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
@@ -950,10 +954,11 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	if header.MsgType == ShellExecuteRequest {
 		d.log.Debug("Processing 'execute-request': %v", msg)
 		msg = d.processExecuteRequest(msg, kernel, header, offset)
-		d.log.Debug("Processed 'execute-request': %v", msg)
+		d.log.Debug("Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
+	} else { // Print a message about forwarding generic shell message.
+		d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
 	}
 
-	d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, msg, d.kernelResponseForwarder, cancel, time.Second*1); err != nil {
 		return err
@@ -972,11 +977,11 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
 	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
 	var metadataFrame *jupyter.JupyterFrame = frames[offset:].MetadataFrame()
+	var metadataDict map[string]interface{}
 
 	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
 	if len(metadataFrame.Frame()) > 0 {
 		// Unmarshal the frame.
-		var metadataDict map[string]interface{}
 		err := metadataFrame.Decode(&metadataDict)
 		if err != nil {
 			d.log.Error("Error unmarshalling metadata frame for 'execute_request' message: %v", err)
@@ -998,7 +1003,10 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 	}
 
 	var (
-		// Check if another replica was specified as the one that should execute the code. If this is true, then we'll yield the execution.
+		// Check if another replica was specified as the one that should execute the code.
+		// If this is true, then we'll yield the execution.
+		// Note that we may pass 0 to force the execution to fail, for testing/debugging purposes.
+		// No SMR replica can have an ID of 0.
 		differentTargetReplicaSpecified bool = (targetReplicaId != -1 && targetReplicaId != kernel.ReplicaID())
 
 		// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
@@ -1022,42 +1030,44 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 		err = d.gpuManager.AllocatePendingGPUs(requiredGPUs, kernel.ReplicaID(), kernel.ID())
 	}
 
+	// Include the current number of idle GPUs availabe.
+	idleGPUs := d.gpuManager.IdleGPUs()
+	d.log.Debug("Including idle-gpus (%s) in request metadata.", idleGPUs.StringFixed(0))
+	metadataDict["idle-gpus"] = idleGPUs
+
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.
 	// - If one of the other replicas was explicitly specified as the target replica, then our replica will need to yield.
 	if err != nil || differentTargetReplicaSpecified {
+		var reason YieldReason
 		// Log message depends on which condition was true (first).
 		if err != nil {
 			d.log.Debug("Insufficient GPUs available (%s) for replica %d of kernel %s to execute code (%v required).", d.gpuManager.IdleGPUs(), kernel.ReplicaID(), kernel.ID(), 0 /* Placeholder */)
+			reason = YieldInsufficientGPUs
 		} else {
 			d.log.Debug("Replica %d of kernel %s is targeted, while we have replica %d running on this node.", targetReplicaId, kernel.ID(), kernel.ReplicaID() /* Placeholder */)
+			reason = YieldDifferentReplicaTargeted
 		}
+		metadataDict["yield-reason"] = reason
 		// Convert the message to a yield request.
 		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica in place of the original 'execute_request' message.
-		msg, _ = d.convertExecuteRequestToYieldExecute(msg, header, offset, kernel)
-	} else {
-		// Include the current number of idle GPUs availabe.
-		idleGPUs := d.gpuManager.IdleGPUs()
-		var metadata map[string]interface{} = make(map[string]interface{})
-		metadata["idle-gpus"] = idleGPUs
-
-		err := frames[offset:].EncodeMetadata(metadata)
-		if err != nil {
-			d.log.Error("Failed to encode metadata frame because: %v", err)
-			panic(err)
-		}
-
-		d.log.Debug("Including idle-gpus (%s) in request metadata.", idleGPUs.StringFixed(0))
-
-		// Regenerate the signature.
-		framesWithoutIdentities, _ := kernel.SkipIdentities(frames)
-		framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
-		// msg.Frames = framesWithoutIdentities
+		msg, _ = d.convertExecuteRequestToYieldExecute(msg, header, offset)
 	}
 
+	// Re-encode the metadata frame. It will have the number of idle GPUs available,
+	// as well as the reason that the request was yielded (if it was yielded).
+	err = frames[offset:].EncodeMetadata(metadataDict)
+	if err != nil {
+		d.log.Error("Failed to encode metadata frame because: %v", err)
+		panic(err)
+	}
+
+	// Regenerate the signature.
+	framesWithoutIdentities, _ := kernel.SkipIdentities(msg.Frames)
+	framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+
 	if verified := d.verifyFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
-		// Just for debugging.
-		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'.", kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
+		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
 	}
 
@@ -1149,7 +1159,7 @@ func (d *SchedulerDaemon) SetTotalVirtualGPUs(ctx context.Context, in *gateway.S
 //
 // PRECONDITION: The given message must be an "execute_request" message.
 // This function will NOT check this. It should be checked before calling this function.
-func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg, header *jupyter.MessageHeader, offset int, kernel client.KernelReplicaClient) (*zmq4.Msg, error) {
+func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg, header *jupyter.MessageHeader, offset int) (*zmq4.Msg, error) {
 	d.log.Debug("Converting 'execute_request' message to 'yield_request' message.")
 
 	var err error
@@ -1177,16 +1187,6 @@ func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg, hea
 
 	// Replace the frames of the cloned message.
 	newMessage.Frames = jFrames
-
-	// Regenerate the signature.
-	frames, _ := kernel.SkipIdentities(newMessage.Frames)
-	frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
-
-	// jFrames.Verify(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
-	if verified := d.verifyFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, offset, jFrames); !verified {
-		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
-		d.log.Error("This message will likely be rejected by the kernel:\n%v", newMessage)
-	}
 
 	return &newMessage, nil
 }
@@ -1283,7 +1283,7 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
 	}
-	d.log.Debug("Forwarding %v response from %v: %v", socket, from, msg)
+	d.log.Debug("Forwarding %v response from %v: %v", typ, from, msg)
 	return socket.Send(*msg)
 }
 

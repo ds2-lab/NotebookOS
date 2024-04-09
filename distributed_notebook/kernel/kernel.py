@@ -9,7 +9,7 @@ import sys
 import socket
 import time
 
-from typing import Union, Optional
+from typing import Union, Optional, Dict, Any
 from traitlets import List, Integer, Unicode, Bool, Undefined
 from ipykernel.ipkernel import IPythonKernel
 from ipykernel import jsonutil
@@ -113,6 +113,8 @@ class DistributedKernel(IPythonKernel):
     smr_nodes_map: dict
 
     def __init__(self, **kwargs):
+        if super().log is not None:
+            super().log.setLevel(logging.DEBUG)
         print(f' Kwargs: {kwargs}')
 
         self.control_msg_types = [
@@ -435,8 +437,13 @@ class DistributedKernel(IPythonKernel):
             dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
+        reply_content: Dict[str, Any] = {}
+        error_occurred: bool = False # Separate flag, since we raise an exception and generate an error response when we yield successfully.
+        
         self.log.info(
             "DistributedKernel is preparing to yield the execution of some code to another replica.")
+        self.log.debug("Parent: %s" % parent)
+        self.log.debug("Content: %s" % content)
         parent_header = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
 
@@ -446,11 +453,6 @@ class DistributedKernel(IPythonKernel):
             content = parent["content"]
             code = content["code"]
             silent = content.get("silent", False)
-            # store_history = content.get("store_history", not silent)
-            # user_expressions = content.get("user_expressions", {})
-            # allow_stdin = content.get("allow_stdin", False)
-            # cell_meta = parent.get("metadata", {})
-            # cell_id = cell_meta.get("cellId")
         except Exception:
             self.log.error("Got bad msg: ")
             self.log.error("%s", parent)
@@ -492,20 +494,18 @@ class DistributedKernel(IPythonKernel):
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
-                raise err_failed_to_lead_execution
+                reply_content = self.gen_error_response(err_failed_to_lead_execution)
+                # reply_content['yield-reason'] = TODO(Ben): Add this once I figure out how to extract it from the message payloads.
+            else:
+                self.log.error("I've been selected to lead this execution (%d), but I'm supposed to yield!" % self.shell.execution_count)
 
-            self.log.error(
-                "I've been selected to lead this execution (%d), but I'm supposed to yield!" % self.shell.execution_count)
-
-            # Notify the client that we will lead the execution.
-            self.session.send(self.iopub_socket, "smr_lead_after_yield", {
-                              "term": self.synchronizer.execution_count+1}, ident=self._topic("smr_lead_task"))
-        except ExecutionYieldError as eye:
-            self.log.info("Execution yielded: {}".format(eye))
-            return self.gen_error_response(eye)
+                # Notify the client that we will lead the execution (which is bad, in this case, as we were supposed to yield.)
+                self.session.send(self.iopub_socket, "smr_lead_after_yield", {
+                                "term": self.synchronizer.execution_count+1}, ident=self._topic("smr_lead_task"))
         except Exception as e:
-            self.log.error("Execution error: {}...".format(e))
-            return self.gen_error_response(e)
+            self.log.error("Error while yielding execution for term %d: %s" % (self.synchronizer.execution_count + 1, str(e)))
+            reply_content = self.gen_error_response(e)
+            error_occurred = True 
 
         # Flush output before sending the reply.
         sys.stdout.flush()
@@ -516,10 +516,18 @@ class DistributedKernel(IPythonKernel):
         if self._execute_sleep:
             time.sleep(self._execute_sleep)
 
+        # Payloads should be retrieved regardless of outcome, so we can both
+        # recover partial output (that could have been generated early in a
+        # block, before an error) and always clear the payload system.
+        reply_content["payload"] = self.shell.payload_manager.read_payload()
+        
+        # Be aggressive about clearing the payload because we don't want
+        # it to sit in memory until the next execute_request comes in.
+        self.shell.payload_manager.clear_payload()
+
         # Send the reply.
         reply_content = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
-
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "execute_reply",
@@ -529,9 +537,9 @@ class DistributedKernel(IPythonKernel):
             ident=ident,
         )
 
-        self.log.debug("%s", reply_msg)
+        self.log.debug("Sent the following reply after yield_execute: %s" % reply_msg)
 
-        if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
+        if not silent and error_occurred and stop_on_error: # reply_msg["content"]["status"] == "error"
             self._abort_queues()
 
     async def do_execute(self, code: str, silent: bool, store_history: bool = True, user_expressions: dict = None, allow_stdin: bool = False):

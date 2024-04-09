@@ -16,7 +16,8 @@ const (
 )
 
 var (
-	ErrProposalAlreadyReceived = errors.New("we already received a proposal from that replica")
+	ErrProposalAlreadyReceived   = errors.New("we already received a proposal from that replica")
+	ErrExecutionFailedAllYielded = errors.New("an execution failed; all replicas proposed 'YIELD'")
 )
 
 // Encapsulate the submission of a single 'execute_request' message for a particular kernel.
@@ -41,6 +42,8 @@ type ActiveExecution struct {
 
 	nextAttempt     *ActiveExecution // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
 	previousAttempt *ActiveExecution // The retry that preceeded this one, if this is not the first attempt.
+
+	executed bool
 }
 
 func NewActiveExecution(kernelId string, sessionId string, attemptId int, numReplicas int) *ActiveExecution {
@@ -54,6 +57,22 @@ func NewActiveExecution(kernelId string, sessionId string, attemptId int, numRep
 		nextAttempt:     nil,
 		previousAttempt: nil,
 	}
+}
+
+func (e *ActiveExecution) HasExecuted() bool {
+	return e.executed
+}
+
+func (e *ActiveExecution) SetExecuted() {
+	e.executed = true
+}
+
+func (e *ActiveExecution) ExecutionId() string {
+	return e.executionId
+}
+
+func (e *ActiveExecution) AttemptId() int {
+	return e.attemptId
 }
 
 func (e *ActiveExecution) String() string {
@@ -78,6 +97,10 @@ func (e *ActiveExecution) ReceivedYieldProposal(smrNodeId int32) error {
 
 	e.proposals[smrNodeId] = KEY_YIELD
 	e.numYieldProposals += 1
+
+	if e.numYieldProposals == e.numReplicas {
+		return ErrExecutionFailedAllYielded
+	}
 
 	return nil
 }

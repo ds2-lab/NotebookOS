@@ -237,18 +237,6 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 //   - getOption: The function to get the options.
 func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter, timeout time.Duration) error {
 	socket.InitPendingReq()
-	// Normalize the request, we do not assume that the SourceKernel implements the auto-detect feature.
-	// sourceKernelId, jOffset := sourceKernel.ExtractSourceKernelFrame(req.Frames)
-	// if sourceKernelId == "" {
-	// 	req.Frames = sourceKernel.AddSourceKernelFrame(req.Frames, sourceKernel.SourceKernelID(), jOffset)
-	// }
-
-	// if socket.Addr() != nil {
-	// 	s.Log.Debug("%v Request. Message: %p. Kernel: %s. Client Socket: %s. Server: %s.", socket.Type.String(), req, dest.RequestDestID(), socket.Addr().String(), server.String())
-	// } else {
-	// 	s.Log.Debug("%v Request. Message: %p. Kernel: %s. Client Socket Port: %d. Server: %s.", socket.Type.String(), req, dest.RequestDestID(), socket.Port, server.String())
-	// }
-	// s.Log.Debug("Issuing request for message %p using %v Socket. Source: \"%v\". Destination: \"%v\"", req, socket.Type.String(), sourceKernel.SourceKernelID(), dest.RequestDestID())
 
 	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
 	_, reqId, jOffset := dest.ExtractDestFrame(req.Frames)
@@ -273,7 +261,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// Use Serve to support timeout;
 	// Late response will be ignored and serve routing will be stopped if no request is pending.
 	if atomic.LoadInt32(&socket.Serving) == 0 {
-		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, dest, sourceKernel, getOption, nil)) // Pass nil as handler to discard any response without dest frame.
+		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, dest, getOption, nil)) // Pass nil as handler to discard any response without dest frame.
 	}
 
 	// Wait for timeout.
@@ -488,7 +476,7 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 	}
 }
 
-func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest RequestDest, sourceKernel SourceKernel, getOption WaitResponseOptionGetter, defaultHandler types.MessageHandler) types.MessageHandler {
+func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest RequestDest, getOption WaitResponseOptionGetter, defaultHandler types.MessageHandler) types.MessageHandler {
 	return func(info types.JupyterServerInfo, msgType types.MessageType, msg *zmq4.Msg) error {
 		// This handler returns errServeOnce if any to indicate that the server should stop serving.
 		retErr := errServeOnce

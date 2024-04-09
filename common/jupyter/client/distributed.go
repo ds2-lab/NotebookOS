@@ -23,11 +23,16 @@ const (
 )
 
 var (
-	CtxKernelHost = utils.ContextKey("host")
+	CtxKernelHost   = utils.ContextKey("host")
+	KernelInfoReply = "kernel_info_reply"
 
 	ErrReplicaNotFound      = fmt.Errorf("replica not found")
 	ErrReplicaAlreadyExists = errors.New("cannot replace existing replica, as node IDs cannot be reused")
+	ErrNoActiveExecution    = errors.New("no active execution associated with kernel who sent 'YIELD' notification")
 )
+
+// Callback to handle a case where an execution failed because all replicas yielded.
+type ExecutionFailedCallback func(c DistributedKernelClient) error
 
 // ReplicaRemover is a function that removes a replica from a kernel.
 // If noop is specified, it is the caller's responsibility to stop the replica.
@@ -129,6 +134,7 @@ type DistributedKernelClient interface {
 	IsReady() bool
 
 	SetActiveExecution(activeExecution *ActiveExecution)
+	ActiveExecution() *ActiveExecution
 
 	// Socket returns the serve socket the kernel is listening on.
 	Socket(typ types.MessageType) *types.Socket
@@ -148,6 +154,8 @@ type DistributedKernelClient interface {
 	// Return a replica that has already joined its SMR cluster and everything.
 	// Returns nil if there are no ready replicas.
 	GetReadyReplica() core.KernelReplica
+
+	ExecutionFailedCallback() ExecutionFailedCallback
 }
 
 // Client of a Distributed Jupyter Kernel.
@@ -179,13 +187,15 @@ type distributedKernelClientImpl struct {
 	// The current execution request that is being processed by the kernels.
 	activeExecution *ActiveExecution
 
+	executionFailedCallback ExecutionFailedCallback
+
 	log     logger.Logger
 	mu      sync.RWMutex
 	closing int32
 	cleaned chan struct{}
 }
 
-func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string) *distributedKernelClientImpl {
+func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string, executionFailedCallback ExecutionFailedCallback) *distributedKernelClientImpl {
 	kernel := &distributedKernelClientImpl{
 		id: spec.Id, persistentId: persistentId,
 		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, func(s *server.AbstractServer) {
@@ -220,6 +230,34 @@ func (c *distributedKernelClientImpl) IOPubListenPort() int {
 
 func (c *distributedKernelClientImpl) ActiveExecution() *ActiveExecution {
 	return c.activeExecution
+}
+
+func (c *distributedKernelClientImpl) headerFromFrames(frames [][]byte) (*types.MessageHeader, error) {
+	jFrames := types.JupyterFrames(frames)
+	if err := jFrames.Validate(); err != nil {
+		c.log.Debug("Failed to validate message frames while extracting header.")
+		return nil, err
+	}
+
+	var header types.MessageHeader
+	if err := jFrames.DecodeHeader(&header); err != nil {
+		c.log.Debug("Failed to decode header from message frames.")
+		return nil, err
+	}
+
+	return &header, nil
+}
+
+func (c *distributedKernelClientImpl) ExecutionFailedCallback() ExecutionFailedCallback {
+	return c.executionFailedCallback
+}
+
+func (c *distributedKernelClientImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *types.MessageHeader, err error) {
+	kernelId, _, offset := c.ExtractDestFrame(msg.Frames)
+
+	header, err = c.headerFromFrames(msg.Frames[offset:])
+
+	return kernelId, header, err
 }
 
 func (c *distributedKernelClientImpl) SetActiveExecution(activeExecution *ActiveExecution) {
@@ -582,9 +620,73 @@ func (c *distributedKernelClientImpl) IsReplicaReady(replicaId int32) (bool, err
 
 // RequestWithHandler sends a request to all replicas and handles the response.
 func (c *distributedKernelClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
-	// c.log.Debug("%s %v request(%p) to all replicas(%d): %v", prompt, typ, msg, c.Size(), msg)
-	// c.log.Debug("%s %v request(%p) to all replicas(%d).", prompt, typ, msg, c.Size())
 	return c.RequestWithHandlerAndReplicas(ctx, typ, msg, handler, done)
+}
+
+// Process a response to a shell message. This is called before the handler that was passed when issuing the request.
+func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.KernelInfo, msg *zmq4.Msg) (err error, yielded bool) {
+	var (
+		header             *types.MessageHeader
+		jupyterMessageType string
+	)
+
+	replicaClient := replica.(*KernelClient)
+	replicaId := replicaClient.replicaId
+
+	_, header, err = c.headerFromMsg(msg)
+	if err != nil {
+		c.log.Error("Failed to extract header from ZMQ message sent by replica %d of kernel %s: %v", replicaId, c.id, err)
+		return err, false
+	}
+
+	jupyterMessageType = header.MsgType
+	if jupyterMessageType != KernelInfoReply {
+		c.log.Debug("Received shell '%v' response from kernel %s: %v", jupyterMessageType, c.id, msg)
+	} else { // We don't print the message if it is just a KernelInfoReply.
+		c.log.Debug("Received shell '%v' response from kernel %s.", jupyterMessageType, c.id)
+	}
+
+	jFrame, _ := c.SkipIdentities(msg.Frames)
+	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
+	if len(jFrame) < 5 {
+		c.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)", replicaId, c.id)
+		return types.ErrInvalidJupyterMessage, false
+	}
+
+	var msgErr types.MessageError
+	err = json.Unmarshal(jFrame[5], &msgErr)
+	if err != nil {
+		c.log.Error("Failed to unmarshal shell error received from replica %d of kernel %s", replicaId, c.id)
+		return err, false
+	}
+
+	if msgErr.Status == types.MessageStatusOK {
+		if jupyterMessageType == "execute_reply" {
+			return c.executionFinished(replicaId), false
+		}
+		return nil, false
+	}
+
+	err = errors.New(msgErr.ErrValue)
+
+	if msgErr.ErrName == types.MessageErrYieldExecution {
+		yielded = true
+		c.handleExecutionYieldedNotification(replica.(*KernelClient), msgErr)
+		return err, true
+	}
+
+	return err, false
+}
+
+func (c *distributedKernelClientImpl) executionFinished(replicaId int32) error {
+	if c.activeExecution != nil {
+		c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d.", c.activeExecution.executionId, c.id, replicaId)
+		c.activeExecution.ReceivedLeadProposal(replicaId)
+		c.activeExecution.SetExecuted()
+		return nil
+	} else {
+		return ErrNoActiveExecution
+	}
 }
 
 // RequestWithHandlerAndReplicas sends a request to specified replicas and handles the response.
@@ -605,18 +707,12 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 		replicaCtx, cancel = context.WithTimeout(ctx, server.DefaultRequestTimeout)
 	}
 	forwarder := func(replica core.KernelInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
-		execErr, yield := c.handleShellError(replica.(*KernelClient), msg)
-		if yield {
-			if c.activeExecution != nil {
-				c.log.Debug("Received 'YIELD' proposal from %v: %v", replica, execErr)
-				replicaId := replica.(*KernelClient).replicaId
-
-				c.activeExecution.ReceivedYieldProposal(replicaId)
-			} else {
-				c.log.Error("Received 'YIELD' proposal from %v, but we have no active execution...", replica)
+		if typ == types.ShellMessage {
+			// "Preprocess" the response, which involves checking if it a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.
+			_, yielded := c.preprocessShellResponse(replica, msg)
+			if yielded {
+				return nil
 			}
-
-			return
 		}
 
 		// Handler will only be called once.
@@ -629,9 +725,9 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 			forwarded = true
 		})
 		if !forwarded {
-			c.log.Debug("Discard %s response from %v", typ, replica)
+			c.log.Debug("Discard %v response from %v", typ, replica)
 		}
-		return
+		return err
 	}
 
 	// Send the request to all replicas.
@@ -867,24 +963,32 @@ func (c *distributedKernelClientImpl) handleIOKernelStatus(replica *KernelClient
 	return nil
 }
 
-func (c *distributedKernelClientImpl) handleShellError(replica *KernelClient, msg *zmq4.Msg) (err error, yield bool) {
-	jFrame, _ := c.SkipIdentities(msg.Frames)
-	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
-	if len(jFrame) < 5 {
-		return types.ErrInvalidJupyterMessage, false
-	}
+func (c *distributedKernelClientImpl) handleExecutionYieldedNotification(replica *KernelClient, msgErr types.MessageError) error {
+	yieldError := errors.New(msgErr.ErrValue)
+	c.log.Debug("Received 'YIELD' proposal from %v: %v", replica, yieldError)
 
-	var msgErr types.MessageError
-	err = json.Unmarshal(jFrame[5], &msgErr)
-	if err != nil {
-		return err, false
-	}
+	if c.activeExecution != nil {
+		replicaId := replica.replicaId
 
-	if msgErr.Status == types.MessageStatusOK {
-		return nil, false
-	}
+		err := c.activeExecution.ReceivedYieldProposal(replicaId)
+		if errors.Is(err, ErrExecutionFailedAllYielded) {
+			return c.handleFailedExecutionAllYielded()
+		}
 
-	return errors.New(msgErr.ErrValue), msgErr.ErrName == types.MessageErrYieldExecution
+		return err
+	} else {
+		c.log.Error("Received 'YIELD' proposal from %v, but we have no active execution...", replica)
+		return ErrNoActiveExecution
+	}
+}
+
+// Handle a failed execution in which all replicas proposed 'YIELD'.
+//
+// Note that 'final' means that it was the last replica whose message we received; all replicas proposed 'YIELD',however.
+func (c *distributedKernelClientImpl) handleFailedExecutionAllYielded() error {
+	c.log.Error("Kernel %s failed to execute code; all replicas proposed 'YIELD'.", c.id)
+
+	return nil
 }
 
 func (c *distributedKernelClientImpl) pubIOMessage(msg *zmq4.Msg, status string, how string) error {

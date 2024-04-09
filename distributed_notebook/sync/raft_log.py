@@ -19,6 +19,7 @@ from .file_log import FileLog
 KEY_LEAD = "_lead_" # Propose to lead the execution term (i.e., execute the user's code).
 KEY_YIELD = "_yield_" # Propose to yield the execution to another replica.
 KEY_SYNC = "_sync_" # Synchronize to confirm decision about who is executing the code.
+KEY_FAILURE = "_failure_" # We cannot execute this request... 
 
 MAX_MEMORY_OBJECT = 1024 * 1024
 
@@ -128,12 +129,12 @@ class RaftLog:
     self._async_loop = asyncio.get_running_loop()
     self._start_loop = self._async_loop
 
-    self._printIOLoopInformationDebug()
+    # self._printIOLoopInformationDebug()
 
     self._node.Start(config)
     self._log.info("Started LogNode.")
 
-    self._printIOLoopInformationDebug()
+    # self._printIOLoopInformationDebug()
 
     self._log.info("Started RaftLog.")
 
@@ -303,25 +304,33 @@ class RaftLog:
     # If the winning proposal is still None, then we just didn't receive any 'LEAD' proposals this term.
     # Depending on the scheduling policy, we'll either dynamically create a new replica, or we'll migrate existing replicas.
     if winningProposal == None:
-      self._log.warn("We didn't receive any 'LEAD' proposals during term %d." % term)
-      # TODO(Ben): The system needs to be able to observe this, which I think it can, as it can see which replicas are yielding.
-      raise ValueError("we did not receive any 'LEAD' proposals during term %d, and we've not implemented the procedure(s) for handling this scenario" % term)
-
-    self._log.debug("Will propose that Node %d lead execution for term %d." % (winningProposal.val, winningProposal.term))
-    self._printIOLoopInformationDebug()
+      self._log.warn("We didn't receive any 'LEAD' proposals during term %d. Proposing failure." % term)
+    else:
+      self._log.debug("Will propose that Node %d lead execution for term %d." % (winningProposal.val, winningProposal.term))
+    # self._printIOLoopInformationDebug()
     
     # Propose the second-round confirmation.
     # self._async_loop.call_soon_threadsafe(self.append_decision, SyncValue(None, self._id, proposed_node = winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC))
     if self._decisionProposalFuture is not None:
-      self._log.debug("Scheduling the setting of result on _decisionProposalFuture now.")
-      self._future_loop.call_soon_threadsafe(self._decisionProposalFuture.set_result, SyncValue(None, self._id, proposed_node = winningProposal.val, timestamp = time.time(), term=winningProposal.term, key=KEY_SYNC))
-      self._decisionProposalFuture = None # Make sure it is only set once.
-      self._log.debug("Scheduled the setting of result on _decisionProposalFuture now.")
+      self._scheduleDecision(term, winningProposal) # winningProposal will be None if no replicas proposed 'LEAD'.
     else:
       self._log.debug("Cannot schedule the setting of result on _decisionProposalFuture now; it is None.")
     
     return GoNilError()
 
+  def _scheduleDecision(self, term:int, winningProposal: SyncValue): 
+    """
+    Called by _makeDecision. This schedules the setting of the result on the _decisionProposalFuture.
+    """
+    self._log.debug("Scheduling the setting of result on _decisionProposalFuture now.")
+    if winningProposal is not None:
+      assert winningProposal.term == term 
+      self._future_loop.call_soon_threadsafe(self._decisionProposalFuture.set_result, SyncValue(None, self._id, proposed_node = winningProposal.val, timestamp = time.time(), term=term, key=KEY_SYNC))
+    else:
+      self._future_loop.call_soon_threadsafe(self._decisionProposalFuture.set_result, SyncValue(None, self._id, proposed_node = -1, timestamp = time.time(), term=term, key=KEY_FAILURE))
+    self._decisionProposalFuture = None # Make sure it is only set once.
+    self._log.debug("Scheduled the setting of result on _decisionProposalFuture now.")
+    
   def _handleSyncProposal(self, proposal: SyncValue) -> bytes:
     """Handle a 'SYNC' (KEY_SYNC) proposal.
 
@@ -480,8 +489,32 @@ class RaftLog:
     Request to lead the update of a term. A following append call without leading status will fail.
     """
     self._log.debug("RaftLog %d is proposing to lead term %d. Current leader term: %d." % (self._id, term, self._leader_term))
-    self._printIOLoopInformationDebug()
+    is_leading:bool = await self.handle_election(term, SyncValue(None, self._id, timestamp = time.time(), term=term, key=KEY_LEAD))
+    self._log.debug("RaftLog %d: returning from lead for term %d after waiting, is_leading=%s" % (self._id, term, str(is_leading)))
+    return is_leading
 
+  async def yield_execution(self, term) -> bool:
+    """
+    Request to lead the update of a term. A following append call without leading status will fail.
+    """
+    self._log.debug("RaftLog %d: proposing to yield term %d. Current leader term: %d." % (self._id, term, self._leader_term))
+    is_leading:bool = await self.handle_election(term, SyncValue(-1, self._id, timestamp = time.time(), term=term, key=KEY_YIELD))
+    assert is_leading == False
+    self._log.debug("RaftLog %d: returning from yield_execution for term %d." % (self._id, term))
+    return False 
+
+  async def handle_election(self, term, proposal: SyncValue):
+    """ The procedure for "handling an election" is roughly the same when proposing 'YIELD' and 'LEAD'.
+    
+    The primary difference is what value we propose. We also necessarily expect NOT to lead when proposing 'YIELD'.
+    
+    Other than that, the steps are identical.
+
+    Args:
+        term (_type_): _description_
+        proposal (SyncValue): _description_
+    """
+    self._log.debug("RaftLog %d: Handling election for term %d now. Will be proposing '%s'.", self._id, term, proposal.key)
     if term == 0:
       term = self._leader_term + 1
     elif term <= self._leader_term:
@@ -496,14 +529,21 @@ class RaftLog:
     self._leading = self._future_loop.create_future()
     _leading = self._leading
     self.own_proposal_times[term] = time.time()
-    self._log.debug("RaftLog %d: appending LEAD proposal for term %d." % (self._id, term))
+    self._log.debug("RaftLog %d: appending %s proposal for term %d." % (self._id, proposal.key, term))
     # Append is blocking. We are guaranteed to gain leading status if terms match.
-    await self.append(SyncValue(None, self._id, timestamp = time.time(), term=term, key=KEY_LEAD))
-    self._log.debug("RaftLog %d: appended LEAD proposal for term %d." % (self._id, term))
+    await self.append(proposal)
+    self._log.debug("RaftLog %d: appended %s proposal for term %d." % (self._id, proposal.key, term))
     
     decisionProposal: SyncValue = await _decisionProposalFuture
     self._decisionProposalFuture = None 
-    self._log.debug("RaftLog %d: Got decision to propose: I think Node %d should win in term %d." % (self._id, decisionProposal.proposed_node, decisionProposal.term))
+    
+    if decisionProposal.key == KEY_SYNC:
+      self._log.debug("RaftLog %d: Got decision to propose: I think Node %d should win in term %d." % (self._id, decisionProposal.proposed_node, decisionProposal.term))
+    elif decisionProposal.key == KEY_FAILURE:
+      self._log.debug("RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'." % self._id)
+      return False 
+    else:
+      raise ValueError("Unexpected key on decision proposal: \"%s\"", decisionProposal.key)
     
     if decisionProposal.term != term:
       raise ValueError("Received decision proposal with different term: %d. Expected: %d." % (decisionProposal.term, term))
@@ -516,149 +556,19 @@ class RaftLog:
     # Validate the term
     wait, is_leading = self._is_leading(term)
     if not wait:
-      self._log.debug("RaftLog %d: returning from lead for term %d without waiting, is_leading=%s" % (self._id, term, str(is_leading)))
+      self._log.debug("RaftLog %d: returning for term %d without waiting, is_leading=%s" % (self._id, term, str(is_leading)))
       return is_leading
+    
     # Wait for the future to be set.
     self._log.debug("waiting on _leading Future to be resolved.")
-    self._printIOLoopInformationDebug()
-    
     await _leading
-    # if self._start_loop.is_running():
-    #   # Unholy, despicable hack incoming...
-    #   current_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-    #   target: asyncio.Future = current_loop.create_future()
-      
-    #   async def wait_on_target():
-    #     """
-    #     This abomination is executed on the self._start_loop event loop.
-    #     It returns when the self._leading Future resolves.
-    #     """
-    #     try:
-    #       self._log.debug("Awaiting _leading in hack.")
-    #       result = await self._leading
-    #       self._log.debug("Successfully awaited _leading in hack.")
-    #     except Exception as ex:
-    #       self._log.error("Failed to await self._leading: %s" % str(ex))
-    #       current_loop.call_soon_threadsafe(target.set_exception, ex)
-    #       return 
-    #     else:
-    #       # This code gets executed if the try-block succeeds without any exceptions.
-    #       current_loop.call_soon_threadsafe(target.set_result, result)
-      
-    #   self._log.debug("Father, forgive me.")
-    #   # Unholy, despicable hack.
-    #   self._start_loop.call_soon_threadsafe(wait_on_target)
-    #   self._log.debug("Scheduled hack on _start_loop.")
-    #   await target 
-    #   self._log.debug("Successfully awaited hack.")
-    # else:
-    #   self._log.debug("Waiting on self._leading in non-hacky way.")
-    #   self._start_loop.run_until_complete(self._leading)
-    #   self._log.debug("Successfully waited for self._leading in non-hacky way.")
-    self._log.debug("Successfully waited for self._leading in non-hacky way.")
+    self._log.debug("Successfully waited for self._leading.")
     self._leading = None
 
     # Validate the term
     wait, is_leading = self._is_leading(term)
     assert wait == False
-    self._log.debug("RaftLog %d: returning from lead for term %d after waiting, is_leading=%s" % (self._id, term, str(is_leading)))
-    self._printIOLoopInformationDebug()
     return is_leading
-
-  async def yield_execution(self, term) -> bool:
-    """
-    Request to lead the update of a term. A following append call without leading status will fail.
-    """
-    self._log.debug("RaftLog %d: proposing to yield term %d. Current leader term: %d." % (self._id, term, self._leader_term))
-    if term == 0:
-      term = self._leader_term + 1
-    elif term <= self._leader_term:
-      return False
-
-    # Define the _leading future
-    self._expected_term = term
-    self._future_loop = asyncio.get_running_loop()
-    self._decisionProposalFuture = self._future_loop.create_future() 
-    _decisionProposalFuture = self._decisionProposalFuture
-    self._leading = self._future_loop.create_future()
-    _leading = self._leading
-    self.own_proposal_times[term] = time.time()
-    self._log.debug("RaftLog %d: appending YIELD proposal for term %d." % (self._id, term))
-
-    # Append is blocking.
-    await self.append(SyncValue(-1, self._id, timestamp = time.time(), term=term, key=KEY_YIELD))
-    self._log.debug("RaftLog %d: appended YIELD proposal for term %d." % (self._id, term))
-
-    decisionProposal: SyncValue = await _decisionProposalFuture
-    self._decisionProposalFuture = None 
-    self._log.debug("RaftLog %d: Got decision to propose: I think Node %d should win in term %d." % (self._id, decisionProposal.proposed_node, decisionProposal.term))
-
-    if decisionProposal.term != term:
-      raise ValueError("Received decision proposal with different term: %d. Expected: %d." % (decisionProposal.term, term))
-    
-    self._log.debug("RaftLog %d: Appending decision proposal now." % decisionProposal.term)
-    await self.append_decision(decisionProposal)
-    self._log.debug("RaftLog %d: Successfully appended decision proposal now." % decisionProposal.term)
-    self.decisions_proposed[term] = True
-
-    # Validate the term
-    wait, is_leading = self._is_leading(term)
-    if not wait:
-      assert is_leading == False
-      self._log.debug("RaftLog %d: returning from yield_execution for term %d without waiting" % (self._id, term))
-    
-    # Wait for the future to be set.
-    # if self._start_loop.is_running():
-    #   self._log.warn("_start_loop is already running... this is unexpected.")
-    #   self._log.warn("waiting on _leading Future to be resolved.")
-    #   self._start_loop.call_soon_threadsafe(self._leading)
-    # else:
-    #   self._log.warn("waiting on _leading Future to be resolved.")
-    self._log.debug("waiting on _leading Future to be resolved.")
-    self._printIOLoopInformationDebug()
-    
-    await _leading
-    # if self._start_loop.is_running():
-    #   # Unholy, despicable hack incoming...
-    #   current_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-    #   target: asyncio.Future = current_loop.create_future()
-      
-    #   async def wait_on_target():
-    #     """
-    #     This abomination is executed on the self._start_loop event loop.
-    #     It returns when the self._leading Future resolves.
-    #     """
-    #     try:
-    #       result = await self._leading
-    #     except Exception as ex:
-    #       self._log.error("Failed to await self._leading: %s" % str(ex))
-    #       current_loop.call_soon_threadsafe(target.set_exception, ex)
-    #       return 
-    #     else:
-    #       # This code gets executed if the try-block succeeds without any exceptions.
-    #       current_loop.call_soon_threadsafe(target.set_result, result)
-      
-    #   self._log.debug("Father, forgive me.")
-    #   # Unholy, despicable hack.
-    #   self._start_loop.call_soon_threadsafe(wait_on_target)
-    #   self._log.debug("Scheduled hack on _start_loop.")
-    #   await target 
-    #   self._log.debug("Successfully awaited hack.")
-    # else:
-    #   self._log.debug("Waiting on self._leading in non-hacky way.")
-    #   self._start_loop.run_until_complete(self._leading)
-    #   self._log.debug("Successfully waited for self._leading in non-hacky way.")
-    self._log.debug("Successfully waited for self._leading in non-hacky way.")
-    self._leading = None
-
-    # Validate the term
-    wait, is_leading = self._is_leading(term)
-    assert wait == False
-    assert is_leading == False
-    self._log.debug("RaftLog %d: returning from yield_execution for term %d after waiting" % (self._id, term))
-    self._printIOLoopInformationDebug()
-
-    return False
 
   def _is_leading(self, term) -> Tuple[bool, bool]:
     """Check if the current node is leading, return (wait, is_leading)"""
@@ -810,7 +720,7 @@ class RaftLog:
     else:
       self._log.debug("Registering callback future on unknown loop. loop.is_running: %s" % str(loop.is_running()))
 
-    self._printIOLoopInformationDebug()
+    # self._printIOLoopInformationDebug()
 
     future = Future(loop=loop)
     self._async_loop = loop
