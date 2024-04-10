@@ -206,8 +206,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		{
 			daemon.schedulingPolicy = "static"
 			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
-
-			panic("The 'STATIC' scheduling policy is not yet supported.")
 		}
 	case "dynamic":
 		{

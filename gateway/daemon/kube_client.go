@@ -77,8 +77,8 @@ type BasicKubeClient struct {
 	schedulingPolicy       string                                     // Scheduling policy.
 	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
 	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
-	// newPodWaiters          *cmap.ConcurrentMap[string, chan AddReplicaOperation] // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
-	log logger.Logger
+	nodes                  map[string]*corev1.Node                    // All of the Kubernetes nodes EXCEPT for the control-plane node.
+	log                    logger.Logger
 }
 
 func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDaemonOptions) *BasicKubeClient {
@@ -101,6 +101,7 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDa
 		hdfsNameNodeEndpoint:   clusterDaemonOptions.HDFSNameNodeEndpoint,
 		notebookImageName:      clusterDaemonOptions.NotebookImageName,
 		notebookImageTag:       clusterDaemonOptions.NotebookImageTag,
+		nodes:                  make(map[string]*corev1.Node),
 	}
 
 	if client.hdfsNameNodeEndpoint == "" {
@@ -151,8 +152,6 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDa
 		{
 			client.schedulingPolicy = "static"
 			client.log.Debug("Using the 'STATIC' scheduling policy.")
-
-			panic("The 'STATIC' scheduling policy is not yet supported.")
 		}
 	case "dynamic":
 		{
@@ -169,6 +168,21 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDa
 
 	// TODO(Ben): Make the namespace configurable.
 	client.createPodWatcher("default")
+
+	nodes, err := client.kubeClientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		client.log.Error("Failed to list Kubernetes nodes because: %v", err)
+		panic(err)
+	}
+
+	// Remove the control-plane node.
+	for _, node := range nodes.Items {
+		if strings.HasSuffix(node.Name, "control-plane") {
+			continue
+		}
+
+		client.nodes[node.Name] = &node
+	}
 
 	return client
 }
@@ -401,10 +415,16 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 
 	if c.useStatefulSet {
 		c.log.Debug("Creating StatefulSet for replicas of kernel \"%s\" now.", kernel.Id)
-		c.createKernelStatefulSet(ctx, kernel, connectionInfo, headlessServiceName)
+		c.log.Warn("Using StatefulSets for deploying kernels is deprecated and is unlikely to work going forward...")
+		err = c.createKernelStatefulSet(ctx, kernel, connectionInfo, headlessServiceName)
 	} else {
 		c.log.Debug("Creating CloneSet for replicas of kernel \"%s\" now.", kernel.Id)
-		c.createKernelCloneSet(ctx, kernel, connectionInfo, headlessServiceName)
+		err = c.createKernelCloneSet(ctx, kernel, connectionInfo, headlessServiceName)
+	}
+
+	if err != nil {
+		c.log.Error("Failed to create Kubernetes Resource for kernel %s because: %v", kernel.Id, err)
+		panic(err)
 	}
 
 	// c.migrationManager.RegisterKernel(kernel.Id)
@@ -642,7 +662,7 @@ func (c *BasicKubeClient) createPodWatcher(namespace string) {
 // - kernel (*gateway.KernelSpec): The specification of the distributed kernel.
 // - connectionInfo (*jupyter.ConnectionInfo): The connection info of the distributed kernel.
 // - headlessServiceName (string): The name of the headless Kubernetes service that was created to manage the networking of the Pods of the StatefulSet.
-func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) {
+func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) error {
 	// Create the StatefulSet of distributed kernel replicas.
 	statefulSetsClient := c.kubeClientset.AppsV1().StatefulSets(metav1.NamespaceDefault)
 	var replicas int32 = 3
@@ -899,6 +919,8 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 	if err != nil {
 		c.log.Error("Failed to create StatefulSet for kernel %s because: %v", kernel.Id, err)
 	}
+
+	return err
 }
 
 // Create a CloneSet for a particular distributed kernel.
@@ -908,7 +930,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 // - kernel (*gateway.KernelSpec): The specification of the distributed kernel.
 // - connectionInfo (*jupyter.ConnectionInfo): The connection info of the distributed kernel.
 // - headlessServiceName (string): The name of the headless Kubernetes service that was created to manage the networking of the Pods of the CloneSet.
-func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) {
+func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) error {
 	var kernelResourceRequirements *gateway.ResourceSpec = kernel.GetResourceSpec()
 	if kernelResourceRequirements == nil {
 		kernelResourceRequirements = &gateway.ResourceSpec{
@@ -917,6 +939,23 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 			Memory: 0,
 		}
 	}
+
+	c.mutex.Lock()
+	updatedNodes := make(map[string]*corev1.Node)
+	for _, node := range c.nodes {
+		node.ObjectMeta.Labels[kernel.Id] = "true"
+		c.log.Debug("Updating node %s to have label `%s=\"true\"`.", node.Name, kernel.Id)
+		updatedNode, err := c.kubeClientset.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
+		if err != nil {
+			c.log.Error("Failed to add label `%s=\"true\"` to node %s. Reason: %v.", kernel.Id, node.Name, err)
+			return err
+		}
+
+		updatedNodes[updatedNode.Name] = updatedNode
+	}
+
+	c.nodes = updatedNodes
+	c.mutex.Unlock()
 
 	// If we're using the "default" scheduling policy, then they will just have podAntiAffinity.
 	// If we're using static or dynamic scheduling, then the nodes will have a nodeAffinity in addition to the podAntiAffinity.
@@ -939,11 +978,13 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 				"requiredDuringSchedulingIgnoredDuringExecution": map[string]interface{}{
 					"nodeSelectorTerms": []map[string]interface{}{
 						{
-							"matchExpressions": map[string]interface{}{
-								"key":      "schedule-kernels",
-								"operator": "In",
-								"values": []string{
-									kernel.GetId(),
+							"matchExpressions": []map[string]interface{}{
+								{
+									"key":      kernel.GetId(),
+									"operator": "In",
+									"values": []string{
+										"true",
+									},
 								},
 							},
 						},
@@ -1169,9 +1210,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 	// Issue the Kubernetes API request to create the CloneSet.
 	_, err := c.dynamicClient.Resource(clonesetRes).Namespace("default").Create(ctx, cloneSetDefinition, metav1.CreateOptions{})
 
-	if err != nil {
-		panic(err.Error())
-	}
+	return err
 }
 
 // Create a Kubernetes ConfigMap containing the configuration information for a particular deployment of distributed kernels.
