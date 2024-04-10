@@ -7,6 +7,7 @@ import logging
 import json
 import sys
 import socket
+import pprint
 import time
 
 from typing import Union, Optional, Dict, Any
@@ -442,8 +443,7 @@ class DistributedKernel(IPythonKernel):
         
         self.log.info(
             "DistributedKernel is preparing to yield the execution of some code to another replica.")
-        self.log.debug("Parent: %s" % parent)
-        self.log.debug("Content: %s" % content)
+        self.log.debug("Parent: %s" % pprint.pp(parent))
         parent_header = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
 
@@ -451,6 +451,7 @@ class DistributedKernel(IPythonKernel):
             return
         try:
             content = parent["content"]
+            self.log.debug("Content: %s" % pprint.pp(content))
             code = content["code"]
             silent = content.get("silent", False)
         except Exception:
