@@ -203,15 +203,16 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort} // connectionInfo.IOSubPort}
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
-		status:                 types.KernelStatusInitializing,
-		spec:                   spec,
-		replicas:               make(map[int32]core.KernelReplica, numReplicas), // make([]core.KernelReplica, numReplicas),
-		cleaned:                make(chan struct{}),
-		connectionInfo:         connectionInfo,
-		shellListenPort:        shellListenPort,
-		iopubListenPort:        iopubListenPort,
-		numActiveAddOperations: 0,
-		nextNodeId:             int32(numReplicas + 1),
+		status:                  types.KernelStatusInitializing,
+		spec:                    spec,
+		replicas:                make(map[int32]core.KernelReplica, numReplicas), // make([]core.KernelReplica, numReplicas),
+		cleaned:                 make(chan struct{}),
+		connectionInfo:          connectionInfo,
+		shellListenPort:         shellListenPort,
+		iopubListenPort:         iopubListenPort,
+		numActiveAddOperations:  0,
+		executionFailedCallback: executionFailedCallback,
+		nextNodeId:              int32(numReplicas + 1),
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)
@@ -987,8 +988,7 @@ func (c *distributedKernelClientImpl) handleExecutionYieldedNotification(replica
 // Note that 'final' means that it was the last replica whose message we received; all replicas proposed 'YIELD',however.
 func (c *distributedKernelClientImpl) handleFailedExecutionAllYielded() error {
 	c.log.Error("Kernel %s failed to execute code; all replicas proposed 'YIELD'.", c.id)
-
-	return nil
+	return c.executionFailedCallback(c)
 }
 
 func (c *distributedKernelClientImpl) pubIOMessage(msg *zmq4.Msg, status string, how string) error {

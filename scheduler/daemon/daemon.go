@@ -1052,6 +1052,7 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 		// Convert the message to a yield request.
 		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica in place of the original 'execute_request' message.
 		msg, _ = d.convertExecuteRequestToYieldExecute(msg, header, offset)
+		frames = msg.Frames
 	}
 
 	// Re-encode the metadata frame. It will have the number of idle GPUs available,

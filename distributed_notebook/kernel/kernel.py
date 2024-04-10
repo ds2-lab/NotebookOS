@@ -443,7 +443,7 @@ class DistributedKernel(IPythonKernel):
         
         self.log.info(
             "DistributedKernel is preparing to yield the execution of some code to another replica.")
-        self.log.debug("Parent: %s" % pprint.pp(parent))
+        self.log.debug("Parent: %s" % str(parent))
         parent_header = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
 
@@ -451,7 +451,7 @@ class DistributedKernel(IPythonKernel):
             return
         try:
             content = parent["content"]
-            self.log.debug("Content: %s" % pprint.pp(content))
+            self.log.debug("Content: %s" % content)
             code = content["code"]
             silent = content.get("silent", False)
         except Exception:
