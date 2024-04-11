@@ -77,7 +77,6 @@ type BasicKubeClient struct {
 	schedulingPolicy       string                                     // Scheduling policy.
 	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
 	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
-	nodes                  map[string]*corev1.Node                    // All of the Kubernetes nodes EXCEPT for the control-plane node.
 	log                    logger.Logger
 }
 
@@ -101,7 +100,6 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDa
 		hdfsNameNodeEndpoint:   clusterDaemonOptions.HDFSNameNodeEndpoint,
 		notebookImageName:      clusterDaemonOptions.NotebookImageName,
 		notebookImageTag:       clusterDaemonOptions.NotebookImageTag,
-		nodes:                  make(map[string]*corev1.Node),
 	}
 
 	if client.hdfsNameNodeEndpoint == "" {
@@ -168,21 +166,6 @@ func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDa
 
 	// TODO(Ben): Make the namespace configurable.
 	client.createPodWatcher("default")
-
-	nodes, err := client.kubeClientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		client.log.Error("Failed to list Kubernetes nodes because: %v", err)
-		panic(err)
-	}
-
-	// Remove the control-plane node.
-	for _, node := range nodes.Items {
-		if strings.HasSuffix(node.Name, "control-plane") {
-			continue
-		}
-
-		client.nodes[node.Name] = &node
-	}
 
 	return client
 }
@@ -923,6 +906,12 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 	return err
 }
 
+type patchStringValue struct {
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value string `json:"value"`
+}
+
 // Create a CloneSet for a particular distributed kernel.
 //
 // Parameters:
@@ -940,24 +929,33 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 		}
 	}
 
-	c.mutex.Lock()
-	updatedNodes := make(map[string]*corev1.Node)
-	for _, node := range c.nodes {
-		node.ObjectMeta.Labels[kernel.Id] = "true"
+	nodes, err := c.kubeClientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		c.log.Error("Failed to list Kubernetes nodes because: %v", err)
+		panic(err)
+	}
+
+	// Remove the control-plane node.
+	for _, node := range nodes.Items {
+		if strings.HasSuffix(node.Name, "control-plane") {
+			continue
+		}
+
 		c.log.Debug("Updating node %s to have label `%s=\"true\"`.", node.Name, kernel.Id)
-		updatedNode, err := c.kubeClientset.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
+		payload := []patchStringValue{{
+			Op:    "replace",
+			Path:  fmt.Sprintf("/metadata/labels/%s", kernel.Id),
+			Value: "true",
+		}}
+		payloadBytes, _ := json.Marshal(payload)
+		updatedNode, err := c.kubeClientset.CoreV1().Nodes().Patch(ctx, node.Name, types.JSONPatchType, payloadBytes, metav1.PatchOptions{})
 		if err != nil {
 			c.log.Error("Failed to add label `%s=\"true\"` to node %s. Reason: %v.", kernel.Id, node.Name, err)
 			return err
 		} else {
 			c.log.Debug("Successfully added label `%s=\"true\" to node %s.", kernel.Id, updatedNode.Name)
 		}
-
-		updatedNodes[updatedNode.Name] = updatedNode
 	}
-
-	c.nodes = updatedNodes
-	c.mutex.Unlock()
 
 	// If we're using the "default" scheduling policy, then they will just have podAntiAffinity.
 	// If we're using static or dynamic scheduling, then the nodes will have a nodeAffinity in addition to the podAntiAffinity.
@@ -1210,7 +1208,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 	}
 
 	// Issue the Kubernetes API request to create the CloneSet.
-	_, err := c.dynamicClient.Resource(clonesetRes).Namespace("default").Create(ctx, cloneSetDefinition, metav1.CreateOptions{})
+	_, err = c.dynamicClient.Resource(clonesetRes).Namespace("default").Create(ctx, cloneSetDefinition, metav1.CreateOptions{})
 
 	return err
 }
