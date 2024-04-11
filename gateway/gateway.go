@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/opentracing/opentracing-go"
@@ -105,25 +106,43 @@ func main() {
 	// }
 	// logger.Info("Workload Driver gRPC server listening at %v", lisDriver.Addr())
 
-	// Build grpc options
-	gOpts := []grpc.ServerOption{
-		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Timeout: 120 * time.Second,
-		}),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			PermitWithoutStream: true,
-		}),
-	}
-	if tracer != nil {
-		gOpts = append(gOpts, grpc.UnaryInterceptor(otgrpc.OpenTracingServerInterceptor(tracer)))
-	}
-
 	// Initialize daemon
 	srv := daemon.New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv *daemon.GatewayDaemon) {
 		srv.ClusterOptions = options.CoreOptions
 	})
 
 	distributedCluster := daemon.NewDistributedCluster(srv, &options.ClusterDaemonOptions)
+
+	// Build grpc options
+	getGrpcOptions := func(identity string) []grpc.ServerOption {
+		gOpts := []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(
+				recovery.UnaryServerInterceptor(
+					recovery.WithRecoveryHandler(
+						func(p any) (err error) {
+							if distributedCluster != nil {
+								distributedCluster.HandlePanic(identity, err)
+							}
+
+							return err
+						}),
+				),
+			),
+			grpc.KeepaliveParams(keepalive.ServerParameters{
+				Timeout: 120 * time.Second,
+			}),
+			grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+				PermitWithoutStream: true,
+			}),
+		}
+
+		if tracer != nil {
+			gOpts = append(gOpts, grpc.UnaryInterceptor(otgrpc.OpenTracingServerInterceptor(tracer)))
+		}
+
+		return gOpts
+	}
+
 	distributedClusterServiceListener, err := distributedCluster.Listen("tcp", fmt.Sprintf(":%d", options.DistributedClusterServicePort))
 	if err != nil {
 		log.Fatalf("Failed to listen with Distributed Cluster Service server: %v", err)
@@ -138,14 +157,14 @@ func main() {
 	logger.Info("Provisioning server listening at %v", lisHost.Addr())
 
 	// Initialize internel gRPC server
-	provisioner := grpc.NewServer(gOpts...)
+	provisioner := grpc.NewServer(getGrpcOptions("Provisioner gRPC Server")...)
 	gateway.RegisterClusterGatewayServer(provisioner, srv)
 
 	// Initialize Jupyter gRPC server
-	registrar := grpc.NewServer(gOpts...)
+	registrar := grpc.NewServer(getGrpcOptions("Jupyter gRPC Server")...)
 	gateway.RegisterLocalGatewayServer(registrar, srv)
 
-	distributedClusterRpcServer := grpc.NewServer(gOpts...)
+	distributedClusterRpcServer := grpc.NewServer(getGrpcOptions("Distributed Cluster gRPC Server")...)
 	gateway.RegisterDistributedClusterServer(distributedClusterRpcServer, distributedCluster)
 
 	// Register services in consul
@@ -226,7 +245,7 @@ func finalize(fix bool, identity string, distributedCluster *daemon.DistributedC
 		logger.Error("%v", err)
 
 		if distributedCluster != nil {
-			distributedCluster.HandlePanic(identity)
+			distributedCluster.HandlePanic(identity, err)
 		}
 	}
 

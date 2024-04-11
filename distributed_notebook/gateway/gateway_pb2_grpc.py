@@ -250,6 +250,11 @@ class DistributedClusterStub(object):
         Args:
             channel: A grpc.Channel.
         """
+        self.InducePanic = channel.unary_unary(
+                '/gateway.DistributedCluster/InducePanic',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
         self.Ping = channel.unary_unary(
                 '/gateway.DistributedCluster/Ping',
                 request_serializer=gateway__pb2.Void.SerializeToString,
@@ -285,6 +290,12 @@ class DistributedClusterStub(object):
 class DistributedClusterServicer(object):
     """gRPC Service used by the Dashboard. 
     """
+
+    def InducePanic(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def Ping(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -335,6 +346,11 @@ class DistributedClusterServicer(object):
 
 def add_DistributedClusterServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'InducePanic': grpc.unary_unary_rpc_method_handler(
+                    servicer.InducePanic,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
             'Ping': grpc.unary_unary_rpc_method_handler(
                     servicer.Ping,
                     request_deserializer=gateway__pb2.Void.FromString,
@@ -375,6 +391,23 @@ def add_DistributedClusterServicer_to_server(servicer, server):
 class DistributedCluster(object):
     """gRPC Service used by the Dashboard. 
     """
+
+    @staticmethod
+    def InducePanic(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.DistributedCluster/InducePanic',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
     def Ping(request,

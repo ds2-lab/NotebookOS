@@ -32,6 +32,10 @@ service ClusterGateway {
 
 // gRPC Service used by the Dashboard. 
 service DistributedCluster {
+  // Used for debugging/testing. Causes a Panic.
+  rpc InducePanic(Void) returns (Void) {}
+
+  // Used to test connectivity.
   rpc Ping(Void) returns (Pong) {} 
   
   // Return a list of all of the current kernel IDs.

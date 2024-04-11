@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync/atomic"
 
@@ -41,8 +42,21 @@ func NewDistributedCluster(gatewayDaemon *GatewayDaemon, opts *ClusterDaemonOpti
 //
 // Parameter:
 // - identity (string): The identity of the entity/goroutine that panicked.
-func (dc *DistributedCluster) HandlePanic(identity string) {
+func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{}) {
 	dc.log.Error("Entity %s has panicked.", identity)
+
+	_, err := dc.clusterDashboard.ErrorOccurred(context.TODO(), &gateway.ErrorMessage{
+		ErrorName:    fmt.Sprintf("%s panicked.", identity),
+		ErrorMessage: fmt.Sprintf("%v", fatalErr),
+	})
+
+	if err != nil {
+		dc.log.Error("Failed to inform Cluster Dashboard that a fatal error occurred because: %v", err)
+	}
+}
+
+func (dc *DistributedCluster) InducePanic(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
+	panic("Inducing a panic.")
 }
 
 // Listen listens on the TCP network address addr and returns a net.Listener that intercepts incoming connections.
