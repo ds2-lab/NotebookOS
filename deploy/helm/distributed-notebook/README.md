@@ -84,7 +84,7 @@ Next, we install the `metrics-server`. With kind, we either need to enable `--ku
 For now, we will use the `--kubelet-insecure-tls` solution with the included `.yaml` file (found at `deploy/helm/distributed-notebook/metrics-server.yaml`):
 
 ```sh
-kubectl apply -f deploy/helm/distributed-notebook/templates/metrics-server.yaml
+kubectl apply -f deploy/helm/distributed-notebook/depend/metrics-server.yaml
 ```
 
 ### OpenKruise and the CloneSet Resource
