@@ -94,15 +94,21 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 	gConn, err := grpc.Dial(":0",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			return cliSession.Open()
-			// return conn, err
+			conn, err := cliSession.Open()
+			if err != nil {
+				dc.log.Error("Failed to open CLI session during dial: %v", err)
+			} else {
+				dc.log.Debug("Opened cliSession. conn.LocalAddr(): %v, conn.RemoteAddr(): %v", conn.LocalAddr(), conn.RemoteAddr())
+			}
+
+			return conn, err
 		}))
 	if err != nil {
 		dc.log.Error("Failed to open reverse Distributed Cluster connection with Cluster Dashboard: %v", err)
 		return conn, nil
 	}
 
-	dc.log.Debug("Successfully dialed to create reverse connection with Cluster Dashboard.")
+	dc.log.Debug("Successfully dialed to create reverse connection with Cluster Dashboard. Target: %v", gConn.Target())
 
 	// Create a Cluster Dashboard client and register it.
 	dc.clusterDashboard = gateway.NewClusterDashboardClient(gConn)

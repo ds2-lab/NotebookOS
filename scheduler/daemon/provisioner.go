@@ -52,8 +52,11 @@ func NewProvisioner(conn net.Conn) (*Provisioner, error) {
 func (p *Provisioner) Accept() (conn net.Conn, err error) {
 	conn, err = p.Listener.Accept()
 	if err != nil {
+		p.log.Error("Failed to accept connection: %v", err)
 		return nil, err
 	}
+
+	p.log.Debug("Accepted connection. RemoteAddr: %v. LocalAddr: %v", conn.RemoteAddr(), conn.LocalAddr())
 
 	// Notify possible blocking caller that the gRPC client is initialized
 	go func() {
@@ -78,11 +81,21 @@ func (p *Provisioner) InitClient(session *yamux.Session) error {
 	gConn, err := grpc.Dial(":0",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			return session.Open()
+			conn, err := session.Open()
+			if err != nil {
+				p.log.Error("Failed to open CLI session during dial: %v", err)
+			} else {
+				p.log.Debug("Opened cliSession. conn.LocalAddr(): %v, conn.RemoteAddr(): %v", conn.LocalAddr(), conn.RemoteAddr())
+			}
+
+			return conn, err
 		}))
 	if err != nil {
+		p.log.Error("Failed to create a gRPC connection using dummy dialer: %v", err)
 		return err
 	}
+
+	p.log.Debug("Successfully created gRPC connection using dummy dialer. Target: %v", gConn.Target())
 
 	p.ClusterGatewayClient = gateway.NewClusterGatewayClient(gConn)
 	return nil

@@ -8,7 +8,7 @@ metadata:
   labels:
     io.kompose.service: gateway
   name: gateway
-spec:
+spec: 
   ports:
     - name: dst-clstr-srvc
       port: {{ .Values.gateway.distributed_cluster_service_port }}
