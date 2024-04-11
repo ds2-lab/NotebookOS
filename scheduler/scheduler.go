@@ -106,9 +106,6 @@ func main() {
 	if tracer != nil {
 		gOpts = append(gOpts, grpc.UnaryInterceptor(otgrpc.OpenTracingServerInterceptor(tracer)))
 	}
-	// if tlsopt := tls.GetServerOpt(); tlsopt != nil {
-	// 	opts = append(opts, tlsopt)
-	// }
 
 	nodeName := os.Getenv("NODE_NAME")
 	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName)

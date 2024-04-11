@@ -29,11 +29,11 @@ hdfs:
   namenode_endpoint: "172.17.0.1:9000"
 
 gateway:
-  driver_grpc_port: 8079
   grpc_port: 8080
   provisioner_port: 8081
   image: scusemua/gateway
   image_tag: latest
+  distributed_cluster_service_port: 8079
 
 notebook_server:
   port: 8888

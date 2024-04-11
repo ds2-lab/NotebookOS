@@ -28,6 +28,8 @@ spec:
     - name: iopub-port2
       port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
   selector:
+    app: jupyter-notebook 
     io.kompose.service: jupyter-notebook
+  type: LoadBalancer
 status:
   loadBalancer: {}

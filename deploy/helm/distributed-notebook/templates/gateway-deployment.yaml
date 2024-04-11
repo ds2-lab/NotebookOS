@@ -32,8 +32,8 @@ spec:
           args: ["-yaml", "{{ .Values.common.config_file_dir }}/daemon.yml", "-debug"]
           resources: {}
           ports:
-          - name: drvr-port
-            containerPort: {{ .Values.gateway.driver_grpc_port }}
+          - name: dst-clstr-srvc
+            containerPort: {{ .Values.gateway.distributed_cluster_service_port }}
           - name: tcp
             containerPort: {{ .Values.local_daemon.network.service_port }}
           - name: hb-port

@@ -71,17 +71,18 @@ var (
 )
 
 type ClusterDaemonOptions struct {
-	LocalDaemonServiceName  string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
-	LocalDaemonServicePort  int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
-	GlobalDaemonServiceName string `name:"global-daemon-service-name" description:"Name of the Kubernetes service that manages the global networking of local daemons."`
-	GlobalDaemonServicePort int    `name:"global-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
-	SMRPort                 int    `name:"smr-port" description:"Port used by the state machine replication (SMR) protocol."`
-	KubeNamespace           string `name:"kube-namespace" description:"Kubernetes namespace that all of these components reside in."`
-	UseStatefulSet          bool   `name:"use-stateful-set" description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
-	HDFSNameNodeEndpoint    string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
-	SchedulingPolicy        string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
-	NotebookImageName       string `name:"notebook-image-name" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
-	NotebookImageTag        string `name:"notebook-image-tag" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`   // Tag to use for the jupyter notebook/kernel image
+	LocalDaemonServiceName        string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
+	LocalDaemonServicePort        int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
+	GlobalDaemonServiceName       string `name:"global-daemon-service-name" description:"Name of the Kubernetes service that manages the global networking of local daemons."`
+	GlobalDaemonServicePort       int    `name:"global-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
+	SMRPort                       int    `name:"smr-port" description:"Port used by the state machine replication (SMR) protocol."`
+	KubeNamespace                 string `name:"kube-namespace" description:"Kubernetes namespace that all of these components reside in."`
+	UseStatefulSet                bool   `name:"use-stateful-set" description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
+	HDFSNameNodeEndpoint          string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
+	SchedulingPolicy              string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
+	NotebookImageName             string `name:"notebook-image-name" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
+	NotebookImageTag              string `name:"notebook-image-tag" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`   // Tag to use for the jupyter notebook/kernel image
+	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
 }
 
 func (o ClusterDaemonOptions) String() string {
@@ -201,7 +202,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *ClusterDaemonOption
 		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan AddReplicaOperation](64),
 		activeExecutions:                 hashmap.NewCornelkMap[string, *client.ActiveExecution](64),
 		hdfsNameNodeEndpoint:             clusterDaemonOptions.HDFSNameNodeEndpoint,
-		// smrNodeRemovedNotifications:      hashmap.NewCornelkMap[string, chan struct{}](64),
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -1111,7 +1111,7 @@ func (d *GatewayDaemon) GetVirtualGpuInfo(ctx context.Context, in *gateway.Void)
 }
 
 // Return the current GPU resource metrics on the node.
-func (d *GatewayDaemon) GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
+func (d *GatewayDaemon) getClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
 	resp := &gateway.ClusterActualGpuInfo{
 		GpuInfo: make(map[string]*gateway.GpuInfo),
 	}
@@ -1131,7 +1131,7 @@ func (d *GatewayDaemon) GetClusterActualGpuInfo(ctx context.Context, in *gateway
 }
 
 // Return the current vGPU (or "deflated GPU") resource metrics on the node.
-func (d *GatewayDaemon) GetClusterVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterVirtualGpuInfo, error) {
+func (d *GatewayDaemon) getClusterVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterVirtualGpuInfo, error) {
 	resp := &gateway.ClusterVirtualGpuInfo{
 		GpuInfo: make(map[string]*gateway.VirtualGpuInfo),
 	}
@@ -1156,7 +1156,7 @@ func (d *GatewayDaemon) GetClusterVirtualGpuInfo(ctx context.Context, in *gatewa
 // For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
 // this function is called with the new total number specified as 32, then the operation will fail.
 // In this case (when the operation fails), an ErrInvalidParameter is returned.
-func (d *GatewayDaemon) SetTotalVirtualGPUs(ctx context.Context, in *gateway.SetVirtualGPUsRequest) (*gateway.VirtualGpuInfo, error) {
+func (d *GatewayDaemon) setTotalVirtualGPUs(ctx context.Context, in *gateway.SetVirtualGPUsRequest) (*gateway.VirtualGpuInfo, error) {
 	d.log.Debug("Recevied 'SetTotalVirtualGPUs' request targeting node %s with %d vGPU(s).", in.KubernetesNodeName, in.Value)
 	var targetHost core.Host
 	d.log.Debug("We currently have %d LocalDaemons connected.", d.cluster.GetHostManager().Len())
@@ -1256,17 +1256,6 @@ func (d *GatewayDaemon) GetKubernetesNodes() ([]corev1.Node, error) {
 }
 
 func (d *GatewayDaemon) MigrateKernelReplica(ctx context.Context, in *gateway.MigrationRequest) (*gateway.MigrateKernelResponse, error) {
-	// client, ok := d.kernels.Load(in.KernelId)
-	// if !ok {
-	// 	d.log.Error("Failed to find client of kernel %s.", in.KernelId)
-	// 	return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrKernelNotFound
-	// }
-
-	// if client.Size() >= 4 {
-	// 	d.log.Debug("We already have 4 replicas. Not adding another.")
-	// 	return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, nil
-	// }
-
 	replicaInfo := in.TargetReplica
 	targetNode := in.GetTargetNodeId()
 
@@ -1797,10 +1786,7 @@ func (d *GatewayDaemon) removeReplica(smrNodeId int32, kernelId string) error {
 	return nil
 }
 
-// Driver gRPC.
-func (d *GatewayDaemon) ListKernels(ctx context.Context, in *gateway.Void) (*gateway.ListKernelsResponse, error) {
-	// d.log.Debug("Serving ListKernels gRPC request. We currently have %d kernel(s).", d.kernelIdToKernel.Len())
-
+func (d *GatewayDaemon) listKernels(ctx context.Context, in *gateway.Void) (*gateway.ListKernelsResponse, error) {
 	resp := &gateway.ListKernelsResponse{
 		Kernels: make([]*gateway.DistributedJupyterKernel, 0, max(d.kernelIdToKernel.Len(), 1)),
 	}

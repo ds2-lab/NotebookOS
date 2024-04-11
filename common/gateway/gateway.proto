@@ -28,7 +28,12 @@ service ClusterGateway {
   rpc SmrReady(SmrReadyNotification) returns (Void) {}
 
   rpc SmrNodeAdded(ReplicaInfo) returns (Void) {}
+}
 
+// gRPC Service used by the Dashboard. 
+service DistributedCluster {
+  rpc Ping(Void) returns (Pong) {} 
+  
   // Return a list of all of the current kernel IDs.
   rpc ListKernels(Void) returns (ListKernelsResponse) {}
 
@@ -41,9 +46,27 @@ service ClusterGateway {
   // Return the current vGPU (or "deflated GPU") resource metrics on the node.
   rpc GetClusterVirtualGpuInfo(Void) returns (ClusterVirtualGpuInfo) {}
 
-  // Register a ResourceSpec definining the resource limits/maximum resources required by a particular kernel.
-  // If I find a nice way to pass this directly through the usual Jupyter launch-kernel path, then I'll use that instead.
-  // rpc RegisterKernelResourceSpec(ResourceSpecRegistration) returns (Void) {}
+  // MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
+  // Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
+  // need to start immediately after replica started, e.g., preempting a training task.
+  // 
+  // The function will simply remove the replica from the kernel without stopping it.
+  // The caller should stop the replica after confirmed that the new replica is ready.
+  rpc MigrateKernelReplica(MigrationRequest) returns (MigrateKernelResponse) {}
+}
+
+service ClusterDashboard {
+  rpc ErrorOccurred(ErrorMessage) returns (Void) {} // Report to the Dashboard that an error occurred.
+}
+
+message Pong {
+  string id = 1;
+}
+
+message ErrorMessage {
+  string errorName = 1;
+  string errorMessage = 2;
+  bool panicked = 3;
 }
 
 // Used to register the ResourceSpec to be used by a particular kernel.

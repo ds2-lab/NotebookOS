@@ -949,6 +949,8 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 		if err != nil {
 			c.log.Error("Failed to add label `%s=\"true\"` to node %s. Reason: %v.", kernel.Id, node.Name, err)
 			return err
+		} else {
+			c.log.Debug("Successfully added label `%s=\"true\" to node %s.", kernel.Id, updatedNode.Name)
 		}
 
 		updatedNodes[updatedNode.Name] = updatedNode

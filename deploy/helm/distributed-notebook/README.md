@@ -54,17 +54,42 @@ We are using [Local Path Provisioner](https://github.com/rancher/local-path-prov
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
 ```
 
+### Load Balancer 
+
+``` sh
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
+``` 
+
+Execute:
+``` sh
+docker network inspect -f '{{.IPAM.Config}}' kind
+```
+
+or if you're using podman 4.0 or higher in rootful mode with the netavark network backend, use the following command instead:
+``` sh
+podman network inspect -f '{{range .Subnets}}{{if eq (len .Subnet.IP) 4}}{{.Subnet}}{{end}}{{end}}' kind
+```
+
+The output will contain a cidr such as 172.18.0.0/16. Modify the `deploy/helm/distributed-notebook/metallb-config.yaml` file accordingly, then execute:
+``` sh
+kubectl apply -f deploy/helm/distributed-notebook/metallb-config.yaml
+```
+
 ### Metrics Server
+
+**This is now installed automatically.**
 
 Next, we install the `metrics-server`. With kind, we either need to enable `--kubelet-insecure-tls`, or we can configure our kind cluster differently. See [this post](https://www.zeng.dev/post/2023-kubeadm-enable-kubelet-serving-certs/) for how to configure.
 
 For now, we will use the `--kubelet-insecure-tls` solution with the included `.yaml` file (found at `deploy/helm/distributed-notebook/metrics-server.yaml`):
 
 ```sh
-kubectl apply -f deploy/helm/distributed-notebook/metrics-server.yaml
+kubectl apply -f deploy/helm/distributed-notebook/templates/metrics-server.yaml
 ```
 
 ### OpenKruise and the CloneSet Resource
+
+**This is now installed automatically.**
 
 We also need the `CloneSet` resource provided by OpenKruise. To install this on your Kubernetes cluster, execute the following commands:
 
@@ -78,10 +103,6 @@ helm repo update
 # Install the latest version.
 helm install kruise openkruise/kruise --version 1.5.2
 ```
-
-### Distributed File System (HDFS)
-
-TODO(Ben): Write documentation for this step if we end up sticking with the HDFS-based design for migrations or whatever else.
 
 ### The `DistributedNotebook` Helm Chart
 

@@ -5,10 +5,10 @@ metadata:
   namespace: default
 data:
   daemon.yml: |
-    driver-grpc-port: {{ .Values.gateway.driver_grpc_port }}
     kernel-registry-port: {{ .Values.local_daemon.network.jupyter.kernel_registry_port }} 
     port: {{ .Values.local_daemon.network.port }}
     provisioner-port: {{ .Values.gateway.provisioner_port }}
+    distributed-cluster-service-port: {{ .Values.gateway.distributed_cluster_service_port }}
     provisioner: "gateway:{{ .Values.gateway.provisioner_port }}"
     hb-port: {{ .Values.local_daemon.network.jupyter.hb_port }}
     control-port: {{ .Values.local_daemon.network.jupyter.control_port }}
@@ -36,3 +36,4 @@ data:
     scheduling-policy: {{ .Values.common.scheduling_policy }}
     notebook-image-name: {{ .Values.notebook_server.image }}
     notebook-image-tag: {{ .Values.notebook_server.image_tag }}
+    distributed-cluster-service-port: {{ .Values.gateway.distributed_cluster_service_port }}

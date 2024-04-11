@@ -45,7 +45,7 @@ type Options struct {
 	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
 	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr      string `name:"consul" description:"Consul agent address."`
-	DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
+	// DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
 }
 
 func init() {
@@ -57,7 +57,7 @@ func init() {
 }
 
 func main() {
-	defer finalize(false)
+	defer finalize(false, "Main thread", nil)
 
 	var done sync.WaitGroup
 
@@ -98,12 +98,12 @@ func main() {
 	logger.Info("Jupyter server listening at %v", lis.Addr())
 
 	// Initialize workload driver listener
-	proxy := gateway.NewWebSocketProxyServer(fmt.Sprintf(":%d", options.DriverGRPCPort))
-	lisDriver, err := proxy.Listen()
-	if err != nil {
-		log.Fatalf("Failed to listen with websocket proxy server: %v", err)
-	}
-	logger.Info("Workload Driver gRPC server listening at %v", lisDriver.Addr())
+	// proxy := gateway.NewWebSocketProxyServer(fmt.Sprintf(":%d", options.DriverGRPCPort))
+	// lisDriver, err := proxy.Listen()
+	// if err != nil {
+	// 	log.Fatalf("Failed to listen with websocket proxy server: %v", err)
+	// }
+	// logger.Info("Workload Driver gRPC server listening at %v", lisDriver.Addr())
 
 	// Build grpc options
 	gOpts := []grpc.ServerOption{
@@ -123,6 +123,13 @@ func main() {
 		srv.ClusterOptions = options.CoreOptions
 	})
 
+	distributedCluster := daemon.NewDistributedCluster(srv, &options.ClusterDaemonOptions)
+	distributedClusterServiceListener, err := distributedCluster.Listen("tcp", fmt.Sprintf(":%d", options.DistributedClusterServicePort))
+	if err != nil {
+		log.Fatalf("Failed to listen with Distributed Cluster Service server: %v", err)
+	}
+	logger.Info("Distributed Cluster Service gRPC server listening at %v", distributedClusterServiceListener.Addr())
+
 	// Listen on provisioner port
 	lisHost, err := srv.Listen("tcp", fmt.Sprintf(":%d", options.ProvisionerPort))
 	if err != nil {
@@ -138,10 +145,8 @@ func main() {
 	registrar := grpc.NewServer(gOpts...)
 	gateway.RegisterLocalGatewayServer(registrar, srv)
 
-	// Initialize gRPC server for the Workload Driver to connect to.
-	// This does not use a two-way connection like the other ClusterGatewayServer.
-	// driverServer := grpc.NewServer(gOpts...)
-	// gateway.RegisterClusterGatewayServer(driverServer, srv)
+	distributedClusterRpcServer := grpc.NewServer(gOpts...)
+	gateway.RegisterDistributedClusterServer(distributedClusterRpcServer, distributedCluster)
 
 	// Register services in consul
 	if consulClient != nil {
@@ -159,17 +164,19 @@ func main() {
 		logger.Info("Shutting down...")
 		registrar.Stop()
 		provisioner.Stop()
+		distributedClusterRpcServer.Stop()
+		distributedCluster.Close()
 		srv.Close()
 		lisHost.Close()
 		lis.Close()
+		distributedClusterServiceListener.Close()
 
-		// logger.Info("listern closed...")
 		done.Done()
 	}()
 
 	// Start gRPC server
 	go func() {
-		defer finalize(true)
+		defer finalize(true, "gRPC Server", distributedCluster)
 		if err := registrar.Serve(lis); err != nil {
 			log.Fatalf("Error on serving jupyter connections: %v", err)
 		}
@@ -177,23 +184,31 @@ func main() {
 
 	// Start provisioning server
 	go func() {
-		defer finalize(true)
+		defer finalize(true, "Provisioner Server", distributedCluster)
 		if err := provisioner.Serve(lisHost); err != nil {
 			log.Fatalf("Error on serving host scheduler connections: %v", err)
 		}
 	}()
 
-	// Start workload driver gRPC server
+	// Start distributed cluster gRPC server.
 	go func() {
-		defer finalize(true)
-		if err := provisioner.Serve(lisDriver); err != nil {
-			log.Fatalf("Error on serving workload driver connections: %v", err)
+		defer finalize(true, "Distributed Cluster Server", distributedCluster)
+		if err := distributedClusterRpcServer.Serve(distributedClusterServiceListener); err != nil {
+			log.Fatalf("Error on serving distributed cluster connections: %v", err)
 		}
 	}()
 
+	// Start workload driver gRPC server
+	// go func() {
+	// 	defer finalize(true, "Workload Driver gRPC Server", srv)
+	// 	if err := provisioner.Serve(lisDriver); err != nil {
+	// 		log.Fatalf("Error on serving workload driver connections: %v", err)
+	// 	}
+	// }()
+
 	// Start daemon
 	go func() {
-		defer finalize(true)
+		defer finalize(true, "Cluster Gateway Daemon", distributedCluster)
 		if err := srv.Start(); err != nil {
 			log.Fatalf("Error during daemon serving: %v", err)
 		}
@@ -202,13 +217,17 @@ func main() {
 	done.Wait()
 }
 
-func finalize(fix bool) {
+func finalize(fix bool, identity string, distributedCluster *daemon.DistributedCluster) {
 	if !fix {
 		return
 	}
 
 	if err := recover(); err != nil {
 		logger.Error("%v", err)
+
+		if distributedCluster != nil {
+			distributedCluster.HandlePanic(identity)
+		}
 	}
 
 	sig <- syscall.SIGINT
