@@ -126,6 +126,8 @@ nodes:
 """
 featureGates:
   StatefulSetStartOrdinal: true
+  DynamicResourceAllocation: true
+  InPlacePodVerticalScaling: true 
 """)
 
     print("Finished writing configuration to file \"%s\"" % output_dir)

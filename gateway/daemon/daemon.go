@@ -720,25 +720,17 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 
 	created := NewRegistrationWaitGroups(d.ClusterOptions.NumReplicas)
 
-	// var created sync.WaitGroup
-	// created.Add(d.ClusterOptions.NumReplicas)
-
 	d.kernelIdToKernel.Store(in.Id, kernel)
 	d.kernels.Store(in.Id, kernel)
 	d.kernelSpecs.Store(in.Id, in)
 	d.waitGroups.Store(in.Id, created)
 
-	// TODO(Ben):
-	// This is likely where we'd create the new Deployment for the particular Session, I guess?
-	// (In the Kubernetes version.)
 	_, err := d.kubeClient.DeployDistributedKernels(ctx, in)
 	if err != nil {
 		d.log.Error("Error encountered while attempting to create the StatefulSet for Session %s", in.Id)
 		d.log.Error("%v", err)
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
 	}
-
-	// TODO: Handle replica creation error and ensure enough number of replicas are created.
 
 	d.log.Debug("Waiting for all 3 replicas of new kernel %s to register.", in.Id)
 	// Wait for all replicas to be created.
@@ -749,11 +741,25 @@ func (d *GatewayDaemon) StartKernel(ctx context.Context, in *gateway.KernelSpec)
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
 	}
 
-	// TODO: Handle kernel response.
 	for _, sess := range kernel.Sessions() {
 		d.log.Debug("Storing kernel %v under session ID %s.", kernel, sess)
 		d.kernels.Store(sess, kernel)
 	}
+
+	// Now that all 3 replicas have started, we need to remove labels from all of the other Kubernetes nodes.
+
+	// Option #1:
+	// - When scheduling a new kernel, add labels to ALL of the Kubernetes nodes and allow system to schedule kernels whenever.
+	// - Once the kernels have been created and registered, remove labels from all the nodes except the nodes that the kernels are presently running on.
+
+	// Option #2:
+	// - When creating a dynamic replica for a new kernel on a particular node, identify the replica that is to be stopped.
+	// - Add labels to nodes hosting the other two replicas.
+	// - Add a label to the target node for the new dynamic replica.
+	// - Update the cloneset to have a nodeAffinity constraint for matching labels.
+	// - Once the new replica has been created, remove the scheduling constraint (but not the node labels).
+	// - Whenever we migrate a replica, we also need to update node labels (if they exist).
+	//		- This involves removing the label from the old node and adding the label to the new node, for the migrated replica.
 
 	info := &gateway.KernelConnectionInfo{
 		Ip:              d.ip,
