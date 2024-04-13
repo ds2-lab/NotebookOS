@@ -24,17 +24,17 @@ endif
 build-image-gateway:
 	cd ../gateway && make
 
-build-scheduler-linux:
-	GOOS=linux go build -buildvcs=false -o scheduler ../../scheduler
+build-local-daemon-linux:
+	GOOS=linux go build -buildvcs=false -o local_daemon ../../local_daemon
 
-build: build-scheduler-linux
+build: build-local-daemon-linux
 	docker build ${PARAMS} -t $(DOCKER_USER)daemon .
-	rm scheduler
+	rm local_daemon
 	../clean.sh
 
-build-no-clean: build-scheduler-linux
+build-no-clean: build-local-daemon-linux
 	docker build ${PARAMS} -t $(DOCKER_USER)daemon .
-	rm scheduler
+	rm local_daemon
 
 local-daemon-amd64: build-base-image build-image-cpu-jupyter build-image-gateway build
 # use scale = num-replicas + 1 for membership tests.

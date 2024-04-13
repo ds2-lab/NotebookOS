@@ -16,6 +16,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -60,7 +61,7 @@ var (
 type BasicKubeClient struct {
 	kubeClientset          *kubernetes.Clientset                      // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
 	dynamicClient          *dynamic.DynamicClient                     // Dynamic client for working with unstructured components. We use this for the custom CloneSet.
-	gatewayDaemon          *clusterGatewayImpl                        // Associated Gateway daemon.
+	gatewayDaemon          domain.ClusterGateway                      // Associated Gateway daemon.
 	configDir              string                                     // Where to write config files. This is also where they'll be found on the kernel nodes.
 	ipythonConfigPath      string                                     // Where the IPython config is located.
 	nodeLocalMountPoint    string                                     // The mount of the shared PVC for all kernel nodes.
@@ -80,7 +81,7 @@ type BasicKubeClient struct {
 	log                    logger.Logger
 }
 
-func NewKubeClient(gatewayDaemon *clusterGatewayImpl, clusterDaemonOptions *ClusterDaemonOptions) *BasicKubeClient {
+func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *domain.ClusterDaemonOptions) *BasicKubeClient {
 	scaleUpChannels := cmap.New[[]chan string]()
 	scaleDownChannels := cmap.New[chan struct{}]()
 
@@ -332,7 +333,7 @@ func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
 // }
 
 // Get the associated Gateway daemon.
-func (c *BasicKubeClient) clusterGatewayImpl() *clusterGatewayImpl {
+func (c *BasicKubeClient) ClusterGateway() domain.ClusterGateway {
 	return c.gatewayDaemon
 }
 
@@ -1340,12 +1341,12 @@ func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec
 	connectionInfo := &jupyter.ConnectionInfo{
 		SignatureScheme: spec.SignatureScheme,
 		Key:             spec.Key,
-		ControlPort:     c.gatewayDaemon.connectionOptions.ControlPort,
-		ShellPort:       c.gatewayDaemon.connectionOptions.ShellPort,
-		StdinPort:       c.gatewayDaemon.connectionOptions.StdinPort,
-		HBPort:          c.gatewayDaemon.connectionOptions.HBPort,
-		IOPubPort:       c.gatewayDaemon.connectionOptions.IOPubPort,
-		IOSubPort:       c.gatewayDaemon.connectionOptions.IOSubPort,
+		ControlPort:     c.gatewayDaemon.ConnectionOptions().ControlPort,
+		ShellPort:       c.gatewayDaemon.ConnectionOptions().ShellPort,
+		StdinPort:       c.gatewayDaemon.ConnectionOptions().StdinPort,
+		HBPort:          c.gatewayDaemon.ConnectionOptions().HBPort,
+		IOPubPort:       c.gatewayDaemon.ConnectionOptions().IOPubPort,
+		IOSubPort:       c.gatewayDaemon.ConnectionOptions().IOSubPort,
 		Transport:       "tcp",
 		IP:              "0.0.0.0",
 	}

@@ -77,15 +77,21 @@ build-grpc: build-grpc-go build-grpc-python
 build-gateway:
 	go build -o bin/gateway ./gateway
 
-build-scheduler:
-	go build -o bin/scheduler ./scheduler
+build-local-daemon:
+	go build -o bin/local_daemon ./local_daemon
+
+build-scheduler-extender:
+	go build -o bin/scheduler_extender ./scheduler_extender
 
 gateway: build-gateway
 	bin/gateway
 
-scheduler: build-scheduler
-	bin/scheduler
+local_daemon: build-local-daemon
+	bin/local_daemon
 	
+scheduler-extender: build-scheduler-extender
+	bin/scheduler_extender
+
 test:
 	cd distributed_notebook && pytest
 

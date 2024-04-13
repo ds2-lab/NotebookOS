@@ -21,8 +21,8 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"
-	"github.com/zhangjyr/distributed-notebook/scheduler/daemon"
-	"github.com/zhangjyr/distributed-notebook/scheduler/device"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/daemon"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/device"
 )
 
 const (

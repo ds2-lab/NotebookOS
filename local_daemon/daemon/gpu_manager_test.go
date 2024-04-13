@@ -6,7 +6,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/shopspring/decimal"
-	"github.com/zhangjyr/distributed-notebook/scheduler/daemon"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/daemon"
 )
 
 var _ = Describe("GPU Manager Tests", func() {

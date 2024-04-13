@@ -10,6 +10,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -27,7 +28,7 @@ type DistributedCluster struct {
 	log logger.Logger
 }
 
-func NewDistributedCluster(gatewayDaemon *clusterGatewayImpl, opts *ClusterDaemonOptions) *DistributedCluster {
+func NewDistributedCluster(gatewayDaemon *clusterGatewayImpl, opts *domain.ClusterDaemonOptions) *DistributedCluster {
 	dc := &DistributedCluster{
 		gatewayDaemon: gatewayDaemon,
 	}

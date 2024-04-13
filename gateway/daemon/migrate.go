@@ -14,6 +14,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
+	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -107,7 +108,7 @@ func (m *migrationOperationImpl) NotifyNewReplicaRegistered() {
 }
 
 func (m *migrationOperationImpl) String() string {
-	return fmt.Sprintf("MigrationOperation[ID=%s,KernelID=%s,ReplicaID=%d,Completed=%v,TargetPod=%s,NewPodName=%s,PersistentID=%s,NewReplicaRegistered=%v]", m.id, m.kernelId, m.targetSmrNodeId, m.Completed(), m.oldPodName, m.newPodName, m.persistentId, m.newReplicaRegistered)
+	return fmt.Sprintf("domain.MigrationOperation[ID=%s,KernelID=%s,ReplicaID=%d,Completed=%v,TargetPod=%s,NewPodName=%s,PersistentID=%s,NewReplicaRegistered=%v]", m.id, m.kernelId, m.targetSmrNodeId, m.Completed(), m.oldPodName, m.newPodName, m.persistentId, m.newReplicaRegistered)
 }
 
 // Unique identifier of the migration operation.
@@ -210,24 +211,24 @@ func (m *migrationOperationImpl) KernelId() string {
 // Note on the use of orderedmap.OrderedMap.
 // We use an ordered map to store the active migration operations for each kernel so that operations that were initiated first are completed/processed first.
 type migrationManagerImpl struct {
-	dynamicClient                   *dynamic.DynamicClient                                                          // Own dynamic client, separate from the dynamic client belonging to the associated KubeClient.
-	kubeClientset                   *kubernetes.Clientset                                                           // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
-	migrationOperations             *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of migration operation ID to migration operation.
-	migrationOperationsByOldPodName *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of old Pod names to their associated migration operation.
-	migrationOperationsByNewPodName *cmap.ConcurrentMap[string, MigrationOperation]                                 // Mapping of new Pod names to their associated migration operation.
-	newPodWaiters                   *cmap.ConcurrentMap[string, chan MigrationOperation]                            // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
-	activeMigrationOpsPerKenel      *cmap.ConcurrentMap[string, *orderedmap.OrderedMap[string, MigrationOperation]] // Mapping of kernel ID to all active migration operations associated with that kernel. The inner maps are from Operation ID to MigrationOperation.
-	kernelMutexes                   *cmap.ConcurrentMap[string, *sync.Mutex]                                        // Mapping from Kernel ID to its associated RWMutex.
-	mainMutex                       sync.Mutex                                                                      // Synchronizes certain atomic operations related to internal state and book-keeping of the migration manager.
+	dynamicClient                   *dynamic.DynamicClient                                                                 // Own dynamic client, separate from the dynamic client belonging to the associated KubeClient.
+	kubeClientset                   *kubernetes.Clientset                                                                  // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
+	migrationOperations             *cmap.ConcurrentMap[string, domain.MigrationOperation]                                 // Mapping of migration operation ID to migration operation.
+	migrationOperationsByOldPodName *cmap.ConcurrentMap[string, domain.MigrationOperation]                                 // Mapping of old Pod names to their associated migration operation.
+	migrationOperationsByNewPodName *cmap.ConcurrentMap[string, domain.MigrationOperation]                                 // Mapping of new Pod names to their associated migration operation.
+	newPodWaiters                   *cmap.ConcurrentMap[string, chan domain.MigrationOperation]                            // Mapping of new Pod names to channels. Used by the Gateway Daemon to wait until we receive a pod-created notification during migrations.
+	activeMigrationOpsPerKenel      *cmap.ConcurrentMap[string, *orderedmap.OrderedMap[string, domain.MigrationOperation]] // Mapping of kernel ID to all active migration operations associated with that kernel. The inner maps are from Operation ID to domain.MigrationOperation.
+	kernelMutexes                   *cmap.ConcurrentMap[string, *sync.Mutex]                                               // Mapping from Kernel ID to its associated RWMutex.
+	mainMutex                       sync.Mutex                                                                             // Synchronizes certain atomic operations related to internal state and book-keeping of the migration manager.
 	log                             logger.Logger
 }
 
 func NewMigrationManager() *migrationManagerImpl {
-	migrationOperations := cmap.New[MigrationOperation]()
-	migrationOperationsByOldPodName := cmap.New[MigrationOperation]()
-	migrationOperationsByNewPodName := cmap.New[MigrationOperation]()
-	newPodWaiters := cmap.New[chan MigrationOperation]()
-	activeMigrationOpsPerKenel := cmap.New[*orderedmap.OrderedMap[string, MigrationOperation]]()
+	migrationOperations := cmap.New[domain.MigrationOperation]()
+	migrationOperationsByOldPodName := cmap.New[domain.MigrationOperation]()
+	migrationOperationsByNewPodName := cmap.New[domain.MigrationOperation]()
+	newPodWaiters := cmap.New[chan domain.MigrationOperation]()
+	activeMigrationOpsPerKenel := cmap.New[*orderedmap.OrderedMap[string, domain.MigrationOperation]]()
 	kernelMutexes := cmap.New[*sync.Mutex]()
 
 	m := &migrationManagerImpl{
@@ -366,7 +367,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 // Wait for us to receive a pod-created notification for the given Pod, which managed to start running
 // and register with us before we received the pod-created notification. Once received, return the
 // associated migration operation.
-// func (m *migrationManagerImpl) WaitForNewPodNotification(newPodName string) MigrationOperation {
+// func (m *migrationManagerImpl) WaitForNewPodNotification(newPodName string) domain.MigrationOperation {
 // 	m.mainMutex.Lock()
 
 // 	// First, try to get the migration operation, in case we received the notification since the time we made the call to WaitForNewPodNotification.
@@ -376,7 +377,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 // 		return op
 // 	}
 
-// 	_ = m.newPodWaiters.SetIfAbsent(newPodName, make(chan MigrationOperation))
+// 	_ = m.newPodWaiters.SetIfAbsent(newPodName, make(chan domain.MigrationOperation))
 // 	channel, _ := m.newPodWaiters.Get(newPodName)
 
 // 	m.mainMutex.Unlock()
@@ -425,7 +426,7 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	mutex.Lock()
 
 	var op_id string
-	var op MigrationOperation
+	var op domain.MigrationOperation
 	var validOpFound bool = false
 	for el := activeOps.Front(); el != nil; el = el.Next() {
 		op_id = el.Key
@@ -548,7 +549,7 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 
 // Called by CheckIfMigrationCompleted when a migration operation has completed successfully.
 // IMPORTANT: The main mutex MUST be held when this is called.
-func (m *migrationManagerImpl) migrationCompleted(op MigrationOperation) {
+func (m *migrationManagerImpl) migrationCompleted(op domain.MigrationOperation) {
 	m.log.Debug("Migration %s of replica %d of kernel %s completed successfully.", op.OperationID(), op.OriginalSMRNodeID(), op.KernelId())
 
 	op.KernelClient().AddOperationCompleted()
@@ -563,7 +564,7 @@ func (m *migrationManagerImpl) migrationCompleted(op MigrationOperation) {
 
 // Check if the given Migration Operation has finished. This is called twice: when the new replica registers with the Gateway,
 // and when the old Pod is deleted. Whichever of those two events happens last will be the one that designates the operation has having completed.
-func (m *migrationManagerImpl) CheckIfMigrationCompleted(op MigrationOperation) bool {
+func (m *migrationManagerImpl) CheckIfMigrationCompleted(op domain.MigrationOperation) bool {
 	m.mainMutex.Lock()
 	defer m.mainMutex.Unlock()
 	if op.Completed() {
@@ -574,12 +575,12 @@ func (m *migrationManagerImpl) CheckIfMigrationCompleted(op MigrationOperation) 
 	return false
 }
 
-func (m *migrationManagerImpl) GetMigrationOperationByNewPod(newPodName string) (MigrationOperation, bool) {
+func (m *migrationManagerImpl) GetMigrationOperationByNewPod(newPodName string) (domain.MigrationOperation, bool) {
 	return m.migrationOperationsByNewPodName.Get(newPodName)
 }
 
 // Return the migration operation associated with the given Kernel ID and SMR Node ID of the new replica.
-func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (MigrationOperation, bool) {
+func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (domain.MigrationOperation, bool) {
 	m.mainMutex.Lock()
 	defer m.mainMutex.Unlock()
 
@@ -588,7 +589,7 @@ func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndNewReplicaId(ke
 		return nil, false
 	}
 
-	var op MigrationOperation
+	var op domain.MigrationOperation
 	for el := activeOps.Front(); el != nil; el = el.Next() {
 		op = el.Value
 
@@ -604,11 +605,11 @@ func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndNewReplicaId(ke
 // Returns an error if the operation is already registered with the given kernel.
 //
 // Note: this MUST be called with the main mutex held!
-func (m *migrationManagerImpl) storeActiveMigrationOperationForKernel(kernelId string, op MigrationOperation) error {
+func (m *migrationManagerImpl) storeActiveMigrationOperationForKernel(kernelId string, op domain.MigrationOperation) error {
 	ops_ptr, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
 
 	if !ok {
-		ops_ptr = orderedmap.NewOrderedMap[string, MigrationOperation]()
+		ops_ptr = orderedmap.NewOrderedMap[string, domain.MigrationOperation]()
 	}
 
 	value_was_new := ops_ptr.Set(op.OperationID(), op)
@@ -621,11 +622,11 @@ func (m *migrationManagerImpl) storeActiveMigrationOperationForKernel(kernelId s
 	return nil
 }
 
-func (m *migrationManagerImpl) removeActiveMigrationOperationForKernel(kernelId string, op MigrationOperation) error {
+func (m *migrationManagerImpl) removeActiveMigrationOperationForKernel(kernelId string, op domain.MigrationOperation) error {
 	ops_ptr, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
 
 	if !ok {
-		ops_ptr = orderedmap.NewOrderedMap[string, MigrationOperation]()
+		ops_ptr = orderedmap.NewOrderedMap[string, domain.MigrationOperation]()
 	}
 
 	didDelete := ops_ptr.Delete(op.OperationID())

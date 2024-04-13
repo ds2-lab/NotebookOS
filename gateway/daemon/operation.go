@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
+	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 )
 
 type addReplicaOperationImpl struct {
@@ -27,7 +28,7 @@ type addReplicaOperationImpl struct {
 	replicaJoinedSmrChannel  chan struct{} // Used to notify that the new replica has joined its SMR cluster.
 }
 
-func NewAddReplicaOperation(client client.DistributedKernelClient, spec *gateway.KernelReplicaSpec, dataDirectory string) AddReplicaOperation {
+func NewAddReplicaOperation(client client.DistributedKernelClient, spec *gateway.KernelReplicaSpec, dataDirectory string) domain.AddReplicaOperation {
 	op := &addReplicaOperationImpl{
 		id:                       uuid.New().String(),
 		client:                   client,
@@ -186,7 +187,7 @@ type addReplicaWaitOptionsImpl struct {
 	reuseSameNodeId bool
 }
 
-func NewAddReplicaWaitOptions(waitRegistered bool, waitSmrJoined bool, reuseSameNodeId bool) AddReplicaWaitOptions {
+func NewAddReplicaWaitOptions(waitRegistered bool, waitSmrJoined bool, reuseSameNodeId bool) domain.AddReplicaWaitOptions {
 	return &addReplicaWaitOptionsImpl{
 		waitRegistered:  waitRegistered,
 		waitSmrJoined:   waitSmrJoined,

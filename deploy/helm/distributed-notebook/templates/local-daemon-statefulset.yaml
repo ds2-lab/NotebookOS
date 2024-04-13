@@ -100,7 +100,7 @@ spec:
       containers:
       - name: local-daemon
         image: {{ .Values.local_daemon.image }}:{{ .Values.local_daemon.image_tag }}
-        command: ["./scheduler"]
+        command: ["./local_daemon"]
         args: ["-yaml", "{{ .Values.common.config_file_dir }}/daemon.yml", "-debug", "-v"]
         resources: {}
         serviceAccountName: local-daemon-service-account

@@ -35,6 +35,10 @@ gateway:
   image_tag: latest
   distributed_cluster_service_port: 8079
 
+scheduler_extender:
+  image: scusemua/scheduler_extender
+  image_tag: latest
+
 notebook_server:
   port: 8888
   image: scusemua/jupyter

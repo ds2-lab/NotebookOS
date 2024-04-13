@@ -13,8 +13,8 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/mock_client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
-	"github.com/zhangjyr/distributed-notebook/scheduler/device"
-	"github.com/zhangjyr/distributed-notebook/scheduler/mock_device"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/device"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/mock_device"
 	"go.uber.org/mock/gomock"
 )
 

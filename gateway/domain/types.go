@@ -1,7 +1,8 @@
-package daemon
+package domain
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/core"
@@ -11,6 +12,25 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 )
+
+type ClusterDaemonOptions struct {
+	LocalDaemonServiceName        string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
+	LocalDaemonServicePort        int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
+	GlobalDaemonServiceName       string `name:"global-daemon-service-name" description:"Name of the Kubernetes service that manages the global networking of local daemons."`
+	GlobalDaemonServicePort       int    `name:"global-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
+	SMRPort                       int    `name:"smr-port" description:"Port used by the state machine replication (SMR) protocol."`
+	KubeNamespace                 string `name:"kube-namespace" description:"Kubernetes namespace that all of these components reside in."`
+	UseStatefulSet                bool   `name:"use-stateful-set" description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
+	HDFSNameNodeEndpoint          string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
+	SchedulingPolicy              string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
+	NotebookImageName             string `name:"notebook-image-name" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
+	NotebookImageTag              string `name:"notebook-image-tag" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`   // Tag to use for the jupyter notebook/kernel image
+	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
+}
+
+func (o ClusterDaemonOptions) String() string {
+	return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HDFSNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HDFSNameNodeEndpoint)
+}
 
 type Options struct {
 	config.LoggerOptions
@@ -29,12 +49,13 @@ type ClusterGateway interface {
 	gateway.ClusterGatewayServer
 
 	SetClusterOptions(*core.CoreOptions)
+	ConnectionOptions() *jupyter.ConnectionInfo
 }
 
 // This client is used by the Gateway to interact with Kubernetes.
 type KubeClient interface {
-	KubeClientset() *kubernetes.Clientset    // Get the Kubernetes client.
-	clusterGatewayImpl() *clusterGatewayImpl // Get the associated Gateway daemon.
+	KubeClientset() *kubernetes.Clientset // Get the Kubernetes client.
+	ClusterGateway() ClusterGateway       // Get the associated Gateway daemon.
 
 	// Create a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
 	DeployDistributedKernels(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
@@ -158,9 +179,4 @@ type AddReplicaWaitOptions interface {
 	WaitRegistered() bool  // If true, wait for the replica registration to occur.
 	WaitSmrJoined() bool   // If true, wait for the SMR joined notification.
 	ReuseSameNodeId() bool // If true, reuse the same SMR node ID for the new node.
-}
-
-type SchedulerExtension interface {
-	HandlePredicate(predicate Predicate) httprouter.Handle
-	PrioritizeRoute(prioritize Prioritize) httprouter.Handle
 }

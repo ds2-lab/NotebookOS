@@ -22,6 +22,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"
 	"github.com/zhangjyr/distributed-notebook/gateway/daemon"
+	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 )
 
 const (
@@ -29,7 +30,7 @@ const (
 )
 
 var (
-	options daemon.Options = daemon.Options{}
+	options domain.Options = domain.Options{}
 	logger                 = config.GetLogger("")
 	sig                    = make(chan os.Signal, 1)
 )
@@ -92,7 +93,7 @@ func main() {
 	// logger.Info("Workload Driver gRPC server listening at %v", lisDriver.Addr())
 
 	// Initialize daemon
-	srv := daemon.New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv daemon.ClusterGateway) {
+	srv := daemon.New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv domain.ClusterGateway) {
 		srv.SetClusterOptions(&options.CoreOptions)
 	})
 

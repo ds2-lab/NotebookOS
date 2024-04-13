@@ -29,6 +29,7 @@ import (
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 )
 
 const (
@@ -70,26 +71,7 @@ var (
 	ErrDaemonNotFoundOnNode      = errors.New("could not find a local daemon on the specified kubernetes node")
 )
 
-type ClusterDaemonOptions struct {
-	LocalDaemonServiceName        string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
-	LocalDaemonServicePort        int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
-	GlobalDaemonServiceName       string `name:"global-daemon-service-name" description:"Name of the Kubernetes service that manages the global networking of local daemons."`
-	GlobalDaemonServicePort       int    `name:"global-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
-	SMRPort                       int    `name:"smr-port" description:"Port used by the state machine replication (SMR) protocol."`
-	KubeNamespace                 string `name:"kube-namespace" description:"Kubernetes namespace that all of these components reside in."`
-	UseStatefulSet                bool   `name:"use-stateful-set" description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
-	HDFSNameNodeEndpoint          string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
-	SchedulingPolicy              string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
-	NotebookImageName             string `name:"notebook-image-name" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
-	NotebookImageTag              string `name:"notebook-image-tag" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`   // Tag to use for the jupyter notebook/kernel image
-	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
-}
-
-func (o ClusterDaemonOptions) String() string {
-	return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HDFSNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HDFSNameNodeEndpoint)
-}
-
-type GatewayDaemonConfig func(ClusterGateway)
+type GatewayDaemonConfig func(domain.ClusterGateway)
 
 type FailureHandler func(c client.DistributedKernelClient) error
 
@@ -158,20 +140,20 @@ type clusterGatewayImpl struct {
 	smrPort int
 
 	// Mapping from AddReplicaOperation ID to AddReplicaOperation.
-	addReplicaOperations *hashmap.CornelkMap[string, AddReplicaOperation]
+	addReplicaOperations *hashmap.CornelkMap[string, domain.AddReplicaOperation]
 
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
-	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, AddReplicaOperation]]
+	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, domain.AddReplicaOperation]]
 
 	// Mapping from new pod name to AddReplicaOperation.
-	addReplicaOperationsByNewPodName *hashmap.CornelkMap[string, AddReplicaOperation]
+	addReplicaOperationsByNewPodName *hashmap.CornelkMap[string, domain.AddReplicaOperation]
 
 	// Mapping from NewPodName to chan string.
 	// In theory, it's possible to receive a PodCreated notifcation from Kubernetes AFTER the replica within the new Pod
 	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
 	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
-	addReplicaNewPodNotifications *hashmap.CornelkMap[string, chan AddReplicaOperation]
+	addReplicaNewPodNotifications *hashmap.CornelkMap[string, chan domain.AddReplicaOperation]
 
 	// Used to wait for an explicit notification that a particular node was successfully removed from its SMR cluster.
 	// smrNodeRemovedNotifications *hashmap.CornelkMap[string, chan struct{}]
@@ -180,10 +162,10 @@ type clusterGatewayImpl struct {
 	hdfsNameNodeEndpoint string
 
 	// Kubernetes client.
-	kubeClient KubeClient
+	kubeClient domain.KubeClient
 }
 
-func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *ClusterDaemonOptions, configs ...GatewayDaemonConfig) *clusterGatewayImpl {
+func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *clusterGatewayImpl {
 	daemon := &clusterGatewayImpl{
 		id:                               uuid.New().String(),
 		connectionOptions:                opts,
@@ -196,10 +178,10 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *ClusterDaemonOption
 		waitGroups:                       hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
 		cleaned:                          make(chan struct{}),
 		smrPort:                          clusterDaemonOptions.SMRPort,
-		addReplicaOperations:             hashmap.NewCornelkMap[string, AddReplicaOperation](64),
-		activeAddReplicaOpsPerKernel:     hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, AddReplicaOperation]](64),
-		addReplicaOperationsByNewPodName: hashmap.NewCornelkMap[string, AddReplicaOperation](64),
-		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan AddReplicaOperation](64),
+		addReplicaOperations:             hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
+		activeAddReplicaOpsPerKernel:     hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, domain.AddReplicaOperation]](64),
+		addReplicaOperationsByNewPodName: hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
+		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan domain.AddReplicaOperation](64),
 		activeExecutions:                 hashmap.NewCornelkMap[string, *client.ActiveExecution](64),
 		hdfsNameNodeEndpoint:             clusterDaemonOptions.HDFSNameNodeEndpoint,
 	}
@@ -401,6 +383,10 @@ func (wg *registrationWaitGroups) Wait() {
 
 func (d *clusterGatewayImpl) SetClusterOptions(opts *core.CoreOptions) {
 	d.ClusterOptions = opts
+}
+
+func (d *clusterGatewayImpl) ConnectionOptions() *jupyter.ConnectionInfo {
+	return d.connectionOptions
 }
 
 // Listen listens on the TCP network address addr and returns a net.Listener that intercepts incoming connections.
@@ -797,7 +783,7 @@ func (d *clusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 	// This race would be simplified if we added the constraint that there may be only one active migration per kernel at any given time,
 	// but I've not yet enforced this.
 	if !ok {
-		channel := make(chan AddReplicaOperation, 1)
+		channel := make(chan domain.AddReplicaOperation, 1)
 		d.addReplicaNewPodNotifications.Store(in.PodName, channel)
 
 		d.Unlock()
@@ -1499,7 +1485,7 @@ func (d *clusterGatewayImpl) headerFromFrames(frames [][]byte) (*jupyter.Message
 }
 
 // Return the add-replica operation associated with the given Kernel ID and SMR Node ID of the new replica.
-func (d *clusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (AddReplicaOperation, bool) {
+func (d *clusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (domain.AddReplicaOperation, bool) {
 	d.addReplicaMutex.Lock()
 	defer d.addReplicaMutex.Unlock()
 
@@ -1508,7 +1494,7 @@ func (d *clusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 		return nil, false
 	}
 
-	var op AddReplicaOperation
+	var op domain.AddReplicaOperation
 	for el := activeOps.Front(); el != nil; el = el.Next() {
 		op = el.Value
 
@@ -1627,7 +1613,7 @@ func (d *clusterGatewayImpl) cleanUp() {
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in HDFS.
-func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts AddReplicaWaitOptions, dataDirectory string) (AddReplicaOperation, error) {
+func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string) (domain.AddReplicaOperation, error) {
 	var kernelId string = in.KernelId
 	var persistentId string = in.PersistentId
 
@@ -1658,7 +1644,7 @@ func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts AddReplica
 	d.addReplicaOperations.Store(addReplicaOp.OperationID(), addReplicaOp)
 	ops, ok := d.activeAddReplicaOpsPerKernel.Load(kernelId)
 	if !ok {
-		ops = orderedmap.NewOrderedMap[string, AddReplicaOperation]()
+		ops = orderedmap.NewOrderedMap[string, domain.AddReplicaOperation]()
 	}
 	ops.Set(addReplicaOp.OperationID(), addReplicaOp)
 	d.activeAddReplicaOpsPerKernel.Store(kernelId, ops)

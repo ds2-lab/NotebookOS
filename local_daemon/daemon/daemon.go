@@ -30,8 +30,8 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 
-	"github.com/zhangjyr/distributed-notebook/scheduler/device"
-	"github.com/zhangjyr/distributed-notebook/scheduler/invoker"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/device"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/invoker"
 )
 
 const (
