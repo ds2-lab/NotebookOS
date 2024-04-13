@@ -18,11 +18,11 @@ import (
 
 var (
 	errRestoreRequired        = errors.New("restore required")
-	errExpectingHostScheduler = errors.New("expecting HostScheduler")
-	errNodeNameUnspecified    = errors.New("no kubernetes node name returned for HostScheduler")
+	errExpectingHostScheduler = errors.New("expecting LocalDaemonClient")
+	errNodeNameUnspecified    = errors.New("no kubernetes node name returned for LocalDaemonClient")
 )
 
-type HostScheduler struct {
+type LocalDaemonClient struct {
 	gateway.LocalGatewayClient
 	meta hashmap.BaseHashMap[string, interface{}]
 
@@ -43,9 +43,9 @@ type HostScheduler struct {
 // This will return an errRestoreRequired error if the IDs don't match.
 // This will return an errNodeNameUnspecified error if there is no NodeName returned by the scheduler.
 // If both these errors occur, then only a errNodeNameUnspecified will be returned.
-func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval time.Duration) (*HostScheduler, error) {
+func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval time.Duration) (*LocalDaemonClient, error) {
 	id := uuid.New().String()
-	scheduler := &HostScheduler{
+	scheduler := &LocalDaemonClient{
 		LocalGatewayClient:     gateway.NewLocalGatewayClient(conn),
 		addr:                   addr,
 		conn:                   conn,
@@ -74,7 +74,7 @@ func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval
 	return scheduler, err
 }
 
-func (s *HostScheduler) pollForGpuInfo() {
+func (s *LocalDaemonClient) pollForGpuInfo() {
 	for {
 		resp, err := s.LocalGatewayClient.GetActualGpuInfo(context.Background(), &gateway.Void{})
 		if err != nil {
@@ -89,24 +89,24 @@ func (s *HostScheduler) pollForGpuInfo() {
 	}
 }
 
-func (s *HostScheduler) ID() string {
+func (s *LocalDaemonClient) ID() string {
 	return s.id
 }
 
-func (s *HostScheduler) NodeName() string {
+func (s *LocalDaemonClient) NodeName() string {
 	return s.nodeName
 }
 
-func (s *HostScheduler) Addr() string {
+func (s *LocalDaemonClient) Addr() string {
 	return s.addr
 }
 
-func (s *HostScheduler) String() string {
-	return fmt.Sprintf("HostScheduler[Addr: %s, ID: %s]", s.addr, s.id)
+func (s *LocalDaemonClient) String() string {
+	return fmt.Sprintf("LocalDaemonClient[Addr: %s, ID: %s]", s.addr, s.id)
 }
 
-func (s *HostScheduler) Restore(scheduler core.Host) error {
-	restored, ok := scheduler.(*HostScheduler)
+func (s *LocalDaemonClient) Restore(scheduler core.Host) error {
+	restored, ok := scheduler.(*LocalDaemonClient)
 	if !ok {
 		return errExpectingHostScheduler
 	}
@@ -116,17 +116,17 @@ func (s *HostScheduler) Restore(scheduler core.Host) error {
 }
 
 // Stats returns the statistics of the host.
-func (s *HostScheduler) Stats() core.HostStats {
+func (s *LocalDaemonClient) Stats() core.HostStats {
 	return nil
 }
 
 // SetMeta sets the meta data of the host.
-func (s *HostScheduler) SetMeta(key core.HostMetaKey, value interface{}) {
+func (s *LocalDaemonClient) SetMeta(key core.HostMetaKey, value interface{}) {
 	s.meta.Store(string(key), value)
 }
 
 // GetMeta return the meta data of the host.
-func (s *HostScheduler) GetMeta(key core.HostMetaKey) interface{} {
+func (s *LocalDaemonClient) GetMeta(key core.HostMetaKey) interface{} {
 	if value, ok := s.meta.Load(string(key)); ok {
 		return value
 	}

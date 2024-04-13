@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 
+	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
@@ -10,10 +12,29 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+type Options struct {
+	config.LoggerOptions
+	jupyter.ConnectionInfo
+	core.CoreOptions
+	ClusterDaemonOptions
+
+	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
+	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
+	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
+	Consuladdr      string `name:"consul" description:"Consul agent address."`
+	// DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
+}
+
+type ClusterGateway interface {
+	gateway.ClusterGatewayServer
+
+	SetClusterOptions(*core.CoreOptions)
+}
+
 // This client is used by the Gateway to interact with Kubernetes.
 type KubeClient interface {
-	KubeClientset() *kubernetes.Clientset // Get the Kubernetes client.
-	GatewayDaemon() *GatewayDaemon        // Get the associated Gateway daemon.
+	KubeClientset() *kubernetes.Clientset    // Get the Kubernetes client.
+	clusterGatewayImpl() *clusterGatewayImpl // Get the associated Gateway daemon.
 
 	// Create a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
 	DeployDistributedKernels(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
@@ -137,4 +158,9 @@ type AddReplicaWaitOptions interface {
 	WaitRegistered() bool  // If true, wait for the replica registration to occur.
 	WaitSmrJoined() bool   // If true, wait for the SMR joined notification.
 	ReuseSameNodeId() bool // If true, reuse the same SMR node ID for the new node.
+}
+
+type SchedulerExtension interface {
+	HandlePredicate(predicate Predicate) httprouter.Handle
+	PrioritizeRoute(prioritize Prioritize) httprouter.Handle
 }

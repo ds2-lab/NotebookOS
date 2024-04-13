@@ -19,9 +19,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/zhangjyr/distributed-notebook/common/consul"
-	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"
 	"github.com/zhangjyr/distributed-notebook/gateway/daemon"
 )
@@ -31,23 +29,10 @@ const (
 )
 
 var (
-	options Options = Options{}
-	logger          = config.GetLogger("")
-	sig             = make(chan os.Signal, 1)
+	options daemon.Options = daemon.Options{}
+	logger                 = config.GetLogger("")
+	sig                    = make(chan os.Signal, 1)
 )
-
-type Options struct {
-	config.LoggerOptions
-	types.ConnectionInfo
-	core.CoreOptions
-	daemon.ClusterDaemonOptions
-
-	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
-	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
-	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
-	Consuladdr      string `name:"consul" description:"Consul agent address."`
-	// DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
-}
 
 func init() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
@@ -107,8 +92,8 @@ func main() {
 	// logger.Info("Workload Driver gRPC server listening at %v", lisDriver.Addr())
 
 	// Initialize daemon
-	srv := daemon.New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv *daemon.GatewayDaemon) {
-		srv.ClusterOptions = options.CoreOptions
+	srv := daemon.New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv daemon.ClusterGateway) {
+		srv.SetClusterOptions(&options.CoreOptions)
 	})
 
 	distributedCluster := daemon.NewDistributedCluster(srv, &options.ClusterDaemonOptions)

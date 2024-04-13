@@ -319,7 +319,7 @@ message KernelRegistrationNotification {
   KernelConnectionInfo connectionInfo = 1; // Connection information of the kernel.
   string kernelId = 2; // ID of the Kernel.
   string sessionId = 3; // ID of the associated Session.
-  string hostId = 4; // The ID of the HostScheduler associated with this Host. It's basically the ID of the LocalDaemon.
+  string hostId = 4; // The ID of the LocalDaemonClient associated with this Host. It's basically the ID of the LocalDaemon.
   int32 replicaId = 5; // The SMR replica ID.
   string kernelIp = 6; // The hostname of the kernel itself (not its LocalDaemon).
   string podName = 7; // The name of the Pod hosting the kernel container.

@@ -13,9 +13,9 @@ var (
 	testMetaKey core.HostMetaKey = "test"
 )
 
-func dummyScheduler(addr string) (*HostScheduler, error) {
+func dummyScheduler(addr string) (*LocalDaemonClient, error) {
 	id := uuid.New().String()
-	scheduler := &HostScheduler{
+	scheduler := &LocalDaemonClient{
 		LocalGatewayClient: gateway.NewLocalGatewayClient(nil),
 		addr:               addr,
 		conn:               nil,
@@ -26,7 +26,7 @@ func dummyScheduler(addr string) (*HostScheduler, error) {
 	return scheduler, nil
 }
 
-var _ = Describe("HostScheduler", func() {
+var _ = Describe("Local Daemon Client Tests", func() {
 	It("should meta be correctly set and load.", func() {
 		scheduler, _ := dummyScheduler("test")
 		scheduler.SetMeta(testMetaKey, "test")

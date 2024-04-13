@@ -60,7 +60,7 @@ var (
 type BasicKubeClient struct {
 	kubeClientset          *kubernetes.Clientset                      // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
 	dynamicClient          *dynamic.DynamicClient                     // Dynamic client for working with unstructured components. We use this for the custom CloneSet.
-	gatewayDaemon          *GatewayDaemon                             // Associated Gateway daemon.
+	gatewayDaemon          *clusterGatewayImpl                        // Associated Gateway daemon.
 	configDir              string                                     // Where to write config files. This is also where they'll be found on the kernel nodes.
 	ipythonConfigPath      string                                     // Where the IPython config is located.
 	nodeLocalMountPoint    string                                     // The mount of the shared PVC for all kernel nodes.
@@ -80,7 +80,7 @@ type BasicKubeClient struct {
 	log                    logger.Logger
 }
 
-func NewKubeClient(gatewayDaemon *GatewayDaemon, clusterDaemonOptions *ClusterDaemonOptions) *BasicKubeClient {
+func NewKubeClient(gatewayDaemon *clusterGatewayImpl, clusterDaemonOptions *ClusterDaemonOptions) *BasicKubeClient {
 	scaleUpChannels := cmap.New[[]chan string]()
 	scaleDownChannels := cmap.New[chan struct{}]()
 
@@ -332,7 +332,7 @@ func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
 // }
 
 // Get the associated Gateway daemon.
-func (c *BasicKubeClient) GatewayDaemon() *GatewayDaemon {
+func (c *BasicKubeClient) clusterGatewayImpl() *clusterGatewayImpl {
 	return c.gatewayDaemon
 }
 

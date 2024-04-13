@@ -1822,7 +1822,7 @@ type KernelRegistrationNotification struct {
 	ConnectionInfo *KernelConnectionInfo `protobuf:"bytes,1,opt,name=connectionInfo,proto3" json:"connectionInfo,omitempty"` // Connection information of the kernel.
 	KernelId       string                `protobuf:"bytes,2,opt,name=kernelId,proto3" json:"kernelId,omitempty"`             // ID of the Kernel.
 	SessionId      string                `protobuf:"bytes,3,opt,name=sessionId,proto3" json:"sessionId,omitempty"`           // ID of the associated Session.
-	HostId         string                `protobuf:"bytes,4,opt,name=hostId,proto3" json:"hostId,omitempty"`                 // The ID of the HostScheduler associated with this Host. It's basically the ID of the LocalDaemon.
+	HostId         string                `protobuf:"bytes,4,opt,name=hostId,proto3" json:"hostId,omitempty"`                 // The ID of the LocalDaemonClient associated with this Host. It's basically the ID of the LocalDaemon.
 	ReplicaId      int32                 `protobuf:"varint,5,opt,name=replicaId,proto3" json:"replicaId,omitempty"`          // The SMR replica ID.
 	KernelIp       string                `protobuf:"bytes,6,opt,name=kernelIp,proto3" json:"kernelIp,omitempty"`             // The hostname of the kernel itself (not its LocalDaemon).
 	PodName        string                `protobuf:"bytes,7,opt,name=podName,proto3" json:"podName,omitempty"`               // The name of the Pod hosting the kernel container.

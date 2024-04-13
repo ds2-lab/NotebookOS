@@ -17,7 +17,7 @@ import (
 type DistributedCluster struct {
 	gateway.UnimplementedDistributedClusterServer
 
-	gatewayDaemon *GatewayDaemon
+	gatewayDaemon *clusterGatewayImpl
 
 	clusterDashboard gateway.ClusterDashboardClient
 
@@ -27,7 +27,7 @@ type DistributedCluster struct {
 	log logger.Logger
 }
 
-func NewDistributedCluster(gatewayDaemon *GatewayDaemon, opts *ClusterDaemonOptions) *DistributedCluster {
+func NewDistributedCluster(gatewayDaemon *clusterGatewayImpl, opts *ClusterDaemonOptions) *DistributedCluster {
 	dc := &DistributedCluster{
 		gatewayDaemon: gatewayDaemon,
 	}
@@ -61,7 +61,7 @@ func (dc *DistributedCluster) InducePanic(ctx context.Context, in *gateway.Void)
 
 // Listen listens on the TCP network address addr and returns a net.Listener that intercepts incoming connections.
 func (dc *DistributedCluster) Listen(transport string, addr string) (net.Listener, error) {
-	dc.log.Debug("GatewayDaemon is listening on transport %s, addr %s.", transport, addr)
+	dc.log.Debug("clusterGatewayImpl is listening on transport %s, addr %s.", transport, addr)
 
 	// Initialize listener
 	lis, err := net.Listen(transport, addr)

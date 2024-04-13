@@ -105,7 +105,7 @@ type SchedulerDaemon struct {
 	schedulingPolicy string
 	gateway.UnimplementedLocalGatewayServer
 	router    *router.Router
-	scheduler core.HostScheduler
+	scheduler core.LocalDaemonClient
 
 	// Options
 	connectionOptions      *jupyter.ConnectionInfo
