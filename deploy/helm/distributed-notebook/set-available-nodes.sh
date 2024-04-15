@@ -17,11 +17,11 @@ do
         i=$((i + 1))
         echo "Adding taints to node $node"
         kubectl taint nodes $node key1=value1:NoSchedule --overwrite
-        kubectl taint nodes $node key1=value1:NoExecute --overwrite
+        kubectl taint nodes $node key2=value2:NoExecute --overwrite
     else
         i=$((i + 1))
         echo "Removing taints from node $node"
         kubectl taint nodes $node key1=value1:NoSchedule-
-        kubectl taint nodes $node key1=value1:NoExecute-
+        kubectl taint nodes $node key2=value2:NoExecute-
     fi
 done 

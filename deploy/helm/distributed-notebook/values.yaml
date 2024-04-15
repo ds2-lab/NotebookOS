@@ -38,6 +38,9 @@ gateway:
 scheduler_extender:
   image: scusemua/scheduler_extender
   image_tag: latest
+  port: 80
+  config_map_name: scheduler-extender-configuration
+  config_file_name: config.yaml
 
 notebook_server:
   port: 8888

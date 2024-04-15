@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -12,12 +14,13 @@ import (
 )
 
 const (
-	apiPrefix    = "/scheduler"
+	// apiPrefix    = "/scheduler"
 	filterRoute  = "/filter"
 	versionRoute = "/version"
 )
 
 var (
+	options = Options{}
 	version string // injected via ldflags at build time
 )
 
@@ -26,12 +29,14 @@ type schedulerExtensionImpl struct {
 	log logger.Logger
 
 	engine *gin.Engine
+	port   int
 }
 
-func NewSchedulerExtension( /* gateway domain.ClusterGateway */ ) SchedulerExtension {
+func NewSchedulerExtension(opts *Options /* gateway domain.ClusterGateway */) SchedulerExtension {
 	schedulerExtension := &schedulerExtensionImpl{
 		// gateway: gateway,
 		engine: gin.New(),
+		port:   opts.Port,
 	}
 	config.InitLogger(&schedulerExtension.log, schedulerExtension)
 
@@ -46,15 +51,10 @@ func (s *schedulerExtensionImpl) setupRoutes() {
 	s.engine.Use(gin.Logger())
 	s.engine.Use(cors.Default())
 
-	apiGroup := s.engine.Group(apiPrefix)
-	{
-		apiGroup.POST(filterRoute, s.Filter)
-
-		apiGroup.GET(versionRoute, s.Version)
-	}
+	s.engine.POST(filterRoute, s.Filter)
+	s.engine.GET(versionRoute, s.Version)
 }
 func (s *schedulerExtensionImpl) Version(ctx *gin.Context) {
-	s.log.Debug("Returning version: %s", version)
 	fmt.Fprint(ctx.Writer, fmt.Sprint(version))
 }
 
@@ -85,14 +85,22 @@ func (s *schedulerExtensionImpl) Filter(ctx *gin.Context) {
 }
 
 func (s *schedulerExtensionImpl) Serve() {
-	s.log.Debug("Scheduler Extender is starting to listen on port 80")
-	if err := http.ListenAndServe(":80", s.engine); err != nil {
+	s.log.Debug("Scheduler Extender v%s is starting to listen on port %d", version, s.port)
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", s.port), s.engine); err != nil {
 		s.log.Error("HTTP Server failed to listen on localhost:80 because %v", err)
 		panic(err)
 	}
 }
 
 func main() {
-	schedulerExtension := NewSchedulerExtension()
+	flags, err := config.ValidateOptions(&options)
+	if err == config.ErrPrintUsage {
+		flags.PrintDefaults()
+		os.Exit(0)
+	} else if err != nil {
+		log.Fatal(err)
+	}
+
+	schedulerExtension := NewSchedulerExtension(&options)
 	schedulerExtension.Serve()
 }

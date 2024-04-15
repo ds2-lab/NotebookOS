@@ -6,4 +6,6 @@ ENV LANG=C.UTF-8 \
 
 ADD scheduler_extender scheduler_extender
 
-ENTRYPOINT ["./scheduler_extender"]
+RUN ["chmod", "+x", "/scheduler_extender"]
+
+ENTRYPOINT ["./scheduler_extender", "scheduler-extender-configuration/config.yaml"]

@@ -72,7 +72,7 @@ podman network inspect -f '{{range .Subnets}}{{if eq (len .Subnet.IP) 4}}{{.Subn
 
 The output will contain a cidr such as 172.18.0.0/16. Modify the `deploy/helm/distributed-notebook/metallb-config.yaml` file accordingly, then execute:
 ``` sh
-kubectl apply -f deploy/helm/distributed-notebook/metallb-config.yaml
+kubectl apply -f distributed-notebook/metallb-config.yaml
 ```
 
 ### Metrics Server
@@ -84,7 +84,7 @@ Next, we install the `metrics-server`. With kind, we either need to enable `--ku
 For now, we will use the `--kubelet-insecure-tls` solution with the included `.yaml` file (found at `deploy/helm/distributed-notebook/metrics-server.yaml`):
 
 ```sh
-kubectl apply -f deploy/helm/distributed-notebook/depend/metrics-server.yaml
+kubectl apply -f distributed-notebook/depend/metrics-server.yaml
 ```
 
 ### OpenKruise and the CloneSet Resource
