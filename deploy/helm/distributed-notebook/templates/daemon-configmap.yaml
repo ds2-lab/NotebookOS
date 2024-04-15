@@ -37,3 +37,4 @@ data:
     notebook-image-name: {{ .Values.notebook_server.image }}
     notebook-image-tag: {{ .Values.notebook_server.image_tag }}
     distributed-cluster-service-port: {{ .Values.gateway.distributed_cluster_service_port }}
+    scheduler-http-port: {{ .Values.gateway.scheduler_http_port }}

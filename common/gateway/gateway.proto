@@ -7,6 +7,7 @@ option java_outer_classname = "GatewayProto";
 
 package gateway;
 
+// gRPC service provided by the ClusterGateway and "used" by the Local Daemons.
 service ClusterGateway {
   // ID returns the cluster gateway id and can be used to test connectivity.
   rpc ID(Void) returns (ProvisionerId) {}
@@ -30,7 +31,7 @@ service ClusterGateway {
   rpc SmrNodeAdded(ReplicaInfo) returns (Void) {}
 }
 
-// gRPC Service used by the Dashboard. 
+// gRPC service provided by the Cluster Gateway and "used" by the Dashboard. 
 service DistributedCluster {
   // Used for debugging/testing. Causes a Panic.
   rpc InducePanic(Void) returns (Void) {}

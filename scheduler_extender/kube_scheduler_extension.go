@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +14,12 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	scheduler "k8s.io/kube-scheduler/extender/v1"
 )
+
+// TODO(Ben):
+// We can avoid granting admin permissions to the entire Gateway Pod via:
+// - https://github.com/kubernetes/kubernetes/issues/66020#issuecomment-880150743
+// - https://github.com/googleforgames/agones/blob/e048859c6ff3da0d4b299f915113993aa49c7865/pkg/gameservers/controller.go#L555
+// - https://github.com/googleforgames/agones/blob/e048859c6ff3da0d4b299f915113993aa49c7865/pkg/apis/agones/v1/gameserver.go#L682
 
 const (
 	// apiPrefix    = "/scheduler"
@@ -28,19 +36,24 @@ type schedulerExtensionImpl struct {
 	// gateway domain.ClusterGateway
 	log logger.Logger
 
-	engine *gin.Engine
-	port   int
+	engine             *gin.Engine
+	port               int    // Port that we should listen on.
+	clusterGatewayAddr string // Address of the HTTP kubernetes scheduler service exposed by the Cluster Gateway.
+
+	filterAddr string // Endpoint to forward/proxy filter requests to.
 }
 
 func NewSchedulerExtension(opts *Options /* gateway domain.ClusterGateway */) SchedulerExtension {
 	schedulerExtension := &schedulerExtensionImpl{
 		// gateway: gateway,
-		engine: gin.New(),
-		port:   opts.Port,
+		engine:             gin.New(),
+		port:               opts.Port,
+		clusterGatewayAddr: fmt.Sprintf("http://127.0.0.1:%d", opts.ClusterGatewayPort),
 	}
 	config.InitLogger(&schedulerExtension.log, schedulerExtension)
 
 	schedulerExtension.setupRoutes()
+	schedulerExtension.filterAddr = fmt.Sprintf("%s/filter", schedulerExtension.clusterGatewayAddr)
 
 	return schedulerExtension
 }
@@ -54,46 +67,76 @@ func (s *schedulerExtensionImpl) setupRoutes() {
 	s.engine.POST(filterRoute, s.Filter)
 	s.engine.GET(versionRoute, s.Version)
 }
+
 func (s *schedulerExtensionImpl) Version(ctx *gin.Context) {
 	fmt.Fprint(ctx.Writer, fmt.Sprint(version))
 }
 
+// Forward a request to the Cluster Gateway for processing.
+func (s *schedulerExtensionImpl) proxyFilterRequest(req *http.Request) (*http.Response, error) {
+	proxyReq, err := http.NewRequest(req.Method, s.filterAddr, req.Body)
+	if err != nil {
+		s.log.Error("Failed to create proxy request because: %v", err)
+		return nil, err
+	}
+
+	proxyReq.Header.Set("Host", req.Host)
+	proxyReq.Header.Set("X-Forwarded-For", req.RemoteAddr)
+
+	for header, values := range req.Header {
+		for _, value := range values {
+			proxyReq.Header.Add(header, value)
+		}
+	}
+
+	client := &http.Client{}
+	proxyRes, err := client.Do(proxyReq)
+	if err != nil {
+		s.log.Error("Error while proxying request to Cluster Gateway: %v", err)
+	}
+
+	return proxyRes, err
+}
+
 func (s *schedulerExtensionImpl) Filter(ctx *gin.Context) {
 	s.log.Debug("Received FILTER request.")
-	var extenderArgs scheduler.ExtenderArgs
-	var extenderFilterResult *scheduler.ExtenderFilterResult
 
-	err := ctx.BindJSON(&extenderArgs)
+	resp, err := s.proxyFilterRequest(ctx.Request)
 	if err != nil {
-		s.log.Error("Failed to extract ExtenderArgs for filter call: %v", err)
-		ctx.Error(err)
-		extenderFilterResult = &scheduler.ExtenderFilterResult{
-			Nodes:       nil,
-			FailedNodes: nil,
-			Error:       err.Error(),
-		}
-	} else {
-		s.log.Debug("Received %d nodes to filter through.", len(extenderArgs.Nodes.Items))
-		extenderFilterResult = &scheduler.ExtenderFilterResult{
-			Nodes:       extenderArgs.Nodes,
-			FailedNodes: nil,
-		}
-
-		nodeNames := make([]string, 0, len(extenderArgs.Nodes.Items))
-		for _, node := range extenderArgs.Nodes.Items {
-			nodeNames = append(nodeNames, node.Name)
-		}
-
-		s.log.Debug("Returning the following nodes (%d): %v", len(nodeNames), nodeNames)
+		ctx.AbortWithError(http.StatusInternalServerError, err)
+		return
 	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		s.log.Error("Failed to read response of proxied request because: %v", err)
+		ctx.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+
+	var extenderFilterResult scheduler.ExtenderFilterResult
+	err = json.Unmarshal(data, &extenderFilterResult)
+
+	if err != nil {
+		s.log.Error("Failed to unmarshal response of proxied request because: %v", err)
+		ctx.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+
+	nodeNames := make([]string, 0, len(extenderFilterResult.Nodes.Items))
+	for _, node := range extenderFilterResult.Nodes.Items {
+		nodeNames = append(nodeNames, node.Name)
+	}
+
+	s.log.Debug("Returning the following nodes (%d): %v", len(nodeNames), nodeNames)
 
 	ctx.JSON(http.StatusOK, extenderFilterResult)
 }
 
 func (s *schedulerExtensionImpl) Serve() {
-	s.log.Debug("Scheduler Extender v%s is starting to listen on port %d", version, s.port)
+	s.log.Debug("Scheduler Extender v%s is listening on port %d", version, s.port)
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", s.port), s.engine); err != nil {
-		s.log.Error("HTTP Server failed to listen on localhost:80 because %v", err)
+		s.log.Error("HTTP Server failed to listen on localhost:%d because %v", s.port, err)
 		panic(err)
 	}
 }

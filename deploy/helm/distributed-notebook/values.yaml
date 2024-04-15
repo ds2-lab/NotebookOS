@@ -34,6 +34,7 @@ gateway:
   image: scusemua/gateway
   image_tag: latest
   distributed_cluster_service_port: 8079
+  scheduler_http_port: 8078
 
 scheduler_extender:
   image: scusemua/scheduler_extender

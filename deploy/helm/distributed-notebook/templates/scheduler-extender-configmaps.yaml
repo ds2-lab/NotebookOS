@@ -6,6 +6,7 @@ metadata:
 data:
   {{ .Values.scheduler_extender.config_file_name }}: |
     port: 80
+    cluster-gateway-port: {{ .Values.gateway.scheduler_http_port }}
 ---
 apiVersion: v1
 kind: ConfigMap
