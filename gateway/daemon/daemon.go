@@ -1424,7 +1424,7 @@ func (d *clusterGatewayImpl) handleKubeSchedulerFilterRequest(ctx *gin.Context) 
 		Nodes: extenderArgs.Nodes,
 	}
 
-	d.log.Debug("Returning nodes without any processing.", len(extenderArgs.Nodes.Items))
+	d.log.Debug("Returning %d node(s) without any processing.", len(extenderArgs.Nodes.Items))
 	ctx.JSON(http.StatusOK, extenderFilterResult)
 }
 
