@@ -6,7 +6,7 @@ metadata:
     kompose.version: 1.26.0 (40646f47)
   creationTimestamp: null
   labels:
-    io.kompose.service: jupyter-notebook
+    app: jupyter-notebook
   name: jupyter-notebook
 spec:
   ports:
@@ -29,7 +29,6 @@ spec:
       port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
   selector:
     app: jupyter-notebook 
-    io.kompose.service: jupyter-notebook
   type: LoadBalancer
 status:
   loadBalancer: {}

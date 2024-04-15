@@ -3,7 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   creationTimestamp: null
   labels:
-    io.kompose.service: jupyter-notebook-claim1
+    app: jupyter-notebook-claim1
   name: jupyter-notebook-claim1
 spec:
   accessModes:

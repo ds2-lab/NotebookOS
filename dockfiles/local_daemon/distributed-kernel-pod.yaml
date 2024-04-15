@@ -2,39 +2,39 @@ apiVersion: apps/v1
 kind: Pod
 metadata:
   labels:
-    io.kompose.service: kernel-{{ .name }}
+    app: kernel-{{ .name }}
     session: session-{{ .name }}
   name: kernel-{{ .name }}
 spec:
   containers:
-  - name: kernel-{{ .name }}-{{ .replica-id }}
-    image: scusemua/jupyter:latest
-    ports:
-    - containerPort: 8888
-    resources: {}
-    nodeName: {? {.target-node-name: ''} : ''}
-    env:
-    - name: NODE_NAME
-      valueFrom:
-        fieldRef:
-          fieldPath: spec.nodeName
-    - name: POD_NAME
-      valueFrom:
-        fieldRef:
-          fieldPath: metadata.name
-    - name: POD_NAMESPACE
-      valueFrom:
-        fieldRef:
-          fieldPath: metadata.namespace
-    - name: POD_IP
-      valueFrom:
-        fieldRef:
-          fieldPath: status.podIP
-    - name: NODE_IP
-      valueFrom:
-        fieldRef:
-          fieldPath: status.hostIP
-    - name: POD_SERVICE_ACCOUNT
-      valueFrom:
-        fieldRef:
-          fieldPath: spec.serviceAccountName
+    - name: kernel-{{ .name }}-{{ .replica-id }}
+      image: scusemua/jupyter:latest
+      ports:
+        - containerPort: 8888
+      resources: {}
+      nodeName: { { .target-node-name: "" }: "" }
+      env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: POD_SERVICE_ACCOUNT
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.serviceAccountName

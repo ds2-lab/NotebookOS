@@ -6,14 +6,13 @@ metadata:
     kompose.version: 1.26.0 (40646f47)
   creationTimestamp: null
   labels:
-    io.kompose.service: jupyter-notebook
     app: jupyter-notebook
   name: jupyter-notebook
 spec:
   replicas: 1
   selector:
     matchLabels:
-      io.kompose.service: jupyter-notebook
+      app: jupyter-notebook
   strategy: {}
   template:
     metadata:
@@ -22,7 +21,6 @@ spec:
         kompose.version: 1.26.0 (40646f47)
       creationTimestamp: null
       labels:
-        io.kompose.service: jupyter-notebook
         app: jupyter-notebook
     spec:
       containers:

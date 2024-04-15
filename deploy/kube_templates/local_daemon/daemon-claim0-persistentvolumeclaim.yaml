@@ -3,7 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   creationTimestamp: null
   labels:
-    io.kompose.service: daemon-claim0
+    app: daemon-claim0
   name: daemon-claim0
 spec:
   accessModes:

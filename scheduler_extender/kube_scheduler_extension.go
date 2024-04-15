@@ -73,12 +73,18 @@ func (s *schedulerExtensionImpl) Filter(ctx *gin.Context) {
 			Error:       err.Error(),
 		}
 	} else {
+		s.log.Debug("Received %d nodes to filter through.", len(extenderArgs.Nodes.Items))
 		extenderFilterResult = &scheduler.ExtenderFilterResult{
 			Nodes:       extenderArgs.Nodes,
 			FailedNodes: nil,
 		}
 
-		s.log.Debug("Returning the following nodes: %v", extenderFilterResult.Nodes.Items)
+		nodeNames := make([]string, 0, len(extenderArgs.Nodes.Items))
+		for _, node := range extenderArgs.Nodes.Items {
+			nodeNames = append(nodeNames, node.Name)
+		}
+
+		s.log.Debug("Returning the following nodes (%d): %v", len(nodeNames), nodeNames)
 	}
 
 	ctx.JSON(http.StatusOK, extenderFilterResult)

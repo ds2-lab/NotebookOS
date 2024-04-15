@@ -6,23 +6,23 @@ metadata:
     kompose.version: 1.26.0 (40646f47)
   creationTimestamp: null
   labels:
-    io.kompose.service: gateway
     app: gateway
+    component: kube-scheduler
   name: gateway
 spec:
   replicas: 1
   selector:
     matchLabels:
-      io.kompose.service: gateway
+      app: gateway
   strategy: {}
   template:
     metadata:
       annotations:
         kompose.cmd: kompose convert
         kompose.version: 1.26.0 (40646f47)
+        app: gateway
       creationTimestamp: null
       labels:
-        io.kompose.service: gateway
         app: gateway
     spec:
       containers:
@@ -72,11 +72,49 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name 
+        - name: scheduler-ctr
+          image: registry.k8s.io/kube-scheduler:v1.29.2
+          imagePullPolicy: Always
+          args:
+          - kube-scheduler
+          - --config=/scheduler-extender/config.yaml
+          - --bind-address=0.0.0.0
+          - --feature-gates=StatefulSetStartOrdinal=true
+          - --leader-elect=true
+          - -v=4
+          volumeMounts:
+            - name: kube-scheduler-config
+              mountPath: /scheduler-extender
+        - name: scheduler-extender-ctr
+          image: {{ .Values.scheduler_extender.image }}:{{ .Values.scheduler_extender.image_tag }}
+          imagePullPolicy: Always
+          command: ["./scheduler_extender"]
+          args: ["-yaml", "{{ .Values.scheduler_extender.config_map_name }}/{{ .Values.scheduler_extender.config_file_name }}", "-debug"]
+          volumeMounts:
+            - name: "{{ .Values.scheduler_extender.config_map_name }}"
+              mountPath: "{{ .Values.scheduler_extender.config_map_name }}/{{ .Values.scheduler_extender.config_file_name }}"
+              subPath: "{{ .Values.scheduler_extender.config_file_name }}"
+          livenessProbe:
+            httpGet:
+              path: /version
+              port: 80
+          readinessProbe:
+            httpGet:
+              path: /version
+              port: 80
+          ports:
+            - containerPort: 80
       restartPolicy: Always
-      serviceAccountName: gateway-service-account
+      serviceAccountName: scheduler-extender 
       volumes:
         - name: gateway-config-file
           configMap:
             name: daemon-configmap 
             defaultMode: 384
+        - name: kube-scheduler-config
+          configMap:
+            name: kube-scheduler-config
+        - name: {{ .Values.scheduler_extender.config_map_name }}
+          configMap:
+            name: {{ .Values.scheduler_extender.config_map_name }}
 status: {}

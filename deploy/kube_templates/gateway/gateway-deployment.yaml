@@ -6,13 +6,13 @@ metadata:
     kompose.version: 1.26.0 (40646f47)
   creationTimestamp: null
   labels:
-    io.kompose.service: gateway
+    app: gateway
   name: gateway
 spec:
   replicas: 1
   selector:
     matchLabels:
-      io.kompose.service: gateway
+      app: gateway
   strategy: {}
   template:
     metadata:
@@ -21,7 +21,7 @@ spec:
         kompose.version: 1.26.0 (40646f47)
       creationTimestamp: null
       labels:
-        io.kompose.service: gateway
+        app: gateway
     spec:
       containers:
         - image: scusemua/gateway

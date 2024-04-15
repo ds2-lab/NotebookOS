@@ -6,8 +6,8 @@ metadata:
     app: nginx-{{ .SessionId }}
 spec:
   ports:
-  - port: 80
-    name: TCP
+    - port: 80
+      name: TCP
   clusterIP: None
   selector:
     app: nginx-{{ .SessionId }}
@@ -19,7 +19,6 @@ metadata:
     kompose.cmd: kompose convert
     kompose.version: 1.26.0 (40646f47)
   labels:
-    io.kompose.service: kernel-{{ .SessionId }}
     session: session-{{ .SessionId }}
     app: kernel-{{ .SessionId }}
   name: kernel-{{ .SessionId }}
@@ -37,59 +36,59 @@ spec:
         kompose.cmd: kompose convert
         kompose.version: 1.26.0 (40646f47)
       labels:
-        io.kompose.service: kernel
+        app: kernel
         session: session-{{ .SessionId }}
     spec:
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
-          - topologyKey: kubernetes.io/hostname # Anti-affinity scope is host.
-            labelSelector:
-            matchLabels:
-              session: session-{{ .SessionId }}
+            - topologyKey: kubernetes.io/hostname # Anti-affinity scope is host.
+              labelSelector:
+              matchLabels:
+                session: session-{{ .SessionId }}
       restartPolicy: Always
       env:
-      - name: NODE_NAME
-        valueFrom:
-          fieldRef:
-            fieldPath: spec.nodeName
-      - name: POD_NAME
-        valueFrom:
-          fieldRef:
-            fieldPath: metadata.name
-      - name: POD_NAMESPACE
-        valueFrom:
-          fieldRef:
-            fieldPath: metadata.namespace
-      - name: POD_IP
-        valueFrom:
-          fieldRef:
-            fieldPath: status.podIP
-      - name: NODE_IP
-        valueFrom:
-          fieldRef:
-            fieldPath: status.hostIP
-      - name: POD_SERVICE_ACCOUNT
-        valueFrom:
-          fieldRef:
-            fieldPath: spec.serviceAccountName
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: POD_SERVICE_ACCOUNT
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.serviceAccountName
       containers:
-      - image: scusemua/jupyter:latest
-        name: kernel
-        ports:
-        - containerPort: 8888
-        resources: {}
-        volumeMounts:
-        - name: node-local
-          mountPath: "{{ .NodeLocalMountPoint }}"
-        - name: shared-config-dir
-          mountPath: "{{ .SharedConfigDir }}" # TODO(Ben): Update this. I think it'll be a ConfigMap? I'm not sure yet, though... 
+        - image: scusemua/jupyter:latest
+          name: kernel
+          ports:
+            - containerPort: 8888
+          resources: {}
+          volumeMounts:
+            - name: node-local
+              mountPath: "{{ .NodeLocalMountPoint }}"
+            - name: shared-config-dir
+              mountPath: "{{ .SharedConfigDir }}" # TODO(Ben): Update this. I think it'll be a ConfigMap? I'm not sure yet, though...
   volumeClaimTemplates: # This will be used to create a unique PVC for each of the LocalDaemon pods.
-  - metadata:
-      name: node-local
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      storageClassName: local-path
-      resources:
-        requests:
-          storage: 128Mi
+    - metadata:
+        name: node-local
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 128Mi
