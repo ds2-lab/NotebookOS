@@ -152,10 +152,17 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 			client.schedulingPolicy = "static"
 			client.log.Debug("Using the 'STATIC' scheduling policy.")
 		}
-	case "dynamic":
+	case "dynamic-v3":
 		{
-			client.schedulingPolicy = "dynamic"
-			client.log.Debug("Using the 'DYNAMIC' scheduling policy.")
+			client.schedulingPolicy = "dynamic-v3"
+			client.log.Debug("Using the 'DYNAMIC v3' scheduling policy.")
+
+			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+		}
+	case "dynamic-v4":
+		{
+			client.schedulingPolicy = "dynamic-v4"
+			client.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
 
 			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 		}
@@ -907,6 +914,10 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 	return err
 }
 
+func (c *BasicKubeClient) getSchedulerName() string {
+	return fmt.Sprintf("%s-scheduler", c.schedulingPolicy)
+}
+
 type patchStringValue struct {
 	Op    string `json:"op"`
 	Path  string `json:"path"`
@@ -961,7 +972,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 	// If we're using the "default" scheduling policy, then they will just have podAntiAffinity.
 	// If we're using static or dynamic scheduling, then the nodes will have a nodeAffinity in addition to the podAntiAffinity.
 	var affinity map[string]interface{}
-	if c.schedulingPolicy == "static" || c.schedulingPolicy == "dynamic" {
+	if c.schedulingPolicy == "static" || c.schedulingPolicy == "dynamic-v3" || c.schedulingPolicy == "dynamic-v4" {
 		affinity = map[string]interface{}{
 			"podAntiAffinity": map[string]interface{}{
 				"requiredDuringSchedulingIgnoredDuringExecution": []map[string]interface{}{
@@ -1057,6 +1068,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 								},
 							},
 						},
+						"schedulerName": c.getSchedulerName(),
 						"containers": []map[string]interface{}{
 							{
 								"name":    "kernel",

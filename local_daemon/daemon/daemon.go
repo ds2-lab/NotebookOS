@@ -207,10 +207,17 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 			daemon.schedulingPolicy = "static"
 			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
 		}
-	case "dynamic":
+	case "dynamic-v3":
 		{
-			daemon.schedulingPolicy = "dynamic"
-			daemon.log.Debug("Using the 'DYNAMIC' scheduling policy.")
+			daemon.schedulingPolicy = "dynamic-v3"
+			daemon.log.Debug("Using the 'DYNAMIC v3' scheduling policy.")
+
+			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+		}
+	case "dynamic-v4":
+		{
+			daemon.schedulingPolicy = "dynamic-v4"
+			daemon.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
 
 			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 		}

@@ -228,11 +228,17 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
 			daemon.failureHandler = daemon.staticFailureHandler
 		}
-	case "dynamic":
+	case "dynamic-v3":
 		{
-			daemon.schedulingPolicy = "dynamic"
-			daemon.log.Debug("Using the 'DYNAMIC' scheduling policy.")
-			daemon.failureHandler = daemon.dynamicFailureHandler
+			daemon.schedulingPolicy = "dynamic-v3"
+			daemon.log.Debug("Using the 'DYNAMIC v3' scheduling policy.")
+			daemon.failureHandler = daemon.dynamicV3FailureHandler
+		}
+	case "dynamic-v4":
+		{
+			daemon.schedulingPolicy = "dynamic-v4"
+			daemon.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
+			daemon.failureHandler = daemon.dynamicV4FailureHandler
 		}
 	default:
 		{
@@ -680,7 +686,11 @@ func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	return nil
 }
 
-func (d *clusterGatewayImpl) dynamicFailureHandler(c client.DistributedKernelClient) error {
+func (d *clusterGatewayImpl) dynamicV3FailureHandler(c client.DistributedKernelClient) error {
+	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+}
+
+func (d *clusterGatewayImpl) dynamicV4FailureHandler(c client.DistributedKernelClient) error {
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 }
 
