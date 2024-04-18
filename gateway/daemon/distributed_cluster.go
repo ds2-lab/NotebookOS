@@ -153,7 +153,7 @@ func (dc *DistributedCluster) Addr() net.Addr {
 
 // Return the current GPU resource metrics on the node.
 func (d *DistributedCluster) GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
-	return d.gatewayDaemon.getClusterActualGpuInfo(ctx, in)
+	return d.gatewayDaemon.GetClusterActualGpuInfo(ctx, in)
 }
 
 // Return the current vGPU (or "deflated GPU") resource metrics on the node.

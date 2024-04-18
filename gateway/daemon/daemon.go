@@ -1126,7 +1126,7 @@ func (d *clusterGatewayImpl) GetVirtualGpuInfo(ctx context.Context, in *gateway.
 }
 
 // Return the current GPU resource metrics on the node.
-func (d *clusterGatewayImpl) getClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
+func (d *clusterGatewayImpl) GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
 	resp := &gateway.ClusterActualGpuInfo{
 		GpuInfo: make(map[string]*gateway.GpuInfo),
 	}
