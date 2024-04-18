@@ -27,14 +27,23 @@ data:
     ipython-config-path: {{ .Values.common.ipython_config_path }}
     smr-port: {{ .Values.smr.port }}
     kube-namespace: {{ .Values.namespace }}
-    max-actual-gpu-per-node: {{ .Values.local_daemon.max_actual_gpu_per_node }}
+    max-actual-gpu-per-node: {{ .Values.common.scheduling.max_actual_gpu_per_node }}
     starting-resource-port: {{ .Values.local_daemon.network.jupyter.starting_resource_port }}
-    num-resource-ports: {{ mul (div .Values.local_daemon.max_actual_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 }}
+    num-resource-ports: {{ mul (div .Values.common.scheduling.max_actual_gpu_per_node .Values.common.scheduling.gpu_allocation_granularity) 2 }}
     use-stateful-set: {{ .Values.common.use_stateful_set }}
     device-plugin-path: {{ .Values.local_daemon.device_plugin.path }}
-    num-virtual-gpus-per-node: {{ .Values.local_daemon.num_virtual_gpus_per_node }}
-    scheduling-policy: {{ .Values.common.scheduling_policy }}
     notebook-image-name: {{ .Values.notebook_server.image }}
     notebook-image-tag: {{ .Values.notebook_server.image_tag }}
     distributed-cluster-service-port: {{ .Values.gateway.distributed_cluster_service_port }}
-    scheduler-http-port: {{ .Values.gateway.scheduler_http_port }}
+    scheduler-http-port: {{ .Values.common.scheduling.scheduler_http_port }}
+    scheduling-policy: {{ .Values.common.scheduling.scheduling_policy }}
+    subscribed-ratio-update-interval: {{ .Values.common.scheduling.subscribed_ratio_update_interval }}
+    num-virtual-gpus-per-node: {{ .Values.common.scheduling.num_virtual_gpus_per_node }}
+    scaling-factor: {{ .Values.common.scheduling.scaling_factor }}
+    scaling-interval: {{ .Values.common.scheduling.scaling_interval }}
+    scaling-limit: {{ .Values.common.scheduling.scaling_limit }}
+    scaling-in-limit: {{ .Values.common.scheduling.scaling_in_limit }}
+    scaling-out-enabled: {{ .Values.common.scheduling.scaling_out_enabled }}
+    scaling-buffer-size: {{ .Values.common.scheduling.scaling_buffer_size }}
+    min-kubernetes-nodes: {{ .Values.common.scheduling.min_kubernetes_nodes }}
+    gpus-per-host: {{ .Values.common.scheduling.max_actual_gpu_per_node}}

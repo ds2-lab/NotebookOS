@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gin-gonic/gin"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
@@ -13,7 +14,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+const (
+	FilterRoute = "/filter" // Used by the ClusterScheduler to expose an HTTP endpoint.
+)
+
 type ClusterDaemonOptions struct {
+	*ClusterSchedulerOptions
 	LocalDaemonServiceName        string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
 	LocalDaemonServicePort        int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
 	GlobalDaemonServiceName       string `name:"global-daemon-service-name" description:"Name of the Kubernetes service that manages the global networking of local daemons."`
@@ -26,7 +32,20 @@ type ClusterDaemonOptions struct {
 	NotebookImageName             string `name:"notebook-image-name" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
 	NotebookImageTag              string `name:"notebook-image-tag" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`   // Tag to use for the jupyter notebook/kernel image
 	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
-	SchedulerHttpPort             int    `name:"scheduler-http-port" description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
+}
+
+type ClusterSchedulerOptions struct {
+	SchedulerHttpPort             int     `name:"scheduler-http-port" description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
+	GpusPerHost                   int     `name:"gpus-per-host" description:"The number of actual GPUs that are available for use on each node/host."`
+	VirtualGpusPerHost            int     `name:"num-virtual-gpus-per-node" description:"The number of virtual GPUs per host."`
+	SubscribedRatioUpdateInterval float64 `name:"subscribed-ratio-update-interval" description:"The interval to update the subscribed ratio."`
+	ScalingFactor                 float64 `name:"scaling-factor" description:"Defines how many hosts the cluster will provision based on busy resources"`
+	ScalingInterval               int     `name:"scaling-interval" description:"Interval to call validateCapacity, 0 to disable routing scaling."`
+	ScalingLimit                  float64 `name:"scaling-limit" description:"Defines how many hosts the cluster will provision at maximum based on busy resources"`
+	MaximumHostsToReleaseAtOnce   int     `name:"scaling-in-limit" description:"Sort of the inverse of the ScalingLimit parameter (maybe?)"`
+	ScalingOutEnaled              bool    `name:"scaling-out-enabled" description:"If enabled, the scaling manager will attempt to over-provision hosts slightly so as to leave room for fluctation. If disabled, then the Cluster will exclusivel scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges."`
+	ScalingBufferSize             int     `name:"scaling-buffer-size" description:"Buffer size is how many extra hosts we provision so that we can quickly scale if needed."`
+	MinimumNumNodes               int     `name:"min-kubernetes-nodes" description:"The minimum number of kubernetes nodes we must have available at any time."`
 }
 
 func (o ClusterDaemonOptions) String() string {
@@ -51,9 +70,61 @@ type ClusterGateway interface {
 
 	SetClusterOptions(*core.CoreOptions)
 	ConnectionOptions() *jupyter.ConnectionInfo
+	ClusterScheduler() ClusterScheduler // Return the associated ClusterScheduler.
 }
 
-// This client is used by the Gateway to interact with Kubernetes.
+// Performs scheduling of kernels across the cluster.
+type ClusterScheduler interface {
+	// Return the associated ClusterGateway.
+	ClusterGateway() ClusterGateway
+
+	// Handle a 'filter' request from the kubernetes scheduler.
+	HandleKubeSchedulerFilterRequest(ctx *gin.Context)
+
+	// This should be called from its own goroutine.
+	// Start the HTTP HTTP service used to make scheduling decisions.
+	StartHttpKubernetesSchedulerService()
+
+	// Validate the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
+	// Adjust the Cluster's capacity as directed by scaling policy.
+	ValidateCapacity()
+
+	// Update the cached list of Kubernetes nodes.
+	// Returns nil on success; returns an error on failure.
+	RefreshKubernetesNodes() error
+
+	// Add a new node to the kubernetes cluster.
+	// We simulate this using node taints.
+	AddNode() error
+
+	// Remove a new from the kubernetes cluster.
+	// We simulate this using node taints.
+	RemoveNode() error
+
+	// Return the minimum number of nodes we must have available at any time.
+	MinimumCapacity() int
+
+	// Try to release n idle hosts. Return the number of hosts that were actually released.
+	// Error will be nil on success and non-nil if some sort of failure is encountered.
+	ReleaseIdleHosts(n int) (int, error)
+
+	// Refresh the actual GPU usage information.
+	// Returns nil on success; returns an error on failure.
+	RefreshActualGpuInfo() error
+
+	// Refresh the virtual GPU usage information.
+	// Returns nil on success; returns an error on failure.
+	RefreshVirtualGpuInfo() error
+
+	// Refresh all metrics maintained/cached/required by the Cluster Scheduler,
+	// including the list of current kubernetes nodes, actual and virtual GPU usage information, etc.
+	//
+	// Return a slice of any errors that occurred. If an error occurs while refreshing a particular piece of information,
+	// then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).
+	RefreshAll() []error
+}
+
+// This client is used by the Cluster Gateway and Cluster Scheduler to interact with Kubernetes.
 type KubeClient interface {
 	KubeClientset() *kubernetes.Clientset // Get the Kubernetes client.
 	ClusterGateway() ClusterGateway       // Get the associated Gateway daemon.

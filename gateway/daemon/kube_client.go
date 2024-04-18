@@ -264,10 +264,15 @@ func (c *BasicKubeClient) PodCreated(obj interface{}) {
 
 // Return a list of the current kubernetes nodes.
 func (c *BasicKubeClient) GetKubernetesNodes() ([]corev1.Node, error) {
+	st := time.Now()
 	nodes, err := c.kubeClientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
+		// Note: the calling classes expect this error to be printed here.
+		// If for whatever reason this print is removed, then a print will need to be added where the KubeClient::GetKubernetesNodes method is called.
 		c.log.Error("Error while retrieving Kubernetes nodes: %v", err)
 		return nil, err
+	} else {
+		c.log.Debug("Successfully refreshed Kubernetes nodes in %v.", time.Since(st))
 	}
 
 	return nodes.Items, nil

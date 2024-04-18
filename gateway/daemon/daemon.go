@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/elliotchance/orderedmap/v2"
-	"github.com/gin-gonic/contrib/cors"
-	"github.com/gin-gonic/gin"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/hashicorp/yamux"
@@ -24,7 +21,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
-	scheduler "k8s.io/kube-scheduler/extender/v1"
 
 	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
@@ -34,11 +30,10 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
+	"github.com/zhangjyr/distributed-notebook/gateway/scheduler"
 )
 
 const (
-	filterRoute = "/filter"
-
 	ShellExecuteRequest    = "execute_request"
 	ShellExecuteReply      = "execute_reply"
 	ShellYieldExecute      = "yield_execute"
@@ -145,10 +140,6 @@ type clusterGatewayImpl struct {
 	// iopub *jupyter.Socket
 	smrPort int
 
-	// Port that the Cluster Gateway's HTTP server will listen on.
-	// This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
-	kubeSchedulerServicePort int
-
 	// Mapping from AddReplicaOperation ID to AddReplicaOperation.
 	addReplicaOperations *hashmap.CornelkMap[string, domain.AddReplicaOperation]
 
@@ -171,8 +162,10 @@ type clusterGatewayImpl struct {
 	// Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
 	hdfsNameNodeEndpoint string
 
-	// Kubernetes client.
+	// Kubernetes client. This is shared with the associated Cluster Gateway.
 	kubeClient domain.KubeClient
+
+	clusterScheduler domain.ClusterScheduler
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *clusterGatewayImpl {
@@ -194,7 +187,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan domain.AddReplicaOperation](64),
 		activeExecutions:                 hashmap.NewCornelkMap[string, *client.ActiveExecution](64),
 		hdfsNameNodeEndpoint:             clusterDaemonOptions.HDFSNameNodeEndpoint,
-		kubeSchedulerServicePort:         clusterDaemonOptions.SchedulerHttpPort,
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -214,6 +206,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	}
 
 	daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
+	daemon.clusterScheduler = scheduler.NewClusterScheduler(daemon, daemon.kubeClient, clusterDaemonOptions.ClusterSchedulerOptions)
 
 	switch clusterDaemonOptions.SchedulingPolicy {
 	case "default":
@@ -484,6 +477,11 @@ func (d *clusterGatewayImpl) Accept() (net.Conn, error) {
 
 func (d *clusterGatewayImpl) Addr() net.Addr {
 	return d.listener.Addr()
+}
+
+// Return the associated ClusterGateway.
+func (d *clusterGatewayImpl) ClusterScheduler() domain.ClusterScheduler {
+	return d.clusterScheduler
 }
 
 func (d *clusterGatewayImpl) SetID(ctx context.Context, hostId *gateway.HostId) (*gateway.HostId, error) {
@@ -1363,7 +1361,7 @@ func (d *clusterGatewayImpl) Start() error {
 	d.log.Info("Starting router...")
 
 	// Start the HTTP Kubernetes Scheduler service.
-	go d.startHttpKubernetesSchedulerService()
+	go d.ClusterScheduler().StartHttpKubernetesSchedulerService()
 
 	// Start the router. The call will return on error or router.Close() is called.
 	err := d.router.Start()
@@ -1392,50 +1390,6 @@ func (d *clusterGatewayImpl) Close() error {
 	}
 
 	return nil
-}
-
-// This should be called from its own goroutine.
-// Start the HTTP HTTP service used to make scheduling decisions.
-func (d *clusterGatewayImpl) startHttpKubernetesSchedulerService() {
-	d.log.Debug("Starting the Cluster Gateway's HTTP Kubernetes Scheduler service.")
-
-	app := gin.New()
-
-	app.Use(gin.Logger())
-	app.Use(cors.Default())
-
-	app.POST(filterRoute, d.handleKubeSchedulerFilterRequest)
-
-	d.log.Debug("Cluster Gateway's HTTP Kubernetes Scheduler service is listening on port %d", d.kubeSchedulerServicePort)
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", d.kubeSchedulerServicePort), app); err != nil {
-		d.log.Error("Cluster Gateway's HTTP Kubernetes Scheduler service failed because: %v", err)
-		panic(err)
-	}
-}
-
-func (d *clusterGatewayImpl) handleKubeSchedulerFilterRequest(ctx *gin.Context) {
-	var extenderArgs scheduler.ExtenderArgs
-	var extenderFilterResult *scheduler.ExtenderFilterResult
-
-	err := ctx.BindJSON(&extenderArgs)
-	if err != nil {
-		d.log.Error("Received FILTER request; however, failed to extract ExtenderArgs because: %v", err)
-		ctx.Error(err)
-		extenderFilterResult = &scheduler.ExtenderFilterResult{
-			Nodes:       nil,
-			FailedNodes: nil,
-			Error:       err.Error(),
-		}
-	}
-
-	d.log.Debug("Received FILTER request for Pod \"%s\" with %d node(s).", extenderArgs.Pod.Name, len(extenderArgs.Nodes.Items))
-
-	extenderFilterResult = &scheduler.ExtenderFilterResult{
-		Nodes: extenderArgs.Nodes,
-	}
-
-	d.log.Debug("Returning %d node(s) without any processing.", len(extenderArgs.Nodes.Items))
-	ctx.JSON(http.StatusOK, extenderFilterResult)
 }
 
 // RouterProvider implementations.

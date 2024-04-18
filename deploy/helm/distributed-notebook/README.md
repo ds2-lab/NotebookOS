@@ -54,6 +54,18 @@ We are using [Local Path Provisioner](https://github.com/rancher/local-path-prov
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
 ```
 
+### Metrics Server
+
+**This is now installed automatically.**
+
+Next, we install the `metrics-server`. With kind, we either need to enable `--kubelet-insecure-tls`, or we can configure our kind cluster differently. See [this post](https://www.zeng.dev/post/2023-kubeadm-enable-kubelet-serving-certs/) for how to configure.
+
+For now, we will use the `--kubelet-insecure-tls` solution with the included `.yaml` file (found at `deploy/helm/distributed-notebook/metrics-server.yaml`):
+
+```sh
+kubectl apply -f distributed-notebook/depend/metrics-server.yaml
+```
+
 ### Load Balancer 
 
 ``` sh
@@ -73,18 +85,6 @@ podman network inspect -f '{{range .Subnets}}{{if eq (len .Subnet.IP) 4}}{{.Subn
 The output will contain a cidr such as 172.18.0.0/16. Modify the `deploy/helm/distributed-notebook/metallb-config.yaml` file accordingly, then execute:
 ``` sh
 kubectl apply -f distributed-notebook/metallb-config.yaml
-```
-
-### Metrics Server
-
-**This is now installed automatically.**
-
-Next, we install the `metrics-server`. With kind, we either need to enable `--kubelet-insecure-tls`, or we can configure our kind cluster differently. See [this post](https://www.zeng.dev/post/2023-kubeadm-enable-kubelet-serving-certs/) for how to configure.
-
-For now, we will use the `--kubelet-insecure-tls` solution with the included `.yaml` file (found at `deploy/helm/distributed-notebook/metrics-server.yaml`):
-
-```sh
-kubectl apply -f distributed-notebook/depend/metrics-server.yaml
 ```
 
 ### OpenKruise and the CloneSet Resource

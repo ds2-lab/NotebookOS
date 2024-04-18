@@ -34,7 +34,7 @@ spec:
       port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
     - name: iopub-port2
       port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
-    {{- $portsRequired := mul (div .Values.local_daemon.max_actual_gpu_per_node .Values.local_daemon.gpu_allocation_granularity) 2 | int -}}
+    {{- $portsRequired := mul (div .Values.common.scheduling.max_actual_gpu_per_node .Values.common.scheduling.gpu_allocation_granularity) 2 | int -}}
     {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
     {{- range $i := until $portsRequired }}
     - name: {{ printf "res-port-%d" $i }}
