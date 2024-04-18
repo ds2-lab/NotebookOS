@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -15,6 +16,10 @@ import (
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	corev1 "k8s.io/api/core/v1"
 	scheduler "k8s.io/kube-scheduler/extender/v1"
+)
+
+var (
+	ErrNotImplementedYet = errors.New("this method has not yet been implemented")
 )
 
 type aggregateGpuInfo struct {
@@ -125,13 +130,13 @@ func (s *clusterSchedulerImpl) StartHttpKubernetesSchedulerService() {
 // Add a new node to the kubernetes cluster.
 // We simulate this using node taints.
 func (s *clusterSchedulerImpl) AddNode() error {
-	panic("Not implemented yet.")
+	return ErrNotImplementedYet
 }
 
 // Remove a new from the kubernetes cluster.
 // We simulate this using node taints.
 func (s *clusterSchedulerImpl) RemoveNode() error {
-	panic("Not implemented yet.")
+	return ErrNotImplementedYet
 }
 
 // Return the current number of nodes in the kubernetes cluster.
@@ -343,5 +348,5 @@ func (s *clusterSchedulerImpl) ValidateCapacity() {
 // Try to release n idle hosts. Return the number of hosts that were actually released.
 // Error will be nil on success and non-nil if some sort of failure is encountered.
 func (s *clusterSchedulerImpl) ReleaseIdleHosts(n int32) (int, error) {
-	panic("Not implemented yet.")
+	return 0, ErrNotImplementedYet
 }
