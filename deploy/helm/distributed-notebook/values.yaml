@@ -34,6 +34,20 @@ gateway:
   image: scusemua/gateway
   image_tag: latest
   distributed_cluster_service_port: 8079
+  scheduler:
+    scheduler_http_port: 8078
+    scheduling_policy: "static" # Options are "default", "static", "dynamic-v3", and "dynamic-v4".
+    max_actual_gpu_per_node: 8 # the number of actual GPUs per node
+    num_virtual_gpus_per_node: 72 # 8 GPUs per Node * 3 Oversubscription Factor * 3 Replicas.
+    gpu_allocation_granularity: 1 # the smallest gpu allocation that can be made (set to 1 for whole-gpu allocations rather than fractional allocations)
+    min_kubernetes_nodes: 4 # the minimum number of nodes (cannot go below this)
+    subscribed_ratio_update_interval: 1.0 # The interval to update the subscribed ratio.
+    scaling_factor: 1.05 # how many hosts the cluster will provision based on busy resources
+    scaling_interval: 30 # Interval to call validateCapacity, 0 to disable routing scaling.
+    scaling_limit: 1.10 # how many hosts the cluster will provision at maximum based on busy resources
+    scaling_in_limit: 2.0 # the maximum number of hosts we can remove in a single operation
+    scaling_out_enabled: true # whether adding additional hosts is enabled or not
+    scaling_buffer_size: 3 # how many extra hosts we provision so that we can quickly scale if needed.
 
 scheduler_extender:
   image: scusemua/scheduler_extender
@@ -77,20 +91,6 @@ common:
   node_local_pvc_mount_point: "node_local"
   use_stateful_set: false # If true, use StatefulSets for the distributed kernel replica pods. If false, use CloneSets.
   debug: true
-  scheduling:
-    scheduling_policy: "static" # Options are "default", "static", "dynamic-v3", and "dynamic-v4".
-    max_actual_gpu_per_node: 8 # the number of actual GPUs per node
-    num_virtual_gpus_per_node: 72 # 8 GPUs per Node * 3 Oversubscription Factor * 3 Replicas.
-    gpu_allocation_granularity: 1 # the smallest gpu allocation that can be made (set to 1 for whole-gpu allocations rather than fractional allocations)
-    min_kubernetes_nodes: 4 # the minimum number of nodes (cannot go below this)
-    scheduler_http_port: 8078
-    subscribed_ratio_update_interval: 1.0 # The interval to update the subscribed ratio.
-    scaling_factor: 1.05 # how many hosts the cluster will provision based on busy resources
-    scaling_interval: 30 # Interval to call validateCapacity, 0 to disable routing scaling.
-    scaling_limit: 1.10 # how many hosts the cluster will provision at maximum based on busy resources
-    scaling_in_limit: 2.0 # the maximum number of hosts we can remove in a single operation
-    scaling_out_enabled: true # whether adding additional hosts is enabled or not
-    scaling_buffer_size: 3 # how many extra hosts we provision so that we can quickly scale if needed.
 
 ingress:
   enabled: false
