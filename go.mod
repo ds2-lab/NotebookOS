@@ -25,7 +25,6 @@ require (
 	github.com/scusemua/gopy v0.4.3
 	github.com/shopspring/decimal v1.3.1
 	github.com/uber/jaeger-client-go v2.30.0+incompatible
-	github.com/zhangjyr/gopy v0.4.2
 	github.com/zhangjyr/hashmap v1.0.2
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2
 	go.etcd.io/etcd/raft/v3 v3.5.2

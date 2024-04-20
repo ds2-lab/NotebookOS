@@ -2,19 +2,41 @@
 
 # This is an installation script to prepare an Ubuntu virtual machine for development.
 
+if ! command python3.11 --version &> /dev/null; then 
+    printf "\n[WARNING] Python3.11 is not installed. Installing it now...\n"
+
+    sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
+
+    cd /tmp/
+    wget https://www.python.org/ftp/python/3.11.0/Python-3.11.0.tgz
+    tar -xf Python-3.11.0.tgz
+    cd Python-3.11.0
+    ./configure --enable-optimizations
+    make -j$(nproc)
+    sudo make altinstall
+
+    if ! command python3.11 --version &> /dev/null; then 
+        printf "\n[ERROR] Failed to install python3.11.\n"
+        exit 
+    else 
+        echo "Successfully installed python3.11"
+    fi 
+fi 
+
 # Python3 Pip
-if ! command -v pip &> /dev/null; then 
+if ! command -v python3.11 -m pip &> /dev/null; then 
     printf "\n[WARNING] python3-pip is not installed. Installing it now."
 
-    sudo apt-get --assume-yes install python3-pip
+    # sudo apt-get --assume-yes install python3-pip
+    python3.11 -m ensurepip --upgrade 
 
-    if ! command -v pip &> /dev/null; then 
+    if ! command -v python3.11 -m pip &> /dev/null; then 
         printf "\n[ERROR] Installation of python3-pip failed."
         exit 
     fi
 fi
 
-# Python3 Git 
+# Git 
 if ! command -v git version &> /dev/null; then 
     printf "\n[WARNING] git is not installed. Installing it now."
 
@@ -182,11 +204,13 @@ fi
 # scusemua/gopy #
 #################
 cd $GOPATH_ENV/pkg/gopy 
-python3 -m pip install pybindgen
+python3.11 -m pip install pybindgen
 go install golang.org/x/tools/cmd/goimports@latest
 go install github.com/scusemua/gopy@v0.4.3
 make 
 docker build -t scusemua/gopy .
 
 cd $GOPATH_ENV/pkg/distributed-notebook 
+cd smr && make build-linux-amd64
+git checkout static-scheduling
 make build-smr-linux-amd64
