@@ -53,13 +53,13 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/zhangjyr/gopy/gopyh" // handler
+	"github.com/scusemua/gopy/gopyh" // handler
 
 	"context"
 	"time"
 	"unsafe"
 
-	"github.com/zhangjyr/distributed-notebook/smr"
+	"github.com/scusemua/distributed-notebook/smr"
 	raft "go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"go.etcd.io/etcd/server/v3/wal/walpb"
