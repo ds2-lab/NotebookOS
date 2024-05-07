@@ -21,11 +21,11 @@ var (
 	errServeOnce = errors.New("break after served once")
 
 	DefaultRequestTimeout  = 1 * time.Second
-	ZMQDestFrameFormatter  = "dest.%s.req.%s" // dest.<kernel-id>.req.<req-id>
-	ZMQDestFrameRecognizer = regexp.MustCompile(`^dest\.([0-9a-f-]+)\.req\.([0-9a-f-]+)$`)
+	ZMQDestFrameFormatter  = "dest.%s.req.%s"                                              // dest.<kernel-id>.req.<req-id>
+	ZMQDestFrameRecognizer = regexp.MustCompile(`^dest\.([0-9a-z-]+)\.req\.([0-9a-z-]+)$`) // Changed from a-f to a-z, as IDs can now be arbitrary strings, not just UUIDs.
 
-	ZMQSourceKernelFrameFormatter  = "src.%s" // src.<kernel-id>
-	ZMQSourceKernelFrameRecognizer = regexp.MustCompile(`^src\.([0-9a-f-]+)$`)
+	ZMQSourceKernelFrameFormatter  = "src.%s"                                  // src.<kernel-id>
+	ZMQSourceKernelFrameRecognizer = regexp.MustCompile(`^src\.([0-9a-z-]+)$`) // Changed from a-f to a-z, as IDs can now be arbitrary strings, not just UUIDs.
 
 	WROptionRemoveDestFrame         = "RemoveDestFrame"
 	WROptionRemoveSourceKernelFrame = "RemoveSourceKernelFrame"
@@ -200,6 +200,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				}
 			} else if err != nil {
 				s.Log.Warn("Error on handle %v message: %v", socket.Type, err)
+				s.Log.Warn("Message: %v", msg)
 				return
 			}
 		}
@@ -516,6 +517,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 			err := handler(info, msgType, msg)
 			if err != nil {
 				s.Log.Warn("Error on handle %v response: %v", msgType, err)
+				s.Log.Warn("Message: %v", msg)
 			}
 		} else if matchReqId != "" {
 			// s.Log.Debug("Discard %v response to request %s.", msgType, matchReqId)

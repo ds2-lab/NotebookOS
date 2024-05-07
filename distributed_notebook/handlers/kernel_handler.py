@@ -33,7 +33,7 @@ class DistributedKernelHandler(jupyter_kernel_handlers.KernelHandler):
         except web.HTTPError as httpError:
             self.log.error("HTTP %d %s: %s" % (httpError.status_code, httpError.reason, httpError.log_message))
             self.log.error(traceback.format_exc())
-            raise ex 
+            raise httpError 
         except Exception as ex:
             self.log.error("Unexpected exception encountered: %s" % str(ex))
             self.log.error(traceback.format_exc())
@@ -53,7 +53,7 @@ default_handlers: List[tuple] = []
 for path, cls in jupyter_kernel_handlers.default_handlers:
     print("Path \"%s\" currently using handler \"%s\"" % (str(path), str(cls.__name__)), flush = True)
     if cls.__name__ in overrides:
-        print("\tUsing modified handler for path \"%s\"" % path, flush = True)
+        print("\tUsing modified handler %s in place of default handler %s for path \"%s\"" % (overrides[cls.__name__].__name__, cls.__name__, path), flush = True)
         # Use the same named class from here if it exists
         default_handlers.append((path, overrides[cls.__name__]))
     else:
@@ -69,12 +69,10 @@ for i in range(0, len(jupyter_kernel_handlers.default_handlers)):
 
 # Updated regexes to allow for arbitrary kernel IDs (not just UUIDs).
 _kernel_action_regex = r"(?P<action>restart|interrupt)"
-_kernel_id_regex = r"(?P<session_id>^[a-zA-Z0-9_-]{1,36}$)"
+_kernel_id_regex = r"(?P<kernel_id>[a-zA-Z0-9_-]{1,36})"
 # Regex Explanation:
-# • ^: Matches the start of the string.
 # • [a-zA-Z0-9_-]: Matches any alphanumeric character, hyphen, or underscore.
 # • {1,36}: Specifies the length of the string, allowing it to be between 1 and 36 characters long.
-# • $: Matches the end of the string.
 
 jupyter_kernel_handlers.default_handlers.extend([
     (r"/api/kernels", jupyter_kernel_handlers.MainKernelHandler),
@@ -85,3 +83,6 @@ jupyter_kernel_handlers.default_handlers.extend([
     ),
     (r"/api/kernels/%s/channels" % _kernel_id_regex, jupyter_kernel_handlers.KernelWebsocketHandler),
 ])
+
+_kernel_id_regex = r"(?P<kernel_id>^[a-zA-Z0-9_-]{1,36}$)"
+url = r"/api/kernels/%s" % _kernel_id_regex

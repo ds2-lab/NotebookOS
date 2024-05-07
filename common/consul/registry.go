@@ -6,8 +6,8 @@ import (
 	"os"
 
 	consul "github.com/hashicorp/consul/api"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/mason-leap-lab/go-utils/logger"
 )
 
 // NewClient returns a new Client with connection to consul
