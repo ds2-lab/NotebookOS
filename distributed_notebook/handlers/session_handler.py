@@ -168,3 +168,16 @@ for path, cls in jupyter_session_handlers.default_handlers:
 
 for i in range(0, len(jupyter_session_handlers.default_handlers)):
     jupyter_session_handlers.default_handlers[i] = default_handlers[i]
+    
+# Updated regexes to allow for arbitrary kernel IDs (not just UUIDs).
+_session_id_regex = r"(?P<session_id>^[a-zA-Z0-9_-]{1,36}$)"
+# Regex Explanation:
+# • ^: Matches the start of the string.
+# • [a-zA-Z0-9_-]: Matches any alphanumeric character, hyphen, or underscore.
+# • {1,36}: Specifies the length of the string, allowing it to be between 1 and 36 characters long.
+# • $: Matches the end of the string.
+
+default_handlers = [
+    (r"/api/sessions/%s" % _session_id_regex, DistributedSessionHandler),
+    (r"/api/sessions", DistributedSessionRootHandler),
+]

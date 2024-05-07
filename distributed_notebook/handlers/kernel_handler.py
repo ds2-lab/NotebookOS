@@ -62,3 +62,26 @@ for path, cls in jupyter_kernel_handlers.default_handlers:
 
 for i in range(0, len(jupyter_kernel_handlers.default_handlers)):
     jupyter_kernel_handlers.default_handlers[i] = default_handlers[i]
+
+# -----------------------------------------------------------------------------
+# URL to handler mappings
+# -----------------------------------------------------------------------------
+
+# Updated regexes to allow for arbitrary kernel IDs (not just UUIDs).
+_kernel_action_regex = r"(?P<action>restart|interrupt)"
+_kernel_id_regex = r"(?P<session_id>^[a-zA-Z0-9_-]{1,36}$)"
+# Regex Explanation:
+# • ^: Matches the start of the string.
+# • [a-zA-Z0-9_-]: Matches any alphanumeric character, hyphen, or underscore.
+# • {1,36}: Specifies the length of the string, allowing it to be between 1 and 36 characters long.
+# • $: Matches the end of the string.
+
+jupyter_kernel_handlers.default_handlers.extend([
+    (r"/api/kernels", jupyter_kernel_handlers.MainKernelHandler),
+    (r"/api/kernels/%s" % _kernel_id_regex, DistributedKernelHandler),
+    (
+        rf"/api/kernels/{_kernel_id_regex}/{_kernel_action_regex}",
+        jupyter_kernel_handlers.KernelActionHandler,
+    ),
+    (r"/api/kernels/%s/channels" % _kernel_id_regex, jupyter_kernel_handlers.KernelWebsocketHandler),
+])
