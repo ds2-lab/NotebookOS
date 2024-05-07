@@ -243,13 +243,14 @@ class GatewayProvisioner(KernelProvisionerBase):
         # cmd is a must key to return.
         return await super().pre_launch(cmd=self.kernel_spec.argv, **kwargs)
 
-    # async def post_launch(self, **kwargs: Any) -> None:
-    #   """
-    #   Perform any steps following the kernel process launch.
-    #   This method is called from `KernelManager.post_start_kernel()` as part of its
-    #   start kernel sequence.
-    #   """
-    #   pass
+    async def post_launch(self, **kwargs: Any) -> None:
+      """
+      Perform any steps following the kernel process launch.
+      This method is called from `KernelManager.post_start_kernel()` as part of its
+      start kernel sequence.
+      """
+      self.log.info(f"post_launch called for kernel {self.kernel_id}")
+      pass
 
     async def get_provisioner_info(self) -> Dict[str, Any]:
         """

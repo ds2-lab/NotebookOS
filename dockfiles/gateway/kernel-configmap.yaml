@@ -13,3 +13,4 @@ data:
   smr-node-id: "{{ .ConfigFileInfo.SMRNodeID }}"
   smr-nodes: "{{ .ConfigFileInfo.SMRNodes }}"
   smr-join: "{{ .ConfigFileInfo.SMRJoin }}"
+  transport: "tcp"

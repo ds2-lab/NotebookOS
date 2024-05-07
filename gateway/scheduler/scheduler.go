@@ -61,20 +61,20 @@ type clusterSchedulerImpl struct {
 	log logger.Logger
 }
 
-func NewClusterScheduler(gateway domain.ClusterGateway, kubeClient domain.KubeClient, opts *domain.ClusterSchedulerOptions) domain.ClusterScheduler {
+func NewClusterScheduler(gateway domain.ClusterGateway, kubeClient domain.KubeClient, opts domain.ClusterSchedulerOptions) domain.ClusterScheduler {
 	clusterScheduler := &clusterSchedulerImpl{
 		gateway:                     gateway,
 		kubeClient:                  kubeClient,
 		kubeSchedulerServicePort:    opts.SchedulerHttpPort,
 		gpusPerHost:                 float64(opts.GpusPerHost),
-		virtualGpusPerHost:          opts.VirtualGpusPerHost,
+		virtualGpusPerHost:          int32(opts.VirtualGpusPerHost),
 		scalingFactor:               opts.ScalingFactor,
 		scalingLimit:                opts.ScalingLimit,
-		maximumHostsToReleaseAtOnce: opts.MaximumHostsToReleaseAtOnce,
-		scalingInterval:             opts.ScalingInterval,
+		maximumHostsToReleaseAtOnce: int32(opts.MaximumHostsToReleaseAtOnce),
+		scalingInterval:             int32(opts.ScalingInterval),
 		scalingOutEnaled:            opts.ScalingOutEnaled,
-		scalingBufferSize:           opts.ScalingBufferSize,
-		minimumCapacity:             opts.MinimumNumNodes,
+		scalingBufferSize:           int32(opts.ScalingBufferSize),
+		minimumCapacity:             int32(opts.MinimumNumNodes),
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 

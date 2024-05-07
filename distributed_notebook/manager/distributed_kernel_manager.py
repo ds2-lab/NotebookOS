@@ -26,7 +26,14 @@ class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
             self, *, kernel_id: str | None = None, path: ApiPath | None = None, **kwargs: str
         ) -> str:
         self.log.info("_async_start_kernel() called. kernel_id = %s, path = %s" % (kernel_id, str(path)))
-        return await super()._async_start_kernel(kernel_id = kernel_id, path = path, **kwargs)
+        returned_kernel_id:str = await super()._async_start_kernel(kernel_id = kernel_id, path = path, **kwargs)
+        
+        # If the caller didn't specify a particular kernel ID, then that's fine.
+        # If they did, then the returned kernel ID should necessarily be equal to whatever was passed by the caller.
+        assert kernel_id == "" or kernel_id == None or kernel_id == returned_kernel_id
+        
+        self.log.info(f"Started kernel {returned_kernel_id}. Number of kernels: {len(self._kernels)}.")
+        self.log.info(f"Kernels: {str(self._kernels.keys())}")
     
     def kernel_model(self, kernel_id):
         """Return a JSON-safe dict representing a kernel
@@ -40,6 +47,7 @@ class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
 
         model = {
             "id": kernel_id,
+            "kernel_id": kernel_id,
             "name": kernel.kernel_name,
             "last_activity": isoformat(kernel.last_activity),
             "execution_state": kernel.execution_state,

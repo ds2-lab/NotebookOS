@@ -924,7 +924,7 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	}
 
 	kernel, ok := d.kernels.Load(header.Session)
-	if !ok && header.MsgType == ShellKernelInfoRequest {
+	if !ok && (header.MsgType == ShellKernelInfoRequest || header.MsgType == ShellExecuteRequest) {
 		// Register kernel on ShellKernelInfoRequest
 		if kernelId == "" {
 			return ErrKernelIDRequired

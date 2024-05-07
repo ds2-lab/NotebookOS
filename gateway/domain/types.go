@@ -19,7 +19,7 @@ const (
 )
 
 type ClusterDaemonOptions struct {
-	*ClusterSchedulerOptions
+	ClusterSchedulerOptions
 	LocalDaemonServiceName        string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
 	LocalDaemonServicePort        int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
 	GlobalDaemonServiceName       string `name:"global-daemon-service-name" description:"Name of the Kubernetes service that manages the global networking of local daemons."`
@@ -36,16 +36,16 @@ type ClusterDaemonOptions struct {
 
 type ClusterSchedulerOptions struct {
 	SchedulerHttpPort             int     `name:"scheduler-http-port" description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
-	GpusPerHost                   int32   `name:"gpus-per-host" description:"The number of actual GPUs that are available for use on each node/host."`
-	VirtualGpusPerHost            int32   `name:"num-virtual-gpus-per-node" description:"The number of virtual GPUs per host."`
+	GpusPerHost                   int     `name:"gpus-per-host" description:"The number of actual GPUs that are available for use on each node/host."`
+	VirtualGpusPerHost            int     `name:"num-virtual-gpus-per-node" description:"The number of virtual GPUs per host."`
 	SubscribedRatioUpdateInterval float64 `name:"subscribed-ratio-update-interval" description:"The interval to update the subscribed ratio."`
 	ScalingFactor                 float64 `name:"scaling-factor" description:"Defines how many hosts the cluster will provision based on busy resources"`
-	ScalingInterval               int32   `name:"scaling-interval" description:"Interval to call validateCapacity, 0 to disable routing scaling."`
+	ScalingInterval               int     `name:"scaling-interval" description:"Interval to call validateCapacity, 0 to disable routing scaling."`
 	ScalingLimit                  float64 `name:"scaling-limit" description:"Defines how many hosts the cluster will provision at maximum based on busy resources"`
-	MaximumHostsToReleaseAtOnce   int32   `name:"scaling-in-limit" description:"Sort of the inverse of the ScalingLimit parameter (maybe?)"`
+	MaximumHostsToReleaseAtOnce   int     `name:"scaling-in-limit" description:"Sort of the inverse of the ScalingLimit parameter (maybe?)"`
 	ScalingOutEnaled              bool    `name:"scaling-out-enabled" description:"If enabled, the scaling manager will attempt to over-provision hosts slightly so as to leave room for fluctation. If disabled, then the Cluster will exclusivel scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges."`
-	ScalingBufferSize             int32   `name:"scaling-buffer-size" description:"Buffer size is how many extra hosts we provision so that we can quickly scale if needed."`
-	MinimumNumNodes               int32   `name:"min-kubernetes-nodes" description:"The minimum number of kubernetes nodes we must have available at any time."`
+	ScalingBufferSize             int     `name:"scaling-buffer-size" description:"Buffer size is how many extra hosts we provision so that we can quickly scale if needed."`
+	MinimumNumNodes               int     `name:"min-kubernetes-nodes" description:"The minimum number of kubernetes nodes we must have available at any time."`
 }
 
 func (o ClusterDaemonOptions) String() string {

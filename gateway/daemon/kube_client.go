@@ -397,16 +397,19 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	// Convert to JSON so we can embed it in a ConfigMap.
 	connectionInfoJson, err := json.Marshal(connectionInfo.ToConnectionInfoForKernel())
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	// Convert to JSON so we can embed it in a ConfigMap.
 	configJson, err := json.Marshal(configFileInfo)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	c.createConfigMap(ctx, connectionInfoJson, configJson, kernel)
+	err = c.createConfigMap(ctx, connectionInfoJson, configJson, kernel)
+	if err != nil {
+		return nil, err
+	}
 	c.createHeadlessService(ctx, kernel, connectionInfo, headlessServiceName)
 
 	if c.useStatefulSet {
@@ -420,7 +423,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 
 	if err != nil {
 		c.log.Error("Failed to create Kubernetes Resource for kernel %s because: %v", kernel.Id, err)
-		panic(err)
+		return nil, err
 	}
 
 	// c.migrationManager.RegisterKernel(kernel.Id)
@@ -740,7 +743,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 							VolumeSource: corev1.VolumeSource{
 								ConfigMap: &corev1.ConfigMapVolumeSource{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: fmt.Sprintf("kernel-%s-configmap", kernel.Id),
+										Name: fmt.Sprintf("kernel-%s-configmap", strings.ToLower(kernel.Id)),
 									},
 									DefaultMode: &defaultMode,
 								},
@@ -1061,7 +1064,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 							{
 								"name": "kernel-configmap",
 								"configMap": map[string]interface{}{
-									"name":        fmt.Sprintf("kernel-%s-configmap", kernel.Id),
+									"name":        fmt.Sprintf("kernel-%s-configmap", strings.ToLower(kernel.Id)),
 									"defaultMode": int32(0777),
 								},
 							},
@@ -1233,7 +1236,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 
 // Create a Kubernetes ConfigMap containing the configuration information for a particular deployment of distributed kernels.
 // Both the connectionInfoJson and configJson arguments should be values returned by the json.Marshal function.
-func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJson []byte, configJson []byte, kernel *gateway.KernelSpec) {
+func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJson []byte, configJson []byte, kernel *gateway.KernelSpec) error {
 	// Construct the ConfigMap. We'll mount this to the Pods.
 	connectionFileConfigMap := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
@@ -1241,7 +1244,7 @@ func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJso
 			APIVersion: "metav1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("kernel-%s-configmap", kernel.Id),
+			Name:      fmt.Sprintf("kernel-%s-configmap", strings.ToLower(kernel.Id)),
 			Namespace: "default", // TODO(Ben): Don't hardcode the namespace.
 		},
 		Data: map[string]string{
@@ -1254,9 +1257,10 @@ func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJso
 	// TODO(Ben): Don't hardcode the namespace.
 	_, err := c.kubeClientset.CoreV1().ConfigMaps("default").Create(ctx, connectionFileConfigMap, metav1.CreateOptions{})
 	if err != nil {
-		c.log.Error("Error creating ConfigMap for connection file for Session %s.", kernel.Id)
-		panic(err)
+		c.log.Error("Error creating ConfigMap for connection file for Session %s: %v", kernel.Id, err)
 	}
+
+	return err // Will be nil if no error occurred.
 }
 
 // Create a headless service that will control the networking of the distributed kernel StatefulSet.

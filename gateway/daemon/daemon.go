@@ -1408,7 +1408,7 @@ func (d *clusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg)
 	}
 
 	kernel, ok := d.kernels.Load(header.Session)
-	if !ok && header.MsgType == ShellKernelInfoRequest {
+	if !ok && (header.MsgType == ShellKernelInfoRequest || header.MsgType == ShellExecuteRequest) {
 		// Register kernel on ShellKernelInfoRequest
 		if kernelId == "" {
 			return ErrKernelIDRequired
@@ -1588,7 +1588,7 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 		if header.MsgType == ShellExecuteReply {
 			kernel, ok := d.kernels.Load(kernelId)
 			if !ok {
-				d.log.Error("Could not find kernel associated with Session %s", header.Session)
+				d.log.Error("Could not find kernel associated with Session %s specified in ShellExecuteReply", header.Session)
 			} else {
 				d.processExecutionReply(kernel)
 			}
