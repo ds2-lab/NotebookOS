@@ -25,7 +25,6 @@ require (
 	github.com/scusemua/gopy v0.4.3
 	github.com/shopspring/decimal v1.3.1
 	github.com/uber/jaeger-client-go v2.30.0+incompatible
-	github.com/zhangjyr/gopy v0.4.2
 	github.com/zhangjyr/hashmap v1.0.2
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2
 	go.etcd.io/etcd/raft/v3 v3.5.2
@@ -42,6 +41,8 @@ require (
 	k8s.io/kubelet v0.29.1
 	nhooyr.io/websocket v1.8.10
 )
+
+require github.com/pebbe/zmq4 v1.2.11 // indirect
 
 require (
 	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
@@ -69,7 +70,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.19.0 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
-	github.com/go-zeromq/goczmq/v4 v4.2.2 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -126,7 +126,6 @@ require (
 	golang.org/x/crypto v0.22.0 // indirect
 	golang.org/x/net v0.24.0 // indirect
 	golang.org/x/oauth2 v0.16.0 // indirect
-	golang.org/x/sync v0.5.0 // indirect
 	golang.org/x/sys v0.19.0 // indirect
 	golang.org/x/term v0.19.0 // indirect
 	golang.org/x/text v0.14.0 // indirect

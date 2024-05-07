@@ -204,7 +204,7 @@ fi
 # scusemua/gopy #
 #################
 cd $GOPATH_ENV/pkg/gopy 
-python3 -m pip install pybindgen
+python3.11 -m pip install pybindgen
 go install golang.org/x/tools/cmd/goimports@latest
 go install github.com/scusemua/gopy@v0.4.3
 make 
