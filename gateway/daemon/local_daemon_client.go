@@ -14,6 +14,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 )
 
 var (
@@ -75,14 +76,32 @@ func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval
 }
 
 func (s *LocalDaemonClient) pollForGpuInfo() {
+	numConsecutiveFailures := 0
 	for {
 		resp, err := s.LocalGatewayClient.GetActualGpuInfo(context.Background(), &gateway.Void{})
 		if err != nil {
 			s.log.Error("Failed to refresh GPU info from Scheduler %s on Node %s: %v", s.id, s.nodeName, err)
+			numConsecutiveFailures += 1
+
+			// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
+			if numConsecutiveFailures >= 3 {
+				// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
+				if (s.conn.GetState() == connectivity.TransientFailure || s.conn.GetState() == connectivity.Shutdown) {
+					s.log.Error("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.", numConsecutiveFailures, s.id, s.nodeName, s.conn.GetState().String(), s.id)
+					return 
+				} else if numConsecutiveFailures >= 5 { // If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
+					s.log.Error("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.", numConsecutiveFailures, s.id, s.nodeName, s.conn.GetState().String(), s.id)
+					return
+				} else { // Otherwise, we won't asume it is dead yet... 
+					s.log.Warn("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...", numConsecutiveFailures, s.id, s.nodeName, s.conn.GetState().String())
+				}
+			}
 		} else {
 			s.gpuInfoMutex.Lock()
 			s.gpuInfo = resp
 			s.gpuInfoMutex.Unlock()
+
+			numConsecutiveFailures = 0
 		}
 
 		time.Sleep(s.gpuInfoRefreshInterval)
