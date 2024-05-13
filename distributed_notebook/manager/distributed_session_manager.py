@@ -107,11 +107,12 @@ class DistributedSessionManager(SessionManager):
         
         # If the caller didn't specify a particular kernel ID, then that's fine.
         # If they did, then the returned kernel ID should necessarily be equal to whatever was passed by the caller.
-        if kernel_id is not None:
+        if kernel_id != None:
             assert(returned_kernel_id == kernel_id)
         else:
-            self.log.debug("Kernel %s (generated uuid) was created for Session %s." % (kernel_id, session_id))
-        
+            kernel_id = returned_kernel_id
+            
+        self.log.debug("Kernel %s was created for Session %s." % (kernel_id, session_id))
         self.log.info(f"Started kernel {returned_kernel_id}. Number of kernels: {len(self.kernel_manager._kernels)}.")
         self.log.info(f"Kernels: {str(self.kernel_manager._kernels.keys())}")
         

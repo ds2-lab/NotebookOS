@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -199,9 +200,9 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					return
 				}
 			} else if err != nil {
-				s.Log.Warn("Error on handle %v message: %v", socket.Type, err)
-				s.Log.Warn("Message: %v", msg)
-				return
+				s.Log.Error("Error on handle %v message: %v. Message: %v.", socket.Type, err, msg)
+				s.Log.Error("Will NOT abort serving for now.")
+				// return
 			}
 		}
 
@@ -242,7 +243,9 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
 	_, reqId, jOffset := dest.ExtractDestFrame(req.Frames)
 	if reqId == "" {
+		// s.Log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %v.", dest.RequestDestID(), jOffset, req.Frames)
 		req.Frames, reqId = dest.AddDestFrame(req.Frames, dest.RequestDestID(), jOffset)
+		// s.Log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", dest.RequestDestID(), jOffset, req.Frames)
 	}
 
 	// Send request.
@@ -308,16 +311,34 @@ func (s *AbstractServer) AddDestFrame(frames [][]byte, destID string, jOffset in
 		_, reqID, jOffset = s.ExtractDestFrame(frames)
 		// If the dest frame is already there, we are done.
 		if reqID != "" {
+			s.Log.Debug("Destination frame found. ReqID: %s", reqID)
 			return
 		}
 	}
+
+	// s.Log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %s", destID, jOffset, s.framesToString(frames))
 
 	// Add dest frame just before "<IDS|MSG>" frame.
 	newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
 	copy(newFrames[jOffset+1:], frames[jOffset:])
 	reqID = uuid.New().String()
 	newFrames[jOffset] = []byte(fmt.Sprintf(ZMQDestFrameFormatter, destID, reqID))
+
+	// s.Log.Debug("New frames: %s", s.framesToString(newFrames))
 	return
+}
+
+func (s *AbstractServer) framesToString(frames [][]byte) string {
+	buf := new(bytes.Buffer)
+	buf.WriteString("Msg{Frames:{")
+	for i, frame := range frames {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		fmt.Fprintf(buf, "%q", frame)
+	}
+	buf.WriteString("}}")
+	return buf.String()
 }
 
 func (s *AbstractServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {
@@ -516,14 +537,14 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 		if handler != nil {
 			err := handler(info, msgType, msg)
 			if err != nil {
-				s.Log.Warn("Error on handle %v response: %v", msgType, err)
-				s.Log.Warn("Message: %v", msg)
+				s.Log.Warn("Error on handle %v response: %v. Message: %v.", msgType, err, msg)
 			}
 		} else if matchReqId != "" {
-			// s.Log.Debug("Discard %v response to request %s.", msgType, matchReqId)
-		} else {
-			// s.Log.Debug("Discard %v response: %v.", msgType, msg)
+			s.Log.Debug("Discard %v response to request %s.", msgType, matchReqId)
 		}
+		// else {
+		// 	// s.Log.Debug("Discard %v response: %v.", msgType, msg)
+		// }
 
 		// Stop serving anyway.
 		return retErr

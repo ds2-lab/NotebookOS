@@ -314,7 +314,7 @@ func (c *KernelClient) BusyStatus() (string, *zmq4.Msg) {
 // BindSession binds a session ID to the client.
 func (c *KernelClient) BindSession(sess string) {
 	c.SessionManager.BindSession(sess)
-	c.log.Info("Binded session %s", sess)
+	c.log.Info("Binded session %s to kernel client", sess)
 }
 
 // Validate validates the kernel connections. If IOPub has been initialized, it will also validate the IOPub connection and start the IOPub forwarder.

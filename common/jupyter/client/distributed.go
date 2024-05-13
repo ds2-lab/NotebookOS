@@ -328,7 +328,7 @@ func (c *distributedKernelClientImpl) BindSession(sess string) {
 	if restarted {
 		c.log.Info("Restarted for binding kernel session %s", sess)
 	} else {
-		c.log.Info("Binded session %s", sess)
+		c.log.Info("Binded session %s to distributed kernel client.", sess)
 	}
 }
 
@@ -708,6 +708,8 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 		replicaCtx, cancel = context.WithTimeout(ctx, server.DefaultRequestTimeout)
 	}
 	forwarder := func(replica core.KernelInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
+		c.log.Debug("Received %v response from replica %v", typ, replica)
+
 		if typ == types.ShellMessage {
 			// "Preprocess" the response, which involves checking if it a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.
 			_, yielded := c.preprocessShellResponse(replica, msg)

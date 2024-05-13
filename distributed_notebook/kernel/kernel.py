@@ -16,7 +16,7 @@ from ipykernel.ipkernel import IPythonKernel
 from ipykernel import jsonutil
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from .util import extract_header
-
+from threading import Lock
 
 class ExecutionYieldError(Exception):
     """Exception raised when execution is yielded."""
@@ -34,6 +34,9 @@ err_failed_to_lead_execution = ExecutionYieldError(
 err_invalid_request = RuntimeError("Invalid request.")
 key_persistent_id = "persistent_id"
 enable_storage = True
+
+run_training_code_mutex: Lock = Lock() 
+run_training_code: bool = False 
 
 # Used as the value for an environment variable that was not set.
 UNAVAILABLE: str = "N/A"
@@ -123,6 +126,7 @@ class DistributedKernel(IPythonKernel):
             "add_replica_request",
             "update_replica_request",
             "prepare_to_migrate_request",
+            "stop_running_training_code"
         ]
 
         self.msg_types = [
@@ -739,6 +743,29 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
                            self.smr_node_id, self.kernel_id, str(e))
             return self.gen_error_response(e), False
+
+    async def stop_running_training_code(self, stream, ident, parent):
+        """
+        Set the global `run_training_code` flag to False.
+        """
+        global run_training_code
+        
+        with run_training_code_mutex:
+            if run_training_code_mutex:
+                self.log.info("Setting `run_training_code` to False.")
+                run_training_code = False 
+            else:
+                self.log.warn("`run_training_code` is already set to False.")
+        
+        content:dict = {
+            'status': 'ok',
+            # The base class increments the execution count
+            'execution_count': self.execution_count,
+            'payload': [],
+            'user_expressions': {},
+        }
+        
+        self.session.send(stream, "stop_running_training_code_reply", content, parent, ident=ident)
 
     async def prepare_to_migrate_request(self, stream, ident, parent):
         """

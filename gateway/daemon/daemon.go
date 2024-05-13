@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -651,7 +652,7 @@ func (d *clusterGatewayImpl) SmrNodeAdded(ctx context.Context, replicaInfo *gate
 
 func (d *clusterGatewayImpl) ExecutionFailed(c client.DistributedKernelClient) error {
 	execution := c.ActiveExecution()
-	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.", execution.ExecutionId(), execution.AttemptId())
+	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.", execution.ExecutionId(), execution.AttemptId(), c.ID())
 
 	return d.failureHandler(c)
 }
@@ -1394,7 +1395,20 @@ func (d *clusterGatewayImpl) Close() error {
 
 // RouterProvider implementations.
 func (d *clusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	return d.forwardRequest(nil, jupyter.ControlMessage, msg)
+	err := d.forwardRequest(nil, jupyter.ControlMessage, msg)
+
+	// When a kernel is first created/being nudged, Jupyter Server will send both a Shell and Control request.
+	// The Control request will just have a Session, and the mapping between the Session and the Kernel will not
+	// be established until the Shell message is processed. So, if we see a ErrKernelNotFound error here, we will
+	// simply retry it after some time has passed, as the requests are often received very close together.
+	if errors.Is(err, ErrKernelNotFound) {
+		time.Sleep(time.Millisecond * 500)
+
+		// We won't re-try more than once.
+		err = d.forwardRequest(nil, jupyter.ControlMessage, msg)
+	}
+
+	return err
 }
 
 func (d *clusterGatewayImpl) kernelShellHandler(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
@@ -1425,6 +1439,12 @@ func (d *clusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg)
 	}
 	if kernel == nil {
 		d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", kernelId, header.MsgID, header.MsgType, header.Session)
+
+		if len(kernelId) == 0 {
+			d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Type, msg)
+			debug.PrintStack()
+		}
+
 		return ErrKernelNotFound
 	}
 
@@ -1529,41 +1549,92 @@ func (d *clusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 }
 
 func (d *clusterGatewayImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, err error) {
+	// d.log.Debug("Extracting kernel ID from ZMQ %v message: %v", msg.Type, msg)
 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
+
+	// if len(kernelId) == 0 {
+	// 	d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Type, msg)
+	// 	debug.PrintStack()
+	// }
 
 	header, err = d.headerFromFrames(msg.Frames[offset:])
 
 	return kernelId, header, err
 }
 
-func (d *clusterGatewayImpl) kernelFromMsg(msg *zmq4.Msg) (client.DistributedKernelClient, error) {
-	kernelId, header, err := d.headerFromMsg(msg)
+// idFromMsg extracts the kernel id or session id from the ZMQ message.
+func (d *clusterGatewayImpl) kernelIdAndTypeFromMsg(msg *zmq4.Msg) (id string, messageType string, sessId bool, err error) {
+	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
+	header, err := d.headerFromFrames(msg.Frames[offset:])
 	if err != nil {
-		return nil, err
+		return "", "", false, err
+	}
+
+	if kernelId == "" {
+		d.log.Error("Extracted empty string for kernel ID from message. Will try using session ID instead.")
+		kernelId = header.Session
+	}
+
+	return kernelId, header.MsgType, true, nil
+}
+
+// Extract the Kernel ID and the message type from the given ZMQ message.
+func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.DistributedKernelClient, messageType string, err error) {
+	var (
+		kernelId string
+	)
+
+	kernelId, messageType, _, err = d.kernelIdAndTypeFromMsg(msg)
+	if err != nil {
+		return nil, messageType, err
 	}
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-
-		d.log.Error("Cannot find kernel %s specified in %v message %s of type '%v'.", kernelId, header.MsgType, header.MsgID, header.MsgType)
-		return nil, ErrKernelNotFound
+		d.log.Error("Could not find kernel with ID %s", kernelId)
+		return nil, messageType, ErrKernelNotFound
 	}
 
 	if kernel.Status() != jupyter.KernelStatusRunning {
-		return kernel, ErrKernelNotReady
+		return kernel, messageType, ErrKernelNotReady
 	}
 
-	return kernel, nil
+	return kernel, messageType, nil
 }
 
+// func (d *clusterGatewayImpl) kernelFromMsg(msg *zmq4.Msg) (client.DistributedKernelClient, error) {
+// 	kernelId, header, err := d.headerFromMsg(msg)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	kernel, ok := d.kernels.Load(kernelId)
+// 	if !ok {
+// 		d.log.Error("Cannot find kernel \"%s\" specified in %v message %s of type '%v'. Message: %v", kernelId, header.MsgType, header.MsgID, header.MsgType, msg)
+// 		return nil, ErrKernelNotFound
+// 	}
+
+// 	if kernel.Status() != jupyter.KernelStatusRunning {
+// 		return kernel, ErrKernelNotReady
+// 	}
+
+// 	return kernel, nil
+// }
+
 func (d *clusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
+	var messageType string
 	if kernel == nil {
-		kernel, err = d.kernelFromMsg(msg)
-		if err != nil {
-			return err
-		}
+		kernel, messageType, err = d.kernelAndTypeFromMsg(msg)
+	} else {
+		_, messageType, err = d.kernelAndTypeFromMsg(msg)
 	}
 
+	if err != nil {
+		d.log.Error("Failed to extract kernel and/or message type from %v message. Error: %v. Message: %v.", typ, err, msg)
+		return err
+	}
+
+	d.log.Debug("Forwarding %v message of type %s to replicas of kernel %s.", typ, messageType, kernel.ID())
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 

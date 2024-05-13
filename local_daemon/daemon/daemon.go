@@ -393,6 +393,11 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		d.log.Error("Error encountered while notifying Gateway of kernel registration: %v", err)
 	}
 
+	if response == nil {
+		// TODO: Figure out a better way to handle this. As of right now, we really cannot recover from this.
+		panic("Failed to notify Gateway of kernel registration.")
+	}
+
 	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.", response.Id, response.Replicas)
 	d.log.Debug("Resource spec for kernel %s: %v", kernel.ID(), response.ResourceSpec)
 
@@ -1274,6 +1279,7 @@ func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel client.Kern
 		}
 	}
 
+	d.log.Debug("Forwarding %v message to replica %d of kernel %s.", typ, kernel.ReplicaID(), kernel.ID())
 	if done == nil {
 		done = func() {}
 	}

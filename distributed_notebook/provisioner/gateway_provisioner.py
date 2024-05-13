@@ -87,19 +87,23 @@ class GatewayProvisioner(KernelProvisionerBase):
 
     async def send_signal(self, signum: int) -> None:
         """
-        Sends signal identified by signum to the kernel process.
-        This method is called from `KernelManager.signal_kernel()` to send the
-        kernel process a signal.
+        Sends signal identified by signum to the process group of the kernel. 
+        (This usually includes the kernel and any subprocesses spawned by the kernel.)
+        
+        This method is called from `KernelManager.signal_kernel()` to send the kernel process a signal.
         """
         if signum == 0:
             await self.poll()
             return
         elif signum == signal.SIGKILL:
+            self.log.warn("Received SIGKILL. Unaliving now.")
             return await self.kill()
         elif signum == signal.SIGTERM or signum == signal.SIGINT:
             # Shutdown requested, delay and wait for restart flag.
+            self.log.warn("Received SIGTERM/SIGINT. Shutdown requested.")
             return
         else:
+            self.log.warn("Received signal number %d." % signum)
             return await super().send_signal(signum)
 
     async def kill(self, restart: bool = False) -> None:
