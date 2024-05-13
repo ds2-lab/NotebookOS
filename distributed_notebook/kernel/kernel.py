@@ -18,6 +18,8 @@ from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from .util import extract_header
 from threading import Lock
 
+from multiprocessing import Process, Queue
+
 class ExecutionYieldError(Exception):
     """Exception raised when execution is yielded."""
 
@@ -34,9 +36,6 @@ err_failed_to_lead_execution = ExecutionYieldError(
 err_invalid_request = RuntimeError("Invalid request.")
 key_persistent_id = "persistent_id"
 enable_storage = True
-
-run_training_code_mutex: Lock = Lock() 
-run_training_code: bool = False 
 
 # Used as the value for an environment variable that was not set.
 UNAVAILABLE: str = "N/A"
@@ -66,6 +65,8 @@ class DistributedKernel(IPythonKernel):
     smr_join = Bool(False,  # type: ignore
                     help="""Join the SMR cluster"""
                     ).tag(config=True)
+
+    local_tcp_server_port = Integer(5555, help = "Port for local TCP server.").tag(config = True)
 
     persistent_id: Union[str, Unicode] = Unicode(
         help="""Persistent id for storage"""
@@ -131,7 +132,7 @@ class DistributedKernel(IPythonKernel):
 
         self.msg_types = [
             *self.msg_types,
-            "yield_execute",
+            "yield_execute"
         ]
 
         super().__init__(**kwargs)
@@ -142,7 +143,10 @@ class DistributedKernel(IPythonKernel):
         self.log.info("TEST -- INFO")
         self.log.debug("TEST -- DEBUG")
         self.log.warn("TEST -- WARN")
-        self.log.error("TEST -- ERROR")
+        self.log.error("TEST -- ERROR")        
+
+        self.run_training_code_mutex: Lock = Lock() 
+        self.run_training_code: bool = False 
 
         self.execution_ast = None
         self.smr_nodes_map = {}
@@ -203,6 +207,33 @@ class DistributedKernel(IPythonKernel):
         # TODO(Ben): Connect to LocalDaemon.
         self.register_with_local_daemon(
             connection_info, session_id)  # config_info
+        
+        self.local_tcp_server_queue: Queue = Queue()
+        self.local_tcp_server_process: Process = Process(target = self.server_process, args=(self.local_tcp_server_queue, ))
+        self.local_tcp_server_process.daemon = True 
+        self.local_tcp_server_process.start() 
+
+    def server_process(self, queue: Queue):
+        self.log.info(f"[Local TCP Server] Starting. Port: {self.local_tcp_server_port}")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(('127.0.0.1', self.local_tcp_server_port))
+        sock.listen(5)
+        self.log.info(f"[Local TCP Server] Started. Port: {self.local_tcp_server_port}")
+        
+        while True:
+            conn, addr = sock.accept()
+            
+            self.log.info(f"[Local TCP Server] Received incoming connection (addr={addr}). Training should have started.")
+            
+            queue.get(block = True, timeout = None)
+            
+            self.log.info("[Local TCP Server] Received 'STOP' instruction from Cluster.")
+            
+            conn.send(b"stop")
+            
+            self.log.info("[Local TCP Server] Sent 'STOP' instruction to shell thread via TCP.")
+            
+            conn.close() 
 
     # config_info:dict,
     def register_with_local_daemon(self, connection_info: dict, session_id: str):
@@ -421,6 +452,35 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(
             "execute_request called within the Distributed Python Kernel.")
         await super().execute_request(stream, ident, parent)
+
+    # async def simulate_training(self, stream, ident, parent):
+    #     """
+    #     Simulate the execution of training code.
+    #     """
+    #     start_time: float = time.time()
+    #     self.log.info("Simulating the execution of DL training code now.")
+        
+    #     self.run_training_code_mutex.acquire()
+    #     self.run_training_code = True # Already defined.
+    #     self.run_training_code_mutex.release()
+
+    #     print("Beginning training.")
+    #     while True:
+    #         # Check if we should stop simulating the code execution.
+    #         # TODO(Ben): Need a better way to do this. If there is a start --> stop --> start, the stop might get lost.
+    #         with self.run_training_code_mutex:
+    #             if not self.run_training_code:
+    #                 break 
+            
+    #         # Do some work.
+    #         val = 213123
+    #         _ = val * val
+    #         val = val + 1
+    #         time.sleep(0.01)
+        
+    #     end_time = time.time()
+    #     duration = end_time - start_time
+    #     self.log.info("")
 
     async def yield_execute(self, stream, ident, parent):
         """
@@ -750,12 +810,9 @@ class DistributedKernel(IPythonKernel):
         """
         global run_training_code
         
-        with run_training_code_mutex:
-            if run_training_code_mutex:
-                self.log.info("Setting `run_training_code` to False.")
-                run_training_code = False 
-            else:
-                self.log.warn("`run_training_code` is already set to False.")
+        self.log.info("Received 'stop training' instruction.")
+        self.local_tcp_server_queue.put(b"stop", block = True, timeout = None)
+        self.log.info("Sent 'stop training' instruction to local TCP server.")
         
         content:dict = {
             'status': 'ok',
