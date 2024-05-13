@@ -388,14 +388,33 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
-	response, err := d.Provisioner.NotifyKernelRegistered(ctx, kernelRegistrationNotification)
-	if err != nil {
-		d.log.Error("Error encountered while notifying Gateway of kernel registration: %v", err)
-	}
 
-	if response == nil {
-		// TODO: Figure out a better way to handle this. As of right now, we really cannot recover from this.
-		panic("Failed to notify Gateway of kernel registration.")
+	num_tries := 0
+	max_num_tries := 3
+
+	var response *gateway.KernelRegistrationNotificationResponse
+	// TODO: Figure out a better way to handle this. As of right now, we really cannot recover from this.
+	for num_tries < max_num_tries {
+		response, err = d.Provisioner.NotifyKernelRegistered(ctx, kernelRegistrationNotification)
+		if err != nil {
+			d.log.Error("Error encountered while notifying Gateway of kernel registration (attempt %d/%d): %s", num_tries+1, max_num_tries, err.Error())
+			num_tries += 1
+
+			if num_tries < max_num_tries {
+				time.Sleep(time.Second * time.Duration(num_tries))
+			}
+			continue
+		} else if response == nil {
+			d.log.Error("Failed to notify Gateway of kernel registration (attempt %d/%d).", num_tries+1, max_num_tries)
+			num_tries += 1
+
+			if num_tries < max_num_tries {
+				time.Sleep(time.Second * time.Duration(num_tries))
+			}
+			continue
+		}
+
+		break
 	}
 
 	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.", response.Id, response.Replicas)
