@@ -46,11 +46,6 @@ class ClusterGatewayStub(object):
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
-        self.FailNextExecution = channel.unary_unary(
-                '/gateway.ClusterGateway/FailNextExecution',
-                request_serializer=gateway__pb2.KernelId.SerializeToString,
-                response_deserializer=gateway__pb2.Void.FromString,
-                )
 
 
 class ClusterGatewayServicer(object):
@@ -103,14 +98,6 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def FailNextExecution(self, request, context):
-        """Ensure that the next 'execute_request' for the specified kernel fails.
-        This is to be used exclusively for testing/debugging purposes.
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -142,11 +129,6 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
             'SmrNodeAdded': grpc.unary_unary_rpc_method_handler(
                     servicer.SmrNodeAdded,
                     request_deserializer=gateway__pb2.ReplicaInfo.FromString,
-                    response_serializer=gateway__pb2.Void.SerializeToString,
-            ),
-            'FailNextExecution': grpc.unary_unary_rpc_method_handler(
-                    servicer.FailNextExecution,
-                    request_deserializer=gateway__pb2.KernelId.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
@@ -263,23 +245,6 @@ class ClusterGateway(object):
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
-    @staticmethod
-    def FailNextExecution(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/FailNextExecution',
-            gateway__pb2.KernelId.SerializeToString,
-            gateway__pb2.Void.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
-
 
 class DistributedClusterStub(object):
     """gRPC service provided by the Cluster Gateway and "used" by the Dashboard
@@ -326,6 +291,11 @@ class DistributedClusterStub(object):
                 '/gateway.DistributedCluster/MigrateKernelReplica',
                 request_serializer=gateway__pb2.MigrationRequest.SerializeToString,
                 response_deserializer=gateway__pb2.MigrateKernelResponse.FromString,
+                )
+        self.FailNextExecution = channel.unary_unary(
+                '/gateway.DistributedCluster/FailNextExecution',
+                request_serializer=gateway__pb2.KernelId.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
                 )
 
 
@@ -388,6 +358,14 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def FailNextExecution(self, request, context):
+        """Ensure that the next 'execute_request' for the specified kernel fails.
+        This is to be used exclusively for testing/debugging purposes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DistributedClusterServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -425,6 +403,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.MigrateKernelReplica,
                     request_deserializer=gateway__pb2.MigrationRequest.FromString,
                     response_serializer=gateway__pb2.MigrateKernelResponse.SerializeToString,
+            ),
+            'FailNextExecution': grpc.unary_unary_rpc_method_handler(
+                    servicer.FailNextExecution,
+                    request_deserializer=gateway__pb2.KernelId.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -554,6 +537,23 @@ class DistributedCluster(object):
         return grpc.experimental.unary_unary(request, target, '/gateway.DistributedCluster/MigrateKernelReplica',
             gateway__pb2.MigrationRequest.SerializeToString,
             gateway__pb2.MigrateKernelResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def FailNextExecution(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.DistributedCluster/FailNextExecution',
+            gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.Void.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

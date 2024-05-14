@@ -455,35 +455,6 @@ class DistributedKernel(IPythonKernel):
             "execute_request called within the Distributed Python Kernel.")
         await super().execute_request(stream, ident, parent)
 
-    # async def simulate_training(self, stream, ident, parent):
-    #     """
-    #     Simulate the execution of training code.
-    #     """
-    #     start_time: float = time.time()
-    #     self.log.info("Simulating the execution of DL training code now.")
-        
-    #     self.run_training_code_mutex.acquire()
-    #     self.run_training_code = True # Already defined.
-    #     self.run_training_code_mutex.release()
-
-    #     print("Beginning training.")
-    #     while True:
-    #         # Check if we should stop simulating the code execution.
-    #         # TODO(Ben): Need a better way to do this. If there is a start --> stop --> start, the stop might get lost.
-    #         with self.run_training_code_mutex:
-    #             if not self.run_training_code:
-    #                 break 
-            
-    #         # Do some work.
-    #         val = 213123
-    #         _ = val * val
-    #         val = val + 1
-    #         time.sleep(0.01)
-        
-    #     end_time = time.time()
-    #     duration = end_time - start_time
-    #     self.log.info("")
-
     async def yield_execute(self, stream, ident, parent):
         """
         Similar to the do_execute method, but this method ALWAYS proposes "YIELD" instead of "LEAD".

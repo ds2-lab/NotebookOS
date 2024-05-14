@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"crypto/hmac"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -73,6 +75,7 @@ var (
 	ErrInvalidJupyterMessage     = errors.New("invalid jupter message")
 	ErrKernelIDRequired          = errors.New("kernel id frame is required for kernel_info_request")
 	ErrDaemonNotFoundOnNode      = errors.New("could not find a local daemon on the specified kubernetes node")
+	ErrFailedToVerifyMessage     = errors.New("failed to verify ZMQ message after re-encoding it with modified contents")
 )
 
 type GatewayDaemonConfig func(domain.ClusterGateway)
@@ -614,12 +617,14 @@ func (d *clusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification 
 	kernelId := smrReadyNotification.KernelId
 
 	// First, check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
-	_, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId)
+	addReplicaOp, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId)
 	if !ok {
 		return gateway.VOID, nil
 	}
 
 	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s.", smrReadyNotification.ReplicaId, kernelId)
+	addReplicaOp.ReplicaJoinedSmrChannel() <- struct{}{}
+
 	return gateway.VOID, nil
 }
 
@@ -717,19 +722,87 @@ func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 		},
 		TargetNodeId: nil,
 	}
-	resp, err := d.MigrateKernelReplica(context.TODO(), req)
 
-	if err != nil {
-		d.log.Error("Static Failure Handler: failed to migrate replica %d of kernel %s because: %v", targetReplica, c.ID(), err)
-		return err
-	} else {
-		d.log.Debug("Static Failure Handler: successfully migrated replica %d of kernel %s to host %s.", targetReplica, c.ID(), resp.Hostname)
+	var waitGroup sync.WaitGroup
+
+	waitGroup.Add(1)
+	errorChan := make(chan error, 1)
+
+	// Start the migration operation in another thread so that we can do some stuff while we wait.
+	go func() {
+		resp, err := d.MigrateKernelReplica(context.TODO(), req)
+
+		if err != nil {
+			d.log.Error("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s", targetReplica, c.ID(), err.Error())
+			errorChan <- err
+		} else {
+			d.log.Debug("Static Failure Handler: successfully migrated replica %d of kernel %s to host %s.", targetReplica, c.ID(), resp.Hostname)
+		}
+
+		waitGroup.Done()
+	}()
+
+	// We'll need this if the migration operation completes successfully.
+	nextExecutionAttempt := client.NewActiveExecution(c.ID(), header.Session, activeExecution.AttemptId()+1, c.Size(), msg)
+
+	// Next, let's update the message so that we target the new replica.
+	_, _, offset := d.router.ExtractDestFrame(msg.Frames)
+	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
+	var metadataFrame *jupyter.JupyterFrame = frames[offset:].MetadataFrame()
+	var metadataDict map[string]interface{}
+
+	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
+	if len(metadataFrame.Frame()) > 0 {
+		// Unmarshal the frame. This way, we preserve any other metadata that was
+		// originally included with the message when we specify the target replica.
+		err := metadataFrame.Decode(&metadataDict)
+		if err != nil {
+			d.log.Error("Error unmarshalling metadata frame for 'execute_request' message: %v", err)
+			return err
+		} else {
+			d.log.Debug("Unmarshalled metadata frame for 'execute_request' message: %v", metadataDict)
+		}
 	}
 
-	nextExecutionAttempt := client.NewActiveExecution(c.ID(), header.Session, activeExecution.AttemptId()+1, c.Size(), msg)
+	// Specify the target replica.
+	metadataDict[TargetReplicaArg] = targetReplica
+	err = frames[offset:].EncodeMetadata(metadataDict)
+	if err != nil {
+		d.log.Error("Failed to encode metadata frame because: %v", err)
+		// TODO(Ben): What do we do here?
+		return err
+	}
+
+	// Regenerate the signature.
+	framesWithoutIdentities, _ := c.SkipIdentities(msg.Frames)
+	framesWithoutIdentities.Sign(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+
+	// Ensure that the frames are now correct.
+	if verified := d.verifyFrames([]byte(c.ConnectionInfo().Key), c.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
+		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", c.ConnectionInfo().SignatureScheme, c.ConnectionInfo().Key)
+		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
+		// TODO(Ben): What do we do here?
+		return ErrFailedToVerifyMessage
+	}
+
+	// Now, we wait for the migration operation to proceed.
+	waitGroup.Wait()
+	select {
+	case err := <-errorChan:
+		{
+			// If there was an error during execution, then we'll return that error rather than proceed.
+			return err
+		}
+	default:
+		{
+			// Do nothing. The migration operation completed successfully.
+		}
+	}
+
+	// Since the migration operation completed successfully, we can store the new ActiveExecution struct
+	// corresponding to this next execution attempt in the 'activeExecutions' map and on the kernel client.
 	d.activeExecutions.Store(header.MsgID, activeExecution)
 	c.SetActiveExecution(activeExecution)
-
 	nextExecutionAttempt.LinkPreviousAttempt(activeExecution)
 	activeExecution.LinkNextAttempt(nextExecutionAttempt)
 
@@ -742,6 +815,24 @@ func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	}
 
 	return nil
+}
+
+func (d *clusterGatewayImpl) verifyFrames(signkey []byte, signatureScheme string, offset int, frames jupyter.JupyterFrames) bool {
+	expect, err := frames.CreateSignature(signatureScheme, signkey, offset)
+	if err != nil {
+		d.log.Error("Error when creating signature to verify JFrames: %v", err)
+		return false
+	}
+
+	signature := make([]byte, hex.DecodedLen(len(frames[offset+jupyter.JupyterFrameSignature])))
+	hex.Decode(signature, frames[offset+jupyter.JupyterFrameSignature])
+	verified := hmac.Equal(expect, signature)
+
+	if !verified {
+		d.log.Error("Failed to verify JFrames.\nExpect: '%v'\nSignature: '%v'", expect, signature)
+	}
+
+	return verified
 }
 
 func (d *clusterGatewayImpl) dynamicV3FailureHandler(c client.DistributedKernelClient) error {
@@ -1293,6 +1384,8 @@ func (d *clusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gate
 	if err != nil {
 		d.log.Error("Could not find replica %d for kernel %s after migration is supposed to have completed: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
 		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+	} else {
+		d.log.Debug("Successfully added new replica %d to kernel %s during migration operation.", addReplicaOp.ReplicaId(), in.KernelId)
 	}
 
 	// The replica is fully operational at this point, so record that it is ready.
@@ -1354,7 +1447,17 @@ func (d *clusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *gatew
 
 	d.log.Debug("Migrating replica %d of kernel %s now.", replicaInfo.ReplicaId, replicaInfo.KernelId)
 
-	return d.migrate_removeFirst(replicaInfo)
+	resp, err := d.migrate_removeFirst(replicaInfo)
+	if err != nil {
+		d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed because: %s", replicaInfo.ReplicaId, replicaInfo.KernelId, targetNode, err.Error())
+	} else {
+		d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully.", replicaInfo.ReplicaId, replicaInfo.KernelId, targetNode)
+	}
+
+	// If there was an error, then err will be non-nil.
+	// If there was no error, then err will be nil.
+	return resp, err
+
 	// return d.migrate_removeLast(ctx, in)
 
 	// The ID of the replica that we're migrating.
@@ -1543,7 +1646,7 @@ func (d *clusterGatewayImpl) processExecuteRequest(msg *zmq4.Msg, kernel client.
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernel.ID(), msg)
 
 	activeExecution := client.NewActiveExecution(kernel.ID(), header.Session, 1, kernel.Size(), msg)
-	d.activeExecutions.Store(header.MsgID, activeExecution)
+	d.activeExecutions.Store(kernel.ID(), activeExecution)
 	kernel.SetActiveExecution(activeExecution)
 
 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernel.ID(), activeExecution)
@@ -1726,7 +1829,7 @@ func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 func (d *clusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
 	var messageType string
 	if kernel == nil {
-		d.log.Debug("Received %v message targeting unknown. Inspecting now...", typ)
+		d.log.Debug("Received %v message targeting unknown kernel/session. Inspecting now...", typ)
 		kernel, messageType, err = d.kernelAndTypeFromMsg(msg)
 	} else {
 		d.log.Debug("Received %v message targeting kernel %s. Inspecting now...", typ, kernel.ID())
@@ -1766,7 +1869,15 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 	}
 
 	d.log.Debug("Forwarding %v response from kernel %s.", typ, from.ID())
-	return socket.Send(*msg)
+	err := socket.Send(*msg)
+
+	if err != nil {
+		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+	} else {
+		d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
+	}
+
+	return err // Will be nil on success.
 }
 
 func (d *clusterGatewayImpl) errorf(err error) error {
@@ -1871,7 +1982,7 @@ func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 	if opts.WaitRegistered() {
 		d.log.Debug("Waiting for new replica %d of kernel %s to register.", addReplicaOp.ReplicaId(), kernelId)
 		<-addReplicaOp.ReplicaRegisteredChannel()
-		d.log.Trace("New replica %d for kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
+		d.log.Debug("New replica %d for kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
 	}
 
 	var smrWg sync.WaitGroup

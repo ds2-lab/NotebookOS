@@ -11,12 +11,13 @@ OP_SYNC_DEL = "del"
 class SyncValue:
   """A value for log proposal."""
 
-  def __init__(self, tag, val: Any, term:int=0, proposed_node:Optional[int] = -1, timestamp:Optional[float] = time.time(), key:Optional[str]=None, op:Optional[str]=None, prmap:Optional[list[str]]=None, end:bool=False):
+  def __init__(self, tag, val: Any, term:int=0, proposed_node:Optional[int] = -1, timestamp:Optional[float] = time.time(), key:Optional[str]=None, op:Optional[str]=None, prmap:Optional[list[str]]=None, end:bool=False, attempt_number:int = -1):
     self.term:int = term
     self.key:str = key
     self.prmap = prmap
     self.tag = tag
     self.val = val
+    self.attempt_number = attempt_number
     self.proposed_node = proposed_node # Only used by 'SYNC' proposals to specify the node that should serve as the leader.
     self.end = end
     self.op = op

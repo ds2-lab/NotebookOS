@@ -989,7 +989,7 @@ func (c *distributedKernelClientImpl) handleExecutionYieldedNotification(replica
 //
 // Note that 'final' means that it was the last replica whose message we received; all replicas proposed 'YIELD',however.
 func (c *distributedKernelClientImpl) handleFailedExecutionAllYielded() error {
-	c.log.Error("Kernel %s failed to execute code; all replicas proposed 'YIELD'.", c.id)
+	c.log.Warn("Kernel %s failed to execute code; all replicas proposed 'YIELD'.", c.id)
 	return c.executionFailedCallback(c)
 }
 

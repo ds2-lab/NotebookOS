@@ -30,10 +30,6 @@ service ClusterGateway {
   rpc SmrReady(SmrReadyNotification) returns (Void) {}
 
   rpc SmrNodeAdded(ReplicaInfo) returns (Void) {}
-
-  // Ensure that the next 'execute_request' for the specified kernel fails.
-  // This is to be used exclusively for testing/debugging purposes.
-  rpc FailNextExecution(KernelId) returns (Void) {} 
 }
 
 // gRPC service provided by the Cluster Gateway and "used" by the Dashboard
@@ -64,6 +60,10 @@ service DistributedCluster {
   // The function will simply remove the replica from the kernel without stopping it.
   // The caller should stop the replica after confirmed that the new replica is ready.
   rpc MigrateKernelReplica(MigrationRequest) returns (MigrateKernelResponse) {}
+
+  // Ensure that the next 'execute_request' for the specified kernel fails.
+  // This is to be used exclusively for testing/debugging purposes.
+  rpc FailNextExecution(KernelId) returns (Void) {} 
 }
 
 // gRPC service provided by the Dashboard and "used" by the Cluster Gateway

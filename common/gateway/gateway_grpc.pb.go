@@ -37,9 +37,6 @@ type ClusterGatewayClient interface {
 	NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*KernelRegistrationNotificationResponse, error)
 	SmrReady(ctx context.Context, in *SmrReadyNotification, opts ...grpc.CallOption) (*Void, error)
 	SmrNodeAdded(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
-	// Ensure that the next 'execute_request' for the specified kernel fails.
-	// This is to be used exclusively for testing/debugging purposes.
-	FailNextExecution(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*Void, error)
 }
 
 type clusterGatewayClient struct {
@@ -104,15 +101,6 @@ func (c *clusterGatewayClient) SmrNodeAdded(ctx context.Context, in *ReplicaInfo
 	return out, nil
 }
 
-func (c *clusterGatewayClient) FailNextExecution(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*Void, error) {
-	out := new(Void)
-	err := c.cc.Invoke(ctx, "/gateway.ClusterGateway/FailNextExecution", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // ClusterGatewayServer is the server API for ClusterGateway service.
 // All implementations must embed UnimplementedClusterGatewayServer
 // for forward compatibility
@@ -132,9 +120,6 @@ type ClusterGatewayServer interface {
 	NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*KernelRegistrationNotificationResponse, error)
 	SmrReady(context.Context, *SmrReadyNotification) (*Void, error)
 	SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error)
-	// Ensure that the next 'execute_request' for the specified kernel fails.
-	// This is to be used exclusively for testing/debugging purposes.
-	FailNextExecution(context.Context, *KernelId) (*Void, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -159,9 +144,6 @@ func (UnimplementedClusterGatewayServer) SmrReady(context.Context, *SmrReadyNoti
 }
 func (UnimplementedClusterGatewayServer) SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SmrNodeAdded not implemented")
-}
-func (UnimplementedClusterGatewayServer) FailNextExecution(context.Context, *KernelId) (*Void, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method FailNextExecution not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 
@@ -284,24 +266,6 @@ func _ClusterGateway_SmrNodeAdded_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ClusterGateway_FailNextExecution_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(KernelId)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ClusterGatewayServer).FailNextExecution(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/gateway.ClusterGateway/FailNextExecution",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClusterGatewayServer).FailNextExecution(ctx, req.(*KernelId))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // ClusterGateway_ServiceDesc is the grpc.ServiceDesc for ClusterGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -333,10 +297,6 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "SmrNodeAdded",
 			Handler:    _ClusterGateway_SmrNodeAdded_Handler,
 		},
-		{
-			MethodName: "FailNextExecution",
-			Handler:    _ClusterGateway_FailNextExecution_Handler,
-		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "common/gateway/gateway.proto",
@@ -365,6 +325,9 @@ type DistributedClusterClient interface {
 	// The function will simply remove the replica from the kernel without stopping it.
 	// The caller should stop the replica after confirmed that the new replica is ready.
 	MigrateKernelReplica(ctx context.Context, in *MigrationRequest, opts ...grpc.CallOption) (*MigrateKernelResponse, error)
+	// Ensure that the next 'execute_request' for the specified kernel fails.
+	// This is to be used exclusively for testing/debugging purposes.
+	FailNextExecution(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*Void, error)
 }
 
 type distributedClusterClient struct {
@@ -438,6 +401,15 @@ func (c *distributedClusterClient) MigrateKernelReplica(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *distributedClusterClient) FailNextExecution(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*Void, error) {
+	out := new(Void)
+	err := c.cc.Invoke(ctx, "/gateway.DistributedCluster/FailNextExecution", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DistributedClusterServer is the server API for DistributedCluster service.
 // All implementations must embed UnimplementedDistributedClusterServer
 // for forward compatibility
@@ -461,6 +433,9 @@ type DistributedClusterServer interface {
 	// The function will simply remove the replica from the kernel without stopping it.
 	// The caller should stop the replica after confirmed that the new replica is ready.
 	MigrateKernelReplica(context.Context, *MigrationRequest) (*MigrateKernelResponse, error)
+	// Ensure that the next 'execute_request' for the specified kernel fails.
+	// This is to be used exclusively for testing/debugging purposes.
+	FailNextExecution(context.Context, *KernelId) (*Void, error)
 	mustEmbedUnimplementedDistributedClusterServer()
 }
 
@@ -488,6 +463,9 @@ func (UnimplementedDistributedClusterServer) GetClusterVirtualGpuInfo(context.Co
 }
 func (UnimplementedDistributedClusterServer) MigrateKernelReplica(context.Context, *MigrationRequest) (*MigrateKernelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MigrateKernelReplica not implemented")
+}
+func (UnimplementedDistributedClusterServer) FailNextExecution(context.Context, *KernelId) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FailNextExecution not implemented")
 }
 func (UnimplementedDistributedClusterServer) mustEmbedUnimplementedDistributedClusterServer() {}
 
@@ -628,6 +606,24 @@ func _DistributedCluster_MigrateKernelReplica_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DistributedCluster_FailNextExecution_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(KernelId)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).FailNextExecution(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gateway.DistributedCluster/FailNextExecution",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).FailNextExecution(ctx, req.(*KernelId))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DistributedCluster_ServiceDesc is the grpc.ServiceDesc for DistributedCluster service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -662,6 +658,10 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MigrateKernelReplica",
 			Handler:    _DistributedCluster_MigrateKernelReplica_Handler,
+		},
+		{
+			MethodName: "FailNextExecution",
+			Handler:    _DistributedCluster_FailNextExecution_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

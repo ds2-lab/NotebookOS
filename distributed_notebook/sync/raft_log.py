@@ -4,7 +4,7 @@ import pickle
 import asyncio
 import logging
 import time
-from typing import Tuple, Callable, Optional, Any, Iterable, Dict
+from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 import datetime
 
 from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser
@@ -71,6 +71,9 @@ class RaftLog:
     self._node = NewLogNode(self._store, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join)
 
     self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
+    self.my_proposals: Dict[int, Dict[int, SyncValue]] = {} # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
+    self.my_current_attempt_number:int = 1 # The current attempt number for the current term. 
+    self.largest_peer_attempt_number:Dict[int, int] = {0:0} # The largest attempt number received from a peer's proposal.
     self.proposals_per_term: Dict[int, Dict[int, SyncValue]] = {} # Mapping from term number -> dict. Inner dict is map from SMR node ID -> proposal.
     self.own_proposal_times: Dict[int, float] = {} # Mapping from term number -> the time at which we proposed LEAD/YIELD in that term.
     self.first_lead_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first 'LEAD' proposal received in that term.
@@ -162,59 +165,95 @@ class RaftLog:
         proposal (SyncValue): the committed proposal.
         received_at (float): the time at which we received this proposal.
     """
+    discarded:bool = False
+    
     # 'SYNC' proposals are handled a little differently.
     # We don't want them to be counted with the other proposals.
     if proposal.key == KEY_SYNC:
       return self._handleSyncProposal(proposal)
 
     time_str = datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
-    self._log.debug("Received {} req: node {}, term {}, timestamp {} ({}), match {}...".format(proposal.key, proposal.val, proposal.term, proposal.timestamp, time_str, self._id == proposal.val))
+    term:int = proposal.term 
+    self._log.debug("Received {} req: node {}, term {}, timestamp {} ({}), match {}...".format(proposal.key, proposal.val, term, proposal.timestamp, time_str, self._id == proposal.val))
 
-    if proposal.term in self.proposals_per_term:
-      proposals = self.proposals_per_term[proposal.term]
+    if proposal.attempt_number > self.largest_peer_attempt_number.get(term, -1):
+      self._log.debug("Received proposal from node %d for term %d with new largest attempt number of %d. Previous largest: %d.", proposal.val, term, proposal.attempt_number, self.largest_peer_attempt_number.get(term, -1))
+      self.largest_peer_attempt_number[term] = proposal.attempt_number
+      
+      # Now we need to purge any proposals we've received this term with lower attempt numbers.
+      proposals = self.proposals_per_term.get(term, {})
+      toRemove:List = [] 
+      
+      for node_id, p in proposals.items():
+        if p.attempt_number < proposal.attempt_number:
+          self._log.debug("Purging proposal from node %d (term=%d) with attempt number %d." % (p.val, p.term, p.attempt_number))
+          toRemove.append(node_id)
+      
+      for node_id in toRemove:
+        del proposals[node_id]
+      
+      self._log.debug("Purged a total of %d existing proposal(s) for term %d." % (len(toRemove), term))
+      
+      self.proposals_per_term[term] = proposals
+    elif proposal.attempt_number < self.largest_peer_attempt_number.get(term, -1):
+      self._log.debug("Proposal received from Node %d has attempt number %d, which is lower than the largest attempt number we've seen for this term (%d for term %d). Discarding proposal.", proposal.val, proposal.attempt_number, self.largest_peer_attempt_number.get(term, -1), term)
+      discarded = True 
+    
+    # If we've already discarded the proposal due to its attempt number being low, then we won't bother storing it.
+    if not discarded:
+      if term in self.proposals_per_term:
+        proposals = self.proposals_per_term.get(term, {})
 
-      if proposal.val in proposals:
-        self._log.error("Received multiple proposals from Node %d in term %d." % (proposal.val, proposal.term))
-        raise ValueError("Received multiple proposals from Node %d in term %d." % (proposal.val, proposal.term))
+        if proposal.val in proposals:
+          prev_proposal:SyncValue = proposals[proposal.val]
+          
+          # If the proposal that we just received has an attempt number that is less than the last proposal -- or an attempt number that is equal to the last proposal's attempt number,
+          # then this is bad. It's possible that the same node will propose a new value for a future execution attempt, such as if the first execution failed due to all replicas proposing
+          # 'YIELD'. In this case, the new proposal should have a larger atttempt number.
+          if proposal.attempt_number <= prev_proposal.attempt_number:
+            self._log.error("Received multiple proposals from Node %d in term %d. New proposal has attempt number (%d) <= previous proposal (%d)." % (proposal.val, term, proposal.attempt_number, prev_proposal.attempt_number))
+            raise ValueError("Received multiple proposals from Node %d in term %d. New proposal has attempt number (%d) <= previous proposal (%d)." % (proposal.val, term, proposal.attempt_number, prev_proposal.attempt_number))
+          else:
+            self._log.debug("Received multiple proposals from Node %d in term %d. New proposal's attempt number (%d) > previous proposal's attempt number (%d)." % (proposal.val, term, proposal.attempt_number, prev_proposal.attempt_number))
+            proposals[proposal.val] = proposal
+        else:
+          proposals[proposal.val] = proposal
+
+        self.proposals_per_term[term] = proposals
       else:
-        proposals[proposal.val] = proposal
+        self.proposals_per_term[term] = {
+          # 'proposal.val' is the SMR node ID of whoever proposed this.
+          proposal.val: proposal
+        }
 
-      self.proposals_per_term[proposal.term] = proposals
-    else:
-      self.proposals_per_term[proposal.term] = {
-        # 'proposal.val' is the SMR node ID of whoever proposed this.
-        proposal.val: proposal
-      }
+    numProposalsReceived:int = len(self.proposals_per_term.get(term, {}))
+    self._log.debug("Received %d proposal(s) in term %d so far." % (numProposalsReceived, term))
 
-    numProposalsReceived:int = len(self.proposals_per_term[proposal.term])
-    self._log.debug("Received %d proposal(s) in term %d so far." % (numProposalsReceived, proposal.term))
-
-    discarded:bool = False
     # If this is the first 'LEAD' proposal we're receiving in this term, then take note of the time.
-    if self.first_proposal_received_per_term.get(proposal.term, None) is None: # if numProposalsReceived == 1:
+    if self.first_proposal_received_per_term.get(term, None) is None: # if numProposalsReceived == 1:
       timeout: float = min(5 * (time.time() - proposal.timestamp), 10) # Timeout of 10 seconds at-most.
-      self.timeout_durations[proposal.term] = timeout
-      self.discard_after[proposal.term] = proposal.timestamp + timeout
-      self.first_proposal_received_per_term[proposal.term] = proposal
+      self.timeout_durations[term] = timeout
+      self.discard_after[term] = proposal.timestamp + timeout
+      self.first_proposal_received_per_term[term] = proposal
 
-      self._log.debug("Timeout for term %d will be %.6f seconds. Will discard any proposals received after time %s." % (proposal.term, timeout, datetime.datetime.fromtimestamp(self.discard_after[proposal.term]).strftime('%Y-%m-%d %H:%M:%S.%f')))
-    elif self.first_proposal_received_per_term.get(proposal.term, None) is not None and received_at > self.discard_after[proposal.term]:
+      self._log.debug("Timeout for term %d will be %.6f seconds. Will discard any proposals received after time %s." % (term, timeout, datetime.datetime.fromtimestamp(self.discard_after[term]).strftime('%Y-%m-%d %H:%M:%S.%f')))
+    elif self.first_proposal_received_per_term.get(term, None) is not None and received_at > self.discard_after[term]:
       # If we've received at least one 'LEAD' proposal, then the timeout has been set, so we check if we need to discard this proposal.
-      self._log.debug("Term %d proposal from node %d was received after timeout. Will be discarding." % (proposal.term, proposal.val))
+      self._log.debug("Term %d proposal from node %d was received after timeout. Will be discarding." % (term, proposal.val))
 
       # Increment the 'num-discarded' counter.
-      num_discarded: int = self.num_proposals_discarded.get(proposal.term, 0)
-      self.num_proposals_discarded[proposal.term] = num_discarded + 1
+      num_discarded: int = self.num_proposals_discarded.get(term, 0)
+      self.num_proposals_discarded[term] = num_discarded + 1
       discarded = True
 
     # Check if this is the first 'LEAD' proposal we're receiving this term.
     # If so, and if we're not discarding the proposal, then record that it is the first 'LEAD' proposal.
-    if not discarded and proposal.key == KEY_LEAD and self.first_lead_proposal_received_per_term.get(proposal.term, None) == None:
-      self._log.debug("'LEAD' proposal from Node %d is first LEAD proposal in term %d." % (proposal.val, proposal.term))
-      self.first_lead_proposal_received_per_term[proposal.term] = proposal
+    if not discarded and proposal.key == KEY_LEAD and self.first_lead_proposal_received_per_term.get(term, None) == None:
+      self._log.debug("'LEAD' proposal from Node %d is first LEAD proposal in term %d." % (proposal.val, term))
+      self.first_lead_proposal_received_per_term[term] = proposal
 
     self._ignore_changes = self._ignore_changes + 1
-    return self._makeDecision(proposal.term)
+    return self._makeDecision(term)
 
     # Default to '_handleOtherProposal' in case of an erroneous key field.
     # return self.proposal_handlers.get(proposal.key, self._handleOtherProposal)(proposal)
@@ -325,9 +364,9 @@ class RaftLog:
     self._log.debug("Scheduling the setting of result on _decisionProposalFuture now.")
     if winningProposal is not None:
       assert winningProposal.term == term 
-      self._future_loop.call_soon_threadsafe(self._decisionProposalFuture.set_result, SyncValue(None, self._id, proposed_node = winningProposal.val, timestamp = time.time(), term=term, key=KEY_SYNC))
+      self._future_loop.call_soon_threadsafe(self._decisionProposalFuture.set_result, SyncValue(None, self._id, proposed_node = winningProposal.val, timestamp = time.time(), term=term, key=KEY_SYNC, attempt_number=self.my_current_attempt_number))
     else:
-      self._future_loop.call_soon_threadsafe(self._decisionProposalFuture.set_result, SyncValue(None, self._id, proposed_node = -1, timestamp = time.time(), term=term, key=KEY_FAILURE))
+      self._future_loop.call_soon_threadsafe(self._decisionProposalFuture.set_result, SyncValue(None, self._id, proposed_node = -1, timestamp = time.time(), term=term, key=KEY_FAILURE, attempt_number=self.my_current_attempt_number))
     self._decisionProposalFuture = None # Make sure it is only set once.
     self._log.debug("Scheduled the setting of result on _decisionProposalFuture now.")
     
@@ -489,7 +528,7 @@ class RaftLog:
     Request to lead the update of a term. A following append call without leading status will fail.
     """
     self._log.debug("RaftLog %d is proposing to lead term %d. Current leader term: %d." % (self._id, term, self._leader_term))
-    is_leading:bool = await self.handle_election(term, SyncValue(None, self._id, timestamp = time.time(), term=term, key=KEY_LEAD))
+    is_leading:bool = await self.handle_election(term, SyncValue(None, self._id, timestamp = time.time(), term=term, key=KEY_LEAD, attempt_number=self.my_current_attempt_number))
     self._log.debug("RaftLog %d: returning from lead for term %d after waiting, is_leading=%s" % (self._id, term, str(is_leading)))
     return is_leading
 
@@ -498,7 +537,7 @@ class RaftLog:
     Request to lead the update of a term. A following append call without leading status will fail.
     """
     self._log.debug("RaftLog %d: proposing to yield term %d. Current leader term: %d." % (self._id, term, self._leader_term))
-    is_leading:bool = await self.handle_election(term, SyncValue(-1, self._id, timestamp = time.time(), term=term, key=KEY_YIELD))
+    is_leading:bool = await self.handle_election(term, SyncValue(-1, self._id, timestamp = time.time(), term=term, key=KEY_YIELD, attempt_number=self.my_current_attempt_number))
     assert is_leading == False
     self._log.debug("RaftLog %d: returning from yield_execution for term %d." % (self._id, term))
     return False 
@@ -549,6 +588,12 @@ class RaftLog:
       raise ValueError("Received decision proposal with different term: %d. Expected: %d." % (decisionProposal.term, term))
     
     self._log.debug("RaftLog %d: Appending decision proposal for term %s now." % (self._id, decisionProposal.term))
+    
+    my_term_proposals: Dict[int, SyncValue] = self.my_proposals.get(term, {})
+    my_term_proposals[decisionProposal.attempt_number] = decisionProposal
+    self.my_current_attempt_number += 1 # Now that we have our proposal, we'll increment the attempt number in case we propose something else again soon.
+    self.my_proposals[term] = my_term_proposals
+    
     await self.append_decision(decisionProposal)
     self._log.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (self._id, decisionProposal.term))
     self.decisions_proposed[term] = True
@@ -610,7 +655,9 @@ class RaftLog:
     if val.key != KEY_LEAD and val.key != KEY_YIELD:
       self._log.debug("[Append] setting _leader_term (currently %d) to %d." % (self._leader_term, val.term))
       self._leader_term = val.term
-
+      self.my_current_attempt_number = 1 # Reset the current attempt number. 
+      self.largest_peer_attempt_number[self._leader_term] = 0 # Reset the current "largest peer" attempt number. 
+    
     if val.op is None or val.op == "":
       # Count _ignore_changes
       self._ignore_changes = self._ignore_changes + 1

@@ -183,3 +183,9 @@ func (dc *DistributedCluster) MigrateKernelReplica(ctx context.Context, in *gate
 func (dc *DistributedCluster) Ping(ctx context.Context, in *gateway.Void) (*gateway.Pong, error) {
 	return &gateway.Pong{Id: dc.gatewayDaemon.id}, nil
 }
+
+// Ensure that the next 'execute_request' for the specified kernel fails.
+// This is to be used exclusively for testing/debugging purposes.
+func (dc *DistributedCluster) FailNextExecution(ctx context.Context, in *gateway.KernelId) (*gateway.Void, error) {
+	return dc.gatewayDaemon.FailNextExecution(ctx, in)
+}
