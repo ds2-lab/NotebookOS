@@ -312,7 +312,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
 	// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "")
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
@@ -625,6 +625,23 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 		KernelId: kernelId,
 		DataDir:  dataDirectory,
 	}, nil
+}
+
+// Ensure that the next 'execute_request' for the specified kernel fails.
+// This is to be used exclusively for testing/debugging purposes.
+func (d *SchedulerDaemon) YieldNextExecution(ctx context.Context, in *gateway.KernelId) (*gateway.Void, error) {
+	kernelId := in.Id
+
+	kernel, ok := d.kernels.Load(kernelId)
+	if !ok {
+		d.log.Error("Could not find KernelClient for kernel %s specified in 'YieldNextExecution' request.", kernelId)
+		return gateway.VOID, ErrInvalidParameter
+	}
+
+	d.log.Debug("Kernel %s will YIELD its next execution request.", in.Id)
+
+	kernel.YieldNextExecutionRequest()
+	return gateway.VOID, nil
 }
 
 func (d *SchedulerDaemon) UpdateReplicaAddr(ctx context.Context, req *gateway.ReplicaInfoWithAddr) (*gateway.Void, error) {
@@ -1067,7 +1084,7 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.
 	// - If one of the other replicas was explicitly specified as the target replica, then our replica will need to yield.
-	if err != nil || differentTargetReplicaSpecified {
+	if err != nil || differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest() {
 		var reason YieldReason
 		// Log message depends on which condition was true (first).
 		if err != nil {
@@ -1082,6 +1099,12 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica in place of the original 'execute_request' message.
 		msg, _ = d.convertExecuteRequestToYieldExecute(msg, header, offset)
 		frames = msg.Frames
+
+		// If we were told explicitly to YIELD this execution request via the `YieldNextExecutionRequest` API, then record that we've done this.
+		// Even if we're yielding for other reasons too, we should still record that we've done this.
+		if kernel.SupposedToYieldNextExecutionRequest() {
+			kernel.YieldedNextExecutionRequest()
+		}
 	}
 
 	// Re-encode the metadata frame. It will have the number of idle GPUs available,

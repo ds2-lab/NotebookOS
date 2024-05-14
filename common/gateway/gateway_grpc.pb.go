@@ -37,6 +37,9 @@ type ClusterGatewayClient interface {
 	NotifyKernelRegistered(ctx context.Context, in *KernelRegistrationNotification, opts ...grpc.CallOption) (*KernelRegistrationNotificationResponse, error)
 	SmrReady(ctx context.Context, in *SmrReadyNotification, opts ...grpc.CallOption) (*Void, error)
 	SmrNodeAdded(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
+	// Ensure that the next 'execute_request' for the specified kernel fails.
+	// This is to be used exclusively for testing/debugging purposes.
+	FailNextExecution(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*Void, error)
 }
 
 type clusterGatewayClient struct {
@@ -101,6 +104,15 @@ func (c *clusterGatewayClient) SmrNodeAdded(ctx context.Context, in *ReplicaInfo
 	return out, nil
 }
 
+func (c *clusterGatewayClient) FailNextExecution(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*Void, error) {
+	out := new(Void)
+	err := c.cc.Invoke(ctx, "/gateway.ClusterGateway/FailNextExecution", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterGatewayServer is the server API for ClusterGateway service.
 // All implementations must embed UnimplementedClusterGatewayServer
 // for forward compatibility
@@ -120,6 +132,9 @@ type ClusterGatewayServer interface {
 	NotifyKernelRegistered(context.Context, *KernelRegistrationNotification) (*KernelRegistrationNotificationResponse, error)
 	SmrReady(context.Context, *SmrReadyNotification) (*Void, error)
 	SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error)
+	// Ensure that the next 'execute_request' for the specified kernel fails.
+	// This is to be used exclusively for testing/debugging purposes.
+	FailNextExecution(context.Context, *KernelId) (*Void, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -144,6 +159,9 @@ func (UnimplementedClusterGatewayServer) SmrReady(context.Context, *SmrReadyNoti
 }
 func (UnimplementedClusterGatewayServer) SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SmrNodeAdded not implemented")
+}
+func (UnimplementedClusterGatewayServer) FailNextExecution(context.Context, *KernelId) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FailNextExecution not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 
@@ -266,6 +284,24 @@ func _ClusterGateway_SmrNodeAdded_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterGateway_FailNextExecution_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(KernelId)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterGatewayServer).FailNextExecution(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gateway.ClusterGateway/FailNextExecution",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterGatewayServer).FailNextExecution(ctx, req.(*KernelId))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterGateway_ServiceDesc is the grpc.ServiceDesc for ClusterGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -297,6 +333,10 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "SmrNodeAdded",
 			Handler:    _ClusterGateway_SmrNodeAdded_Handler,
 		},
+		{
+			MethodName: "FailNextExecution",
+			Handler:    _ClusterGateway_FailNextExecution_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "common/gateway/gateway.proto",
@@ -306,7 +346,9 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DistributedClusterClient interface {
+	// Used for debugging/testing. Causes a Panic.
 	InducePanic(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
+	// Used to test connectivity.
 	Ping(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Pong, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ListKernelsResponse, error)
@@ -400,7 +442,9 @@ func (c *distributedClusterClient) MigrateKernelReplica(ctx context.Context, in 
 // All implementations must embed UnimplementedDistributedClusterServer
 // for forward compatibility
 type DistributedClusterServer interface {
+	// Used for debugging/testing. Causes a Panic.
 	InducePanic(context.Context, *Void) (*Void, error)
+	// Used to test connectivity.
 	Ping(context.Context, *Void) (*Pong, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(context.Context, *Void) (*ListKernelsResponse, error)
@@ -747,6 +791,9 @@ type LocalGatewayClient interface {
 	SetTotalVirtualGPUs(ctx context.Context, in *SetVirtualGPUsRequest, opts ...grpc.CallOption) (*VirtualGpuInfo, error)
 	// Return the current vGPU allocations on this node.
 	GetVirtualGpuAllocations(ctx context.Context, in *Void, opts ...grpc.CallOption) (*VirtualGpuAllocations, error)
+	// Ensure that the next 'execute_request' for the specified kernel fails.
+	// This is to be used exclusively for testing/debugging purposes.
+	YieldNextExecution(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*Void, error)
 }
 
 type localGatewayClient struct {
@@ -892,6 +939,15 @@ func (c *localGatewayClient) GetVirtualGpuAllocations(ctx context.Context, in *V
 	return out, nil
 }
 
+func (c *localGatewayClient) YieldNextExecution(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*Void, error) {
+	out := new(Void)
+	err := c.cc.Invoke(ctx, "/gateway.LocalGateway/YieldNextExecution", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalGatewayServer is the server API for LocalGateway service.
 // All implementations must embed UnimplementedLocalGatewayServer
 // for forward compatibility
@@ -929,6 +985,9 @@ type LocalGatewayServer interface {
 	SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error)
 	// Return the current vGPU allocations on this node.
 	GetVirtualGpuAllocations(context.Context, *Void) (*VirtualGpuAllocations, error)
+	// Ensure that the next 'execute_request' for the specified kernel fails.
+	// This is to be used exclusively for testing/debugging purposes.
+	YieldNextExecution(context.Context, *KernelId) (*Void, error)
 	mustEmbedUnimplementedLocalGatewayServer()
 }
 
@@ -980,6 +1039,9 @@ func (UnimplementedLocalGatewayServer) SetTotalVirtualGPUs(context.Context, *Set
 }
 func (UnimplementedLocalGatewayServer) GetVirtualGpuAllocations(context.Context, *Void) (*VirtualGpuAllocations, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetVirtualGpuAllocations not implemented")
+}
+func (UnimplementedLocalGatewayServer) YieldNextExecution(context.Context, *KernelId) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method YieldNextExecution not implemented")
 }
 func (UnimplementedLocalGatewayServer) mustEmbedUnimplementedLocalGatewayServer() {}
 
@@ -1264,6 +1326,24 @@ func _LocalGateway_GetVirtualGpuAllocations_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalGateway_YieldNextExecution_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(KernelId)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).YieldNextExecution(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gateway.LocalGateway/YieldNextExecution",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).YieldNextExecution(ctx, req.(*KernelId))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalGateway_ServiceDesc is the grpc.ServiceDesc for LocalGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1330,6 +1410,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetVirtualGpuAllocations",
 			Handler:    _LocalGateway_GetVirtualGpuAllocations_Handler,
+		},
+		{
+			MethodName: "YieldNextExecution",
+			Handler:    _LocalGateway_YieldNextExecution_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -64,6 +64,7 @@ var (
 	// Internal errors
 	ErrHeaderNotFound            = errors.New("message header not found")
 	ErrKernelNotFound            = errors.New("kernel not found")
+	ErrHostNotFound              = errors.New("host not found")
 	ErrKernelNotReady            = errors.New("kernel not ready")
 	ErrActiveExecutionNotFound   = errors.New("active execution for specified kernel could not be found")
 	ErrKernelSpecNotFound        = errors.New("kernel spec not found")
@@ -885,7 +886,7 @@ func (d *clusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 	addReplicaOp.SetReplicaHostname(in.KernelIp)
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID())
+	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID(), in.HostId)
 	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
@@ -1024,7 +1025,7 @@ func (d *clusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID())
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId)
 	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
@@ -1554,6 +1555,48 @@ func (d *clusterGatewayImpl) StdinHandler(info router.RouterInfo, msg *zmq4.Msg)
 
 func (d *clusterGatewayImpl) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 	return d.forwardRequest(nil, jupyter.HBMessage, msg)
+}
+
+// Ensure that the next 'execute_request' for the specified kernel fails.
+// This is to be used exclusively for testing/debugging purposes.
+func (d *clusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.KernelId) (*gateway.Void, error) {
+	d.log.Debug("Received 'FailNextExecution' request targeting kernel %s.", in.Id)
+
+	var (
+		kernel client.DistributedKernelClient
+		loaded bool
+	)
+
+	// Ensure that the kernel exists.
+	if kernel, loaded = d.kernels.Load(in.Id); !loaded {
+		d.log.Error("Could not find kernel %s specified in 'FailNextExecution' request...", in.Id)
+		return gateway.VOID, ErrKernelNotFound
+	}
+
+	hostManager := d.cluster.GetHostManager()
+	for _, replica := range kernel.Replicas() {
+		replicaClient := replica.(*client.KernelClient)
+		hostId := replicaClient.HostId()
+		host, ok := hostManager.Load(hostId)
+
+		if !ok {
+			d.log.Error("Could not find host %s on which replica %d of kernel %s is supposedly running...", hostId, replicaClient.ReplicaID(), in.Id)
+			d.notifyDashboardOfError("'FailNextExecution' Request Failed", fmt.Sprintf("Could not find host %s on which replica %d of kernel %s is supposedly running...", hostId, replicaClient.ReplicaID(), in.Id))
+			return gateway.VOID, ErrHostNotFound
+		}
+
+		// Even if there's an error here, we'll just keeping trying. If only some of these succeed, then the system won't explode.
+		// The kernels for which the `YieldNextExecution` succeeded will simply yield.
+		_, err := host.YieldNextExecution(ctx, in)
+		if err != nil {
+			d.log.Error("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s", hostId, host.Addr(), err.Error())
+			d.notifyDashboardOfError("'FailNextExecution' Request Failed", fmt.Sprintf("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s", hostId, host.Addr(), err.Error()))
+		} else {
+			d.log.Debug("Successfully issued 'FailNextExecution' to Local Daemon %s (%s) targeting kernel %s.", hostId, host.Addr(), in.Id)
+		}
+	}
+
+	return &gateway.Void{}, nil
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.

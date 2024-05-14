@@ -6,7 +6,9 @@ from . import gateway_pb2 as gateway__pb2
 
 
 class ClusterGatewayStub(object):
-    """Missing associated documentation comment in .proto file."""
+    """gRPC service provided by the ClusterGateway and "used" by the Local Daemons
+    (i.e., the Cluster Gateway is the server while the Local Daemons are the clients).
+    """
 
     def __init__(self, channel):
         """Constructor.
@@ -44,10 +46,17 @@ class ClusterGatewayStub(object):
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
+        self.FailNextExecution = channel.unary_unary(
+                '/gateway.ClusterGateway/FailNextExecution',
+                request_serializer=gateway__pb2.KernelId.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
 
 
 class ClusterGatewayServicer(object):
-    """Missing associated documentation comment in .proto file."""
+    """gRPC service provided by the ClusterGateway and "used" by the Local Daemons
+    (i.e., the Cluster Gateway is the server while the Local Daemons are the clients).
+    """
 
     def ID(self, request, context):
         """ID returns the cluster gateway id and can be used to test connectivity.
@@ -94,6 +103,14 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def FailNextExecution(self, request, context):
+        """Ensure that the next 'execute_request' for the specified kernel fails.
+        This is to be used exclusively for testing/debugging purposes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -127,6 +144,11 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.ReplicaInfo.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
+            'FailNextExecution': grpc.unary_unary_rpc_method_handler(
+                    servicer.FailNextExecution,
+                    request_deserializer=gateway__pb2.KernelId.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'gateway.ClusterGateway', rpc_method_handlers)
@@ -135,7 +157,9 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class ClusterGateway(object):
-    """Missing associated documentation comment in .proto file."""
+    """gRPC service provided by the ClusterGateway and "used" by the Local Daemons
+    (i.e., the Cluster Gateway is the server while the Local Daemons are the clients).
+    """
 
     @staticmethod
     def ID(request,
@@ -239,9 +263,27 @@ class ClusterGateway(object):
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
+    @staticmethod
+    def FailNextExecution(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterGateway/FailNextExecution',
+            gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
 
 class DistributedClusterStub(object):
-    """gRPC Service used by the Dashboard. 
+    """gRPC service provided by the Cluster Gateway and "used" by the Dashboard
+    (i.e., the Cluster Gateway is the server while the Dashboard is the client).
     """
 
     def __init__(self, channel):
@@ -288,17 +330,20 @@ class DistributedClusterStub(object):
 
 
 class DistributedClusterServicer(object):
-    """gRPC Service used by the Dashboard. 
+    """gRPC service provided by the Cluster Gateway and "used" by the Dashboard
+    (i.e., the Cluster Gateway is the server while the Dashboard is the client).
     """
 
     def InducePanic(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Used for debugging/testing. Causes a Panic.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def Ping(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Used to test connectivity.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -389,7 +434,8 @@ def add_DistributedClusterServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class DistributedCluster(object):
-    """gRPC Service used by the Dashboard. 
+    """gRPC service provided by the Cluster Gateway and "used" by the Dashboard
+    (i.e., the Cluster Gateway is the server while the Dashboard is the client).
     """
 
     @staticmethod
@@ -513,7 +559,9 @@ class DistributedCluster(object):
 
 
 class ClusterDashboardStub(object):
-    """Missing associated documentation comment in .proto file."""
+    """gRPC service provided by the Dashboard and "used" by the Cluster Gateway
+    (i.e., the Dashboard is the server while the Cluster Gateway is the client).
+    """
 
     def __init__(self, channel):
         """Constructor.
@@ -529,7 +577,9 @@ class ClusterDashboardStub(object):
 
 
 class ClusterDashboardServicer(object):
-    """Missing associated documentation comment in .proto file."""
+    """gRPC service provided by the Dashboard and "used" by the Cluster Gateway
+    (i.e., the Dashboard is the server while the Cluster Gateway is the client).
+    """
 
     def ErrorOccurred(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -553,7 +603,9 @@ def add_ClusterDashboardServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class ClusterDashboard(object):
-    """Missing associated documentation comment in .proto file."""
+    """gRPC service provided by the Dashboard and "used" by the Cluster Gateway
+    (i.e., the Dashboard is the server while the Cluster Gateway is the client).
+    """
 
     @staticmethod
     def ErrorOccurred(request,
@@ -657,6 +709,11 @@ class LocalGatewayStub(object):
                 '/gateway.LocalGateway/GetVirtualGpuAllocations',
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.VirtualGpuAllocations.FromString,
+                )
+        self.YieldNextExecution = channel.unary_unary(
+                '/gateway.LocalGateway/YieldNextExecution',
+                request_serializer=gateway__pb2.KernelId.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
                 )
 
 
@@ -772,6 +829,14 @@ class LocalGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def YieldNextExecution(self, request, context):
+        """Ensure that the next 'execute_request' for the specified kernel fails.
+        This is to be used exclusively for testing/debugging purposes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_LocalGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -849,6 +914,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
                     servicer.GetVirtualGpuAllocations,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.VirtualGpuAllocations.SerializeToString,
+            ),
+            'YieldNextExecution': grpc.unary_unary_rpc_method_handler(
+                    servicer.YieldNextExecution,
+                    request_deserializer=gateway__pb2.KernelId.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1113,5 +1183,22 @@ class LocalGateway(object):
         return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/GetVirtualGpuAllocations',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.VirtualGpuAllocations.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def YieldNextExecution(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/YieldNextExecution',
+            gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.Void.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

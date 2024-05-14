@@ -30,6 +30,10 @@ service ClusterGateway {
   rpc SmrReady(SmrReadyNotification) returns (Void) {}
 
   rpc SmrNodeAdded(ReplicaInfo) returns (Void) {}
+
+  // Ensure that the next 'execute_request' for the specified kernel fails.
+  // This is to be used exclusively for testing/debugging purposes.
+  rpc FailNextExecution(KernelId) returns (Void) {} 
 }
 
 // gRPC service provided by the Cluster Gateway and "used" by the Dashboard
@@ -179,6 +183,10 @@ service LocalGateway {
 
   // Return the current vGPU allocations on this node. 
   rpc GetVirtualGpuAllocations(Void) returns (VirtualGpuAllocations) {}
+
+  // Ensure that the next 'execute_request' for the specified kernel fails.
+  // This is to be used exclusively for testing/debugging purposes.
+  rpc YieldNextExecution(KernelId) returns (Void) {} 
 }
 
 // message GetKubernetesNodesResponse {

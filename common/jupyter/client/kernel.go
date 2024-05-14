@@ -109,6 +109,18 @@ type KernelReplicaClient interface {
 
 	// RequestWithHandler sends a request and handles the response.
 	RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func(), timeout time.Duration) error
+
+	// Take note that we should yield the next execution request.
+	YieldNextExecutionRequest()
+
+	// Call after successfully yielding the next execution request.
+	YieldedNextExecutionRequest()
+
+	// Return true if we're supposed to yield the next execution request.
+	SupposedToYieldNextExecutionRequest() bool
+
+	// Return the ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
+	HostId() string
 }
 
 // Implementation of the KernelReplicaClient interface.
@@ -125,22 +137,24 @@ type KernelClient struct {
 	SessionManager
 	client *server.AbstractServer
 
-	id                    string
-	replicaId             int32
-	persistentId          string
-	spec                  *gateway.KernelSpec
-	status                types.KernelStatus
-	busyStatus            string
-	lastBStatusMsg        *zmq4.Msg
-	iobroker              *MessageBroker[core.Kernel, *zmq4.Msg, types.JupyterFrames]
-	shell                 *types.Socket // Listener.
-	iopub                 *types.Socket // Listener.
-	addSourceKernelFrames bool          // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelClient's kernel ID.
-	shellListenPort       int           // Port that the KernelClient::shell socket listens on.
-	iopubListenPort       int           // Port that the KernelClient::iopub socket listens on.
-	kernelPodName         string        // Name of the Pod housing the associated distributed kernel replica container.
-	kubernetesNodeName    string        // Name of the node that the Pod is running on.
-	ready                 bool          // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
+	id                        string
+	replicaId                 int32
+	persistentId              string
+	spec                      *gateway.KernelSpec
+	status                    types.KernelStatus
+	busyStatus                string
+	lastBStatusMsg            *zmq4.Msg
+	iobroker                  *MessageBroker[core.Kernel, *zmq4.Msg, types.JupyterFrames]
+	shell                     *types.Socket // Listener.
+	iopub                     *types.Socket // Listener.
+	addSourceKernelFrames     bool          // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelClient's kernel ID.
+	shellListenPort           int           // Port that the KernelClient::shell socket listens on.
+	iopubListenPort           int           // Port that the KernelClient::iopub socket listens on.
+	kernelPodName             string        // Name of the Pod housing the associated distributed kernel replica container.
+	kubernetesNodeName        string        // Name of the node that the Pod is running on.
+	ready                     bool          // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
+	yieldNextExecutionRequest bool          // If true, then we will yield the next 'execute_request'.
+	hostId                    string        // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
 
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback
 	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback
@@ -152,19 +166,21 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string) *KernelClient {
 	client := &KernelClient{
-		id:                    spec.Kernel.Id,
-		persistentId:          persistentId,
-		replicaId:             spec.ReplicaId,
-		spec:                  spec.Kernel,
-		addSourceKernelFrames: addSourceKernelFrames,
-		shellListenPort:       shellListenPort,
-		iopubListenPort:       iopubListenPort,
-		kernelPodName:         kernelPodName,
-		kubernetesNodeName:    kubernetesNodeName,
-		smrNodeReadyCallback:  smrNodeReadyCallback,
-		smrNodeAddedCallback:  smrNodeAddedCallback,
+		id:                        spec.Kernel.Id,
+		persistentId:              persistentId,
+		replicaId:                 spec.ReplicaId,
+		spec:                      spec.Kernel,
+		addSourceKernelFrames:     addSourceKernelFrames,
+		shellListenPort:           shellListenPort,
+		iopubListenPort:           iopubListenPort,
+		kernelPodName:             kernelPodName,
+		kubernetesNodeName:        kubernetesNodeName,
+		smrNodeReadyCallback:      smrNodeReadyCallback,
+		smrNodeAddedCallback:      smrNodeAddedCallback,
+		yieldNextExecutionRequest: false,
+		hostId:                    hostId,
 		// smrNodeRemovedCallback: smrNodeRemovedCallback,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
@@ -206,6 +222,20 @@ func (c *KernelClient) ShellListenPort() int {
 
 func (c *KernelClient) IOPubListenPort() int {
 	return c.iopubListenPort
+}
+
+// Take note that we should yield the next execution request.
+func (c *KernelClient) YieldNextExecutionRequest() {
+	c.yieldNextExecutionRequest = true
+}
+
+// Call after successfully yielding the next execution request.
+func (c *KernelClient) YieldedNextExecutionRequest() {
+	c.yieldNextExecutionRequest = false
+}
+
+func (c *KernelClient) SupposedToYieldNextExecutionRequest() bool {
+	return c.yieldNextExecutionRequest
 }
 
 // ID returns the kernel ID.
@@ -276,6 +306,11 @@ func (c *KernelClient) String() string {
 // Only used by the Cluster Gateway, not by the Local Daemon.
 func (c *KernelClient) IsReady() bool {
 	return c.ready
+}
+
+// Return the ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
+func (c *KernelClient) HostId() string {
+	return c.hostId
 }
 
 // Designate the replica as ready.
