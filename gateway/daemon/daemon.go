@@ -65,6 +65,7 @@ var (
 	ErrHeaderNotFound            = errors.New("message header not found")
 	ErrKernelNotFound            = errors.New("kernel not found")
 	ErrKernelNotReady            = errors.New("kernel not ready")
+	ErrActiveExecutionNotFound   = errors.New("active execution for specified kernel could not be found")
 	ErrKernelSpecNotFound        = errors.New("kernel spec not found")
 	ErrResourceSpecNotFound      = errors.New("the kernel does not have a resource spec included with its kernel spec")
 	ErrResourceSpecNotRegistered = errors.New("there is no resource spec registered with the kernel")
@@ -167,6 +168,8 @@ type clusterGatewayImpl struct {
 	kubeClient domain.KubeClient
 
 	clusterScheduler domain.ClusterScheduler
+
+	clusterDashboard gateway.ClusterDashboardClient
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *clusterGatewayImpl {
@@ -662,6 +665,21 @@ func (d *clusterGatewayImpl) defaultFailureHandler(c client.DistributedKernelCli
 	return fmt.Errorf("there is no failure handler for the DEFAULT policy; cannot handle error")
 }
 
+func (d *clusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) (err error) {
+	if d.clusterDashboard != nil {
+		_, err = d.clusterDashboard.ErrorOccurred(context.TODO(), &gateway.ErrorMessage{
+			ErrorName:    errorName,
+			ErrorMessage: errorMessage,
+		})
+
+		if err != nil {
+			d.log.Error("Failed to notify Cluster Dashboard of static scheduling failure because: %s", err.Error())
+		}
+	}
+
+	return err
+}
+
 func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClient) error {
 	// Dynamically migrate one of the existing replicas to another node.
 	//
@@ -669,8 +687,35 @@ func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	targetReplica := rand.Intn(c.Size()) + 1
 	d.log.Debug("Static Failure Handler: migrating replica %d of kernel %s now.", targetReplica, c.ID())
 
+	// Notify the cluster dashboard that we're performing a migration.
+	d.notifyDashboardOfError("ErrAllReplicasProposedYield", fmt.Sprintf("all replicas of kernel %s proposed 'YIELD' during execution", c.ID()))
+
+	activeExecution, ok := d.activeExecutions.Load(c.ID())
+	if !ok {
+		d.log.Error("Could not find active execution for kernel %s after static scheduling failure.", c.ID())
+		d.notifyDashboardOfError("ErrActiveExecutionNotFound", "active execution for specified kernel could not be found")
+		return ErrActiveExecutionNotFound
+	}
+
+	msg := activeExecution.Msg()
+	_, header, err := d.headerFromMsg(msg)
+
+	// TODO(Ben): How to handle this more elegantly?
+	if err != nil {
+		d.log.Error("Failed to extract header from execution request because: %v", err)
+		return err
+	}
+
 	// TODO(Ben): Pre-reserve resources on the host that we're migrating the replica to.
-	req := &gateway.MigrationRequest{}
+	// For now, we'll just let the standard scheduling logic handle things, which will prioritize the least-loaded host.
+	req := &gateway.MigrationRequest{
+		TargetReplica: &gateway.ReplicaInfo{
+			KernelId:     c.ID(),
+			ReplicaId:    int32(targetReplica),
+			PersistentId: c.PersistentID(),
+		},
+		TargetNodeId: nil,
+	}
 	resp, err := d.MigrateKernelReplica(context.TODO(), req)
 
 	if err != nil {
@@ -680,7 +725,20 @@ func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 		d.log.Debug("Static Failure Handler: successfully migrated replica %d of kernel %s to host %s.", targetReplica, c.ID(), resp.Hostname)
 	}
 
-	// TODO(Ben): Now try to execute the code on the migrated replica.
+	nextExecutionAttempt := client.NewActiveExecution(c.ID(), header.Session, activeExecution.AttemptId()+1, c.Size(), msg)
+	d.activeExecutions.Store(header.MsgID, activeExecution)
+	c.SetActiveExecution(activeExecution)
+
+	nextExecutionAttempt.LinkPreviousAttempt(activeExecution)
+	activeExecution.LinkNextAttempt(nextExecutionAttempt)
+
+	d.log.Debug("Resubmitting 'execute_request' message targeting kernel %s now.", c.ID())
+	err = d.ShellHandler(c, msg)
+	if err != nil {
+		d.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
+		d.notifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
+		return err
+	}
 
 	return nil
 }
@@ -810,6 +868,7 @@ func (d *clusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 		d.log.Debug("Waiting to receive AddReplicaNotification on NewPodNotification channel. NewPodName: %s.", in.PodName)
 		// Just need to provide a mechanism to wait until we receive the pod-created notification, and get the migration operation that way.
 		addReplicaOp = <-channel
+		d.log.Debug("Received AddReplicaNotification on NewPodNotification channel. NewPodName: %s.", in.PodName)
 		d.Lock()
 
 		// Clean up mapping. Don't need it anymore.
@@ -1466,23 +1525,23 @@ func (d *clusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg)
 	return nil
 }
 
-func (d *clusterGatewayImpl) processExecutionReply(kernel client.DistributedKernelClient) {
-	kernelId := kernel.ID()
+func (d *clusterGatewayImpl) processExecutionReply(kernelId string) {
 	d.log.Debug("Received execute-reply from kernel %s.", kernelId)
 
-	_, ok := d.activeExecutions.Load(kernelId)
+	activeExecution, ok := d.activeExecutions.Load(kernelId)
 	if !ok {
 		d.log.Error("No active execution registered for kernel %s...", kernelId)
 		return
 	}
 
+	d.log.Debug("Unregistered active execution %s for kernel %s.", activeExecution.ExecutionId(), kernelId)
 	d.activeExecutions.Delete(kernelId)
 }
 
 func (d *clusterGatewayImpl) processExecuteRequest(msg *zmq4.Msg, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernel.ID(), msg)
 
-	activeExecution := client.NewActiveExecution(kernel.ID(), header.Session, 1, kernel.Size())
+	activeExecution := client.NewActiveExecution(kernel.ID(), header.Session, 1, kernel.Size(), msg)
 	d.activeExecutions.Store(header.MsgID, activeExecution)
 	kernel.SetActiveExecution(activeExecution)
 
@@ -1624,8 +1683,10 @@ func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 func (d *clusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
 	var messageType string
 	if kernel == nil {
+		d.log.Debug("Received %v message targeting unknown. Inspecting now...", typ)
 		kernel, messageType, err = d.kernelAndTypeFromMsg(msg)
 	} else {
+		d.log.Debug("Received %v message targeting kernel %s. Inspecting now...", typ, kernel.ID())
 		_, messageType, err = d.kernelAndTypeFromMsg(msg)
 	}
 
@@ -1649,7 +1710,7 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 	}
 
 	if typ == jupyter.ShellMessage {
-		kernelId, header, err := d.headerFromMsg(msg)
+		_, header, err := d.headerFromMsg(msg)
 
 		if err != nil {
 			d.log.Error("Failed to extract header from %v message.", typ)
@@ -1657,15 +1718,11 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 		}
 
 		if header.MsgType == ShellExecuteReply {
-			kernel, ok := d.kernels.Load(kernelId)
-			if !ok {
-				d.log.Error("Could not find kernel associated with Session %s specified in ShellExecuteReply", header.Session)
-			} else {
-				d.processExecutionReply(kernel)
-			}
+			d.processExecutionReply(from.ID())
 		}
 	}
 
+	d.log.Debug("Forwarding %v response from kernel %s.", typ, from.ID())
 	return socket.Send(*msg)
 }
 
@@ -1753,9 +1810,7 @@ func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 	d.log.Debug("Waiting for new Pod to be created for kernel %s.", kernelId)
 
 	// Always wait for the scale-out operation to complete and the new Pod to be created.
-	var newPodName string
-
-	<-addReplicaOp.PodStartedChannel()
+	newPodName := <-addReplicaOp.PodStartedChannel()
 	d.log.Debug("New Pod %s has been created for kernel %s.", newPodName, kernelId)
 	addReplicaOp.SetPodName(newPodName)
 	d.addReplicaOperationsByNewPodName.Store(newPodName, addReplicaOp)

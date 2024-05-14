@@ -212,7 +212,9 @@ class DistributedKernel(IPythonKernel):
         self.local_tcp_server_process: Process = Process(target = self.server_process, args=(self.local_tcp_server_queue, ))
         self.local_tcp_server_process.daemon = True 
         self.local_tcp_server_process.start() 
+        self.log.info(f"Local TCP server process has PID={self.local_tcp_server_process.pid}")
 
+    # TODO(Ben): Is the existence of this process slowing down the termination process? 
     def server_process(self, queue: Queue):
         self.log.info(f"[Local TCP Server] Starting. Port: {self.local_tcp_server_port}")
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -127,6 +127,7 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 
 	// Create a Cluster Dashboard client and register it.
 	dc.clusterDashboard = gateway.NewClusterDashboardClient(gConn)
+	dc.gatewayDaemon.clusterDashboard = dc.clusterDashboard
 	return conn, nil
 }
 

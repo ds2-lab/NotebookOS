@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 )
 
@@ -43,10 +44,12 @@ type ActiveExecution struct {
 	nextAttempt     *ActiveExecution // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
 	previousAttempt *ActiveExecution // The retry that preceeded this one, if this is not the first attempt.
 
+	msg *zmq4.Msg // The original 'execute_request' message.
+
 	executed bool
 }
 
-func NewActiveExecution(kernelId string, sessionId string, attemptId int, numReplicas int) *ActiveExecution {
+func NewActiveExecution(kernelId string, sessionId string, attemptId int, numReplicas int, msg *zmq4.Msg) *ActiveExecution {
 	return &ActiveExecution{
 		executionId:     uuid.NewString(),
 		sessionId:       sessionId,
@@ -56,7 +59,12 @@ func NewActiveExecution(kernelId string, sessionId string, attemptId int, numRep
 		numReplicas:     numReplicas,
 		nextAttempt:     nil,
 		previousAttempt: nil,
+		msg:             msg,
 	}
+}
+
+func (e *ActiveExecution) Msg() *zmq4.Msg {
+	return e.msg
 }
 
 func (e *ActiveExecution) HasExecuted() bool {
