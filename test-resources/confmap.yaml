@@ -8,6 +8,7 @@ data:
     "iosub_port": 9004,
     "iopub_port": 9005,
     "stdin_port": 9003,
+    "ack_port": 9006,
     "control_port": 9001,
     "hb_port": 9000,
     "ip": "0.0.0.0",

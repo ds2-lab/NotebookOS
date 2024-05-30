@@ -16,10 +16,12 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )
 
 var (
 	errServeOnce = errors.New("break after served once")
+	// errMessageNotFound = errors.New("message not found")
 
 	DefaultRequestTimeout  = 1 * time.Second
 	ZMQDestFrameFormatter  = "dest.%s.req.%s"                                              // dest.<kernel-id>.req.<req-id>
@@ -97,17 +99,30 @@ type AbstractServer struct {
 
 	// logger
 	Log logger.Logger
+
+	// If true, will send ACKs. If false, will not send ACKs.
+	shouldAckMessages bool
+
+	// Map from message ID to a flag indicating whether or not an ACK has been SENT for that particular message.
+	// That is, there will be an entry mapping to 'true' for a particular message if WE have SENT an ACK for that message.
+	sentACKs *hashmap.CornelkMap[string, bool]
+
+	// Map from message ID to a flag indicating whether or not an ACK has been RECEIVED for that particular message.
+	receivedACKs *hashmap.CornelkMap[string, bool]
 }
 
-func New(ctx context.Context, info *types.ConnectionInfo, init func(server *AbstractServer)) *AbstractServer {
+func New(ctx context.Context, info *types.ConnectionInfo, shouldAckMessages bool, init func(server *AbstractServer)) *AbstractServer {
 	var cancelCtx func()
 	ctx, cancelCtx = context.WithCancel(ctx)
 
 	server := &AbstractServer{
-		Meta:      info,
-		Ctx:       ctx,
-		CancelCtx: cancelCtx,
-		Sockets:   &types.JupyterSocket{},
+		shouldAckMessages: shouldAckMessages,
+		Meta:              info,
+		Ctx:               ctx,
+		CancelCtx:         cancelCtx,
+		Sockets:           &types.JupyterSocket{},
+		receivedACKs:      hashmap.NewCornelkMap[string, bool](128),
+		sentACKs:          hashmap.NewCornelkMap[string, bool](128),
 		// Log:       logger.NilLogger, // To be overwritten by init.
 	}
 	init(server)
@@ -146,7 +161,7 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 
 // Serve starts serving the socket with the specified handler.
 // The handler is passed as an argument to allow multiple sockets sharing the same handler.
-func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, handler types.MessageHandler) {
+func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, dest RequestDest, handler types.MessageHandler) {
 	if !atomic.CompareAndSwapInt32(&socket.Serving, 0, 1) {
 		// Already serving.
 		return
@@ -157,11 +172,11 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 	var contd chan interface{}
 	if socket.PendingReq == nil {
 		go s.poll(socket, chMsg, nil)
-		// s.Log.Debug("Start serving %v messages", socket.Type)
+		s.Log.Debug("Start serving %s messages", socket.Type.String())
 	} else {
 		contd = make(chan interface{})
 		go s.poll(socket, chMsg, contd)
-		// s.Log.Debug("Start waiting for the resposne of %v requests", socket.Type)
+		s.Log.Debug("Start waiting for the resposne of %s requests", socket.Type.String())
 	}
 
 	for {
@@ -178,6 +193,29 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			case error:
 				err = v
 			case *zmq4.Msg:
+				s.Log.Debug("Received %v message of type %d with %d frame(s).", socket.Type, v.Type, len(v.Frames))
+
+				// if v.Type == AckMsg {
+				// if len(v.Frames) <= 4 {
+				// 	s.ProcessAcknowledgement(v, socket.Type)
+				// 	// We don't want to ACK an ACK or call a handler for an ACK, so we'll simply continue.
+				// 	continue
+				// }
+
+				// var alreadyAcknowledged bool = false
+				// if dest != nil && s.shouldAckMessages {
+				// 	// TODO(Ben): Check if we've already ACK'd this message.
+				// 	//  		  If we have, then just send another ACK.
+				// 	alreadyAcknowledged, _ = s.ackMessage(v, socket, dest)
+				// }
+
+				// // If we'd already ACK'd the message, then we've already processed it. Don't call the handler again.
+				// if alreadyAcknowledged {
+				// 	s.Log.Warn("Received %s message that we've already ACK'd (destID=%s).", socket.Type.String(), dest.RequestDestID())
+				// } else {
+
+				// }
+
 				err = handler(server, socket.Type, v)
 			}
 
@@ -200,7 +238,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					return
 				}
 			} else if err != nil {
-				s.Log.Error("Error on handle %v message: %v. Message: %v.", socket.Type, err, msg)
+				s.Log.Error("Error on handle %s message: %v. Message: %v.", socket.Type.String(), err, msg)
 				s.Log.Error("Will NOT abort serving for now.")
 				// return
 			}
@@ -208,7 +246,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 		if socket.PendingReq != nil {
 			contd <- &struct{}{}
-			// s.Log.Debug("Continue waiting for the resposne of %v requests(%d)", socket.Type, socket.PendingReq.Len())
+			s.Log.Debug("Continue waiting for the resposne of %s requests(%d)", socket.Type.String(), socket.PendingReq.Len())
 		}
 	}
 }
@@ -237,7 +275,8 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 //   - dest: The info of request destination that the WaitResponse can use to track individual request.
 //   - handler: The handler to handle the response.
 //   - getOption: The function to get the options.
-func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter, timeout time.Duration) error {
+//   - requiresACK: If true, then we should expect an ACK for this message, and we should resend it if no ACK is receive before a timeout.
+func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter, timeout time.Duration, requiresACK bool) error {
 	socket.InitPendingReq()
 
 	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
@@ -248,8 +287,12 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		// s.Log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", dest.RequestDestID(), jOffset, req.Frames)
 	}
 
+	s.Log.Debug("Sending %s message with reqID=%v. Src: %v. Dest: %v. Requires ACK: %v.", socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK)
+	s.receivedACKs.Store(reqId, false)
+
 	// Send request.
 	if err := socket.Send(*req); err != nil {
+		s.Log.Error("Failed to send %v message because: %v", socket.Type, err.Error())
 		return err
 	}
 
@@ -265,7 +308,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// Use Serve to support timeout;
 	// Late response will be ignored and serve routing will be stopped if no request is pending.
 	if atomic.LoadInt32(&socket.Serving) == 0 {
-		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, dest, getOption, nil)) // Pass nil as handler to discard any response without dest frame.
+		go s.Serve(server, socket, dest, s.getOneTimeMessageHandler(socket, dest, getOption, nil)) // Pass nil as handler to discard any response without dest frame.
 	}
 
 	// Wait for timeout.
@@ -316,15 +359,12 @@ func (s *AbstractServer) AddDestFrame(frames [][]byte, destID string, jOffset in
 		}
 	}
 
-	// s.Log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %s", destID, jOffset, s.framesToString(frames))
-
 	// Add dest frame just before "<IDS|MSG>" frame.
 	newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
 	copy(newFrames[jOffset+1:], frames[jOffset:])
 	reqID = uuid.New().String()
 	newFrames[jOffset] = []byte(fmt.Sprintf(ZMQDestFrameFormatter, destID, reqID))
 
-	// s.Log.Debug("New frames: %s", s.framesToString(newFrames))
 	return
 }
 

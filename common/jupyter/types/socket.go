@@ -33,12 +33,13 @@ const (
 	ShellMessage
 	StdinMessage
 	IOMessage
+	AckMessage
 )
 
 type MessageType int
 
 func (t MessageType) String() string {
-	return [...]string{"heartbeat", "control", "shell", "stdin", "io"}[t]
+	return [...]string{"heartbeat", "control", "shell", "stdin", "io", "ack"}[t]
 }
 
 type MessageHandler func(JupyterServerInfo, MessageType, *zmq4.Msg) error
@@ -101,7 +102,8 @@ type JupyterSocket struct {
 	Shell   *Socket
 	Stdin   *Socket
 	IO      *Socket // Pub for server and Sub for client.
-	All     [5]*Socket
+	// Ack     *Socket // Socket for receiving ACKs.
+	All [5]*Socket
 }
 
 // JupyterServerInfo defines the interface to provider infos of a JupyterServer.

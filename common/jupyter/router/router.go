@@ -15,18 +15,22 @@ type Router struct {
 	*server.BaseServer
 	server *server.AbstractServer
 
+	name string // Identifies the router server.
+
 	// handlers
 	handlers []RouterMessageHandler
 }
 
-func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider) *Router {
+func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider, name string) *Router {
 	router := &Router{
-		server: server.New(ctx, opts, func(s *server.AbstractServer) {
+		name: name,
+		server: server.New(ctx, opts, true, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. Server routine will be started using a shared handler.
 			s.Sockets.HB = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.HBPort}
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ControlPort}
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ShellPort}
 			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.StdinPort}
+			// s.Sockets.Ack = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.AckPort}
 			// IOPub is a session specific socket, so it is not initialized here.
 		}),
 	}
@@ -38,6 +42,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 		router.AddHandler(types.ShellMessage, provider.ShellHandler)
 		router.AddHandler(types.StdinMessage, provider.StdinHandler)
 		router.AddHandler(types.HBMessage, provider.HBHandler)
+		router.AddHandler(types.AckMessage, provider.AckHandler)
 	}
 	return router
 }
@@ -74,11 +79,19 @@ func (g *Router) Start() error {
 		g.server.Log.Debug("Serving %v socket with shared handler (Router::handleMsg) now.", socket.Type.String())
 
 		// socket.Handler has not been set, use shared handler.
-		go g.server.Serve(g, socket, g.handleMsg)
+		go g.server.Serve(g, socket, g, g.handleMsg)
 	}
 
 	<-g.server.Ctx.Done()
 	return nil
+}
+
+func (g *Router) Name() string {
+	return g.name
+}
+
+func (g *Router) RequestDestID() string {
+	return g.name
 }
 
 func (g *Router) AddHandler(typ types.MessageType, handler RouterMessageHandler) {

@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	ErrIOSocketAlreadySet = errors.New("The server already has a non-nil IO ZeroMQ Socket.")
+	ErrIOSocketAlreadySet = errors.New("the server already has a non-nil IO ZeroMQ Socket")
 )
 
 // Router defines the interface to provider infos of a JupyterRouter.

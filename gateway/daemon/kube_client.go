@@ -791,6 +791,9 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 									ContainerPort: int32(connectionInfo.StdinPort),
 								},
 								{
+									ContainerPort: int32(connectionInfo.AckPort),
+								},
+								{
 									ContainerPort: int32(c.smrPort),
 								},
 							},
@@ -1117,6 +1120,9 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 										"containerPort": int32(connectionInfo.StdinPort),
 									},
 									{
+										"containerPort": int32(connectionInfo.AckPort),
+									},
+									{
 										"containerPort": int32(c.smrPort),
 									},
 								},
@@ -1334,6 +1340,14 @@ func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *gat
 						IntVal: int32(c.smrPort),
 					},
 				},
+				{
+					Name:     "ack-port",
+					Protocol: "TCP",
+					Port:     int32(connectionInfo.AckPort),
+					TargetPort: intstr.IntOrString{
+						IntVal: int32(connectionInfo.AckPort),
+					},
+				},
 			},
 			Selector:  map[string]string{"app": fmt.Sprintf("kernel-%s", kernel.Id)},
 			ClusterIP: "None", // Headless.
@@ -1368,6 +1382,7 @@ func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec
 		HBPort:          c.gatewayDaemon.ConnectionOptions().HBPort,
 		IOPubPort:       c.gatewayDaemon.ConnectionOptions().IOPubPort,
 		IOSubPort:       c.gatewayDaemon.ConnectionOptions().IOSubPort,
+		AckPort:         c.gatewayDaemon.ConnectionOptions().AckPort,
 		Transport:       "tcp",
 		IP:              "0.0.0.0",
 	}

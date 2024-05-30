@@ -184,6 +184,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                 stdin_port=connectionInfo.stdinPort,
                 hb_port=connectionInfo.hbPort,
                 iosub_port=connectionInfo.iosubPort,
+                ack_port=connectionInfo.ackPort,
                 iopub_port=connectionInfo.iopubPort,
                 transport=connectionInfo.transport,
                 signature_scheme=connectionInfo.signatureScheme,

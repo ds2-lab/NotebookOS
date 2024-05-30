@@ -52,5 +52,7 @@ spec:
             containerPort: {{ .Values.gateway.grpc_port }}
           - name: provisioner
             containerPort: {{ .Values.gateway.provisioner_port }}
+          - name: ack-port 
+            containerPort: {{ .Values.local_daemon.network.jupyter.ack_port }}
       restartPolicy: Always
 status: {}

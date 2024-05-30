@@ -166,7 +166,7 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, shouldSendAcks bool) *KernelClient {
 	client := &KernelClient{
 		id:                        spec.Kernel.Id,
 		persistentId:              persistentId,
@@ -182,12 +182,13 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		yieldNextExecutionRequest: false,
 		hostId:                    hostId,
 		// smrNodeRemovedCallback: smrNodeRemovedCallback,
-		client: server.New(ctx, info, func(s *server.AbstractServer) {
+		client: server.New(ctx, info, shouldSendAcks, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ControlPort}
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ShellPort}
 			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.StdinPort}
 			s.Sockets.HB = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.HBPort}
+			// s.Sockets.Ack = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
 			// IOPub is lazily initialized for different subclasses.
 			if spec.ReplicaId == 0 {
 				config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Kernel.Id))
@@ -405,7 +406,7 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 	}
 
 	c.shell = shell
-	go c.client.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+	go c.client.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.id, server.JOffsetAutoDetect)
 		return handler(c, typ, msg)
 	})
@@ -454,30 +455,6 @@ func (c *KernelClient) RequestWithHandler(ctx context.Context, prompt string, ty
 	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done, timeout)
 }
 
-// func (c *KernelClient) headerFromFrames(frames [][]byte) (*types.MessageHeader, error) {
-// 	jFrames := types.JupyterFrames(frames)
-// 	if err := jFrames.Validate(); err != nil {
-// 		c.log.Debug("Failed to validate message frames while extracting header.")
-// 		return nil, err
-// 	}
-
-// 	var header types.MessageHeader
-// 	if err := jFrames.DecodeHeader(&header); err != nil {
-// 		c.log.Debug("Failed to decode header from message frames.")
-// 		return nil, err
-// 	}
-
-// 	return &header, nil
-// }
-
-// func (c *KernelClient) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *types.MessageHeader, err error) {
-// 	kernelId, _, offset := c.ExtractDestFrame(msg.Frames)
-
-// 	header, err = c.headerFromFrames(msg.Frames[offset:])
-
-// 	return kernelId, header, err
-// }
-
 func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func(), timeout time.Duration) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
@@ -495,7 +472,7 @@ func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.Message
 			err = handler(server.(*KernelClient), typ, msg)
 		}
 		return err
-	}, done, getOption, timeout)
+	}, done, getOption, timeout, true)
 	return nil
 }
 
@@ -576,7 +553,7 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 	for _, socket := range sockets {
 		if socket != nil && socket.Handler != nil {
 			c.log.Debug("Beginning to serve socket %v.", socket.Type.String())
-			go c.client.Serve(c, socket, socket.Handler)
+			go c.client.Serve(c, socket, c, socket.Handler)
 		}
 	}
 

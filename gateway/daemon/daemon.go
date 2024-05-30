@@ -29,6 +29,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -200,7 +201,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		config(daemon)
 	}
 	config.InitLogger(&daemon.log, daemon)
-	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon)
+	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, "ClusterGatewayRouter")
 	daemon.cluster = core.NewCluster()
 	daemon.placer = core.NewRandomPlacer(daemon.cluster, daemon.ClusterOptions)
 
@@ -977,7 +978,7 @@ func (d *clusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 	addReplicaOp.SetReplicaHostname(in.KernelIp)
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID(), in.HostId)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID(), in.HostId, true)
 	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
@@ -1116,7 +1117,7 @@ func (d *clusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, true)
 	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
@@ -1576,6 +1577,17 @@ func (d *clusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Ms
 
 func (d *clusterGatewayImpl) kernelShellHandler(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
 	return d.ShellHandler(kernel, msg)
+}
+
+func (d *clusterGatewayImpl) AckHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+	ack, err := server.ExtractMessageAcknowledgement(msg)
+	if err != nil {
+		d.log.Error("Failed to extract message acknowledgement from ACK message because: %s", err.Error())
+		return err
+	}
+
+	d.log.Debug("Received ACK: %v", ack.String())
+	return nil
 }
 
 func (d *clusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {

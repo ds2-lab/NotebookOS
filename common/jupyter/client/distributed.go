@@ -195,10 +195,10 @@ type distributedKernelClientImpl struct {
 	cleaned chan struct{}
 }
 
-func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string, executionFailedCallback ExecutionFailedCallback) *distributedKernelClientImpl {
+func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string, executionFailedCallback ExecutionFailedCallback) DistributedKernelClient {
 	kernel := &distributedKernelClientImpl{
 		id: spec.Id, persistentId: persistentId,
-		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, func(s *server.AbstractServer) {
+		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, true, func(s *server.AbstractServer) {
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort}
 			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort} // connectionInfo.IOSubPort}
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
@@ -560,7 +560,7 @@ func (c *distributedKernelClientImpl) InitializeShellForwarder(handler core.Kern
 		return nil, err
 	}
 
-	go c.server.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+	go c.server.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.KernelSpec().Id, server.JOffsetAutoDetect)
 		return handler(srv.(*distributedKernelClientImpl), typ, msg)
 	})

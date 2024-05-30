@@ -80,7 +80,8 @@ local_daemon:
       stdin_port: 9003
       iopub_port1: 9004
       iopub_port2: 9005
-      starting_resource_port: 9006
+      ack_port: 9006
+      starting_resource_port: 9007
 
 smr:
   port: 8080

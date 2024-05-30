@@ -184,7 +184,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		config(daemon)
 	}
 	config.InitLogger(&daemon.log, daemon)
-	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon)
+	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName))
 	daemon.scheduler = NewMembershipScheduler(daemon)
 
 	if daemon.ip == "" {
@@ -312,7 +312,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
 	// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id)
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, false)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
@@ -462,6 +462,17 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 
 	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
 	time.Sleep(time.Second * 1)
+}
+
+func (d *SchedulerDaemon) AckHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+	ack, err := server.ExtractMessageAcknowledgement(msg)
+	if err != nil {
+		d.log.Error("Failed to extract message acknowledgement from ACK message because: %s", err.Error())
+		return err
+	}
+
+	d.log.Debug("Received ACK: %v", ack.String())
+	return nil
 }
 
 func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
@@ -998,7 +1009,6 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	// If not, we'll change the message's header to "yield_execute".
 	// If the message is an execute_request message, then we have some processing to do on it.
 	if header.MsgType == ShellExecuteRequest {
-		d.log.Debug("Processing 'execute-request': %v", msg)
 		msg = d.processExecuteRequest(msg, kernel, header, offset)
 		d.log.Debug("Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
 	} else { // Print a message about forwarding generic shell message.
@@ -1024,6 +1034,8 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
 	var metadataFrame *jupyter.JupyterFrame = frames[offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
+
+	d.log.Debug("Processing `execute_request` for kernel %s now.", kernel.ID())
 
 	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
 	if len(metadataFrame.Frame()) > 0 {
@@ -1136,7 +1148,7 @@ func (d *SchedulerDaemon) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
-func (d *SchedulerDaemon) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
+func (d *SchedulerDaemon) kernelIdFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
 	if kernelId != "" {
 		return kernelId, false, nil
@@ -1295,7 +1307,7 @@ func (d *SchedulerDaemon) headerAndOffsetFromMsg(msg *zmq4.Msg) (kernelId string
 }
 
 func (d *SchedulerDaemon) kernelFromMsg(msg *zmq4.Msg) (kernel client.KernelReplicaClient, err error) {
-	id, _, err := d.idFromMsg(msg)
+	id, _, err := d.kernelIdFromMsg(msg)
 	if err != nil {
 		return nil, err
 	}

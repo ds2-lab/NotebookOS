@@ -27,6 +27,8 @@ spec:
       port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
     - name: iopub-port2
       port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+    - name: ack-port 
+      port: {{ .Values.local_daemon.network.jupyter.ack_port }}
   selector:
     app: jupyter-notebook 
   type: LoadBalancer
