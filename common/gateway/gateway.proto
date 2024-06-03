@@ -323,8 +323,9 @@ message KernelConnectionInfo {
 	int32 hbPort = 6; // The port for heartbeat messages.
 	int32 iopubPort = 7; // The port for iopub messages (for the pub socket).
 	int32 iosubPort = 8; // The port for iopub messages (for the sub socket).
-	string signatureScheme = 9; // The signature scheme to use.
-	string key = 10;  // The key to use for signing messages.
+  int32 ackPort = 9;
+	string signatureScheme = 10; // The signature scheme to use.
+	string key = 11;  // The key to use for signing messages.
 }
 
 // Used as an argument to the Cluster Gateway's NotifyKernelRegistered RPC.

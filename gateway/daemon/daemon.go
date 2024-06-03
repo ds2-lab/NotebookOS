@@ -1872,7 +1872,16 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 
 		if err != nil {
 			d.log.Error("Failed to extract header from %v message.", typ)
-			return socket.Send(*msg)
+
+			sendErr := socket.Send(*msg)
+
+			if sendErr != nil {
+				d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+			} else {
+				d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
+			}
+
+			return sendErr
 		}
 
 		if header.MsgType == ShellExecuteReply {

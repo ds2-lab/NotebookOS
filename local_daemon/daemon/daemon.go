@@ -1350,7 +1350,16 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 		return nil
 	}
 	d.log.Debug("Forwarding %v response from %v: %v", typ, from, msg)
-	return socket.Send(*msg)
+
+	err := socket.Send(*msg)
+
+	if err != nil {
+		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+	} else {
+		d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
+	}
+
+	return nil // Will be nil on success.
 }
 
 func (d *SchedulerDaemon) handleSMRLeadTask(kernel core.Kernel, frames jupyter.JupyterFrames, raw *zmq4.Msg) error {

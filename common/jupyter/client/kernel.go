@@ -107,9 +107,6 @@ type KernelReplicaClient interface {
 	// BindSession binds a session ID to the client.
 	BindSession(sess string)
 
-	// RequestWithHandler sends a request and handles the response.
-	RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func(), timeout time.Duration) error
-
 	// Take note that we should yield the next execution request.
 	YieldNextExecutionRequest()
 
@@ -393,7 +390,6 @@ func (c *KernelClient) Validate() error {
 	}
 }
 
-// InitializeIOForwarder initializes the IOPub serving.
 func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandler) (*types.Socket, error) {
 	shell := &types.Socket{
 		Socket: zmq4.NewRouter(c.client.Ctx),
@@ -465,6 +461,8 @@ func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.Message
 		return types.ErrSocketNotAvailable
 	}
 
+	requiresACK := (typ == types.ShellMessage)
+
 	// Add timeout if necessary.
 	c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
 		// Kernel frame is automatically removed.
@@ -472,7 +470,7 @@ func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.Message
 			err = handler(server.(*KernelClient), typ, msg)
 		}
 		return err
-	}, done, getOption, timeout, true)
+	}, done, getOption, timeout, requiresACK)
 	return nil
 }
 

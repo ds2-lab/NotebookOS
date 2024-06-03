@@ -10,6 +10,8 @@ import socket
 import pprint
 import time
 
+from traitlets.traitlets import Set
+
 from typing import Union, Optional, Dict, Any
 from traitlets import List, Integer, Unicode, Bool, Undefined
 from ipykernel.ipkernel import IPythonKernel
@@ -143,7 +145,9 @@ class DistributedKernel(IPythonKernel):
         self.log.info("TEST -- INFO")
         self.log.debug("TEST -- DEBUG")
         self.log.warn("TEST -- WARN")
-        self.log.error("TEST -- ERROR")        
+        self.log.error("TEST -- ERROR")      
+        
+        self.received_message_ids: set = set()  
 
         self.run_training_code_mutex: Lock = Lock() 
         self.run_training_code: bool = False 
@@ -357,6 +361,10 @@ class DistributedKernel(IPythonKernel):
         future.set_result(self.gen_simple_response())
         self.log.info("Persistent store confirmed: " + self.store)
 
+    async def dispatch_shell(self, msg):
+        self.log.info("Received SHELL message.")
+        await super().dispatch_shell(msg)
+
     async def init_persistent_store(self, code):
         if await self.check_persistent_store():
             return self.gen_simple_response()
@@ -438,6 +446,17 @@ class DistributedKernel(IPythonKernel):
 
         return store
 
+    def should_handle(self, stream, msg, idents):
+        """Check whether a (shell-channel?) message should be handled"""
+        msg_id = msg["header"]["msg_id"]
+        self.send_ack(stream, msg["header"]["msg_type"], msg_id, idents, msg) # Resend the ACK.
+        if msg_id in self.received_message_ids:
+            # Is it safe to assume a msg_id will not be resubmitted?
+            return False
+        else:
+            self.received_message_ids.add(msg_id)
+        return super().should_handle(stream, msg, idents)
+
     async def check_persistent_store(self):
         """Check if persistent store is ready. If initializing, wait. The futrue return True if ready."""
         store = self.store
@@ -449,10 +468,28 @@ class DistributedKernel(IPythonKernel):
         else:
             return True
 
+    def send_ack(self, stream, msg_type:str, msg_id:str, ident, parent):
+        self.session.send(  # type:ignore[assignment]
+            stream,
+            "ACK",
+            {
+             "type": msg_type,
+             "msg_id": msg_id,
+            },
+            parent,
+            ident=ident,
+        )
+
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
         self.log.debug(
             "execute_request called within the Distributed Python Kernel.")
+        
+        print("parent: %s", str(parent))
+        print("ident: %s" % str(ident))
+        
+        self.send_ack(self.shell_stream, "execute_request", "", ident, parent)
+        
         await super().execute_request(stream, ident, parent)
 
     async def yield_execute(self, stream, ident, parent):
@@ -479,10 +516,12 @@ class DistributedKernel(IPythonKernel):
         error_occurred: bool = False # Separate flag, since we raise an exception and generate an error response when we yield successfully.
         
         self.log.info(
-            "DistributedKernel is preparing to yield the execution of some code to another replica.")
+            "DistributedKernel is preparing to yield the execution of some code to another replica.\n\n")
         self.log.debug("Parent: %s" % str(parent))
         parent_header = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
+
+        self.send_ack(self.shell_stream, "yield_execute", "", ident, parent)
 
         if not self.session:
             return
@@ -601,9 +640,9 @@ class DistributedKernel(IPythonKernel):
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
         if len(code) > 0:
-            self.log.info("DistributedKernel is preparing to execute some code: %s", code)
+            self.log.info("DistributedKernel is preparing to execute some code: %s\n\n", code)
         else:
-            self.log.warning("DistributedKernel is preparing to execute empty codeblock...")
+            self.log.warning("DistributedKernel is preparing to execute empty codeblock...\n\n")
 
         # Special code to initialize persistent store
         if code[:len(key_persistent_id)] == key_persistent_id:

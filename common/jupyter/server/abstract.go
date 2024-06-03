@@ -33,7 +33,11 @@ var (
 	WROptionRemoveDestFrame         = "RemoveDestFrame"
 	WROptionRemoveSourceKernelFrame = "RemoveSourceKernelFrame"
 
+	MessageTypeACK = "ACK"
+
 	JOffsetAutoDetect = -1
+
+	ErrNoAck = errors.New("failed to receive ACK for message after maximum number of attempts")
 )
 
 type WaitResponseOptionGetter func(key string) interface{}
@@ -75,6 +79,8 @@ type SourceKernel interface {
 	// RemoveSourceKernelFrame removes the source kernel frame from the specified zmq4 frames.
 	// Pass JOffsetAutoDetect to jOffset to let the function automatically detect the jupyter frames.
 	RemoveSourceKernelFrame(frames [][]byte, jOffset int) (oldFrams [][]byte)
+
+	ConnectionInfo() *types.ConnectionInfo
 }
 
 type Server interface {
@@ -176,7 +182,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 	} else {
 		contd = make(chan interface{})
 		go s.poll(socket, chMsg, contd)
-		s.Log.Debug("Start waiting for the resposne of %s requests", socket.Type.String())
+		s.Log.Debug("Start waiting for the response of %s requests", socket.Type.String())
 	}
 
 	for {
@@ -195,31 +201,10 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			case *zmq4.Msg:
 				s.Log.Debug("Received %v message of type %d with %d frame(s).", socket.Type, v.Type, len(v.Frames))
 
-				// if v.Type == AckMsg {
-				// if len(v.Frames) <= 4 {
-				// 	s.ProcessAcknowledgement(v, socket.Type)
-				// 	// We don't want to ACK an ACK or call a handler for an ACK, so we'll simply continue.
-				// 	continue
-				// }
-
-				// var alreadyAcknowledged bool = false
-				// if dest != nil && s.shouldAckMessages {
-				// 	// TODO(Ben): Check if we've already ACK'd this message.
-				// 	//  		  If we have, then just send another ACK.
-				// 	alreadyAcknowledged, _ = s.ackMessage(v, socket, dest)
-				// }
-
-				// // If we'd already ACK'd the message, then we've already processed it. Don't call the handler again.
-				// if alreadyAcknowledged {
-				// 	s.Log.Warn("Received %s message that we've already ACK'd (destID=%s).", socket.Type.String(), dest.RequestDestID())
-				// } else {
-
-				// }
-
 				err = handler(server, socket.Type, v)
 			}
 
-			// Stop sering on error.
+			// Stop serving on error.
 			if err == io.EOF {
 				s.Log.Debug("Socket %v closed.", socket.Type)
 				return
@@ -287,13 +272,93 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		// s.Log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", dest.RequestDestID(), jOffset, req.Frames)
 	}
 
-	s.Log.Debug("Sending %s message with reqID=%v. Src: %v. Dest: %v. Requires ACK: %v.", socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK)
 	s.receivedACKs.Store(reqId, false)
 
-	// Send request.
-	if err := socket.Send(*req); err != nil {
-		s.Log.Error("Failed to send %v message because: %v", socket.Type, err.Error())
-		return err
+	num_tries := 0
+	var max_num_tries int
+
+	// If the message requires an ACK, then we'll try sending it multiple times.
+	// Otherwise, we'll just send it the one time.
+	if requiresACK {
+		max_num_tries = 5
+	} else {
+		max_num_tries = 1
+	}
+
+	ackChan := make(chan struct{}, 1)
+	ack_received := false
+	for !ack_received && num_tries < max_num_tries {
+		s.Log.Debug("Sending %s message with reqID=%v. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d.", socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries)
+
+		// Send request.
+		if err := socket.Send(*req); err != nil {
+			s.Log.Error("Failed to send %v message on attempt %d/%d because: %v", socket.Type, num_tries+1, max_num_tries, err.Error())
+			return err
+		} else {
+			s.Log.Debug("Sent %s message with reqID=%v. Src: %v. Dest: %v.", socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID())
+		}
+
+		// If an ACK is required, then we'll block until the ACK is received, or until timing out, at which point we'll try sending the message again.
+		if requiresACK {
+			select {
+			case <-ackChan:
+				{
+					s.Log.Debug("Received ACK for %v message %v (src: %v, dest: %v) on attempt %d/%d.", socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries)
+					ack_received = true
+					break
+				}
+			case <-time.After(time.Second * 5):
+				{
+					s.Log.Error("Timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d.", socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries)
+					time.Sleep(time.Millisecond * 500 * time.Duration(num_tries)) // Sleep for an amount of time proportional to the number of attempts.
+					num_tries += 1
+
+					// TODO:
+					// We need to modify the message slightly to avoid a "duplicate signature" error.
+					// To do this, we'll simply increment the timestamp of the message's header by a single microsecond.
+					// We must first extract the header. After doing so, we'll re-encode the header with the new timestamp, and then regenerate the message's signature.
+					header, err := s.headerFromMessage(req, jOffset)
+					if err != nil {
+						s.Log.Error("Could not extract header from %v message %v after ACK timeout because: %v", socket.Type, reqId, header)
+						s.Log.Error("Message: %v", req)
+						return err
+					}
+
+					// Parse the date.
+					date, err := time.Parse(time.RFC3339, header.Date)
+					if err != nil {
+						s.Log.Error("Could not parse date \"%s\" from header of %v message %v after ACK timeout because: %v", header.Date, socket.Type, reqId, header)
+						return err
+					}
+
+					// Add a single microsecond to the date.
+					modifiedDate := date.Add(time.Microsecond)
+
+					// Change the date in the header.
+					header.Date = modifiedDate.Format(time.RFC3339)
+
+					// Re-encode the header.
+					frames := types.JupyterFrames(req.Frames)
+
+					err = frames[jOffset:].EncodeHeader(header)
+					if err != nil {
+						s.Log.Error("Failed to re-encode header of %v message %v after ACK timeout because: %v", header.Date, socket.Type, reqId, header)
+						return err
+					}
+
+					// Regenerate the signature.
+					framesWithoutIdentities, _ := s.SkipIdentities(frames)
+					framesWithoutIdentities.Sign(sourceKernel.ConnectionInfo().SignatureScheme, []byte(sourceKernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+
+					req.Frames = frames
+				}
+			}
+		}
+	}
+
+	if requiresACK && !ack_received {
+		s.Log.Error("Failed to receive ACK for %v message %v (src: %v, dest: %v) after %d attempt(s).", socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), max_num_tries)
+		return ErrNoAck
 	}
 
 	// Track the pending request.
@@ -308,7 +373,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// Use Serve to support timeout;
 	// Late response will be ignored and serve routing will be stopped if no request is pending.
 	if atomic.LoadInt32(&socket.Serving) == 0 {
-		go s.Serve(server, socket, dest, s.getOneTimeMessageHandler(socket, dest, getOption, nil)) // Pass nil as handler to discard any response without dest frame.
+		go s.Serve(server, socket, dest, s.getOneTimeMessageHandler(socket, dest, getOption, nil, ackChan, jOffset)) // Pass nil as handler to discard any response without dest frame.
 	}
 
 	// Wait for timeout.
@@ -538,7 +603,32 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 	}
 }
 
-func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest RequestDest, getOption WaitResponseOptionGetter, defaultHandler types.MessageHandler) types.MessageHandler {
+func (s *AbstractServer) headerFromMessage(msg *zmq4.Msg, offset int) (*types.MessageHeader, error) {
+	jFrames := types.JupyterFrames(msg.Frames[offset:])
+	if err := jFrames.Validate(); err != nil {
+		s.Log.Error("Failed to validate message frames while extracting header: %v", err)
+		return nil, err
+	}
+
+	var header types.MessageHeader
+	if err := jFrames.DecodeHeader(&header); err != nil {
+		s.Log.Error("Failed to decode header from message frames: %v", err)
+		return nil, err
+	}
+
+	return &header, nil
+}
+
+func (s *AbstractServer) isMessageAnAck(msg *zmq4.Msg, offset int) (bool, error) {
+	header, err := s.headerFromMessage(msg, offset)
+	if err != nil {
+		return false, err
+	}
+
+	return (header.MsgType == MessageTypeACK), nil
+}
+
+func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest RequestDest, getOption WaitResponseOptionGetter, defaultHandler types.MessageHandler, ackChan chan struct{}, offset int) types.MessageHandler {
 	return func(info types.JupyterServerInfo, msgType types.MessageType, msg *zmq4.Msg) error {
 		// This handler returns errServeOnce if any to indicate that the server should stop serving.
 		retErr := errServeOnce
@@ -558,6 +648,25 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 				// Automatically remove destination kernel ID frame.
 				if remove, _ := getOption(WROptionRemoveDestFrame).(bool); remove {
 					msg.Frames = dest.RemoveDestFrame(msg.Frames, offset)
+				}
+
+				is_ack, err := s.isMessageAnAck(msg, offset)
+				if err != nil {
+					s.Log.Error("Could not determine if message is an 'ACK'. Message: %v. Error: %v.", msg, err)
+					return err
+				}
+
+				// TODO: Check if message is an ACK message.
+				// If so, then we'll report that the message was ACK'd, and we'll wait for the "actual" response.
+				if is_ack {
+					if ackChan != nil {
+						// Notify that we received an ACK and return.
+						ackChan <- struct{}{}
+						return nil
+					} else {
+						s.Log.Error("Received ACK for %v message; however, we were not expecting an ACK... (rspId=%s).", socket.Type, rspId)
+						return nil
+					}
 				}
 
 				// Remove pending request and return registered handler. If timeout, the handler will be nil.

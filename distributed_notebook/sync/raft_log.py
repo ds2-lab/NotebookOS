@@ -174,9 +174,9 @@ class RaftLog:
 
     time_str = datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
     term:int = proposal.term 
-    self._log.debug("Received {} req: node {}, term {}, timestamp {} ({}), match {}...".format(proposal.key, proposal.val, term, proposal.timestamp, time_str, self._id == proposal.val))
+    self._log.debug("Received {} from node {}. Term {}, attempt {}, timestamp {} ({}), match {}...".format(proposal.key, proposal.val, term, proposal.attempt_number, proposal.timestamp, time_str, self._id == proposal.val))
 
-    if proposal.attempt_number > self.largest_peer_attempt_number.get(term, -1):
+    if proposal.attempt_number > self.largest_peer_attempt_number.get(term, 0):
       self._log.debug("Received proposal from node %d for term %d with new largest attempt number of %d. Previous largest: %d.", proposal.val, term, proposal.attempt_number, self.largest_peer_attempt_number.get(term, -1))
       self.largest_peer_attempt_number[term] = proposal.attempt_number
       
@@ -195,8 +195,8 @@ class RaftLog:
       self._log.debug("Purged a total of %d existing proposal(s) for term %d." % (len(toRemove), term))
       
       self.proposals_per_term[term] = proposals
-    elif proposal.attempt_number < self.largest_peer_attempt_number.get(term, -1):
-      self._log.debug("Proposal received from Node %d has attempt number %d, which is lower than the largest attempt number we've seen for this term (%d for term %d). Discarding proposal.", proposal.val, proposal.attempt_number, self.largest_peer_attempt_number.get(term, -1), term)
+    elif proposal.attempt_number < self.largest_peer_attempt_number.get(term, 0):
+      self._log.warn("Proposal received from Node %d has attempt number %d, which is lower than the largest attempt number we've seen for this term (%d for term %d). Discarding proposal.", proposal.val, proposal.attempt_number, self.largest_peer_attempt_number.get(term, -1), term)
       discarded = True 
     
     # If we've already discarded the proposal due to its attempt number being low, then we won't bother storing it.
@@ -435,6 +435,9 @@ class RaftLog:
 
       self._log.debug("Setting _leader_term (currently %d) to %d." % (self._leader_term, syncval.term))
       self._leader_term = syncval.term
+      self._log.debug("Resetting attempt number and largest peer attempt number.")
+      self.my_current_attempt_number = 1 # Reset the current attempt number. 
+      self.largest_peer_attempt_number[self._leader_term] = 0 # Reset the current "largest peer" attempt number. 
       # For values synchronized from other replicas or replayed, count _ignore_changes
       if syncval.op is None or syncval.op == "":
         self._ignore_changes = self._ignore_changes + 1
@@ -568,10 +571,10 @@ class RaftLog:
     self._leading = self._future_loop.create_future()
     _leading = self._leading
     self.own_proposal_times[term] = time.time()
-    self._log.debug("RaftLog %d: appending %s proposal for term %d." % (self._id, proposal.key, term))
+    self._log.debug("RaftLog %d: appending %s proposal for term %d. Attempt number(proposal=%d,local_var=%d)." % (self._id, proposal.key, term, proposal.attempt_number, self.my_current_attempt_number))
     # Append is blocking. We are guaranteed to gain leading status if terms match.
     await self.append(proposal)
-    self._log.debug("RaftLog %d: appended %s proposal for term %d." % (self._id, proposal.key, term))
+    self._log.debug("RaftLog %d: appended %s proposal for term %d. Attempt number(proposal=%d,local_var=%d)" % (self._id, proposal.key, term, proposal.attempt_number, self.my_current_attempt_number))
     
     decisionProposal: SyncValue = await _decisionProposalFuture
     self._decisionProposalFuture = None 
@@ -655,6 +658,7 @@ class RaftLog:
     if val.key != KEY_LEAD and val.key != KEY_YIELD:
       self._log.debug("[Append] setting _leader_term (currently %d) to %d." % (self._leader_term, val.term))
       self._leader_term = val.term
+      self._log.debug("[Append] Resetting attempt number and largest peer attempt number.")
       self.my_current_attempt_number = 1 # Reset the current attempt number. 
       self.largest_peer_attempt_number[self._leader_term] = 0 # Reset the current "largest peer" attempt number. 
     
