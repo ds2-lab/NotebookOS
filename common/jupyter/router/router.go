@@ -42,7 +42,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 		router.AddHandler(types.ShellMessage, provider.ShellHandler)
 		router.AddHandler(types.StdinMessage, provider.StdinHandler)
 		router.AddHandler(types.HBMessage, provider.HBHandler)
-		router.AddHandler(types.AckMessage, provider.AckHandler)
+		// router.AddHandler(types.AckMessage, provider.AckHandler)
 	}
 	return router
 }
