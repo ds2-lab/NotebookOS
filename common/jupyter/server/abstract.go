@@ -233,6 +233,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				s.Log.Error("Error on handle %s message: %v. Message: %v.", socket.Type.String(), err, msg)
 				s.Log.Error("Will NOT abort serving for now.")
 				// return
+				continue
 			}
 		}
 
@@ -311,9 +312,11 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		}
 	}()
 
-	if err := s.sendMessage(requiresACK, socket, reqId, req, dest, sourceKernel, ackChan, jOffset); err != nil {
-		cancel()
-	}
+	go func() {
+		if err := s.sendMessage(requiresACK, socket, reqId, req, dest, sourceKernel, ackChan, jOffset); err != nil {
+			cancel()
+		}
+	}()
 
 	return nil
 }
@@ -602,17 +605,22 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 		case chMsg <- msg:
 		// Quit on router closed.
 		case <-s.Ctx.Done():
+			s.Log.Warn("Polling is stopping. Router is closed.")
 			return
 		}
 		// Quit on error.
 		if err != nil {
-			return
+			// return
+			s.Log.Warn("Polling is stopping. Received error: %v", err)
+			time.Sleep(time.Millisecond * 100)
+			continue
 		}
 
 		// Wait for continue signal or quit.
 		if contd != nil {
 			proceed := <-contd
 			if proceed == nil {
+				s.Log.Warn("Polling is stopping.")
 				return
 			}
 		}

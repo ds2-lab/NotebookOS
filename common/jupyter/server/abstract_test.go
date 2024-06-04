@@ -150,17 +150,14 @@ var _ = Describe("AbstractServer", func() {
 				client.Log.Info("Client received %v message: %v", typ, msg)
 				return nil
 			}
-			// err = client.Sockets.Shell.Send(msg)
 			err = client.Request(context.Background(), client, client.Sockets.Shell, &msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
 			Expect(err).To(BeNil())
 
-			time.Sleep(time.Second * 2)
+			time.Sleep(time.Millisecond * 1500)
 			Expect(client.NumAcksReceived()).To(Equal(1))
 
-			// m, e := client.Sockets.Shell.Recv()
-			// Expect(e).To(BeNil())
-			// Expect(m).ToNot(BeNil())
-			// client.Log.Debug("Received message: %v", m)
+			client.Sockets.Shell.Close()
+			server.Sockets.Shell.Close()
 		})
 	})
 })
