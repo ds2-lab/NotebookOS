@@ -86,15 +86,8 @@ var _ = Describe("AbstractServer", func() {
 		})
 
 		It("Will re-send messages until an ACK is received", func() {
-
-		})
-
-		It("Will not retry sending messages upon receiving an ACK.", func() {
 			err := server.Listen(server.Sockets.Shell)
 			Expect(err).To(BeNil())
-
-			// err = client.Listen(client.Sockets.Shell)
-			// Expect(err).To(BeNil())
 
 			address1 := fmt.Sprintf("%s://%s:%d", transport, ip, shellListenPort)
 			err = client.Sockets.Shell.Dial(address1)
@@ -102,11 +95,88 @@ var _ = Describe("AbstractServer", func() {
 
 			client.Log.Debug("Dialed server socket @ %v", address1)
 
-			// address2 := fmt.Sprintf("%s://%s:%d", transport, ip, shellListenPort+1)
-			// err = server.Sockets.Shell.Dial(address2)
-			// Expect(err).To(BeNil())
+			serverMessagesReceived := 0
+			respondAfterNMessages := 3
+			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+				server.Log.Info("Server received message: %v\n", msg)
+				serverMessagesReceived += 1
 
-			// server.Log.Debug("Dialed client socket @ %v", address2)
+				// Don't reply until we've received several "retry" messages.
+				if serverMessagesReceived < respondAfterNMessages {
+					server.Log.Info("Discarding message. Number of messages received: %d / %d.", serverMessagesReceived, respondAfterNMessages)
+					return nil
+				}
+
+				headerMap := make(map[string]string)
+				headerMap["msg_id"] = uuid.NewString()
+				headerMap["date"] = "2018-11-07T00:26:00.073876Z"
+				headerMap["msg_type"] = "ACK"
+				header, _ := json.Marshal(&headerMap)
+
+				id_frame := []byte(msg.Frames[0])
+
+				// Respond with ACK.
+				reply := zmq4.NewMsgFrom(id_frame,
+					getDestFrame(DEST_KERNEL_ID, "a98c"),
+					[]byte("<IDS|MSG>"),
+					[]byte(""),
+					header,
+					[]byte(""),
+					[]byte(""),
+					[]byte(""),
+					[]byte(""))
+
+				server.Log.Info("Responding to message with reply: %v", reply)
+
+				err := info.Socket(typ).Send(reply)
+				Expect(err).To(BeNil())
+
+				server.Log.Info("Responded to message.")
+
+				return nil
+			}
+
+			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage)
+
+			headerMap := make(map[string]string)
+			headerMap["msg_id"] = uuid.NewString()
+			headerMap["date"] = "2018-11-07T00:25:00.073876Z"
+			headerMap["msg_type"] = "kernel_info_request"
+			header, _ := json.Marshal(&headerMap)
+
+			msg := zmq4.NewMsgFrom(
+				getDestFrame(DEST_KERNEL_ID, "a98c"),
+				[]byte("<IDS|MSG>"),
+				[]byte(""),
+				header,
+				[]byte(""),
+				[]byte(""),
+				[]byte(""))
+
+			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+				client.Log.Info("Client received %v message: %v", typ, msg)
+				return nil
+			}
+			err = client.Request(context.Background(), client, client.Sockets.Shell, &msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
+			Expect(err).To(BeNil())
+
+			// When no ACK is received, the server waits 5 seconds, then sleeps for a bit, then retries.
+			time.Sleep(time.Millisecond * 18000)
+			Expect(client.NumAcksReceived()).To(Equal(1))
+
+			client.Sockets.Shell.Close()
+			server.Sockets.Shell.Close()
+		})
+
+		It("Will not retry sending messages upon receiving an ACK.", func() {
+			err := server.Listen(server.Sockets.Shell)
+			Expect(err).To(BeNil())
+
+			address1 := fmt.Sprintf("%s://%s:%d", transport, ip, shellListenPort)
+			err = client.Sockets.Shell.Dial(address1)
+			Expect(err).To(BeNil())
+
+			client.Log.Debug("Dialed server socket @ %v", address1)
 
 			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 				server.Log.Info("Server received message: %v\n", msg)

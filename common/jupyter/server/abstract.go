@@ -108,7 +108,12 @@ type AbstractServer struct {
 	// If true, will send ACKs. If false, will not send ACKs.
 	shouldAckMessages bool
 
+	// Keep track of the total number of ACKs we've received.
+	// Primarily used in unit tests.
 	numAcksReceived int
+
+	// Maximum number of send attempts. Default: 5, when a message requires an ACK. Otherwise, 1.
+	maxNumRetries int
 }
 
 func New(ctx context.Context, info *types.ConnectionInfo, shouldAckMessages bool, init func(server *AbstractServer)) *AbstractServer {
@@ -122,6 +127,7 @@ func New(ctx context.Context, info *types.ConnectionInfo, shouldAckMessages bool
 		CancelCtx:         cancelCtx,
 		Sockets:           &types.JupyterSocket{},
 		numAcksReceived:   0,
+		maxNumRetries:     5,
 		// Log:       logger.NilLogger, // To be overwritten by init.
 	}
 	init(server)
@@ -321,6 +327,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	return nil
 }
 
+// Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
 func (s *AbstractServer) sendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, ackChan chan struct{}, jOffset int) error {
 	num_tries := 0
 	var max_num_tries int
@@ -328,7 +335,7 @@ func (s *AbstractServer) sendMessage(requiresACK bool, socket *types.Socket, req
 	// If the message requires an ACK, then we'll try sending it multiple times.
 	// Otherwise, we'll just send it the one time.
 	if requiresACK {
-		max_num_tries = 5
+		max_num_tries = s.maxNumRetries
 	} else {
 		max_num_tries = 1
 	}
@@ -357,7 +364,7 @@ func (s *AbstractServer) sendMessage(requiresACK bool, socket *types.Socket, req
 			case <-time.After(time.Second * 5):
 				{
 					s.Log.Error("Timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d.", socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries)
-					time.Sleep(time.Millisecond * 500 * time.Duration(num_tries)) // Sleep for an amount of time proportional to the number of attempts.
+					time.Sleep(time.Millisecond * 300 * time.Duration(num_tries)) // Sleep for an amount of time proportional to the number of attempts.
 					num_tries += 1
 
 					// TODO:
