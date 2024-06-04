@@ -79,7 +79,7 @@ var _ = Describe("AbstractServer", func() {
 			server = &wrappedServer{_server, shellListenPort, "[SERVER]"}
 
 			_client := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, true, func(s *AbstractServer) {
-				s.Sockets.Shell = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: shellListenPort + 1, Type: types.ShellMessage}
+				s.Sockets.Shell = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: shellListenPort + 1, Type: types.ShellMessage}
 			})
 			config.InitLogger(&_client.Log, "[CLIENT]")
 			client = &wrappedServer{_client, shellListenPort + 1, "[CLIENT]"}
@@ -93,9 +93,20 @@ var _ = Describe("AbstractServer", func() {
 			err := server.Listen(server.Sockets.Shell)
 			Expect(err).To(BeNil())
 
-			address := fmt.Sprintf("%s://%s:%d", transport, ip, shellListenPort)
-			err = client.Sockets.Shell.Dial(address)
+			// err = client.Listen(client.Sockets.Shell)
+			// Expect(err).To(BeNil())
+
+			address1 := fmt.Sprintf("%s://%s:%d", transport, ip, shellListenPort)
+			err = client.Sockets.Shell.Dial(address1)
 			Expect(err).To(BeNil())
+
+			client.Log.Debug("Dialed server socket @ %v", address1)
+
+			// address2 := fmt.Sprintf("%s://%s:%d", transport, ip, shellListenPort+1)
+			// err = server.Sockets.Shell.Dial(address2)
+			// Expect(err).To(BeNil())
+
+			// server.Log.Debug("Dialed client socket @ %v", address2)
 
 			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 				server.Log.Info("Server received message: %v\n", msg)
@@ -109,7 +120,7 @@ var _ = Describe("AbstractServer", func() {
 				id_frame := []byte(msg.Frames[0])
 
 				// Respond with ACK.
-				reply := zmq4.NewMsgFrom(id_frame, []byte(""),
+				reply := zmq4.NewMsgFrom(id_frame,
 					getDestFrame(DEST_KERNEL_ID, "a98c"),
 					[]byte("<IDS|MSG>"),
 					[]byte(""),
@@ -138,7 +149,7 @@ var _ = Describe("AbstractServer", func() {
 			header, _ := json.Marshal(&headerMap)
 
 			msg := zmq4.NewMsgFrom(
-				[]byte(""), getDestFrame(DEST_KERNEL_ID, "a98c"),
+				getDestFrame(DEST_KERNEL_ID, "a98c"),
 				[]byte("<IDS|MSG>"),
 				[]byte(""),
 				header,

@@ -610,10 +610,8 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 		}
 		// Quit on error.
 		if err != nil {
-			// return
 			s.Log.Warn("Polling is stopping. Received error: %v", err)
-			time.Sleep(time.Millisecond * 100)
-			continue
+			return
 		}
 
 		// Wait for continue signal or quit.
@@ -622,6 +620,8 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 			if proceed == nil {
 				s.Log.Warn("Polling is stopping.")
 				return
+			} else {
+				s.Log.Debug("Continuing.")
 			}
 		}
 	}
