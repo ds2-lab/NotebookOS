@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"time"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
@@ -60,7 +59,7 @@ type Kernel interface {
 	// 	entity.Container.StopTrain()
 	// 	entity.Container.Suspend()
 	// 	entity.Container.Resume()
-	RequestWithHandler(ctx context.Context, prompt string, typ jupyter.MessageType, msg *zmq4.Msg, handler KernelMessageHandler, done func(), timeout time.Duration) error
+	RequestWithHandler(ctx context.Context, prompt string, typ jupyter.MessageType, msg *zmq4.Msg, handler KernelMessageHandler, done func()) error
 
 	// Close cleans up kernel resource.
 	// Including simulator features:

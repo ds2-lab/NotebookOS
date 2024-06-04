@@ -12,7 +12,6 @@ package mock_client
 import (
 	context "context"
 	reflect "reflect"
-	time "time"
 
 	zmq4 "github.com/go-zeromq/zmq4"
 	core "github.com/zhangjyr/distributed-notebook/common/core"
@@ -345,17 +344,17 @@ func (mr *MockKernelReplicaClientMockRecorder) RequestDestID() *gomock.Call {
 }
 
 // RequestWithHandler mocks base method.
-func (m *MockKernelReplicaClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func(), timeout time.Duration) error {
+func (m *MockKernelReplicaClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RequestWithHandler", ctx, prompt, typ, msg, handler, done, timeout)
+	ret := m.ctrl.Call(m, "RequestWithHandler", ctx, prompt, typ, msg, handler, done)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RequestWithHandler indicates an expected call of RequestWithHandler.
-func (mr *MockKernelReplicaClientMockRecorder) RequestWithHandler(ctx, prompt, typ, msg, handler, done, timeout any) *gomock.Call {
+func (mr *MockKernelReplicaClientMockRecorder) RequestWithHandler(ctx, prompt, typ, msg, handler, done any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestWithHandler", reflect.TypeOf((*MockKernelReplicaClient)(nil).RequestWithHandler), ctx, prompt, typ, msg, handler, done, timeout)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestWithHandler", reflect.TypeOf((*MockKernelReplicaClient)(nil).RequestWithHandler), ctx, prompt, typ, msg, handler, done)
 }
 
 // ResourceSpec mocks base method.

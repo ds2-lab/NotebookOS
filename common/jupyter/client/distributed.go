@@ -236,13 +236,13 @@ func (c *distributedKernelClientImpl) ActiveExecution() *ActiveExecution {
 func (c *distributedKernelClientImpl) headerFromFrames(frames [][]byte) (*types.MessageHeader, error) {
 	jFrames := types.JupyterFrames(frames)
 	if err := jFrames.Validate(); err != nil {
-		c.log.Debug("Failed to validate message frames while extracting header.")
+		c.log.Error("Failed to validate message frames while extracting header: %v", err)
 		return nil, err
 	}
 
 	var header types.MessageHeader
 	if err := jFrames.DecodeHeader(&header); err != nil {
-		c.log.Debug("Failed to decode header from message frames.")
+		c.log.Error("Failed to decode header \"%v\" from message frames: %v", &header, err)
 		return nil, err
 	}
 
@@ -738,7 +738,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	defer cancel()
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
 	if len(replicas) == 1 {
-		return replicas[0].(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done, server.DefaultRequestTimeout)
+		return replicas[0].(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done)
 	}
 
 	var wg sync.WaitGroup
@@ -749,7 +749,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 
 		wg.Add(1)
 		go func(kernel core.Kernel) {
-			err := kernel.(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done, server.DefaultRequestTimeout)
+			err := kernel.(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
 			if err != nil {
 				c.log.Warn("Failed to send request to %v: %v", kernel, err)
 			}

@@ -594,7 +594,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 			d.log.Debug("Response from 'prepare-to-migrate' request: %s", respMessage.String())
 
 			return nil
-		}, requestWG.Done, time.Second*5)
+		}, requestWG.Done)
 		if err != nil {
 			d.log.Error("Error occurred while issuing prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
 			return nil, err
@@ -696,7 +696,7 @@ func (d *SchedulerDaemon) UpdateReplicaAddr(ctx context.Context, req *gateway.Re
 			}
 
 			return nil
-		}, wg.Done, time.Second*5)
+		}, wg.Done)
 		if err != nil {
 			d.log.Error("Error occurred while issuing update-replica request to kernel %s: %v", kernelId, err)
 			return gateway.VOID, err
@@ -750,7 +750,7 @@ func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.ReplicaIn
 	msg := &zmq4.Msg{Frames: frames}
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, wg.Done, server.DefaultRequestTimeout)
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, wg.Done)
 	if err != nil {
 		d.log.Error("Error occurred while issuing add-replica request to kernel %s: %v", kernelId, err)
 		return gateway.VOID, err
@@ -855,7 +855,7 @@ func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel client.KernelRe
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done, time.Second*60)
+	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done)
 	if err != nil {
 		return err
 	}
@@ -1016,7 +1016,7 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, msg, d.kernelResponseForwarder, cancel, time.Second*1); err != nil {
+	if err := kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, msg, d.kernelResponseForwarder, cancel); err != nil {
 		return err
 	}
 
@@ -1286,7 +1286,7 @@ func (d *SchedulerDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHea
 
 	var header jupyter.MessageHeader
 	if err := jFrames.DecodeHeader(&header); err != nil {
-		d.log.Debug("Failed to decode header from message frames.")
+		d.log.Error("Failed to decode header from message frames: %v", err)
 		return nil, err
 	}
 
@@ -1340,7 +1340,7 @@ func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel client.Kern
 	if done == nil {
 		done = func() {}
 	}
-	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done, time.Second*1)
+	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done)
 }
 
 func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
