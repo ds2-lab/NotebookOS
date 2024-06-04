@@ -1058,6 +1058,9 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 				}
 			}
 		}
+	} else {
+		// If we're not retrieving the map from the message, then we'll create a new map here.
+		metadataDict = make(map[string]interface{})
 	}
 
 	var (

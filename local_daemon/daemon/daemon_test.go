@@ -93,6 +93,8 @@ var _ = Describe("Local Daemon Tests", func() {
 		})
 
 		It("Should convert the 'execute_request' message to a 'yeild_request' message if there is a different replica specified as the target", func() {
+			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
+
 			unsignedFrames := [][]byte{
 				[]byte("<IDS|MSG>"),
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
@@ -122,7 +124,10 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(header.MsgType).To(Equal(ShellYieldExecute))
 		})
+
 		It("Should convert the 'execute_request' message to a 'yeild_request' message if there are insufficient GPUs available", func() {
+			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
+
 			unsignedFrames := [][]byte{
 				[]byte("<IDS|MSG>"), /* Frame start */
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"), /* Signature */
@@ -157,7 +162,46 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(header.MsgType).To(Equal(ShellYieldExecute))
 		})
 
-		It("Should correctly process an 'execute_request' message", func() {
+		It("Should correctly return a 'yield_execute' message if the kernel is set to yield the next execute request.", func() {
+			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(true).AnyTimes()
+			unsignedFrames := [][]byte{
+				[]byte("<IDS|MSG>"), /* Frame start */
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"), /* Signature */
+				[]byte(""), /* Header */
+				[]byte(""), /* Parent header */
+				[]byte(""), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
+			}
+			jframes := types.JupyterFrames(unsignedFrames)
+			jframes.EncodeHeader(header)
+			frames, _ := jframes.Sign(signature_scheme, []byte(kernel_key))
+			msg := &zmq4.Msg{
+				Frames: frames,
+				Type:   zmq4.UsrMsg,
+			}
+
+			// Make it so that there are no idle GPUs available.
+			gpuManager.idleGPUs = ZeroDecimal.Copy()
+
+			processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
+			Expect(processedMessage).ToNot(BeNil())
+			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
+
+			jframesProcessed := types.JupyterFrames(processedMessage.Frames)
+			headerFrame := jframesProcessed.HeaderFrame()
+			var header types.MessageHeader
+			err := headerFrame.Decode(&header)
+
+			GinkgoWriter.Printf("Header: %v\n", header)
+
+			Expect(err).To(BeNil())
+			Expect(header.MsgType).To(Equal(ShellYieldExecute))
+		})
+
+		It("Should correctly process and return an 'execute_request' message if there are no reasons to convert it to a YIELD request", func() {
+			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
+			kernel.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
+
 			unsignedFrames := [][]byte{
 				[]byte("<IDS|MSG>"), /* Frame start */
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"), /* Signature */
@@ -185,6 +229,15 @@ var _ = Describe("Local Daemon Tests", func() {
 			err := metadataFrame.Decode(&metadata)
 			Expect(err).To(BeNil())
 			Expect(len(metadata)).To(Equal(1))
+
+			headerFrame := processedFrames.HeaderFrame()
+			var header types.MessageHeader
+			err = headerFrame.Decode(&header)
+
+			GinkgoWriter.Printf("Header: %v\n", header)
+
+			Expect(err).To(BeNil())
+			Expect(header.MsgType).To(Equal(ShellExecuteRequest))
 
 			By("Creating a pending allocation for the associated kernel")
 
