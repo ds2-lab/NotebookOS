@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -13,6 +14,8 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/mock_client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/zhangjyr/distributed-notebook/gateway/domain"
+	localdaemon "github.com/zhangjyr/distributed-notebook/local_daemon/daemon"
 	"go.uber.org/mock/gomock"
 )
 
@@ -111,4 +114,82 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		})
 	})
 
+	Context("End-to-End Tests", func() {
+		It("Will transmit messages correctly, with ACKs", func() {
+			cluster_gateway := New(&types.ConnectionInfo{
+				IP:                   "127.0.0.1",
+				ControlPort:          11000,
+				ShellPort:            11001,
+				StdinPort:            11002,
+				HBPort:               11003,
+				IOPubPort:            11004,
+				IOSubPort:            11005,
+				AckPort:              11006,
+				Transport:            "tcp",
+				SignatureScheme:      "hmac-sha256",
+				Key:                  "TestKey",
+				StartingResourcePort: 11007,
+				NumResourcePorts:     64,
+			}, &domain.ClusterDaemonOptions{
+				ClusterSchedulerOptions: domain.ClusterSchedulerOptions{
+					SchedulerHttpPort:             8076,
+					GpusPerHost:                   8,
+					VirtualGpusPerHost:            72,
+					SubscribedRatioUpdateInterval: 1,
+					ScalingFactor:                 1,
+					ScalingInterval:               1,
+					ScalingLimit:                  1,
+					MaximumHostsToReleaseAtOnce:   1,
+					ScalingOutEnaled:              true,
+					ScalingBufferSize:             1,
+					MinimumNumNodes:               1,
+				},
+				LocalDaemonServiceName:        "local-daemon-network",
+				LocalDaemonServicePort:        11075,
+				GlobalDaemonServicePort:       11075,
+				GlobalDaemonServiceName:       "daemon-network",
+				SMRPort:                       11080,
+				KubeNamespace:                 "default",
+				UseStatefulSet:                false,
+				HDFSNameNodeEndpoint:          "172.17.0.1:9000",
+				SchedulingPolicy:              "static",
+				NotebookImageName:             "scusemua/jupyter",
+				NotebookImageTag:              "latest",
+				DistributedClusterServicePort: 8077,
+				UseOutOfClusterKubeConfig:     true,
+			})
+			local_daemon := localdaemon.New(&types.ConnectionInfo{
+				IP:                   "127.0.0.1",
+				ControlPort:          10000,
+				ShellPort:            10001,
+				StdinPort:            10002,
+				HBPort:               10003,
+				IOPubPort:            10004,
+				IOSubPort:            10005,
+				AckPort:              10006,
+				Transport:            "tcp",
+				SignatureScheme:      "hmac-sha256",
+				Key:                  "TestKey",
+				StartingResourcePort: 10007,
+				NumResourcePorts:     64,
+			}, &localdaemon.SchedulerDaemonOptions{
+				DirectServer:     false,
+				SMRPort:          11080,
+				NumGPUs:          8,
+				SchedulingPolicy: "static",
+			}, 8079, nil, "TestNode")
+
+			go func() {
+				err := cluster_gateway.Start()
+				Expect(err).To(BeNil())
+			}()
+
+			go func() {
+				err := local_daemon.Start()
+				Expect(err).To(BeNil())
+			}()
+
+			time.Sleep(time.Millisecond * 5000)
+		})
+	})
 })

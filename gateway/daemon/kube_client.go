@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
 	"k8s.io/client-go/util/retry"
 )
 
@@ -109,30 +112,66 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 
 	config.InitLogger(&client.log, client)
 
-	kubeConfig, err := rest.InClusterConfig()
-	if err != nil {
-		panic(err.Error())
-	}
+	if clusterDaemonOptions.UseOutOfClusterKubeConfig {
+		var kubeconfig_path string
+		home := homedir.HomeDir()
+		if home != "" {
+			kubeconfig_path = filepath.Join(home, ".kube", "config")
+		} else {
+			panic("Cannot find kubernetes configuration; cannot resolve home directory.")
+		}
 
-	// Creates the Clientset.
-	clientset, err := kubernetes.NewForConfig(kubeConfig)
-	if err != nil {
-		panic(err.Error())
-	}
+		// use the current context in kubeconfig
+		kubeConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfig_path)
+		if err != nil {
+			panic(err.Error())
+		}
 
-	dynamicConfig, err := rest.InClusterConfig()
-	if err != nil {
-		panic(err.Error())
-	}
+		// Creates the Clientset.
+		clientset, err := kubernetes.NewForConfig(kubeConfig)
+		if err != nil {
+			panic(err.Error())
+		}
 
-	// Create the "Dynamic" client, which is used for unstructured components, such as CloneSets.
-	dynamicClient, err := dynamic.NewForConfig(dynamicConfig)
-	if err != nil {
-		panic(err.Error())
-	}
+		dynamicConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfig_path)
+		if err != nil {
+			panic(err.Error())
+		}
 
-	client.kubeClientset = clientset
-	client.dynamicClient = dynamicClient
+		// Create the "Dynamic" client, which is used for unstructured components, such as CloneSets.
+		dynamicClient, err := dynamic.NewForConfig(dynamicConfig)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		client.kubeClientset = clientset
+		client.dynamicClient = dynamicClient
+	} else {
+		kubeConfig, err := rest.InClusterConfig()
+		if err != nil {
+			panic(err.Error())
+		}
+
+		// Creates the Clientset.
+		clientset, err := kubernetes.NewForConfig(kubeConfig)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		dynamicConfig, err := rest.InClusterConfig()
+		if err != nil {
+			panic(err.Error())
+		}
+
+		// Create the "Dynamic" client, which is used for unstructured components, such as CloneSets.
+		dynamicClient, err := dynamic.NewForConfig(dynamicConfig)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		client.kubeClientset = clientset
+		client.dynamicClient = dynamicClient
+	}
 
 	// Check if the "/configurationFiles" directory exists.
 	// Create it if it doesn't already exist.

@@ -16,6 +16,7 @@ from typing import Union, Optional, Dict, Any
 from traitlets import List, Integer, Unicode, Bool, Undefined
 from ipykernel.ipkernel import IPythonKernel
 from ipykernel import jsonutil
+import zmq
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from .util import extract_header
 from threading import Lock
@@ -362,8 +363,82 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Persistent store confirmed: " + self.store)
 
     async def dispatch_shell(self, msg):
-        self.log.info("Received SHELL message.")
+        try:
+            idents, msg_without_idents = self.session.feed_identities(msg, copy=False)
+            msg_deserialized = self.session.deserialize(msg_without_idents, content=False, copy=False)
+            self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
+        except Exception:
+            self.log.error("Received invalid SHELL message.", exc_info=True) # noqa: G201
+            return
+        
+        msg_id = msg_deserialized["header"]["msg_id"]
+        self.send_ack(self.shell_stream, msg_deserialized["header"]["msg_type"], msg_id, idents, msg_deserialized) # Send an ACK.
+        
         await super().dispatch_shell(msg)
+
+    def should_handle(self, stream, msg, idents):
+        """Check whether a (shell-channel?) message should be handled"""
+        msg_id = msg["header"]["msg_id"]
+        self.send_ack(stream, msg["header"]["msg_type"], msg_id, idents, msg) # Send an ACK.
+        if msg_id in self.received_message_ids:
+            # Is it safe to assume a msg_id will not be resubmitted?
+            return False
+        else:
+            self.received_message_ids.add(msg_id)
+        return super().should_handle(stream, msg, idents)
+
+    async def process_control(self, msg):
+        """
+        Override of `process_control`.
+        
+        This method is used to dispatch control requests.
+        
+        We overrode it so that we can send ACKs.
+        """
+        if not self.session:
+            return
+        idents, msg = self.session.feed_identities(msg, copy=False)
+        try:
+            msg = self.session.deserialize(msg, content=True, copy=False)
+        except Exception:
+            self.log.error("Invalid Control Message", exc_info=True)  # noqa: G201
+            return
+
+        self.log.debug("Control received: %s", msg)
+
+        # Set the parent message for side effects.
+        self.set_parent(idents, msg, channel="control")
+        self._publish_status("busy", "control")
+
+        header:dict = msg["header"]
+        msg_type:str = header["msg_type"]
+        msg_id:str = header["msg_id"]
+        
+        self.send_ack(self.control_stream, msg_type, msg_id, idents, msg) # Send an ACK.
+        if msg_id in self.received_message_ids:
+            # Is it safe to assume a msg_id will not be resubmitted?
+            return False
+        else:
+            self.received_message_ids.add(msg_id)
+
+        handler = self.control_handlers.get(msg_type, None)
+        if handler is None:
+            self.log.error("UNKNOWN CONTROL MESSAGE TYPE: %r", msg_type)
+        else:
+            try:
+                result = handler(self.control_stream, idents, msg)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                self.log.error("Exception in control handler:", exc_info=True)  # noqa: G201
+
+        sys.stdout.flush()
+        sys.stderr.flush()
+        self._publish_status("idle", "control")
+        
+        # flush to ensure reply is sent
+        if self.control_stream:
+            self.control_stream.flush(zmq.POLLOUT)
 
     async def init_persistent_store(self, code):
         if await self.check_persistent_store():
@@ -446,17 +521,6 @@ class DistributedKernel(IPythonKernel):
 
         return store
 
-    def should_handle(self, stream, msg, idents):
-        """Check whether a (shell-channel?) message should be handled"""
-        msg_id = msg["header"]["msg_id"]
-        self.send_ack(stream, msg["header"]["msg_type"], msg_id, idents, msg) # Resend the ACK.
-        if msg_id in self.received_message_ids:
-            # Is it safe to assume a msg_id will not be resubmitted?
-            return False
-        else:
-            self.received_message_ids.add(msg_id)
-        return super().should_handle(stream, msg, idents)
-
     async def check_persistent_store(self):
         """Check if persistent store is ready. If initializing, wait. The futrue return True if ready."""
         store = self.store
@@ -469,7 +533,8 @@ class DistributedKernel(IPythonKernel):
             return True
 
     def send_ack(self, stream, msg_type:str, msg_id:str, ident, parent):
-        self.session.send(  # type:ignore[assignment]
+        self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
+        ack_msg = self.session.send(  # type:ignore[assignment]
             stream,
             "ACK",
             {
@@ -479,6 +544,7 @@ class DistributedKernel(IPythonKernel):
             parent,
             ident=ident,
         )
+        self.log.debug(f"Sent 'ACK' fpr {msg_type} message \"{msg_id}\": {ack_msg}")
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -488,7 +554,7 @@ class DistributedKernel(IPythonKernel):
         print("parent: %s", str(parent))
         print("ident: %s" % str(ident))
         
-        self.send_ack(self.shell_stream, "execute_request", "", ident, parent)
+        # self.send_ack(self.shell_stream, "execute_request", "", ident, parent)
         
         await super().execute_request(stream, ident, parent)
 
@@ -521,7 +587,7 @@ class DistributedKernel(IPythonKernel):
         parent_header = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
 
-        self.send_ack(self.shell_stream, "yield_execute", "", ident, parent)
+        # self.send_ack(self.shell_stream, "yield_execute", "", ident, parent)
 
         if not self.session:
             return

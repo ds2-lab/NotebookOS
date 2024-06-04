@@ -161,7 +161,7 @@ var _ = Describe("AbstractServer", func() {
 			Expect(err).To(BeNil())
 
 			// When no ACK is received, the server waits 5 seconds, then sleeps for a bit, then retries.
-			time.Sleep(time.Millisecond * 18000)
+			time.Sleep(time.Millisecond * 15000)
 			Expect(client.NumAcksReceived()).To(Equal(1))
 
 			client.Sockets.Shell.Close()

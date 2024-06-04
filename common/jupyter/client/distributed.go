@@ -201,6 +201,7 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, true, func(s *server.AbstractServer) {
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort}
 			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort} // connectionInfo.IOSubPort}
+			s.PrependId = true
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
 		status:                  types.KernelStatusInitializing,
@@ -242,7 +243,7 @@ func (c *distributedKernelClientImpl) headerFromFrames(frames [][]byte) (*types.
 
 	var header types.MessageHeader
 	if err := jFrames.DecodeHeader(&header); err != nil {
-		c.log.Error("Failed to decode header \"%v\" from message frames: %v", &header, err)
+		c.log.Error("Failed to decode header \"%v\" from message frames: %v", string(jFrames[types.JupyterFrameHeader]), err)
 		return nil, err
 	}
 

@@ -1286,7 +1286,7 @@ func (d *SchedulerDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHea
 
 	var header jupyter.MessageHeader
 	if err := jFrames.DecodeHeader(&header); err != nil {
-		d.log.Error("Failed to decode header from message frames: %v", err)
+		d.log.Error("Failed to decode header %v from message frames: %v", string(jFrames[jupyter.JupyterFrameHeader]), err)
 		return nil, err
 	}
 

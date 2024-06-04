@@ -185,6 +185,7 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ShellPort}
 			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.StdinPort}
 			s.Sockets.HB = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.HBPort}
+			s.PrependId = false
 			// s.Sockets.Ack = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
 			// IOPub is lazily initialized for different subclasses.
 			if spec.ReplicaId == 0 {
@@ -461,7 +462,7 @@ func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.Message
 		return types.ErrSocketNotAvailable
 	}
 
-	requiresACK := (typ == types.ShellMessage)
+	requiresACK := (typ == types.ShellMessage) || (typ == types.ControlMessage)
 
 	// Add timeout if necessary.
 	c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {

@@ -30,6 +30,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			s.Sockets.Control = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ControlPort}
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ShellPort}
 			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.StdinPort}
+			s.PrependId = true
 			// s.Sockets.Ack = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.AckPort}
 			// IOPub is a session specific socket, so it is not initialized here.
 		}),
