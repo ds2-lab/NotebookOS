@@ -165,6 +165,8 @@ type distributedKernelClientImpl struct {
 	SessionManager
 	server *server.AbstractServer
 
+	destMutex sync.Mutex
+
 	id             string
 	status         types.KernelStatus
 	busyStatus     *AggregateKernelStatus
@@ -198,10 +200,11 @@ type distributedKernelClientImpl struct {
 func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string, executionFailedCallback ExecutionFailedCallback) DistributedKernelClient {
 	kernel := &distributedKernelClientImpl{
 		id: spec.Id, persistentId: persistentId,
-		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, true, func(s *server.AbstractServer) {
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort}
-			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort} // connectionInfo.IOSubPort}
+		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, func(s *server.AbstractServer) {
+			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort, Name: fmt.Sprintf("DK-Router-Shell[%s]", spec.Id)}
+			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort, Name: fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)} // connectionInfo.IOSubPort}
 			s.PrependId = true
+			s.ShouldAckMessages = true
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
 		status:                  types.KernelStatusInitializing,
@@ -344,6 +347,14 @@ func (c *distributedKernelClientImpl) NumActiveAddOperations() int {
 	defer c.mu.RUnlock()
 
 	return c.numActiveAddOperations
+}
+
+func (c *distributedKernelClientImpl) Unlock() {
+	c.destMutex.Unlock()
+}
+
+func (c *distributedKernelClientImpl) Lock() {
+	c.destMutex.Lock()
 }
 
 func (c *distributedKernelClientImpl) AddOperationStarted() {
@@ -564,7 +575,7 @@ func (c *distributedKernelClientImpl) InitializeShellForwarder(handler core.Kern
 	go c.server.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.KernelSpec().Id, server.JOffsetAutoDetect)
 		return handler(srv.(*distributedKernelClientImpl), typ, msg)
-	})
+	}, false /* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be ACK'd. */)
 
 	return shell, nil
 }

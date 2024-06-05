@@ -201,7 +201,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		config(daemon)
 	}
 	config.InitLogger(&daemon.log, daemon)
-	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, "ClusterGatewayRouter")
+	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, "ClusterGatewayRouter", false)
 	daemon.cluster = core.NewCluster()
 	daemon.placer = core.NewRandomPlacer(daemon.cluster, daemon.ClusterOptions)
 

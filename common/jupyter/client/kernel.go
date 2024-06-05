@@ -134,6 +134,7 @@ type KernelClient struct {
 	SessionManager
 	client *server.AbstractServer
 
+	destMutex                 sync.Mutex
 	id                        string
 	replicaId                 int32
 	persistentId              string
@@ -163,7 +164,7 @@ type KernelClient struct {
 
 // NewKernelClient creates a new KernelClient.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, shouldSendAcks bool) *KernelClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, shouldAckMessages bool) *KernelClient {
 	client := &KernelClient{
 		id:                        spec.Kernel.Id,
 		persistentId:              persistentId,
@@ -179,13 +180,14 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		yieldNextExecutionRequest: false,
 		hostId:                    hostId,
 		// smrNodeRemovedCallback: smrNodeRemovedCallback,
-		client: server.New(ctx, info, shouldSendAcks, func(s *server.AbstractServer) {
+		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
-			s.Sockets.Control = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ControlPort}
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.ShellPort}
-			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.StdinPort}
-			s.Sockets.HB = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.HBPort}
+			s.Sockets.Control = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.ControlPort, Name: fmt.Sprintf("K-Dealer-Ctrl[%s]", spec.Kernel.Id)}
+			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.ShellPort, Name: fmt.Sprintf("K-Dealer-Shell[%s]", spec.Kernel.Id)}
+			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.StdinPort, Name: fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id)}
+			s.Sockets.HB = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.HBPort, Name: fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id)}
 			s.PrependId = false
+			s.ShouldAckMessages = shouldAckMessages
 			// s.Sockets.Ack = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
 			// IOPub is lazily initialized for different subclasses.
 			if spec.ReplicaId == 0 {
@@ -396,6 +398,7 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 		Socket: zmq4.NewRouter(c.client.Ctx),
 		Type:   types.ShellMessage,
 		Port:   c.shellListenPort,
+		Name:   fmt.Sprintf("K-Router-ShellForwrder[%s]", c.id),
 	}
 
 	if err := c.client.Listen(shell); err != nil {
@@ -406,9 +409,17 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 	go c.client.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.id, server.JOffsetAutoDetect)
 		return handler(c, typ, msg)
-	})
+	}, true /* Kernel clients should ACK messages that they're forwarding. */)
 
 	return shell, nil
+}
+
+func (c *KernelClient) Unlock() {
+	c.destMutex.Unlock()
+}
+
+func (c *KernelClient) Lock() {
+	c.destMutex.Lock()
 }
 
 // InitializeIOForwarder initializes the IOPub serving.
@@ -418,6 +429,7 @@ func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
 		Socket: zmq4.NewPub(c.client.Ctx),
 		Port:   c.iopubListenPort, // c.client.Meta.IOSubPort,
 		Type:   types.IOMessage,
+		Name:   fmt.Sprintf("K-Pub-IOForwrder[%s]", c.id),
 	}
 
 	c.log.Debug("Created ZeroMQ PUB socket with port %d.", iopub.Port)
@@ -513,6 +525,7 @@ func (c *KernelClient) InitializeIOSub(handler types.MessageHandler, subscriptio
 		Port:    c.client.Meta.IOPubPort,
 		Type:    types.IOMessage,
 		Handler: handler,
+		Name:    fmt.Sprintf("K-Sub-IOSub[%s]", c.id),
 	}
 
 	c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
@@ -552,7 +565,7 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 	for _, socket := range sockets {
 		if socket != nil && socket.Handler != nil {
 			c.log.Debug("Beginning to serve socket %v.", socket.Type.String())
-			go c.client.Serve(c, socket, c, socket.Handler)
+			go c.client.Serve(c, socket, c, socket.Handler, c.client.ShouldAckMessages)
 		}
 	}
 

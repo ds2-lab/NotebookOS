@@ -12,6 +12,7 @@ import time
 
 from traitlets.traitlets import Set
 
+import typing as t
 from typing import Union, Optional, Dict, Any
 from traitlets import List, Integer, Unicode, Bool, Undefined
 from ipykernel.ipkernel import IPythonKernel
@@ -218,6 +219,9 @@ class DistributedKernel(IPythonKernel):
         self.local_tcp_server_process.daemon = True 
         self.local_tcp_server_process.start() 
         self.log.info(f"Local TCP server process has PID={self.local_tcp_server_process.pid}")
+        
+        # TODO: Remove this after finish debugging the ACK stuff.
+        # self.auth = None
 
     # TODO(Ben): Is the existence of this process slowing down the termination process? 
     def server_process(self, queue: Queue):
@@ -363,14 +367,25 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Persistent store confirmed: " + self.store)
 
     async def dispatch_shell(self, msg):
+        idents, msg_without_idents = self.session.feed_identities(msg, copy=False)
         try:
-            idents, msg_without_idents = self.session.feed_identities(msg, copy=False)
             msg_deserialized = self.session.deserialize(msg_without_idents, content=False, copy=False)
-            self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
-        except Exception:
-            self.log.error("Received invalid SHELL message.", exc_info=True) # noqa: G201
+        except Exception as ex:
+            self.log.error(f"Received invalid SHELL message: {ex}") # noqa: G201
+            
+            minlen = 5
+            msg_list = t.cast(t.List[zmq.Message], msg)
+            msg_list_beginning = [bytes(msg.bytes) for msg in msg_list[:minlen]]
+            msg_list = t.cast(t.List[bytes], msg_list)
+            msg_list = msg_list_beginning + msg_list[minlen:]
+            
+            self.log.error(f"Message: {msg_list}\n\n")
+            
+            # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
+            self.send_ack(self.shell_stream, "unknown_shell_type", "unknown_id", idents, {}) # Send an ACK.
             return
         
+        self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
         msg_id = msg_deserialized["header"]["msg_id"]
         self.send_ack(self.shell_stream, msg_deserialized["header"]["msg_type"], msg_id, idents, msg_deserialized) # Send an ACK.
         
@@ -400,8 +415,19 @@ class DistributedKernel(IPythonKernel):
         idents, msg = self.session.feed_identities(msg, copy=False)
         try:
             msg = self.session.deserialize(msg, content=True, copy=False)
-        except Exception:
-            self.log.error("Invalid Control Message", exc_info=True)  # noqa: G201
+        except Exception as ex:
+            self.log.error(f"Received invalid CONTROL message: {ex}") # noqa: G201
+            
+            minlen = 5
+            msg_list = t.cast(t.List[zmq.Message], msg)
+            msg_list_beginning = [bytes(msg.bytes) for msg in msg_list[:minlen]]
+            msg_list = t.cast(t.List[bytes], msg_list)
+            msg_list = msg_list_beginning + msg_list[minlen:]
+            
+            self.log.error(f"Message: {msg_list}\n\n")
+            
+            # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
+            self.send_ack(self.control_stream, "unknown_control_type", "unknown_id", idents, {}) # Send an ACK.
             return
 
         self.log.debug("Control received: %s", msg)
@@ -413,8 +439,8 @@ class DistributedKernel(IPythonKernel):
         header:dict = msg["header"]
         msg_type:str = header["msg_type"]
         msg_id:str = header["msg_id"]
-        
         self.send_ack(self.control_stream, msg_type, msg_id, idents, msg) # Send an ACK.
+        
         if msg_id in self.received_message_ids:
             # Is it safe to assume a msg_id will not be resubmitted?
             return False

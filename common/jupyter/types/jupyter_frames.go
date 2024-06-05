@@ -87,6 +87,25 @@ func NewJupyterFramesWithHeader(msgType string, session string) JupyterFrames {
 	return frames
 }
 
+func (frames JupyterFrames) String() string {
+	if len(frames) == 0 {
+		return "[]"
+	}
+
+	s := "["
+	for i, frame := range frames {
+		s += "\"" + string(frame) + "\""
+
+		if i+1 < len(frames) {
+			s += ", "
+		}
+	}
+
+	s += "]"
+
+	return s
+}
+
 func (frames JupyterFrames) Validate() error {
 	if len(frames) < 6 {
 		return ErrInvalidJupyterMessage

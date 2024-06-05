@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -15,22 +16,25 @@ type Router struct {
 	*server.BaseServer
 	server *server.AbstractServer
 
+	destMutex sync.Mutex
+
 	name string // Identifies the router server.
 
 	// handlers
 	handlers []RouterMessageHandler
 }
 
-func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider, name string) *Router {
+func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider, name string, shouldAckMessages bool) *Router {
 	router := &Router{
 		name: name,
-		server: server.New(ctx, opts, true, func(s *server.AbstractServer) {
+		server: server.New(ctx, opts, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. Server routine will be started using a shared handler.
-			s.Sockets.HB = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.HBPort}
-			s.Sockets.Control = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ControlPort}
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ShellPort}
-			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.StdinPort}
+			s.Sockets.HB = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.HBPort, Name: fmt.Sprintf("Router-Router-HB[%s]", name)}
+			s.Sockets.Control = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ControlPort, Name: fmt.Sprintf("Router-Router-Ctrl[%s]", name)}
+			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ShellPort, Name: fmt.Sprintf("Router-Router-Shell[%s]", name)}
+			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.StdinPort, Name: fmt.Sprintf("Router-Router-Stdin[%s]", name)}
 			s.PrependId = true
+			s.ShouldAckMessages = shouldAckMessages
 			// s.Sockets.Ack = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.AckPort}
 			// IOPub is a session specific socket, so it is not initialized here.
 		}),
@@ -51,6 +55,14 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 // String returns the information for logging.
 func (g *Router) String() string {
 	return "router"
+}
+
+func (g *Router) Unlock() {
+	g.destMutex.Unlock()
+}
+
+func (g *Router) Lock() {
+	g.destMutex.Lock()
 }
 
 // Start initializes the zmq sockets and starts the service.
@@ -80,7 +92,7 @@ func (g *Router) Start() error {
 		g.server.Log.Debug("Serving %v socket with shared handler (Router::handleMsg) now.", socket.Type.String())
 
 		// socket.Handler has not been set, use shared handler.
-		go g.server.Serve(g, socket, g, g.handleMsg)
+		go g.server.Serve(g, socket, g, g.handleMsg, g.server.ShouldAckMessages)
 	}
 
 	<-g.server.Ctx.Done()

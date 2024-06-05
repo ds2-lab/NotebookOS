@@ -83,6 +83,7 @@ type Socket struct {
 	Handler    MessageHandler
 	PendingReq hashmap.HashMap[string, *MessageHandlerWrapper]
 	Serving    int32
+	Name       string // Mostly used for debugging.
 }
 
 func (s *Socket) String() string {

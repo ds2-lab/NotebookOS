@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
@@ -23,6 +24,7 @@ const (
 
 type wrappedServer struct {
 	*AbstractServer
+	sync.Mutex
 
 	shellPort int
 	id        string
@@ -72,17 +74,19 @@ var _ = Describe("AbstractServer", func() {
 
 	Context("Reliable Message Delivery", func() {
 		BeforeEach(func() {
-			_server := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, true, func(s *AbstractServer) {
+			_server := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, func(s *AbstractServer) {
 				s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort, Type: types.ShellMessage}
 			})
 			config.InitLogger(&_server.Log, "[SERVER]")
-			server = &wrappedServer{_server, shellListenPort, "[SERVER]"}
+			var mu1 sync.Mutex
+			server = &wrappedServer{_server, mu1, shellListenPort, "[SERVER]"}
 
-			_client := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, true, func(s *AbstractServer) {
+			_client := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, func(s *AbstractServer) {
 				s.Sockets.Shell = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: shellListenPort + 1, Type: types.ShellMessage}
 			})
 			config.InitLogger(&_client.Log, "[CLIENT]")
-			client = &wrappedServer{_client, shellListenPort + 1, "[CLIENT]"}
+			var mu2 sync.Mutex
+			client = &wrappedServer{_client, mu2, shellListenPort + 1, "[CLIENT]"}
 		})
 
 		It("Will re-send messages until an ACK is received", func() {
@@ -136,7 +140,7 @@ var _ = Describe("AbstractServer", func() {
 				return nil
 			}
 
-			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage)
+			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage, true)
 
 			headerMap := make(map[string]string)
 			headerMap["msg_id"] = uuid.NewString()
@@ -168,7 +172,7 @@ var _ = Describe("AbstractServer", func() {
 			server.Sockets.Shell.Close()
 		})
 
-		It("Will not retry sending messages upon receiving an ACK.", func() {
+		It("Will halt the retry procedure upon receiving an ACK.", func() {
 			err := server.Listen(server.Sockets.Shell)
 			Expect(err).To(BeNil())
 
@@ -210,7 +214,7 @@ var _ = Describe("AbstractServer", func() {
 				return nil
 			}
 
-			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage)
+			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage, true)
 
 			headerMap := make(map[string]string)
 			headerMap["msg_id"] = uuid.NewString()
