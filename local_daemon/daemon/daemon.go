@@ -63,11 +63,12 @@ var (
 	ErrRequestFailed    = status.Errorf(codes.DeadlineExceeded, "could not complete kernel request in-time")
 
 	// Internal errors
-	ErrHeaderNotFound           = errors.New("message header not found")
-	ErrKernelNotFound           = errors.New("kernel not found")
-	ErrKernelNotReady           = errors.New("kernel not ready")
-	ErrKernelIDRequired         = errors.New("kernel id frame is required for kernel_info_request")
-	ErrUnexpectedZMQMessageType = errors.New("received ZMQ message of unexpected type")
+	ErrHeaderNotFound                        = errors.New("message header not found")
+	ErrKernelNotFound                        = errors.New("kernel not found")
+	ErrKernelNotReady                        = errors.New("kernel not ready")
+	ErrKernelIDRequired                      = errors.New("kernel id frame is required for kernel_info_request")
+	ErrUnexpectedZMQMessageType              = errors.New("received ZMQ message of unexpected type")
+	ErrKernelRegistrationNotificationFailure = errors.New("could not notify gateway of kernel registration")
 
 	// Context keys
 	ctxKernelInvoker = utils.ContextKey("invoker")
@@ -184,7 +185,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		config(daemon)
 	}
 	config.InitLogger(&daemon.log, daemon)
-	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName))
+	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
 	daemon.scheduler = NewMembershipScheduler(daemon)
 
 	if daemon.ip == "" {
@@ -415,6 +416,11 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		}
 
 		break
+	}
+
+	if response == nil {
+		d.log.Error("Failed to notify Gateway of kernel registration after %d attempts.", max_num_tries)
+		panic(ErrKernelRegistrationNotificationFailure)
 	}
 
 	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.", response.Id, response.Replicas)
