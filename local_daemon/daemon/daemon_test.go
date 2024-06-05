@@ -198,6 +198,44 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(header.MsgType).To(Equal(ShellYieldExecute))
 		})
 
+		It("Should correctly return two different signatures when the Jupyter message's header is changed by modifying the date.", func() {
+			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
+			kernel.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
+
+			unsignedFrames1 := [][]byte{
+				[]byte("<IDS|MSG>"), /* Frame start */
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"), /* Signature */
+				[]byte("{\"msg_id\":\"84f3e8e7-1aa96818ad5b99a0f38802ac_17_100\",\"msg_type\":\"ACK\",\"username\":\"username\",\"session\":\"84f3e8e7-1aa96818ad5b99a0f38802ac\",\"date\":\"2024-06-04T22:38:56.949010\",\"version\":\"5.3\"}"),                                                                /* Header */
+				[]byte("{\"parent_header\":{\"msg_id\":\"2dbc4069-d766-4c23-8eba-c15069760869\",\"username\":\"c49d4463-b47b-4975-82cc-3444e2df9ca1\",\"session\":\"c49d4463-b47b-4975-82cc-3444e2df9ca1\",\"date\":\"2024-06-04T22:38:56.949010\",\"msg_type\":\"kernel_info_request\",\"version\":\"5.2\"}}"), /* Parent header */
+				[]byte("{}"), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
+			}
+			jframes1 := types.JupyterFrames(unsignedFrames1)
+			frames1, err := jframes1.Sign(signature_scheme, []byte(kernel_key))
+			Expect(err).To(BeNil())
+			Expect(frames1).ToNot(BeNil())
+			signature1 := frames1[types.JupyterFrameSignature]
+
+			unsignedFrames2 := [][]byte{
+				[]byte("<IDS|MSG>"), /* Frame start */
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"), /* Signature */
+				[]byte("{\"msg_id\":\"84f3e8e7-1aa96818ad5b99a0f38802ac_17_100\",\"msg_type\":\"ACK\",\"username\":\"username\",\"session\":\"84f3e8e7-1aa96818ad5b99a0f38802ac\",\"date\":\"2024-06-04T22:38:56.949011\",\"version\":\"5.3\"}"),                                                                /* Header */
+				[]byte("{\"parent_header\":{\"msg_id\":\"2dbc4069-d766-4c23-8eba-c15069760869\",\"username\":\"c49d4463-b47b-4975-82cc-3444e2df9ca1\",\"session\":\"c49d4463-b47b-4975-82cc-3444e2df9ca1\",\"date\":\"2024-06-04T22:38:56.949010\",\"msg_type\":\"kernel_info_request\",\"version\":\"5.2\"}}"), /* Parent header */
+				[]byte("{}"), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
+			}
+			jframes2 := types.JupyterFrames(unsignedFrames2)
+			frames2, err := jframes2.Sign(signature_scheme, []byte(kernel_key))
+			Expect(err).To(BeNil())
+			Expect(frames2).ToNot(BeNil())
+			signature2 := frames2[types.JupyterFrameSignature]
+
+			fmt.Printf("Signature #1: \"%s\"\n", signature1)
+			fmt.Printf("Signature #2: \"%s\"\n", signature2)
+
+			Expect(signature1).ToNot(Equal(signature2))
+		})
+
 		It("Should correctly process and return an 'execute_request' message if there are no reasons to convert it to a YIELD request", func() {
 			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 			kernel.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
