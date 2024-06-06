@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -125,7 +126,7 @@ func (k *FakeKernel) Serve(socket *socketWrapper) {
 				fmt.Printf("[ERROR] Kernel failed to send %v message because: %v\n", socket.Type, err)
 				return
 			} else {
-				fmt.Printf("Kernel %s sent 'ACK' (LocalAddr=%v).\n", k.ID, socket.Addr())
+				fmt.Printf("Kernel %s sent 'ACK' (LocalAddr=%v): %v\n", k.ID, socket.Addr(), msg)
 			}
 		}
 	}
@@ -267,7 +268,7 @@ func TestZMQ() {
 	fmt.Println("Connected to ::19002 (control).")
 
 	for {
-		fmt.Println("\n\n\n[1] Control. [2] Shell. [0] Quit.")
+		fmt.Println("\n\n\n\n[1] Control. [2] Shell. [0] Quit.")
 		var input string
 		fmt.Scanln(&input)
 
@@ -309,12 +310,14 @@ func TestZMQ() {
 			fmt.Printf("[ERROR] Failed to send %s message because: %v\n", socketType, err)
 		}
 
-		msg, err = socket.Recv()
-		if err != nil {
-			fmt.Printf("[ERROR] Failed to receive %s message because: %v\n", socketType, err)
-		}
+		time.Sleep(time.Millisecond * 1250)
 
-		fmt.Printf("\nFrontend received %v message: %v\n\n", socketType, msg)
+		// msg, err = socket.Recv()
+		// if err != nil {
+		// 	fmt.Printf("[ERROR] Failed to receive %s message because: %v\n", socketType, err)
+		// }
+
+		// fmt.Printf("\nFrontend received %v message: %v\n\n", socketType, msg)
 	}
 }
 

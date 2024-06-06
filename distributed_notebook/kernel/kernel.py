@@ -407,7 +407,6 @@ class DistributedKernel(IPythonKernel):
     def should_handle(self, stream, msg, idents):
         """Check whether a (shell-channel?) message should be handled"""
         msg_id = msg["header"]["msg_id"]
-        self.send_ack(stream, msg["header"]["msg_type"], msg_id, idents, msg) # Send an ACK.
         if msg_id in self.received_message_ids:
             # Is it safe to assume a msg_id will not be resubmitted?
             return False
@@ -595,7 +594,7 @@ class DistributedKernel(IPythonKernel):
             parent,
             ident=ident,
         )
-        self.log.debug(f"Sent 'ACK' for {msg_type} message \"{msg_id}\": {ack_msg}")
+        self.log.debug(f"Sent 'ACK' for {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -604,8 +603,6 @@ class DistributedKernel(IPythonKernel):
         
         print("parent: %s", str(parent))
         print("ident: %s" % str(ident))
-        
-        # self.send_ack(self.shell_stream, "execute_request", "", ident, parent)
         
         await super().execute_request(stream, ident, parent)
 
@@ -637,8 +634,6 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Parent: %s" % str(parent))
         parent_header = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
-
-        # self.send_ack(self.shell_stream, "yield_execute", "", ident, parent)
 
         if not self.session:
             return

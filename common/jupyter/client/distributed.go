@@ -637,6 +637,7 @@ func (c *distributedKernelClientImpl) RequestWithHandler(ctx context.Context, pr
 }
 
 // Process a response to a shell message. This is called before the handler that was passed when issuing the request.
+// Return true if the message is a 'yield' message (indicating that the replica yielded an execution).
 func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.KernelInfo, msg *zmq4.Msg) (err error, yielded bool) {
 	var (
 		header             *types.MessageHeader
@@ -659,17 +660,22 @@ func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.Kerne
 		c.log.Debug("Received shell '%v' response from kernel %s.", jupyterMessageType, c.id)
 	}
 
-	jFrame, _ := c.SkipIdentities(msg.Frames)
+	jFrames, _ := c.SkipIdentities(msg.Frames)
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
-	if len(jFrame) < 5 {
+	if len(jFrames) < 5 {
 		c.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)", replicaId, c.id)
 		return types.ErrInvalidJupyterMessage, false
 	}
 
+	if len(jFrames[types.JupyterFrameContent]) == 0 {
+		c.log.Warn("Received shell '%v' response with empty content.", jupyterMessageType)
+		return nil, false
+	}
+
 	var msgErr types.MessageError
-	err = json.Unmarshal(jFrame[5], &msgErr)
+	err = json.Unmarshal(jFrames[types.JupyterFrameContent], &msgErr)
 	if err != nil {
-		c.log.Error("Failed to unmarshal shell error received from replica %d of kernel %s", replicaId, c.id)
+		c.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", replicaId, c.id, err)
 		return err, false
 	}
 

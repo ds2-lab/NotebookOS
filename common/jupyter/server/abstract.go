@@ -211,6 +211,56 @@ func (s *AbstractServer) handleAck(msg *zmq4.Msg, socket *types.Socket, dest Req
 	}
 }
 
+func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest RequestDest) error {
+	// If we should ACK the message, then we'll ACK it.
+	// For a message M, we'll send an ACK for M if the following are true:
+	// (1) M is not an ACK itself
+	// (2) This particular "instance" of AbstractServer is configured to ACK messages (as opposed to having ACKs disabled)
+	// (3) The message was sent via the Shell socket or the Control socket. (We do not ACK heartbeats, IO messages, etc.)
+
+	s.Log.Debug("Message is of type %v and is NOT an ACK. Will send an ACK.", socket.Type)
+
+	dstId, rspId, _ := dest.ExtractDestFrame(msg.Frames)
+
+	headerMap := make(map[string]string)
+	headerMap["msg_id"] = uuid.NewString()
+	headerMap["date"] = time.Now().UTC().Format(time.RFC3339Nano)
+	headerMap["msg_type"] = "ACK"
+	header, _ := json.Marshal(&headerMap)
+
+	var ack_msg zmq4.Msg
+	if s.PrependId {
+		ack_msg = zmq4.NewMsgFrom(
+			msg.Frames[0],
+			[]byte(fmt.Sprintf(ZMQDestFrameFormatter, dstId, rspId)),
+			[]byte("<IDS|MSG>"),
+			[]byte(""),
+			header,
+			[]byte(""),
+			[]byte(""),
+			[]byte(""))
+	} else {
+		ack_msg = zmq4.NewMsgFrom(
+			[]byte(fmt.Sprintf(ZMQDestFrameFormatter, dstId, rspId)),
+			[]byte("<IDS|MSG>"),
+			[]byte(""),
+			header,
+			[]byte(""),
+			[]byte(""),
+			[]byte(""))
+	}
+
+	s.Log.Debug("Sending ACK message via %s: %v", socket.Name, ack_msg)
+
+	err := socket.Send(ack_msg)
+	if err != nil {
+		s.Log.Error("Error while sending ACK message: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 // Serve starts serving the socket with the specified handler.
 // The handler is passed as an argument to allow multiple sockets sharing the same handler.
 func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, dest RequestDest, handler types.MessageHandler, sendAcks bool) {
@@ -264,52 +314,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					s.handleAck(v, socket, dest)
 					// continue
 				} else if !is_ack && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
-					// If we should ACK the message, then we'll ACK it.
-					// For a message M, we'll send an ACK for M if the following are true:
-					// (1) M is not an ACK itself
-					// (2) This particular "instance" of AbstractServer is configured to ACK messages (as opposed to having ACKs disabled)
-					// (3) The message was sent via the Shell socket or the Control socket. (We do not ACK heartbeats, IO messages, etc.)
-
-					s.Log.Debug("Message is of type %v and is NOT an ACK. Will send an ACK.", socket.Type)
-
-					dstId, rspId, _ := dest.ExtractDestFrame(v.Frames)
-
-					headerMap := make(map[string]string)
-					headerMap["msg_id"] = uuid.NewString()
-					headerMap["date"] = time.Now().UTC().Format(time.RFC3339Nano)
-					headerMap["msg_type"] = "ACK"
-					header, _ := json.Marshal(&headerMap)
-
-					var ack_msg zmq4.Msg
-					if s.PrependId {
-						ack_msg = zmq4.NewMsgFrom(
-							v.Frames[0],
-							[]byte(""),
-							[]byte(fmt.Sprintf(ZMQDestFrameFormatter, dstId, rspId)),
-							[]byte("<IDS|MSG>"),
-							[]byte(""),
-							header,
-							[]byte(""),
-							[]byte(""),
-							[]byte(""))
-					} else {
-						ack_msg = zmq4.NewMsgFrom(
-							[]byte(""),
-							[]byte(fmt.Sprintf(ZMQDestFrameFormatter, dstId, rspId)),
-							[]byte("<IDS|MSG>"),
-							[]byte(""),
-							header,
-							[]byte(""),
-							[]byte(""),
-							[]byte(""))
-					}
-
-					s.Log.Debug("Sending ACK message via %s: %v", socket.Name, ack_msg)
-
-					err := socket.Send(ack_msg)
-					if err != nil {
-						s.Log.Error("Error while sending ACK message: %v", err)
-					}
+					s.sendAck(v, socket, dest)
 				}
 
 				err = handler(server, socket.Type, v)
@@ -826,19 +831,19 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 					msg.Frames = dest.RemoveDestFrame(msg.Frames, offset)
 				}
 
-				is_ack, err := s.IsMessageAnAck(msg, socket.Type)
-				if err != nil {
-					panic(fmt.Sprintf("Could not determine if message is an 'ACK'. Offset: %d. Message: %v. Error: %v.", offset, msg, err))
-				}
+				// is_ack, err := s.IsMessageAnAck(msg, socket.Type)
+				// if err != nil {
+				// 	panic(fmt.Sprintf("Could not determine if message is an 'ACK'. Offset: %d. Message: %v. Error: %v.", offset, msg, err))
+				// }
 
 				// TODO: Check if message is an ACK message.
 				// If so, then we'll report that the message was ACK'd, and we'll wait for the "actual" response.
 				ackChan, _ := s.ackChannels.Load(matchReqId)
-				if is_ack {
-					s.Log.Debug("[2] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
-					s.handleAck(msg, socket, dest)
-					return nil
-				}
+				// if is_ack {
+				// 	s.Log.Debug("[2] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
+				// 	s.handleAck(msg, socket, dest)
+				// 	return nil
+				// }
 
 				// TODO: Do we need this?
 				if ackReceived, loaded := s.acksReceived.Load(rspId); loaded && !ackReceived && ackChan != nil {
