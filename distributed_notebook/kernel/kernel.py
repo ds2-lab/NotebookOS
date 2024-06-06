@@ -590,6 +590,7 @@ class DistributedKernel(IPythonKernel):
             {
              "type": msg_type,
              "msg_id": msg_id,
+             "source": "PYTHON KERNEL"
             },
             parent,
             ident=ident,

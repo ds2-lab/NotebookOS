@@ -533,7 +533,7 @@ func (s *AbstractServer) sendMessage(requiresACK bool, socket *types.Socket, req
 				s.Log.Debug("%v message %v has successfully been ACK'd on attempt %d/%d.", socket.Type, reqId, num_tries+1, max_num_tries)
 				return nil
 			} else {
-				s.Log.Error("Timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d.", socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries)
+				s.Log.Error("Socket %v (%v) timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d.", socket.Name, socket.Addr(), socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries)
 				// Just to avoid going through the process of sleeping and updating the header if that was our last try.
 				if (num_tries + 1) >= max_num_tries {
 					break

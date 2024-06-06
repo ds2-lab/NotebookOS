@@ -51,24 +51,28 @@ func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemo
 		IOPubSocket:     &socketWrapper{zmq4.NewPub(ctx), types.IOMessage},
 	}
 
+	fmt.Printf("Kernel %s is listening and serving HeartbeatSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort)
 	err := kernel.HeartbeatSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort))
 	if err != nil {
 		panic(err)
 	}
 	go kernel.Serve(kernel.HeartbeatSocket)
 
+	fmt.Printf("Kernel %s is listening and serving ControlSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+1)
 	err = kernel.ControlSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+1))
 	if err != nil {
 		panic(err)
 	}
 	go kernel.Serve(kernel.ControlSocket)
 
+	fmt.Printf("Kernel %s is listening and serving ShellSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+2)
 	err = kernel.ShellSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+2))
 	if err != nil {
 		panic(err)
 	}
 	go kernel.Serve(kernel.ShellSocket)
 
+	fmt.Printf("Kernel %s is listening and serving StdinSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+3)
 	err = kernel.StdinSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+3))
 	if err != nil {
 		panic(err)
@@ -94,22 +98,34 @@ func (k *FakeKernel) Serve(socket *socketWrapper) {
 
 		fmt.Printf("\n[%v] Kernel received message: %v\n", socket.Type, msg)
 
+		var idents [][]byte
+		for i, frame := range msg.Frames {
+			if string(frame) == "<IDS|MSG>" {
+				idents = msg.Frames[0:i]
+			}
+		}
+
 		// Need to respond with an ACK.
 		if socket.Type == types.ControlMessage || socket.Type == types.ShellMessage {
-			frames := [][]byte{[]byte("<IDS|MSG>"),
+			frames := [][]byte{
+				[]byte("<IDS|MSG>"),
 				[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
 				[]byte("{\"msg_type\": \"ACK\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}"),
-				[]byte(""),
-				[]byte(""),
-				[]byte(""),
+				[]byte("FROM KERNEL"),
+				[]byte("FROM KERNEL"),
+				[]byte("FROM KERNEL"),
 			}
 
-			msg := zmq4.NewMsgFrom(frames...)
+			idents = append(idents, frames...)
+
+			msg := zmq4.NewMsgFrom(idents...)
 
 			err := socket.Send(msg)
 			if err != nil {
-				fmt.Sprintf("[ERROR] Failed to send %v message because: %v", socket.Type, err)
+				fmt.Printf("[ERROR] Kernel failed to send %v message because: %v\n", socket.Type, err)
 				return
+			} else {
+				fmt.Printf("Kernel %s sent 'ACK' (LocalAddr=%v).\n", k.ID, socket.Addr())
 			}
 		}
 	}
@@ -282,9 +298,9 @@ func TestZMQ() {
 			[]byte("<IDS|MSG>"),
 			[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
 			[]byte(fmt.Sprintf("{\"msg_id\": \"%s\", \"msg_type\": \"kernel_info_request\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", msgId, kernelId)),
-			[]byte(""),
-			[]byte(""),
-			[]byte(""),
+			[]byte("FROM FRONTEND"),
+			[]byte("FROM FRONTEND"),
+			[]byte("FROM FRONTEND"),
 		}
 
 		msg := zmq4.NewMsgFrom(frames...)

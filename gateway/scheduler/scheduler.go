@@ -80,13 +80,13 @@ func NewClusterScheduler(gateway domain.ClusterGateway, kubeClient domain.KubeCl
 
 	if clusterScheduler.log.GetLevel() == logger.LOG_LEVEL_ALL {
 		clusterScheduler.log.Debug("Scheduling Configuration:")
-		clusterScheduler.log.Debug("GpusPerHost: %d", clusterScheduler.gpusPerHost)
+		clusterScheduler.log.Debug("GpusPerHost: %.2f", clusterScheduler.gpusPerHost)
 		clusterScheduler.log.Debug("VirtualGpusPerHost: %d", clusterScheduler.virtualGpusPerHost)
-		clusterScheduler.log.Debug("ScalingFactor: %d", clusterScheduler.scalingFactor)
-		clusterScheduler.log.Debug("ScalingLimit: %d", clusterScheduler.scalingLimit)
+		clusterScheduler.log.Debug("ScalingFactor: %.2f", clusterScheduler.scalingFactor)
+		clusterScheduler.log.Debug("ScalingLimit: %.2f", clusterScheduler.scalingLimit)
 		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d", clusterScheduler.maximumHostsToReleaseAtOnce)
 		clusterScheduler.log.Debug("ScalingInterval: %d", clusterScheduler.scalingInterval)
-		clusterScheduler.log.Debug("ScalingOutEnaled: %d", clusterScheduler.scalingOutEnaled)
+		clusterScheduler.log.Debug("ScalingOutEnaled: %v", clusterScheduler.scalingOutEnaled)
 		clusterScheduler.log.Debug("ScalingBufferSize: %d", clusterScheduler.scalingBufferSize)
 	}
 

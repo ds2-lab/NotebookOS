@@ -394,6 +394,8 @@ func (c *KernelClient) Validate() error {
 }
 
 func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandler) (*types.Socket, error) {
+	c.log.Debug("Initializing shell forwarder.")
+
 	shell := &types.Socket{
 		Socket: zmq4.NewRouter(c.client.Ctx),
 		Type:   types.ShellMessage,
@@ -566,6 +568,8 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 		if socket != nil && socket.Handler != nil {
 			c.log.Debug("Beginning to serve socket %v.", socket.Type.String())
 			go c.client.Serve(c, socket, c, socket.Handler, c.client.ShouldAckMessages)
+		} else if socket != nil {
+			c.log.Debug("Not serving socket %v.", socket.Type.String())
 		}
 	}
 
