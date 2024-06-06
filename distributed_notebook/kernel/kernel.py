@@ -22,6 +22,8 @@ from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from .util import extract_header
 from threading import Lock
 
+from jupyter_client.session import extract_dates
+
 from multiprocessing import Process, Queue
 
 class ExecutionYieldError(Exception):
@@ -381,8 +383,19 @@ class DistributedKernel(IPythonKernel):
             
             self.log.error(f"Message: {msg_list}\n\n")
             
+            message:dict = {}
+            header = self.unpack(msg_list[1])
+            message["header"] = extract_dates(header)
+            msg_type = message["msg_type"]
+            msg_id = message["msg_id"]
+            
+            message["msg_id"] = header["msg_id"]
+            message["msg_type"] = header["msg_type"]
+            message["parent_header"] = extract_dates(self.unpack(msg_list[2]))
+            message["metadata"] = self.unpack(msg_list[3])
+            
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
-            self.send_ack(self.shell_stream, "unknown_shell_type", "unknown_id", idents, {}) # Send an ACK.
+            self.send_ack(self.shell_stream, msg_type, msg_id, idents, message) # Send an ACK.
             return
         
         self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
@@ -426,8 +439,19 @@ class DistributedKernel(IPythonKernel):
             
             self.log.error(f"Message: {msg_list}\n\n")
             
+            message:dict = {}
+            header = self.unpack(msg_list[1])
+            message["header"] = extract_dates(header)
+            msg_type = message["msg_type"]
+            msg_id = message["msg_id"]
+            
+            message["msg_id"] = header["msg_id"]
+            message["msg_type"] = header["msg_type"]
+            message["parent_header"] = extract_dates(self.unpack(msg_list[2]))
+            message["metadata"] = self.unpack(msg_list[3])
+            
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
-            self.send_ack(self.control_stream, "unknown_control_type", "unknown_id", idents, {}) # Send an ACK.
+            self.send_ack(self.control_stream, msg_type, msg_id, idents, message) # Send an ACK.
             return
 
         self.log.debug("Control received: %s", msg)
@@ -570,7 +594,7 @@ class DistributedKernel(IPythonKernel):
             parent,
             ident=ident,
         )
-        self.log.debug(f"Sent 'ACK' fpr {msg_type} message \"{msg_id}\": {ack_msg}")
+        self.log.debug(f"Sent 'ACK' for {msg_type} message \"{msg_id}\": {ack_msg}")
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""

@@ -165,7 +165,7 @@ type distributedKernelClientImpl struct {
 	SessionManager
 	server *server.AbstractServer
 
-	destMutex sync.Mutex
+	// destMutex sync.Mutex
 
 	id             string
 	status         types.KernelStatus
@@ -349,13 +349,13 @@ func (c *distributedKernelClientImpl) NumActiveAddOperations() int {
 	return c.numActiveAddOperations
 }
 
-func (c *distributedKernelClientImpl) Unlock() {
-	c.destMutex.Unlock()
-}
+// func (c *distributedKernelClientImpl) Unlock() {
+// 	c.destMutex.Unlock()
+// }
 
-func (c *distributedKernelClientImpl) Lock() {
-	c.destMutex.Lock()
-}
+// func (c *distributedKernelClientImpl) Lock() {
+// 	c.destMutex.Lock()
+// }
 
 func (c *distributedKernelClientImpl) AddOperationStarted() {
 	c.mu.Lock()
@@ -751,6 +751,14 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
 	if len(replicas) == 1 {
 		return replicas[0].(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done)
+	}
+
+	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
+	_, reqId, jOffset := c.ExtractDestFrame(msg.Frames)
+	if reqId == "" {
+		c.log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %v.", c.RequestDestID(), jOffset, types.JupyterFrames(msg.Frames).String())
+		msg.Frames, _ = c.AddDestFrame(msg.Frames, c.RequestDestID(), jOffset)
+		c.log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", c.RequestDestID(), jOffset, types.JupyterFrames(msg.Frames).String())
 	}
 
 	var wg sync.WaitGroup

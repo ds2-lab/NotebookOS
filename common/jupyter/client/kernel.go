@@ -134,7 +134,7 @@ type KernelClient struct {
 	SessionManager
 	client *server.AbstractServer
 
-	destMutex                 sync.Mutex
+	// destMutex                 sync.Mutex
 	id                        string
 	replicaId                 int32
 	persistentId              string
@@ -414,13 +414,13 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 	return shell, nil
 }
 
-func (c *KernelClient) Unlock() {
-	c.destMutex.Unlock()
-}
+// func (c *KernelClient) Unlock() {
+// 	c.destMutex.Unlock()
+// }
 
-func (c *KernelClient) Lock() {
-	c.destMutex.Lock()
-}
+// func (c *KernelClient) Lock() {
+// 	c.destMutex.Lock()
+// }
 
 // InitializeIOForwarder initializes the IOPub serving.
 // Returns Pub socket, Sub socket, error.

@@ -60,10 +60,6 @@ type RequestDest interface {
 	// RemoveDestFrame removes the destination frame from the specified zmq4 frames.
 	// Pass JOffsetAutoDetect to jOffset to let the function automatically detect the jupyter frames.
 	RemoveDestFrame(frames [][]byte, jOffset int) (oldFrams [][]byte)
-
-	Lock()
-
-	Unlock()
 }
 
 // SourceKernel is an interface for describing the kernel from which a particular IO message originated.
@@ -233,10 +229,42 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					s.Log.Debug("Received %v message of type %d with %d frame(s) via %s: %v", socket.Type, v.Type, len(v.Frames), socket.Name, v)
 				}
 
-				is_ack, err = s.isMessageAnAck(v, socket.Type)
+				// else if is_ack {
+				// 	s.numAcksReceived += 1
+				// 	_, rspId, _ := dest.ExtractDestFrame(v.Frames) // Redundant, will optimize later.
+				// 	ackChan, _ := s.ackChannels.Load(rspId)
+				// 	s.Log.Debug("[1] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
+				// 	var (
+				// 		ackReceived bool
+				// 		loaded      bool
+				// 	)
+				// 	if ackReceived, loaded = s.acksReceived.Load(rspId); loaded && !ackReceived && ackChan != nil {
+				// 		// Notify that we received an ACK and return.
+				// 		s.acksReceived.Store(rspId, true)
+				// 		s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
+				// 		ackChan <- struct{}{}
+				// 		s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
+				// 	} else if ackChan == nil { // If ackChan is nil, then that means we weren't expecting an ACK in the first place.
+				// 		s.Log.Error("[2] Received ACK for %v message %v via %s; however, we were not expecting an ACK for that message...", socket.Type, rspId, socket.Name)
+				// 	} else if ackReceived {
+				// 		s.Log.Error("[3] Received ACK for %v message %v via %s; however, we already received an ACK for that message...", socket.Type, rspId, socket.Name)
+				// 	}
+
+				// 	// It was an ACK; we don't want to call any handlers. Just continue.
+				// 	continue
+				// }
+
+				// TODO: Optimize this. Lots of redundancy here, and that we also do the same parsing again later.
+				is_ack, err = s.IsMessageAnAck(v, socket.Type)
 				if err != nil {
 					s.Log.Error("Could not determine if message is an 'ACK'. Message: %v. Error: %v.", msg, err)
 				} else if !is_ack && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
+					// If we should ACK the message, then we'll ACK it.
+					// For a message M, we'll send an ACK for M if the following are true:
+					// (1) M is not an ACK itself
+					// (2) This particular "instance" of AbstractServer is configured to ACK messages (as opposed to having ACKs disabled)
+					// (3) The message was sent via the Shell socket or the Control socket. (We do not ACK heartbeats, IO messages, etc.)
+
 					s.Log.Debug("Message is of type %v and is NOT an ACK. Will send an ACK.", socket.Type)
 
 					dstId, rspId, _ := dest.ExtractDestFrame(v.Frames)
@@ -277,6 +305,10 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					if err != nil {
 						s.Log.Error("Error while sending ACK message: %v", err)
 					}
+				} else if is_ack {
+					_, rspId, _ := dest.ExtractDestFrame(v.Frames)
+
+					s.Log.Debug("[1] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
 				}
 
 				err = handler(server, socket.Type, v)
@@ -343,7 +375,8 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter, requiresACK bool) error {
 	socket.InitPendingReq()
 
-	dest.Lock()
+	// dest.Lock()
+
 	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
 	_, reqId, jOffset := dest.ExtractDestFrame(req.Frames)
 	if reqId == "" {
@@ -351,7 +384,8 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		req.Frames, reqId = dest.AddDestFrame(req.Frames, dest.RequestDestID(), jOffset)
 		s.Log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", dest.RequestDestID(), jOffset, types.JupyterFrames(req.Frames).String())
 	}
-	dest.Unlock()
+
+	// dest.Unlock()
 
 	ackChan := make(chan struct{}, 1)
 	s.ackChannels.Store(reqId, ackChan)
@@ -708,8 +742,6 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 
 		if err == nil {
 			msg = &got
-			// s.Log.Debug("Received %v message.", socket.Type)
-			// s.Log.Debug("Incoming %v message: %v.", socket.Type, &got)
 		} else {
 			msg = err
 			s.Log.Error("Received error upon trying to read %v message: %v", socket.Type, err)
@@ -754,7 +786,7 @@ func (s *AbstractServer) headerFromMessage(msg *zmq4.Msg, offset int) (*types.Me
 	return &header, nil
 }
 
-func (s *AbstractServer) isMessageAnAck(msg *zmq4.Msg, typ types.MessageType) (bool, error) {
+func (s *AbstractServer) IsMessageAnAck(msg *zmq4.Msg, typ types.MessageType) (bool, error) {
 	// ACKs are only sent for Shell/Control messages.
 	if typ != types.ShellMessage && typ != types.ControlMessage {
 		return false, nil
@@ -793,7 +825,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 					msg.Frames = dest.RemoveDestFrame(msg.Frames, offset)
 				}
 
-				is_ack, err := s.isMessageAnAck(msg, socket.Type)
+				is_ack, err := s.IsMessageAnAck(msg, socket.Type)
 				if err != nil {
 					s.Log.Error("Could not determine if message is an 'ACK'. Offset: %d. Message: %v. Error: %v.", offset, msg, err)
 				}
@@ -803,7 +835,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 				ackChan, _ := s.ackChannels.Load(matchReqId)
 				if is_ack {
 					s.numAcksReceived += 1
-					s.Log.Debug("[1] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
+					s.Log.Debug("[2] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
 					var (
 						ackReceived bool
 						loaded      bool
@@ -823,6 +855,8 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 						return nil
 					}
 				}
+
+				// TODO: Do we need this?
 
 				if ackReceived, loaded := s.acksReceived.Load(rspId); loaded && !ackReceived && ackChan != nil {
 					s.Log.Debug("Received actual response (rather than ACK) for %v request %v via %s before receiving ACK. Marking request as acknowledeged anyway.", socket.Type, rspId, socket.Name)

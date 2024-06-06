@@ -78,15 +78,13 @@ var _ = Describe("AbstractServer", func() {
 				s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort, Type: types.ShellMessage}
 			})
 			config.InitLogger(&_server.Log, "[SERVER]")
-			var mu1 sync.Mutex
-			server = &wrappedServer{_server, mu1, shellListenPort, "[SERVER]"}
+			server = &wrappedServer{AbstractServer: _server, shellPort: shellListenPort, id: "[SERVER]"}
 
 			_client := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, func(s *AbstractServer) {
 				s.Sockets.Shell = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: shellListenPort + 1, Type: types.ShellMessage}
 			})
 			config.InitLogger(&_client.Log, "[CLIENT]")
-			var mu2 sync.Mutex
-			client = &wrappedServer{_client, mu2, shellListenPort + 1, "[CLIENT]"}
+			client = &wrappedServer{AbstractServer: _client, shellPort: shellListenPort + 1, id: "[CLIENT]"}
 		})
 
 		It("Will re-send messages until an ACK is received", func() {

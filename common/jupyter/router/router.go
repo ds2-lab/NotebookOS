@@ -3,7 +3,6 @@ package router
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -16,7 +15,7 @@ type Router struct {
 	*server.BaseServer
 	server *server.AbstractServer
 
-	destMutex sync.Mutex
+	// destMutex sync.Mutex
 
 	name string // Identifies the router server.
 
@@ -57,13 +56,13 @@ func (g *Router) String() string {
 	return "router"
 }
 
-func (g *Router) Unlock() {
-	g.destMutex.Unlock()
-}
+// func (g *Router) Unlock() {
+// 	g.destMutex.Unlock()
+// }
 
-func (g *Router) Lock() {
-	g.destMutex.Lock()
-}
+// func (g *Router) Lock() {
+// 	g.destMutex.Lock()
+// }
 
 // Start initializes the zmq sockets and starts the service.
 func (g *Router) Start() error {
