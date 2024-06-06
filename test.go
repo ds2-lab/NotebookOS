@@ -203,7 +203,9 @@ func testGRPC() {
 	fmt.Printf("Response: %v\n", resp)
 }
 
-func main() {
-	// testWalkDir()
-	testGRPC()
-}
+// func main() {
+// 	// testWalkDir()
+// 	// testGRPC()
+// 	// callStartKernel()
+// 	TestZMQ()
+// }

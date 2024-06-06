@@ -175,12 +175,15 @@ type clusterGatewayImpl struct {
 	clusterScheduler domain.ClusterScheduler
 
 	clusterDashboard gateway.ClusterDashboardClient
+
+	localMode bool
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *clusterGatewayImpl {
 	daemon := &clusterGatewayImpl{
 		id:                               uuid.New().String(),
 		connectionOptions:                opts,
+		localMode:                        clusterDaemonOptions.LocalMode,
 		transport:                        "tcp",
 		ip:                               opts.IP,
 		availablePorts:                   utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
@@ -886,11 +889,13 @@ func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 	d.kernelSpecs.Store(in.Id, in)
 	d.waitGroups.Store(in.Id, created)
 
-	_, err := d.kubeClient.DeployDistributedKernels(ctx, in)
-	if err != nil {
-		d.log.Error("Error encountered while attempting to create the StatefulSet for Session %s", in.Id)
-		d.log.Error("%v", err)
-		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
+	if !d.localMode {
+		_, err := d.kubeClient.DeployDistributedKernels(ctx, in)
+		if err != nil {
+			d.log.Error("Error encountered while attempting to create the StatefulSet for Session %s", in.Id)
+			d.log.Error("%v", err)
+			return nil, status.Errorf(codes.Internal, "Failed to start kernel")
+		}
 	}
 
 	d.log.Debug("Waiting for all 3 replicas of new kernel %s to register.", in.Id)

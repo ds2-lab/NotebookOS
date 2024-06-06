@@ -139,6 +139,8 @@ type SchedulerDaemon struct {
 	// Manages "actual" GPU allocations.
 	gpuManager *GpuManager
 
+	localMode bool
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -149,15 +151,16 @@ type KernelRegistrationPayload struct {
 	Key             string              `json:"key"`
 	Kernel          *gateway.KernelSpec `json:"kernel,omitempty"`
 	// ResourceSpec    *gateway.ResourceSpec `json:"resourceSpec,omitempty"`
-	ReplicaId    int32   `json:"replicaId,omitempty"`
-	NumReplicas  int32   `json:"numReplicas,omitempty"`
-	Join         bool    `json:"join,omitempty"`
-	PersistentId *string `json:"persistentId,omitempty"`
-	PodName      string  `json:"podName,omitempty"`
-	NodeName     string  `json:"nodeName,omitempty"`
-	Cpu          int32   `json:"cpu,omitempty"`
-	Memory       int32   `json:"memory,omitempty"`
-	Gpu          int32   `json:"gpu,omitempty"`
+	ReplicaId      int32                   `json:"replicaId,omitempty"`
+	NumReplicas    int32                   `json:"numReplicas,omitempty"`
+	Join           bool                    `json:"join,omitempty"`
+	PersistentId   *string                 `json:"persistentId,omitempty"`
+	PodName        string                  `json:"podName,omitempty"`
+	NodeName       string                  `json:"nodeName,omitempty"`
+	Cpu            int32                   `json:"cpu,omitempty"`
+	Memory         int32                   `json:"memory,omitempty"`
+	Gpu            int32                   `json:"gpu,omitempty"`
+	ConnectionInfo *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
 }
 
 // Incoming connection from local distributed kernel.
@@ -165,7 +168,7 @@ type KernelRegistrationClient struct {
 	conn net.Conn
 }
 
-func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *SchedulerDaemonOptions, kernelRegistryPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
+func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *SchedulerDaemonOptions, kernelRegistryPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, localMode bool, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
 	ip := os.Getenv("POD_IP")
 	daemon := &SchedulerDaemon{
 		connectionOptions:      connectionOptions,
@@ -180,6 +183,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		smrPort:                schedulerDaemonOptions.SMRPort,
 		gpuManager:             NewGpuManager(schedulerDaemonOptions.NumGPUs),
 		virtualGpuPluginServer: virtualGpuPluginServer,
+		localMode:              localMode,
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -230,6 +234,14 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 
 	daemon.log.Debug("Connection options: %v", daemon.connectionOptions)
 
+	if !localMode && len(nodeName) == 0 {
+		panic("Node name is empty.")
+	}
+
+	if localMode && len(nodeName) == 0 {
+		daemon.nodeName = "LocalNode"
+	}
+
 	return daemon
 }
 
@@ -269,11 +281,19 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		return
 	}
 
+	// buf := make([]byte, 2048)
+	// _, err = kernelRegistrationClient.conn.Read(buf)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
 	var registrationPayload KernelRegistrationPayload
+	// err = json.Unmarshal(buf, &registrationPayload)
 	jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
 	err = jsonDecoder.Decode(&registrationPayload)
 	if err != nil {
 		d.log.Error("Failed to decode registration payload: %v", err)
+		// d.log.Error("Buffer: %v", string(buf))
 		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
 		return
 	}
@@ -281,17 +301,23 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	d.log.Debug("Received registration payload: %v", registrationPayload)
 
 	invoker := invoker.NewDockerInvoker(d.connectionOptions)
-	connInfo := &jupyter.ConnectionInfo{
-		IP:              remote_ip,
-		Transport:       "tcp",
-		ControlPort:     d.connectionOptions.ControlPort,
-		ShellPort:       d.connectionOptions.ShellPort,
-		StdinPort:       d.connectionOptions.StdinPort,
-		HBPort:          d.connectionOptions.HBPort,
-		IOSubPort:       d.connectionOptions.IOSubPort,
-		IOPubPort:       d.connectionOptions.IOPubPort,
-		SignatureScheme: registrationPayload.SignatureScheme,
-		Key:             registrationPayload.Key,
+
+	var connInfo *jupyter.ConnectionInfo
+	if d.localMode {
+		connInfo = registrationPayload.ConnectionInfo
+	} else {
+		connInfo = &jupyter.ConnectionInfo{
+			IP:              remote_ip,
+			Transport:       "tcp",
+			ControlPort:     d.connectionOptions.ControlPort,
+			ShellPort:       d.connectionOptions.ShellPort,
+			StdinPort:       d.connectionOptions.StdinPort,
+			HBPort:          d.connectionOptions.HBPort,
+			IOSubPort:       d.connectionOptions.IOSubPort,
+			IOPubPort:       d.connectionOptions.IOPubPort,
+			SignatureScheme: registrationPayload.SignatureScheme,
+			Key:             registrationPayload.Key,
+		}
 	}
 
 	d.log.Debug("connInfo: %v", connInfo)

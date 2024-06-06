@@ -156,7 +156,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				NotebookImageName:             "scusemua/jupyter",
 				NotebookImageTag:              "latest",
 				DistributedClusterServicePort: 8077,
-				UseOutOfClusterKubeConfig:     true,
+				LocalMode:                     true,
 			})
 			local_daemon := localdaemon.New(&types.ConnectionInfo{
 				IP:                   "127.0.0.1",

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -47,6 +48,7 @@ type Options struct {
 	ProvisionerAddr    string `name:"provisioner" description:"Provisioner address."`
 	JaegerAddr         string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr         string `name:"consul" description:"Consul agent address."`
+	LocalMode          bool   `name:"local_mode" description:"If true, then we're running 'locally' and not within a Kubernetes cluster (for debugging/testing)."`
 }
 
 func (o Options) String() string {
@@ -108,11 +110,12 @@ func main() {
 	}
 
 	nodeName := os.Getenv("NODE_NAME")
-	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName)
+
+	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, options.LocalMode)
 
 	// Initialize grpc server
 	srv := grpc.NewServer(gOpts...)
-	scheduler := daemon.New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort, devicePluginServer, nodeName)
+	scheduler := daemon.New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort, devicePluginServer, nodeName, options.LocalMode)
 	gateway.RegisterLocalGatewayServer(srv, scheduler)
 
 	// Initialize gRPC listener
@@ -178,8 +181,9 @@ func main() {
 	// Start detecting stop signals
 	done.Add(1)
 	go func() {
-		<-sig
-		logger.Info("Shutting down...")
+		s := <-sig
+
+		logger.Warn("Received signal: \"%v\". Shutting down...", s.String())
 		srv.Stop()
 		scheduler.Close()
 		done.Done()
@@ -203,12 +207,15 @@ func main() {
 
 	// Start device plugin.
 	go func() {
-		defer finalize(true)
+		// If we're in local mode, then this will return immediately, but we don't want to shutdown the program (which is what finalize will do).
+		if !options.LocalMode {
+			defer finalize(true)
+		}
 
 		for { // Do this forever.
 			log.Println("Running the DevicePlugin server now.")
 			if err := devicePluginServer.Run(); err != nil {
-				if err == device.ErrSocketDeleted {
+				if errors.Is(err, device.ErrSocketDeleted) {
 					log.Println("DevicePlugin socket has been deleted. Must restart DevicePlugin.")
 
 					// Stop the DevicePlugin server.
@@ -217,7 +224,10 @@ func main() {
 
 					// Recreate the DevicePlugin server.
 					log.Println("Recreating the DevicePlugin server now.")
-					devicePluginServer = device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName)
+					devicePluginServer = device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, options.LocalMode)
+				} else if errors.Is(err, device.ErrLocalMode) {
+					log.Println("DevicePlugin server will not be running; we are in local mode.")
+					return
 				} else {
 					log.Fatalf("Error during device plugin serving: %v", err)
 				}
@@ -236,6 +246,8 @@ func finalize(fix bool) {
 	if err := recover(); err != nil {
 		logger.Error("%v", err)
 	}
+
+	log.Println("Finalize called. Will be terminating.")
 
 	sig <- syscall.SIGINT
 }

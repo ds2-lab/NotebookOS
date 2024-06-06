@@ -384,15 +384,15 @@ class DistributedKernel(IPythonKernel):
             self.log.error(f"Message: {msg_list}\n\n")
             
             message:dict = {}
-            header = self.unpack(msg_list[1])
+            header = self.session.unpack(msg_list[1])
             message["header"] = extract_dates(header)
             msg_type = message["msg_type"]
             msg_id = message["msg_id"]
             
             message["msg_id"] = header["msg_id"]
             message["msg_type"] = header["msg_type"]
-            message["parent_header"] = extract_dates(self.unpack(msg_list[2]))
-            message["metadata"] = self.unpack(msg_list[3])
+            message["parent_header"] = extract_dates(self.session.unpack(msg_list[2]))
+            message["metadata"] = self.session.unpack(msg_list[3])
             
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
             self.send_ack(self.shell_stream, msg_type, msg_id, idents, message) # Send an ACK.
@@ -440,15 +440,15 @@ class DistributedKernel(IPythonKernel):
             self.log.error(f"Message: {msg_list}\n\n")
             
             message:dict = {}
-            header = self.unpack(msg_list[1])
+            header = self.session.unpack(msg_list[1])
             message["header"] = extract_dates(header)
             msg_type = message["msg_type"]
             msg_id = message["msg_id"]
             
             message["msg_id"] = header["msg_id"]
             message["msg_type"] = header["msg_type"]
-            message["parent_header"] = extract_dates(self.unpack(msg_list[2]))
-            message["metadata"] = self.unpack(msg_list[3])
+            message["parent_header"] = extract_dates(self.session.unpack(msg_list[2]))
+            message["metadata"] = self.session.unpack(msg_list[3])
             
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
             self.send_ack(self.control_stream, msg_type, msg_id, idents, message) # Send an ACK.

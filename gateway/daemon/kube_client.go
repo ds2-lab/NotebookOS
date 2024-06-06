@@ -112,7 +112,7 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 
 	config.InitLogger(&client.log, client)
 
-	if clusterDaemonOptions.UseOutOfClusterKubeConfig {
+	if clusterDaemonOptions.LocalMode {
 		var kubeconfig_path string
 		home := homedir.HomeDir()
 		if home != "" {

@@ -188,6 +188,29 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 	return nil
 }
 
+func (s *AbstractServer) handleAck(msg *zmq4.Msg, socket *types.Socket, dest RequestDest) {
+	s.numAcksReceived += 1
+	_, rspId, _ := dest.ExtractDestFrame(msg.Frames) // Redundant, will optimize later.
+	ackChan, _ := s.ackChannels.Load(rspId)
+	var (
+		ackReceived bool
+		loaded      bool
+	)
+	if ackReceived, loaded = s.acksReceived.Load(rspId); loaded && !ackReceived && ackChan != nil {
+		// Notify that we received an ACK and return.
+		s.acksReceived.Store(rspId, true)
+		s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
+		ackChan <- struct{}{}
+		s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
+	} else if ackChan == nil { // If ackChan is nil, then that means we weren't expecting an ACK in the first place.
+		s.Log.Error("[3] Received ACK for %v message %v via %s; however, we were not expecting an ACK for that message...", socket.Type, rspId, socket.Name)
+	} else if ackReceived {
+		s.Log.Error("[4] Received ACK for %v message %v via %s; however, we already received an ACK for that message...", socket.Type, rspId, socket.Name)
+	} else if !loaded {
+		panic(fmt.Sprintf("Did not have ACK entry for message %s", rspId))
+	}
+}
+
 // Serve starts serving the socket with the specified handler.
 // The handler is passed as an argument to allow multiple sockets sharing the same handler.
 func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, dest RequestDest, handler types.MessageHandler, sendAcks bool) {
@@ -229,35 +252,17 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					s.Log.Debug("Received %v message of type %d with %d frame(s) via %s: %v", socket.Type, v.Type, len(v.Frames), socket.Name, v)
 				}
 
-				// else if is_ack {
-				// 	s.numAcksReceived += 1
-				// 	_, rspId, _ := dest.ExtractDestFrame(v.Frames) // Redundant, will optimize later.
-				// 	ackChan, _ := s.ackChannels.Load(rspId)
-				// 	s.Log.Debug("[1] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
-				// 	var (
-				// 		ackReceived bool
-				// 		loaded      bool
-				// 	)
-				// 	if ackReceived, loaded = s.acksReceived.Load(rspId); loaded && !ackReceived && ackChan != nil {
-				// 		// Notify that we received an ACK and return.
-				// 		s.acksReceived.Store(rspId, true)
-				// 		s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
-				// 		ackChan <- struct{}{}
-				// 		s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
-				// 	} else if ackChan == nil { // If ackChan is nil, then that means we weren't expecting an ACK in the first place.
-				// 		s.Log.Error("[2] Received ACK for %v message %v via %s; however, we were not expecting an ACK for that message...", socket.Type, rspId, socket.Name)
-				// 	} else if ackReceived {
-				// 		s.Log.Error("[3] Received ACK for %v message %v via %s; however, we already received an ACK for that message...", socket.Type, rspId, socket.Name)
-				// 	}
-
-				// 	// It was an ACK; we don't want to call any handlers. Just continue.
-				// 	continue
-				// }
-
 				// TODO: Optimize this. Lots of redundancy here, and that we also do the same parsing again later.
 				is_ack, err = s.IsMessageAnAck(v, socket.Type)
 				if err != nil {
-					s.Log.Error("Could not determine if message is an 'ACK'. Message: %v. Error: %v.", msg, err)
+					panic(fmt.Sprintf("Could not determine if message is an 'ACK'. Message: %v. Error: %v.", msg, err))
+				}
+
+				if is_ack {
+					_, rspId, _ := dest.ExtractDestFrame(v.Frames)
+					s.Log.Debug("[1] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
+					s.handleAck(v, socket, dest)
+					// continue
 				} else if !is_ack && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
 					// If we should ACK the message, then we'll ACK it.
 					// For a message M, we'll send an ACK for M if the following are true:
@@ -305,10 +310,6 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					if err != nil {
 						s.Log.Error("Error while sending ACK message: %v", err)
 					}
-				} else if is_ack {
-					_, rspId, _ := dest.ExtractDestFrame(v.Frames)
-
-					s.Log.Debug("[1] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
 				}
 
 				err = handler(server, socket.Type, v)
@@ -827,37 +828,19 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 
 				is_ack, err := s.IsMessageAnAck(msg, socket.Type)
 				if err != nil {
-					s.Log.Error("Could not determine if message is an 'ACK'. Offset: %d. Message: %v. Error: %v.", offset, msg, err)
+					panic(fmt.Sprintf("Could not determine if message is an 'ACK'. Offset: %d. Message: %v. Error: %v.", offset, msg, err))
 				}
 
 				// TODO: Check if message is an ACK message.
 				// If so, then we'll report that the message was ACK'd, and we'll wait for the "actual" response.
 				ackChan, _ := s.ackChannels.Load(matchReqId)
 				if is_ack {
-					s.numAcksReceived += 1
 					s.Log.Debug("[2] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
-					var (
-						ackReceived bool
-						loaded      bool
-					)
-					if ackReceived, loaded = s.acksReceived.Load(rspId); loaded && !ackReceived && ackChan != nil {
-						// Notify that we received an ACK and return.
-						s.acksReceived.Store(rspId, true)
-						s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
-						ackChan <- struct{}{}
-						s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
-						return nil
-					} else if ackChan == nil { // If ackChan is nil, then that means we weren't expecting an ACK in the first place.
-						s.Log.Error("[2] Received ACK for %v message %v via %s; however, we were not expecting an ACK for that message...", socket.Type, rspId, socket.Name)
-						return nil
-					} else if ackReceived {
-						s.Log.Error("[3] Received ACK for %v message %v via %s; however, we already received an ACK for that message...", socket.Type, rspId, socket.Name)
-						return nil
-					}
+					s.handleAck(msg, socket, dest)
+					return nil
 				}
 
 				// TODO: Do we need this?
-
 				if ackReceived, loaded := s.acksReceived.Load(rspId); loaded && !ackReceived && ackChan != nil {
 					s.Log.Debug("Received actual response (rather than ACK) for %v request %v via %s before receiving ACK. Marking request as acknowledeged anyway.", socket.Type, rspId, socket.Name)
 					// Notify that we received an ACK and return.
