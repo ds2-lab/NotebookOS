@@ -205,8 +205,7 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 			if err != nil {
 				panic(err)
 			}
-			err = shell_socket.SetRouterMandatory(1)
-			if err != nil {
+			if err = shell_socket.SetRouterMandatory(1); err != nil {
 				panic(err)
 			}
 			s.Sockets.Shell = &types.Socket{Socket: shell_socket, Port: shellListenPort, Name: fmt.Sprintf("DK-Router-Shell[%s]", spec.Id)}

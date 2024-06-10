@@ -32,8 +32,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			if err != nil {
 				panic(err)
 			}
-			err = hb_socket.SetRouterMandatory(1)
-			if err != nil {
+			if err = hb_socket.SetRouterMandatory(1); err != nil {
 				panic(err)
 			}
 			s.Sockets.HB = &types.Socket{Socket: hb_socket, Port: opts.HBPort, Name: fmt.Sprintf("Router-Router-HB[%s]", name)}
@@ -42,8 +41,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			if err != nil {
 				panic(err)
 			}
-			err = ctrl_socket.SetRouterMandatory(1)
-			if err != nil {
+			if err = ctrl_socket.SetRouterMandatory(1); err != nil {
 				panic(err)
 			}
 			s.Sockets.Control = &types.Socket{Socket: ctrl_socket, Port: opts.ControlPort, Name: fmt.Sprintf("Router-Router-Ctrl[%s]", name)}
@@ -52,8 +50,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			if err != nil {
 				panic(err)
 			}
-			err = shell_socket.SetRouterMandatory(1)
-			if err != nil {
+			if err = shell_socket.SetRouterMandatory(1); err != nil {
 				panic(err)
 			}
 			s.Sockets.Shell = &types.Socket{Socket: shell_socket, Port: opts.ShellPort, Name: fmt.Sprintf("Router-Router-Shell[%s]", name)}
@@ -62,8 +59,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			if err != nil {
 				panic(err)
 			}
-			err = stdin_socket.SetRouterMandatory(1)
-			if err != nil {
+			if err = stdin_socket.SetRouterMandatory(1); err != nil {
 				panic(err)
 			}
 			s.Sockets.Stdin = &types.Socket{Socket: stdin_socket, Port: opts.StdinPort, Name: fmt.Sprintf("Router-Router-Stdin[%s]", name)}

@@ -422,8 +422,7 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 		c.log.Error("Could not initialize shell forwarder because: %v", err)
 		return nil, err
 	}
-	err = shell_socket.SetRouterMandatory(1)
-	if err != nil {
+	if err = shell_socket.SetRouterMandatory(1); err != nil {
 		c.log.Error("Could not set RouterMandatory option on shell forwarder because: %v", err)
 		return nil, err
 	}

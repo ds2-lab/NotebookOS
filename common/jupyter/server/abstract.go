@@ -297,6 +297,8 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 	}
 
 	for {
+		s.Log.Debug("Waiting for %v message.", socket.Type.String())
+
 		select {
 		case <-s.Ctx.Done():
 			return
@@ -327,6 +329,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					_, rspId, _ := dest.ExtractDestFrame(v)
 					s.Log.Debug("[1] Received ACK via %s: %v (%v).", socket.Name, rspId, socket.Type)
 					s.handleAck(v, socket, dest)
+					contd <- &struct{}{}
 					continue
 				} else if !is_ack && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
 					s.sendAck(v, socket, dest)
@@ -346,17 +349,19 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				// 2. Confirm no new request is pending.
 				if socket.PendingReq.Len() == 0 {
 					// Now any newer request will see the serving flag is 0 and will start a new serve routing.
+					s.Log.Debug("Finished serving %v messages as there are no more pending requests.", socket.Type.String())
 					return
 				}
 				// 3. If a new request is pending, compete with the new serve routing to serve the request.
 				if !atomic.CompareAndSwapInt32(&socket.Serving, 0, 1) {
 					// We failed to set the flag to 1, quit.
+					s.Log.Debug("Finished serving %v messages.", socket.Type.String())
 					return
 				}
 			} else if err != nil {
 				s.Log.Error("Error on handle %s message because: %v.", socket.Type.String(), err)
 				s.Log.Error("Will NOT abort serving for now.")
-				// return
+				contd <- &struct{}{}
 				continue
 			}
 		}
@@ -493,6 +498,7 @@ func (s *AbstractServer) updateMessageHeader(msg [][]byte, offset int, sourceKer
 
 	signature_scheme := sourceKernel.ConnectionInfo().SignatureScheme
 	if len(signature_scheme) == 0 {
+		// Default to the Jupyter signature scheme (hmac-sha256).
 		signature_scheme = types.JupyterSignatureScheme
 	}
 

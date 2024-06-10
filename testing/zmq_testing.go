@@ -61,8 +61,7 @@ func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemo
 	if err != nil {
 		panic(err)
 	}
-	err = ctrl_socket.SetRouterMandatory(1)
-	if err != nil {
+	if err = ctrl_socket.SetRouterMandatory(1); err != nil {
 		panic(err)
 	}
 
@@ -70,8 +69,7 @@ func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemo
 	if err != nil {
 		panic(err)
 	}
-	err = shell_socket.SetRouterMandatory(1)
-	if err != nil {
+	if err = shell_socket.SetRouterMandatory(1); err != nil {
 		panic(err)
 	}
 
@@ -79,8 +77,7 @@ func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemo
 	if err != nil {
 		panic(err)
 	}
-	err = stdin_socket.SetRouterMandatory(1)
-	if err != nil {
+	if err = stdin_socket.SetRouterMandatory(1); err != nil {
 		panic(err)
 	}
 
