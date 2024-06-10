@@ -11,16 +11,28 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
+	"github.com/pebbe/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
 type socketWrapper struct {
-	zmq4.Socket
+	*zmq4.Socket
 
 	Type types.MessageType
+}
+
+func (s *socketWrapper) Addr() string {
+	endpoint, err := s.GetLastEndpoint()
+
+	if err != nil {
+		fmt.Printf("[ERROR] Could not get last endpoint of %v socket because: %v\n", s.Type, err)
+		return "999:999:999:999"
+	}
+
+	return endpoint
 }
 
 type FakeKernel struct {
@@ -38,53 +50,87 @@ type FakeKernel struct {
 }
 
 func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemonPort int) *FakeKernel {
-	ctx := context.Background()
 	fullID := fmt.Sprintf("%s-%d", session, replicaId)
+
+	hb_socket, err := zmq4.NewSocket(zmq4.REP)
+	if err != nil {
+		panic(err)
+	}
+
+	ctrl_socket, err := zmq4.NewSocket(zmq4.ROUTER)
+	if err != nil {
+		panic(err)
+	}
+	err = ctrl_socket.SetRouterMandatory(1)
+	if err != nil {
+		panic(err)
+	}
+
+	shell_socket, err := zmq4.NewSocket(zmq4.ROUTER)
+	if err != nil {
+		panic(err)
+	}
+	err = shell_socket.SetRouterMandatory(1)
+	if err != nil {
+		panic(err)
+	}
+
+	stdin_socket, err := zmq4.NewSocket(zmq4.ROUTER)
+	if err != nil {
+		panic(err)
+	}
+	err = stdin_socket.SetRouterMandatory(1)
+	if err != nil {
+		panic(err)
+	}
+
+	iopub_socket, err := zmq4.NewSocket(zmq4.PUB)
+	if err != nil {
+		panic(err)
+	}
+
 	kernel := &FakeKernel{
 		ID:              fullID,
 		ReplicaID:       replicaId,
 		Session:         session,
 		LocalDaemonPort: localDaemonPort,
 		BaseSocketPort:  baseSocketPort,
-		HeartbeatSocket: &socketWrapper{zmq4.NewRep(ctx), types.HBMessage},
-		ControlSocket:   &socketWrapper{zmq4.NewRouter(ctx), types.ControlMessage},
-		ShellSocket:     &socketWrapper{zmq4.NewRouter(ctx), types.ShellMessage},
-		StdinSocket:     &socketWrapper{zmq4.NewRouter(ctx), types.StdinMessage},
-		IOPubSocket:     &socketWrapper{zmq4.NewPub(ctx), types.IOMessage},
+		HeartbeatSocket: &socketWrapper{hb_socket, types.HBMessage},
+		ControlSocket:   &socketWrapper{ctrl_socket, types.ControlMessage},
+		ShellSocket:     &socketWrapper{shell_socket, types.ShellMessage},
+		StdinSocket:     &socketWrapper{stdin_socket, types.StdinMessage},
+		IOPubSocket:     &socketWrapper{iopub_socket, types.IOMessage},
 	}
 
-	kernel.ControlSocket.Socket.SetOption("ROUTER_MANDATORY", 1)
-	kernel.ShellSocket.Socket.SetOption("ROUTER_MANDATORY", 1)
-
 	fmt.Printf("Kernel %s is listening and serving HeartbeatSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort)
-	err := kernel.HeartbeatSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort))
+	err = kernel.HeartbeatSocket.Bind(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort))
 	if err != nil {
 		panic(err)
 	}
 	go Serve(kernel.HeartbeatSocket, fullID, false)
 
 	fmt.Printf("Kernel %s is listening and serving ControlSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+1)
-	err = kernel.ControlSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+1))
+	err = kernel.ControlSocket.Bind(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+1))
 	if err != nil {
 		panic(err)
 	}
 	go Serve(kernel.ControlSocket, fullID, true)
 
 	fmt.Printf("Kernel %s is listening and serving ShellSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+2)
-	err = kernel.ShellSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+2))
+	err = kernel.ShellSocket.Bind(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+2))
 	if err != nil {
 		panic(err)
 	}
 	go Serve(kernel.ShellSocket, fullID, true)
 
 	fmt.Printf("Kernel %s is listening and serving StdinSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+3)
-	err = kernel.StdinSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+3))
+	err = kernel.StdinSocket.Bind(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+3))
 	if err != nil {
 		panic(err)
 	}
 	go Serve(kernel.StdinSocket, fullID, false)
 
-	err = kernel.IOPubSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+4))
+	err = kernel.IOPubSocket.Bind(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+4))
 	if err != nil {
 		panic(err)
 	}
@@ -94,18 +140,18 @@ func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemo
 
 func Serve(socket *socketWrapper, id string, sendAcks bool) {
 	for {
-		msg, err := socket.Recv()
+		msg, err := socket.RecvMessageBytes(0)
 		if err != nil {
 			fmt.Printf("[ERROR] Error reading from %v socket: %v\n", socket.Type, err)
 			return
 		}
 
-		fmt.Printf("\n[%v] Received message: %v\n", socket.Type, msg)
+		fmt.Printf("\n[%v] Received message: %v\n", socket.Type, server.FramesToString(msg))
 
 		var idents [][]byte
-		for i, frame := range msg.Frames {
+		for i, frame := range msg {
 			if string(frame) == "<IDS|MSG>" {
-				idents = msg.Frames[0:i]
+				idents = msg[0:i]
 				break
 			}
 		}
@@ -123,14 +169,12 @@ func Serve(socket *socketWrapper, id string, sendAcks bool) {
 
 			idents = append(idents, frames...)
 
-			msg := zmq4.NewMsgFrom(idents...)
-
-			err := socket.Send(msg)
+			_, err := socket.SendMessage(idents)
 			if err != nil {
 				fmt.Printf("[ERROR] Failed to send %v message because: %v\n", socket.Type, err)
 				return
 			} else {
-				fmt.Printf("\n%s sent 'ACK' (LocalAddr=%v): %v\n", id, socket.Addr(), msg)
+				fmt.Printf("\n%s sent 'ACK' (LocalAddr=%v): %v\n", id, socket.Addr(), server.FramesToString(msg))
 			}
 		}
 	}
@@ -256,20 +300,25 @@ func TestZMQ() {
 	wg2.Wait()
 	wg1.Wait()
 
-	shellSocket := zmq4.NewDealer(context.Background())
-
-	err := shellSocket.Dial("tcp://127.0.0.1:19002")
+	shellSocket, err := zmq4.NewSocket(zmq4.DEALER)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Connected to ::19002 (shell).")
-
-	controlSocket := zmq4.NewDealer(context.Background())
-	err = controlSocket.Dial("tcp://127.0.0.1:19001")
+	err = shellSocket.Connect("tcp://127.0.0.1:19002")
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Connected to ::19002 (control).")
+	fmt.Printf("Connected to 127.0.0.1:19002 (shell).")
+
+	controlSocket, err := zmq4.NewSocket(zmq4.DEALER)
+	if err != nil {
+		panic(err)
+	}
+	err = controlSocket.Connect("tcp://127.0.0.1:19001")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Connected to 127.0.0.1:19002 (control).")
 
 	go Serve(&socketWrapper{shellSocket, types.ShellMessage}, "FRONTEND-SHELL", false)
 	go Serve(&socketWrapper{controlSocket, types.ControlMessage}, "FRONTEND-CONTROL", false)
@@ -279,7 +328,7 @@ func TestZMQ() {
 		var input string
 		fmt.Scanln(&input)
 
-		var socket zmq4.Socket
+		var socket *zmq4.Socket
 		var socketType string
 		if input == "1" {
 			socket = controlSocket
@@ -311,10 +360,12 @@ func TestZMQ() {
 			[]byte("FROM FRONTEND"),
 		}
 
-		msg := zmq4.NewMsgFrom(frames...)
-		err = socket.Send(msg)
+		total, err := socket.SendMessage(frames)
 		if err != nil {
 			fmt.Printf("[ERROR] Failed to send %s message because: %v\n", socketType, err)
+		} else {
+			typ, _ := socket.GetType()
+			fmt.Printf("%v socket wrote %v bytes.\n", typ, total)
 		}
 
 		time.Sleep(time.Millisecond * 1250)

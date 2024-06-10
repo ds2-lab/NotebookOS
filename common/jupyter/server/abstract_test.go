@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/pebbe/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
@@ -74,14 +74,22 @@ var _ = Describe("AbstractServer", func() {
 
 	Context("Reliable Message Delivery", func() {
 		BeforeEach(func() {
+			shell_socket, err := zmq4.NewSocket(zmq4.ROUTER)
+			if err != nil {
+				panic(err)
+			}
 			_server := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, func(s *AbstractServer) {
-				s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort, Type: types.ShellMessage}
+				s.Sockets.Shell = &types.Socket{Socket: shell_socket, Port: shellListenPort, Type: types.ShellMessage}
 			})
 			config.InitLogger(&_server.Log, "[SERVER]")
 			server = &wrappedServer{AbstractServer: _server, shellPort: shellListenPort, id: "[SERVER]"}
 
+			dealer_socket, err := zmq4.NewSocket(zmq4.DEALER)
+			if err != nil {
+				panic(err)
+			}
 			_client := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, func(s *AbstractServer) {
-				s.Sockets.Shell = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: shellListenPort + 1, Type: types.ShellMessage}
+				s.Sockets.Shell = &types.Socket{Socket: dealer_socket, Port: shellListenPort + 1, Type: types.ShellMessage}
 			})
 			config.InitLogger(&_client.Log, "[CLIENT]")
 			client = &wrappedServer{AbstractServer: _client, shellPort: shellListenPort + 1, id: "[CLIENT]"}
@@ -92,15 +100,15 @@ var _ = Describe("AbstractServer", func() {
 			Expect(err).To(BeNil())
 
 			address1 := fmt.Sprintf("%s://%s:%d", transport, ip, shellListenPort)
-			err = client.Sockets.Shell.Dial(address1)
+			err = client.Sockets.Shell.Connect(address1)
 			Expect(err).To(BeNil())
 
 			client.Log.Debug("Dialed server socket @ %v", address1)
 
 			serverMessagesReceived := 0
 			respondAfterNMessages := 3
-			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-				server.Log.Info("Server received message: %v\n", msg)
+			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg [][]byte) error {
+				server.Log.Info("Server received message: %v\n", FramesToString(msg))
 				serverMessagesReceived += 1
 
 				// Don't reply until we've received several "retry" messages.
@@ -115,10 +123,10 @@ var _ = Describe("AbstractServer", func() {
 				headerMap["msg_type"] = "ACK"
 				header, _ := json.Marshal(&headerMap)
 
-				id_frame := []byte(msg.Frames[0])
+				id_frame := []byte(msg[0])
 
 				// Respond with ACK.
-				reply := zmq4.NewMsgFrom(id_frame,
+				reply := [][]byte{id_frame,
 					getDestFrame(DEST_KERNEL_ID, "a98c"),
 					[]byte("<IDS|MSG>"),
 					[]byte(""),
@@ -126,11 +134,11 @@ var _ = Describe("AbstractServer", func() {
 					[]byte(""),
 					[]byte(""),
 					[]byte(""),
-					[]byte(""))
+					[]byte("")}
 
 				server.Log.Info("Responding to message with reply: %v", reply)
 
-				err := info.Socket(typ).Send(reply)
+				_, err := info.Socket(typ).SendMessage(reply)
 				Expect(err).To(BeNil())
 
 				server.Log.Info("Responded to message.")
@@ -146,20 +154,20 @@ var _ = Describe("AbstractServer", func() {
 			headerMap["msg_type"] = "kernel_info_request"
 			header, _ := json.Marshal(&headerMap)
 
-			msg := zmq4.NewMsgFrom(
+			msg := [][]byte{
 				getDestFrame(DEST_KERNEL_ID, "a98c"),
 				[]byte("<IDS|MSG>"),
 				[]byte(""),
 				header,
 				[]byte(""),
 				[]byte(""),
-				[]byte(""))
+				[]byte("")}
 
-			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg [][]byte) error {
 				client.Log.Info("Client received %v message: %v", typ, msg)
 				return nil
 			}
-			err = client.Request(context.Background(), client, client.Sockets.Shell, &msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
+			err = client.Request(context.Background(), client, client.Sockets.Shell, msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
 			Expect(err).To(BeNil())
 
 			// When no ACK is received, the server waits 5 seconds, then sleeps for a bit, then retries.
@@ -175,13 +183,13 @@ var _ = Describe("AbstractServer", func() {
 			Expect(err).To(BeNil())
 
 			address1 := fmt.Sprintf("%s://%s:%d", transport, ip, shellListenPort)
-			err = client.Sockets.Shell.Dial(address1)
+			err = client.Sockets.Shell.Connect(address1)
 			Expect(err).To(BeNil())
 
 			client.Log.Debug("Dialed server socket @ %v", address1)
 
-			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-				server.Log.Info("Server received message: %v\n", msg)
+			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg [][]byte) error {
+				server.Log.Info("Server received message: %v\n", FramesToString(msg))
 
 				headerMap := make(map[string]string)
 				headerMap["msg_id"] = uuid.NewString()
@@ -189,10 +197,10 @@ var _ = Describe("AbstractServer", func() {
 				headerMap["msg_type"] = "ACK"
 				header, _ := json.Marshal(&headerMap)
 
-				id_frame := []byte(msg.Frames[0])
+				id_frame := []byte(msg[0])
 
 				// Respond with ACK.
-				reply := zmq4.NewMsgFrom(id_frame,
+				reply := [][]byte{id_frame,
 					getDestFrame(DEST_KERNEL_ID, "a98c"),
 					[]byte("<IDS|MSG>"),
 					[]byte(""),
@@ -200,11 +208,11 @@ var _ = Describe("AbstractServer", func() {
 					[]byte(""),
 					[]byte(""),
 					[]byte(""),
-					[]byte(""))
+					[]byte("")}
 
 				server.Log.Info("Responding to message with reply: %v", reply)
 
-				err := info.Socket(typ).Send(reply)
+				_, err := info.Socket(typ).SendMessage(reply)
 				Expect(err).To(BeNil())
 
 				server.Log.Info("Responded to message.")
@@ -220,20 +228,20 @@ var _ = Describe("AbstractServer", func() {
 			headerMap["msg_type"] = "kernel_info_request"
 			header, _ := json.Marshal(&headerMap)
 
-			msg := zmq4.NewMsgFrom(
+			msg := [][]byte{
 				getDestFrame(DEST_KERNEL_ID, "a98c"),
 				[]byte("<IDS|MSG>"),
 				[]byte(""),
 				header,
 				[]byte(""),
 				[]byte(""),
-				[]byte(""))
+				[]byte("")}
 
-			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg [][]byte) error {
 				client.Log.Info("Client received %v message: %v", typ, msg)
 				return nil
 			}
-			err = client.Request(context.Background(), client, client.Sockets.Shell, &msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
+			err = client.Request(context.Background(), client, client.Sockets.Shell, msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
 			Expect(err).To(BeNil())
 
 			time.Sleep(time.Millisecond * 1500)

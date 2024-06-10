@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/go-zeromq/zmq4"
+	"github.com/pebbe/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )
 
@@ -42,7 +42,7 @@ func (t MessageType) String() string {
 	return [...]string{"heartbeat", "control", "shell", "stdin", "io", "ack"}[t]
 }
 
-type MessageHandler func(JupyterServerInfo, MessageType, *zmq4.Msg) error
+type MessageHandler func(JupyterServerInfo, MessageType, [][]byte) error
 
 type MessageDone func()
 
@@ -60,7 +60,7 @@ func GetMessageHandlerWrapper(h MessageHandler, done MessageDone) *MessageHandle
 	return m
 }
 
-func (m *MessageHandlerWrapper) Handle(info JupyterServerInfo, t MessageType, msg *zmq4.Msg) error {
+func (m *MessageHandlerWrapper) Handle(info JupyterServerInfo, t MessageType, msg [][]byte) error {
 	err := m.handle(info, t, msg)
 	m.Release()
 	return err
@@ -77,13 +77,24 @@ func (m *MessageHandlerWrapper) Release() {
 }
 
 type Socket struct {
-	zmq4.Socket
+	*zmq4.Socket
 	Port       int
 	Type       MessageType
 	Handler    MessageHandler
 	PendingReq hashmap.HashMap[string, *MessageHandlerWrapper]
 	Serving    int32
 	Name       string // Mostly used for debugging.
+}
+
+func (s *Socket) Addr() string {
+	endpoint, err := s.GetLastEndpoint()
+
+	if err != nil {
+		fmt.Printf("[ERROR] Could not get last endpoint of %v socket because: %v\n", s.Type, err)
+		return "999:999:999:999"
+	}
+
+	return endpoint
 }
 
 func (s *Socket) String() string {

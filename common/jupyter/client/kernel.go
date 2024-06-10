@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/pebbe/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
@@ -102,7 +102,7 @@ type KernelReplicaClient interface {
 	Status() types.KernelStatus
 
 	// BusyStatus returns the kernel busy status.
-	BusyStatus() (string, *zmq4.Msg)
+	BusyStatus() (string, [][]byte)
 
 	// BindSession binds a session ID to the client.
 	BindSession(sess string)
@@ -141,8 +141,8 @@ type KernelClient struct {
 	spec                      *gateway.KernelSpec
 	status                    types.KernelStatus
 	busyStatus                string
-	lastBStatusMsg            *zmq4.Msg
-	iobroker                  *MessageBroker[core.Kernel, *zmq4.Msg, types.JupyterFrames]
+	lastBStatusMsg            [][]byte
+	iobroker                  *MessageBroker[core.Kernel, [][]byte, types.JupyterFrames]
 	shell                     *types.Socket // Listener.
 	iopub                     *types.Socket // Listener.
 	addSourceKernelFrames     bool          // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelClient's kernel ID.
@@ -182,10 +182,30 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		// smrNodeRemovedCallback: smrNodeRemovedCallback,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
-			s.Sockets.Control = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.ControlPort, Name: fmt.Sprintf("K-Dealer-Ctrl[%s]", spec.Kernel.Id)}
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.ShellPort, Name: fmt.Sprintf("K-Dealer-Shell[%s]", spec.Kernel.Id)}
-			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.StdinPort, Name: fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id)}
-			s.Sockets.HB = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.HBPort, Name: fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id)}
+
+			ctrl_socket, err := zmq4.NewSocket(zmq4.DEALER)
+			if err != nil {
+				panic(err)
+			}
+			s.Sockets.Control = &types.Socket{Socket: ctrl_socket, Port: info.ControlPort, Name: fmt.Sprintf("K-Dealer-Ctrl[%s]", spec.Kernel.Id)}
+
+			shell_socket, err := zmq4.NewSocket(zmq4.DEALER)
+			if err != nil {
+				panic(err)
+			}
+			s.Sockets.Shell = &types.Socket{Socket: shell_socket, Port: info.ShellPort, Name: fmt.Sprintf("K-Dealer-Shell[%s]", spec.Kernel.Id)}
+
+			stdin_socket, err := zmq4.NewSocket(zmq4.DEALER)
+			if err != nil {
+				panic(err)
+			}
+			s.Sockets.Stdin = &types.Socket{Socket: stdin_socket, Port: info.StdinPort, Name: fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id)}
+
+			hb_socket, err := zmq4.NewSocket(zmq4.DEALER)
+			if err != nil {
+				panic(err)
+			}
+			s.Sockets.HB = &types.Socket{Socket: hb_socket, Port: info.HBPort, Name: fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id)}
 			s.PrependId = false
 			s.Name = fmt.Sprintf("KernelClient-%s", spec.Kernel.Id)
 			s.ShouldAckMessages = shouldAckMessages
@@ -344,7 +364,7 @@ func (c *KernelClient) Status() types.KernelStatus {
 }
 
 // BusyStatus returns the kernel busy status.
-func (c *KernelClient) BusyStatus() (string, *zmq4.Msg) {
+func (c *KernelClient) BusyStatus() (string, [][]byte) {
 	return c.busyStatus, c.lastBStatusMsg
 }
 
@@ -397,8 +417,19 @@ func (c *KernelClient) Validate() error {
 func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandler) (*types.Socket, error) {
 	c.log.Debug("Initializing shell forwarder.")
 
+	shell_socket, err := zmq4.NewSocket(zmq4.ROUTER)
+	if err != nil {
+		c.log.Error("Could not initialize shell forwarder because: %v", err)
+		return nil, err
+	}
+	err = shell_socket.SetRouterMandatory(1)
+	if err != nil {
+		c.log.Error("Could not set RouterMandatory option on shell forwarder because: %v", err)
+		return nil, err
+	}
+
 	shell := &types.Socket{
-		Socket: zmq4.NewRouter(c.client.Ctx),
+		Socket: shell_socket,
 		Type:   types.ShellMessage,
 		Port:   c.shellListenPort,
 		Name:   fmt.Sprintf("K-Router-ShellForwrder[%s]", c.id),
@@ -409,8 +440,8 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 	}
 
 	c.shell = shell
-	go c.client.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.id, server.JOffsetAutoDetect)
+	go c.client.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg [][]byte) error {
+		msg, _ = c.BaseServer.AddDestFrame(msg, c.id, server.JOffsetAutoDetect)
 		return handler(c, typ, msg)
 	}, true /* Kernel clients should ACK messages that they're forwarding. */)
 
@@ -428,8 +459,13 @@ func (c *KernelClient) InitializeShellForwarder(handler core.KernelMessageHandle
 // InitializeIOForwarder initializes the IOPub serving.
 // Returns Pub socket, Sub socket, error.
 func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
+	iopub_socket, err := zmq4.NewSocket(zmq4.PUB)
+	if err != nil {
+		c.log.Error("Could not initialize IO forwarder because: %v", err)
+		return nil, err
+	}
 	iopub := &types.Socket{
-		Socket: zmq4.NewPub(c.client.Ctx),
+		Socket: iopub_socket,
 		Port:   c.iopubListenPort, // c.client.Meta.IOSubPort,
 		Type:   types.IOMessage,
 		Name:   fmt.Sprintf("K-Pub-IOForwrder[%s]", c.id),
@@ -453,7 +489,7 @@ func (c *KernelClient) InitializeIOForwarder() (*types.Socket, error) {
 
 // AddIOHandler adds a handler for a specific IOPub topic.
 // The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
-func (c *KernelClient) AddIOHandler(topic string, handler MessageBrokerHandler[core.Kernel, types.JupyterFrames, *zmq4.Msg]) error {
+func (c *KernelClient) AddIOHandler(topic string, handler MessageBrokerHandler[core.Kernel, types.JupyterFrames, [][]byte]) error {
 	if c.iobroker == nil {
 		return ErrIOPubNotStarted
 	}
@@ -462,12 +498,12 @@ func (c *KernelClient) AddIOHandler(topic string, handler MessageBrokerHandler[c
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *KernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
+func (c *KernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg [][]byte, handler core.KernelMessageHandler, done func()) error {
 	// c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
 	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
 
-func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
+func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.MessageType, msg [][]byte, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
 	}
@@ -480,7 +516,7 @@ func (c *KernelClient) requestWithHandler(ctx context.Context, typ types.Message
 	requiresACK := (typ == types.ShellMessage) || (typ == types.ControlMessage)
 
 	// Add timeout if necessary.
-	c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
+	c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg [][]byte) (err error) {
 		// Kernel frame is automatically removed.
 		if handler != nil {
 			err = handler(server.(*KernelClient), typ, msg)
@@ -522,16 +558,23 @@ func (c *KernelClient) InitializeIOSub(handler types.MessageHandler, subscriptio
 		c.log.Debug("Creating ZeroMQ SUB socket: non-default handler, port %d, subscribe-topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
 	}
 
+	iosub_socket, err := zmq4.NewSocket(zmq4.SUB)
+	if err != nil {
+		c.log.Error("Could not initialize IO forwarder because: %v", err)
+		return nil, err
+	}
+
 	// Handler is set, so server routing will be started on dialing.
 	c.client.Sockets.IO = &types.Socket{
-		Socket:  zmq4.NewSub(c.client.Ctx), // Sub socket for client.
+		Socket:  iosub_socket, // Sub socket for client.
 		Port:    c.client.Meta.IOPubPort,
 		Type:    types.IOMessage,
 		Handler: handler,
 		Name:    fmt.Sprintf("K-Sub-IOSub[%s]", c.id),
 	}
 
-	c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
+	// c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
+	c.client.Sockets.IO.SetSubscribe(subscriptionTopic)
 	c.client.Sockets.All[types.IOMessage] = c.client.Sockets.IO
 
 	if c.status == types.KernelStatusRunning {
@@ -556,7 +599,7 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 
 		c.log.Debug("Dialing %s socket at %s now...", socket.Type.String(), fmt.Sprintf(address, socket.Port))
 
-		err := socket.Socket.Dial(fmt.Sprintf(address, socket.Port))
+		err := socket.Socket.Connect(fmt.Sprintf(address, socket.Port))
 		if err != nil {
 			return fmt.Errorf("could not connect to kernel socket(port:%d): %w", socket.Port, err)
 		}
@@ -577,7 +620,7 @@ func (c *KernelClient) dial(sockets ...*types.Socket) error {
 	return nil
 }
 
-func (c *KernelClient) handleMsg(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+func (c *KernelClient) handleMsg(server types.JupyterServerInfo, typ types.MessageType, msg [][]byte) error {
 	// c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
@@ -602,14 +645,14 @@ func (c *KernelClient) getWaitResponseOption(key string) interface{} {
 	return nil
 }
 
-func (c *KernelClient) extractIOTopicFrame(msg *zmq4.Msg) (topic string, jFrames types.JupyterFrames) {
-	_, jOffset := c.SkipIdentities(msg.Frames)
-	jFrames = msg.Frames[jOffset:]
+func (c *KernelClient) extractIOTopicFrame(msg [][]byte) (topic string, jFrames types.JupyterFrames) {
+	_, jOffset := c.SkipIdentities(msg)
+	jFrames = msg[jOffset:]
 	if jOffset == 0 {
 		return "", jFrames
 	}
 
-	rawTopic := msg.Frames[jOffset-1]
+	rawTopic := msg[jOffset-1]
 	matches := types.IOTopicStatusRecognizer.FindSubmatch(rawTopic)
 	if len(matches) > 0 {
 		return string(matches[2]), jFrames
@@ -618,19 +661,20 @@ func (c *KernelClient) extractIOTopicFrame(msg *zmq4.Msg) (topic string, jFrames
 	return string(rawTopic), jFrames
 }
 
-func (c *KernelClient) forwardIOMessage(kernel core.Kernel, _ types.JupyterFrames, msg *zmq4.Msg) error {
+func (c *KernelClient) forwardIOMessage(kernel core.Kernel, _ types.JupyterFrames, msg [][]byte) error {
 	// c.client.Log.Debug("Forwarding %v message for Kernel \"%s\".", types.IOMessage, c.id)
 	// if c.addSourceKernelFrames {
 	// 	c.client.Log.Debug("Adding \"Source Kernel\" frame to %v message that we're forwarding.", types.IOMessage)
-	// 	msg.Frames = c.AddSourceKernelFrame(msg.Frames, c.SourceKernelID(), server.JOffsetAutoDetect)
+	// 	msg = c.AddSourceKernelFrame(msg, c.SourceKernelID(), server.JOffsetAutoDetect)
 	// }
 
 	// c.client.Log.Debug("%v message to be forwarded (for kernel \"%s\"): %v", types.IOMessage, c.id, msg)
 
-	return kernel.Socket(types.IOMessage).Send(*msg)
+	_, err := kernel.Socket(types.IOMessage).SendMessage(msg)
+	return err
 }
 
-func (c *KernelClient) handleIOKernelStatus(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
+func (c *KernelClient) handleIOKernelStatus(kernel core.Kernel, frames types.JupyterFrames, msg [][]byte) error {
 	var status types.MessageKernelStatus
 	if err := frames.Validate(); err != nil {
 		return err
@@ -648,7 +692,7 @@ func (c *KernelClient) handleIOKernelStatus(kernel core.Kernel, frames types.Jup
 	return nil
 }
 
-// func (c *KernelClient) handleIOKernelSMRNodeRemoved(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
+// func (c *KernelClient) handleIOKernelSMRNodeRemoved(kernel core.Kernel, frames types.JupyterFrames, msg [][]byte) error {
 // 	c.log.Debug("Handling IO Kernel SMR Node-Removed message...")
 // 	var node_removed_message types.MessageSMRNodeUpdated
 // 	if err := frames.Validate(); err != nil {
@@ -668,7 +712,7 @@ func (c *KernelClient) handleIOKernelStatus(kernel core.Kernel, frames types.Jup
 // 	return types.ErrStopPropagation
 // }
 
-func (c *KernelClient) handleIOKernelSMRNodeAdded(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
+func (c *KernelClient) handleIOKernelSMRNodeAdded(kernel core.Kernel, frames types.JupyterFrames, msg [][]byte) error {
 	var node_added_message types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
 		return err
@@ -687,7 +731,7 @@ func (c *KernelClient) handleIOKernelSMRNodeAdded(kernel core.Kernel, frames typ
 	return types.ErrStopPropagation
 }
 
-func (c *KernelClient) handleIOKernelSMRReady(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
+func (c *KernelClient) handleIOKernelSMRReady(kernel core.Kernel, frames types.JupyterFrames, msg [][]byte) error {
 	var node_ready_message types.MessageSMRReady
 	if err := frames.Validate(); err != nil {
 		return err

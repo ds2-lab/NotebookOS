@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/pebbe/zmq4"
 
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
@@ -28,14 +28,49 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 		name: name,
 		server: server.New(ctx, opts, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. Server routine will be started using a shared handler.
-			s.Sockets.HB = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.HBPort, Name: fmt.Sprintf("Router-Router-HB[%s]", name)}
-			s.Sockets.Control = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ControlPort, Name: fmt.Sprintf("Router-Router-Ctrl[%s]", name)}
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ShellPort, Name: fmt.Sprintf("Router-Router-Shell[%s]", name)}
-			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.StdinPort, Name: fmt.Sprintf("Router-Router-Stdin[%s]", name)}
+			hb_socket, err := zmq4.NewSocket(zmq4.ROUTER)
+			if err != nil {
+				panic(err)
+			}
+			err = hb_socket.SetRouterMandatory(1)
+			if err != nil {
+				panic(err)
+			}
+			s.Sockets.HB = &types.Socket{Socket: hb_socket, Port: opts.HBPort, Name: fmt.Sprintf("Router-Router-HB[%s]", name)}
+
+			ctrl_socket, err := zmq4.NewSocket(zmq4.ROUTER)
+			if err != nil {
+				panic(err)
+			}
+			err = ctrl_socket.SetRouterMandatory(1)
+			if err != nil {
+				panic(err)
+			}
+			s.Sockets.Control = &types.Socket{Socket: ctrl_socket, Port: opts.ControlPort, Name: fmt.Sprintf("Router-Router-Ctrl[%s]", name)}
+
+			shell_socket, err := zmq4.NewSocket(zmq4.ROUTER)
+			if err != nil {
+				panic(err)
+			}
+			err = shell_socket.SetRouterMandatory(1)
+			if err != nil {
+				panic(err)
+			}
+			s.Sockets.Shell = &types.Socket{Socket: shell_socket, Port: opts.ShellPort, Name: fmt.Sprintf("Router-Router-Shell[%s]", name)}
+
+			stdin_socket, err := zmq4.NewSocket(zmq4.ROUTER)
+			if err != nil {
+				panic(err)
+			}
+			err = stdin_socket.SetRouterMandatory(1)
+			if err != nil {
+				panic(err)
+			}
+			s.Sockets.Stdin = &types.Socket{Socket: stdin_socket, Port: opts.StdinPort, Name: fmt.Sprintf("Router-Router-Stdin[%s]", name)}
+
 			s.PrependId = true
 			s.ShouldAckMessages = shouldAckMessages
 			s.Name = fmt.Sprintf("Router-%s", name)
-			// s.Sockets.Ack = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.AckPort}
 			// IOPub is a session specific socket, so it is not initialized here.
 		}),
 	}
@@ -47,7 +82,6 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 		router.AddHandler(types.ShellMessage, provider.ShellHandler)
 		router.AddHandler(types.StdinMessage, provider.StdinHandler)
 		router.AddHandler(types.HBMessage, provider.HBHandler)
-		// router.AddHandler(types.AckMessage, provider.AckHandler)
 	}
 	return router
 }
@@ -110,7 +144,7 @@ func (g *Router) RequestDestID() string {
 func (g *Router) AddHandler(typ types.MessageType, handler RouterMessageHandler) {
 	if g.handlers[typ] != nil {
 		handler = func(oldHandler RouterMessageHandler, newHandler RouterMessageHandler) RouterMessageHandler {
-			return func(sockets RouterInfo, msg *zmq4.Msg) error {
+			return func(sockets RouterInfo, msg [][]byte) error {
 				err := newHandler(sockets, msg)
 				if err == nil {
 					return oldHandler(sockets, msg)
@@ -131,7 +165,7 @@ func (g *Router) Close() error {
 	return nil
 }
 
-func (g *Router) handleMsg(_ types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+func (g *Router) handleMsg(_ types.JupyterServerInfo, typ types.MessageType, msg [][]byte) error {
 	handler := g.handlers[typ]
 	if handler != nil {
 		return handler(g, msg)

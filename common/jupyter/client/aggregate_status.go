@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
@@ -42,10 +41,10 @@ func resetEmptyCollectedMap(size int) {
 	}
 }
 
-type KernelStatusPublisher func(msg *zmq4.Msg, status string, how string) error
+type KernelStatusPublisher func(msg [][]byte, status string, how string) error
 
 type StatusMsg struct {
-	*zmq4.Msg
+	Msg    [][]byte
 	Status string
 	How    string
 }
@@ -65,7 +64,7 @@ type AggregateKernelStatus struct {
 	numCollected     int32                        // Number of statuses we've collected.
 	matches          int32                        // The number of collected status that matches the expected status.
 	status           string                       // The last resolved status.
-	sampleMsg        *zmq4.Msg
+	sampleMsg        [][]byte
 	lastErr          error
 
 	// collected        []int32                  // A map that tracks the progress of the status collection. The first element is the number of collected status.
@@ -123,7 +122,7 @@ func (s *AggregateKernelStatus) Collect(ctx context.Context, num_replicas int, r
 }
 
 // Reduce reduces the received status against the expected status and called the handler if last collect has timed out.
-func (s *AggregateKernelStatus) Reduce(replicaId int32, status string, msg *zmq4.Msg, publish KernelStatusPublisher) {
+func (s *AggregateKernelStatus) Reduce(replicaId int32, status string, msg [][]byte, publish KernelStatusPublisher) {
 	// s.kernel.log.Debug("Reducing status \"%s\" for replica %d of kernel %s.", status, replicaId, s.kernel.id)
 
 	if s.IsResolved() && s.lastErr == nil {
@@ -165,7 +164,7 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 		publish(statusMsg.Msg, statusMsg.Status, statusMsg.How)
 	} else if s.sampleMsg != nil {
 		// TODO: Not working here, need to regenerate the signature.
-		jFrames, _ := s.kernel.SkipIdentities(s.sampleMsg.Frames)
+		jFrames, _ := s.kernel.SkipIdentities(s.sampleMsg)
 		jFrames.ContentFrame().Set([]byte(fmt.Sprintf(KernelStatusFrameTemplate, status)))
 		jFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 		// s.kernel.log.Debug("Publishing sample status \"%v\" for kernel %s; how \"%v\"", status, s.kernel.id, s.sampleMsg)
@@ -179,7 +178,7 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 // replicaID starts from 1. status update from duplicated replica will be ignored.
 // New match call after the resolution of the promise will still be proceeded.
 // The function is thread-safe and can be called concurrently.
-func (s *AggregateKernelStatus) match(replicaId int32, status string, msg *zmq4.Msg) (how string, retStatus string, resolved bool) {
+func (s *AggregateKernelStatus) match(replicaId int32, status string, msg [][]byte) (how string, retStatus string, resolved bool) {
 	// Check if the status has been collected.
 	// ReplicaID should not exceed the size of the collected map, ignore if it does.
 	// if replicaId >= int32(len(s.collected)) || !atomic.CompareAndSwapInt32(&s.collected[replicaId], 0, 1) {

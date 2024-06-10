@@ -3,10 +3,10 @@ package daemon
 import (
 	"fmt"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/pebbe/zmq4"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
@@ -112,9 +112,9 @@ var _ = Describe("Local Daemon Tests", func() {
 			}
 			processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
 			Expect(processedMessage).ToNot(BeNil())
-			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
+			Expect(len(processedMessage)).To(Equal(len(frames)))
 
-			jframesProcessed := types.JupyterFrames(processedMessage.Frames)
+			jframesProcessed := types.JupyterFrames(processedMessage)
 			headerFrame := jframesProcessed.HeaderFrame()
 			var header types.MessageHeader
 			err := headerFrame.Decode(&header)
@@ -149,9 +149,9 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
 			Expect(processedMessage).ToNot(BeNil())
-			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
+			Expect(len(processedMessage)).To(Equal(len(frames)))
 
-			jframesProcessed := types.JupyterFrames(processedMessage.Frames)
+			jframesProcessed := types.JupyterFrames(processedMessage)
 			headerFrame := jframesProcessed.HeaderFrame()
 			var header types.MessageHeader
 			err := headerFrame.Decode(&header)
@@ -185,9 +185,9 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
 			Expect(processedMessage).ToNot(BeNil())
-			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
+			Expect(len(processedMessage)).To(Equal(len(frames)))
 
-			jframesProcessed := types.JupyterFrames(processedMessage.Frames)
+			jframesProcessed := types.JupyterFrames(processedMessage)
 			headerFrame := jframesProcessed.HeaderFrame()
 			var header types.MessageHeader
 			err := headerFrame.Decode(&header)
@@ -258,10 +258,10 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
 			Expect(processedMessage).ToNot(BeNil())
-			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
+			Expect(len(processedMessage)).To(Equal(len(frames)))
 
 			By("Embedding the idle GPUs in the metadata of the message")
-			processedFrames := types.JupyterFrames(processedMessage.Frames)
+			processedFrames := types.JupyterFrames(processedMessage)
 			metadataFrame := processedFrames.MetadataFrame()
 			var metadata map[string]interface{}
 			err := metadataFrame.Decode(&metadata)

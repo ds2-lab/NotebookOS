@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/shopspring/decimal"
@@ -496,17 +495,6 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	time.Sleep(time.Second * 1)
 }
 
-func (d *SchedulerDaemon) AckHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	ack, err := server.ExtractMessageAcknowledgement(msg)
-	if err != nil {
-		d.log.Error("Failed to extract message acknowledgement from ACK message because: %s", err.Error())
-		return err
-	}
-
-	d.log.Debug("Received ACK: %v", ack.String())
-	return nil
-}
-
 func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
 	d.log.Debug("Replica %d of kernel %s is ready to join its SMR cluster.", kernelClient.ReplicaID(), kernelClient.ID())
 
@@ -561,7 +549,6 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 	}
 
 	d.log.Debug("Sending Jupyter 'prepare-to-migrate' request to replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
-	msg := &zmq4.Msg{Frames: frames}
 	var requestWG sync.WaitGroup
 	var requestReceived int32
 	requestWG.Add(1)
@@ -572,16 +559,16 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 	var maxNumTries int = 3
 	var success bool = false
 	for currentNumTries < maxNumTries {
-		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, frames, func(kernel core.KernelInfo, typ jupyter.MessageType, msg [][]byte) error {
 			d.log.Debug("Received response from 'prepare-to-migrate' request.")
 
-			for i, frame := range msg.Frames {
+			for i, frame := range frames {
 				d.log.Debug("Frame #%d: %s", i, string(frame))
 			}
 
-			var frames jupyter.JupyterFrames = msg.Frames
+			jFrames := jupyter.JupyterFrames(frames)
 			var respMessage jupyter.MessageDataDirectory
-			if err := frames.Validate(); err != nil {
+			if err := jFrames.Validate(); err != nil {
 				d.log.Error("Failed to validate frames of `MessageDataDirectory` message: %v", err)
 				// Record that we've received the response.
 				swapped := atomic.CompareAndSwapInt32(&requestReceived, 0, 1)
@@ -590,7 +577,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 				}
 				return err
 			}
-			err := frames.DecodeContent(&respMessage)
+			err := jFrames.DecodeContent(&respMessage)
 			if err != nil {
 				d.log.Error("Failed to decode Content frame of `MessageDataDirectory` message: %v", err)
 				// Record that we've received the response.
@@ -603,7 +590,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 
 			// It seems like this particular message is sent in the 6th frame, which is the Buffers frame, rather than the Content frame.
 			if respMessage.NodeID == 0 {
-				err := frames.DecodeBuffers(&respMessage)
+				err := jFrames.DecodeBuffers(&respMessage)
 
 				if err != nil {
 					d.log.Error("Failed to decode Buffer frame of `MessageDataDirectory` message: %v", err)
@@ -709,8 +696,6 @@ func (d *SchedulerDaemon) UpdateReplicaAddr(ctx context.Context, req *gateway.Re
 		return gateway.VOID, err
 	}
 
-	msg := &zmq4.Msg{Frames: frames}
-
 	var currentNumTries int = 0
 	var maxNumTries int = 3
 	var success bool = false
@@ -718,7 +703,7 @@ func (d *SchedulerDaemon) UpdateReplicaAddr(ctx context.Context, req *gateway.Re
 		var wg sync.WaitGroup
 		var requestReceived int32 = 0
 		wg.Add(1)
-		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, frames, func(kernel core.KernelInfo, typ jupyter.MessageType, msg [][]byte) error {
 			d.log.Debug("Received response from 'update-replica' request.")
 
 			// Record that we've received the response.
@@ -779,10 +764,9 @@ func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.ReplicaIn
 		return gateway.VOID, err
 	}
 
-	msg := &zmq4.Msg{Frames: frames}
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, wg.Done)
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, frames, nil, wg.Done)
 	if err != nil {
 		d.log.Error("Error occurred while issuing add-replica request to kernel %s: %v", kernelId, err)
 		return gateway.VOID, err
@@ -875,19 +859,19 @@ func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel client.KernelRe
 		kernel.AddIOHandler(jupyter.IOTopicShutdown, d.handleIgnoreMsg)
 	}
 
-	var msg zmq4.Msg
+	var msg [][]byte
 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeShutdownRequest, kernel.Sessions()[0])
 	frames.EncodeContent(&jupyter.MessageShutdownRequest{
 		Restart: false,
 	})
-	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
+	msg, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
 	if err != nil {
 		return err
 	}
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done)
+	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, msg, nil, wg.Done)
 	if err != nil {
 		return err
 	}
@@ -968,7 +952,7 @@ func (d *SchedulerDaemon) Close() error {
 }
 
 // RouterProvider implementations.
-func (d *SchedulerDaemon) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *SchedulerDaemon) ControlHandler(info router.RouterInfo, msg [][]byte) error {
 	// Kernel ID is not available in the control message.
 	_, header, err := d.headerFromMsg(msg)
 	if err != nil {
@@ -996,12 +980,11 @@ func (d *SchedulerDaemon) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) 
 	return nil
 }
 
-func (d *SchedulerDaemon) kernelShellHandler(info core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+func (d *SchedulerDaemon) kernelShellHandler(info core.KernelInfo, typ jupyter.MessageType, msg [][]byte) error {
 	return d.ShellHandler(info, msg)
 }
 
-func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	// d.log.Debug("Received shell message with %d frame(s): %s", len(msg.Frames), msg)
+func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg [][]byte) error {
 	kernelId, header, offset, err := d.headerAndOffsetFromMsg(msg)
 	if err != nil {
 		return err
@@ -1034,7 +1017,7 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 		return ErrKernelNotReady
 	}
 
-	// d.log.Debug("Shell message with %d frame(s) is targeting replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
+	// d.log.Debug("Shell message with %d frame(s) is targeting replica %d of kernel %s: %s", len(msg), kernel.ReplicaID(), kernel.ID(), msg)
 
 	// TODO(Ben): We'll inspect here to determine if the message is an execute_request.
 	// If it is, then we'll see if we have enough resources for the kernel to (potentially) execute the code.
@@ -1042,9 +1025,9 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	// If the message is an execute_request message, then we have some processing to do on it.
 	if header.MsgType == ShellExecuteRequest {
 		msg = d.processExecuteRequest(msg, kernel, header, offset)
-		d.log.Debug("Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
+		d.log.Debug("Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s", len(msg), kernel.ReplicaID(), kernel.ID(), msg)
 	} else { // Print a message about forwarding generic shell message.
-		d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
+		d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg), kernel.ReplicaID(), kernel.ID(), msg)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1055,7 +1038,7 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	return nil
 }
 
-func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.KernelReplicaClient, header *jupyter.MessageHeader, offset int) *zmq4.Msg {
+func (d *SchedulerDaemon) processExecuteRequest(msg [][]byte, kernel client.KernelReplicaClient, header *jupyter.MessageHeader, offset int) [][]byte {
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	var targetReplicaId int32 = -1
 
@@ -1063,7 +1046,7 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_execute" message.
 	// This will force the replica to necessarily yield the execution to the other replicas.
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
-	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
+	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg)
 	var metadataFrame *jupyter.JupyterFrame = frames[offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
 
@@ -1145,7 +1128,7 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 		// Convert the message to a yield request.
 		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica in place of the original 'execute_request' message.
 		msg, _ = d.convertExecuteRequestToYieldExecute(msg, header, offset)
-		frames = msg.Frames
+		frames = msg
 
 		// If we were told explicitly to YIELD this execution request via the `YieldNextExecutionRequest` API, then record that we've done this.
 		// Even if we're yielding for other reasons too, we should still record that we've done this.
@@ -1163,10 +1146,10 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 	}
 
 	// Regenerate the signature.
-	framesWithoutIdentities, _ := kernel.SkipIdentities(msg.Frames)
+	framesWithoutIdentities, _ := kernel.SkipIdentities(msg)
 	framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 
-	if verified := d.verifyFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
+	if verified := d.verifyFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, offset, msg); !verified {
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
 	}
@@ -1174,22 +1157,22 @@ func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.Ker
 	return msg
 }
 
-func (d *SchedulerDaemon) StdinHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *SchedulerDaemon) StdinHandler(info router.RouterInfo, msg [][]byte) error {
 	return d.forwardRequest(context.Background(), nil, jupyter.StdinMessage, msg, nil)
 }
 
-func (d *SchedulerDaemon) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *SchedulerDaemon) HBHandler(info router.RouterInfo, msg [][]byte) error {
 	return d.forwardRequest(context.Background(), nil, jupyter.HBMessage, msg, nil)
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
-func (d *SchedulerDaemon) kernelIdFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
-	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
+func (d *SchedulerDaemon) kernelIdFromMsg(msg [][]byte) (id string, sessId bool, err error) {
+	kernelId, _, offset := d.router.ExtractDestFrame(msg)
 	if kernelId != "" {
 		return kernelId, false, nil
 	}
 
-	header, err := d.headerFromFrames(msg.Frames[offset:])
+	header, err := d.headerFromFrames(msg[offset:])
 	if err != nil {
 		return "", false, err
 	}
@@ -1259,19 +1242,23 @@ func (d *SchedulerDaemon) SetTotalVirtualGPUs(ctx context.Context, in *gateway.S
 //
 // PRECONDITION: The given message must be an "execute_request" message.
 // This function will NOT check this. It should be checked before calling this function.
-func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg, header *jupyter.MessageHeader, offset int) (*zmq4.Msg, error) {
+func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg [][]byte, header *jupyter.MessageHeader, offset int) ([][]byte, error) {
 	d.log.Debug("Converting 'execute_request' message to 'yield_request' message.")
 
 	var err error
 
 	// Clone the original message.
-	var newMessage zmq4.Msg = msg.Clone()
+	var newMessage [][]byte = make([][]byte, len(msg))
+	for i, frame := range msg {
+		newMessage[i] = make([]byte, len(frame))
+		copy(newMessage[i], msg[i])
+	}
 
 	// Change the message header.
 	header.MsgType = ShellYieldExecute
 
 	// Create a JupyterFrames struct by wrapping with the message's frames.
-	jFrames := jupyter.JupyterFrames(newMessage.Frames)
+	jFrames := jupyter.JupyterFrames(newMessage)
 	if err = jFrames.Validate(); err != nil {
 		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while validating the existing frames: %v", err)
 		panic(err) // TODO(Ben): Handle this error more gracefully.
@@ -1285,10 +1272,7 @@ func (d *SchedulerDaemon) convertExecuteRequestToYieldExecute(msg *zmq4.Msg, hea
 		// return nil, err
 	}
 
-	// Replace the frames of the cloned message.
-	newMessage.Frames = jFrames
-
-	return &newMessage, nil
+	return jFrames, nil
 }
 
 func (d *SchedulerDaemon) verifyFrames(signkey []byte, signatureScheme string, offset int, frames jupyter.JupyterFrames) bool {
@@ -1325,23 +1309,23 @@ func (d *SchedulerDaemon) headerFromFrames(frames [][]byte) (*jupyter.MessageHea
 	return &header, nil
 }
 
-func (d *SchedulerDaemon) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, err error) {
-	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
+func (d *SchedulerDaemon) headerFromMsg(msg [][]byte) (kernelId string, header *jupyter.MessageHeader, err error) {
+	kernelId, _, offset := d.router.ExtractDestFrame(msg)
 
-	header, err = d.headerFromFrames(msg.Frames[offset:])
+	header, err = d.headerFromFrames(msg[offset:])
 
 	return kernelId, header, err
 }
 
-func (d *SchedulerDaemon) headerAndOffsetFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, offset int, err error) {
-	kernelId, _, offset = d.router.ExtractDestFrame(msg.Frames)
+func (d *SchedulerDaemon) headerAndOffsetFromMsg(msg [][]byte) (kernelId string, header *jupyter.MessageHeader, offset int, err error) {
+	kernelId, _, offset = d.router.ExtractDestFrame(msg)
 
-	header, err = d.headerFromFrames(msg.Frames[offset:])
+	header, err = d.headerFromFrames(msg[offset:])
 
 	return kernelId, header, offset, err
 }
 
-func (d *SchedulerDaemon) kernelFromMsg(msg *zmq4.Msg) (kernel client.KernelReplicaClient, err error) {
+func (d *SchedulerDaemon) kernelFromMsg(msg [][]byte) (kernel client.KernelReplicaClient, err error) {
 	id, _, err := d.kernelIdFromMsg(msg)
 	if err != nil {
 		return nil, err
@@ -1360,7 +1344,7 @@ func (d *SchedulerDaemon) kernelFromMsg(msg *zmq4.Msg) (kernel client.KernelRepl
 	return kernel, nil
 }
 
-func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel client.KernelReplicaClient, typ jupyter.MessageType, msg *zmq4.Msg, done func()) (err error) {
+func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel client.KernelReplicaClient, typ jupyter.MessageType, msg [][]byte, done func()) (err error) {
 	if kernel == nil {
 		kernel, err = d.kernelFromMsg(msg)
 		if err != nil {
@@ -1375,7 +1359,7 @@ func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel client.Kern
 	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done)
 }
 
-func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg [][]byte) error {
 	socket := from.Socket(typ)
 	if socket == nil {
 		socket = d.router.Socket(typ)
@@ -1384,9 +1368,9 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
 	}
-	d.log.Debug("Forwarding %v response from %v: %v", typ, from, msg)
+	d.log.Debug("Forwarding %v response from %v: %v", typ, from, server.FramesToString(msg))
 
-	err := socket.Send(*msg)
+	_, err := socket.SendMessage(msg)
 
 	if err != nil {
 		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
@@ -1397,7 +1381,7 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 	return nil // Will be nil on success.
 }
 
-func (d *SchedulerDaemon) handleSMRLeadTask(kernel core.Kernel, frames jupyter.JupyterFrames, raw *zmq4.Msg) error {
+func (d *SchedulerDaemon) handleSMRLeadTask(kernel core.Kernel, frames jupyter.JupyterFrames, raw [][]byte) error {
 	messageType, err := frames.GetMessageType()
 	if err != nil {
 		d.log.Error("Failed to extract message type from SMR Lead ZMQ message: %v", err)
@@ -1430,7 +1414,7 @@ func (d *SchedulerDaemon) handleSMRLeadTask(kernel core.Kernel, frames jupyter.J
 	}
 }
 
-func (d *SchedulerDaemon) handleIgnoreMsg(kernel core.Kernel, frames jupyter.JupyterFrames, raw *zmq4.Msg) error {
+func (d *SchedulerDaemon) handleIgnoreMsg(kernel core.Kernel, frames jupyter.JupyterFrames, raw [][]byte) error {
 	d.log.Debug("%v ignores %v", kernel, raw)
 	return jupyter.ErrStopPropagation
 }

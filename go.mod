@@ -4,13 +4,10 @@ go 1.21
 
 toolchain go1.21.5
 
-replace github.com/go-zeromq/zmq4 => ../zmq4
-
 require (
 	github.com/colinmarc/hdfs/v2 v2.4.0
 	github.com/elliotchance/orderedmap/v2 v2.2.0
 	github.com/fsnotify/fsnotify v1.5.1
-	github.com/go-zeromq/zmq4 v0.16.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20180507213350-8e809c8a8645
 	github.com/hashicorp/consul/api v1.28.2
@@ -21,6 +18,7 @@ require (
 	github.com/opentracing-contrib/go-stdlib v1.0.0
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/orcaman/concurrent-map/v2 v2.0.1
+	github.com/pebbe/zmq4 v1.2.11
 	github.com/pkg/errors v0.9.1
 	github.com/scusemua/gopy v0.4.3
 	github.com/shopspring/decimal v1.3.1
@@ -43,11 +41,9 @@ require (
 )
 
 require (
-	github.com/go-zeromq/goczmq/v4 v4.2.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63 // indirect
-	golang.org/x/sync v0.5.0 // indirect
 )
 
 require (

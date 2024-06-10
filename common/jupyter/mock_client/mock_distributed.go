@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	zmq4 "github.com/go-zeromq/zmq4"
+	zmq4 "github.com/pebbe/zmq4"
 	core "github.com/zhangjyr/distributed-notebook/common/core"
 	gateway "github.com/zhangjyr/distributed-notebook/common/gateway"
 	client "github.com/zhangjyr/distributed-notebook/common/jupyter/client"
@@ -438,7 +438,7 @@ func (mr *MockDistributedKernelClientMockRecorder) RequestDestID() *gomock.Call 
 }
 
 // RequestWithHandler mocks base method.
-func (m *MockDistributedKernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
+func (m *MockDistributedKernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg [][]byte, handler core.KernelMessageHandler, done func()) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RequestWithHandler", ctx, prompt, typ, msg, handler, done)
 	ret0, _ := ret[0].(error)

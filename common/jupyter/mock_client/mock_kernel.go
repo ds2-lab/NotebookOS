@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	zmq4 "github.com/go-zeromq/zmq4"
+	zmq4 "github.com/pebbe/zmq4"
 	core "github.com/zhangjyr/distributed-notebook/common/core"
 	gateway "github.com/zhangjyr/distributed-notebook/common/gateway"
 	client "github.com/zhangjyr/distributed-notebook/common/jupyter/client"
@@ -100,11 +100,11 @@ func (mr *MockKernelReplicaClientMockRecorder) BindSession(sess any) *gomock.Cal
 }
 
 // BusyStatus mocks base method.
-func (m *MockKernelReplicaClient) BusyStatus() (string, *zmq4.Msg) {
+func (m *MockKernelReplicaClient) BusyStatus() (string, [][]byte) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "BusyStatus")
 	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(*zmq4.Msg)
+	ret1, _ := ret[1].([][]byte)
 	return ret0, ret1
 }
 
@@ -344,7 +344,7 @@ func (mr *MockKernelReplicaClientMockRecorder) RequestDestID() *gomock.Call {
 }
 
 // RequestWithHandler mocks base method.
-func (m *MockKernelReplicaClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
+func (m *MockKernelReplicaClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg [][]byte, handler core.KernelMessageHandler, done func()) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RequestWithHandler", ctx, prompt, typ, msg, handler, done)
 	ret0, _ := ret[0].(error)

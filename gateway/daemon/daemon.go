@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/elliotchance/orderedmap/v2"
-	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/hashicorp/yamux"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -29,7 +28,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -750,8 +748,8 @@ func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	nextExecutionAttempt := client.NewActiveExecution(c.ID(), header.Session, activeExecution.AttemptId()+1, c.Size(), msg)
 
 	// Next, let's update the message so that we target the new replica.
-	_, _, offset := d.router.ExtractDestFrame(msg.Frames)
-	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
+	_, _, offset := d.router.ExtractDestFrame(msg)
+	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg)
 	var metadataFrame *jupyter.JupyterFrame = frames[offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
 
@@ -778,11 +776,11 @@ func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	}
 
 	// Regenerate the signature.
-	framesWithoutIdentities, _ := c.SkipIdentities(msg.Frames)
+	framesWithoutIdentities, _ := c.SkipIdentities(msg)
 	framesWithoutIdentities.Sign(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 
 	// Ensure that the frames are now correct.
-	if verified := d.verifyFrames([]byte(c.ConnectionInfo().Key), c.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
+	if verified := d.verifyFrames([]byte(c.ConnectionInfo().Key), c.ConnectionInfo().SignatureScheme, offset, msg); !verified {
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", c.ConnectionInfo().SignatureScheme, c.ConnectionInfo().Key)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
 		// TODO(Ben): What do we do here?
@@ -1563,7 +1561,7 @@ func (d *clusterGatewayImpl) Close() error {
 }
 
 // RouterProvider implementations.
-func (d *clusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *clusterGatewayImpl) ControlHandler(info router.RouterInfo, msg [][]byte) error {
 	err := d.forwardRequest(nil, jupyter.ControlMessage, msg)
 
 	// When a kernel is first created/being nudged, Jupyter Server will send both a Shell and Control request.
@@ -1580,22 +1578,11 @@ func (d *clusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Ms
 	return err
 }
 
-func (d *clusterGatewayImpl) kernelShellHandler(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+func (d *clusterGatewayImpl) kernelShellHandler(kernel core.KernelInfo, typ jupyter.MessageType, msg [][]byte) error {
 	return d.ShellHandler(kernel, msg)
 }
 
-func (d *clusterGatewayImpl) AckHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	ack, err := server.ExtractMessageAcknowledgement(msg)
-	if err != nil {
-		d.log.Error("Failed to extract message acknowledgement from ACK message because: %s", err.Error())
-		return err
-	}
-
-	d.log.Debug("Received ACK: %v", ack.String())
-	return nil
-}
-
-func (d *clusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *clusterGatewayImpl) ShellHandler(info router.RouterInfo, msg [][]byte) error {
 	kernelId, header, err := d.headerFromMsg(msg)
 	if err != nil {
 		return err
@@ -1621,7 +1608,7 @@ func (d *clusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg)
 		d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", kernelId, header.MsgID, header.MsgType, header.Session)
 
 		if len(kernelId) == 0 {
-			d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Type, msg)
+			d.log.Error("Extracted empty kernel ID from ZMQ shell message: %v", msg)
 			debug.PrintStack()
 		}
 
@@ -1659,7 +1646,7 @@ func (d *clusterGatewayImpl) processExecutionReply(kernelId string) {
 	d.activeExecutions.Delete(kernelId)
 }
 
-func (d *clusterGatewayImpl) processExecuteRequest(msg *zmq4.Msg, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
+func (d *clusterGatewayImpl) processExecuteRequest(msg [][]byte, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernel.ID(), msg)
 
 	activeExecution := client.NewActiveExecution(kernel.ID(), header.Session, 1, kernel.Size(), msg)
@@ -1669,11 +1656,11 @@ func (d *clusterGatewayImpl) processExecuteRequest(msg *zmq4.Msg, kernel client.
 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernel.ID(), activeExecution)
 }
 
-func (d *clusterGatewayImpl) StdinHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *clusterGatewayImpl) StdinHandler(info router.RouterInfo, msg [][]byte) error {
 	return d.forwardRequest(nil, jupyter.StdinMessage, msg)
 }
 
-func (d *clusterGatewayImpl) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *clusterGatewayImpl) HBHandler(info router.RouterInfo, msg [][]byte) error {
 	return d.forwardRequest(nil, jupyter.HBMessage, msg)
 }
 
@@ -1720,13 +1707,13 @@ func (d *clusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
-// func (d *clusterGatewayImpl) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
-// 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
+// func (d *clusterGatewayImpl) idFromMsg(msg [][]byte) (id string, sessId bool, err error) {
+// 	kernelId, _, offset := d.router.ExtractDestFrame(msg)
 // 	if kernelId != "" {
 // 		return kernelId, false, nil
 // 	}
 
-// 	header, err := d.headerFromFrames(msg.Frames[offset:])
+// 	header, err := d.headerFromFrames(msg[offset:])
 // 	if err != nil {
 // 		return "", false, err
 // 	}
@@ -1770,24 +1757,24 @@ func (d *clusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 	return nil, false
 }
 
-func (d *clusterGatewayImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, err error) {
+func (d *clusterGatewayImpl) headerFromMsg(msg [][]byte) (kernelId string, header *jupyter.MessageHeader, err error) {
 	// d.log.Debug("Extracting kernel ID from ZMQ %v message: %v", msg.Type, msg)
-	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
+	kernelId, _, offset := d.router.ExtractDestFrame(msg)
 
 	// if len(kernelId) == 0 {
 	// 	d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Type, msg)
 	// 	debug.PrintStack()
 	// }
 
-	header, err = d.headerFromFrames(msg.Frames[offset:])
+	header, err = d.headerFromFrames(msg[offset:])
 
 	return kernelId, header, err
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
-func (d *clusterGatewayImpl) kernelIdAndTypeFromMsg(msg *zmq4.Msg) (id string, messageType string, sessId bool, err error) {
-	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
-	header, err := d.headerFromFrames(msg.Frames[offset:])
+func (d *clusterGatewayImpl) kernelIdAndTypeFromMsg(msg [][]byte) (id string, messageType string, sessId bool, err error) {
+	kernelId, _, offset := d.router.ExtractDestFrame(msg)
+	header, err := d.headerFromFrames(msg[offset:])
 	if err != nil {
 		return "", "", false, err
 	}
@@ -1801,7 +1788,7 @@ func (d *clusterGatewayImpl) kernelIdAndTypeFromMsg(msg *zmq4.Msg) (id string, m
 }
 
 // Extract the Kernel ID and the message type from the given ZMQ message.
-func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.DistributedKernelClient, messageType string, err error) {
+func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg [][]byte) (kernel client.DistributedKernelClient, messageType string, err error) {
 	var (
 		kernelId string
 	)
@@ -1824,7 +1811,7 @@ func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 	return kernel, messageType, nil
 }
 
-// func (d *clusterGatewayImpl) kernelFromMsg(msg *zmq4.Msg) (client.DistributedKernelClient, error) {
+// func (d *clusterGatewayImpl) kernelFromMsg(msg [][]byte) (client.DistributedKernelClient, error) {
 // 	kernelId, header, err := d.headerFromMsg(msg)
 // 	if err != nil {
 // 		return nil, err
@@ -1843,7 +1830,7 @@ func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 // 	return kernel, nil
 // }
 
-func (d *clusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
+func (d *clusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg [][]byte) (err error) {
 	var messageType string
 	if kernel == nil {
 		d.log.Debug("Received %v message targeting unknown kernel/session. Inspecting now...", typ)
@@ -1862,7 +1849,7 @@ func (d *clusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClien
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 
-func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg [][]byte) error {
 	socket := from.Socket(typ)
 	if socket == nil {
 		socket = d.router.Socket(typ)
@@ -1878,7 +1865,7 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 		if err != nil {
 			d.log.Error("Failed to extract header from %v message.", typ)
 
-			sendErr := socket.Send(*msg)
+			_, sendErr := socket.SendMessage(msg)
 
 			if sendErr != nil {
 				d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
@@ -1895,7 +1882,7 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 	}
 
 	d.log.Debug("Forwarding %v response from kernel %s.", typ, from.ID())
-	err := socket.Send(*msg)
+	_, err := socket.SendMessage(msg)
 
 	if err != nil {
 		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())

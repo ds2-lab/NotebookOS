@@ -189,7 +189,7 @@ fi
 go install sigs.k8s.io/kind@v0.22.0
 
 if ! command stat zmq4 &> /dev/null; then 
-    git clone https://github.com/go-zeromq/zmq4.git
+    git clone https://github.com/pebbe/zmq4.git
 fi 
 
 if ! command stat gopy &> /dev/null; then 
