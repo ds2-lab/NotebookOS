@@ -315,6 +315,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					_, rspId, _ := dest.ExtractDestFrame(v.Frames)
 					s.Log.Debug("[1] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
 					s.handleAck(v, socket, dest)
+					contd <- &struct{}{}
 					continue
 				} else if !is_ack && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
 					s.sendAck(v, socket, dest)
@@ -327,12 +328,12 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			if err == io.EOF {
 				s.Log.Debug("Socket %s [%v] closed.", socket.Name, socket.Type)
 				return
-			} else if err == errServeOnce {
+			} else if errors.Is(err, errServeOnce) || errors.Is(err, context.Canceled) {
 				// Stop serving safely by setting and testing:
 				// 1. Claim the serve routing will quit.
 				atomic.StoreInt32(&socket.Serving, 0) // Set to 0 is safe because we are the only one running.
 				// 2. Confirm no new request is pending.
-				if socket.PendingReq.Len() == 0 {
+				if socket.PendingReq == nil || socket.PendingReq.Len() == 0 {
 					// Now any newer request will see the serving flag is 0 and will start a new serve routing.
 					return
 				}
@@ -343,9 +344,14 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				}
 			} else if err != nil {
 				s.Log.Error("Error on handle %s message: %v. Message: %v.", socket.Type.String(), err, msg)
-				s.Log.Error("Will NOT abort serving for now.")
-				// return
-				continue
+
+				if errors.Is(err, context.Canceled) {
+					return
+				} else {
+					s.Log.Error("Will NOT abort serving for now.")
+					contd <- &struct{}{}
+					continue
+				}
 			}
 		}
 
