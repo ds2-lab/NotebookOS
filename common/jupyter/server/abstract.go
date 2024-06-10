@@ -442,7 +442,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		// Clear pending request.
 		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
 			pending.Release()
-			s.Log.Debug("Request(%p), error: %v", req, err)
+			s.Log.Debug("Released pending request associated with req %s (%p). Error: %v", reqId, req, err)
 		}
 	}()
 
