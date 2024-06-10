@@ -169,12 +169,12 @@ func Serve(socket *socketWrapper, id string, sendAcks bool) {
 
 			idents = append(idents, frames...)
 
-			_, err := socket.SendMessage(idents)
+			total, err := socket.SendMessageDontwait(idents)
 			if err != nil {
 				fmt.Printf("[ERROR] Failed to send %v message because: %v\n", socket.Type, err)
 				return
 			} else {
-				fmt.Printf("\n%s sent 'ACK' (LocalAddr=%v): %v\n", id, socket.Addr(), server.FramesToString(msg))
+				fmt.Printf("\n%s sent 'ACK' (LocalAddr=%v) [%d bytes]: %v\n", id, socket.Addr(), total, server.FramesToString(msg))
 			}
 		}
 	}
@@ -360,7 +360,7 @@ func TestZMQ() {
 			[]byte("FROM FRONTEND"),
 		}
 
-		total, err := socket.SendMessage(frames)
+		total, err := socket.SendMessageDontwait(frames)
 		if err != nil {
 			fmt.Printf("[ERROR] Failed to send %s message because: %v\n", socketType, err)
 		} else {

@@ -67,7 +67,7 @@ func (s *wrappedServer) RequestDestID() string {
 }
 
 var _ = Describe("AbstractServer", func() {
-	var server *wrappedServer
+	var srvr *wrappedServer
 	var client *wrappedServer
 
 	config.LogLevel = logger.LOG_LEVEL_ALL
@@ -79,41 +79,41 @@ var _ = Describe("AbstractServer", func() {
 				panic(err)
 			}
 			_server := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, func(s *AbstractServer) {
-				s.Sockets.Shell = &types.Socket{Socket: shell_socket, Port: shellListenPort, Type: types.ShellMessage}
+				s.Sockets.Shell = &types.Socket{Socket: shell_socket, Port: shellListenPort, Type: types.ShellMessage, Name: "TestServer_Shell"}
 			})
 			config.InitLogger(&_server.Log, "[SERVER]")
-			server = &wrappedServer{AbstractServer: _server, shellPort: shellListenPort, id: "[SERVER]"}
+			srvr = &wrappedServer{AbstractServer: _server, shellPort: shellListenPort, id: "[SERVER]"}
 
 			dealer_socket, err := zmq4.NewSocket(zmq4.DEALER)
 			if err != nil {
 				panic(err)
 			}
 			_client := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, func(s *AbstractServer) {
-				s.Sockets.Shell = &types.Socket{Socket: dealer_socket, Port: shellListenPort + 1, Type: types.ShellMessage}
+				s.Sockets.Shell = &types.Socket{Socket: dealer_socket, Port: shellListenPort + 1, Type: types.ShellMessage, Name: "TestClient_Shell"}
 			})
 			config.InitLogger(&_client.Log, "[CLIENT]")
 			client = &wrappedServer{AbstractServer: _client, shellPort: shellListenPort + 1, id: "[CLIENT]"}
 		})
 
 		It("Will re-send messages until an ACK is received", func() {
-			err := server.Listen(server.Sockets.Shell)
+			err := srvr.Listen(srvr.Sockets.Shell)
 			Expect(err).To(BeNil())
 
 			address1 := fmt.Sprintf("%s://%s:%d", transport, ip, shellListenPort)
 			err = client.Sockets.Shell.Connect(address1)
 			Expect(err).To(BeNil())
 
-			client.Log.Debug("Dialed server socket @ %v", address1)
+			client.Log.Debug("Dialed srvr socket @ %v", address1)
 
 			serverMessagesReceived := 0
 			respondAfterNMessages := 3
 			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg [][]byte) error {
-				server.Log.Info("Server received message: %v\n", FramesToString(msg))
+				srvr.Log.Info("Server received message: %v\n", FramesToString(msg))
 				serverMessagesReceived += 1
 
 				// Don't reply until we've received several "retry" messages.
 				if serverMessagesReceived < respondAfterNMessages {
-					server.Log.Info("Discarding message. Number of messages received: %d / %d.", serverMessagesReceived, respondAfterNMessages)
+					srvr.Log.Info("Discarding message. Number of messages received: %d / %d.", serverMessagesReceived, respondAfterNMessages)
 					return nil
 				}
 
@@ -136,17 +136,17 @@ var _ = Describe("AbstractServer", func() {
 					[]byte(""),
 					[]byte("")}
 
-				server.Log.Info("Responding to message with reply: %v", reply)
+				srvr.Log.Info("Responding to message with reply: %v", FramesToString(reply))
 
 				_, err := info.Socket(typ).SendMessage(reply)
 				Expect(err).To(BeNil())
 
-				server.Log.Info("Responded to message.")
+				srvr.Log.Info("Responded to message.")
 
 				return nil
 			}
 
-			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage, true)
+			go srvr.Serve(srvr, srvr.Sockets.Shell, srvr, handleServerMessage, true)
 
 			headerMap := make(map[string]string)
 			headerMap["msg_id"] = uuid.NewString()
@@ -170,26 +170,26 @@ var _ = Describe("AbstractServer", func() {
 			err = client.Request(context.Background(), client, client.Sockets.Shell, msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
 			Expect(err).To(BeNil())
 
-			// When no ACK is received, the server waits 5 seconds, then sleeps for a bit, then retries.
+			// When no ACK is received, the srvr waits 5 seconds, then sleeps for a bit, then retries.
 			time.Sleep(time.Millisecond * 15000)
 			Expect(client.NumAcksReceived()).To(Equal(1))
 
 			client.Sockets.Shell.Close()
-			server.Sockets.Shell.Close()
+			srvr.Sockets.Shell.Close()
 		})
 
 		It("Will halt the retry procedure upon receiving an ACK.", func() {
-			err := server.Listen(server.Sockets.Shell)
+			err := srvr.Listen(srvr.Sockets.Shell)
 			Expect(err).To(BeNil())
 
 			address1 := fmt.Sprintf("%s://%s:%d", transport, ip, shellListenPort)
 			err = client.Sockets.Shell.Connect(address1)
 			Expect(err).To(BeNil())
 
-			client.Log.Debug("Dialed server socket @ %v", address1)
+			client.Log.Debug("Dialed srvr socket @ %v", address1)
 
 			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg [][]byte) error {
-				server.Log.Info("Server received message: %v\n", FramesToString(msg))
+				srvr.Log.Info("Server received message: %v\n", FramesToString(msg))
 
 				headerMap := make(map[string]string)
 				headerMap["msg_id"] = uuid.NewString()
@@ -210,17 +210,17 @@ var _ = Describe("AbstractServer", func() {
 					[]byte(""),
 					[]byte("")}
 
-				server.Log.Info("Responding to message with reply: %v", reply)
+				srvr.Log.Info("Responding to message with reply: %v", FramesToString(reply))
 
 				_, err := info.Socket(typ).SendMessage(reply)
 				Expect(err).To(BeNil())
 
-				server.Log.Info("Responded to message.")
+				srvr.Log.Info("Responded to message.")
 
 				return nil
 			}
 
-			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage, true)
+			go srvr.Serve(srvr, srvr.Sockets.Shell, srvr, handleServerMessage, true)
 
 			headerMap := make(map[string]string)
 			headerMap["msg_id"] = uuid.NewString()
@@ -248,7 +248,7 @@ var _ = Describe("AbstractServer", func() {
 			Expect(client.NumAcksReceived()).To(Equal(1))
 
 			client.Sockets.Shell.Close()
-			server.Sockets.Shell.Close()
+			srvr.Sockets.Shell.Close()
 		})
 	})
 })

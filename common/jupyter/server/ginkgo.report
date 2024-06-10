@@ -1,0 +1,276 @@
+[
+  {
+    "SuitePath": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server",
+    "SuiteDescription": "Jupyter Server Suite",
+    "SuiteLabels": [],
+    "SuiteSucceeded": true,
+    "SuiteHasProgrammaticFocus": false,
+    "SpecialSuiteFailureReasons": null,
+    "PreRunStats": {
+      "TotalSpecs": 5,
+      "SpecsThatWillRun": 1
+    },
+    "StartTime": "2024-06-10T15:44:15.231613818Z",
+    "EndTime": "2024-06-10T15:44:30.239231139Z",
+    "RunTime": 15007617365,
+    "SuiteConfig": {
+      "RandomSeed": 1718034253,
+      "RandomizeAllSpecs": false,
+      "FocusStrings": [
+        "AbstractServer Reliable Message Delivery Will re-send messages until an ACK is received"
+      ],
+      "SkipStrings": null,
+      "FocusFiles": null,
+      "SkipFiles": null,
+      "LabelFilter": "",
+      "FailOnPending": false,
+      "FailFast": false,
+      "FlakeAttempts": 0,
+      "MustPassRepeatedly": 0,
+      "DryRun": false,
+      "PollProgressAfter": 0,
+      "PollProgressInterval": 0,
+      "Timeout": 3598229704647,
+      "EmitSpecProgress": false,
+      "OutputInterceptorMode": "",
+      "SourceRoots": null,
+      "GracePeriod": 30000000000,
+      "ParallelProcess": 1,
+      "ParallelTotal": 1,
+      "ParallelHost": ""
+    },
+    "SpecReports": [
+      {
+        "ContainerHierarchyTexts": [
+          "AbstractServer",
+          "Reliable Message Delivery"
+        ],
+        "ContainerHierarchyLocations": [
+          {
+            "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/abstract_test.go",
+            "LineNumber": 69
+          },
+          {
+            "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/abstract_test.go",
+            "LineNumber": 75
+          }
+        ],
+        "ContainerHierarchyLabels": [
+          [],
+          []
+        ],
+        "LeafNodeType": "It",
+        "LeafNodeLocation": {
+          "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/abstract_test.go",
+          "LineNumber": 98
+        },
+        "LeafNodeLabels": [],
+        "LeafNodeText": "Will re-send messages until an ACK is received",
+        "State": "passed",
+        "StartTime": "2024-06-10T15:44:15.231733261Z",
+        "EndTime": "2024-06-10T15:44:30.238780619Z",
+        "RunTime": 15007047401,
+        "ParallelProcess": 1,
+        "NumAttempts": 1,
+        "MaxFlakeAttempts": 0,
+        "MaxMustPassRepeatedly": 0,
+        "SpecEvents": [
+          {
+            "SpecEventType": "Node",
+            "CodeLocation": {
+              "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/abstract_test.go",
+              "LineNumber": 76
+            },
+            "TimelineLocation": {
+              "Order": 1,
+              "Time": "2024-06-10T15:44:15.231890812Z"
+            },
+            "Message": "Reliable Message Delivery",
+            "NodeType": "BeforeEach"
+          },
+          {
+            "SpecEventType": "Node (End)",
+            "CodeLocation": {
+              "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/abstract_test.go",
+              "LineNumber": 76
+            },
+            "TimelineLocation": {
+              "Order": 3,
+              "Time": "2024-06-10T15:44:15.232173666Z"
+            },
+            "Message": "Reliable Message Delivery",
+            "Duration": 282852,
+            "NodeType": "BeforeEach"
+          },
+          {
+            "SpecEventType": "Node",
+            "CodeLocation": {
+              "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/abstract_test.go",
+              "LineNumber": 98
+            },
+            "TimelineLocation": {
+              "Order": 4,
+              "Time": "2024-06-10T15:44:15.232201935Z"
+            },
+            "Message": "Will re-send messages until an ACK is received",
+            "NodeType": "It"
+          },
+          {
+            "SpecEventType": "Node (End)",
+            "CodeLocation": {
+              "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/abstract_test.go",
+              "LineNumber": 98
+            },
+            "TimelineLocation": {
+              "Order": 6,
+              "Time": "2024-06-10T15:44:30.238764883Z"
+            },
+            "Message": "Will re-send messages until an ACK is received",
+            "Duration": 15006562987,
+            "NodeType": "It"
+          }
+        ]
+      },
+      {
+        "ContainerHierarchyTexts": [
+          "AbstractServer",
+          "Reliable Message Delivery"
+        ],
+        "ContainerHierarchyLocations": [
+          {
+            "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/abstract_test.go",
+            "LineNumber": 69
+          },
+          {
+            "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/abstract_test.go",
+            "LineNumber": 75
+          }
+        ],
+        "ContainerHierarchyLabels": [
+          [],
+          []
+        ],
+        "LeafNodeType": "It",
+        "LeafNodeLocation": {
+          "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/abstract_test.go",
+          "LineNumber": 181
+        },
+        "LeafNodeLabels": [],
+        "LeafNodeText": "Will halt the retry procedure upon receiving an ACK.",
+        "State": "skipped",
+        "StartTime": "2024-06-10T15:44:30.239084263Z",
+        "EndTime": "0001-01-01T00:00:00Z",
+        "RunTime": 0,
+        "ParallelProcess": 1,
+        "NumAttempts": 0,
+        "MaxFlakeAttempts": 0,
+        "MaxMustPassRepeatedly": 0
+      },
+      {
+        "ContainerHierarchyTexts": [
+          "BaseServer",
+          "DestFrames"
+        ],
+        "ContainerHierarchyLocations": [
+          {
+            "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/base_test.go",
+            "LineNumber": 36
+          },
+          {
+            "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/base_test.go",
+            "LineNumber": 39
+          }
+        ],
+        "ContainerHierarchyLabels": [
+          [],
+          []
+        ],
+        "LeafNodeType": "It",
+        "LeafNodeLocation": {
+          "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/base_test.go",
+          "LineNumber": 44
+        },
+        "LeafNodeLabels": [],
+        "LeafNodeText": "should AddDestFrame to add a kernel frame just before \u003cIDS|MSG\u003e.",
+        "State": "skipped",
+        "StartTime": "2024-06-10T15:44:30.239116289Z",
+        "EndTime": "0001-01-01T00:00:00Z",
+        "RunTime": 0,
+        "ParallelProcess": 1,
+        "NumAttempts": 0,
+        "MaxFlakeAttempts": 0,
+        "MaxMustPassRepeatedly": 0
+      },
+      {
+        "ContainerHierarchyTexts": [
+          "BaseServer",
+          "DestFrames"
+        ],
+        "ContainerHierarchyLocations": [
+          {
+            "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/base_test.go",
+            "LineNumber": 36
+          },
+          {
+            "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/base_test.go",
+            "LineNumber": 39
+          }
+        ],
+        "ContainerHierarchyLabels": [
+          [],
+          []
+        ],
+        "LeafNodeType": "It",
+        "LeafNodeLocation": {
+          "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/base_test.go",
+          "LineNumber": 93
+        },
+        "LeafNodeLabels": [],
+        "LeafNodeText": "should use ExtractDestFrame to extract kernel id and jupyter frames.",
+        "State": "skipped",
+        "StartTime": "2024-06-10T15:44:30.239145269Z",
+        "EndTime": "0001-01-01T00:00:00Z",
+        "RunTime": 0,
+        "ParallelProcess": 1,
+        "NumAttempts": 0,
+        "MaxFlakeAttempts": 0,
+        "MaxMustPassRepeatedly": 0
+      },
+      {
+        "ContainerHierarchyTexts": [
+          "BaseServer",
+          "DestFrames"
+        ],
+        "ContainerHierarchyLocations": [
+          {
+            "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/base_test.go",
+            "LineNumber": 36
+          },
+          {
+            "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/base_test.go",
+            "LineNumber": 39
+          }
+        ],
+        "ContainerHierarchyLabels": [
+          [],
+          []
+        ],
+        "LeafNodeType": "It",
+        "LeafNodeLocation": {
+          "FileName": "/home/bcarver2/go/pkg/distributed-notebook/common/jupyter/server/base_test.go",
+          "LineNumber": 121
+        },
+        "LeafNodeLabels": [],
+        "LeafNodeText": "should use RemoveDestFrame to remove a kernel frame.",
+        "State": "skipped",
+        "StartTime": "2024-06-10T15:44:30.239194913Z",
+        "EndTime": "0001-01-01T00:00:00Z",
+        "RunTime": 0,
+        "ParallelProcess": 1,
+        "NumAttempts": 0,
+        "MaxFlakeAttempts": 0,
+        "MaxMustPassRepeatedly": 0
+      }
+    ]
+  }
+]

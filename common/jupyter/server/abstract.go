@@ -491,11 +491,18 @@ func (s *AbstractServer) updateMessageHeader(msg [][]byte, offset int, sourceKer
 		return err
 	}
 
+	signature_scheme := sourceKernel.ConnectionInfo().SignatureScheme
+	if len(signature_scheme) == 0 {
+		signature_scheme = types.JupyterSignatureScheme
+	}
+
 	// Regenerate the signature.
 	framesWithoutIdentities, _ := s.SkipIdentities(frames)
-	framesWithoutIdentities, err = framesWithoutIdentities.Sign(sourceKernel.ConnectionInfo().SignatureScheme, []byte(sourceKernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+	framesWithoutIdentities, err = framesWithoutIdentities.Sign(signature_scheme, []byte(sourceKernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 	if err != nil {
-		s.Log.Error("Failed to re-sign frames of message after updating date during ACK timeout because: %v", offset, err)
+		s.Log.Error("Failed to re-sign frames of message after updating date during ACK timeout because: %v", err)
+		s.Log.Error("Signature scheme used: \"%s\"", signature_scheme)
+		s.Log.Error("Key: \"%s\"", sourceKernel.ConnectionInfo().Key)
 		return err
 	}
 
