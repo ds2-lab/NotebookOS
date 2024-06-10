@@ -854,7 +854,7 @@ func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 	// Try to find existing kernel by session id first. The kernel that associated with the session id will not be clear during restart.
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
-		d.log.Debug("Did not find existing KernelClient with KernelID=\"%s\". Creating new distributedKernelClientImpl now.", in.Id)
+		d.log.Debug("Did not find existing kernelReplicaClientImpl with KernelID=\"%s\". Creating new distributedKernelClientImpl now.", in.Id)
 
 		listenPorts, err := d.availablePorts.RequestPorts()
 		if err != nil {
@@ -989,10 +989,10 @@ func (d *clusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
 	}
 
-	d.log.Debug("Adding Replica KernelClient for kernel %s, replica %d on host %s.", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID())
+	d.log.Debug("Adding Replica kernelReplicaClientImpl for kernel %s, replica %d on host %s.", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID())
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
-		panic(fmt.Sprintf("KernelClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("kernelReplicaClientImpl::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaId, in.KernelId, waitGroup.NumReplicas())
@@ -1123,16 +1123,16 @@ func (d *clusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 
 	// Initialize kernel client
 	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, true)
-	d.log.Debug("Validating new KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("Validating new kernelReplicaClientImpl for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
-		panic(fmt.Sprintf("KernelClient::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("kernelReplicaClientImpl::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
-	d.log.Debug("Adding Replica KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("Adding Replica kernelReplicaClientImpl for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
-		panic(fmt.Sprintf("KernelClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("kernelReplicaClientImpl::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// The replica is fully operational at this point, so record that it is ready.
@@ -1142,7 +1142,7 @@ func (d *clusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 	waitGroup.SetReplica(replicaId, kernelIp)
 
 	waitGroup.Register()
-	d.log.Debug("Done registering KernelClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("Done registering kernelReplicaClientImpl for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	d.log.Debug("WaitGroup for Kernel \"%s\": %s", kernelId, waitGroup.String())
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
 	waitGroup.WaitRegistered()
@@ -1386,7 +1386,7 @@ func (d *clusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gate
 		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
 	}
 
-	replica, err := addReplicaOp.KernelClient().GetReplicaByID(addReplicaOp.ReplicaId())
+	replica, err := addReplicaOp.KernelReplicaClient().GetReplicaByID(addReplicaOp.ReplicaId())
 	if err != nil {
 		d.log.Error("Could not find replica %d for kernel %s after migration is supposed to have completed: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
 		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
@@ -1695,7 +1695,7 @@ func (d *clusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.
 
 	hostManager := d.cluster.GetHostManager()
 	for _, replica := range kernel.Replicas() {
-		replicaClient := replica.(*client.KernelClient)
+		replicaClient := replica.(client.KernelReplicaClient)
 		hostId := replicaClient.HostId()
 		host, ok := hostManager.Load(hostId)
 
@@ -1846,10 +1846,10 @@ func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 func (d *clusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
 	var messageType string
 	if kernel == nil {
-		d.log.Debug("Received %v message targeting unknown kernel/session. Inspecting now...", typ)
+		d.log.Debug(utils.BlueStyle.Render("Received %v message targeting unknown kernel/session. Inspecting now..."), typ)
 		kernel, messageType, err = d.kernelAndTypeFromMsg(msg)
 	} else {
-		d.log.Debug("Received %v message targeting kernel %s. Inspecting now...", typ, kernel.ID())
+		d.log.Debug(utils.BlueStyle.Render("Received %v message targeting kernel %s. Inspecting now..."), typ, kernel.ID())
 		_, messageType, err = d.kernelAndTypeFromMsg(msg)
 	}
 
@@ -1877,7 +1877,7 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 
 		if err != nil {
 			d.log.Error("Failed to extract header from %v message.", typ)
-
+			d.log.Debug("Forwarding %v response from kernel %s: %v", typ, from.ID(), msg)
 			sendErr := socket.Send(*msg)
 
 			if sendErr != nil {
@@ -1894,7 +1894,7 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 		}
 	}
 
-	d.log.Debug("Forwarding %v response from kernel %s.", typ, from.ID())
+	d.log.Debug("Forwarding %v response from kernel %s: %v", typ, from.ID(), msg)
 	err := socket.Send(*msg)
 
 	if err != nil {
@@ -1926,7 +1926,7 @@ func (d *clusterGatewayImpl) cleanUp() {
 	close(d.cleaned)
 }
 
-// func (d *clusterGatewayImpl) closeReplica(host core.Host, kernel client.DistributedKernelClient, replica *client.KernelClient, replicaId int, reason string) {
+// func (d *clusterGatewayImpl) closeReplica(host core.Host, kernel client.DistributedKernelClient, replica *client.kernelReplicaClientImpl, replicaId int, reason string) {
 // 	defer replica.Close()
 
 // 	if err := d.placer.Reclaim(host, kernel, false); err != nil {

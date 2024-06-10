@@ -117,7 +117,7 @@ func (m *migrationOperationImpl) OperationID() string {
 }
 
 // distributedKernelClientImpl of the kernel for which we're migrating a replica.
-func (m *migrationOperationImpl) KernelClient() client.DistributedKernelClient {
+func (m *migrationOperationImpl) KernelReplicaClient() client.DistributedKernelClient {
 	return m.targetClient
 }
 
@@ -552,7 +552,7 @@ func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 func (m *migrationManagerImpl) migrationCompleted(op domain.MigrationOperation) {
 	m.log.Debug("Migration %s of replica %d of kernel %s completed successfully.", op.OperationID(), op.OriginalSMRNodeID(), op.KernelId())
 
-	op.KernelClient().AddOperationCompleted()
+	op.KernelReplicaClient().AddOperationCompleted()
 	// Wake up anybody waiting.
 	op.Broadcast()
 

@@ -17,6 +17,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )
 
@@ -221,7 +222,7 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 	// (2) This particular "instance" of AbstractServer is configured to ACK messages (as opposed to having ACKs disabled)
 	// (3) The message was sent via the Shell socket or the Control socket. (We do not ACK heartbeats, IO messages, etc.)
 
-	s.Log.Debug("Message is of type %v and is NOT an ACK. Will send an ACK.", socket.Type)
+	// s.Log.Debug("Message is of type %v and is NOT an ACK. Will send an ACK.", socket.Type)
 
 	dstId, rspId, _ := dest.ExtractDestFrame(msg.Frames)
 
@@ -253,7 +254,7 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 			[]byte(s.Name))
 	}
 
-	s.Log.Debug("Sending ACK message via %s: %v", socket.Name, ack_msg)
+	s.Log.Debug(utils.BlueStyle.Render("Sending ACK message via %s: %v"), socket.Name, ack_msg)
 
 	err := socket.Send(ack_msg)
 	if err != nil {
@@ -302,7 +303,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				err = v
 			case *zmq4.Msg:
 				if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage {
-					s.Log.Debug("Received %v message of type %d with %d frame(s) via %s: %v", socket.Type, v.Type, len(v.Frames), socket.Name, v)
+					s.Log.Debug(utils.BlueStyle.Render("Received %v message of type %d with %d frame(s) via %s: %v"), socket.Type, v.Type, len(v.Frames), socket.Name, v)
 				}
 
 				// TODO: Optimize this. Lots of redundancy here, and that we also do the same parsing again later.
@@ -313,7 +314,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 				if is_ack {
 					_, rspId, _ := dest.ExtractDestFrame(v.Frames)
-					s.Log.Debug("[1] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
+					s.Log.Debug(utils.GreenStyle.Render("[1] Received ACK via %s: %v (%v): %v"), socket.Name, rspId, socket.Type, msg)
 					s.handleAck(v, socket, dest)
 					contd <- &struct{}{}
 					continue
@@ -326,7 +327,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 			// Stop serving on error.
 			if err == io.EOF {
-				s.Log.Debug("Socket %s [%v] closed.", socket.Name, socket.Type)
+				s.Log.Debug(utils.OrangeStyle.Render("Socket %s [%v] closed."), socket.Name, socket.Type)
 				return
 			} else if errors.Is(err, errServeOnce) || errors.Is(err, context.Canceled) {
 				// Stop serving safely by setting and testing:
@@ -343,7 +344,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					return
 				}
 			} else if err != nil {
-				s.Log.Error("Error on handle %s message: %v. Message: %v.", socket.Type.String(), err, msg)
+				s.Log.Error(utils.RedStyle.Render("Error on handle %s message: %v. Message: %v."), socket.Type.String(), err, msg)
 
 				if errors.Is(err, context.Canceled) {
 					return
@@ -360,6 +361,11 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			s.Log.Debug("Continue waiting for the resposne of %s requests(%d)", socket.Type.String(), socket.PendingReq.Len())
 		}
 	}
+}
+
+// Begin listening for an ACK for a message with the given ID.
+func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
+	return s.ackChannels.LoadOrStore(reqId, make(chan struct{}, 1))
 }
 
 // Request sends the request and wait until receiving the response corresponding to the given request or timeout.
@@ -401,9 +407,10 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	}
 
 	// dest.Unlock()
-
-	ackChan := make(chan struct{}, 1)
-	s.ackChannels.Store(reqId, ackChan)
+	_, alreadyRegistered := s.RegisterAck(reqId)
+	if alreadyRegistered {
+		s.Log.Error(utils.RedStyle.Render("Already listening for ACKs for request %s...", reqId))
+	}
 
 	// Track the pending request.
 	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(handler, done))
@@ -431,12 +438,13 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		// Clear pending request.
 		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
 			pending.Release()
-			s.Log.Debug("Request(%p), error: %v", req, err)
+			s.Log.Debug("Released pending request associated with %v request %s (%p), error: %v", socket.Type, reqId, req, err)
 		}
 	}()
 
 	go func() {
-		if err := s.sendMessage(requiresACK, socket, reqId, req, dest, sourceKernel, jOffset); err != nil {
+		if err := s.SendMessage(requiresACK, socket, reqId, req, dest, sourceKernel, jOffset); err != nil {
+			s.Log.Debug("Error while sending %v message %s: %v", socket.Type, reqId, err)
 			if cancel != nil {
 				cancel()
 			}
@@ -512,9 +520,13 @@ func (s *AbstractServer) waitForAck(ackChan chan struct{}, timeout time.Duration
 }
 
 // Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
-func (s *AbstractServer) sendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
+func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
 	num_tries := 0
 	var max_num_tries int
+
+	if reqId == "" || offset < 0 {
+		_, reqId, offset = s.ExtractDestFrame(req.Frames)
+	}
 
 	// If the message requires an ACK, then we'll try sending it multiple times.
 	// Otherwise, we'll just send it the one time.
@@ -533,21 +545,21 @@ func (s *AbstractServer) sendMessage(requiresACK bool, socket *types.Socket, req
 	for num_tries < max_num_tries {
 		// Send request.
 		if err := socket.Send(*req); err != nil {
-			s.Log.Error("Failed to send %v message on attempt %d/%d via %s because: %v", socket.Type, num_tries+1, max_num_tries, socket.Name, err.Error())
+			s.Log.Error(utils.RedStyle.Render("Failed to send %v message on attempt %d/%d via %s because: %v"), socket.Type, num_tries+1, max_num_tries, socket.Name, err.Error())
 			return err
 		}
 
-		s.Log.Debug("Sent %s message with reqID=%v via %s. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d. Message: %v", socket.Type, reqId, socket.Name, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries, req)
+		s.Log.Debug(utils.BlueStyle.Render("Sent %v message with reqID=%v via %s. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d. Message: %v"), socket.Type, reqId, socket.Name, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries, req)
 
 		// If an ACK is required, then we'll block until the ACK is received, or until timing out, at which point we'll try sending the message again.
 		if requiresACK {
 			success := s.waitForAck(ackChan, time.Second*5)
 
 			if success {
-				s.Log.Debug("%v message %v has successfully been ACK'd on attempt %d/%d.", socket.Type, reqId, num_tries+1, max_num_tries)
+				s.Log.Debug(utils.GreenStyle.Render("%v message %v has successfully been ACK'd on attempt %d/%d."), socket.Type, reqId, num_tries+1, max_num_tries)
 				return nil
 			} else {
-				s.Log.Error("Socket %v (%v) timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d.", socket.Name, socket.Addr(), socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries)
+				s.Log.Error(utils.RedStyle.Render("Socket %v (%v) timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d."), socket.Name, socket.Addr(), socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries)
 				// Just to avoid going through the process of sleeping and updating the header if that was our last try.
 				if (num_tries + 1) >= max_num_tries {
 					break
@@ -558,7 +570,7 @@ func (s *AbstractServer) sendMessage(requiresACK bool, socket *types.Socket, req
 
 				err := s.updateMessageHeader(req, offset, sourceKernel)
 				if err != nil {
-					s.Log.Error("Failed to update message header for %v message %v: %v", socket.Type, reqId, err)
+					s.Log.Error(utils.RedStyle.Render("Failed to update message header for %v message %v: %v"), socket.Type, reqId, err)
 					return err
 				}
 			}
@@ -566,7 +578,7 @@ func (s *AbstractServer) sendMessage(requiresACK bool, socket *types.Socket, req
 	}
 
 	if requiresACK {
-		s.Log.Error("Failed to receive ACK for %v message %v (src: %v, dest: %v) after %d attempt(s).", socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), max_num_tries)
+		s.Log.Error(utils.RedStyle.Render("Failed to receive ACK for %v message %v (src: %v, dest: %v) after %d attempt(s)."), socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), max_num_tries)
 		return ErrNoAck
 	}
 
@@ -832,7 +844,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 				// Unexpected response without request ID, fallback to default handler.
 				handler = defaultHandler
 			} else {
-				s.Log.Debug("Received response with ID=%s on socket %s", rspId, socket.Name)
+				s.Log.Debug(utils.BlueStyle.Render("Received response with ID=%s on socket %s"), rspId, socket.Name)
 				matchReqId = rspId
 
 				// Automatically remove destination kernel ID frame.
@@ -856,12 +868,10 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 
 				// TODO: Do we need this?
 				if ackReceived, loaded := s.acksReceived.Load(rspId); loaded && !ackReceived && ackChan != nil {
-					s.Log.Debug("Received actual response (rather than ACK) for %v request %v via %s before receiving ACK. Marking request as acknowledeged anyway.", socket.Type, rspId, socket.Name)
+					s.Log.Debug(utils.PurpleStyle.Render("Received actual response (rather than ACK) for %v request %v via %s before receiving ACK. Marking request as acknowledeged anyway."), socket.Type, rspId, socket.Name)
 					// Notify that we received an ACK and return.
 					s.acksReceived.Store(rspId, true)
-					// s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
 					ackChan <- struct{}{}
-					// s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
 				}
 
 				// Remove pending request and return registered handler. If timeout, the handler will be nil.
@@ -881,10 +891,10 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 		if handler != nil {
 			err := handler(info, msgType, msg)
 			if err != nil {
-				s.Log.Warn("Error on handle %v response: %v. Message: %v.", msgType, err, msg)
+				s.Log.Warn(utils.RedStyle.Render("Error on handle %v response: %v. Message: %v."), msgType, err, msg)
 			}
 		} else if matchReqId != "" {
-			s.Log.Debug("Discard %v response to request %s.", msgType, matchReqId)
+			s.Log.Debug(utils.OrangeStyle.Render("Discard %v response to request %s."), msgType, matchReqId)
 		}
 
 		// Stop serving anyway.

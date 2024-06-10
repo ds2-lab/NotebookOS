@@ -73,6 +73,20 @@ func (mr *MockKernelReplicaClientMockRecorder) AddIOHandler(topic, handler any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddIOHandler", reflect.TypeOf((*MockKernelReplicaClient)(nil).AddIOHandler), topic, handler)
 }
 
+// AddSourceKernelFrame mocks base method.
+func (m *MockKernelReplicaClient) AddSourceKernelFrame(frames [][]byte, destID string, jOffset int) [][]byte {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddSourceKernelFrame", frames, destID, jOffset)
+	ret0, _ := ret[0].([][]byte)
+	return ret0
+}
+
+// AddSourceKernelFrame indicates an expected call of AddSourceKernelFrame.
+func (mr *MockKernelReplicaClientMockRecorder) AddSourceKernelFrame(frames, destID, jOffset any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddSourceKernelFrame", reflect.TypeOf((*MockKernelReplicaClient)(nil).AddSourceKernelFrame), frames, destID, jOffset)
+}
+
 // Address mocks base method.
 func (m *MockKernelReplicaClient) Address() string {
 	m.ctrl.T.Helper()
@@ -170,6 +184,21 @@ func (m *MockKernelReplicaClient) ExtractDestFrame(frames [][]byte) (string, str
 func (mr *MockKernelReplicaClientMockRecorder) ExtractDestFrame(frames any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExtractDestFrame", reflect.TypeOf((*MockKernelReplicaClient)(nil).ExtractDestFrame), frames)
+}
+
+// ExtractSourceKernelFrame mocks base method.
+func (m *MockKernelReplicaClient) ExtractSourceKernelFrame(frames [][]byte) (string, int) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExtractSourceKernelFrame", frames)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(int)
+	return ret0, ret1
+}
+
+// ExtractSourceKernelFrame indicates an expected call of ExtractSourceKernelFrame.
+func (mr *MockKernelReplicaClientMockRecorder) ExtractSourceKernelFrame(frames any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExtractSourceKernelFrame", reflect.TypeOf((*MockKernelReplicaClient)(nil).ExtractSourceKernelFrame), frames)
 }
 
 // HostId mocks base method.
@@ -287,6 +316,20 @@ func (mr *MockKernelReplicaClientMockRecorder) KernelSpec() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelSpec", reflect.TypeOf((*MockKernelReplicaClient)(nil).KernelSpec))
 }
 
+// NodeName mocks base method.
+func (m *MockKernelReplicaClient) NodeName() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NodeName")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// NodeName indicates an expected call of NodeName.
+func (mr *MockKernelReplicaClientMockRecorder) NodeName() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NodeName", reflect.TypeOf((*MockKernelReplicaClient)(nil).NodeName))
+}
+
 // PersistentID mocks base method.
 func (m *MockKernelReplicaClient) PersistentID() string {
 	m.ctrl.T.Helper()
@@ -313,6 +356,20 @@ func (m *MockKernelReplicaClient) PodName() string {
 func (mr *MockKernelReplicaClientMockRecorder) PodName() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodName", reflect.TypeOf((*MockKernelReplicaClient)(nil).PodName))
+}
+
+// RemoveSourceKernelFrame mocks base method.
+func (m *MockKernelReplicaClient) RemoveSourceKernelFrame(frames [][]byte, jOffset int) [][]byte {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveSourceKernelFrame", frames, jOffset)
+	ret0, _ := ret[0].([][]byte)
+	return ret0
+}
+
+// RemoveSourceKernelFrame indicates an expected call of RemoveSourceKernelFrame.
+func (mr *MockKernelReplicaClientMockRecorder) RemoveSourceKernelFrame(frames, jOffset any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveSourceKernelFrame", reflect.TypeOf((*MockKernelReplicaClient)(nil).RemoveSourceKernelFrame), frames, jOffset)
 }
 
 // ReplicaID mocks base method.
@@ -395,6 +452,18 @@ func (m *MockKernelReplicaClient) SetContext(arg0 context.Context) {
 func (mr *MockKernelReplicaClientMockRecorder) SetContext(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetContext", reflect.TypeOf((*MockKernelReplicaClient)(nil).SetContext), arg0)
+}
+
+// SetPersistentID mocks base method.
+func (m *MockKernelReplicaClient) SetPersistentID(arg0 string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetPersistentID", arg0)
+}
+
+// SetPersistentID indicates an expected call of SetPersistentID.
+func (mr *MockKernelReplicaClientMockRecorder) SetPersistentID(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPersistentID", reflect.TypeOf((*MockKernelReplicaClient)(nil).SetPersistentID), arg0)
 }
 
 // SetReady mocks base method.

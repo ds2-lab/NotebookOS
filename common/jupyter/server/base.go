@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/go-zeromq/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
@@ -22,6 +23,16 @@ type ServerInfo interface {
 // BaseServer exposes the basic operations of a Jupyter server. Get BaseServer from AbstractServer.Server().
 type BaseServer struct {
 	server *AbstractServer
+}
+
+func (s *BaseServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
+	return s.server.SendMessage(requiresACK, socket, reqId, req, dest, sourceKernel, offset)
+}
+
+// Begin listening for an ACK for a message with the given ID.
+func (s *BaseServer) RegisterAck(msg *zmq4.Msg) (chan struct{}, bool) {
+	_, reqId, _ := s.ExtractDestFrame(msg.Frames)
+	return s.server.RegisterAck(reqId)
 }
 
 // Socket returns the zmq socket of the given type.

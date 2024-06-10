@@ -88,7 +88,7 @@ func (op *addReplicaOperationImpl) OperationID() string {
 }
 
 // distributedKernelClientImpl of the kernel for which we're migrating a replica.
-func (op *addReplicaOperationImpl) KernelClient() client.DistributedKernelClient {
+func (op *addReplicaOperationImpl) KernelReplicaClient() client.DistributedKernelClient {
 	return op.client
 }
 

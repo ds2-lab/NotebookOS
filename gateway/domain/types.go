@@ -170,31 +170,31 @@ type KubeClient interface {
 }
 
 type AddReplicaOperation interface {
-	KernelClient() client.DistributedKernelClient // The distributedKernelClientImpl of the kernel for which we're migrating a replica.
-	KernelId() string                             // Return the ID of the associated kernel.
-	ReplicaRegistered() bool                      // Return true if the new replica has already registered with the Gateway; otherwise, return false.
-	OperationID() string                          // Unique identifier of the migration operation.
-	PersistentID() string                         // Return the persistent ID of the replica.
-	PodName() (string, bool)                      // Return the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
-	PodStarted() bool                             // Return true if the new Pod has started.
-	ReplicaPodHostname() string                   // Return the IP address of the new replica.
-	ReplicaId() int32                             // The SMR node ID to use for the new replica.
-	KernelSpec() *gateway.KernelReplicaSpec       // Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
-	SetReplicaRegistered()                        // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered. This also sends a notification on the replicaRegisteredChannel.
-	SetPodName(string)                            // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
-	SetReplicaHostname(hostname string)           // Set the IP address of the new replica.
-	SetReplicaJoinedSMR()                         // Record that the new replica has joined its SMR cluster. This also sends a notification on the ReplicaJoinedSmrChannel. NOTE: This does NOT mark the associated replica as ready. That must be done separately.
-	Completed() bool                              // Return true if the operation has completed successfully.
-	PodStartedChannel() chan string               // Return the channel used to notify that the new Pod has started.
-	ReplicaJoinedSmrChannel() chan struct{}       // Return the channel that is used to notify that the new replica has joined its SMR cluster.
-	ReplicaRegisteredChannel() chan struct{}      // Return the channel that is used to notify that the new replica has registered with the Gateway.
-	DataDirectory() string                        // Return the path to etcd-raft data directory in HDFS.
+	KernelReplicaClient() client.DistributedKernelClient // The distributedKernelClientImpl of the kernel for which we're migrating a replica.
+	KernelId() string                                    // Return the ID of the associated kernel.
+	ReplicaRegistered() bool                             // Return true if the new replica has already registered with the Gateway; otherwise, return false.
+	OperationID() string                                 // Unique identifier of the migration operation.
+	PersistentID() string                                // Return the persistent ID of the replica.
+	PodName() (string, bool)                             // Return the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
+	PodStarted() bool                                    // Return true if the new Pod has started.
+	ReplicaPodHostname() string                          // Return the IP address of the new replica.
+	ReplicaId() int32                                    // The SMR node ID to use for the new replica.
+	KernelSpec() *gateway.KernelReplicaSpec              // Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
+	SetReplicaRegistered()                               // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered. This also sends a notification on the replicaRegisteredChannel.
+	SetPodName(string)                                   // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
+	SetReplicaHostname(hostname string)                  // Set the IP address of the new replica.
+	SetReplicaJoinedSMR()                                // Record that the new replica has joined its SMR cluster. This also sends a notification on the ReplicaJoinedSmrChannel. NOTE: This does NOT mark the associated replica as ready. That must be done separately.
+	Completed() bool                                     // Return true if the operation has completed successfully.
+	PodStartedChannel() chan string                      // Return the channel used to notify that the new Pod has started.
+	ReplicaJoinedSmrChannel() chan struct{}              // Return the channel that is used to notify that the new replica has joined its SMR cluster.
+	ReplicaRegisteredChannel() chan struct{}             // Return the channel that is used to notify that the new replica has registered with the Gateway.
+	DataDirectory() string                               // Return the path to etcd-raft data directory in HDFS.
 }
 
 // Represents and active, ongoing replica migration operation in which we are migrating a distributed kernel replica from one node to another.
 type MigrationOperation interface {
 	OperationID() string                                 // Unique identifier of the migration operation.
-	KernelClient() client.DistributedKernelClient        // The distributedKernelClientImpl of the kernel for which we're migrating a replica.
+	KernelReplicaClient() client.DistributedKernelClient // The distributedKernelClientImpl of the kernel for which we're migrating a replica.
 	KernelId() string                                    // Return the ID of the associated kernel.
 	OriginalSMRNodeID() int32                            // The (original) SMR Node ID of the replica that is being migrated. The new replica will have a different ID.
 	PersistentID() string                                // Get the persistent ID of the replica we're migrating.

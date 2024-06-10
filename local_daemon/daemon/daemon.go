@@ -363,7 +363,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 	// Subscribe to all messages.
 	// Dial our self if the client is running and serving heartbeat.
 	// Try dial, ignore failure.
-	// The function will default to `KernelClient::handleMsg` if the provided handler is null.
+	// The function will default to `kernelReplicaClientImpl::handleMsg` if the provided handler is null.
 	iosub, err := kernel.InitializeIOSub(nil, "")
 	if err != nil {
 		d.log.Error("Failed to initialize IO SUB socket. Error: %v", err)
@@ -507,7 +507,7 @@ func (d *SchedulerDaemon) AckHandler(info router.RouterInfo, msg *zmq4.Msg) erro
 	return nil
 }
 
-func (d *SchedulerDaemon) smrReadyCallback(kernelClient *client.KernelClient) {
+func (d *SchedulerDaemon) smrReadyCallback(kernelClient client.KernelReplicaClient) {
 	d.log.Debug("Replica %d of kernel %s is ready to join its SMR cluster.", kernelClient.ReplicaID(), kernelClient.ID())
 
 	_, err := d.Provisioner.SmrReady(context.TODO(), &gateway.SmrReadyNotification{
@@ -546,7 +546,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find KernelClient for kernel %s.", kernelId)
+		d.log.Error("Could not find kernelReplicaClientImpl for kernel %s.", kernelId)
 		return nil, ErrInvalidParameter
 	}
 
@@ -677,7 +677,7 @@ func (d *SchedulerDaemon) YieldNextExecution(ctx context.Context, in *gateway.Ke
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find KernelClient for kernel %s specified in 'YieldNextExecution' request.", kernelId)
+		d.log.Error("Could not find kernelReplicaClientImpl for kernel %s specified in 'YieldNextExecution' request.", kernelId)
 		return gateway.VOID, ErrInvalidParameter
 	}
 
@@ -694,7 +694,7 @@ func (d *SchedulerDaemon) UpdateReplicaAddr(ctx context.Context, req *gateway.Re
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find KernelClient for kernel %s.", kernelId)
+		d.log.Error("Could not find kernelReplicaClientImpl for kernel %s.", kernelId)
 		return gateway.VOID, ErrInvalidParameter
 	}
 
@@ -764,7 +764,7 @@ func (d *SchedulerDaemon) AddReplica(ctx context.Context, req *gateway.ReplicaIn
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find KernelClient for kernel %s.", kernelId)
+		d.log.Error("Could not find kernelReplicaClientImpl for kernel %s.", kernelId)
 		return gateway.VOID, ErrInvalidParameter
 	}
 
@@ -1379,6 +1379,12 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 	socket := from.Socket(typ)
 	if socket == nil {
 		socket = d.router.Socket(typ)
+
+		// TODO (Ben): If we're forwarding a response back to the Cluster Gateway here, then the Cluster Gateway will ACK the response.
+		// We need to:
+		// (a) Listen for the ACK.
+		// (b) Re-forward the kernel's response to the Cluster Gateway if we don't receive an ACK.
+		d.router.RegisterAck(msg)
 	}
 	if socket == nil {
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
@@ -1386,13 +1392,15 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 	}
 	d.log.Debug("Forwarding %v response from %v: %v", typ, from, msg)
 
-	err := socket.Send(*msg)
+	go d.router.SendMessage(true, socket, "" /* will be auto-resolved */, msg, d.router, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
 
-	if err != nil {
-		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
-	} else {
-		d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
-	}
+	// err := socket.Send(*msg)
+
+	// if err != nil {
+	// 	d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+	// } else {
+	// 	d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
+	// }
 
 	return nil // Will be nil on success.
 }
@@ -1411,7 +1419,7 @@ func (d *SchedulerDaemon) handleSMRLeadTask(kernel core.Kernel, frames jupyter.J
 			return err
 		}
 
-		client := kernel.(*client.KernelClient)
+		client := kernel.(client.KernelReplicaClient)
 
 		d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
 		err := d.gpuManager.AllocateGPUs(decimal.NewFromFloat(client.ResourceSpec().GPU()), client.ReplicaID(), client.ID())

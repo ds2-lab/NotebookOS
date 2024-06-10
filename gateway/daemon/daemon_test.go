@@ -177,7 +177,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				SMRPort:          11080,
 				NumGPUs:          8,
 				SchedulingPolicy: "static",
-			}, 8079, nil, "TestNode")
+			}, 8079, nil, "TestNode", false)
 
 			go func() {
 				err := cluster_gateway.Start()

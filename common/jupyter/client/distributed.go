@@ -179,8 +179,8 @@ type distributedKernelClientImpl struct {
 
 	persistentId    string
 	connectionInfo  *types.ConnectionInfo
-	shellListenPort int // Port that the KernelClient::shell socket listens on.
-	iopubListenPort int // Port that the KernelClient::iopub socket listens on.
+	shellListenPort int // Port that the kernelReplicaClientImpl::shell socket listens on.
+	iopubListenPort int // Port that the kernelReplicaClientImpl::iopub socket listens on.
 
 	numActiveAddOperations int // Number of active migrations of the associated kernel's replicas.
 
@@ -204,7 +204,7 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort, Name: fmt.Sprintf("DK-Router-Shell[%s]", spec.Id)}
 			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort, Name: fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)} // connectionInfo.IOSubPort}
 			s.PrependId = true
-			s.ShouldAckMessages = true
+			s.ShouldAckMessages = false
 			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
@@ -645,7 +645,7 @@ func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.Kerne
 		jupyterMessageType string
 	)
 
-	replicaClient := replica.(*KernelClient)
+	replicaClient := replica.(*kernelReplicaClientImpl)
 	replicaId := replicaClient.replicaId
 
 	_, header, err = c.headerFromMsg(msg)
@@ -691,7 +691,7 @@ func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.Kerne
 
 	if msgErr.ErrName == types.MessageErrYieldExecution {
 		yielded = true
-		c.handleExecutionYieldedNotification(replica.(*KernelClient), msgErr)
+		c.handleExecutionYieldedNotification(replica.(*kernelReplicaClientImpl), msgErr)
 		return err, true
 	}
 
@@ -727,7 +727,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 		replicaCtx, cancel = context.WithTimeout(ctx, server.DefaultRequestTimeout)
 	}
 	forwarder := func(replica core.KernelInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
-		c.log.Debug("Received %v response from replica %v", typ, replica)
+		c.log.Debug(utils.LightBlueStyle.Render("Received %v response from replica %v"), typ, replica)
 
 		if typ == types.ShellMessage {
 			// "Preprocess" the response, which involves checking if it a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.
@@ -757,7 +757,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	defer cancel()
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
 	if len(replicas) == 1 {
-		return replicas[0].(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done)
+		return replicas[0].(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done)
 	}
 
 	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
@@ -776,7 +776,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 
 		wg.Add(1)
 		go func(kernel core.Kernel) {
-			err := kernel.(*KernelClient).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
+			err := kernel.(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
 			if err != nil {
 				c.log.Warn("Failed to send request to %v: %v", kernel, err)
 			}
@@ -815,7 +815,7 @@ func (c *distributedKernelClientImpl) Shutdown(remover ReplicaRemover, restart b
 		go func(replica core.Kernel) {
 			defer stopped.Done()
 
-			if host, err := c.stopReplicaLocked(replica.(*KernelClient), remover, false); err != nil {
+			if host, err := c.stopReplicaLocked(replica.(*kernelReplicaClientImpl), remover, false); err != nil {
 				c.log.Warn("Failed to stop %v on host %v: %v", replica, host, err)
 				return
 			} else {
@@ -968,12 +968,12 @@ func (c *distributedKernelClientImpl) handleMsg(replica types.JupyterServerInfo,
 		// Remove the source kernel frame.
 		// msg.Frames = c.RemoveSourceKernelFrame(msg.Frames, -1)
 
-		topic, jFrames := replica.(*KernelClient).extractIOTopicFrame(msg)
+		topic, jFrames := replica.(*kernelReplicaClientImpl).extractIOTopicFrame(msg)
 		switch topic {
 		case types.IOTopicStatus:
-			return c.handleIOKernelStatus(replica.(*KernelClient), jFrames, msg)
+			return c.handleIOKernelStatus(replica.(*kernelReplicaClientImpl), jFrames, msg)
 		default:
-			// c.log.Debug("Forwarding %v message from replica %d: %v", typ, replica.(*KernelClient).ReplicaID(), msg)
+			// c.log.Debug("Forwarding %v message from replica %d: %v", typ, replica.(*kernelReplicaClientImpl).ReplicaID(), msg)
 			return c.server.Sockets.IO.Send(*msg)
 		}
 	}
@@ -981,7 +981,7 @@ func (c *distributedKernelClientImpl) handleMsg(replica types.JupyterServerInfo,
 	return ErrHandlerNotImplemented
 }
 
-func (c *distributedKernelClientImpl) handleIOKernelStatus(replica *KernelClient, frames types.JupyterFrames, msg *zmq4.Msg) error {
+func (c *distributedKernelClientImpl) handleIOKernelStatus(replica *kernelReplicaClientImpl, frames types.JupyterFrames, msg *zmq4.Msg) error {
 	err := replica.handleIOKernelStatus(replica, frames, msg)
 	if err != nil {
 		return err
@@ -993,7 +993,7 @@ func (c *distributedKernelClientImpl) handleIOKernelStatus(replica *KernelClient
 	return nil
 }
 
-func (c *distributedKernelClientImpl) handleExecutionYieldedNotification(replica *KernelClient, msgErr types.MessageError) error {
+func (c *distributedKernelClientImpl) handleExecutionYieldedNotification(replica *kernelReplicaClientImpl, msgErr types.MessageError) error {
 	yieldError := errors.New(msgErr.ErrValue)
 	c.log.Debug("Received 'YIELD' proposal from %v: %v", replica, yieldError)
 
@@ -1034,9 +1034,9 @@ func (c *distributedKernelClientImpl) pubIOMessage(msg *zmq4.Msg, status string,
 				continue
 			}
 
-			status, msg := replica.(*KernelClient).BusyStatus()
+			status, msg := replica.(*kernelReplicaClientImpl).BusyStatus()
 			if status == types.MessageKernelStatusIdle {
-				c.busyStatus.Reduce(replica.(*KernelClient).ReplicaID(), types.MessageKernelStatusIdle, msg, c.pubIOMessage)
+				c.busyStatus.Reduce(replica.(*kernelReplicaClientImpl).ReplicaID(), types.MessageKernelStatusIdle, msg, c.pubIOMessage)
 			}
 		}
 	}
