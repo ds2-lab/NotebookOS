@@ -111,6 +111,9 @@ type AbstractServer struct {
 
 	ShouldAckMessages bool
 
+	// Unique name of the server, mostly for debugging.
+	Name string
+
 	// Keep track of the total number of ACKs we've received.
 	// Primarily used in unit tests.
 	numAcksReceived int
@@ -199,9 +202,9 @@ func (s *AbstractServer) handleAck(msg *zmq4.Msg, socket *types.Socket, dest Req
 	if ackReceived, loaded = s.acksReceived.Load(rspId); loaded && !ackReceived && ackChan != nil {
 		// Notify that we received an ACK and return.
 		s.acksReceived.Store(rspId, true)
-		s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
+		// s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
 		ackChan <- struct{}{}
-		s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
+		// s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
 	} else if ackChan == nil { // If ackChan is nil, then that means we weren't expecting an ACK in the first place.
 		s.Log.Error("[3] Received ACK for %v message %v via %s; however, we were not expecting an ACK for that message...", socket.Type, rspId, socket.Name)
 	} else if ackReceived {
@@ -236,18 +239,18 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 			[]byte("<IDS|MSG>"),
 			[]byte(""),
 			header,
-			[]byte(""),
-			[]byte(""),
-			[]byte(""))
+			[]byte(s.Meta.IP),
+			[]byte(socket.Name),
+			[]byte(s.Name))
 	} else {
 		ack_msg = zmq4.NewMsgFrom(
 			[]byte(fmt.Sprintf(ZMQDestFrameFormatter, dstId, rspId)),
 			[]byte("<IDS|MSG>"),
 			[]byte(""),
 			header,
-			[]byte(""),
-			[]byte(""),
-			[]byte(""))
+			[]byte(s.Meta.IP),
+			[]byte(socket.Name),
+			[]byte(s.Name))
 	}
 
 	s.Log.Debug("Sending ACK message via %s: %v", socket.Name, ack_msg)
@@ -312,7 +315,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					_, rspId, _ := dest.ExtractDestFrame(v.Frames)
 					s.Log.Debug("[1] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
 					s.handleAck(v, socket, dest)
-					// continue
+					continue
 				} else if !is_ack && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
 					s.sendAck(v, socket, dest)
 				}
@@ -850,9 +853,9 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 					s.Log.Debug("Received actual response (rather than ACK) for %v request %v via %s before receiving ACK. Marking request as acknowledeged anyway.", socket.Type, rspId, socket.Name)
 					// Notify that we received an ACK and return.
 					s.acksReceived.Store(rspId, true)
-					s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
+					// s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
 					ackChan <- struct{}{}
-					s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
+					// s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
 				}
 
 				// Remove pending request and return registered handler. If timeout, the handler will be nil.

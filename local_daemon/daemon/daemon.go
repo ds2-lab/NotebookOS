@@ -1001,7 +1001,7 @@ func (d *SchedulerDaemon) kernelShellHandler(info core.KernelInfo, typ jupyter.M
 }
 
 func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	d.log.Debug("Received shell message with %d frame(s): %s", len(msg.Frames), msg)
+	// d.log.Debug("Received shell message with %d frame(s): %s", len(msg.Frames), msg)
 	kernelId, header, offset, err := d.headerAndOffsetFromMsg(msg)
 	if err != nil {
 		return err
@@ -1034,7 +1034,7 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 		return ErrKernelNotReady
 	}
 
-	d.log.Debug("Shell message with %d frame(s) is targeting replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
+	// d.log.Debug("Shell message with %d frame(s) is targeting replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
 
 	// TODO(Ben): We'll inspect here to determine if the message is an execute_request.
 	// If it is, then we'll see if we have enough resources for the kernel to (potentially) execute the code.

@@ -12,6 +12,7 @@ ack-port: 49006
 hdfs-namenode-endpoint: 127.0.0.1:9000
 debug: true
 direct: false
+node_name: 2
 num-replicas: 3
 max-subscribed-ratio: 7.0
 local-daemon-service-name: local-daemon-network

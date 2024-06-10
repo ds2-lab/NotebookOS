@@ -39,8 +39,9 @@ type FakeKernel struct {
 
 func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemonPort int) *FakeKernel {
 	ctx := context.Background()
+	fullID := fmt.Sprintf("%s-%d", session, replicaId)
 	kernel := &FakeKernel{
-		ID:              fmt.Sprintf("%s-%d", session, replicaId),
+		ID:              fullID,
 		ReplicaID:       replicaId,
 		Session:         session,
 		LocalDaemonPort: localDaemonPort,
@@ -52,44 +53,46 @@ func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemo
 		IOPubSocket:     &socketWrapper{zmq4.NewPub(ctx), types.IOMessage},
 	}
 
+	kernel.ControlSocket.Socket.SetOption("ROUTER_MANDATORY", 1)
+	kernel.ShellSocket.Socket.SetOption("ROUTER_MANDATORY", 1)
+
 	fmt.Printf("Kernel %s is listening and serving HeartbeatSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort)
 	err := kernel.HeartbeatSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort))
 	if err != nil {
 		panic(err)
 	}
-	go kernel.Serve(kernel.HeartbeatSocket)
+	go Serve(kernel.HeartbeatSocket, fullID, false)
 
 	fmt.Printf("Kernel %s is listening and serving ControlSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+1)
 	err = kernel.ControlSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+1))
 	if err != nil {
 		panic(err)
 	}
-	go kernel.Serve(kernel.ControlSocket)
+	go Serve(kernel.ControlSocket, fullID, true)
 
 	fmt.Printf("Kernel %s is listening and serving ShellSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+2)
 	err = kernel.ShellSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+2))
 	if err != nil {
 		panic(err)
 	}
-	go kernel.Serve(kernel.ShellSocket)
+	go Serve(kernel.ShellSocket, fullID, true)
 
 	fmt.Printf("Kernel %s is listening and serving StdinSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+3)
 	err = kernel.StdinSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+3))
 	if err != nil {
 		panic(err)
 	}
-	go kernel.Serve(kernel.StdinSocket)
+	go Serve(kernel.StdinSocket, fullID, false)
 
 	err = kernel.IOPubSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+4))
 	if err != nil {
 		panic(err)
 	}
-	// go kernel.Serve(kernel.IOPubSocket)
 
 	return kernel
 }
 
-func (k *FakeKernel) Serve(socket *socketWrapper) {
+func Serve(socket *socketWrapper, id string, sendAcks bool) {
 	for {
 		msg, err := socket.Recv()
 		if err != nil {
@@ -97,21 +100,22 @@ func (k *FakeKernel) Serve(socket *socketWrapper) {
 			return
 		}
 
-		fmt.Printf("\n[%v] Kernel received message: %v\n", socket.Type, msg)
+		fmt.Printf("\n[%v] Received message: %v\n", socket.Type, msg)
 
 		var idents [][]byte
 		for i, frame := range msg.Frames {
 			if string(frame) == "<IDS|MSG>" {
 				idents = msg.Frames[0:i]
+				break
 			}
 		}
 
 		// Need to respond with an ACK.
-		if socket.Type == types.ControlMessage || socket.Type == types.ShellMessage {
+		if sendAcks {
 			frames := [][]byte{
 				[]byte("<IDS|MSG>"),
 				[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
-				[]byte("{\"msg_type\": \"ACK\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}"),
+				[]byte(fmt.Sprintf("{\"msg_type\": \"ACK\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", id)),
 				[]byte("FROM KERNEL"),
 				[]byte("FROM KERNEL"),
 				[]byte("FROM KERNEL"),
@@ -123,10 +127,10 @@ func (k *FakeKernel) Serve(socket *socketWrapper) {
 
 			err := socket.Send(msg)
 			if err != nil {
-				fmt.Printf("[ERROR] Kernel failed to send %v message because: %v\n", socket.Type, err)
+				fmt.Printf("[ERROR] Failed to send %v message because: %v\n", socket.Type, err)
 				return
 			} else {
-				fmt.Printf("Kernel %s sent 'ACK' (LocalAddr=%v): %v\n", k.ID, socket.Addr(), msg)
+				fmt.Printf("\n%s sent 'ACK' (LocalAddr=%v): %v\n", id, socket.Addr(), msg)
 			}
 		}
 	}
@@ -267,6 +271,9 @@ func TestZMQ() {
 	}
 	fmt.Println("Connected to ::19002 (control).")
 
+	go Serve(&socketWrapper{shellSocket, types.ShellMessage}, "FRONTEND-SHELL", false)
+	go Serve(&socketWrapper{controlSocket, types.ControlMessage}, "FRONTEND-CONTROL", false)
+
 	for {
 		fmt.Println("\n\n\n\n[1] Control. [2] Shell. [0] Quit.")
 		var input string
@@ -311,13 +318,6 @@ func TestZMQ() {
 		}
 
 		time.Sleep(time.Millisecond * 1250)
-
-		// msg, err = socket.Recv()
-		// if err != nil {
-		// 	fmt.Printf("[ERROR] Failed to receive %s message because: %v\n", socketType, err)
-		// }
-
-		// fmt.Printf("\nFrontend received %v message: %v\n\n", socketType, msg)
 	}
 }
 

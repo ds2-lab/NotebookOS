@@ -49,6 +49,7 @@ type Options struct {
 	JaegerAddr         string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr         string `name:"consul" description:"Consul agent address."`
 	LocalMode          bool   `name:"local_mode" description:"If true, then we're running 'locally' and not within a Kubernetes cluster (for debugging/testing)."`
+	NodeName           string `name:"node_name" description:"Node name used only for debugging in local mode."`
 }
 
 func (o Options) String() string {
@@ -109,7 +110,12 @@ func main() {
 		gOpts = append(gOpts, grpc.UnaryInterceptor(otgrpc.OpenTracingServerInterceptor(tracer)))
 	}
 
-	nodeName := os.Getenv("NODE_NAME")
+	var nodeName string
+	if options.LocalMode {
+		nodeName = options.NodeName
+	} else {
+		nodeName = os.Getenv("NODE_NAME")
+	}
 
 	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, options.LocalMode)
 

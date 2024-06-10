@@ -205,6 +205,7 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort, Name: fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)} // connectionInfo.IOSubPort}
 			s.PrependId = true
 			s.ShouldAckMessages = true
+			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
 		status:                  types.KernelStatusInitializing,

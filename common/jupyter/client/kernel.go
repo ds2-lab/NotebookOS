@@ -187,6 +187,7 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.StdinPort, Name: fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id)}
 			s.Sockets.HB = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.HBPort, Name: fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id)}
 			s.PrependId = false
+			s.Name = fmt.Sprintf("KernelClient-%s", spec.Kernel.Id)
 			s.ShouldAckMessages = shouldAckMessages
 			// s.Sockets.Ack = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
 			// IOPub is lazily initialized for different subclasses.
