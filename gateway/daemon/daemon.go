@@ -19,6 +19,7 @@ import (
 	"github.com/hashicorp/yamux"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/petermattis/goid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -864,11 +865,11 @@ func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 		// Initialize kernel with new context.
 		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.ExecutionFailed)
 		d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
-		// _, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
-		// if err != nil {
-		// 	kernel.Close()
-		// 	return nil, status.Errorf(codes.Internal, err.Error())
-		// }
+		_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
+		if err != nil {
+			kernel.Close()
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
 		d.log.Debug("Initializing IO Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 
 		_, err = kernel.InitializeIOForwarder()
@@ -1844,25 +1845,27 @@ func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 // }
 
 func (d *clusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
+	goroutineId := goid.Get()
 	var messageType string
 	if kernel == nil {
-		d.log.Debug(utils.BlueStyle.Render("Received %v message targeting unknown kernel/session. Inspecting now..."), typ)
+		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message targeting unknown kernel/session. Inspecting now..."), goroutineId, typ)
 		kernel, messageType, err = d.kernelAndTypeFromMsg(msg)
 	} else {
-		d.log.Debug(utils.BlueStyle.Render("Received %v message targeting kernel %s. Inspecting now..."), typ, kernel.ID())
+		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message targeting kernel %s. Inspecting now..."), goroutineId, typ, kernel.ID())
 		_, messageType, err = d.kernelAndTypeFromMsg(msg)
 	}
 
 	if err != nil {
-		d.log.Error("Failed to extract kernel and/or message type from %v message. Error: %v. Message: %v.", typ, err, msg)
+		d.log.Error("[gid=%d] Failed to extract kernel and/or message type from %v message. Error: %v. Message: %v.", goroutineId, typ, err, msg)
 		return err
 	}
 
-	d.log.Debug("Forwarding %v message of type %s to replicas of kernel %s.", typ, messageType, kernel.ID())
+	d.log.Debug("[gid=%d] Forwarding %v message of type %s to replicas of kernel %s.", goroutineId, typ, messageType, kernel.ID())
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 
 func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+	goroutineId := goid.Get()
 	socket := from.Socket(typ)
 	if socket == nil {
 		socket = d.router.Socket(typ)
@@ -1876,14 +1879,14 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 		_, header, err := d.headerFromMsg(msg)
 
 		if err != nil {
-			d.log.Error("Failed to extract header from %v message.", typ)
-			d.log.Debug("Forwarding %v response from kernel %s via %s: %v", typ, from.ID(), socket.Name, msg)
+			d.log.Error("[gid=%d] Failed to extract header from %v message.", goroutineId, typ)
+			d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
 			sendErr := socket.Send(*msg)
 
 			if sendErr != nil {
-				d.log.Error("Error while forwarding %v response from kernel %s via %s: %s", typ, from.ID(), socket.Name, err.Error())
+				d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())
 			} else {
-				d.log.Debug("Successfully forwarded %v response from kernel %s via %s.", typ, from.ID(), socket.Name)
+				d.log.Debug("[gid=%d] Successfully forwarded %v response from kernel %s via %s.", goroutineId, typ, from.ID(), socket.Name)
 			}
 
 			return sendErr
@@ -1894,13 +1897,13 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 		}
 	}
 
-	d.log.Debug("Forwarding %v response from kernel %s via %s: %v", typ, from.ID(), socket.Name, msg)
+	d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
 	err := socket.Send(*msg)
 
 	if err != nil {
-		d.log.Error("Error while forwarding %v response from kernel %s via %s: %s", typ, from.ID(), socket.Name, err.Error())
+		d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())
 	} else {
-		d.log.Debug("Successfully forwarded %v response from kernel %s via %s.", typ, from.ID(), socket.Name)
+		d.log.Debug("[gid=%d] Successfully forwarded %v response from kernel %s via %s.", goroutineId, typ, from.ID(), socket.Name)
 	}
 
 	return err // Will be nil on success.

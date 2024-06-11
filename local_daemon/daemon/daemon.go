@@ -17,6 +17,7 @@ import (
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/petermattis/goid"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -1361,6 +1362,7 @@ func (d *SchedulerDaemon) kernelFromMsg(msg *zmq4.Msg) (kernel client.KernelRepl
 }
 
 func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel client.KernelReplicaClient, typ jupyter.MessageType, msg *zmq4.Msg, done func()) (err error) {
+	goroutineId := goid.Get()
 	if kernel == nil {
 		kernel, err = d.kernelFromMsg(msg)
 		if err != nil {
@@ -1368,7 +1370,7 @@ func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel client.Kern
 		}
 	}
 
-	d.log.Debug("Forwarding %v message to replica %d of kernel %s.", typ, kernel.ReplicaID(), kernel.ID())
+	d.log.Debug("[gid=%d] Forwarding %v message to replica %d of kernel %s.", goroutineId, typ, kernel.ReplicaID(), kernel.ID())
 	if done == nil {
 		done = func() {}
 	}

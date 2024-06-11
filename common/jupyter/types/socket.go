@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/go-zeromq/zmq4"
+	"github.com/petermattis/goid"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )
@@ -86,11 +87,12 @@ type Socket struct {
 	Serving    int32
 	Name       string // Mostly used for debugging.
 	BeingUsed  atomic.Int32
-	// mu         sync.Mutex
+	mu         sync.Mutex
 }
 
 func (s *Socket) Send(msg zmq4.Msg) error {
-	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Attempting to send message via %v socket %v.\n")), s.Type, s.Name)
+	goroutineId := goid.Get()
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("[gid=%d] Attempting to send message via %v socket %v.\n")), goroutineId, s.Type, s.Name)
 	// s.mu.Lock()
 	// defer s.mu.Unlock()
 
@@ -100,9 +102,9 @@ func (s *Socket) Send(msg zmq4.Msg) error {
 
 	alreadyBeingUsed := (s.BeingUsed.Add(1) >= 2)
 
-	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Calling Socket.Send() on %v socket %v now. Already being used: %v\n")), s.Type, s.Name, alreadyBeingUsed)
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("[gid=%d] Calling Socket.Send() on %v socket %v now. Already being used: %v\n")), goroutineId, s.Type, s.Name, alreadyBeingUsed)
 	err := s.Socket.Send(msg)
-	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Finished call to Socket.Send() on %v socket %v now.\n")), s.Type, s.Name)
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("[gid=%d] Finished call to Socket.Send() on %v socket %v now.\n")), goroutineId, s.Type, s.Name)
 
 	// if swapped := s.BeingUsed.CompareAndSwap(1, 0); !swapped {
 	// 	panic("Should have swapped!")
@@ -116,7 +118,8 @@ func (s *Socket) Send(msg zmq4.Msg) error {
 }
 
 func (s *Socket) Recv() (zmq4.Msg, error) {
-	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Attempting to receive message via %v socket %v.\n")), s.Type, s.Name)
+	goroutineId := goid.Get()
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("[gid=%d] Attempting to receive message via %v socket %v.\n")), goroutineId, s.Type, s.Name)
 
 	// s.mu.Lock()
 	// defer s.mu.Unlock()
@@ -127,9 +130,9 @@ func (s *Socket) Recv() (zmq4.Msg, error) {
 
 	alreadyBeingUsed := (s.BeingUsed.Add(1) >= 2)
 
-	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Calling Socket.Recv() on %v socket %v now. Already being used: %v.\n")), s.Type, s.Name, alreadyBeingUsed)
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("[gid=%d] Calling Socket.Recv() on %v socket %v now. Already being used: %v.\n")), goroutineId, s.Type, s.Name, alreadyBeingUsed)
 	msg, err := s.Socket.Recv()
-	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Finished call to Socket.Recv() on %v socket %v now.\n")), s.Type, s.Name)
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("[gid=%d] Finished call to Socket.Recv() on %v socket %v now.\n")), goroutineId, s.Type, s.Name)
 
 	// if swapped := s.BeingUsed.CompareAndSwap(1, 0); !swapped {
 	// 	panic("Should have swapped!")
