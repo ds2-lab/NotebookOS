@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"sync"
@@ -57,6 +59,26 @@ func main() {
 	}
 
 	logger.Info("Started gateway with options: %v", options)
+
+	if options.DebugMode {
+		go func() {
+			log.Printf("Serving debug HTTP server on port %d.\n", options.DebugPort)
+
+			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
+			})
+
+			http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
+			})
+
+			if err := http.ListenAndServe(fmt.Sprintf("localhost:%d", options.DebugPort), nil); err != nil {
+				log.Fatal("ListenAndServe: ", err)
+			}
+		}()
+	}
 
 	var tracer opentracing.Tracer
 	var consulClient *consul.Client

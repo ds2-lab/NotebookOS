@@ -17,6 +17,7 @@ import (
 	core "github.com/zhangjyr/distributed-notebook/common/core"
 	gateway "github.com/zhangjyr/distributed-notebook/common/gateway"
 	client "github.com/zhangjyr/distributed-notebook/common/jupyter/client"
+	server "github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -358,6 +359,20 @@ func (mr *MockKernelReplicaClientMockRecorder) PodName() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodName", reflect.TypeOf((*MockKernelReplicaClient)(nil).PodName))
 }
 
+// RemoveDestFrame mocks base method.
+func (m *MockKernelReplicaClient) RemoveDestFrame(frames [][]byte, jOffset int) [][]byte {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveDestFrame", frames, jOffset)
+	ret0, _ := ret[0].([][]byte)
+	return ret0
+}
+
+// RemoveDestFrame indicates an expected call of RemoveDestFrame.
+func (mr *MockKernelReplicaClientMockRecorder) RemoveDestFrame(frames, jOffset any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveDestFrame", reflect.TypeOf((*MockKernelReplicaClient)(nil).RemoveDestFrame), frames, jOffset)
+}
+
 // RemoveSourceKernelFrame mocks base method.
 func (m *MockKernelReplicaClient) RemoveSourceKernelFrame(frames [][]byte, jOffset int) [][]byte {
 	m.ctrl.T.Helper()
@@ -426,6 +441,20 @@ func (m *MockKernelReplicaClient) ResourceSpec() *gateway.ResourceSpec {
 func (mr *MockKernelReplicaClientMockRecorder) ResourceSpec() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceSpec", reflect.TypeOf((*MockKernelReplicaClient)(nil).ResourceSpec))
+}
+
+// SendMessage mocks base method.
+func (m *MockKernelReplicaClient) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest server.RequestDest, sourceKernel server.SourceKernel, offset int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SendMessage", requiresACK, socket, reqId, req, dest, sourceKernel, offset)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SendMessage indicates an expected call of SendMessage.
+func (mr *MockKernelReplicaClientMockRecorder) SendMessage(requiresACK, socket, reqId, req, dest, sourceKernel, offset any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendMessage", reflect.TypeOf((*MockKernelReplicaClient)(nil).SendMessage), requiresACK, socket, reqId, req, dest, sourceKernel, offset)
 }
 
 // Sessions mocks base method.

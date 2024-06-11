@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/go-zeromq/zmq4"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )
 
@@ -84,6 +85,61 @@ type Socket struct {
 	PendingReq hashmap.HashMap[string, *MessageHandlerWrapper]
 	Serving    int32
 	Name       string // Mostly used for debugging.
+	BeingUsed  atomic.Int32
+	// mu         sync.Mutex
+}
+
+func (s *Socket) Send(msg zmq4.Msg) error {
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Attempting to send message via %v socket %v.\n")), s.Type, s.Name)
+	// s.mu.Lock()
+	// defer s.mu.Unlock()
+
+	// if swapped := s.BeingUsed.CompareAndSwap(0, 1); !swapped {
+	// 	panic("Should have swapped!")
+	// }
+
+	alreadyBeingUsed := (s.BeingUsed.Add(1) >= 2)
+
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Calling Socket.Send() on %v socket %v now. Already being used: %v\n")), s.Type, s.Name, alreadyBeingUsed)
+	err := s.Socket.Send(msg)
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Finished call to Socket.Send() on %v socket %v now.\n")), s.Type, s.Name)
+
+	// if swapped := s.BeingUsed.CompareAndSwap(1, 0); !swapped {
+	// 	panic("Should have swapped!")
+	// }
+
+	if s.BeingUsed.Add(-1) < 0 {
+		panic("Illegal")
+	}
+
+	return err
+}
+
+func (s *Socket) Recv() (zmq4.Msg, error) {
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Attempting to receive message via %v socket %v.\n")), s.Type, s.Name)
+
+	// s.mu.Lock()
+	// defer s.mu.Unlock()
+
+	// if swapped := s.BeingUsed.CompareAndSwap(0, 1); !swapped {
+	// 	panic("Should have swapped!")
+	// }
+
+	alreadyBeingUsed := (s.BeingUsed.Add(1) >= 2)
+
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Calling Socket.Recv() on %v socket %v now. Already being used: %v.\n")), s.Type, s.Name, alreadyBeingUsed)
+	msg, err := s.Socket.Recv()
+	fmt.Printf(fmt.Sprintf("%s\n", utils.PurpleStyle.Render("Finished call to Socket.Recv() on %v socket %v now.\n")), s.Type, s.Name)
+
+	// if swapped := s.BeingUsed.CompareAndSwap(1, 0); !swapped {
+	// 	panic("Should have swapped!")
+	// }
+
+	if s.BeingUsed.Add(-1) < 0 {
+		panic("Illegal")
+	}
+
+	return msg, err
 }
 
 func (s *Socket) String() string {

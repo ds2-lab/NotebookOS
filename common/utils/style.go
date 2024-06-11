@@ -22,7 +22,7 @@ var (
 			Foreground(lipgloss.Color("#3185FC"))
 	BlueStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#3185FC"))
+			Foreground(lipgloss.Color("#0A64E2"))
 	PurpleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#8400D6"))

@@ -864,11 +864,11 @@ func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 		// Initialize kernel with new context.
 		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.ExecutionFailed)
 		d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
-		_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
-		if err != nil {
-			kernel.Close()
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
+		// _, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
+		// if err != nil {
+		// 	kernel.Close()
+		// 	return nil, status.Errorf(codes.Internal, err.Error())
+		// }
 		d.log.Debug("Initializing IO Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 
 		_, err = kernel.InitializeIOForwarder()
@@ -1877,13 +1877,13 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 
 		if err != nil {
 			d.log.Error("Failed to extract header from %v message.", typ)
-			d.log.Debug("Forwarding %v response from kernel %s: %v", typ, from.ID(), msg)
+			d.log.Debug("Forwarding %v response from kernel %s via %s: %v", typ, from.ID(), socket.Name, msg)
 			sendErr := socket.Send(*msg)
 
 			if sendErr != nil {
-				d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+				d.log.Error("Error while forwarding %v response from kernel %s via %s: %s", typ, from.ID(), socket.Name, err.Error())
 			} else {
-				d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
+				d.log.Debug("Successfully forwarded %v response from kernel %s via %s.", typ, from.ID(), socket.Name)
 			}
 
 			return sendErr
@@ -1894,13 +1894,13 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 		}
 	}
 
-	d.log.Debug("Forwarding %v response from kernel %s: %v", typ, from.ID(), msg)
+	d.log.Debug("Forwarding %v response from kernel %s via %s: %v", typ, from.ID(), socket.Name, msg)
 	err := socket.Send(*msg)
 
 	if err != nil {
-		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+		d.log.Error("Error while forwarding %v response from kernel %s via %s: %s", typ, from.ID(), socket.Name, err.Error())
 	} else {
-		d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
+		d.log.Debug("Successfully forwarded %v response from kernel %s via %s.", typ, from.ID(), socket.Name)
 	}
 
 	return err // Will be nil on success.

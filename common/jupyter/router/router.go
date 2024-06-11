@@ -35,8 +35,6 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			s.PrependId = true
 			s.ShouldAckMessages = shouldAckMessages
 			s.Name = fmt.Sprintf("Router-%s", name)
-			// s.Sockets.Ack = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.AckPort}
-			// IOPub is a session specific socket, so it is not initialized here.
 		}),
 	}
 	router.BaseServer = router.server.Server()

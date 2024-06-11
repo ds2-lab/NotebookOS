@@ -727,7 +727,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 		replicaCtx, cancel = context.WithTimeout(ctx, server.DefaultRequestTimeout)
 	}
 	forwarder := func(replica core.KernelInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
-		c.log.Debug(utils.LightBlueStyle.Render("Received %v response from replica %v"), typ, replica)
+		c.log.Debug(utils.BlueStyle.Render("Received %v response from replica %v"), typ, replica)
 
 		if typ == types.ShellMessage {
 			// "Preprocess" the response, which involves checking if it a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.

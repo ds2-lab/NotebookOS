@@ -63,6 +63,8 @@ type Options struct {
 	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
 	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr      string `name:"consul" description:"Consul agent address."`
+	DebugMode       bool   `name:"debug_mode" description:"Enable the debug HTTP server."`
+	DebugPort       int    `name:"debug_port" description:"The port for the debug HTTP server."`
 	// DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
 }
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"sync"
@@ -50,6 +52,8 @@ type Options struct {
 	Consuladdr         string `name:"consul" description:"Consul agent address."`
 	LocalMode          bool   `name:"local_mode" description:"If true, then we're running 'locally' and not within a Kubernetes cluster (for debugging/testing)."`
 	NodeName           string `name:"node_name" description:"Node name used only for debugging in local mode."`
+	DebugMode          bool   `name:"debug_mode" description:"Enable the debug HTTP server."`
+	DebugPort          int    `name:"debug_port" description:"The port for the debug HTTP server."`
 }
 
 func (o Options) String() string {
@@ -77,6 +81,26 @@ func main() {
 	}
 
 	logger.Info("Started scheduler with options: %v", options)
+
+	if options.DebugMode {
+		go func() {
+			log.Printf("Serving debug HTTP server on port %d.\n", options.DebugPort)
+
+			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
+			})
+
+			http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
+			})
+
+			if err := http.ListenAndServe(fmt.Sprintf("localhost:%d", options.DebugPort), nil); err != nil {
+				log.Fatal("ListenAndServe: ", err)
+			}
+		}()
+	}
 
 	var tracer opentracing.Tracer
 	var consulClient *consul.Client

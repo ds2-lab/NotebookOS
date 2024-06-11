@@ -30,6 +30,7 @@ type KernelReplicaClient interface {
 	core.Kernel
 	server.Server
 	server.SourceKernel
+	server.Sender
 
 	// InitializeIOForwarder initializes the IOPub serving.
 	InitializeShellForwarder(handler core.KernelMessageHandler) (*types.Socket, error)

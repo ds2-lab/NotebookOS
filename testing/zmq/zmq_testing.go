@@ -4,17 +4,48 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
+	"net/http"
 	"sync"
 	"time"
+
+	// _ "net/http"
+
+	_ "net/http/pprof"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+)
+
+var (
+	RedStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#EE4266"))
+	OrangeStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFA113"))
+	YellowStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFD23F"))
+	GreenStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#2A9D8F"))
+	LightBlueStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#3185FC"))
+	BlueStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#0A64E2"))
+	PurpleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#8400D6"))
 )
 
 type socketWrapper struct {
@@ -61,28 +92,28 @@ func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemo
 	if err != nil {
 		panic(err)
 	}
-	go Serve(kernel.HeartbeatSocket, fullID, false)
+	go Serve(kernel.HeartbeatSocket, fullID, false, true)
 
 	fmt.Printf("Kernel %s is listening and serving ControlSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+1)
 	err = kernel.ControlSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+1))
 	if err != nil {
 		panic(err)
 	}
-	go Serve(kernel.ControlSocket, fullID, true)
+	go Serve(kernel.ControlSocket, fullID, true, true)
 
 	fmt.Printf("Kernel %s is listening and serving ShellSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+2)
 	err = kernel.ShellSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+2))
 	if err != nil {
 		panic(err)
 	}
-	go Serve(kernel.ShellSocket, fullID, true)
+	go Serve(kernel.ShellSocket, fullID, true, true)
 
 	fmt.Printf("Kernel %s is listening and serving StdinSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+3)
 	err = kernel.StdinSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+3))
 	if err != nil {
 		panic(err)
 	}
-	go Serve(kernel.StdinSocket, fullID, false)
+	go Serve(kernel.StdinSocket, fullID, false, true)
 
 	err = kernel.IOPubSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+4))
 	if err != nil {
@@ -92,45 +123,111 @@ func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemo
 	return kernel
 }
 
-func Serve(socket *socketWrapper, id string, sendAcks bool) {
+func Serve(socket *socketWrapper, id string, sendAcks bool, sendReplies bool) {
 	for {
 		msg, err := socket.Recv()
 		if err != nil {
-			fmt.Printf("[ERROR] Error reading from %v socket: %v\n", socket.Type, err)
+			fmt.Printf(RedStyle.Render("[ERROR] Error reading from %v socket: %v\n"), socket.Type, err)
 			return
 		}
 
 		fmt.Printf("\n[%v] Received message: %v\n", socket.Type, msg)
 
 		var idents [][]byte
+		var delimIndex int
 		for i, frame := range msg.Frames {
 			if string(frame) == "<IDS|MSG>" {
 				idents = msg.Frames[0:i]
+				delimIndex = i
 				break
 			}
 		}
 
 		// Need to respond with an ACK.
 		if sendAcks {
-			frames := [][]byte{
-				[]byte("<IDS|MSG>"),
-				[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
-				[]byte(fmt.Sprintf("{\"msg_type\": \"ACK\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", id)),
-				[]byte("FROM KERNEL"),
-				[]byte("FROM KERNEL"),
-				[]byte("FROM KERNEL"),
+			messageFrames := make([][]byte, len(idents)+6)
+
+			for i, identity_frame := range idents {
+				messageFrames[i] = make([]byte, len(identity_frame))
+				copy(messageFrames[i], identity_frame)
 			}
 
-			idents = append(idents, frames...)
+			jFrames := types.JupyterFrames(msg.Frames[delimIndex:])
+			var header map[string]interface{}
+			if err := jFrames.DecodeHeader(&header); err != nil {
+				panic(err)
+			}
 
-			msg := zmq4.NewMsgFrom(idents...)
+			msg_id := header["msg_id"].(string)
 
-			err := socket.Send(msg)
+			idx := len(idents)
+			messageFrames[idx] = []byte("<IDS|MSG>")
+			messageFrames[idx+1] = []byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d")
+			messageFrames[idx+2] = []byte(fmt.Sprintf("{\"msg_type\": \"ACK\", \"msg_id\": \"%s\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", msg_id, id))
+			messageFrames[idx+3] = []byte("{\"FROM KERNEL\": \"FROM KERNEL\"}")
+			messageFrames[idx+4] = []byte("{\"FROM KERNEL\": \"FROM KERNEL\"}")
+			messageFrames[idx+5] = []byte("{\"FROM KERNEL\": \"FROM KERNEL\"}")
+
+			// frames := [][]byte{
+			// 	[]byte("<IDS|MSG>"),
+			// 	[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
+			// 	[]byte(fmt.Sprintf("{\"msg_type\": \"ACK\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", id)),
+			// 	[]byte("FROM KERNEL"),
+			// 	[]byte("FROM KERNEL"),
+			// 	[]byte("FROM KERNEL"),
+			// }
+
+			// idents = append(idents, frames...)
+
+			ack_message := zmq4.NewMsgFrom(messageFrames...)
+
+			err := socket.Send(ack_message)
 			if err != nil {
-				fmt.Printf("[ERROR] Failed to send %v message because: %v\n", socket.Type, err)
+				fmt.Printf(RedStyle.Render("[ERROR] Failed to send %v ACK because: %v\n"), socket.Type, err)
 				return
 			} else {
-				fmt.Printf("\n%s sent 'ACK' (LocalAddr=%v): %v\n", id, socket.Addr(), msg)
+				fmt.Printf("\n%s sent 'ACK' (LocalAddr=%v): %v\n", id, socket.Addr(), ack_message)
+			}
+		}
+
+		if sendReplies {
+
+			jFrames := types.JupyterFrames(msg.Frames[delimIndex:])
+			var header map[string]interface{}
+			if err := jFrames.DecodeHeader(&header); err != nil {
+				panic(err)
+			}
+
+			if msg_type := header["msg_type"].(string); msg_type == "kernel_info_reply" {
+				log.Println(RedStyle.Render("Received 'kernel_info_reply' message for some reason..."))
+				continue // Don't send anything else.
+			}
+
+			messageFrames := make([][]byte, len(idents)+6)
+
+			for i, identity_frame := range idents {
+				messageFrames[i] = make([]byte, len(identity_frame))
+				copy(messageFrames[i], identity_frame)
+			}
+
+			msg_id := header["msg_id"].(string)
+
+			idx := len(idents)
+			messageFrames[idx] = []byte("<IDS|MSG>")
+			messageFrames[idx+1] = []byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d")
+			messageFrames[idx+2] = []byte(fmt.Sprintf("{\"msg_type\": \"kernel_info_reply\", \"msg_id\": \"%s\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", msg_id, id))
+			messageFrames[idx+3] = []byte("{\"FROM KERNEL\": \"FROM KERNEL\"}")
+			messageFrames[idx+4] = []byte("{\"FROM KERNEL\": \"FROM KERNEL\"}")
+			messageFrames[idx+5] = []byte("{\"FROM KERNEL\": \"FROM KERNEL\"}")
+
+			response := zmq4.NewMsgFrom(messageFrames...)
+
+			err = socket.Send(response)
+			if err != nil {
+				fmt.Printf(RedStyle.Render("[ERROR] Failed to send %v message 'kernel_info_reply' because: %v\n"), socket.Type, err)
+				return
+			} else {
+				fmt.Printf("\n%s sent 'kernel_info_reply' (LocalAddr=%v): %v\n", id, socket.Addr(), response)
 			}
 		}
 	}
@@ -271,8 +368,8 @@ func TestZMQ() {
 	}
 	fmt.Println("Connected to ::19002 (control).")
 
-	go Serve(&socketWrapper{shellSocket, types.ShellMessage}, "FRONTEND-SHELL", false)
-	go Serve(&socketWrapper{controlSocket, types.ControlMessage}, "FRONTEND-CONTROL", false)
+	go Serve(&socketWrapper{shellSocket, types.ShellMessage}, kernelId, false, false)
+	go Serve(&socketWrapper{controlSocket, types.ControlMessage}, kernelId, false, false)
 
 	for {
 		fmt.Println("\n\n\n\n[1] Control. [2] Shell. [0] Quit.")
@@ -306,9 +403,9 @@ func TestZMQ() {
 			[]byte("<IDS|MSG>"),
 			[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
 			[]byte(fmt.Sprintf("{\"msg_id\": \"%s\", \"msg_type\": \"kernel_info_request\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", msgId, kernelId)),
-			[]byte("FROM FRONTEND"),
-			[]byte("FROM FRONTEND"),
-			[]byte("FROM FRONTEND"),
+			[]byte("{\"FROM FRONTEND\": \"FROM FRONTEND\"}"),
+			[]byte("{\"FROM FRONTEND\": \"FROM FRONTEND\"}"),
+			[]byte("{\"FROM FRONTEND\": \"FROM FRONTEND\"}"),
 		}
 
 		msg := zmq4.NewMsgFrom(frames...)
@@ -322,5 +419,34 @@ func TestZMQ() {
 }
 
 func main() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		log.Println("Serving HTTP.")
+
+		http.HandleFunc("/stop", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf("%d - Stopping\n", http.StatusOK)))
+			wg.Done()
+		})
+
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
+		})
+
+		http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
+		})
+
+		if err := http.ListenAndServe("localhost:5050", nil); err != nil {
+			log.Fatal("ListenAndServe: ", err)
+		}
+	}()
+
 	TestZMQ()
+
+	wg.Wait()
 }

@@ -44,6 +44,13 @@ var (
 
 type WaitResponseOptionGetter func(key string) interface{}
 
+type Sender interface {
+	RequestDest
+
+	// Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
+	SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error
+}
+
 // RequestDestination is an interface for describing the destination of a request.
 type RequestDest interface {
 	// ID returns the ID of the destination.
@@ -139,7 +146,7 @@ func New(ctx context.Context, info *types.ConnectionInfo, init func(server *Abst
 		CancelCtx:       cancelCtx,
 		Sockets:         &types.JupyterSocket{},
 		numAcksReceived: 0,
-		maxNumRetries:   5,
+		maxNumRetries:   1,
 		acksReceived:    hashmap.NewSyncMap[string, bool](),
 		ackChannels:     hashmap.NewSyncMap[string, chan struct{}](),
 		// Log:       logger.NilLogger, // To be overwritten by init.
@@ -192,9 +199,13 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 	return nil
 }
 
-func (s *AbstractServer) handleAck(msg *zmq4.Msg, socket *types.Socket, dest RequestDest) {
+func (s *AbstractServer) handleAck(msg *zmq4.Msg, socket *types.Socket, dest RequestDest, rspId string) {
 	s.numAcksReceived += 1
-	_, rspId, _ := dest.ExtractDestFrame(msg.Frames) // Redundant, will optimize later.
+
+	if len(rspId) == 0 {
+		_, rspId, _ = dest.ExtractDestFrame(msg.Frames) // Redundant, will optimize later.
+	}
+
 	ackChan, _ := s.ackChannels.Load(rspId)
 	var (
 		ackReceived bool
@@ -212,6 +223,8 @@ func (s *AbstractServer) handleAck(msg *zmq4.Msg, socket *types.Socket, dest Req
 		s.Log.Error("[4] Received ACK for %v message %v via %s; however, we already received an ACK for that message...", socket.Type, rspId, socket.Name)
 	} else if !loaded {
 		panic(fmt.Sprintf("Did not have ACK entry for message %s", rspId))
+	} else {
+		panic("Unexpected condition.")
 	}
 }
 
@@ -254,7 +267,7 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 			[]byte(s.Name))
 	}
 
-	s.Log.Debug(utils.BlueStyle.Render("Sending ACK message via %s: %v"), socket.Name, ack_msg)
+	s.Log.Debug(utils.LightBlueStyle.Render("Sending ACK message via %s: %v"), socket.Name, ack_msg)
 
 	err := socket.Send(ack_msg)
 	if err != nil {
@@ -275,22 +288,28 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 	defer atomic.StoreInt32(&socket.Serving, 0)
 
 	chMsg := make(chan interface{})
-	var contd chan interface{}
+	var contd chan bool
 	if socket.PendingReq == nil {
 		go s.poll(socket, chMsg, nil)
-		s.Log.Debug("Start serving %s messages via %s", socket.Type.String(), socket.Name)
+		s.Log.Debug("Start serving %v messages via %s", socket.Type.String(), socket.Name)
 	} else {
-		contd = make(chan interface{})
+		contd = make(chan bool)
 		go s.poll(socket, chMsg, contd)
-		s.Log.Debug("Start waiting for the response of %s requests via %s", socket.Type.String(), socket.Name)
+		s.Log.Debug("Start waiting for the response of %v requests via %s", socket.Type.String(), socket.Name)
 	}
 
 	for {
 		select {
 		case <-s.Ctx.Done():
+			if contd != nil {
+				contd <- false
+			}
 			return
 		case msg := <-chMsg:
 			if msg == nil {
+				if contd != nil {
+					contd <- false
+				}
 				return
 			}
 
@@ -312,22 +331,29 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					panic(fmt.Sprintf("Could not determine if message is an 'ACK'. Message: %v. Error: %v.", msg, err))
 				}
 
+				_, rspId, _ := dest.ExtractDestFrame(v.Frames)
 				if is_ack {
-					_, rspId, _ := dest.ExtractDestFrame(v.Frames)
 					s.Log.Debug(utils.GreenStyle.Render("[1] Received ACK via %s: %v (%v): %v"), socket.Name, rspId, socket.Type, msg)
-					s.handleAck(v, socket, dest)
-					contd <- &struct{}{}
+					s.handleAck(v, socket, dest, rspId)
+					if contd != nil {
+						contd <- true
+					}
 					continue
 				} else if !is_ack && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
 					s.sendAck(v, socket, dest)
 				}
 
 				err = handler(server, socket.Type, v)
+
+				s.Log.Debug("Handler for %v message %v has returned. Error: %v.", socket.Type, rspId, err)
 			}
 
 			// Stop serving on error.
 			if err == io.EOF {
 				s.Log.Debug(utils.OrangeStyle.Render("Socket %s [%v] closed."), socket.Name, socket.Type)
+				if contd != nil {
+					contd <- false
+				}
 				return
 			} else if errors.Is(err, errServeOnce) || errors.Is(err, context.Canceled) {
 				// Stop serving safely by setting and testing:
@@ -336,28 +362,47 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				// 2. Confirm no new request is pending.
 				if socket.PendingReq == nil || socket.PendingReq.Len() == 0 {
 					// Now any newer request will see the serving flag is 0 and will start a new serve routing.
+					if contd != nil {
+						contd <- false
+					}
+					s.Log.Error(utils.OrangeStyle.Render("Done handling %s messages: %v."), socket.Type.String(), err)
 					return
 				}
 				// 3. If a new request is pending, compete with the new serve routing to serve the request.
 				if !atomic.CompareAndSwapInt32(&socket.Serving, 0, 1) {
 					// We failed to set the flag to 1, quit.
+					if contd != nil {
+						contd <- false
+					}
+					s.Log.Error(utils.OrangeStyle.Render("Done handling %s messages: %v."), socket.Type.String(), err)
 					return
 				}
 			} else if err != nil {
 				s.Log.Error(utils.RedStyle.Render("Error on handle %s message: %v. Message: %v."), socket.Type.String(), err, msg)
 
-				if errors.Is(err, context.Canceled) {
-					return
-				} else {
-					s.Log.Error("Will NOT abort serving for now.")
-					contd <- &struct{}{}
-					continue
+				s.Log.Error("Will NOT abort serving for now.")
+				if contd != nil {
+					contd <- true
 				}
+				continue
+
+				// if errors.Is(err, context.Canceled) {
+				// 	if contd != nil {
+				// 		contd <- false
+				// 	}
+				// 	return
+				// } else {
+				// 	s.Log.Error("Will NOT abort serving for now.")
+				// 	if contd != nil {
+				// 		contd <- true
+				// 	}
+				// 	continue
+				// }
 			}
 		}
 
 		if socket.PendingReq != nil {
-			contd <- &struct{}{}
+			contd <- true
 			s.Log.Debug("Continue waiting for the resposne of %s requests(%d)", socket.Type.String(), socket.PendingReq.Len())
 		}
 	}
@@ -409,7 +454,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// dest.Unlock()
 	_, alreadyRegistered := s.RegisterAck(reqId)
 	if alreadyRegistered {
-		s.Log.Error(utils.RedStyle.Render("Already listening for ACKs for request %s...", reqId))
+		s.Log.Error(utils.RedStyle.Render("Already listening for ACKs for request %s..."), reqId)
 	}
 
 	// Track the pending request.
@@ -549,11 +594,11 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 			return err
 		}
 
-		s.Log.Debug(utils.BlueStyle.Render("Sent %v message with reqID=%v via %s. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d. Message: %v"), socket.Type, reqId, socket.Name, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries, req)
+		s.Log.Debug(utils.LightBlueStyle.Render("Sent %v message with reqID=%v via %s. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d. Message: %v"), socket.Type, reqId, socket.Name, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries, req)
 
 		// If an ACK is required, then we'll block until the ACK is received, or until timing out, at which point we'll try sending the message again.
 		if requiresACK {
-			success := s.waitForAck(ackChan, time.Second*5)
+			success := s.waitForAck(ackChan, time.Second*2)
 
 			if success {
 				s.Log.Debug(utils.GreenStyle.Render("%v message %v has successfully been ACK'd on attempt %d/%d."), socket.Type, reqId, num_tries+1, max_num_tries)
@@ -760,7 +805,7 @@ func (s *AbstractServer) SkipIdentities(frames [][]byte) (types.JupyterFrames, i
 	return frames[i:], i
 }
 
-func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, contd <-chan interface{}) {
+func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, contd <-chan bool) {
 	defer close(chMsg)
 
 	var msg interface{}
@@ -788,11 +833,13 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 
 		// Wait for continue signal or quit.
 		if contd != nil {
+			s.Log.Debug("%v socket %s is waiting to be instructed to continue.", socket.Type, socket.Name)
 			proceed := <-contd
-			if proceed == nil {
+			if !proceed {
 				s.Log.Warn("Polling is stopping.")
 				return
 			}
+			s.Log.Debug("%v socket %s has been instructed to continue.", socket.Type, socket.Name)
 		}
 	}
 }

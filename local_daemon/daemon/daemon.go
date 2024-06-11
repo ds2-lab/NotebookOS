@@ -1376,6 +1376,8 @@ func (d *SchedulerDaemon) forwardRequest(ctx context.Context, kernel client.Kern
 }
 
 func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+	var sender server.Sender
+
 	socket := from.Socket(typ)
 	if socket == nil {
 		socket = d.router.Socket(typ)
@@ -1385,22 +1387,31 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 		// (a) Listen for the ACK.
 		// (b) Re-forward the kernel's response to the Cluster Gateway if we don't receive an ACK.
 		d.router.RegisterAck(msg)
+
+		// Use the router as the server to forward the kernel's response to the cluster gateway.
+		// The socket belongs to the router, hence we use that server.
+		sender = d.router
+	} else {
+		// Use the kernel client as the server to forward the kernel's response to the cluster gateway.
+		// The socket belongs to the kernel client's server, hence we use that server.
+		sender = from.(client.KernelReplicaClient)
 	}
+
 	if socket == nil {
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
 	}
-	d.log.Debug("Forwarding %v response from %v: %v", typ, from, msg)
+	d.log.Debug("Forwarding %v response from %v via %s: %v", typ, from, socket.Name, msg)
 
-	go d.router.SendMessage(true, socket, "" /* will be auto-resolved */, msg, d.router, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
+	// We should only use the router here if that's where the socket came from...
+	go sender.SendMessage(true, socket, "" /* will be auto-resolved */, msg, sender, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
+	err := socket.Send(*msg)
 
-	// err := socket.Send(*msg)
-
-	// if err != nil {
-	// 	d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
-	// } else {
-	// 	d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
-	// }
+	if err != nil {
+		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+	} else {
+		d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
+	}
 
 	return nil // Will be nil on success.
 }

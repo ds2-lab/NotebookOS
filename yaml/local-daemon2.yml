@@ -41,3 +41,5 @@ scaling-buffer-size: 3
 min-kubernetes-nodes: 4
 gpus-per-host: 8
 local_mode: true
+debug_mode: true
+debug_port: 9998
