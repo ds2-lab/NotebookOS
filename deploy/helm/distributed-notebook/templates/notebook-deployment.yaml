@@ -31,6 +31,9 @@ spec:
           image: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag}}
           name: jupyter-notebook 
           resources: {}
+          volumeMounts:
+          - mountPath: /tmp/cores
+            name: core-dump-path
           ports:
           - name: nb-server
             containerPort: {{ .Values.notebook_server.port }}
@@ -54,5 +57,9 @@ spec:
             containerPort: {{ .Values.gateway.provisioner_port }}
           - name: ack-port 
             containerPort: {{ .Values.local_daemon.network.jupyter.ack_port }}
+      volumes:
+        - name: core-dump-path
+          hostPath:
+            path: /home/core-dump 
       restartPolicy: Always
 status: {}

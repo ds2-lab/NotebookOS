@@ -27,6 +27,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -36,6 +37,7 @@ import (
 )
 
 const (
+	ShellExecuteReply      = "execute_reply"
 	ShellExecuteRequest    = "execute_request"
 	ShellYieldExecute      = "yield_execute"
 	ShellKernelInfoRequest = "kernel_info_request"
@@ -1056,6 +1058,16 @@ func (d *SchedulerDaemon) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) er
 	return nil
 }
 
+// Deallocate the GPU resources associated with the kernel.
+func (d *SchedulerDaemon) processExecuteReply(msg *zmq4.Msg, kernel core.KernelInfo, header *jupyter.MessageHeader) error {
+	err := d.gpuManager.ReleaseAllocatedGPUs(kernel.(client.KernelReplicaClient).ReplicaID(), kernel.ID())
+	if err != nil {
+		d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernel.(client.KernelReplicaClient).ReplicaID(), kernel.ID(), err)
+	}
+
+	return err /* will be nil on success */
+}
+
 func (d *SchedulerDaemon) processExecuteRequest(msg *zmq4.Msg, kernel client.KernelReplicaClient, header *jupyter.MessageHeader, offset int) *zmq4.Msg {
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	var targetReplicaId int32 = -1
@@ -1403,8 +1415,17 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
 	}
-	d.log.Debug("Forwarding %v response from %v via %s: %v", typ, from, socket.Name, msg)
 
+	if typ == types.ShellMessage {
+		_, header, err := d.headerFromMsg(msg)
+		if err != nil {
+			d.log.Error("Failed to extract header from %v message for kernel %s because: %v", typ, from.ID(), err)
+		} else if header.MsgType == ShellExecuteReply {
+			d.processExecuteReply(msg, from, header)
+		}
+	}
+
+	d.log.Debug("Forwarding %v response from %v via %s: %v", typ, from, socket.Name, msg)
 	// We should only use the router here if that's where the socket came from...
 	go sender.SendMessage(true, socket, "" /* will be auto-resolved */, msg, sender, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
 	err := socket.Send(*msg)

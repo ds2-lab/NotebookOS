@@ -452,9 +452,10 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	c.createHeadlessService(ctx, kernel, connectionInfo, headlessServiceName)
 
 	if c.useStatefulSet {
-		c.log.Debug("Creating StatefulSet for replicas of kernel \"%s\" now.", kernel.Id)
-		c.log.Warn("Using StatefulSets for deploying kernels is deprecated and is unlikely to work going forward...")
-		err = c.createKernelStatefulSet(ctx, kernel, connectionInfo, headlessServiceName)
+		panic("This is not supported anymore (out of date implementation).")
+		// c.log.Debug("Creating StatefulSet for replicas of kernel \"%s\" now.", kernel.Id)
+		// c.log.Warn("Using StatefulSets for deploying kernels is deprecated and is unlikely to work going forward...")
+		// err = c.createKernelStatefulSet(ctx, kernel, connectionInfo, headlessServiceName)
 	} else {
 		c.log.Debug("Creating CloneSet for replicas of kernel \"%s\" now.", kernel.Id)
 		err = c.createKernelCloneSet(ctx, kernel, connectionInfo, headlessServiceName)
@@ -1117,6 +1118,12 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 									"defaultMode": int32(0777),
 								},
 							},
+							{
+								"name": "core-dump-mount",
+								"hostPath": map[string]interface{}{
+									"path": "/home/core-dump",
+								},
+							},
 						},
 						"schedulerName": c.getSchedulerName(),
 						"containers": []map[string]interface{}{
@@ -1173,6 +1180,10 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 									{
 										"name":      "kernel-entrypoint",
 										"mountPath": "/kernel-entrypoint",
+									},
+									{
+										"name":      "core-dump-mount",
+										"mountPath": "/tmp/cores",
 									},
 								},
 								"env": []map[string]interface{}{
