@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 
 const (
@@ -107,7 +109,7 @@ func (frames JupyterFrames) String() string {
 }
 
 func (frames JupyterFrames) Validate() error {
-	if len(frames) < 6 {
+	if len(frames) < 5 /* 6, but buffers are optional, so 5 */ {
 		return ErrInvalidJupyterMessage
 	}
 	return nil
@@ -115,6 +117,7 @@ func (frames JupyterFrames) Validate() error {
 
 func (frames JupyterFrames) Verify(signatureScheme string, key []byte) error {
 	if err := frames.Validate(); err != nil {
+		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to validate message frames while verifying message: %v"), err)
 		return err
 	} else if signatureScheme != JupyterSignatureScheme {
 		return ErrNotSupportedSignatureScheme
@@ -229,6 +232,7 @@ func (frames JupyterFrames) verify(signkey []byte) bool {
 
 func (frames JupyterFrames) CreateSignature(signatureScheme string, key []byte, offset int) ([]byte, error) {
 	if err := frames.Validate(); err != nil {
+		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to validate message frames while creating message signature: %v"), err)
 		return nil, err
 	} else if signatureScheme != JupyterSignatureScheme {
 		return nil, ErrNotSupportedSignatureScheme

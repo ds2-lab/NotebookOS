@@ -1599,6 +1599,8 @@ func (d *clusterGatewayImpl) AckHandler(info router.RouterInfo, msg *zmq4.Msg) e
 func (d *clusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 	kernelId, header, err := d.headerFromMsg(msg)
 	if err != nil {
+		d.log.Error("Could not parse Shell message from %s because: %v", info.String(), err)
+		d.log.Error("Message in question: %s", msg.String())
 		return err
 	}
 
@@ -1738,6 +1740,7 @@ func (d *clusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.
 func (d *clusterGatewayImpl) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
 	jFrames := jupyter.JupyterFrames(frames)
 	if err := jFrames.Validate(); err != nil {
+		d.log.Error(utils.RedStyle.Render("[ERROR] Failed to validate message frames while extracting header from message: %v"), err)
 		return nil, err
 	}
 

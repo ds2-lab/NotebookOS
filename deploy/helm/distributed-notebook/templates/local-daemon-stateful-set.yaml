@@ -89,6 +89,8 @@ spec:
       labels:
         app: local-daemon
     spec:
+      serviceAccount: local-daemon-service-account
+      serviceAccountName: local-daemon-service-account
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

@@ -650,6 +650,7 @@ func (c *kernelReplicaClientImpl) forwardIOMessage(kernel core.Kernel, _ types.J
 func (c *kernelReplicaClientImpl) handleIOKernelStatus(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
 	var status types.MessageKernelStatus
 	if err := frames.Validate(); err != nil {
+		c.log.Error("Failed to validate message frames while handling IO kernel status: %v", err)
 		return err
 	}
 	err := frames.DecodeContent(&status)
@@ -688,6 +689,7 @@ func (c *kernelReplicaClientImpl) handleIOKernelStatus(kernel core.Kernel, frame
 func (c *kernelReplicaClientImpl) handleIOKernelSMRNodeAdded(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
 	var node_added_message types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
+		c.log.Error("Failed to validate message frames while handling kernel SMR node added: %v", err)
 		return err
 	}
 	err := frames.DecodeContent(&node_added_message)
@@ -707,6 +709,7 @@ func (c *kernelReplicaClientImpl) handleIOKernelSMRNodeAdded(kernel core.Kernel,
 func (c *kernelReplicaClientImpl) handleIOKernelSMRReady(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
 	var node_ready_message types.MessageSMRReady
 	if err := frames.Validate(); err != nil {
+		c.log.Error("Failed to validate message frames while handling kernel SMR ready: %v", err)
 		return err
 	}
 	err := frames.DecodeContent(&node_ready_message)

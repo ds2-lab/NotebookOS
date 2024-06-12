@@ -302,7 +302,7 @@ func RegisterFakeKernel(kernelId string, replicaId int, wg *sync.WaitGroup) {
 	wg.Done()
 }
 
-func StartFakeKernel(kernelId string, wg *sync.WaitGroup) {
+func StartFakeKernel(kernelId string, wg *sync.WaitGroup) *gateway.KernelConnectionInfo {
 	conn, err := grpc.Dial("localhost:18080", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
@@ -335,14 +335,22 @@ func StartFakeKernel(kernelId string, wg *sync.WaitGroup) {
 	fmt.Printf("Response: %v\n", resp)
 
 	wg.Done()
+
+	return resp
 }
 
 func TestZMQ() {
 	kernelId := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
+	respChannel := make(chan *gateway.KernelConnectionInfo)
+
 	var wg1 sync.WaitGroup
 	wg1.Add(1)
-	go StartFakeKernel(kernelId, &wg1)
+	go func() {
+		resp := StartFakeKernel(kernelId, &wg1)
+
+		respChannel <- resp
+	}()
 
 	var wg2 sync.WaitGroup
 	wg2.Add(3)
@@ -353,20 +361,24 @@ func TestZMQ() {
 	wg2.Wait()
 	wg1.Wait()
 
+	resp := <-respChannel
+
 	shellSocket := zmq4.NewDealer(context.Background())
 
-	err := shellSocket.Dial("tcp://127.0.0.1:19002")
+	shellDialAddr := fmt.Sprintf("tcp://127.0.0.1:%d", resp.ShellPort)
+	err := shellSocket.Dial(shellDialAddr)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Connected to ::19002 (shell).")
+	fmt.Printf("Connected to %s (shell).\n", shellDialAddr)
 
+	ctrlDialAddr := fmt.Sprintf("tcp://127.0.0.1:%d", resp.ControlPort)
 	controlSocket := zmq4.NewDealer(context.Background())
-	err = controlSocket.Dial("tcp://127.0.0.1:19001")
+	err = controlSocket.Dial(ctrlDialAddr)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Connected to ::19002 (control).")
+	fmt.Printf("Connected to %s (control).\n", ctrlDialAddr)
 
 	go Serve(&socketWrapper{shellSocket, types.ShellMessage}, kernelId, false, false)
 	go Serve(&socketWrapper{controlSocket, types.ControlMessage}, kernelId, false, false)
@@ -399,7 +411,7 @@ func TestZMQ() {
 		fmt.Printf("Message ID: \"%s\"\n", msgId)
 
 		frames := [][]byte{[]byte(kernelId),
-			[]byte(fmt.Sprintf("dest.%s.req.%s", kernelId, reqId)),
+			// []byte(fmt.Sprintf("dest.%s.req.%s", kernelId, reqId)),
 			[]byte("<IDS|MSG>"),
 			[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
 			[]byte(fmt.Sprintf("{\"msg_id\": \"%s\", \"msg_type\": \"kernel_info_request\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", msgId, kernelId)),

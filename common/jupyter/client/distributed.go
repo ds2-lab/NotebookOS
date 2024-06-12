@@ -575,6 +575,7 @@ func (c *distributedKernelClientImpl) InitializeShellForwarder(handler core.Kern
 
 	go c.server.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.KernelSpec().Id, server.JOffsetAutoDetect)
+		c.log.Debug("Received shell message via DistributedShellForwarder. Message: %v", msg)
 		return handler(srv.(*distributedKernelClientImpl), typ, msg)
 	}, false /* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be ACK'd. */)
 

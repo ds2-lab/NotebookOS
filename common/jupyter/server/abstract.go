@@ -595,7 +595,7 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 			panic(fmt.Sprintf("We need an ACK for %v message %s; however, the ACK channel is nil.", socket.Type, reqId))
 		}
 	} else {
-		max_num_tries = 1
+		max_num_tries = 5
 	}
 
 	for num_tries < max_num_tries {
@@ -609,7 +609,7 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 
 		// If an ACK is required, then we'll block until the ACK is received, or until timing out, at which point we'll try sending the message again.
 		if requiresACK {
-			success := s.waitForAck(ackChan, time.Second*2)
+			success := s.waitForAck(ackChan, time.Second*5)
 
 			if success {
 				s.Log.Debug(utils.GreenStyle.Render("[gid=%d] %v message %v has successfully been ACK'd on attempt %d/%d."), goroutineId, socket.Type, reqId, num_tries+1, max_num_tries)
@@ -668,7 +668,7 @@ func (s *AbstractServer) AddDestFrame(frames [][]byte, destID string, jOffset in
 		// If the dest frame is already there, we are done.
 		if reqID != "" {
 			s.Log.Debug("Destination frame found. ReqID: %s", reqID)
-			return
+			return frames, reqID
 		}
 	}
 
