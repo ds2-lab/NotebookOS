@@ -2,6 +2,7 @@ import io
 import os
 import pickle
 import asyncio
+import json
 import logging
 import time
 from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
@@ -103,6 +104,33 @@ class RaftLog:
     self._restoreCallback = self._restore       # No idea why this walkaround works
     self._ignore_changes = 0
     self._closed = None
+
+  def __get_serialized_state(self) -> str:
+    """
+    Serialize important state so that it can be written to HDFS (for recovery purposes).
+    
+    This return value of this function should be passed to the `self._node.WriteDataDirectoryToHDFS` function.
+    """
+    data_dict:dict = {
+      "winners_per_term": self.winners_per_term,
+      "my_proposals": self.my_proposals,
+      "my_current_attempt_number": self.my_current_attempt_number,
+      "largest_peer_attempt_number": self.largest_peer_attempt_number,
+      "proposals_per_term": self.proposals_per_term,
+      "own_proposal_times": self.own_proposal_times,
+      "first_lead_proposal_received_per_term  ": self.first_lead_proposal_received_per_term,
+      "first_proposal_received_per_term": self.first_proposal_received_per_term,
+      "timeout_durations": self.timeout_durations,
+      "discard_after": self.discard_after,
+      "num_proposals_discarded": self.num_proposals_discarded,
+      "sync_proposals_per_term": self.sync_proposals_per_term,
+      "decisions_proposed": self.decisions_proposed,
+      "_leader_term": self._leader_term,
+      "_leader_id": self._leader_id,
+      "_expected_term": self._expected_term,
+    }
+    
+    return json.dumps(data_dict)
 
   @property
   def num_changes(self) -> int:
@@ -702,6 +730,8 @@ class RaftLog:
     self._node.UpdateNode(node_id, address, resolve)
     res = await future.result()
     self._log.info("Result of UpdateNode: %s" % str(res))
+    
+    self.proposals_per_term[self._leader_term]
 
   async def remove_node(self, node_id):
     """Remove a node from the cluster."""
@@ -722,7 +752,10 @@ class RaftLog:
     """
     self._log.info("Writing etcd-Raft data directory to HDFS.")
     future, resolve = self._get_callback()
-    self._node.WriteDataDirectoryToHDFS(resolve)
+    
+    serialized_state:str = self.__get_serialized_state()
+    
+    self._node.WriteDataDirectoryToHDFS(serialized_state, resolve)
     data_dir_path = await future.result()
     return data_dir_path
 

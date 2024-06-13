@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/go-zeromq/zmq4"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
@@ -58,7 +59,7 @@ func (ack *messageAcknowledgementImpl) toZMQ4Message(dest RequestDest) *zmq4.Msg
 		ackFrame,
 	}
 
-	frames, _ = dest.AddDestFrame(frames, dest.RequestDestID(), JOffsetAutoDetect)
+	frames, _ = dest.AddDestFrame(frames, dest.RequestDestID(), jupyter.JOffsetAutoDetect)
 	msg := &zmq4.Msg{
 		Frames: frames,
 	}

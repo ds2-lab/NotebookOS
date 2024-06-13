@@ -173,7 +173,7 @@ func (d *DistributedCluster) SetTotalVirtualGPUs(ctx context.Context, in *gatewa
 }
 
 func (dc *DistributedCluster) ListKernels(ctx context.Context, in *gateway.Void) (*gateway.ListKernelsResponse, error) {
-	return dc.gatewayDaemon.listKernels(ctx, in)
+	return dc.gatewayDaemon.listKernels()
 }
 
 func (dc *DistributedCluster) MigrateKernelReplica(ctx context.Context, in *gateway.MigrationRequest) (*gateway.MigrateKernelResponse, error) {

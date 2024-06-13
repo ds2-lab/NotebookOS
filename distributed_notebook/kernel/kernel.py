@@ -454,6 +454,9 @@ class DistributedKernel(IPythonKernel):
             
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
             self.send_ack(self.control_stream, msg_type, msg_id, idents, message) # Send an ACK.
+            if self.control_stream:
+                self.control_stream.flush(zmq.POLLOUT)
+            
             return
 
         self.log.debug("Control received: %s", msg)
@@ -466,7 +469,9 @@ class DistributedKernel(IPythonKernel):
         msg_type:str = header["msg_type"]
         msg_id:str = header["msg_id"]
         self.send_ack(self.control_stream, msg_type, msg_id, idents, msg) # Send an ACK.
-        
+        if self.control_stream:
+            self.control_stream.flush(zmq.POLLOUT)
+            
         if msg_id in self.received_message_ids:
             # Is it safe to assume a msg_id will not be resubmitted?
             return False
@@ -1036,7 +1041,12 @@ class DistributedKernel(IPythonKernel):
                           parent, ident=ident)  # type: ignore
 
     async def do_update_replica(self, id, addr) -> tuple:
-        """Update a replica to have a new address"""
+        """
+        Update a replica to have a new address
+        
+        We also reset certain SMR-related state for this replica, as it will have restarted. 
+        For example, its attempt number(s) for the current term will be starting over.
+        """
         if not await self.check_persistent_store():
             return self.gen_error_response(err_wait_persistent_store)
 

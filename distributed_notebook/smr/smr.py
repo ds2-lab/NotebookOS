@@ -439,59 +439,6 @@ class WriteCloser(go.GoClass):
 
 # ---- Structs ---
 
-# Python type for struct smr.Bytes
-class Bytes(go.GoClass):
-	"""Wrapper of python bytes for buffered stream.\n"""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_Bytes_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.Bytes{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.Bytes ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def Bytes(self):
-		"""Bytes() []int
-		
-		Return the underlying byte slice as buffer.
-		"""
-		return go.Slice_byte(handle=_smr.smr_Bytes_Bytes(self.handle))
-	def Len(self):
-		"""Len() int
-		
-		Get the length of the underlying byte slice.
-		"""
-		return _smr.smr_Bytes_Len(self.handle)
-
 # Python type for struct smr.IntRet
 class IntRet(go.GoClass):
 	""""""
@@ -643,12 +590,12 @@ class LogNode(go.GoClass):
 		This assumes the HDFS path and the local path are identical.
 		"""
 		return _smr.smr_LogNode_ReadDataDirectoryFromHDFS(self.handle)
-	def WriteDataDirectoryToHDFS(self, resolve, goRun=False):
-		"""WriteDataDirectoryToHDFS(callable resolve) 
+	def WriteDataDirectoryToHDFS(self, serialized_state, resolve, goRun=False):
+		"""WriteDataDirectoryToHDFS(str serialized_state, callable resolve) 
 		
 		Write the data directory for this Raft node from local storage to HDFS.
 		"""
-		_smr.smr_LogNode_WriteDataDirectoryToHDFS(self.handle, resolve, goRun)
+		_smr.smr_LogNode_WriteDataDirectoryToHDFS(self.handle, serialized_state, resolve, goRun)
 	def Process(self, ctx, m):
 		"""Process(object ctx, object m) str"""
 		return _smr.smr_LogNode_Process(self.handle, ctx.handle, m.handle)
@@ -800,6 +747,59 @@ class SMRContext(go.context_Context):
 	def Cancel(self, goRun=False):
 		"""Cancel() """
 		_smr.smr_SMRContext_Cancel(self.handle, goRun)
+
+# Python type for struct smr.Bytes
+class Bytes(go.GoClass):
+	"""Wrapper of python bytes for buffered stream.\n"""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_Bytes_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.Bytes{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.Bytes ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def Bytes(self):
+		"""Bytes() []int
+		
+		Return the underlying byte slice as buffer.
+		"""
+		return go.Slice_byte(handle=_smr.smr_Bytes_Bytes(self.handle))
+	def Len(self):
+		"""Len() int
+		
+		Get the length of the underlying byte slice.
+		"""
+		return _smr.smr_Bytes_Len(self.handle)
 
 
 # ---- Slices ---

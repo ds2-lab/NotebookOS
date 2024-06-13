@@ -1789,34 +1789,6 @@ func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
 
 // ---- Structs ---
 
-// --- wrapping struct: smr.Bytes ---
-//
-//export smr_Bytes_CTor
-func smr_Bytes_CTor() CGoHandle {
-	return CGoHandle(handleFromPtr_smr_Bytes(&smr.Bytes{}))
-}
-
-//export smr_Bytes_Bytes
-func smr_Bytes_Bytes(_handle CGoHandle) CGoHandle {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
-	if __err != nil {
-		return handleFromPtr_Slice_byte(nil)
-	}
-	cret := gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Bytes()
-
-	return handleFromPtr_Slice_byte(&cret)
-}
-
-//export smr_Bytes_Len
-func smr_Bytes_Len(_handle CGoHandle) C.longlong {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
-	if __err != nil {
-		return C.longlong(0)
-	}
-	return C.longlong(gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Len())
-
-}
-
 // --- wrapping struct: smr.IntRet ---
 //
 //export smr_IntRet_CTor
@@ -2102,14 +2074,14 @@ func smr_LogNode_ReadDataDirectoryFromHDFS(_handle CGoHandle) *C.char {
 }
 
 //export smr_LogNode_WriteDataDirectoryToHDFS
-func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, resolve *C.PyObject, goRun C.char) {
+func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state *C.char, resolve *C.PyObject, goRun C.char) {
 	_fun_arg := resolve
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return
 	}
 	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(func(arg_0 interface{}, arg_1 string) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(C.GoString(serialized_state), func(arg_0 interface{}, arg_1 string) {
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				return
 			}
@@ -2123,7 +2095,7 @@ func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, resolve *C.PyObject
 			C.PyGILState_Release(_gstate)
 		})
 	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(func(arg_0 interface{}, arg_1 string) {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(C.GoString(serialized_state), func(arg_0 interface{}, arg_1 string) {
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				return
 			}
@@ -2357,6 +2329,34 @@ func smr_SMRContext_Cancel(_handle CGoHandle, goRun C.char) {
 	} else {
 		gopyh.Embed(vifc, reflect.TypeOf(smr.SMRContext{})).(*smr.SMRContext).Cancel()
 	}
+}
+
+// --- wrapping struct: smr.Bytes ---
+//
+//export smr_Bytes_CTor
+func smr_Bytes_CTor() CGoHandle {
+	return CGoHandle(handleFromPtr_smr_Bytes(&smr.Bytes{}))
+}
+
+//export smr_Bytes_Bytes
+func smr_Bytes_Bytes(_handle CGoHandle) CGoHandle {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
+	if __err != nil {
+		return handleFromPtr_Slice_byte(nil)
+	}
+	cret := gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Bytes()
+
+	return handleFromPtr_Slice_byte(&cret)
+}
+
+//export smr_Bytes_Len
+func smr_Bytes_Len(_handle CGoHandle) C.longlong {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
+	if __err != nil {
+		return C.longlong(0)
+	}
+	return C.longlong(gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Len())
+
 }
 
 // ---- Slices ---

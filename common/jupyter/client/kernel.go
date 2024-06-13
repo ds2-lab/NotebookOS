@@ -12,6 +12,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
@@ -100,9 +101,6 @@ type KernelReplicaClient interface {
 
 	// Socket returns the serve socket the kernel is listening on.
 	Socket(typ types.MessageType) *types.Socket
-
-	// ConnectionInfo returns the connection info.
-	ConnectionInfo() *types.ConnectionInfo
 
 	// Status returns the kernel status.
 	Status() types.KernelStatus
@@ -427,7 +425,7 @@ func (c *kernelReplicaClientImpl) InitializeShellForwarder(handler core.KernelMe
 
 	c.shell = shell
 	go c.client.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.id, server.JOffsetAutoDetect)
+		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.id, jupyter.JOffsetAutoDetect)
 		return handler(c, typ, msg)
 	}, true /* Kernel clients should ACK messages that they're forwarding. */)
 
@@ -610,7 +608,7 @@ func (c *kernelReplicaClientImpl) handleMsg(server types.JupyterServerInfo, typ 
 
 func (c *kernelReplicaClientImpl) getWaitResponseOption(key string) interface{} {
 	switch key {
-	case server.WROptionRemoveDestFrame:
+	case jupyter.WROptionRemoveDestFrame:
 		return c.shell != nil
 		// case server.WROptionRemoveSourceKernelFrame:
 		// 	return c.removeSourceKernelFramesFromMessages

@@ -13,6 +13,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
@@ -574,7 +575,7 @@ func (c *distributedKernelClientImpl) InitializeShellForwarder(handler core.Kern
 	}
 
 	go c.server.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.KernelSpec().Id, server.JOffsetAutoDetect)
+		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.KernelSpec().Id, jupyter.JOffsetAutoDetect)
 		c.log.Debug("Received shell message via DistributedShellForwarder. Message: %v", msg)
 		return handler(srv.(*distributedKernelClientImpl), typ, msg)
 	}, false /* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be ACK'd. */)
@@ -725,7 +726,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	if typ == types.ShellMessage {
 		replicaCtx, cancel = context.WithCancel(ctx)
 	} else {
-		replicaCtx, cancel = context.WithTimeout(ctx, server.DefaultRequestTimeout)
+		replicaCtx, cancel = context.WithTimeout(ctx, jupyter.DefaultRequestTimeout)
 	}
 	forwarder := func(replica core.KernelInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
 		c.log.Debug(utils.BlueStyle.Render("Received %v response from replica %v"), typ, replica)
@@ -754,7 +755,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	}
 
 	// Send the request to all replicas.
-	statusCtx, cancel := context.WithTimeout(context.Background(), server.DefaultRequestTimeout)
+	statusCtx, cancel := context.WithTimeout(context.Background(), jupyter.DefaultRequestTimeout)
 	defer cancel()
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
 	if len(replicas) == 1 {
@@ -955,7 +956,7 @@ func (c *distributedKernelClientImpl) queryCloseLocked() error {
 
 func (c *distributedKernelClientImpl) getWaitResponseOption(key string) interface{} {
 	switch key {
-	case server.WROptionRemoveDestFrame:
+	case jupyter.WROptionRemoveDestFrame:
 		return true
 	}
 

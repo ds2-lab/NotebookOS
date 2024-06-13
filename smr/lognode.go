@@ -268,7 +268,8 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 			return nil
 		}
 
-		err := node.ReadDataDirectoryFromHDFS()
+		// TODO(Ben): Read the 'serialized state' file as well, and return that data back to the Python layer.
+		_, err := node.ReadDataDirectoryFromHDFS()
 
 		if err != nil {
 			node.logger.Error("Error while reading data directory from HDFS.", zap.Error(err), zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
@@ -571,7 +572,10 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 // Read the data directory for this Raft node back from HDFS to local storage.
 //
 // This assumes the HDFS path and the local path are identical.
-func (node *LogNode) ReadDataDirectoryFromHDFS() error {
+func (node *LogNode) ReadDataDirectoryFromHDFS() (string, error) {
+	// TODO(Ben): Read the 'serialized state' file as well, and return that data back to the Python layer.
+	var serialized_state_json string
+
 	node.logger.Info(fmt.Sprintf("Walking the HDFS data directory '%s'", node.hdfs_data_directory), zap.String("directory", node.hdfs_data_directory))
 	walk_err := node.hdfsClient.Walk(node.hdfs_data_directory, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
@@ -603,14 +607,63 @@ func (node *LogNode) ReadDataDirectoryFromHDFS() error {
 
 	if walk_err != nil {
 		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory '%s'): %v", node.data_dir, walk_err), zap.Error(walk_err))
-		return walk_err
+		return serialized_state_json, walk_err
 	}
 
-	return nil
+	return serialized_state_json, nil
 }
 
 // Write the data directory for this Raft node from local storage to HDFS.
-func (node *LogNode) WriteDataDirectoryToHDFS(resolve ResolveCallback) {
+func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state string, resolve ResolveCallback) {
+	new_serialized_state_file := filepath.Join(node.data_dir, "serialized_state.json")
+
+	var alreadyExists bool = false
+	if _, err := node.hdfsClient.Stat(new_serialized_state_file); err == nil {
+		// The file already exists. We'll write our state to another file.
+		// If that is successful, then we'll delete the old one and replace it with the new one.
+		new_serialized_state_file = filepath.Join(node.data_dir, "serialized_state_new.json")
+		alreadyExists = true
+	}
+
+	writer, err := node.hdfsClient.Create(new_serialized_state_file)
+	if err != nil {
+		node.logger.Error("Failed to create 'serialized state' file.", zap.String("path", new_serialized_state_file), zap.Error(err))
+
+		// TODO: Handle gracefully, somehow?
+		return
+	}
+
+	_, err = writer.Write([]byte(serialized_state))
+	if err != nil {
+		node.logger.Error("Error while writing serialized state to file.", zap.String("path", new_serialized_state_file), zap.Error(err))
+		writer.Close() // This could also fail.
+		return
+	}
+
+	err = writer.Close()
+	if err != nil {
+		node.logger.Error("Failed to close serialized state file.", zap.String("path", new_serialized_state_file), zap.Error(err))
+		return
+	}
+
+	// If there was already an existing 'serialized state' file in the data directory, then we'll now delete the old one and replace it with the new one.
+	if alreadyExists {
+		serialized_state_file := filepath.Join(node.data_dir, "serialized_state.json")
+		err = node.hdfsClient.Remove(serialized_state_file)
+
+		if err != nil {
+			node.logger.Error("Failed to remove existing 'serialized state' file.", zap.String("path", new_serialized_state_file), zap.Error(err))
+			// Don't return here. Try the rename operation, in case the file was already deleted for some reason.
+		}
+
+		err = node.hdfsClient.Rename(new_serialized_state_file /* serialized_state_new.json */, serialized_state_file /* serialized_state.json */)
+		if err != nil {
+			node.logger.Error("Failed to rename new 'serialized state' file.", zap.String("old_path", new_serialized_state_file), zap.String("new_path", serialized_state_file))
+		}
+	}
+
+	node.logger.Debug("Successfully wrote 'serialized state' to file.", zap.String("path", filepath.Join(node.data_dir, "serialized_state.json")))
+
 	// Walk through the entire etcd-raft data directory, copying each file one-at-a-time to HDFS.
 	walkdir_err := filepath.WalkDir(node.data_dir, func(path string, d os.DirEntry, err_arg error) error {
 		// Note: the first entry found is the base directory passed to filepath.WalkDir (node.data_dir in this case).

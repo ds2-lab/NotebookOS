@@ -534,7 +534,7 @@ func (d *clusterGatewayImpl) issuePrepareMigrateRequest(kernelId string, nodeId 
 	// Issue the 'prepare-to-migrate' request. We panic if there was an error.
 	resp, err := host.PrepareToMigrate(context.TODO(), replicaInfo)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
+		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster because: %v", nodeId, kernelId, err))
 	}
 
 	// TODO(Ben): Keep track of this. Pass it to the migrated replica so it can read its data directory before it starts running again.
@@ -2116,7 +2116,7 @@ func (d *clusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) err
 	return nil
 }
 
-func (d *clusterGatewayImpl) listKernels(ctx context.Context, in *gateway.Void) (*gateway.ListKernelsResponse, error) {
+func (d *clusterGatewayImpl) listKernels() (*gateway.ListKernelsResponse, error) {
 	resp := &gateway.ListKernelsResponse{
 		Kernels: make([]*gateway.DistributedJupyterKernel, 0, max(d.kernelIdToKernel.Len(), 1)),
 	}

@@ -7,6 +7,7 @@ toolchain go1.21.5
 replace github.com/go-zeromq/zmq4 => ../zmq4
 
 require (
+	github.com/charmbracelet/lipgloss v0.11.0
 	github.com/colinmarc/hdfs/v2 v2.4.0
 	github.com/elliotchance/orderedmap/v2 v2.2.0
 	github.com/fsnotify/fsnotify v1.5.1
@@ -21,6 +22,7 @@ require (
 	github.com/opentracing-contrib/go-stdlib v1.0.0
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/orcaman/concurrent-map/v2 v2.0.1
+	github.com/petermattis/goid v0.0.0-20240607163614-bb94eb51e7a7
 	github.com/pkg/errors v0.9.1
 	github.com/scusemua/gopy v0.4.3
 	github.com/shopspring/decimal v1.3.1
@@ -45,7 +47,6 @@ require (
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
-	github.com/charmbracelet/lipgloss v0.11.0 // indirect
 	github.com/charmbracelet/x/ansi v0.1.1 // indirect
 	github.com/go-zeromq/goczmq/v4 v4.2.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -53,7 +54,6 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/muesli/termenv v0.15.2 // indirect
-	github.com/petermattis/goid v0.0.0-20240607163614-bb94eb51e7a7 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63 // indirect
 	golang.org/x/sync v0.5.0 // indirect
