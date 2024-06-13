@@ -7,9 +7,6 @@ i=0
 
 echo "Number of nodes to be made available: $1"
 
-a=2462620
-b=2462620
-
 for node in $(kubectl get nodes -o name | grep worker);
 do
     echo ""

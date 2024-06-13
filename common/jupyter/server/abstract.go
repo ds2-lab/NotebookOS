@@ -147,7 +147,7 @@ func New(ctx context.Context, info *types.ConnectionInfo, init func(server *Abst
 		CancelCtx:       cancelCtx,
 		Sockets:         &types.JupyterSocket{},
 		numAcksReceived: 0,
-		maxNumRetries:   1,
+		maxNumRetries:   5,
 		acksReceived:    hashmap.NewSyncMap[string, bool](),
 		ackChannels:     hashmap.NewSyncMap[string, chan struct{}](),
 		// Log:       logger.NilLogger, // To be overwritten by init.
@@ -595,7 +595,7 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 			panic(fmt.Sprintf("We need an ACK for %v message %s; however, the ACK channel is nil.", socket.Type, reqId))
 		}
 	} else {
-		max_num_tries = 5
+		max_num_tries = 1
 	}
 
 	for num_tries < max_num_tries {

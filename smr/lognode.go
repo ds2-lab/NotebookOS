@@ -848,12 +848,14 @@ func (node *LogNode) writeError(err error) {
 // stop closes http, closes all channels, and stops raft.
 func (node *LogNode) stopServing() {
 	node.stopHTTP()
+	node.logger.Warn("Stopping raft node now.")
 	node.node.Stop()
 	close(node.errorC)
 	node.errorC = nil
 }
 
 func (node *LogNode) stopHTTP() {
+	node.logger.Warn("Stopping HTTP server now.")
 	node.transport.Stop()
 	close(node.httpstopc)
 	<-node.httpdonec
@@ -1076,7 +1078,7 @@ func (node *LogNode) serveChannels() {
 			node.close()
 
 		case <-node.stopc:
-			node.logger.Warn("Stopping")
+			node.sugaredLogger.Warnf("LogNode %d is stopping now.", node.id)
 
 			node.stopServing()
 			return

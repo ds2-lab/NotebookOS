@@ -573,6 +573,8 @@ github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5t
 github.com/zclconf/go-cty v1.2.0/go.mod h1:hOPWgoHbaTUnI5k4D2ld+GRpFJSCe6bCM7m1q/N4PQ8=
 github.com/zclconf/go-cty v1.8.0/go.mod h1:vVKLxnk3puL4qRAv72AO+W99LUD4da90g3uUAzyuvAk=
 github.com/zclconf/go-cty-debug v0.0.0-20191215020915-b22d67c1ba0b/go.mod h1:ZRKQfBXbGkpdV6QMzT3rU1kSTAnfu1dO8dPKjYprgj8=
+github.com/zhangjyr/gopy v0.4.2 h1:5ZV9uQ0weSMjqMISKjRKIFZW4ODLB1Qra4y7Xf3Mf0Y=
+github.com/zhangjyr/gopy v0.4.2/go.mod h1:olrQV5s52RGdk6z0gQvanlADdmvLXtydWGkSbkJCXHc=
 github.com/zhangjyr/hashmap v1.0.2 h1:jgjuyeFEGSBb8mF7RcM8l/ePZcjfn9VyB3Ij3at9hIc=
 github.com/zhangjyr/hashmap v1.0.2/go.mod h1:vD/zJm+xWRZh6sf8rB1RhizARGLrwMCegQ6ZsDZJbI4=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=

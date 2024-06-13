@@ -67,6 +67,7 @@ endif
 
 # Don't call this target directly. This target is used by smr/Makefile.
 build-smr-common: build-init
+	@echo "\nBuilding SMR common now!!!"
 	cat Makefile_common >> smr/Makefile
 	cd smr && make build-smr-common
 

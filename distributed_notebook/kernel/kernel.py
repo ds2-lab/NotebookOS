@@ -399,10 +399,13 @@ class DistributedKernel(IPythonKernel):
             return
         
         self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
-        msg_id = msg_deserialized["header"]["msg_id"]
-        self.send_ack(self.shell_stream, msg_deserialized["header"]["msg_type"], msg_id, idents, msg_deserialized) # Send an ACK.
+        msg_id:str = msg_deserialized["header"]["msg_id"]
+        msg_type:str = msg_deserialized["header"]["msg_type"]
+        self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg_deserialized) # Send an ACK.
         
         await super().dispatch_shell(msg)
+        
+        self.log.debug(f"Finished processing shell message \"{msg_type}\" (ID={msg_id})")
 
     def should_handle(self, stream, msg, idents):
         """Check whether a (shell-channel?) message should be handled"""
@@ -488,6 +491,8 @@ class DistributedKernel(IPythonKernel):
         # flush to ensure reply is sent
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
+        
+        self.log.debug(f"Finished processing control message \"{msg_type}\" (ID={msg_id})")
 
     async def init_persistent_store(self, code):
         if await self.check_persistent_store():
@@ -891,6 +896,7 @@ class DistributedKernel(IPythonKernel):
         self.remove_on_shutdown = False
 
         if not self.synclog:
+            self.log.warn("We do not have a SyncLog. Nothing to do in order to prepare to migrate...")
             return
 
         # self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
@@ -971,8 +977,11 @@ class DistributedKernel(IPythonKernel):
         if not success:
             self.log.error("Failed to prepare to migrate...")
 
-        self.session.send(stream, "prepare_to_migrate_reply",
-                          content, parent, ident=ident)
+        self.log.debug("Sending 'prepare_to_migrate_reply' response now.")
+
+        sent_message = self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident)
+        
+        self.log.debug("Sent 'prepare_to_migrate_reply message: %s" % str(sent_message))
 
     async def do_add_replica(self, id, addr) -> tuple:
         """Add a replica to the SMR cluster"""

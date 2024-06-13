@@ -16,11 +16,11 @@ prepare:
 restore: $(RESTORE_TARGETS)
 
 restore.%:
-	@echo "restoring $(DEST)/bak/$*"
+	@echo "\nrestoring $(DEST)/bak/$*"
 	-@cp $(DEST)/bak/$* $(DEST)/$*
 
 patch: prepare $(PATCH_TARGETS)
-	@echo "patching go files"
+	@echo "\npatching go files"
 	cp -f patch/*.go $(DEST)/
 
 patch.build.py: patch/build.py restore.build.py prepare
@@ -28,7 +28,7 @@ ifeq (,$(wildcard $(DEST)/bak/build.py))
 	@echo "backuping $(DEST)/bak/build.py"
 	@cp $(DEST)/build.py $(DEST)/bak/build.py 
 endif
-	@echo "patching $(DEST)/build.py"
+	@echo "\npatching $(DEST)/build.py"
 ifeq ($(shell uname -p), x86_64)
 	@sed -i -E '/^mod\.generate\(/d' $(DEST)/build.py
 else
@@ -61,12 +61,16 @@ patch.darwin:
 	sed -Ei '' 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_ESCAPED_PATH)\/lib -lpython$(PYTHON3_VERSION) -ldl -framework CoreFoundation/' ../distributed_notebook/smr/smr.go
 
 gen-python: clean
+	@echo "\nGenerating Go/Python bindings via gopy now"
 	gopy gen -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
 
 build-python: clean
+	@echo "\nBuilding Python"
 	gopy build -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
 
 build-common:
+	@echo "\nBuilding 'smr-common' now."
+	@echo "Directory: \"$(dir $(DEST))\""
 	cd $(dir $(DEST)) && make build-smr-common
 
 gen-darwin: gen-python patch patch.darwin
@@ -77,12 +81,15 @@ gen-linux: gen-python patch
 gen-%: gen-python patch
 
 build-linux-amd64: gen-linux build-common patch.smr.c
+	@echo "\nWOOOOOO"
+	@echo "DIRECTORY: $(dir $(DEST))"
 	cd $(dir $(DEST)) && make build-smr-linux-amd64
 
 build-%: gen-% build-common patch.smr.c
 	cd $(dir $(DEST)) && make build-smr-$*
 
 clean:
+	@echo "\nRemoving directory \"$(DEST)\""
 	rm -rf $(DEST)
 #	rm -rf $(DEST)/bak
 
