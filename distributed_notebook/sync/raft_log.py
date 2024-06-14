@@ -132,6 +132,41 @@ class RaftLog:
     
     return json.dumps(data_dict)
 
+  def __load_and_apply_serialized_state(self) -> None:
+    """
+    Retrieve the serialized state read by the Go-level LogNode. 
+    This state is read from HDFS during migration/error recovery.
+    Update our local state with the state retrieved from HDFS.
+    """
+    serialized_state_json:str = self._node.GetSerializedStateJson()
+    data_dict:dict = json.loads(serialized_state_json)
+    
+    for key, entry in data_dict.items():
+      self._log.debug(f"Retrived state \"{key}\": {str(entry)}")
+      
+    # TODO: 
+    # There may be some bugs that arrise from these values being somewhat old or outdated, potentially.
+    self.winners_per_term = data_dict["winners_per_term"]
+    self.my_proposals = data_dict["my_proposals"]
+    self.my_current_attempt_number = data_dict["my_current_attempt_number"]
+    self.largest_peer_attempt_number = data_dict["largest_peer_attempt_number"]
+    self.proposals_per_term = data_dict["proposals_per_term"]
+    self.own_proposal_times = data_dict["own_proposal_times"]
+    self.first_lead_proposal_received_per_term = data_dict["first_lead_proposal_received_per_term"]
+    self.first_proposal_received_per_term = data_dict["first_proposal_received_per_term"]
+    self.timeout_durations = data_dict["timeout_durations"]
+    self.discard_after = data_dict["discard_after"]
+    self.num_proposals_discarded = data_dict["num_proposals_discarded"]
+    self.sync_proposals_per_term = data_dict["sync_proposals_per_term"]
+    self.decisions_proposed = data_dict["decisions_proposed"]
+    
+    # Commenting these out for now; it's not clear if we should set these in this way yet.
+    # self._leader_term = data_dict["_leader_term"]
+    # self._leader_id = data_dict["_leader_id"]
+    # self._expected_term = data_dict["_expected_term"]
+    
+    return json.dumps(data_dict)
+
   @property
   def num_changes(self) -> int:
     """The number of incremental changes since first term or the latest checkpoint."""

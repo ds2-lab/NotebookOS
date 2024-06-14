@@ -298,6 +298,8 @@ class Slice_walpb_Snapshot(go.GoClass):
 
 
 #---- Constants from Go: Python can only ask that you please don't change these! ---
+NewSerializedStateFile = "serialized_state_new.json"
+SerializedStateFile = "serialized_state.json"
 
 
 # ---- Global Variables: can only use functions to access ---
@@ -561,6 +563,14 @@ class LogNode(go.GoClass):
 	def StartAndWait(self, config, goRun=False):
 		"""StartAndWait(object config) """
 		_smr.smr_LogNode_StartAndWait(self.handle, config.handle, goRun)
+	def GetSerializedStateJson(self):
+		"""GetSerializedStateJson() str
+		
+		Return the serialized_state_json field.
+		This field is populated by ReadDataDirectoryFromHDFS if there is a serialized state file to be read.
+		It is only required during migration/error recovery.
+		"""
+		return _smr.smr_LogNode_GetSerializedStateJson(self.handle)
 	def Propose(self, val, resolve, msg, goRun=False):
 		"""Propose(object val, callable resolve, str msg) 
 		
@@ -583,7 +593,7 @@ class LogNode(go.GoClass):
 		"""Close() str"""
 		return _smr.smr_LogNode_Close(self.handle)
 	def ReadDataDirectoryFromHDFS(self):
-		"""ReadDataDirectoryFromHDFS() str
+		"""ReadDataDirectoryFromHDFS() str, str
 		
 		Read the data directory for this Raft node back from HDFS to local storage.
 		

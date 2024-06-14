@@ -2720,6 +2720,29 @@ PyObject * _wrap__smr_smr_LogNode_StartAndWait(PyObject * PYBINDGEN_UNUSED(dummy
 
 
 PyObject *
+_wrap__smr_smr_LogNode_GetSerializedStateJson(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    char *retval;
+    int64_t _handle;
+    const char *keywords[] = {"_handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
+        return NULL;
+    }
+    retval = smr_LogNode_GetSerializedStateJson(_handle);
+    if (PyErr_Occurred()) {
+        if (retval != NULL) free(retval);
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "s", retval);
+    free(retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_GetSerializedStateJson(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
 _wrap__smr_smr_LogNode_Propose(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
 {
     PyObject *py_retval;
@@ -2881,9 +2904,11 @@ _wrap__smr_smr_LogNode_ReadDataDirectoryFromHDFS(PyObject * PYBINDGEN_UNUSED(dum
     }
     retval = smr_LogNode_ReadDataDirectoryFromHDFS(_handle);
     if (PyErr_Occurred()) {
+        if (retval != NULL) free(retval);
         return NULL;
     }
     py_retval = Py_BuildValue((char *) "s", retval);
+    free(retval);
     return py_retval;
 }
 PyObject * _wrap__smr_smr_LogNode_ReadDataDirectoryFromHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
@@ -3552,6 +3577,7 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_LogNode_NumChanges", (PyCFunction) _wrap__smr_smr_LogNode_NumChanges, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_NumChanges(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_LogNode_Start", (PyCFunction) _wrap__smr_smr_LogNode_Start, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Start(_handle, config, goRun)\n\ntype: _handle: int64_t\ntype: config: int64_t\ntype: goRun: bool" },
     {(char *) "smr_LogNode_StartAndWait", (PyCFunction) _wrap__smr_smr_LogNode_StartAndWait, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_StartAndWait(_handle, config, goRun)\n\ntype: _handle: int64_t\ntype: config: int64_t\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_GetSerializedStateJson", (PyCFunction) _wrap__smr_smr_LogNode_GetSerializedStateJson, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_GetSerializedStateJson(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_LogNode_Propose", (PyCFunction) _wrap__smr_smr_LogNode_Propose, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Propose(_handle, val, resolve, msg, goRun)\n\ntype: _handle: int64_t\ntype: val: int64_t\ntype: resolve: PyObject *\ntype: msg: char *\ntype: goRun: bool" },
     {(char *) "smr_LogNode_AddNode", (PyCFunction) _wrap__smr_smr_LogNode_AddNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_AddNode(_handle, id, addr, resolve, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: addr: char *\ntype: resolve: PyObject *\ntype: goRun: bool" },
     {(char *) "smr_LogNode_RemoveNode", (PyCFunction) _wrap__smr_smr_LogNode_RemoveNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_RemoveNode(_handle, id, resolve, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: resolve: PyObject *\ntype: goRun: bool" },

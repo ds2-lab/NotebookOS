@@ -48,6 +48,11 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const (
+	SerializedStateFile    string = "serialized_state.json"
+	NewSerializedStateFile string = "serialized_state_new.json"
+)
+
 var (
 	ProposalDeadline = 1 * time.Minute
 	ErrClosed        = errors.New("node closed")
@@ -163,6 +168,10 @@ type LogNode struct {
 	// Bridges
 	config *LogNodeConfig
 
+	// This field will be populated by ReadDataDirectoryFromHDFS
+	// if there is a serialized state file to be read.
+	serialized_state_json string
+
 	logger        *zap.Logger
 	sugaredLogger *zap.SugaredLogger
 }
@@ -269,7 +278,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		}
 
 		// TODO(Ben): Read the 'serialized state' file as well, and return that data back to the Python layer.
-		_, err := node.ReadDataDirectoryFromHDFS()
+		node.serialized_state_json, err = node.ReadDataDirectoryFromHDFS()
 
 		if err != nil {
 			node.logger.Error("Error while reading data directory from HDFS.", zap.Error(err), zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
@@ -304,6 +313,13 @@ func (node *LogNode) Start(config *LogNodeConfig) {
 func (node *LogNode) StartAndWait(config *LogNodeConfig) {
 	node.Start(config)
 	node.WaitToClose()
+}
+
+// Return the serialized_state_json field.
+// This field is populated by ReadDataDirectoryFromHDFS if there is a serialized state file to be read.
+// It is only required during migration/error recovery.
+func (node *LogNode) GetSerializedStateJson() string {
+	return node.serialized_state_json
 }
 
 // Append the difference of the value of specified key to the synchronization queue.
@@ -573,8 +589,21 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 //
 // This assumes the HDFS path and the local path are identical.
 func (node *LogNode) ReadDataDirectoryFromHDFS() (string, error) {
-	// TODO(Ben): Read the 'serialized state' file as well, and return that data back to the Python layer.
-	var serialized_state_json string
+	var serialized_state_json string = ""
+
+	serialized_state_file := filepath.Join(node.data_dir, SerializedStateFile)
+	if _, err := node.hdfsClient.Stat(serialized_state_file); err != nil {
+		serialized_state_file_contents, err := node.hdfsClient.ReadFile(serialized_state_file)
+		if err != nil {
+			node.logger.Error("Failed to read 'serialized state' from file.", zap.String("path", serialized_state_file), zap.Error(err))
+			return "", err
+		}
+
+		serialized_state_json = string(serialized_state_file_contents)
+		node.logger.Debug("Read serialized state contents from file.", zap.String("path", serialized_state_file), zap.String("serialized-state-json", serialized_state_json))
+	} else {
+		node.logger.Debug("Did not find a serialized state file. Hopefully you weren't expecting one!")
+	}
 
 	node.logger.Info(fmt.Sprintf("Walking the HDFS data directory '%s'", node.hdfs_data_directory), zap.String("directory", node.hdfs_data_directory))
 	walk_err := node.hdfsClient.Walk(node.hdfs_data_directory, func(path string, info fs.FileInfo, err error) error {
@@ -615,13 +644,13 @@ func (node *LogNode) ReadDataDirectoryFromHDFS() (string, error) {
 
 // Write the data directory for this Raft node from local storage to HDFS.
 func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state string, resolve ResolveCallback) {
-	new_serialized_state_file := filepath.Join(node.data_dir, "serialized_state.json")
+	new_serialized_state_file := filepath.Join(node.data_dir, SerializedStateFile)
 
 	var alreadyExists bool = false
 	if _, err := node.hdfsClient.Stat(new_serialized_state_file); err == nil {
 		// The file already exists. We'll write our state to another file.
 		// If that is successful, then we'll delete the old one and replace it with the new one.
-		new_serialized_state_file = filepath.Join(node.data_dir, "serialized_state_new.json")
+		new_serialized_state_file = filepath.Join(node.data_dir, NewSerializedStateFile)
 		alreadyExists = true
 	}
 
@@ -648,7 +677,7 @@ func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state string, resolve R
 
 	// If there was already an existing 'serialized state' file in the data directory, then we'll now delete the old one and replace it with the new one.
 	if alreadyExists {
-		serialized_state_file := filepath.Join(node.data_dir, "serialized_state.json")
+		serialized_state_file := filepath.Join(node.data_dir, SerializedStateFile)
 		err = node.hdfsClient.Remove(serialized_state_file)
 
 		if err != nil {
@@ -662,7 +691,7 @@ func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state string, resolve R
 		}
 	}
 
-	node.logger.Debug("Successfully wrote 'serialized state' to file.", zap.String("path", filepath.Join(node.data_dir, "serialized_state.json")))
+	node.logger.Debug("Successfully wrote 'serialized state' to file.", zap.String("path", filepath.Join(node.data_dir, SerializedStateFile)))
 
 	// Walk through the entire etcd-raft data directory, copying each file one-at-a-time to HDFS.
 	walkdir_err := filepath.WalkDir(node.data_dir, func(path string, d os.DirEntry, err_arg error) error {

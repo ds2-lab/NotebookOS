@@ -1873,6 +1873,16 @@ func smr_LogNode_StartAndWait(_handle CGoHandle, config CGoHandle, goRun C.char)
 	}
 }
 
+//export smr_LogNode_GetSerializedStateJson
+func smr_LogNode_GetSerializedStateJson(_handle CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return C.CString("")
+	}
+	return C.CString(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).GetSerializedStateJson())
+
+}
+
 //export smr_LogNode_Propose
 func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, msg *C.char, goRun C.char) {
 	_fun_arg := resolve
@@ -2063,14 +2073,15 @@ func smr_LogNode_ReadDataDirectoryFromHDFS(_handle CGoHandle) *C.char {
 	if __err != nil {
 		return C.CString("")
 	}
-	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReadDataDirectoryFromHDFS()
+	cret, __err := gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReadDataDirectoryFromHDFS()
 
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		return estr
+		C.free(unsafe.Pointer(estr))
+		return C.CString("")
 	}
-	return C.CString("")
+	return C.CString(cret)
 }
 
 //export smr_LogNode_WriteDataDirectoryToHDFS

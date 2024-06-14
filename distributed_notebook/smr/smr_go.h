@@ -343,6 +343,7 @@ extern char smr_LogNode_ConnectedToHDFS(long long int _handle);
 extern long long int smr_LogNode_NumChanges(long long int _handle);
 extern void smr_LogNode_Start(long long int _handle, long long int config, char goRun);
 extern void smr_LogNode_StartAndWait(long long int _handle, long long int config, char goRun);
+extern char* smr_LogNode_GetSerializedStateJson(long long int _handle);
 extern void smr_LogNode_Propose(long long int _handle, long long int val, PyObject* resolve, char* msg, char goRun);
 extern void smr_LogNode_AddNode(long long int _handle, long long int id, char* addr, PyObject* resolve, char goRun);
 extern void smr_LogNode_RemoveNode(long long int _handle, long long int id, PyObject* resolve, char goRun);
