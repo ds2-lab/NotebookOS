@@ -836,6 +836,9 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 								{
 									ContainerPort: int32(c.smrPort),
 								},
+								{
+									ContainerPort: 8464,
+								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -1171,6 +1174,9 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 									{
 										"containerPort": int32(c.smrPort),
 									},
+									{
+										"containerPort": 8464,
+									},
 								},
 								"volumeMounts": []map[string]interface{}{
 									{
@@ -1396,6 +1402,14 @@ func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *gat
 					Port:     int32(connectionInfo.AckPort),
 					TargetPort: intstr.IntOrString{
 						IntVal: int32(connectionInfo.AckPort),
+					},
+				},
+				{
+					Name:     "debug-port",
+					Protocol: "TCP",
+					Port:     8464,
+					TargetPort: intstr.IntOrString{
+						IntVal: 8464,
 					},
 				},
 			},

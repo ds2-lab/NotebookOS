@@ -7,7 +7,7 @@ import logging
 import json
 import sys
 import socket
-import pprint
+import traceback
 import time
 
 from traitlets.traitlets import Set
@@ -74,33 +74,21 @@ class DistributedKernel(IPythonKernel):
 
     local_tcp_server_port = Integer(5555, help = "Port for local TCP server.").tag(config = True)
 
-    persistent_id: Union[str, Unicode] = Unicode(
-        help="""Persistent id for storage"""
-    ).tag(config=True)
+    persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""").tag(config=True)
 
-    pod_name: Union[str, Unicode] = Unicode(
-        help="""Kubernetes name of the Pod encapsulating this distributed kernel replica"""
-    ).tag(config=False)
+    pod_name: Union[str, Unicode] = Unicode(help="""Kubernetes name of the Pod encapsulating this distributed kernel replica""").tag(config=False)
 
-    node_name: Union[str, Unicode] = Unicode(
-        help="""Kubernetes name of the Node on which the Pod is running"""
-    ).tag(config=False)
+    node_name: Union[str, Unicode] = Unicode(help="""Kubernetes name of the Node on which the Pod is running""").tag(config=False)
 
-    hostname: Union[str, Unicode] = Unicode(
-        help="""Hostname of the Pod encapsulating this distributed kernel replica"""
-    ).tag(config=False)
+    hostname: Union[str, Unicode] = Unicode(help="""Hostname of the Pod encapsulating this distributed kernel replica""").tag(config=False)
 
-    hdfs_namenode_hostname: Union[str, Unicode] = Unicode(
-        help="""Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."""
-    ).tag(config=True)
+    hdfs_namenode_hostname: Union[str, Unicode] = Unicode(help="""Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.""").tag(config=True)
 
-    kernel_id: Union[str, Unicode] = Unicode(
-        help="""The ID of the kernel."""
-    ).tag(config=False)
+    kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(config=False)
 
-    data_directory: Union[str, Unicode] = Unicode(
-        help="""The etcd-raft WAL/data directory. This will always be equal to the empty string unless we're created during a migration operation."""
-    ).tag(config=False)
+    data_directory: Union[str, Unicode] = Unicode(help="""The etcd-raft WAL/data directory. This will always be equal to the empty string unless we're created during a migration operation.""").tag(config=False)
+    
+    debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(config=False)
 
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
@@ -927,6 +915,7 @@ class DistributedKernel(IPythonKernel):
         except Exception as e:
             self.log.error("Failed to close the SyncLog for replica %d of kernel %s.",
                            self.smr_node_id, self.kernel_id)
+            self.log.error(traceback.format_exc())
             return self.gen_error_response(e), False
 
         try:
@@ -937,6 +926,7 @@ class DistributedKernel(IPythonKernel):
         except Exception as e:
             self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
                            self.smr_node_id, self.kernel_id, str(e))
+            self.log.error(traceback.format_exc())
             return self.gen_error_response(e), False
 
     async def stop_running_training_code(self, stream, ident, parent):
@@ -1165,7 +1155,8 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Creating RaftLog now.")
         try:
             self.synclog = RaftLog(store, self.smr_node_id, self.hdfs_namenode_hostname,
-                                   self.hdfs_data_directory, addrs, ids, join=self.smr_join)
+                                   self.hdfs_data_directory, addrs, ids, join=self.smr_join,
+                                   debug_port = self.debug_port)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
             exit(1)

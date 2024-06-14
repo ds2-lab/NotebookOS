@@ -1789,391 +1789,6 @@ func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
 
 // ---- Structs ---
 
-// --- wrapping struct: smr.IntRet ---
-//
-//export smr_IntRet_CTor
-func smr_IntRet_CTor() CGoHandle {
-	return CGoHandle(handleFromPtr_smr_IntRet(&smr.IntRet{}))
-}
-
-//export smr_IntRet_N_Get
-func smr_IntRet_N_Get(handle CGoHandle) C.longlong {
-	op := ptrFromHandle_smr_IntRet(handle)
-	return C.longlong(op.N)
-}
-
-//export smr_IntRet_N_Set
-func smr_IntRet_N_Set(handle CGoHandle, val C.longlong) {
-	op := ptrFromHandle_smr_IntRet(handle)
-	op.N = int(val)
-}
-
-//export smr_IntRet_Err_Get
-func smr_IntRet_Err_Get(handle CGoHandle) *C.char {
-	op := ptrFromHandle_smr_IntRet(handle)
-	return C.CString(op.Err)
-}
-
-//export smr_IntRet_Err_Set
-func smr_IntRet_Err_Set(handle CGoHandle, val *C.char) {
-	op := ptrFromHandle_smr_IntRet(handle)
-	op.Err = C.GoString(val)
-}
-
-// --- wrapping struct: smr.LogNode ---
-//
-//export smr_LogNode_CTor
-func smr_LogNode_CTor() CGoHandle {
-	return CGoHandle(handleFromPtr_smr_LogNode(&smr.LogNode{}))
-}
-
-//export smr_LogNode_ConnectedToHDFS
-func smr_LogNode_ConnectedToHDFS(_handle CGoHandle) C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return boolGoToPy(false)
-	}
-	return boolGoToPy(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ConnectedToHDFS())
-
-}
-
-//export smr_LogNode_NumChanges
-func smr_LogNode_NumChanges(_handle CGoHandle) C.longlong {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return C.longlong(0)
-	}
-	return C.longlong(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).NumChanges())
-
-}
-
-//export smr_LogNode_Start
-func smr_LogNode_Start(_handle CGoHandle, config CGoHandle, goRun C.char) {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Start(ptrFromHandle_Ptr_smr_LogNodeConfig(config))
-	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Start(ptrFromHandle_Ptr_smr_LogNodeConfig(config))
-	}
-}
-
-//export smr_LogNode_StartAndWait
-func smr_LogNode_StartAndWait(_handle CGoHandle, config CGoHandle, goRun C.char) {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).StartAndWait(ptrFromHandle_Ptr_smr_LogNodeConfig(config))
-	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).StartAndWait(ptrFromHandle_Ptr_smr_LogNodeConfig(config))
-	}
-}
-
-//export smr_LogNode_GetSerializedStateJson
-func smr_LogNode_GetSerializedStateJson(_handle CGoHandle) *C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return C.CString("")
-	}
-	return C.CString(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).GetSerializedStateJson())
-
-}
-
-//export smr_LogNode_Propose
-func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, msg *C.char, goRun C.char) {
-	_fun_arg := resolve
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
-			if C.PyCallable_Check(_fun_arg) == 0 {
-				return
-			}
-			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
-			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-			C.PyObject_CallObject(_fun_arg, _fcargs)
-			C.gopy_decref(_fcargs)
-			C.gopy_err_handle()
-			C.PyGILState_Release(_gstate)
-		}, C.GoString(msg))
-	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
-			if C.PyCallable_Check(_fun_arg) == 0 {
-				return
-			}
-			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
-			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-			C.PyObject_CallObject(_fun_arg, _fcargs)
-			C.gopy_decref(_fcargs)
-			C.gopy_err_handle()
-			C.PyGILState_Release(_gstate)
-		}, C.GoString(msg))
-	}
-}
-
-//export smr_LogNode_AddNode
-func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve *C.PyObject, goRun C.char) {
-	_fun_arg := resolve
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).AddNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
-			if C.PyCallable_Check(_fun_arg) == 0 {
-				return
-			}
-			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
-			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-			C.PyObject_CallObject(_fun_arg, _fcargs)
-			C.gopy_decref(_fcargs)
-			C.gopy_err_handle()
-			C.PyGILState_Release(_gstate)
-		})
-	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).AddNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
-			if C.PyCallable_Check(_fun_arg) == 0 {
-				return
-			}
-			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
-			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-			C.PyObject_CallObject(_fun_arg, _fcargs)
-			C.gopy_decref(_fcargs)
-			C.gopy_err_handle()
-			C.PyGILState_Release(_gstate)
-		})
-	}
-}
-
-//export smr_LogNode_RemoveNode
-func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObject, goRun C.char) {
-	_fun_arg := resolve
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).RemoveNode(int(id), func(arg_0 interface{}, arg_1 string) {
-			if C.PyCallable_Check(_fun_arg) == 0 {
-				return
-			}
-			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
-			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-			C.PyObject_CallObject(_fun_arg, _fcargs)
-			C.gopy_decref(_fcargs)
-			C.gopy_err_handle()
-			C.PyGILState_Release(_gstate)
-		})
-	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).RemoveNode(int(id), func(arg_0 interface{}, arg_1 string) {
-			if C.PyCallable_Check(_fun_arg) == 0 {
-				return
-			}
-			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
-			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-			C.PyObject_CallObject(_fun_arg, _fcargs)
-			C.gopy_decref(_fcargs)
-			C.gopy_err_handle()
-			C.PyGILState_Release(_gstate)
-		})
-	}
-}
-
-//export smr_LogNode_UpdateNode
-func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve *C.PyObject, goRun C.char) {
-	_fun_arg := resolve
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).UpdateNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
-			if C.PyCallable_Check(_fun_arg) == 0 {
-				return
-			}
-			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
-			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-			C.PyObject_CallObject(_fun_arg, _fcargs)
-			C.gopy_decref(_fcargs)
-			C.gopy_err_handle()
-			C.PyGILState_Release(_gstate)
-		})
-	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).UpdateNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
-			if C.PyCallable_Check(_fun_arg) == 0 {
-				return
-			}
-			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
-			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-			C.PyObject_CallObject(_fun_arg, _fcargs)
-			C.gopy_decref(_fcargs)
-			C.gopy_err_handle()
-			C.PyGILState_Release(_gstate)
-		})
-	}
-}
-
-//export smr_LogNode_WaitToClose
-func smr_LogNode_WaitToClose(_handle CGoHandle) *C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return C.CString("")
-	}
-	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WaitToClose()
-
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		return estr
-	}
-	return C.CString("")
-}
-
-//export smr_LogNode_Close
-func smr_LogNode_Close(_handle CGoHandle) *C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return C.CString("")
-	}
-	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Close()
-
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		return estr
-	}
-	return C.CString("")
-}
-
-//export smr_LogNode_ReadDataDirectoryFromHDFS
-func smr_LogNode_ReadDataDirectoryFromHDFS(_handle CGoHandle) *C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return C.CString("")
-	}
-	cret, __err := gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReadDataDirectoryFromHDFS()
-
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		C.free(unsafe.Pointer(estr))
-		return C.CString("")
-	}
-	return C.CString(cret)
-}
-
-//export smr_LogNode_WriteDataDirectoryToHDFS
-func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state *C.char, resolve *C.PyObject, goRun C.char) {
-	_fun_arg := resolve
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(C.GoString(serialized_state), func(arg_0 interface{}, arg_1 string) {
-			if C.PyCallable_Check(_fun_arg) == 0 {
-				return
-			}
-			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
-			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-			C.PyObject_CallObject(_fun_arg, _fcargs)
-			C.gopy_decref(_fcargs)
-			C.gopy_err_handle()
-			C.PyGILState_Release(_gstate)
-		})
-	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(C.GoString(serialized_state), func(arg_0 interface{}, arg_1 string) {
-			if C.PyCallable_Check(_fun_arg) == 0 {
-				return
-			}
-			_gstate := C.PyGILState_Ensure()
-			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
-			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
-			C.PyObject_CallObject(_fun_arg, _fcargs)
-			C.gopy_decref(_fcargs)
-			C.gopy_err_handle()
-			C.PyGILState_Release(_gstate)
-		})
-	}
-}
-
-//export smr_LogNode_Process
-func smr_LogNode_Process(_handle CGoHandle, ctx CGoHandle, m CGoHandle) *C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return C.CString("")
-	}
-	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Process(ptrFromHandle_context_Context(ctx), *ptrFromHandle_raftpb_Message(m))
-
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		return estr
-	}
-	return C.CString("")
-}
-
-//export smr_LogNode_IsIDRemoved
-func smr_LogNode_IsIDRemoved(_handle CGoHandle, id C.ulonglong) C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return boolGoToPy(false)
-	}
-	return boolGoToPy(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).IsIDRemoved(uint64(id)))
-
-}
-
-//export smr_LogNode_ReportUnreachable
-func smr_LogNode_ReportUnreachable(_handle CGoHandle, id C.ulonglong, goRun C.char) {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportUnreachable(uint64(id))
-	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportUnreachable(uint64(id))
-	}
-}
-
-//export smr_LogNode_ReportSnapshot
-func smr_LogNode_ReportSnapshot(_handle CGoHandle, id C.ulonglong, status C.longlong, goRun C.char) {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportSnapshot(uint64(id), raft.SnapshotStatus(int(status)))
-	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportSnapshot(uint64(id), raft.SnapshotStatus(int(status)))
-	}
-}
-
 // --- wrapping struct: smr.LogNodeConfig ---
 //
 //export smr_LogNodeConfig_CTor
@@ -2370,21 +1985,420 @@ func smr_Bytes_Len(_handle CGoHandle) C.longlong {
 
 }
 
+// --- wrapping struct: smr.IntRet ---
+//
+//export smr_IntRet_CTor
+func smr_IntRet_CTor() CGoHandle {
+	return CGoHandle(handleFromPtr_smr_IntRet(&smr.IntRet{}))
+}
+
+//export smr_IntRet_N_Get
+func smr_IntRet_N_Get(handle CGoHandle) C.longlong {
+	op := ptrFromHandle_smr_IntRet(handle)
+	return C.longlong(op.N)
+}
+
+//export smr_IntRet_N_Set
+func smr_IntRet_N_Set(handle CGoHandle, val C.longlong) {
+	op := ptrFromHandle_smr_IntRet(handle)
+	op.N = int(val)
+}
+
+//export smr_IntRet_Err_Get
+func smr_IntRet_Err_Get(handle CGoHandle) *C.char {
+	op := ptrFromHandle_smr_IntRet(handle)
+	return C.CString(op.Err)
+}
+
+//export smr_IntRet_Err_Set
+func smr_IntRet_Err_Set(handle CGoHandle, val *C.char) {
+	op := ptrFromHandle_smr_IntRet(handle)
+	op.Err = C.GoString(val)
+}
+
+// --- wrapping struct: smr.LogNode ---
+//
+//export smr_LogNode_CTor
+func smr_LogNode_CTor() CGoHandle {
+	return CGoHandle(handleFromPtr_smr_LogNode(&smr.LogNode{}))
+}
+
+//export smr_LogNode_ServeHttpDebug
+func smr_LogNode_ServeHttpDebug(_handle CGoHandle, goRun C.char) {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ServeHttpDebug()
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ServeHttpDebug()
+	}
+}
+
+//export smr_LogNode_ConnectedToHDFS
+func smr_LogNode_ConnectedToHDFS(_handle CGoHandle) C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return boolGoToPy(false)
+	}
+	return boolGoToPy(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ConnectedToHDFS())
+
+}
+
+//export smr_LogNode_NumChanges
+func smr_LogNode_NumChanges(_handle CGoHandle) C.longlong {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return C.longlong(0)
+	}
+	return C.longlong(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).NumChanges())
+
+}
+
+//export smr_LogNode_Start
+func smr_LogNode_Start(_handle CGoHandle, config CGoHandle, goRun C.char) {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Start(ptrFromHandle_Ptr_smr_LogNodeConfig(config))
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Start(ptrFromHandle_Ptr_smr_LogNodeConfig(config))
+	}
+}
+
+//export smr_LogNode_StartAndWait
+func smr_LogNode_StartAndWait(_handle CGoHandle, config CGoHandle, goRun C.char) {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).StartAndWait(ptrFromHandle_Ptr_smr_LogNodeConfig(config))
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).StartAndWait(ptrFromHandle_Ptr_smr_LogNodeConfig(config))
+	}
+}
+
+//export smr_LogNode_GetSerializedState
+func smr_LogNode_GetSerializedState(_handle CGoHandle) CGoHandle {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return handleFromPtr_Slice_byte(nil)
+	}
+	cret := gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).GetSerializedState()
+
+	return handleFromPtr_Slice_byte(&cret)
+}
+
+//export smr_LogNode_Propose
+func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, msg *C.char, goRun C.char) {
+	_fun_arg := resolve
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
+			if C.PyCallable_Check(_fun_arg) == 0 {
+				return
+			}
+			_gstate := C.PyGILState_Ensure()
+			_fcargs := C.PyTuple_New(2)
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			C.PyObject_CallObject(_fun_arg, _fcargs)
+			C.gopy_decref(_fcargs)
+			C.gopy_err_handle()
+			C.PyGILState_Release(_gstate)
+		}, C.GoString(msg))
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
+			if C.PyCallable_Check(_fun_arg) == 0 {
+				return
+			}
+			_gstate := C.PyGILState_Ensure()
+			_fcargs := C.PyTuple_New(2)
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			C.PyObject_CallObject(_fun_arg, _fcargs)
+			C.gopy_decref(_fcargs)
+			C.gopy_err_handle()
+			C.PyGILState_Release(_gstate)
+		}, C.GoString(msg))
+	}
+}
+
+//export smr_LogNode_AddNode
+func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve *C.PyObject, goRun C.char) {
+	_fun_arg := resolve
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).AddNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
+			if C.PyCallable_Check(_fun_arg) == 0 {
+				return
+			}
+			_gstate := C.PyGILState_Ensure()
+			_fcargs := C.PyTuple_New(2)
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			C.PyObject_CallObject(_fun_arg, _fcargs)
+			C.gopy_decref(_fcargs)
+			C.gopy_err_handle()
+			C.PyGILState_Release(_gstate)
+		})
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).AddNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
+			if C.PyCallable_Check(_fun_arg) == 0 {
+				return
+			}
+			_gstate := C.PyGILState_Ensure()
+			_fcargs := C.PyTuple_New(2)
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			C.PyObject_CallObject(_fun_arg, _fcargs)
+			C.gopy_decref(_fcargs)
+			C.gopy_err_handle()
+			C.PyGILState_Release(_gstate)
+		})
+	}
+}
+
+//export smr_LogNode_RemoveNode
+func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObject, goRun C.char) {
+	_fun_arg := resolve
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).RemoveNode(int(id), func(arg_0 interface{}, arg_1 string) {
+			if C.PyCallable_Check(_fun_arg) == 0 {
+				return
+			}
+			_gstate := C.PyGILState_Ensure()
+			_fcargs := C.PyTuple_New(2)
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			C.PyObject_CallObject(_fun_arg, _fcargs)
+			C.gopy_decref(_fcargs)
+			C.gopy_err_handle()
+			C.PyGILState_Release(_gstate)
+		})
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).RemoveNode(int(id), func(arg_0 interface{}, arg_1 string) {
+			if C.PyCallable_Check(_fun_arg) == 0 {
+				return
+			}
+			_gstate := C.PyGILState_Ensure()
+			_fcargs := C.PyTuple_New(2)
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			C.PyObject_CallObject(_fun_arg, _fcargs)
+			C.gopy_decref(_fcargs)
+			C.gopy_err_handle()
+			C.PyGILState_Release(_gstate)
+		})
+	}
+}
+
+//export smr_LogNode_UpdateNode
+func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve *C.PyObject, goRun C.char) {
+	_fun_arg := resolve
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).UpdateNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
+			if C.PyCallable_Check(_fun_arg) == 0 {
+				return
+			}
+			_gstate := C.PyGILState_Ensure()
+			_fcargs := C.PyTuple_New(2)
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			C.PyObject_CallObject(_fun_arg, _fcargs)
+			C.gopy_decref(_fcargs)
+			C.gopy_err_handle()
+			C.PyGILState_Release(_gstate)
+		})
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).UpdateNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
+			if C.PyCallable_Check(_fun_arg) == 0 {
+				return
+			}
+			_gstate := C.PyGILState_Ensure()
+			_fcargs := C.PyTuple_New(2)
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			C.PyObject_CallObject(_fun_arg, _fcargs)
+			C.gopy_decref(_fcargs)
+			C.gopy_err_handle()
+			C.PyGILState_Release(_gstate)
+		})
+	}
+}
+
+//export smr_LogNode_WaitToClose
+func smr_LogNode_WaitToClose(_handle CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return C.CString("")
+	}
+	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WaitToClose()
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
+//export smr_LogNode_Close
+func smr_LogNode_Close(_handle CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return C.CString("")
+	}
+	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Close()
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
+//export smr_LogNode_ReadDataDirectoryFromHDFS
+func smr_LogNode_ReadDataDirectoryFromHDFS(_handle CGoHandle) CGoHandle {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return handleFromPtr_Slice_byte(nil)
+	}
+	cret, __err := gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReadDataDirectoryFromHDFS()
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		C.free(unsafe.Pointer(estr))
+		return handleFromPtr_Slice_byte(nil)
+	}
+	return handleFromPtr_Slice_byte(&cret)
+}
+
+//export smr_LogNode_WriteDataDirectoryToHDFS
+func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state CGoHandle, resolve *C.PyObject, goRun C.char) {
+	_fun_arg := resolve
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(deptrFromHandle_Slice_byte(serialized_state), func(arg_0 interface{}, arg_1 string) {
+			if C.PyCallable_Check(_fun_arg) == 0 {
+				return
+			}
+			_gstate := C.PyGILState_Ensure()
+			_fcargs := C.PyTuple_New(2)
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			C.PyObject_CallObject(_fun_arg, _fcargs)
+			C.gopy_decref(_fcargs)
+			C.gopy_err_handle()
+			C.PyGILState_Release(_gstate)
+		})
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(deptrFromHandle_Slice_byte(serialized_state), func(arg_0 interface{}, arg_1 string) {
+			if C.PyCallable_Check(_fun_arg) == 0 {
+				return
+			}
+			_gstate := C.PyGILState_Ensure()
+			_fcargs := C.PyTuple_New(2)
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			C.PyObject_CallObject(_fun_arg, _fcargs)
+			C.gopy_decref(_fcargs)
+			C.gopy_err_handle()
+			C.PyGILState_Release(_gstate)
+		})
+	}
+}
+
+//export smr_LogNode_Process
+func smr_LogNode_Process(_handle CGoHandle, ctx CGoHandle, m CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return C.CString("")
+	}
+	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Process(ptrFromHandle_context_Context(ctx), *ptrFromHandle_raftpb_Message(m))
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
+//export smr_LogNode_IsIDRemoved
+func smr_LogNode_IsIDRemoved(_handle CGoHandle, id C.ulonglong) C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return boolGoToPy(false)
+	}
+	return boolGoToPy(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).IsIDRemoved(uint64(id)))
+
+}
+
+//export smr_LogNode_ReportUnreachable
+func smr_LogNode_ReportUnreachable(_handle CGoHandle, id C.ulonglong, goRun C.char) {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportUnreachable(uint64(id))
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportUnreachable(uint64(id))
+	}
+}
+
+//export smr_LogNode_ReportSnapshot
+func smr_LogNode_ReportSnapshot(_handle CGoHandle, id C.ulonglong, status C.longlong, goRun C.char) {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportSnapshot(uint64(id), raft.SnapshotStatus(int(status)))
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportSnapshot(uint64(id), raft.SnapshotStatus(int(status)))
+	}
+}
+
 // ---- Slices ---
 
 // ---- Maps ---
 
 // ---- Constructors ---
 
-//export smr_NewLogNode
-func smr_NewLogNode(store_path *C.char, id C.longlong, hdfsHostname *C.char, hdfs_data_directory *C.char, peerAddresses CGoHandle, peerIDs CGoHandle, join C.char) CGoHandle {
-	return handleFromPtr_Ptr_smr_LogNode(smr.NewLogNode(C.GoString(store_path), int(id), C.GoString(hdfsHostname), C.GoString(hdfs_data_directory), deptrFromHandle_Slice_string(peerAddresses), deptrFromHandle_Slice_int(peerIDs), boolPyToGo(join)))
-
-}
-
 //export smr_NewConfig
 func smr_NewConfig() CGoHandle {
 	return handleFromPtr_Ptr_smr_LogNodeConfig(smr.NewConfig())
+
+}
+
+//export smr_NewLogNode
+func smr_NewLogNode(store_path *C.char, id C.longlong, hdfsHostname *C.char, hdfs_data_directory *C.char, peerAddresses CGoHandle, peerIDs CGoHandle, join C.char, debug_port C.longlong) CGoHandle {
+	return handleFromPtr_Ptr_smr_LogNode(smr.NewLogNode(C.GoString(store_path), int(id), C.GoString(hdfsHostname), C.GoString(hdfs_data_directory), deptrFromHandle_Slice_string(peerAddresses), deptrFromHandle_Slice_int(peerIDs), boolPyToGo(join), int(debug_port)))
 
 }
 

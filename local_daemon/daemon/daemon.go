@@ -599,7 +599,15 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 		}
 
 		dataDirectory = respMessage.DataDirectory
-		d.log.Debug("Response from 'prepare-to-migrate' request: %s", respMessage.String())
+		if respMessage.Status == "error" {
+			var msgErr types.MessageError
+			frames.DecodeBuffers(&msgErr)
+
+			d.log.Error("Error encountered by kernel %s while it was preparing to migrate: %v", kernel.ID(), msgErr)
+			return fmt.Errorf("ErrPrepareToMigrateFailed (%s) -- %s: %s", msgErr.Status, msgErr.ErrName, msgErr.ErrValue)
+		} else {
+			d.log.Debug("Response from 'prepare-to-migrate' request: %s", respMessage.String())
+		}
 
 		return nil
 	}, requestWG.Done)

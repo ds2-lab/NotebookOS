@@ -2528,515 +2528,6 @@ PyObject * _wrap__smr_smr_WriteCloser_Write(PyObject * PYBINDGEN_UNUSED(dummy), 
 
 
 PyObject *
-_wrap__smr_smr_IntRet_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs))
-{
-    PyObject *py_retval;
-    int64_t retval;
-
-    retval = smr_IntRet_CTor();
-    py_retval = Py_BuildValue((char *) "L", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_IntRet_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs));
-
-
-PyObject *
-_wrap__smr_smr_IntRet_N_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t retval;
-    int64_t handle;
-    const char *keywords[] = {"handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &handle)) {
-        return NULL;
-    }
-    retval = smr_IntRet_N_Get(handle);
-    py_retval = Py_BuildValue((char *) "L", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_IntRet_N_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_IntRet_N_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t handle;
-    int64_t val;
-    const char *keywords[] = {"handle", "val", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LL", (char **) keywords, &handle, &val)) {
-        return NULL;
-    }
-    smr_IntRet_N_Set(handle, val);
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_IntRet_N_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_IntRet_Err_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    char *retval;
-    int64_t handle;
-    const char *keywords[] = {"handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &handle)) {
-        return NULL;
-    }
-    retval = smr_IntRet_Err_Get(handle);
-    py_retval = Py_BuildValue((char *) "s", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_IntRet_Err_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_IntRet_Err_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t handle;
-    char *val;
-    const char *keywords[] = {"handle", "val", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "Ls", (char **) keywords, &handle, &val)) {
-        return NULL;
-    }
-    smr_IntRet_Err_Set(handle, val);
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_IntRet_Err_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs))
-{
-    PyObject *py_retval;
-    int64_t retval;
-
-    retval = smr_LogNode_CTor();
-    py_retval = Py_BuildValue((char *) "L", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs));
-
-
-PyObject *
-_wrap__smr_smr_LogNode_ConnectedToHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    bool retval;
-    int64_t _handle;
-    const char *keywords[] = {"_handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
-        return NULL;
-    }
-    retval = smr_LogNode_ConnectedToHDFS(_handle);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "N", PyBool_FromLong(retval));
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_ConnectedToHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_NumChanges(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t retval;
-    int64_t _handle;
-    const char *keywords[] = {"_handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
-        return NULL;
-    }
-    retval = smr_LogNode_NumChanges(_handle);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "L", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_NumChanges(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_Start(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t _handle;
-    int64_t config;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "config", "goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLO", (char **) keywords, &_handle, &config, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_Start(_handle, config, goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_Start(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_StartAndWait(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t _handle;
-    int64_t config;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "config", "goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLO", (char **) keywords, &_handle, &config, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_StartAndWait(_handle, config, goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_StartAndWait(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_GetSerializedStateJson(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    char *retval;
-    int64_t _handle;
-    const char *keywords[] = {"_handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
-        return NULL;
-    }
-    retval = smr_LogNode_GetSerializedStateJson(_handle);
-    if (PyErr_Occurred()) {
-        if (retval != NULL) free(retval);
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "s", retval);
-    free(retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_GetSerializedStateJson(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_Propose(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t _handle;
-    int64_t val;
-    PyObject *resolve;
-    char *msg;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "val", "resolve", "msg", "goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLOsO", (char **) keywords, &_handle, &val, &resolve, &msg, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_Propose(_handle, val, resolve, msg, goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_Propose(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_AddNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t _handle;
-    int64_t id;
-    char *addr;
-    PyObject *resolve;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "id", "addr", "resolve", "goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLsOO", (char **) keywords, &_handle, &id, &addr, &resolve, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_AddNode(_handle, id, addr, resolve, goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_AddNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_RemoveNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t _handle;
-    int64_t id;
-    PyObject *resolve;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "id", "resolve", "goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLOO", (char **) keywords, &_handle, &id, &resolve, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_RemoveNode(_handle, id, resolve, goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_RemoveNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_UpdateNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t _handle;
-    int64_t id;
-    char *addr;
-    PyObject *resolve;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "id", "addr", "resolve", "goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLsOO", (char **) keywords, &_handle, &id, &addr, &resolve, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_UpdateNode(_handle, id, addr, resolve, goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_UpdateNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_WaitToClose(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    char *retval;
-    int64_t _handle;
-    const char *keywords[] = {"_handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
-        return NULL;
-    }
-    retval = smr_LogNode_WaitToClose(_handle);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "s", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_WaitToClose(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    char *retval;
-    int64_t _handle;
-    const char *keywords[] = {"_handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
-        return NULL;
-    }
-    retval = smr_LogNode_Close(_handle);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "s", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_ReadDataDirectoryFromHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    char *retval;
-    int64_t _handle;
-    const char *keywords[] = {"_handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
-        return NULL;
-    }
-    retval = smr_LogNode_ReadDataDirectoryFromHDFS(_handle);
-    if (PyErr_Occurred()) {
-        if (retval != NULL) free(retval);
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "s", retval);
-    free(retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_ReadDataDirectoryFromHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_WriteDataDirectoryToHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t _handle;
-    char *serialized_state;
-    PyObject *resolve;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "serialized_state", "resolve", "goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LsOO", (char **) keywords, &_handle, &serialized_state, &resolve, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_WriteDataDirectoryToHDFS(_handle, serialized_state, resolve, goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_WriteDataDirectoryToHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_Process(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    char *retval;
-    int64_t _handle;
-    int64_t ctx;
-    int64_t m;
-    const char *keywords[] = {"_handle", "ctx", "m", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLL", (char **) keywords, &_handle, &ctx, &m)) {
-        return NULL;
-    }
-    retval = smr_LogNode_Process(_handle, ctx, m);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "s", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_Process(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_IsIDRemoved(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    bool retval;
-    int64_t _handle;
-    uint64_t id;
-    const char *keywords[] = {"_handle", "id", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LK", (char **) keywords, &_handle, &id)) {
-        return NULL;
-    }
-    retval = smr_LogNode_IsIDRemoved(_handle, id);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "N", PyBool_FromLong(retval));
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_IsIDRemoved(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_ReportUnreachable(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t _handle;
-    uint64_t id;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "id", "goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LKO", (char **) keywords, &_handle, &id, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_ReportUnreachable(_handle, id, goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_ReportUnreachable(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_LogNode_ReportSnapshot(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t _handle;
-    uint64_t id;
-    int64_t status;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"_handle", "id", "status", "goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LKLO", (char **) keywords, &_handle, &id, &status, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_LogNode_ReportSnapshot(_handle, id, status, goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_LogNode_ReportSnapshot(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
 _wrap__smr_smr_LogNodeConfig_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs))
 {
     PyObject *py_retval;
@@ -3366,32 +2857,532 @@ PyObject * _wrap__smr_smr_Bytes_Len(PyObject * PYBINDGEN_UNUSED(dummy), PyObject
 
 
 PyObject *
-_wrap__smr_smr_NewLogNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+_wrap__smr_smr_IntRet_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs))
 {
     PyObject *py_retval;
     int64_t retval;
-    char *store_path;
-    int64_t id;
-    char *hdfsHostname;
-    char *hdfs_data_directory;
-    int64_t peerAddresses;
-    int64_t peerIDs;
-    bool join;
-    PyObject *py_join;
-    const char *keywords[] = {"store_path", "id", "hdfsHostname", "hdfs_data_directory", "peerAddresses", "peerIDs", "join", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "sLssLLO", (char **) keywords, &store_path, &id, &hdfsHostname, &hdfs_data_directory, &peerAddresses, &peerIDs, &py_join)) {
+    retval = smr_IntRet_CTor();
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_IntRet_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs));
+
+
+PyObject *
+_wrap__smr_smr_IntRet_N_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t handle;
+    const char *keywords[] = {"handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &handle)) {
         return NULL;
     }
-    join = (bool) PyObject_IsTrue(py_join);
-    retval = smr_NewLogNode(store_path, id, hdfsHostname, hdfs_data_directory, peerAddresses, peerIDs, join);
+    retval = smr_IntRet_N_Get(handle);
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_IntRet_N_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_IntRet_N_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t handle;
+    int64_t val;
+    const char *keywords[] = {"handle", "val", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LL", (char **) keywords, &handle, &val)) {
+        return NULL;
+    }
+    smr_IntRet_N_Set(handle, val);
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_IntRet_N_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_IntRet_Err_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    char *retval;
+    int64_t handle;
+    const char *keywords[] = {"handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &handle)) {
+        return NULL;
+    }
+    retval = smr_IntRet_Err_Get(handle);
+    py_retval = Py_BuildValue((char *) "s", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_IntRet_Err_Get(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_IntRet_Err_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t handle;
+    char *val;
+    const char *keywords[] = {"handle", "val", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "Ls", (char **) keywords, &handle, &val)) {
+        return NULL;
+    }
+    smr_IntRet_Err_Set(handle, val);
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_IntRet_Err_Set(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs))
+{
+    PyObject *py_retval;
+    int64_t retval;
+
+    retval = smr_LogNode_CTor();
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_CTor(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs));
+
+
+PyObject *
+_wrap__smr_smr_LogNode_ServeHttpDebug(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LO", (char **) keywords, &_handle, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_LogNode_ServeHttpDebug(_handle, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_ServeHttpDebug(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_ConnectedToHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    bool retval;
+    int64_t _handle;
+    const char *keywords[] = {"_handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
+        return NULL;
+    }
+    retval = smr_LogNode_ConnectedToHDFS(_handle);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "N", PyBool_FromLong(retval));
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_ConnectedToHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_NumChanges(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t _handle;
+    const char *keywords[] = {"_handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
+        return NULL;
+    }
+    retval = smr_LogNode_NumChanges(_handle);
     if (PyErr_Occurred()) {
         return NULL;
     }
     py_retval = Py_BuildValue((char *) "L", retval);
     return py_retval;
 }
-PyObject * _wrap__smr_smr_NewLogNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+PyObject * _wrap__smr_smr_LogNode_NumChanges(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_Start(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    int64_t config;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "config", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLO", (char **) keywords, &_handle, &config, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_LogNode_Start(_handle, config, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_Start(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_StartAndWait(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    int64_t config;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "config", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLO", (char **) keywords, &_handle, &config, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_LogNode_StartAndWait(_handle, config, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_StartAndWait(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_GetSerializedState(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t _handle;
+    const char *keywords[] = {"_handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
+        return NULL;
+    }
+    retval = smr_LogNode_GetSerializedState(_handle);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_GetSerializedState(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_Propose(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    int64_t val;
+    PyObject *resolve;
+    char *msg;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "val", "resolve", "msg", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLOsO", (char **) keywords, &_handle, &val, &resolve, &msg, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_LogNode_Propose(_handle, val, resolve, msg, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_Propose(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_AddNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    int64_t id;
+    char *addr;
+    PyObject *resolve;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "id", "addr", "resolve", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLsOO", (char **) keywords, &_handle, &id, &addr, &resolve, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_LogNode_AddNode(_handle, id, addr, resolve, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_AddNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_RemoveNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    int64_t id;
+    PyObject *resolve;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "id", "resolve", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLOO", (char **) keywords, &_handle, &id, &resolve, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_LogNode_RemoveNode(_handle, id, resolve, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_RemoveNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_UpdateNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    int64_t id;
+    char *addr;
+    PyObject *resolve;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "id", "addr", "resolve", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLsOO", (char **) keywords, &_handle, &id, &addr, &resolve, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_LogNode_UpdateNode(_handle, id, addr, resolve, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_UpdateNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_WaitToClose(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    char *retval;
+    int64_t _handle;
+    const char *keywords[] = {"_handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
+        return NULL;
+    }
+    retval = smr_LogNode_WaitToClose(_handle);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "s", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_WaitToClose(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    char *retval;
+    int64_t _handle;
+    const char *keywords[] = {"_handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
+        return NULL;
+    }
+    retval = smr_LogNode_Close(_handle);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "s", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_ReadDataDirectoryFromHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t _handle;
+    const char *keywords[] = {"_handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
+        return NULL;
+    }
+    retval = smr_LogNode_ReadDataDirectoryFromHDFS(_handle);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_ReadDataDirectoryFromHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_WriteDataDirectoryToHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    int64_t serialized_state;
+    PyObject *resolve;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "serialized_state", "resolve", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLOO", (char **) keywords, &_handle, &serialized_state, &resolve, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_LogNode_WriteDataDirectoryToHDFS(_handle, serialized_state, resolve, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_WriteDataDirectoryToHDFS(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_Process(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    char *retval;
+    int64_t _handle;
+    int64_t ctx;
+    int64_t m;
+    const char *keywords[] = {"_handle", "ctx", "m", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LLL", (char **) keywords, &_handle, &ctx, &m)) {
+        return NULL;
+    }
+    retval = smr_LogNode_Process(_handle, ctx, m);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "s", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_Process(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_IsIDRemoved(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    bool retval;
+    int64_t _handle;
+    uint64_t id;
+    const char *keywords[] = {"_handle", "id", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LK", (char **) keywords, &_handle, &id)) {
+        return NULL;
+    }
+    retval = smr_LogNode_IsIDRemoved(_handle, id);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "N", PyBool_FromLong(retval));
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_IsIDRemoved(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_ReportUnreachable(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    uint64_t id;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "id", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LKO", (char **) keywords, &_handle, &id, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_LogNode_ReportUnreachable(_handle, id, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_ReportUnreachable(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_LogNode_ReportSnapshot(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t _handle;
+    uint64_t id;
+    int64_t status;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"_handle", "id", "status", "goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LKLO", (char **) keywords, &_handle, &id, &status, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_LogNode_ReportSnapshot(_handle, id, status, goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_LogNode_ReportSnapshot(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
 
 
 PyObject *
@@ -3408,6 +3399,36 @@ _wrap__smr_smr_NewConfig(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_
     return py_retval;
 }
 PyObject * _wrap__smr_smr_NewConfig(PyObject *PYBINDGEN_UNUSED(_args), PyObject *PYBINDGEN_UNUSED(_kwargs));
+
+
+PyObject *
+_wrap__smr_smr_NewLogNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    char *store_path;
+    int64_t id;
+    char *hdfsHostname;
+    char *hdfs_data_directory;
+    int64_t peerAddresses;
+    int64_t peerIDs;
+    bool join;
+    PyObject *py_join;
+    int64_t debug_port;
+    const char *keywords[] = {"store_path", "id", "hdfsHostname", "hdfs_data_directory", "peerAddresses", "peerIDs", "join", "debug_port", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "sLssLLOL", (char **) keywords, &store_path, &id, &hdfsHostname, &hdfs_data_directory, &peerAddresses, &peerIDs, &py_join, &debug_port)) {
+        return NULL;
+    }
+    join = (bool) PyObject_IsTrue(py_join);
+    retval = smr_NewLogNode(store_path, id, hdfsHostname, hdfs_data_directory, peerAddresses, peerIDs, join, debug_port);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_NewLogNode(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
 
 
 PyObject *
@@ -3567,29 +3588,6 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_ReadCloser_Read", (PyCFunction) _wrap__smr_smr_ReadCloser_Read, METH_KEYWORDS|METH_VARARGS, "smr_ReadCloser_Read(_handle, p)\n\ntype: _handle: int64_t\ntype: p: int64_t" },
     {(char *) "smr_WriteCloser_Close", (PyCFunction) _wrap__smr_smr_WriteCloser_Close, METH_KEYWORDS|METH_VARARGS, "smr_WriteCloser_Close(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_WriteCloser_Write", (PyCFunction) _wrap__smr_smr_WriteCloser_Write, METH_KEYWORDS|METH_VARARGS, "smr_WriteCloser_Write(_handle, p)\n\ntype: _handle: int64_t\ntype: p: int64_t" },
-    {(char *) "smr_IntRet_CTor", (PyCFunction) _wrap__smr_smr_IntRet_CTor, METH_NOARGS, "smr_IntRet_CTor()\n\n" },
-    {(char *) "smr_IntRet_N_Get", (PyCFunction) _wrap__smr_smr_IntRet_N_Get, METH_KEYWORDS|METH_VARARGS, "smr_IntRet_N_Get(handle)\n\ntype: handle: int64_t" },
-    {(char *) "smr_IntRet_N_Set", (PyCFunction) _wrap__smr_smr_IntRet_N_Set, METH_KEYWORDS|METH_VARARGS, "smr_IntRet_N_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: int64_t" },
-    {(char *) "smr_IntRet_Err_Get", (PyCFunction) _wrap__smr_smr_IntRet_Err_Get, METH_KEYWORDS|METH_VARARGS, "smr_IntRet_Err_Get(handle)\n\ntype: handle: int64_t" },
-    {(char *) "smr_IntRet_Err_Set", (PyCFunction) _wrap__smr_smr_IntRet_Err_Set, METH_KEYWORDS|METH_VARARGS, "smr_IntRet_Err_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: char *" },
-    {(char *) "smr_LogNode_CTor", (PyCFunction) _wrap__smr_smr_LogNode_CTor, METH_NOARGS, "smr_LogNode_CTor()\n\n" },
-    {(char *) "smr_LogNode_ConnectedToHDFS", (PyCFunction) _wrap__smr_smr_LogNode_ConnectedToHDFS, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ConnectedToHDFS(_handle)\n\ntype: _handle: int64_t" },
-    {(char *) "smr_LogNode_NumChanges", (PyCFunction) _wrap__smr_smr_LogNode_NumChanges, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_NumChanges(_handle)\n\ntype: _handle: int64_t" },
-    {(char *) "smr_LogNode_Start", (PyCFunction) _wrap__smr_smr_LogNode_Start, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Start(_handle, config, goRun)\n\ntype: _handle: int64_t\ntype: config: int64_t\ntype: goRun: bool" },
-    {(char *) "smr_LogNode_StartAndWait", (PyCFunction) _wrap__smr_smr_LogNode_StartAndWait, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_StartAndWait(_handle, config, goRun)\n\ntype: _handle: int64_t\ntype: config: int64_t\ntype: goRun: bool" },
-    {(char *) "smr_LogNode_GetSerializedStateJson", (PyCFunction) _wrap__smr_smr_LogNode_GetSerializedStateJson, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_GetSerializedStateJson(_handle)\n\ntype: _handle: int64_t" },
-    {(char *) "smr_LogNode_Propose", (PyCFunction) _wrap__smr_smr_LogNode_Propose, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Propose(_handle, val, resolve, msg, goRun)\n\ntype: _handle: int64_t\ntype: val: int64_t\ntype: resolve: PyObject *\ntype: msg: char *\ntype: goRun: bool" },
-    {(char *) "smr_LogNode_AddNode", (PyCFunction) _wrap__smr_smr_LogNode_AddNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_AddNode(_handle, id, addr, resolve, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: addr: char *\ntype: resolve: PyObject *\ntype: goRun: bool" },
-    {(char *) "smr_LogNode_RemoveNode", (PyCFunction) _wrap__smr_smr_LogNode_RemoveNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_RemoveNode(_handle, id, resolve, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: resolve: PyObject *\ntype: goRun: bool" },
-    {(char *) "smr_LogNode_UpdateNode", (PyCFunction) _wrap__smr_smr_LogNode_UpdateNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_UpdateNode(_handle, id, addr, resolve, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: addr: char *\ntype: resolve: PyObject *\ntype: goRun: bool" },
-    {(char *) "smr_LogNode_WaitToClose", (PyCFunction) _wrap__smr_smr_LogNode_WaitToClose, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_WaitToClose(_handle)\n\ntype: _handle: int64_t" },
-    {(char *) "smr_LogNode_Close", (PyCFunction) _wrap__smr_smr_LogNode_Close, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Close(_handle)\n\ntype: _handle: int64_t" },
-    {(char *) "smr_LogNode_ReadDataDirectoryFromHDFS", (PyCFunction) _wrap__smr_smr_LogNode_ReadDataDirectoryFromHDFS, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ReadDataDirectoryFromHDFS(_handle)\n\ntype: _handle: int64_t" },
-    {(char *) "smr_LogNode_WriteDataDirectoryToHDFS", (PyCFunction) _wrap__smr_smr_LogNode_WriteDataDirectoryToHDFS, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_WriteDataDirectoryToHDFS(_handle, serialized_state, resolve, goRun)\n\ntype: _handle: int64_t\ntype: serialized_state: char *\ntype: resolve: PyObject *\ntype: goRun: bool" },
-    {(char *) "smr_LogNode_Process", (PyCFunction) _wrap__smr_smr_LogNode_Process, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Process(_handle, ctx, m)\n\ntype: _handle: int64_t\ntype: ctx: int64_t\ntype: m: int64_t" },
-    {(char *) "smr_LogNode_IsIDRemoved", (PyCFunction) _wrap__smr_smr_LogNode_IsIDRemoved, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_IsIDRemoved(_handle, id)\n\ntype: _handle: int64_t\ntype: id: uint64_t" },
-    {(char *) "smr_LogNode_ReportUnreachable", (PyCFunction) _wrap__smr_smr_LogNode_ReportUnreachable, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ReportUnreachable(_handle, id, goRun)\n\ntype: _handle: int64_t\ntype: id: uint64_t\ntype: goRun: bool" },
-    {(char *) "smr_LogNode_ReportSnapshot", (PyCFunction) _wrap__smr_smr_LogNode_ReportSnapshot, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ReportSnapshot(_handle, id, status, goRun)\n\ntype: _handle: int64_t\ntype: id: uint64_t\ntype: status: int64_t\ntype: goRun: bool" },
     {(char *) "smr_LogNodeConfig_CTor", (PyCFunction) _wrap__smr_smr_LogNodeConfig_CTor, METH_NOARGS, "smr_LogNodeConfig_CTor()\n\n" },
     {(char *) "smr_LogNodeConfig_ElectionTick_Get", (PyCFunction) _wrap__smr_smr_LogNodeConfig_ElectionTick_Get, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_ElectionTick_Get(handle)\n\ntype: handle: int64_t" },
     {(char *) "smr_LogNodeConfig_ElectionTick_Set", (PyCFunction) _wrap__smr_smr_LogNodeConfig_ElectionTick_Set, METH_KEYWORDS|METH_VARARGS, "smr_LogNodeConfig_ElectionTick_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: int64_t" },
@@ -3607,8 +3605,32 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_Bytes_CTor", (PyCFunction) _wrap__smr_smr_Bytes_CTor, METH_NOARGS, "smr_Bytes_CTor()\n\n" },
     {(char *) "smr_Bytes_Bytes", (PyCFunction) _wrap__smr_smr_Bytes_Bytes, METH_KEYWORDS|METH_VARARGS, "smr_Bytes_Bytes(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_Bytes_Len", (PyCFunction) _wrap__smr_smr_Bytes_Len, METH_KEYWORDS|METH_VARARGS, "smr_Bytes_Len(_handle)\n\ntype: _handle: int64_t" },
-    {(char *) "smr_NewLogNode", (PyCFunction) _wrap__smr_smr_NewLogNode, METH_KEYWORDS|METH_VARARGS, "smr_NewLogNode(store_path, id, hdfsHostname, hdfs_data_directory, peerAddresses, peerIDs, join)\n\ntype: store_path: char *\ntype: id: int64_t\ntype: hdfsHostname: char *\ntype: hdfs_data_directory: char *\ntype: peerAddresses: int64_t\ntype: peerIDs: int64_t\ntype: join: bool" },
+    {(char *) "smr_IntRet_CTor", (PyCFunction) _wrap__smr_smr_IntRet_CTor, METH_NOARGS, "smr_IntRet_CTor()\n\n" },
+    {(char *) "smr_IntRet_N_Get", (PyCFunction) _wrap__smr_smr_IntRet_N_Get, METH_KEYWORDS|METH_VARARGS, "smr_IntRet_N_Get(handle)\n\ntype: handle: int64_t" },
+    {(char *) "smr_IntRet_N_Set", (PyCFunction) _wrap__smr_smr_IntRet_N_Set, METH_KEYWORDS|METH_VARARGS, "smr_IntRet_N_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: int64_t" },
+    {(char *) "smr_IntRet_Err_Get", (PyCFunction) _wrap__smr_smr_IntRet_Err_Get, METH_KEYWORDS|METH_VARARGS, "smr_IntRet_Err_Get(handle)\n\ntype: handle: int64_t" },
+    {(char *) "smr_IntRet_Err_Set", (PyCFunction) _wrap__smr_smr_IntRet_Err_Set, METH_KEYWORDS|METH_VARARGS, "smr_IntRet_Err_Set(handle, val)\n\ntype: handle: int64_t\ntype: val: char *" },
+    {(char *) "smr_LogNode_CTor", (PyCFunction) _wrap__smr_smr_LogNode_CTor, METH_NOARGS, "smr_LogNode_CTor()\n\n" },
+    {(char *) "smr_LogNode_ServeHttpDebug", (PyCFunction) _wrap__smr_smr_LogNode_ServeHttpDebug, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ServeHttpDebug(_handle, goRun)\n\ntype: _handle: int64_t\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_ConnectedToHDFS", (PyCFunction) _wrap__smr_smr_LogNode_ConnectedToHDFS, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ConnectedToHDFS(_handle)\n\ntype: _handle: int64_t" },
+    {(char *) "smr_LogNode_NumChanges", (PyCFunction) _wrap__smr_smr_LogNode_NumChanges, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_NumChanges(_handle)\n\ntype: _handle: int64_t" },
+    {(char *) "smr_LogNode_Start", (PyCFunction) _wrap__smr_smr_LogNode_Start, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Start(_handle, config, goRun)\n\ntype: _handle: int64_t\ntype: config: int64_t\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_StartAndWait", (PyCFunction) _wrap__smr_smr_LogNode_StartAndWait, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_StartAndWait(_handle, config, goRun)\n\ntype: _handle: int64_t\ntype: config: int64_t\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_GetSerializedState", (PyCFunction) _wrap__smr_smr_LogNode_GetSerializedState, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_GetSerializedState(_handle)\n\ntype: _handle: int64_t" },
+    {(char *) "smr_LogNode_Propose", (PyCFunction) _wrap__smr_smr_LogNode_Propose, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Propose(_handle, val, resolve, msg, goRun)\n\ntype: _handle: int64_t\ntype: val: int64_t\ntype: resolve: PyObject *\ntype: msg: char *\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_AddNode", (PyCFunction) _wrap__smr_smr_LogNode_AddNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_AddNode(_handle, id, addr, resolve, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: addr: char *\ntype: resolve: PyObject *\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_RemoveNode", (PyCFunction) _wrap__smr_smr_LogNode_RemoveNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_RemoveNode(_handle, id, resolve, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: resolve: PyObject *\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_UpdateNode", (PyCFunction) _wrap__smr_smr_LogNode_UpdateNode, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_UpdateNode(_handle, id, addr, resolve, goRun)\n\ntype: _handle: int64_t\ntype: id: int64_t\ntype: addr: char *\ntype: resolve: PyObject *\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_WaitToClose", (PyCFunction) _wrap__smr_smr_LogNode_WaitToClose, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_WaitToClose(_handle)\n\ntype: _handle: int64_t" },
+    {(char *) "smr_LogNode_Close", (PyCFunction) _wrap__smr_smr_LogNode_Close, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Close(_handle)\n\ntype: _handle: int64_t" },
+    {(char *) "smr_LogNode_ReadDataDirectoryFromHDFS", (PyCFunction) _wrap__smr_smr_LogNode_ReadDataDirectoryFromHDFS, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ReadDataDirectoryFromHDFS(_handle)\n\ntype: _handle: int64_t" },
+    {(char *) "smr_LogNode_WriteDataDirectoryToHDFS", (PyCFunction) _wrap__smr_smr_LogNode_WriteDataDirectoryToHDFS, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_WriteDataDirectoryToHDFS(_handle, serialized_state, resolve, goRun)\n\ntype: _handle: int64_t\ntype: serialized_state: int64_t\ntype: resolve: PyObject *\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_Process", (PyCFunction) _wrap__smr_smr_LogNode_Process, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_Process(_handle, ctx, m)\n\ntype: _handle: int64_t\ntype: ctx: int64_t\ntype: m: int64_t" },
+    {(char *) "smr_LogNode_IsIDRemoved", (PyCFunction) _wrap__smr_smr_LogNode_IsIDRemoved, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_IsIDRemoved(_handle, id)\n\ntype: _handle: int64_t\ntype: id: uint64_t" },
+    {(char *) "smr_LogNode_ReportUnreachable", (PyCFunction) _wrap__smr_smr_LogNode_ReportUnreachable, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ReportUnreachable(_handle, id, goRun)\n\ntype: _handle: int64_t\ntype: id: uint64_t\ntype: goRun: bool" },
+    {(char *) "smr_LogNode_ReportSnapshot", (PyCFunction) _wrap__smr_smr_LogNode_ReportSnapshot, METH_KEYWORDS|METH_VARARGS, "smr_LogNode_ReportSnapshot(_handle, id, status, goRun)\n\ntype: _handle: int64_t\ntype: id: uint64_t\ntype: status: int64_t\ntype: goRun: bool" },
     {(char *) "smr_NewConfig", (PyCFunction) _wrap__smr_smr_NewConfig, METH_NOARGS, "smr_NewConfig()\n\n" },
+    {(char *) "smr_NewLogNode", (PyCFunction) _wrap__smr_smr_NewLogNode, METH_KEYWORDS|METH_VARARGS, "smr_NewLogNode(store_path, id, hdfsHostname, hdfs_data_directory, peerAddresses, peerIDs, join, debug_port)\n\ntype: store_path: char *\ntype: id: int64_t\ntype: hdfsHostname: char *\ntype: hdfs_data_directory: char *\ntype: peerAddresses: int64_t\ntype: peerIDs: int64_t\ntype: join: bool\ntype: debug_port: int64_t" },
     {(char *) "smr_NewBytes", (PyCFunction) _wrap__smr_smr_NewBytes, METH_KEYWORDS|METH_VARARGS, "smr_NewBytes(bytes, len)\n\ntype: bytes: char *\ntype: len: int" },
     {NULL, NULL, 0, NULL}
 };

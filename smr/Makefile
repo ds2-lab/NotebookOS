@@ -81,7 +81,6 @@ gen-linux: gen-python patch
 gen-%: gen-python patch
 
 build-linux-amd64: gen-linux build-common patch.smr.c
-	@echo "\nWOOOOOO"
 	@echo "DIRECTORY: $(dir $(DEST))"
 	cd $(dir $(DEST)) && make build-smr-linux-amd64
 

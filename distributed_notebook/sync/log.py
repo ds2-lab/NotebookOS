@@ -19,11 +19,11 @@ class SyncValue:
     self.val = val
     self.attempt_number = attempt_number
     self.proposed_node = proposed_node # Only used by 'SYNC' proposals to specify the node that should serve as the leader.
-    self.end = end
-    self.op = op
+    self.end:bool = end
+    self.op:str = op
     self.timestamp:float = timestamp # The time at which the proposal/value was issued.
 
-    self._reset = False
+    self._reset: bool = False
   
   def __str__(self)->str:
     ts:str = datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')

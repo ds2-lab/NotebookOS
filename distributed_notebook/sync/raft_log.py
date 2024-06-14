@@ -1,5 +1,6 @@
 import io
 import os
+import base64
 import pickle
 import asyncio
 import json
@@ -9,7 +10,7 @@ from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 import datetime
 
 from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser
-from ..smr.go import Slice_string, Slice_int
+from ..smr.go import Slice_string, Slice_int, Slice_byte
 from .log import SyncLog, SyncValue
 from .checkpoint import Checkpoint
 from .future import Future
@@ -55,7 +56,7 @@ class RaftLog:
   _shouldSnapshotCallback: Optional[Callable[[SyncLog], bool]] = None # The callback to be called when a snapshot is needed.
   _snapshotCallback: Optional[Callable[[Any], bytes]] = None # The callback to be called when a snapshot is needed.
 
-  def __init__(self, base_path: str, id: int, hdfs_hostname:str, data_directory:str, peer_addrs: Iterable[str], peer_ids: Iterable[int], join: bool = False):
+  def __init__(self, base_path: str, id: int, hdfs_hostname:str, data_directory:str, peer_addrs: Iterable[str], peer_ids: Iterable[int], join: bool = False, debug_port:int = 8464):
     self._store: str = base_path
     self._id: int = id
     self.ensure_path(self._store)
@@ -69,7 +70,8 @@ class RaftLog:
     self._log.info("peer_addrs: %s" % peer_addrs)
     self._log.info("peer_ids: %s" % peer_ids)
     self._log.info("join: %s" % join)
-    self._node = NewLogNode(self._store, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join)
+    self._log.info("debug_port: %d" % debug_port)
+    self._node = NewLogNode(self._store, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
 
     self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
     self.my_proposals: Dict[int, Dict[int, SyncValue]] = {} # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
@@ -94,23 +96,19 @@ class RaftLog:
 
     self._log.info("Successfully created LogNode %d." % id)
 
-    # self.proposal_handlers = {
-    #   KEY_LEAD: self._handleLeadProposal,
-    #   KEY_YIELD: self._handleYieldProposal,
-      # KEY_SYNC: self._handleSyncProposal, # We don't include KEY_SYNC here as we call it explicitly.
-    # }
-
     self._changeCallback = self._changeHandler  # No idea why this walkaround works
     self._restoreCallback = self._restore       # No idea why this walkaround works
     self._ignore_changes = 0
     self._closed = None
+    
+    self.__load_and_apply_serialized_state()
 
-  def __get_serialized_state(self) -> str:
+  def __get_serialized_state(self) -> bytes:
     """
     Serialize important state so that it can be written to HDFS (for recovery purposes).
     
     This return value of this function should be passed to the `self._node.WriteDataDirectoryToHDFS` function.
-    """
+    """        
     data_dict:dict = {
       "winners_per_term": self.winners_per_term,
       "my_proposals": self.my_proposals,
@@ -130,7 +128,7 @@ class RaftLog:
       "_expected_term": self._expected_term,
     }
     
-    return json.dumps(data_dict)
+    return pickle.dumps(data_dict)
 
   def __load_and_apply_serialized_state(self) -> None:
     """
@@ -138,8 +136,16 @@ class RaftLog:
     This state is read from HDFS during migration/error recovery.
     Update our local state with the state retrieved from HDFS.
     """
-    serialized_state_json:str = self._node.GetSerializedStateJson()
-    data_dict:dict = json.loads(serialized_state_json)
+    serialized_state_bytes:bytes = bytes(self._node.GetSerializedState()) # Convert the Go bytes (Slice_byte) to Python bytes.
+    
+    if len(serialized_state_bytes) == 0:
+      self._log.debug("No serialized state found. Nothing to load and apply.")
+      return 
+    
+    data_dict:dict = pickle.loads(serialized_state_bytes) # json.loads(serialized_state_json)
+    if len(data_dict) == 0:
+      self._log.debug("No serialized state found. Nothing to apply.")
+      return 
     
     for key, entry in data_dict.items():
       self._log.debug(f"Retrived state \"{key}\": {str(entry)}")
@@ -275,7 +281,10 @@ class RaftLog:
           # 'YIELD'. In this case, the new proposal should have a larger atttempt number.
           if proposal.attempt_number <= prev_proposal.attempt_number:
             self._log.error("Received multiple proposals from Node %d in term %d. New proposal has attempt number (%d) <= previous proposal (%d)." % (proposal.val, term, proposal.attempt_number, prev_proposal.attempt_number))
-            raise ValueError("Received multiple proposals from Node %d in term %d. New proposal has attempt number (%d) <= previous proposal (%d)." % (proposal.val, term, proposal.attempt_number, prev_proposal.attempt_number))
+            # For now, we'll just replace the previous proposal with the same attempt number with this new one.
+            # TODO (Ben): Fix this. This happens during migrations.
+            proposals[proposal.val] = proposal
+            # raise ValueError("Received multiple proposals from Node %d in term %d. New proposal has attempt number (%d) <= previous proposal (%d)." % (proposal.val, term, proposal.attempt_number, prev_proposal.attempt_number))
           else:
             self._log.debug("Received multiple proposals from Node %d in term %d. New proposal's attempt number (%d) > previous proposal's attempt number (%d)." % (proposal.val, term, proposal.attempt_number, prev_proposal.attempt_number))
             proposals[proposal.val] = proposal
@@ -786,11 +795,14 @@ class RaftLog:
     Write the contents of the etcd-Raft data directory to HDFS.
     """
     self._log.info("Writing etcd-Raft data directory to HDFS.")
+    
+    serialized_state:bytes = self.__get_serialized_state()
+    self._log.info("Serialized important state to be written along with etcd-Raft data. Size: %d bytes." % len(serialized_state))
+    
     future, resolve = self._get_callback()
     
-    serialized_state:str = self.__get_serialized_state()
-    
-    self._node.WriteDataDirectoryToHDFS(serialized_state, resolve)
+    # Convert the Python bytes (bytes) to Go bytes (Slice_byte).
+    self._node.WriteDataDirectoryToHDFS(Slice_byte(serialized_state), resolve)
     data_dir_path = await future.result()
     return data_dir_path
 
