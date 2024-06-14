@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -17,11 +18,19 @@ import (
 	"google.golang.org/grpc/connectivity"
 )
 
+const (
+	ConsecutiveFailuresWarning int = 1
+	ConsecutiveFailuresBad     int = 2
+)
+
 var (
 	errRestoreRequired        = errors.New("restore required")
 	errExpectingHostScheduler = errors.New("expecting LocalDaemonClient")
 	errNodeNameUnspecified    = errors.New("no kubernetes node name returned for LocalDaemonClient")
 )
+
+// Defines a function to be called if a Local Daemon appears to be dead.
+type errorCallback func(localDaemonId string, nodeName string, errorName string, errorMessage string) error
 
 type LocalDaemonClient struct {
 	gateway.LocalGatewayClient
@@ -38,13 +47,16 @@ type LocalDaemonClient struct {
 	nodeName string
 	conn     *grpc.ClientConn
 
+	// A function to be called if a Local Daemon appears to be dead.
+	errorCallback errorCallback
+
 	gpuInfoMutex sync.Mutex
 }
 
 // This will return an errRestoreRequired error if the IDs don't match.
 // This will return an errNodeNameUnspecified error if there is no NodeName returned by the scheduler.
 // If both these errors occur, then only a errNodeNameUnspecified will be returned.
-func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval time.Duration) (*LocalDaemonClient, error) {
+func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval time.Duration, callback errorCallback) (*LocalDaemonClient, error) {
 	id := uuid.New().String()
 	scheduler := &LocalDaemonClient{
 		LocalGatewayClient:     gateway.NewLocalGatewayClient(conn),
@@ -52,6 +64,7 @@ func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval
 		conn:                   conn,
 		meta:                   hashmap.NewCornelkMap[string, interface{}](10),
 		gpuInfoRefreshInterval: gpuInfoRefreshInterval,
+		errorCallback:          callback,
 	}
 
 	config.InitLogger(&scheduler.log, scheduler)
@@ -84,27 +97,36 @@ func (s *LocalDaemonClient) pollForGpuInfo() {
 			numConsecutiveFailures += 1
 
 			// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
-			if numConsecutiveFailures >= 3 {
+			if numConsecutiveFailures >= ConsecutiveFailuresWarning {
 				// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
-				if (s.conn.GetState() == connectivity.TransientFailure || s.conn.GetState() == connectivity.Shutdown) {
-					s.log.Error("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.", numConsecutiveFailures, s.id, s.nodeName, s.conn.GetState().String(), s.id)
-					return 
-				} else if numConsecutiveFailures >= 5 { // If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
-					s.log.Error("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.", numConsecutiveFailures, s.id, s.nodeName, s.conn.GetState().String(), s.id)
+				if s.conn.GetState() == connectivity.TransientFailure || s.conn.GetState() == connectivity.Shutdown {
+					errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.", numConsecutiveFailures, s.id, s.nodeName, s.conn.GetState().String(), s.id)
+					s.log.Error(errorMessage)
+					s.errorCallback(s.id, s.nodeName, "Local Daemon Connectivity Error", errorMessage)
 					return
-				} else { // Otherwise, we won't asume it is dead yet... 
+				} else if numConsecutiveFailures >= ConsecutiveFailuresBad { // If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
+					errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.", numConsecutiveFailures, s.id, s.nodeName, s.conn.GetState().String(), s.id)
+					s.log.Error(errorMessage)
+					s.errorCallback(s.id, s.nodeName, "Local Daemon Connectivity Error", errorMessage)
+					return
+				} else { // Otherwise, we won't asume it is dead yet...
 					s.log.Warn("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...", numConsecutiveFailures, s.id, s.nodeName, s.conn.GetState().String())
 				}
 			}
+
+			// Sleep for a shorter period of time in order to detect failure more quickly.
+			// We'll sleep for longer depending on the number of consecutive failures we've encountered.
+			// We clamp the maximum sleep to the standard refresh interval.
+			shortened_sleep_interval := time.Duration(math.Max(float64(s.gpuInfoRefreshInterval), float64((time.Second*2)*time.Duration(numConsecutiveFailures))))
+			time.Sleep(shortened_sleep_interval)
 		} else {
 			s.gpuInfoMutex.Lock()
 			s.gpuInfo = resp
 			s.gpuInfoMutex.Unlock()
 
 			numConsecutiveFailures = 0
+			time.Sleep(s.gpuInfoRefreshInterval)
 		}
-
-		time.Sleep(s.gpuInfoRefreshInterval)
 	}
 }
 

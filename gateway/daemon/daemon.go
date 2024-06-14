@@ -53,6 +53,11 @@ const (
 	// Passed within the metadata dict of an 'execute_request' ZMQ message.
 	// This indicates that a specific replica should execute the code.
 	TargetReplicaArg = "target_replica"
+
+	ErrorNotification   notificationType = 0
+	WarningNotification notificationType = 1
+	InfoNotfication     notificationType = 2
+	SuccessNotification notificationType = 3
 )
 
 var (
@@ -79,6 +84,8 @@ var (
 	ErrDaemonNotFoundOnNode      = errors.New("could not find a local daemon on the specified kubernetes node")
 	ErrFailedToVerifyMessage     = errors.New("failed to verify ZMQ message after re-encoding it with modified contents")
 )
+
+type notificationType int32
 
 type GatewayDaemonConfig func(domain.ClusterGateway)
 
@@ -465,7 +472,7 @@ func (d *clusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := NewHostScheduler(incoming.RemoteAddr().String(), gConn, time.Duration(30)*time.Second)
+	host, err := NewHostScheduler(incoming.RemoteAddr().String(), gConn, time.Duration(30)*time.Second, d.localDaemonDisconnected)
 	if err == nil {
 		d.cluster.GetHostManager().Store(host.ID(), host)
 	} else if err == errRestoreRequired {
@@ -483,6 +490,8 @@ func (d *clusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	d.log.Info("Incoming host scheduler %s (node = %s) connected", host.ID(), host.NodeName())
+	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the Cluster Gateway.", host.ID(), host.NodeName()))
+
 	return conn, nil
 }
 
@@ -676,15 +685,66 @@ func (d *clusterGatewayImpl) defaultFailureHandler(c client.DistributedKernelCli
 	return fmt.Errorf("there is no failure handler for the DEFAULT policy; cannot handle error")
 }
 
-func (d *clusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) (err error) {
+func (d *clusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ notificationType) (err error) {
 	if d.clusterDashboard != nil {
-		_, err = d.clusterDashboard.ErrorOccurred(context.TODO(), &gateway.ErrorMessage{
-			ErrorName:    errorName,
-			ErrorMessage: errorMessage,
+		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
+			Title:            notificationName,
+			Message:          notificationMessage,
+			NotificationType: int32(typ),
 		})
 
 		if err != nil {
-			d.log.Error("Failed to notify Cluster Dashboard of static scheduling failure because: %s", err.Error())
+			d.log.Error("Failed to send notification to Cluster Dashboard because: %s", err.Error())
+		} else {
+			d.log.Debug("Successfully sent \"%s\" (typ=%d) notification to Cluster Dashboard.", notificationName, typ)
+		}
+	}
+
+	return err
+}
+
+func (d *clusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeName string, errorName string, errorMessage string) (err error) {
+	d.RemoveHost(context.TODO(), &gateway.HostId{
+		Id:       localDaemonId,
+		NodeName: nodeName, /* Not needed */
+	})
+
+	go d.notifyDashboard(errorName, errorMessage, WarningNotification)
+	return
+}
+
+// Used to issue an "info" notification to the Cluster Dashboard.
+func (d *clusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) (err error) {
+	if d.clusterDashboard != nil {
+		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
+			Title:            notificationName,
+			Message:          message,
+			NotificationType: int32(InfoNotfication),
+		})
+
+		if err != nil {
+			d.log.Error("Failed to send \"%s\" notification to Cluster Dashboard because: %s", notificationName, err.Error())
+		} else {
+			d.log.Debug("Successfully sent \"%s\" (typ=INFO) notification to Cluster Dashboard.", notificationName)
+		}
+	}
+
+	return err
+}
+
+// Used to issue an "error" notification to the Cluster Dashboard.
+func (d *clusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) (err error) {
+	if d.clusterDashboard != nil {
+		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
+			Title:            errorName,
+			Message:          errorMessage,
+			NotificationType: int32(ErrorNotification),
+		})
+
+		if err != nil {
+			d.log.Error("Failed to send \"%s\" error notification to Cluster Dashboard because: %s", errorName, err.Error())
+		} else {
+			d.log.Debug("Successfully sent \"%s\" (typ=ERROR) notification to Cluster Dashboard.", errorName)
 		}
 	}
 
@@ -699,7 +759,7 @@ func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	d.log.Debug("Static Failure Handler: migrating replica %d of kernel %s now.", targetReplica, c.ID())
 
 	// Notify the cluster dashboard that we're performing a migration.
-	d.notifyDashboardOfError("ErrAllReplicasProposedYield", fmt.Sprintf("all replicas of kernel %s proposed 'YIELD' during execution", c.ID()))
+	go d.notifyDashboardOfError("ErrAllReplicasProposedYield", fmt.Sprintf("all replicas of kernel %s proposed 'YIELD' during execution", c.ID()))
 
 	activeExecution, ok := d.activeExecutions.Load(c.ID())
 	if !ok {
@@ -941,6 +1001,9 @@ func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 		Key:             kernel.KernelSpec().Key,
 	}
 	d.log.Info("Kernel(%s) started: %v", kernel.ID(), info)
+
+	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running.", kernel.ID()), SuccessNotification)
+
 	return info, nil
 }
 
@@ -1248,6 +1311,12 @@ func (d *clusterGatewayImpl) StopKernel(ctx context.Context, in *gateway.KernelI
 		}
 	}
 
+	if err == nil {
+		go d.notifyDashboard("Kernel Stopped", fmt.Sprintf("Kernel %s has been terminated successfully.", kernel.ID()), SuccessNotification)
+	} else {
+		go d.notifyDashboardOfError("Failed to Terminate Kernel", fmt.Sprintf("An error was encountered while trying to terminate kernel %s: %v.", kernel.ID(), err))
+	}
+
 	return
 }
 
@@ -1259,6 +1328,17 @@ func (d *clusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelI
 	}
 
 	return d.statusErrorf(kernel.WaitClosed(), nil)
+}
+
+func (d *clusterGatewayImpl) SpoofNotifications(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
+	go func() {
+		d.notifyDashboard("Spoofed Error", "This is a made-up error message sent by the Cluster Gateway.", ErrorNotification)
+		d.notifyDashboard("Spoofed Warning", "This is a made-up warning message sent by the Cluster Gateway.", WarningNotification)
+		d.notifyDashboard("Spoofed Info Notification", "This is a made-up 'info' message sent by the Cluster Gateway.", InfoNotfication)
+		d.notifyDashboard("Spoofed Success Notification", "This is a made-up 'success' message sent by the Cluster Gateway.", SuccessNotification)
+	}()
+
+	return gateway.VOID, nil
 }
 
 // ClusterGateway implementation.
@@ -1704,7 +1784,7 @@ func (d *clusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.
 
 		if !ok {
 			d.log.Error("Could not find host %s on which replica %d of kernel %s is supposedly running...", hostId, replicaClient.ReplicaID(), in.Id)
-			d.notifyDashboardOfError("'FailNextExecution' Request Failed", fmt.Sprintf("Could not find host %s on which replica %d of kernel %s is supposedly running...", hostId, replicaClient.ReplicaID(), in.Id))
+			go d.notifyDashboardOfError("'FailNextExecution' Request Failed", fmt.Sprintf("Could not find host %s on which replica %d of kernel %s is supposedly running...", hostId, replicaClient.ReplicaID(), in.Id))
 			return gateway.VOID, ErrHostNotFound
 		}
 
@@ -1713,7 +1793,7 @@ func (d *clusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.
 		_, err := host.YieldNextExecution(ctx, in)
 		if err != nil {
 			d.log.Error("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s", hostId, host.Addr(), err.Error())
-			d.notifyDashboardOfError("'FailNextExecution' Request Failed", fmt.Sprintf("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s", hostId, host.Addr(), err.Error()))
+			go d.notifyDashboardOfError("'FailNextExecution' Request Failed", fmt.Sprintf("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s", hostId, host.Addr(), err.Error()))
 		} else {
 			d.log.Debug("Successfully issued 'FailNextExecution' to Local Daemon %s (%s) targeting kernel %s.", hostId, host.Addr(), in.Id)
 		}

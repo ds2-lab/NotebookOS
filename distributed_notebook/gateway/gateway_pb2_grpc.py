@@ -262,6 +262,11 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
+        self.SpoofNotifications = channel.unary_unary(
+                '/gateway.DistributedCluster/SpoofNotifications',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                )
         self.Ping = channel.unary_unary(
                 '/gateway.DistributedCluster/Ping',
                 request_serializer=gateway__pb2.Void.SerializeToString,
@@ -306,6 +311,13 @@ class DistributedClusterServicer(object):
 
     def InducePanic(self, request, context):
         """Used for debugging/testing. Causes a Panic.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SpoofNotifications(self, request, context):
+        """Used to test notifications.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -374,6 +386,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
+            'SpoofNotifications': grpc.unary_unary_rpc_method_handler(
+                    servicer.SpoofNotifications,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
             'Ping': grpc.unary_unary_rpc_method_handler(
                     servicer.Ping,
                     request_deserializer=gateway__pb2.Void.FromString,
@@ -433,6 +450,23 @@ class DistributedCluster(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/gateway.DistributedCluster/InducePanic',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def SpoofNotifications(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.DistributedCluster/SpoofNotifications',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.Void.FromString,
             options, channel_credentials,
@@ -569,9 +603,9 @@ class ClusterDashboardStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.ErrorOccurred = channel.unary_unary(
-                '/gateway.ClusterDashboard/ErrorOccurred',
-                request_serializer=gateway__pb2.ErrorMessage.SerializeToString,
+        self.SendNotification = channel.unary_unary(
+                '/gateway.ClusterDashboard/SendNotification',
+                request_serializer=gateway__pb2.Notification.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
 
@@ -581,7 +615,7 @@ class ClusterDashboardServicer(object):
     (i.e., the Dashboard is the server while the Cluster Gateway is the client).
     """
 
-    def ErrorOccurred(self, request, context):
+    def SendNotification(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -590,9 +624,9 @@ class ClusterDashboardServicer(object):
 
 def add_ClusterDashboardServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'ErrorOccurred': grpc.unary_unary_rpc_method_handler(
-                    servicer.ErrorOccurred,
-                    request_deserializer=gateway__pb2.ErrorMessage.FromString,
+            'SendNotification': grpc.unary_unary_rpc_method_handler(
+                    servicer.SendNotification,
+                    request_deserializer=gateway__pb2.Notification.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
@@ -608,7 +642,7 @@ class ClusterDashboard(object):
     """
 
     @staticmethod
-    def ErrorOccurred(request,
+    def SendNotification(request,
             target,
             options=(),
             channel_credentials=None,
@@ -618,8 +652,8 @@ class ClusterDashboard(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterDashboard/ErrorOccurred',
-            gateway__pb2.ErrorMessage.SerializeToString,
+        return grpc.experimental.unary_unary(request, target, '/gateway.ClusterDashboard/SendNotification',
+            gateway__pb2.Notification.SerializeToString,
             gateway__pb2.Void.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

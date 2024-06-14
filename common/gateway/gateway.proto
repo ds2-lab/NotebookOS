@@ -38,6 +38,9 @@ service DistributedCluster {
   // Used for debugging/testing. Causes a Panic.
   rpc InducePanic(Void) returns (Void) {}
 
+  // Used to test notifications.
+  rpc SpoofNotifications(Void) returns (Void) {}
+
   // Used to test connectivity.
   rpc Ping(Void) returns (Pong) {} 
   
@@ -69,17 +72,18 @@ service DistributedCluster {
 // gRPC service provided by the Dashboard and "used" by the Cluster Gateway
 // (i.e., the Dashboard is the server while the Cluster Gateway is the client).
 service ClusterDashboard {
-  rpc ErrorOccurred(ErrorMessage) returns (Void) {} // Report to the Dashboard that an error occurred.
+  rpc SendNotification(Notification) returns (Void) {} // Report to the Dashboard that an error occurred.
 }
 
 message Pong {
   string id = 1;
 }
 
-message ErrorMessage {
-  string errorName = 1;
-  string errorMessage = 2;
-  bool panicked = 3;
+message Notification {
+  string title = 1;
+  string message = 2;
+  int32 notificationType = 3;
+  bool panicked = 4;
 }
 
 // Used to register the ResourceSpec to be used by a particular kernel.

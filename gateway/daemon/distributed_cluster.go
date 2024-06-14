@@ -46,9 +46,11 @@ func NewDistributedCluster(gatewayDaemon *clusterGatewayImpl, opts *domain.Clust
 func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{}) {
 	dc.log.Error("Entity %s has panicked.", identity)
 
-	_, err := dc.clusterDashboard.ErrorOccurred(context.TODO(), &gateway.ErrorMessage{
-		ErrorName:    fmt.Sprintf("%s panicked.", identity),
-		ErrorMessage: fmt.Sprintf("%v", fatalErr),
+	_, err := dc.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
+		Title:            fmt.Sprintf("%s panicked.", identity),
+		Message:          fmt.Sprintf("%v", fatalErr),
+		NotificationType: int32(ErrorNotification),
+		Panicked:         true,
 	})
 
 	if err != nil {
@@ -56,6 +58,12 @@ func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{})
 	}
 }
 
+// Used to test notifications.
+func (dc *DistributedCluster) SpoofNotifications(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
+	return dc.gatewayDaemon.SpoofNotifications(ctx, in)
+}
+
+// Used for debugging/testing. Causes a Panic.
 func (dc *DistributedCluster) InducePanic(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
 	panic("Inducing a panic.")
 }
