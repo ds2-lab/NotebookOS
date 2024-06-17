@@ -1,5 +1,16 @@
 services:
 
+  docker-hoster:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/hoster/Dockerfile
+    image: scusemua/docker-hoster:latest
+    container_name: 'docker-hoster'
+    restart: always 
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock
+      - /etc/hosts:/tmp/hosts
+
   jupyter:
     # environment:
       # - NOTEBOOK_ARGS="--log-level=DEBUG"
@@ -15,6 +26,7 @@ services:
       - "8888:8888"
     depends_on:
       - gateway
+      - docker-hoster
     restart: always
 
   gateway:
@@ -27,6 +39,8 @@ services:
     ports:
       - "8079:8079"
       - "9996:9996"
+    depends_on:
+      - docker-hoster
 
   daemon:
     environment:
@@ -46,6 +60,7 @@ services:
       - storage:/storage
     depends_on:
       - gateway
+      - docker-hoster
     restart: always
   
 volumes:

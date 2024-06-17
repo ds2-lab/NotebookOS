@@ -1,7 +1,7 @@
 kernel-registry-port: 8075
 port: 8080
 provisioner-port: 8081
-provisioner: "127.0.0.1:8081"
+provisioner: "gateway:8081"
 hb-port: 9000
 control-port: 9001
 shell-port: 9002
@@ -9,7 +9,7 @@ stdin-port: 9003
 iopub-port: 9004
 iosub-port: 9005
 ack-port: 9006
-hdfs-namenode-endpoint: 127.0.0.1:9000
+hdfs-namenode-endpoint: 172.17.0.1:9000
 debug: true
 direct: false
 node_name: 0
