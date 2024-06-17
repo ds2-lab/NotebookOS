@@ -72,7 +72,7 @@ class DistributedKernel(IPythonKernel):
                     help="""Join the SMR cluster"""
                     ).tag(config=True)
 
-    register_with_local_daemon = Bool(True,
+    should_register_with_local_daemon = Bool(True,
                                       help="""Explicitly register with the local daemon?"""
                                       ).tag(config=True)
     
@@ -206,7 +206,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Connection info: %s" % str(connection_info))
         # self.log.info("IPython config info: %s" % str(config_info))
 
-        if self.register_with_local_daemon:
+        if self.should_register_with_local_daemon:
             self.log.info("Registering with local daemon now.")
             self.register_with_local_daemon(connection_info, session_id)
         else:
