@@ -951,6 +951,28 @@ func (d *clusterGatewayImpl) KubernetesMode() bool {
 	return d.deploymentMode == types.KubernetesMode
 }
 
+func (d *clusterGatewayImpl) launchReplicaDocker(replicaId int, host core.Host, numReplicas int32, in *gateway.KernelSpec) {
+	var err error
+	defer func() {
+		if err != nil {
+			d.log.Warn("Failed to start replica(%s:%d): %v", in.Id, replicaId, err)
+		}
+	}()
+
+	var replicaConnInfo *gateway.KernelConnectionInfo
+	replicaSpec := &gateway.KernelReplicaSpec{
+		Kernel:      in,
+		ReplicaId:   int32(replicaId),
+		NumReplicas: numReplicas,
+	}
+	replicaConnInfo, err = d.placer.Place(host, replicaSpec)
+	if err != nil {
+		return
+	}
+
+	d.log.Debug("Received replica connection info after calling placer.Place: %v", replicaConnInfo)
+}
+
 // StartKernel launches a new kernel.
 func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
 	d.log.Info("clusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v].", in.Id, in.Session, in.ResourceSpec)
@@ -1000,6 +1022,12 @@ func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 			d.log.Error("Error encountered while attempting to create the StatefulSet for Session %s", in.Id)
 			d.log.Error("%v", err)
 			return nil, status.Errorf(codes.Internal, "Failed to start kernel")
+		}
+	} else {
+		hosts := d.placer.FindHosts(in.ResourceSpec)
+		for i, host := range hosts {
+			// Launch replicas in parallel.
+			go d.launchReplicaDocker(i+1, host, int32(len(hosts)), in)
 		}
 	}
 

@@ -16,7 +16,7 @@ services:
       dockerfile: dockfiles/cpu-python3-arm64/Dockerfile
     image: scusemua/jupyter:latest
     container_name: 'jupyter'
-    command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
+    command: start-notebook.sh --NotebookApp.token='' --log-level='DEBUG'
     ports:
       - "8888:8888"
     depends_on:

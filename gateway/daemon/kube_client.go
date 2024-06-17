@@ -1480,12 +1480,14 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *gateway.KernelReplicaS
 	// Prepare contents of the configuration file.
 	file := &jupyter.ConfigFile{
 		DistributedKernelConfig: jupyter.DistributedKernelConfig{
-			StorageBase:          kubeStorageBase,
-			SMRNodeID:            -1, // int(spec.ReplicaId), // TODO(Ben): Set this to -1 to make it obvious that the Pod needs to fill this in itself?
-			SMRNodes:             replicas,
-			SMRJoin:              spec.Join,
-			SMRPort:              c.smrPort,
-			HDFSNameNodeEndpoint: c.hdfsNameNodeEndpoint,
+			StorageBase:             kubeStorageBase,
+			SMRNodeID:               -1, // int(spec.ReplicaId), // TODO(Ben): Set this to -1 to make it obvious that the Pod needs to fill this in itself?
+			SMRNodes:                replicas,
+			SMRJoin:                 spec.Join,
+			SMRPort:                 c.smrPort,
+			HDFSNameNodeEndpoint:    c.hdfsNameNodeEndpoint,
+			RegisterWithLocalDaemon: true,
+			LocalDaemonAddr:         "", // This is only used in Docker mode.
 		},
 	}
 	if spec.PersistentId != nil {

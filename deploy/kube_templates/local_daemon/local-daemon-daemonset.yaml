@@ -35,7 +35,7 @@ spec:
             - name: KERNEL_TEMP_BASE
               value: /kernel_base
             - name: STORAGE
-              value: local_daemon_storage
+              value: /kernel_storage
             - name: TARGET_MOUNT_DIR
               value: /kernel_base
           image: scusemua/daemon

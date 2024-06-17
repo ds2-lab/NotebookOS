@@ -72,6 +72,12 @@ class DistributedKernel(IPythonKernel):
                     help="""Join the SMR cluster"""
                     ).tag(config=True)
 
+    register_with_local_daemon = Bool(True,
+                                      help="""Explicitly register with the local daemon?"""
+                                      ).tag(config=True)
+    
+    local_daemon_addr: Union[str, Unicode] = Unicode(help="""Hostname of the local daemon to register with (when using Docker mode)""").tag(config=True)
+
     local_tcp_server_port = Integer(5555, help = "Port for local TCP server.").tag(config = True)
 
     persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""").tag(config=True)
@@ -200,9 +206,11 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Connection info: %s" % str(connection_info))
         # self.log.info("IPython config info: %s" % str(config_info))
 
-        # TODO(Ben): Connect to LocalDaemon.
-        self.register_with_local_daemon(
-            connection_info, session_id)  # config_info
+        if self.register_with_local_daemon:
+            self.log.info("Registering with local daemon now.")
+            self.register_with_local_daemon(connection_info, session_id)
+        else:
+            self.log.warn("Skipping registration step with local daemon.")
         
         self.local_tcp_server_queue: Queue = Queue()
         self.local_tcp_server_process: Process = Process(target = self.server_process, args=(self.local_tcp_server_queue, ))
@@ -241,7 +249,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Registering with local daemon now.")
 
         local_daemon_service_name = os.environ.get(
-            "LOCAL_DAEMON_SERVICE_NAME", default="local-daemon-network")
+            "LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
         server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default=8075)
         try:
             server_port = int(server_port)

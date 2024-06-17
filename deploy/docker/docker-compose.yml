@@ -1,3 +1,5 @@
+name: distributed_cluster
+
 services:
 
   docker-hoster:
@@ -36,9 +38,14 @@ services:
     image: scusemua/gateway-docker
     container_name: 'gateway'
     restart: always
+    expose:
+      - 8079
+      - 9996
+      - 8081
     ports:
       - "8079:8079"
       - "9996:9996"
+      - "8081:8081"
     depends_on:
       - docker-hoster
 
@@ -46,14 +53,15 @@ services:
     environment:
       - KERNEL_TEMP_BASE=/kernel_base
       - KERNEL_IMAGE=scusemua/jupyter:latest
-      - KERNEL_NETWORK=local_daemon_default
+      - KERNEL_NETWORK=distributed_cluster_default
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
-      - STORAGE=local_daemon_storage
+      - STORAGE=/kernel_storage
     build:
       context: ./local_daemon
       dockerfile: Dockerfile
     image: scusemua/daemon-docker
+    container_name: local_daemon
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base

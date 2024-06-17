@@ -26,10 +26,10 @@ const (
 	DockerImageNameDefault = "scusemua/jupyter:latest"
 
 	DockerNetworkName        = "KERNEL_NETWORK"
-	DockerNetworkNameDefault = "local_daemon_default"
+	DockerNetworkNameDefault = "distributed_cluster_default"
 
 	DockerStorageVolume        = "STORAGE"
-	DockerStorageVolumeDefault = "storage"
+	DockerStorageVolumeDefault = "/kernel_storage"
 
 	KernelSMRPort        = "SMR_PORT"
 	KernelSMRPortDefault = 8080
@@ -49,6 +49,7 @@ var (
 	dockerStorageBase = "/storage"
 	// dockerInvokerCmd  = "docker run -d --rm --name {container_name} -v {connection_file}:{connection_file} -v {storage}:/storage -v {config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
+	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 
@@ -79,6 +80,7 @@ func NewDockerInvoker(opts *jupyter.ConnectionInfo) *DockerInvoker {
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkName, DockerNetworkNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarStorageVolume, utils.GetEnv(DockerStorageVolume, DockerStorageVolumeDefault))
+	// invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarLocalDaemonAddr, localDaemonAddr)
 	return invoker
 }
 
@@ -271,12 +273,20 @@ func (ivk *DockerInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupy
 }
 
 func (ivk *DockerInvoker) prepareConfigFile(spec *gateway.KernelReplicaSpec) (*jupyter.ConfigFile, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		fmt.Printf("[ERROR] DockerInvoker could not resolve hostname because: %v", err)
+		return nil, err
+	}
+
 	file := &jupyter.ConfigFile{
 		DistributedKernelConfig: jupyter.DistributedKernelConfig{
-			StorageBase: dockerStorageBase,
-			SMRNodeID:   int(spec.ReplicaId),
-			SMRNodes:    spec.Replicas,
-			SMRJoin:     spec.Join,
+			StorageBase:             dockerStorageBase,
+			SMRNodeID:               int(spec.ReplicaId),
+			SMRNodes:                spec.Replicas,
+			SMRJoin:                 spec.Join,
+			RegisterWithLocalDaemon: true,
+			LocalDaemonAddr:         hostname,
 		},
 	}
 	if spec.PersistentId != nil {
@@ -286,7 +296,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *gateway.KernelReplicaSpec) (*j
 }
 
 func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []string) error {
-	fmt.Printf("Starting %s......", name)
+	fmt.Printf("Starting %s......\n", name)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("[Error]: %v\n", err)

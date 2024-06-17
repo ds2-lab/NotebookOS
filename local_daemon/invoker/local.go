@@ -178,7 +178,7 @@ func (ivk *LocalInvoker) writeConnectionFile(dir string, name string, info *jupy
 	}
 
 	log.Printf("Created connection file \"%s\"\n", f.Name())
-	log.Printf("Writing the following contents to connection file \"%s\": \"%v\"\n", f.Name(), jsonContent)
+	log.Printf("Writing the following contents to connection file \"%s\": \"%v\"\n", f.Name(), string(jsonContent))
 	f.Write(jsonContent)
 	defer f.Close()
 
@@ -200,7 +200,7 @@ func (ivk *LocalInvoker) writeConfigFile(dir string, name string, info *jupyter.
 		return "", err
 	}
 	log.Printf("Created config file \"%s\"\n", f.Name())
-	log.Printf("Writing the following contents to config file \"%s\": \"%v\"\n", f.Name(), jsonContent)
+	log.Printf("Writing the following contents to config file \"%s\": \"%v\"\n", f.Name(), string(jsonContent))
 	f.Write(jsonContent)
 	defer f.Close()
 
