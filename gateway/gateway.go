@@ -62,19 +62,28 @@ func main() {
 
 	if options.DebugMode {
 		go func() {
-			log.Printf("Serving debug HTTP server on port %d.\n", options.DebugPort)
 
 			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				log.Printf("Received HTTP debug connection to '/'")
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
 			})
 
 			http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+				log.Printf("Received HTTP debug connection to '/test'")
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
 			})
 
-			if err := http.ListenAndServe(fmt.Sprintf("localhost:%d", options.DebugPort), nil); err != nil {
+			var address string = fmt.Sprintf(":%d", options.DebugPort)
+			// if options.DeploymentMode == string(types.DockerMode) {
+			// 	address = fmt.Sprintf("0.0.0.0:%d", options.DebugPort)
+			// } else {
+			// 	address = fmt.Sprintf(":%d", options.DebugPort)
+			// }
+			log.Printf("Serving debug HTTP server: %s\n", address)
+
+			if err := http.ListenAndServe(address, nil); err != nil {
 				log.Fatal("ListenAndServe: ", err)
 			}
 		}()

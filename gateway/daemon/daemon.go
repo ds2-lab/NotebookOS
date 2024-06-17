@@ -231,9 +231,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
-	daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
-	daemon.clusterScheduler = scheduler.NewClusterScheduler(daemon, daemon.kubeClient, clusterDaemonOptions.ClusterSchedulerOptions)
-
 	switch clusterDaemonOptions.SchedulingPolicy {
 	case "default":
 		{
@@ -286,6 +283,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			panic(fmt.Sprintf("Unknown/unsupported deployment mode: \"%s\"", clusterDaemonOptions.DeploymentMode))
 		}
 	}
+
+	if daemon.KubernetesMode() {
+		daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
+	}
+
+	daemon.clusterScheduler = scheduler.NewClusterScheduler(daemon, daemon.kubeClient, clusterDaemonOptions.ClusterSchedulerOptions)
 
 	return daemon
 }
@@ -1340,8 +1343,9 @@ func (d *clusterGatewayImpl) StopKernel(ctx context.Context, in *gateway.KernelI
 	wg.Wait()
 	d.log.Debug("Finished deleting kernel %s.", kernel.ID())
 
-	if !restart {
+	if !restart && d.KubernetesMode() /* Only delete CloneSet if we're in Kubernetes mode */ {
 		d.log.Debug("Deleting cloneset of deleted kernel %s now.", kernel.ID())
+
 		// Delete the CloneSet.
 		err := d.kubeClient.DeleteCloneset(kernel.ID())
 
@@ -1491,6 +1495,7 @@ func (d *clusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gate
 	// As long as the replica is stopped, we can continue.
 	dataDirectory := d.issuePrepareMigrateRequest(in.KernelId, in.ReplicaId)
 
+	// TODO: Add support/logic for Docker-based deployment.
 	err := d.removeReplica(in.ReplicaId, in.KernelId)
 	if err != nil {
 		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
@@ -1549,6 +1554,10 @@ func (d *clusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gate
 // }
 
 func (d *clusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
+	if d.DockerMode() {
+		return make([]corev1.Node, 0), types.ErrIncompatibleDeploymentMode /* TODO: Should I return an error here? Probably? */
+	}
+
 	return d.kubeClient.GetKubernetesNodes()
 }
 
@@ -2071,6 +2080,8 @@ func (d *clusterGatewayImpl) cleanUp() {
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in HDFS.
 func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string) (domain.AddReplicaOperation, error) {
+	// TODO: Add support/logic for Docker-based deployment.
+
 	var kernelId string = in.KernelId
 	var persistentId string = in.PersistentId
 
@@ -2170,6 +2181,8 @@ func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 // - smrNodeId (int32): The SMR node ID of the replica that should be removed.
 // - kernelId (string): The ID of the kernel from which we're removing a replica.
 func (d *clusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) error {
+	// TODO: Add support/logic for Docker-based deployment.
+
 	kernelClient, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find kernel client for kernel %s.", kernelId)

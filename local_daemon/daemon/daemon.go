@@ -72,7 +72,6 @@ var (
 	ErrKernelIDRequired                      = errors.New("kernel id frame is required for kernel_info_request")
 	ErrUnexpectedZMQMessageType              = errors.New("received ZMQ message of unexpected type")
 	ErrKernelRegistrationNotificationFailure = errors.New("could not notify gateway of kernel registration")
-	ErrIncompatibleDeploymentMode            = errors.New("current deployment mode is incompatible with the requested action")
 
 	// Context keys
 	ctxKernelInvoker = utils.ContextKey("invoker")
@@ -816,7 +815,7 @@ func (d *SchedulerDaemon) KubernetesMode() bool {
 func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
 	if !d.DockerMode() {
 		d.log.Error("LocalDaemon cannot explicitly create kernel replica, as we're not running in Docker mode.")
-		return nil, ErrIncompatibleDeploymentMode
+		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
 	invoker := invoker.NewDockerInvoker(d.connectionOptions)

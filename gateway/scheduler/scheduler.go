@@ -90,9 +90,11 @@ func NewClusterScheduler(gateway domain.ClusterGateway, kubeClient domain.KubeCl
 		clusterScheduler.log.Debug("ScalingBufferSize: %d", clusterScheduler.scalingBufferSize)
 	}
 
-	err := clusterScheduler.RefreshKubernetesNodes()
-	if err != nil {
-		clusterScheduler.log.Error("Initial retrieval of Kubernetes nodes failed: %v", err)
+	if gateway.KubernetesMode() {
+		err := clusterScheduler.RefreshKubernetesNodes()
+		if err != nil {
+			clusterScheduler.log.Error("Initial retrieval of Kubernetes nodes failed: %v", err)
+		}
 	}
 
 	return clusterScheduler
@@ -163,10 +165,13 @@ func (s *clusterSchedulerImpl) pendingSize() int32 {
 // then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).
 func (s *clusterSchedulerImpl) RefreshAll() []error {
 	errors := make([]error, 0)
+	var err error
 
-	err := s.RefreshKubernetesNodes()
-	if err != nil {
-		errors = append(errors, err)
+	if s.ClusterGateway().KubernetesMode() {
+		err = s.RefreshKubernetesNodes()
+		if err != nil {
+			errors = append(errors, err)
+		}
 	}
 
 	err = s.RefreshActualGpuInfo()
@@ -212,6 +217,11 @@ func (s *clusterSchedulerImpl) RefreshActualGpuInfo() error {
 // Update the cached list of Kubernetes nodes.
 // Returns nil on success; returns an error on failure.
 func (s *clusterSchedulerImpl) RefreshKubernetesNodes() error {
+	if !s.gateway.KubernetesMode() {
+		// Don't return an error; simply do nothing.
+		return nil
+	}
+
 	nodes, err := s.kubeClient.GetKubernetesNodes()
 	if err != nil {
 		s.log.Error("Failed to refresh Kubernetes nodes.") // The error is printed by the KubeClient. We don't need to print it again here.

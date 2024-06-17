@@ -76,6 +76,7 @@ type ClusterGateway interface {
 	ConnectionOptions() *jupyter.ConnectionInfo
 	ClusterScheduler() ClusterScheduler                                                                   // Return the associated ClusterScheduler.
 	GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) // Return the current GPU resource metrics on the node.
+	KubernetesMode() bool                                                                                 // Return true if we're running in a Kubernetes cluster (rather than as a docker-compose application).
 }
 
 // Performs scheduling of kernels across the cluster.
