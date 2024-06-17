@@ -27,8 +27,8 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 
@@ -72,6 +72,7 @@ var (
 	ErrKernelIDRequired                      = errors.New("kernel id frame is required for kernel_info_request")
 	ErrUnexpectedZMQMessageType              = errors.New("received ZMQ message of unexpected type")
 	ErrKernelRegistrationNotificationFailure = errors.New("could not notify gateway of kernel registration")
+	ErrIncompatibleDeploymentMode            = errors.New("current deployment mode is incompatible with the requested action")
 
 	// Context keys
 	ctxKernelInvoker = utils.ContextKey("invoker")
@@ -88,6 +89,7 @@ type SchedulerDaemonOptions struct {
 	SMRPort          int    `name:"smr_port" description:"Port used by the SMR protocol."`
 	NumGPUs          int64  `name:"max-actual-gpu-per-node" json:"max-actual-gpu-per-node" yaml:"max-actual-gpu-per-node" description:"The total number of GPUs that should be available on each node."`
 	SchedulingPolicy string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
+	DeploymentMode   string `name:"deployment_mode" description:"Options are 'docker' and 'kubernetes'."`
 }
 
 func (o SchedulerDaemonOptions) String() string {
@@ -142,7 +144,12 @@ type SchedulerDaemon struct {
 	// Manages "actual" GPU allocations.
 	gpuManager *GpuManager
 
+	// "Local mode" is a sort of debug mode where we're running locally rather than in Kubernetes.
+	// This will later be replaced by Docker mode, which was the original way of deploying this system.
 	localMode bool
+
+	// Kubernetes or Docker.
+	deploymentMode types.DeploymentMode
 
 	// lifetime
 	closed  chan struct{}
@@ -235,6 +242,28 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		}
 	}
 
+	switch schedulerDaemonOptions.DeploymentMode {
+	case "":
+		{
+			daemon.log.Info("No 'deployment_mode' specified. Running in default mode: KUBERNETES mode.")
+			daemon.deploymentMode = types.KubernetesMode
+		}
+	case "docker":
+		{
+			daemon.log.Info("Running in DOCKER mode.")
+			daemon.deploymentMode = types.DockerMode
+		}
+	case "kubernetes":
+		{
+			daemon.log.Info("Running in KUBERNETES mode.")
+			daemon.deploymentMode = types.KubernetesMode
+		}
+	default:
+		{
+			panic(fmt.Sprintf("Unknown/unsupported deployment mode: \"%s\"", schedulerDaemonOptions.DeploymentMode))
+		}
+	}
+
 	daemon.log.Debug("Connection options: %v", daemon.connectionOptions)
 
 	if !localMode && len(nodeName) == 0 {
@@ -284,19 +313,11 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		return
 	}
 
-	// buf := make([]byte, 2048)
-	// _, err = kernelRegistrationClient.conn.Read(buf)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
 	var registrationPayload KernelRegistrationPayload
-	// err = json.Unmarshal(buf, &registrationPayload)
 	jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
 	err = jsonDecoder.Decode(&registrationPayload)
 	if err != nil {
 		d.log.Error("Failed to decode registration payload: %v", err)
-		// d.log.Error("Buffer: %v", string(buf))
 		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
 		return
 	}
@@ -600,7 +621,7 @@ func (d *SchedulerDaemon) PrepareToMigrate(ctx context.Context, req *gateway.Rep
 
 		dataDirectory = respMessage.DataDirectory
 		if respMessage.Status == "error" {
-			var msgErr types.MessageError
+			var msgErr jupyter.MessageError
 			frames.DecodeBuffers(&msgErr)
 
 			d.log.Error("Error encountered by kernel %s while it was preparing to migrate: %v", kernel.ID(), msgErr)
@@ -778,9 +799,82 @@ func (d *SchedulerDaemon) smrNodeAddedCallback(readyMessage *jupyter.MessageSMRN
 	}
 }
 
-// StartKernel launches a new kernel.
+// Return true if we're running in Docker (i.e., the Docker-based deployment).
+// We could technically be running within a Docker container that is managed/orchestrated
+// by Kubernetes. In this case, this function would return false.
+func (d *SchedulerDaemon) DockerMode() bool {
+	return d.deploymentMode == types.DockerMode
+}
+
+// Return true if we're running in Kubernetes.
+func (d *SchedulerDaemon) KubernetesMode() bool {
+	return d.deploymentMode == types.KubernetesMode
+}
+
+// StartKernel launches a new kernel via Docker.
+// This is ONLY used in the Docker-based deployment mode.
 func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
-	panic("Not supported.")
+	if !d.DockerMode() {
+		d.log.Error("LocalDaemon cannot explicitly create kernel replica, as we're not running in Docker mode.")
+		return nil, ErrIncompatibleDeploymentMode
+	}
+
+	invoker := invoker.NewDockerInvoker(d.connectionOptions)
+	connInfo, err := invoker.InvokeWithContext(ctx, in)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	// Initialize kernel client with new context.
+	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
+
+	// kernel := client.NewKernelClient(kernelCtx, in, connInfo)
+	listenPorts, err := d.availablePorts.RequestPorts()
+	kernel := client.NewKernelClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, false)
+
+	shell := d.router.Socket(jupyter.ShellMessage)
+	if d.schedulerDaemonOptions.DirectServer {
+		var err error
+		shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
+		if err != nil {
+			d.closeKernel(kernel, "failed initializing shell forwarder")
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+	}
+	iopub, err := kernel.InitializeIOForwarder()
+	if err != nil {
+		d.closeKernel(kernel, "failed initializing io forwarder")
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if err := kernel.Validate(); err != nil {
+		d.closeKernel(kernel, "validation error")
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	// Handle kernel response.
+	kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
+
+	// Register kernel.
+	d.kernels.Store(kernel.ID(), kernel)
+	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
+	for _, session := range kernel.Sessions() {
+		d.kernels.Store(session, kernel)
+	}
+
+	info := &gateway.KernelConnectionInfo{
+		Ip:              d.ip,
+		Transport:       d.transport,
+		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
+		ShellPort:       int32(shell.Port),
+		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
+		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
+		IopubPort:       int32(iopub.Port),
+		SignatureScheme: connInfo.SignatureScheme,
+		Key:             connInfo.Key,
+	}
+
+	d.log.Info("Kernel %s started: %v", in.ID(), info)
+	return info, nil
 }
 
 // KernelStatus returns the status of a kernel.
@@ -1377,7 +1471,7 @@ func (d *SchedulerDaemon) kernelResponseForwarder(from core.KernelInfo, typ jupy
 		return nil
 	}
 
-	if typ == types.ShellMessage {
+	if typ == jupyter.ShellMessage {
 		_, header, err := d.headerFromMsg(msg)
 		if err != nil {
 			d.log.Error("Failed to extract header from %v message for kernel %s because: %v", typ, from.ID(), err)

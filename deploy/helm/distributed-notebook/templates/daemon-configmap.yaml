@@ -47,3 +47,5 @@ data:
     scaling-buffer-size: {{ .Values.gateway.scheduler.scaling_buffer_size }}
     min-kubernetes-nodes: {{ .Values.gateway.scheduler.min_kubernetes_nodes }}
     gpus-per-host: {{ .Values.gateway.scheduler.max_actual_gpu_per_node}}
+    docker_mode: {{ .Values.common.docker_mode }} 
+    local_mode: {{ .Values.common.local_mode }} 

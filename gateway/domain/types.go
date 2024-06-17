@@ -33,6 +33,7 @@ type ClusterDaemonOptions struct {
 	NotebookImageTag              string `name:"notebook-image-tag" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`   // Tag to use for the jupyter notebook/kernel image
 	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
 	LocalMode                     bool   `name:"local_mode" description:"If true, then we're running 'locally' and not within a Kubernetes cluster (for debugging/testing)."`
+	DeploymentMode                string `name:"deployment_mode" description:"Options are 'docker' and 'kubernetes'."`
 }
 
 type ClusterSchedulerOptions struct {

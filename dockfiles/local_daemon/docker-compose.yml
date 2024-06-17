@@ -10,8 +10,8 @@ services:
   #   restart: always
 
   jupyter:
-    # environment:
-    #   - NOTEBOOK_ARGS="--log-level='DEBUG'"
+    environment:
+      - NOTEBOOK_ARGS="--log-level='DEBUG'"
     build: 
       context: ../..
       dockerfile: dockfiles/cpu-python3-arm64/Dockerfile
@@ -37,7 +37,7 @@ services:
       - KERNEL_TEMP_BASE=/kernel_base
       - KERNEL_IMAGE=scusemua/jupyter:latest
       - KERNEL_NETWORK=local_daemon_default
-      - HOST_MOUNT_DIR=/home/bcarver2/kernel_base
+      - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=local_daemon_storage
     build:
@@ -47,7 +47,7 @@ services:
     # container_name: 'daemon'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/bcarver2/kernel_base:/kernel_base
+      - /home/$USER/kernel_base:/kernel_base
       - storage:/storage
     depends_on:
       - gateway

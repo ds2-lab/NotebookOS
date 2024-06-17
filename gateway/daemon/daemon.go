@@ -32,6 +32,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
@@ -184,7 +185,12 @@ type clusterGatewayImpl struct {
 
 	clusterDashboard gateway.ClusterDashboardClient
 
+	// "Local mode" is a sort of debug mode where we're running locally rather than in Kubernetes.
+	// This will later be replaced by Docker mode, which was the original way of deploying this system.
 	localMode bool
+
+	// Run via Docker on a single system rather than using the Kubernetes-based deployment.
+	deploymentMode types.DeploymentMode
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *clusterGatewayImpl {
@@ -256,6 +262,28 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	default:
 		{
 			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", clusterDaemonOptions.SchedulingPolicy))
+		}
+	}
+
+	switch clusterDaemonOptions.DeploymentMode {
+	case "":
+		{
+			daemon.log.Info("No 'deployment_mode' specified. Running in default mode: KUBERNETES mode.")
+			daemon.deploymentMode = types.KubernetesMode
+		}
+	case "docker":
+		{
+			daemon.log.Info("Running in DOCKER mode.")
+			daemon.deploymentMode = types.DockerMode
+		}
+	case "kubernetes":
+		{
+			daemon.log.Info("Running in KUBERNETES mode.")
+			daemon.deploymentMode = types.KubernetesMode
+		}
+	default:
+		{
+			panic(fmt.Sprintf("Unknown/unsupported deployment mode: \"%s\"", clusterDaemonOptions.DeploymentMode))
 		}
 	}
 
@@ -908,6 +936,18 @@ func (d *clusterGatewayImpl) dynamicV4FailureHandler(c client.DistributedKernelC
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 }
 
+// Return true if we're running in Docker (i.e., the Docker-based deployment).
+// We could technically be running within a Docker container that is managed/orchestrated
+// by Kubernetes. In this case, this function would return false.
+func (d *clusterGatewayImpl) DockerMode() bool {
+	return d.deploymentMode == types.DockerMode
+}
+
+// Return true if we're running in Kubernetes.
+func (d *clusterGatewayImpl) KubernetesMode() bool {
+	return d.deploymentMode == types.KubernetesMode
+}
+
 // StartKernel launches a new kernel.
 func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
 	d.log.Info("clusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v].", in.Id, in.Session, in.ResourceSpec)
@@ -950,7 +990,8 @@ func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 	d.kernelSpecs.Store(in.Id, in)
 	d.waitGroups.Store(in.Id, created)
 
-	if !d.localMode {
+	// If we're in KubeMode, then
+	if d.KubernetesMode() {
 		_, err := d.kubeClient.DeployDistributedKernels(ctx, in)
 		if err != nil {
 			d.log.Error("Error encountered while attempting to create the StatefulSet for Session %s", in.Id)
