@@ -74,18 +74,26 @@ type DockerInvoker struct {
 	smrPort       int
 	closing       int32
 
+	hdfsNameNodeEndpoint string
+
 	log logger.Logger
 }
 
-func NewDockerInvoker(opts *jupyter.ConnectionInfo) *DockerInvoker {
+func NewDockerInvoker(opts *jupyter.ConnectionInfo, hdfsNameNodeEndpoint string) *DockerInvoker {
 	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
 	if smrPort == 0 {
 		smrPort = KernelSMRPortDefault
 	}
+
+	if len(hdfsNameNodeEndpoint) == 0 {
+		panic("HDFS NameNode endpoint is empty.")
+	}
+
 	invoker := &DockerInvoker{
-		dockerOpts: opts,
-		tempBase:   utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
-		smrPort:    smrPort,
+		dockerOpts:           opts,
+		tempBase:             utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
+		smrPort:              smrPort,
+		hdfsNameNodeEndpoint: hdfsNameNodeEndpoint,
 	}
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
@@ -176,9 +184,9 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *gateway.K
 	cmd = strings.ReplaceAll(cmd, VarConfigFile, filepath.Base(configFile))
 	cmd = strings.ReplaceAll(cmd, VarKernelId, spec.Kernel.Id)
 	cmd = strings.ReplaceAll(cmd, VarSessionId, spec.Kernel.Session)
-	cmd = strings.ReplaceAll(cmd, VarSpecCpu, string(spec.Kernel.ResourceSpec.Cpu))
-	cmd = strings.ReplaceAll(cmd, VarSpecMemory, string(spec.Kernel.ResourceSpec.Memory))
-	cmd = strings.ReplaceAll(cmd, VarSpecGpu, string(spec.Kernel.ResourceSpec.Gpu))
+	cmd = strings.ReplaceAll(cmd, VarSpecCpu, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Cpu))
+	cmd = strings.ReplaceAll(cmd, VarSpecMemory, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Memory))
+	cmd = strings.ReplaceAll(cmd, VarSpecGpu, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Gpu))
 
 	for i, arg := range spec.Kernel.Argv {
 		spec.Kernel.Argv[i] = strings.ReplaceAll(arg, VarConnectionFile, connectionFile)
@@ -339,6 +347,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *gateway.KernelReplicaSpec) (*j
 			SMRJoin:                 spec.Join,
 			RegisterWithLocalDaemon: true,
 			LocalDaemonAddr:         hostname,
+			HDFSNameNodeEndpoint:    ivk.hdfsNameNodeEndpoint,
 		},
 	}
 	if spec.PersistentId != nil {

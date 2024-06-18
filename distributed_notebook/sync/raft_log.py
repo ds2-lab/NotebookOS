@@ -62,6 +62,9 @@ class RaftLog:
     self.ensure_path(self._store)
     self._offloader: FileLog = FileLog(self._store)
     self._log: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
+    
+    if len(hdfs_hostname) == 0:
+      raise ValueError("HDFS hostname is empty.")
 
     self._log.info("Creating LogNode %d now." % id)
     self._log.info("_store: %s" % self._store)

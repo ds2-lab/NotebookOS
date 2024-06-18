@@ -84,11 +84,12 @@ type SchedulerDaemonConfig func(*SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
 	// If the scheduler serves jupyter notebook directly, set this to true.
-	DirectServer     bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
-	SMRPort          int    `name:"smr_port" description:"Port used by the SMR protocol."`
-	NumGPUs          int64  `name:"max-actual-gpu-per-node" json:"max-actual-gpu-per-node" yaml:"max-actual-gpu-per-node" description:"The total number of GPUs that should be available on each node."`
-	SchedulingPolicy string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
-	DeploymentMode   string `name:"deployment_mode" description:"Options are 'docker' and 'kubernetes'."`
+	DirectServer         bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
+	SMRPort              int    `name:"smr_port" description:"Port used by the SMR protocol."`
+	NumGPUs              int64  `name:"max-actual-gpu-per-node" json:"max-actual-gpu-per-node" yaml:"max-actual-gpu-per-node" description:"The total number of GPUs that should be available on each node."`
+	SchedulingPolicy     string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
+	DeploymentMode       string `name:"deployment_mode" description:"Options are 'docker' and 'kubernetes'."`
+	HDFSNameNodeEndpoint string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
 }
 
 func (o SchedulerDaemonOptions) IsKubernetesMode() bool {
@@ -159,6 +160,9 @@ type SchedulerDaemon struct {
 	// This will later be replaced by Docker mode, which was the original way of deploying this system.
 	localMode bool
 
+	// Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
+	hdfsNameNodeEndpoint string
+
 	// Kubernetes or Docker.
 	deploymentMode types.DeploymentMode
 
@@ -204,6 +208,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		gpuManager:             NewGpuManager(schedulerDaemonOptions.NumGPUs),
 		virtualGpuPluginServer: virtualGpuPluginServer,
 		deploymentMode:         types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
+		hdfsNameNodeEndpoint:   schedulerDaemonOptions.HDFSNameNodeEndpoint,
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -219,6 +224,10 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		} else {
 			daemon.ip = ip
 		}
+	}
+
+	if len(schedulerDaemonOptions.HDFSNameNodeEndpoint) == 0 {
+		panic("HDFS NameNode endpoint is empty.")
 	}
 
 	switch schedulerDaemonOptions.SchedulingPolicy {
@@ -338,7 +347,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 
 	d.log.Debug("Received registration payload: %v", registrationPayload)
 
-	invoker := invoker.NewDockerInvoker(d.connectionOptions)
+	invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)
 
 	var connInfo *jupyter.ConnectionInfo
 	if d.localMode {
@@ -836,7 +845,7 @@ func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.Ke
 		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
-	invoker := invoker.NewDockerInvoker(d.connectionOptions)
+	invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)
 	connInfo, err := invoker.InvokeWithContext(ctx, in)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())

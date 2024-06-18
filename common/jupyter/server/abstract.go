@@ -336,7 +336,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 				err = handler(server, socket.Type, v)
 
-				s.Log.Debug("[gid=%d] Handler for %v message %v has returned. Error: %v.", goroutineId, socket.Type, rspId, err)
+				s.Log.Debug("[gid=%d] Handler for %v message \"%v\" has returned. Error: %v.", goroutineId, socket.Type, rspId, err)
 			}
 
 			// Stop serving on error.

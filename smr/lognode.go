@@ -246,7 +246,11 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		node.peers[peer_id] = peer_addr
 	}
 
-	node.logger.Info(fmt.Sprintf("Connecting to HDFS at '%s'", hdfsHostname), zap.String("hostname", hdfsHostname))
+	if len(hdfsHostname) == 0 {
+		panic("Cannot connect to HDFS; no hostname received.")
+	}
+
+	node.sugaredLogger.Infof("Connecting to HDFS at '%s'", hdfsHostname)
 
 	hdfsClient, err := hdfs.NewClient(hdfs.ClientOptions{
 		Addresses: []string{hdfsHostname},

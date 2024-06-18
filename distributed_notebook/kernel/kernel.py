@@ -204,10 +204,13 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Pod name: \"%s\"" % self.pod_name)
         self.log.info("HDFS NameNode hostname: \"%s\"" %
                       self.hdfs_namenode_hostname)
+        
+        if len(self.hdfs_namenode_hostname) == 0:
+            raise ValueError("The HDFS hostname is empty. Was it specified in the configuration file?")
 
-        self.spec_cpu = os.environ.get("SPEC_CPU", "0")
-        self.spec_mem = os.environ.get("SPEC_MEM", "0")
-        self.spec_gpu = os.environ.get("SPEC_GPU", "0")
+        self.spec_cpu:str = os.environ.get("SPEC_CPU", "0")
+        self.spec_mem:str = os.environ.get("SPEC_MEM", "0")
+        self.spec_gpu:str = os.environ.get("SPEC_GPU", "0")
 
         self.log.info("CPU: %s, Memory: %s, GPU: %s." %
                       (self.spec_cpu, self.spec_mem, self.spec_gpu))
@@ -228,7 +231,6 @@ class DistributedKernel(IPythonKernel):
         # self.log.info("IPython config info: %s" % str(config_info))
 
         if self.should_register_with_local_daemon:
-            self.log.info("Registering with local daemon now.")
             self.register_with_local_daemon(connection_info, session_id)
         else:
             self.log.warn("Skipping registration step with local daemon.")
@@ -824,9 +826,9 @@ class DistributedKernel(IPythonKernel):
 
             self.log.debug("I WILL lead this execution (%d)." %
                            self.shell.execution_count)
+            
             # Notify the client that we will lead the execution.
-            self.session.send(self.iopub_socket, "smr_lead_task", {
-                              "gpu": False}, ident=self._topic("smr_lead_task"))  # type: ignore
+            self.session.send(self.iopub_socket, "smr_lead_task", {"gpu": False}, ident=self._topic("smr_lead_task"))  # type: ignore
 
             self.log.debug("Executing the following code now: %s" % code)
 

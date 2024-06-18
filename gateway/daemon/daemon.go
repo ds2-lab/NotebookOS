@@ -226,6 +226,10 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
+	if len(clusterDaemonOptions.HDFSNameNodeEndpoint) == 0 {
+		panic("HDFS NameNode endpoint is empty.")
+	}
+
 	switch clusterDaemonOptions.SchedulingPolicy {
 	case "default":
 		{
@@ -1200,10 +1204,12 @@ func (d *clusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 	kernelIp := in.KernelIp
 	kernelPodName := in.PodName
 	nodeName := in.NodeName
+	replicaId := in.ReplicaId
 
 	d.log.Info("Connection info: %v", connectionInfo)
 	d.log.Info("Session ID: %v", sessionId)
 	d.log.Info("Kernel ID: %v", kernelId)
+	d.log.Info("Replica ID: %v", replicaId)
 	d.log.Info("Kernel IP: %v", kernelIp)
 	d.log.Info("Pod name: %v", kernelPodName)
 	d.log.Info("Host ID: %v", hostId)
@@ -1243,7 +1249,10 @@ func (d *clusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 
 	// If this is the first replica we're registering, then its ID should be 1.
 	// The size will be 0, so we'll assign it a replica ID of 0 + 1 = 1.
-	var replicaId int32 = int32(kernel.Size()) + 1
+	if replicaId == -1 {
+		replicaId = int32(kernel.Size()) + 1
+		d.log.Debug("Kernel does not already have a replica ID assigned to it. Assigning ID: %d.", replicaId)
+	}
 
 	// We're registering a new replica, so the number of replicas is based on the cluster configuration.
 	replicaSpec := &gateway.KernelReplicaSpec{
