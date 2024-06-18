@@ -935,6 +935,10 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *g
 									Name:  "KERNEL_NETWORK_SERVICE_NAME",
 									Value: headlessServiceName,
 								},
+								{
+									Name:  "DEPLOYMENT_MODE",
+									Value: "kubernetes",
+								},
 							},
 						},
 					},
@@ -1282,6 +1286,10 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 									{
 										"name":  "KERNEL_NETWORK_SERVICE_NAME",
 										"value": headlessServiceName,
+									},
+									{
+										"name":  "DEPLOYMENT_MODE",
+										"value": "kubernetes",
 									},
 								},
 							},

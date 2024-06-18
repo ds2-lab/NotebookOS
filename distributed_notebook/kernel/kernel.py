@@ -32,6 +32,9 @@ class ExecutionYieldError(Exception):
     def __init__(self, message):
         super().__init__(message)
 
+DeploymentMode_Kubernetes:str = "kubernetes"
+DeploymentMode_Docker:str = "docker"
+DeploymentMode_Local:str = "local"
 
 storage_base_default = os.path.dirname(os.path.realpath(__file__))
 smr_port_default = 10000
@@ -170,10 +173,29 @@ class DistributedKernel(IPythonKernel):
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
         
-        session_id = os.environ.get("SESSION_ID", default=UNAVAILABLE)
-        self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
-        self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
-        self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
+        self.deployment_mode:str = os.environ.get("DEPLOYMENT_MODE")
+        if len(self.deployment_mode) == 0:
+            raise ValueError("Could not determine deployment mode.")
+        else:
+            self.log.debug(f"Deployment mode: {self.deployment_mode}")
+        
+        session_id:str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
+        self.kernel_id:str = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
+        
+        if self.deployment_mode == DeploymentMode_Kubernetes:
+            self.pod_name:str = os.environ.get("POD_NAME", default=UNAVAILABLE)
+            self.node_name:str = os.environ.get("NODE_NAME", default=UNAVAILABLE)
+            self.docker_container_id:str = "N/A"
+        elif self.deployment_mode == DeploymentMode_Docker:
+            import socket 
+            
+            self.docker_container_id:str = socket.gethostname()
+            self.pod_name:str = os.environ.get("POD_NAME", default=self.docker_container_id)
+            self.node_name:str = os.environ.get("NODE_NAME", default="DockerNode")
+        else:
+            self.pod_name:str = os.environ.get("POD_NAME", default=UNAVAILABLE)
+            self.node_name:str = os.environ.get("NODE_NAME", default=UNAVAILABLE)
+            self.docker_container_id:str = "N/A"
 
         self.log.info("Connection file path: \"%s\"" % connection_file_path)
         self.log.info("IPython config file path: \"%s\"" % config_file_path)

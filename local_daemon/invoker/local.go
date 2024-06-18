@@ -23,6 +23,8 @@ const (
 	ConfigFileFormat     = "config-%s-*.json"     // "*" is a placeholder for random string
 )
 
+// NOTE: As of right now, the "LocalInvoker" is *not* related to the "LocalMode" deployment mode.
+
 // LocalInvoker invokes local jupyter kernel
 // Use throttle to simulate Lambda network: https://github.com/sitespeedio/throttle
 // throttle --up 800000 --down 800000 --rtt 1 (800MB/s, 1ms)
