@@ -156,7 +156,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				NotebookImageName:             "scusemua/jupyter",
 				NotebookImageTag:              "latest",
 				DistributedClusterServicePort: 8077,
-				LocalMode:                     true,
+				DeploymentMode:                "local",
 			})
 			local_daemon := localdaemon.New(&types.ConnectionInfo{
 				IP:                   "127.0.0.1",
@@ -177,7 +177,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				SMRPort:          11080,
 				NumGPUs:          8,
 				SchedulingPolicy: "static",
-			}, 8079, nil, "TestNode", false)
+				DeploymentMode:   "kubernetes",
+			}, 8079, nil, "TestNode")
 
 			go func() {
 				err := cluster_gateway.Start()

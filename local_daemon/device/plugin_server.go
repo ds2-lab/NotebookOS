@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	ErrLocalMode                 = errors.New("the virtual gpu plugin server cannot run in local mode")
+	ErrNotEnabled                = errors.New("the virtual gpu plugin server is not enabled")
 	ErrInvalidResourceAdjustment = errors.New("the number of virtual GPUs cannot be decreased below the number of already-allocated virtual GPUs")
 )
 
@@ -40,12 +40,12 @@ type virtualGpuPluginServerImpl struct {
 	stopChan                   chan interface{}
 	totalNumVirtualGpusChanged chan interface{}
 
-	localMode bool
+	enabled bool
 
 	allocator *virtualGpuAllocatorImpl
 }
 
-func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName string, localMode bool) VirtualGpuPluginServer {
+func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName string, disabled bool) VirtualGpuPluginServer {
 	socketFile := filepath.Join(opts.DevicePluginPath, vgpuSocketName)
 
 	server := &virtualGpuPluginServerImpl{
@@ -54,10 +54,10 @@ func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName str
 		opts:                       opts,
 		totalNumVirtualGpusChanged: make(chan interface{}),
 		stopChan:                   make(chan interface{}),
-		localMode:                  localMode,
+		enabled:                    !disabled,
 	}
 
-	if !localMode {
+	if !disabled {
 		podCache := NewPodCache(nodeName)
 		if podCache == nil {
 			panic("Failed to create PodCache.")
@@ -129,8 +129,8 @@ func (v *virtualGpuPluginServerImpl) Stop() {
 
 // NOTE: This function should be called within its own goroutine.
 func (v *virtualGpuPluginServerImpl) Run() error {
-	if v.localMode {
-		return ErrLocalMode
+	if !v.enabled {
+		return ErrNotEnabled
 	}
 
 	err := syscall.Unlink(v.socketFile)

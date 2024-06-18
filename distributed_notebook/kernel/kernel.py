@@ -169,6 +169,7 @@ class DistributedKernel(IPythonKernel):
 
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
+        
         session_id = os.environ.get("SESSION_ID", default=UNAVAILABLE)
         self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
         self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
@@ -193,15 +194,13 @@ class DistributedKernel(IPythonKernel):
         # Initialize to this. If we're part of a migration operation, then it will be set when we register with the local daemon.
         self.hdfs_data_directory = ""
 
-        connection_info = None
+        connection_info:dict = {}
         try:
             if len(connection_file_path) > 0:
                 with open(connection_file_path, 'r') as connection_file:
                     connection_info = json.load(connection_file)
         except Exception as ex:
-            self.log.error(
-                "Failed to obtain connection info from file \"%s\"" % connection_file_path)
-            self.log.error("Error: %s" % str(ex))
+            self.log.error("Failed to obtain connection info from file \"%s\" because: %s" % (connection_file_path, str(ex)))
 
         self.log.info("Connection info: %s" % str(connection_info))
         # self.log.info("IPython config info: %s" % str(config_info))
@@ -280,6 +279,7 @@ class DistributedKernel(IPythonKernel):
             "join": self.smr_join,
             "podName": self.pod_name,
             "nodeName": self.node_name,
+            "connection-info": connection_info,
             "kernel": {
                 "id": self.kernel_id,
                 "session": session_id,

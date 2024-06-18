@@ -91,6 +91,18 @@ type SchedulerDaemonOptions struct {
 	DeploymentMode   string `name:"deployment_mode" description:"Options are 'docker' and 'kubernetes'."`
 }
 
+func (o SchedulerDaemonOptions) IsKubernetesMode() bool {
+	return o.DeploymentMode == string(types.KubernetesMode)
+}
+
+func (o SchedulerDaemonOptions) IsLocalMode() bool {
+	return o.DeploymentMode == string(types.LocalMode)
+}
+
+func (o SchedulerDaemonOptions) IsDockerMode() bool {
+	return o.DeploymentMode == string(types.DockerMode)
+}
+
 func (o SchedulerDaemonOptions) String() string {
 	return fmt.Sprintf("DirectServer: %v", o.DirectServer)
 }
@@ -156,20 +168,19 @@ type SchedulerDaemon struct {
 }
 
 type KernelRegistrationPayload struct {
-	SignatureScheme string              `json:"signature_scheme"`
-	Key             string              `json:"key"`
-	Kernel          *gateway.KernelSpec `json:"kernel,omitempty"`
-	// ResourceSpec    *gateway.ResourceSpec `json:"resourceSpec,omitempty"`
-	ReplicaId      int32                   `json:"replicaId,omitempty"`
-	NumReplicas    int32                   `json:"numReplicas,omitempty"`
-	Join           bool                    `json:"join,omitempty"`
-	PersistentId   *string                 `json:"persistentId,omitempty"`
-	PodName        string                  `json:"podName,omitempty"`
-	NodeName       string                  `json:"nodeName,omitempty"`
-	Cpu            int32                   `json:"cpu,omitempty"`
-	Memory         int32                   `json:"memory,omitempty"`
-	Gpu            int32                   `json:"gpu,omitempty"`
-	ConnectionInfo *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
+	SignatureScheme string                  `json:"signature_scheme"`
+	Key             string                  `json:"key"`
+	Kernel          *gateway.KernelSpec     `json:"kernel,omitempty"`
+	ReplicaId       int32                   `json:"replicaId,omitempty"`
+	NumReplicas     int32                   `json:"numReplicas,omitempty"`
+	Join            bool                    `json:"join,omitempty"`
+	PersistentId    *string                 `json:"persistentId,omitempty"`
+	PodName         string                  `json:"podName,omitempty"`
+	NodeName        string                  `json:"nodeName,omitempty"`
+	Cpu             int32                   `json:"cpu,omitempty"`
+	Memory          int32                   `json:"memory,omitempty"`
+	Gpu             int32                   `json:"gpu,omitempty"`
+	ConnectionInfo  *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
 }
 
 // Incoming connection from local distributed kernel.
@@ -177,7 +188,7 @@ type KernelRegistrationClient struct {
 	conn net.Conn
 }
 
-func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *SchedulerDaemonOptions, kernelRegistryPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, localMode bool, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
+func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *SchedulerDaemonOptions, kernelRegistryPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...SchedulerDaemonConfig) *SchedulerDaemon {
 	ip := os.Getenv("POD_IP")
 	daemon := &SchedulerDaemon{
 		connectionOptions:      connectionOptions,
@@ -192,7 +203,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 		smrPort:                schedulerDaemonOptions.SMRPort,
 		gpuManager:             NewGpuManager(schedulerDaemonOptions.NumGPUs),
 		virtualGpuPluginServer: virtualGpuPluginServer,
-		localMode:              localMode,
+		deploymentMode:         types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -265,12 +276,16 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *Sche
 
 	daemon.log.Debug("Connection options: %v", daemon.connectionOptions)
 
-	if !localMode && len(nodeName) == 0 {
+	if !schedulerDaemonOptions.IsLocalMode() && len(nodeName) == 0 {
 		panic("Node name is empty.")
 	}
 
-	if localMode && len(nodeName) == 0 {
-		daemon.nodeName = "LocalNode"
+	if schedulerDaemonOptions.IsLocalMode() && len(nodeName) == 0 {
+		daemon.nodeName = types.LocalNode
+	}
+
+	if schedulerDaemonOptions.IsDockerMode() && len(nodeName) == 0 {
+		daemon.nodeName = types.DockerNode
 	}
 
 	return daemon
@@ -343,6 +358,9 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 		}
 	}
 
+	if connInfo == nil {
+		panic(fmt.Sprintf("Connection info sent to us by kernel at %s is nil.", remote_ip))
+	}
 	d.log.Debug("connInfo: %v", connInfo)
 
 	kernelReplicaSpec := &gateway.KernelReplicaSpec{

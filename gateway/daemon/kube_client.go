@@ -112,7 +112,7 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 
 	config.InitLogger(&client.log, client)
 
-	if clusterDaemonOptions.LocalMode {
+	if clusterDaemonOptions.IsLocalMode() {
 		var kubeconfig_path string
 		home := homedir.HomeDir()
 		if home != "" {
@@ -146,7 +146,7 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 
 		client.kubeClientset = clientset
 		client.dynamicClient = dynamicClient
-	} else {
+	} else if clusterDaemonOptions.IsKubernetesMode() {
 		kubeConfig, err := rest.InClusterConfig()
 		if err != nil {
 			panic(err.Error())
@@ -171,6 +171,8 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 
 		client.kubeClientset = clientset
 		client.dynamicClient = dynamicClient
+	} else {
+		panic(fmt.Sprintf("KubeClient can only be created in LocalMode or KubernetesMode. We are in mode: \"%s\"", clusterDaemonOptions.DeploymentMode))
 	}
 
 	// Check if the "/configurationFiles" directory exists.

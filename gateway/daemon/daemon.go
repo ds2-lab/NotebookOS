@@ -185,10 +185,6 @@ type clusterGatewayImpl struct {
 
 	clusterDashboard gateway.ClusterDashboardClient
 
-	// "Local mode" is a sort of debug mode where we're running locally rather than in Kubernetes.
-	// This will later be replaced by Docker mode, which was the original way of deploying this system.
-	localMode bool
-
 	// Run via Docker on a single system rather than using the Kubernetes-based deployment.
 	deploymentMode types.DeploymentMode
 }
@@ -197,7 +193,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	daemon := &clusterGatewayImpl{
 		id:                               uuid.New().String(),
 		connectionOptions:                opts,
-		localMode:                        clusterDaemonOptions.LocalMode,
 		transport:                        "tcp",
 		ip:                               opts.IP,
 		availablePorts:                   utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),

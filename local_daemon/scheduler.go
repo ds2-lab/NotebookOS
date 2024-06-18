@@ -22,8 +22,9 @@ import (
 
 	"github.com/zhangjyr/distributed-notebook/common/consul"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/local_daemon/daemon"
 	"github.com/zhangjyr/distributed-notebook/local_daemon/device"
 )
@@ -41,7 +42,7 @@ var (
 
 type Options struct {
 	config.LoggerOptions
-	types.ConnectionInfo
+	jupyter.ConnectionInfo
 	daemon.SchedulerDaemonOptions
 	device.VirtualGpuPluginServerOptions
 
@@ -50,7 +51,6 @@ type Options struct {
 	ProvisionerAddr    string `name:"provisioner" description:"Provisioner address."`
 	JaegerAddr         string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr         string `name:"consul" description:"Consul agent address."`
-	LocalMode          bool   `name:"local_mode" description:"If true, then we're running 'locally' and not within a Kubernetes cluster (for debugging/testing)."`
 	NodeName           string `name:"node_name" description:"Node name used only for debugging in local mode."`
 	DebugMode          bool   `name:"debug_mode" description:"Enable the debug HTTP server."`
 	DebugPort          int    `name:"debug_port" description:"The port for the debug HTTP server."`
@@ -135,17 +135,21 @@ func main() {
 	}
 
 	var nodeName string
-	if options.LocalMode {
+	if options.IsLocalMode() {
 		nodeName = options.NodeName
+	} else if options.DeploymentMode == string(types.DockerMode) {
+		nodeName = types.DockerNode
 	} else {
 		nodeName = os.Getenv("NODE_NAME")
 	}
 
-	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, options.LocalMode)
+	// We largely disable the DevicePlugin server if we're running in LocalMode or if we're not running in Kubernetes mode.
+	disableDevicePluginServer := options.DeploymentMode != string(types.KubernetesMode)
+	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, disableDevicePluginServer)
 
 	// Initialize grpc server
 	srv := grpc.NewServer(gOpts...)
-	scheduler := daemon.New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort, devicePluginServer, nodeName, options.LocalMode)
+	scheduler := daemon.New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort, devicePluginServer, nodeName)
 	gateway.RegisterLocalGatewayServer(srv, scheduler)
 
 	// Initialize gRPC listener
@@ -238,7 +242,8 @@ func main() {
 	// Start device plugin.
 	go func() {
 		// If we're in local mode, then this will return immediately, but we don't want to shutdown the program (which is what finalize will do).
-		if !options.LocalMode {
+		// The same holds true if we're running in Docker mode (as opposed to Kubernetes mode).
+		if options.DeploymentMode == string(types.KubernetesMode) {
 			defer finalize(true)
 		}
 
@@ -254,12 +259,12 @@ func main() {
 
 					// Recreate the DevicePlugin server.
 					log.Println("Recreating the DevicePlugin server now.")
-					devicePluginServer = device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, options.LocalMode)
-				} else if errors.Is(err, device.ErrLocalMode) {
-					log.Println("DevicePlugin server will not be running; we are in local mode.")
+					devicePluginServer = device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, disableDevicePluginServer)
+				} else if errors.Is(err, device.ErrNotEnabled) {
+					log.Println("DevicePlugin server will not be running as it is disabled. (We're either in Docker mode or Local mode.)")
 					return
 				} else {
-					log.Fatalf("Error during device plugin serving: %v", err)
+					log.Fatalf("[ERROR] Exception encountered during device plugin serving: %v", err)
 				}
 			}
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -32,8 +33,19 @@ type ClusterDaemonOptions struct {
 	NotebookImageName             string `name:"notebook-image-name" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
 	NotebookImageTag              string `name:"notebook-image-tag" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`   // Tag to use for the jupyter notebook/kernel image
 	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
-	LocalMode                     bool   `name:"local_mode" description:"If true, then we're running 'locally' and not within a Kubernetes cluster (for debugging/testing)."`
 	DeploymentMode                string `name:"deployment_mode" description:"Options are 'docker' and 'kubernetes'."`
+}
+
+func (o ClusterDaemonOptions) IsLocalMode() bool {
+	return o.DeploymentMode == string(types.LocalMode)
+}
+
+func (o ClusterDaemonOptions) IsDockerMode() bool {
+	return o.DeploymentMode == string(types.DockerMode)
+}
+
+func (o ClusterDaemonOptions) IsKubernetesMode() bool {
+	return o.DeploymentMode == string(types.KubernetesMode)
 }
 
 type ClusterSchedulerOptions struct {
