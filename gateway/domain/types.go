@@ -18,6 +18,9 @@ import (
 const (
 	FilterRoute = "/filter" // Used by the ClusterScheduler to expose an HTTP endpoint.
 
+	// Used to monitor only for Docker container-created events corresponding to this particular project.
+	// TODO: Don't hardcode this. If the "name" field in "deploy/docker/docker-compose.yml" is changed,
+	// then the value of this const must be updated so that it matches the "name" field.
 	DockerProjectName = "distributed_cluster"
 )
 
