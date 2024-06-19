@@ -10,6 +10,8 @@ services:
       context: ../..
       dockerfile: deploy/docker/hoster/Dockerfile
     image: scusemua/docker-hoster:latest
+    labels:
+      app: "distributed_cluster"
     container_name: 'docker-hoster'
     restart: always 
     volumes:
@@ -23,6 +25,8 @@ services:
       context: ../..
       dockerfile: dockfiles/cpu-python3-amd64/Dockerfile
     image: scusemua/jupyter:latest
+    labels:
+      app: "distributed_cluster"
     container_name: 'jupyter'
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
     expose:
@@ -39,6 +43,8 @@ services:
       context: ./gateway
       dockerfile: Dockerfile
     image: scusemua/gateway-docker
+    labels:
+      app: "distributed_cluster"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     container_name: 'gateway'
@@ -66,6 +72,8 @@ services:
       context: ./local_daemon
       dockerfile: Dockerfile
     image: scusemua/daemon-docker
+    labels:
+      app: "distributed_cluster"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base

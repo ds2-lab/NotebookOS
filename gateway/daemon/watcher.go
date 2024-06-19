@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	url string = "http://localhost/v1.45/events?filters={\"type\":[\"container\"],\"event\":[\"create\"],\"network\":[\"%s\"]}"
+	url string = "http://localhost/v1.45/events?filters={\"type\":[\"container\"],\"event\":[\"create\"],\"label\":[\"app=distributed_cluster\"]}"
 )
 
 type DockerContainerWatcher struct {
@@ -22,7 +22,6 @@ type DockerContainerWatcher struct {
 
 	projectName string
 	networkName string
-	url         string
 
 	log logger.Logger
 }
@@ -35,7 +34,6 @@ func NewDockerContainerWatcher(projectName string) *DockerContainerWatcher {
 		projectName: projectName,
 		networkName: networkName,
 		channels:    &channels,
-		url:         fmt.Sprintf(url, networkName),
 	}
 
 	config.InitLogger(&watcher.log, watcher)
@@ -58,21 +56,22 @@ func (w *DockerContainerWatcher) RegisterChannel(kernelId string, startedChan ch
 
 func (w *DockerContainerWatcher) monitor() {
 	ctx := context.Background()
-
-	dialerFunc := func(proto, addr string) (conn net.Conn, err error) {
+	dialerFunc := func(ctx context.Context, proto string, addr string) (conn net.Conn, err error) {
 		return net.Dial("unix", "/var/run/docker.sock")
 	}
 	transport := &http.Transport{
-		Dial: dialerFunc,
+		DialContext: dialerFunc,
 	}
 	client := &http.Client{Transport: transport}
 
 	w.log.Debug("Monitoring for Docker container-start events for project \"%s\", network \"%s\"", w.projectName, w.networkName)
 
-	resp, err := client.Get(w.url)
+	resp, err := client.Get(url)
 	if err != nil {
 		panic(err)
 	}
+
+	w.log.Debug("Successfully issued HTTP GET request. Processing response(s) now.")
 
 	decoder := json.NewDecoder(resp.Body)
 
@@ -82,6 +81,7 @@ func (w *DockerContainerWatcher) monitor() {
 			if err := ctx.Err(); err != nil {
 				panic(err)
 			}
+			w.log.Debug("ctx.Done, but no error. Exiting now.")
 			return
 		default:
 			var containerCreationEvent map[string]interface{}
@@ -94,7 +94,14 @@ func (w *DockerContainerWatcher) monitor() {
 			fullContainerId := containerCreationEvent["id"].(string)
 			shortContainerId := fullContainerId[0:12]
 			attributes := containerCreationEvent["Actor"].(map[string]interface{})["Attributes"].(map[string]interface{})
-			kernelId := attributes["kernel_id"].(string)
+
+			var kernelId string
+			if val, ok := attributes["kernel_id"]; ok {
+				kernelId = val.(string)
+			} else {
+				w.log.Debug("Docker Container %s related to the distributed cluster has started.", shortContainerId)
+				continue
+			}
 
 			w.log.Debug("Docker Container %s for kernel %s has started running.", shortContainerId, kernelId)
 
