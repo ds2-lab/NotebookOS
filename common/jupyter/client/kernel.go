@@ -53,6 +53,12 @@ type KernelReplicaClient interface {
 
 	IOPubListenPort() int
 
+	// Get the Host on which the replica is hosted.
+	GetHost() core.Host
+
+	// Set the Host of the kernel.
+	SetHost(core.Host)
+
 	RequestDestID() string
 
 	// Return the name of the Kubernetes Pod hosting the replica.
@@ -157,6 +163,7 @@ type kernelReplicaClientImpl struct {
 	ready                     bool          // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
 	yieldNextExecutionRequest bool          // If true, then we will yield the next 'execute_request'.
 	hostId                    string        // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
+	host                      core.Host     // The host that the kernel replica is running on.
 
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback
 	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback
@@ -168,7 +175,7 @@ type kernelReplicaClientImpl struct {
 
 // NewKernelClient creates a new kernelReplicaClientImpl.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, shouldAckMessages bool) KernelReplicaClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, host core.Host, shouldAckMessages bool) KernelReplicaClient {
 	client := &kernelReplicaClientImpl{
 		id:                        spec.Kernel.Id,
 		persistentId:              persistentId,
@@ -182,6 +189,7 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		smrNodeReadyCallback:      smrNodeReadyCallback,
 		smrNodeAddedCallback:      smrNodeAddedCallback,
 		yieldNextExecutionRequest: false,
+		host:                      host,
 		hostId:                    hostId,
 		// smrNodeRemovedCallback: smrNodeRemovedCallback,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
@@ -518,6 +526,16 @@ func (c *kernelReplicaClientImpl) Close() error {
 		c.iopub = nil
 	}
 	return nil
+}
+
+// Get the Host on which the replica is hosted.
+func (c *kernelReplicaClientImpl) GetHost() core.Host {
+	return c.host
+}
+
+// Set the Host of the kernel.
+func (c *kernelReplicaClientImpl) SetHost(host core.Host) {
+	c.host = host
 }
 
 // Initialize the ZMQ SUB socket for handling IO messages from the Jupyter kernel.

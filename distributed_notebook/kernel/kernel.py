@@ -1118,6 +1118,12 @@ class DistributedKernel(IPythonKernel):
         self.session.send(stream, "update_replica_reply",
                           content, parent, ident=ident)  # type: ignore
 
+    def report_error(self, errorTitle: str = "", errorMessage: str = ""):
+        """
+        Send an error report/message to our local daemon via our IOPub socket.
+        """
+        self.session.send(self.iopub_socket, "error_report", {"error": errorTitle, "message": errorMessage, "kernel_id": self.kernel_id}, ident=self._topic("error_report"))
+
     def gen_simple_response(self, execution_count=0):
         return {'status': 'ok',
                 # The base class increments the execution count
@@ -1191,6 +1197,7 @@ class DistributedKernel(IPythonKernel):
                                    debug_port = self.debug_port)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
+            self.report_error(errorTitle="Failed to Create RaftLog", errorMessage = str(ex))
             exit(1)
 
         self.log.debug("Successfully created RaftLog.")

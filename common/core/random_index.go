@@ -2,12 +2,16 @@ package core
 
 import (
 	"math/rand"
+	"slices"
 	"sync"
+
+	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/mason-leap-lab/go-utils/logger"
 )
 
 const (
 	expectedRandomIndex                = "*"
-	hostMetaRandomIndex    HostMetaKey = "random_index"
+	HostMetaRandomIndex    HostMetaKey = "random_index"
 	randomIndexGCThreshold             = 10
 )
 
@@ -20,12 +24,18 @@ type RandomClusterIndex struct {
 	perm      []int // The permutation of the hosts.
 	seekStart int32 // The start index of the seek.
 	mu        sync.Mutex
+
+	log logger.Logger
 }
 
 func NewRandomClusterIndex(size int) *RandomClusterIndex {
-	return &RandomClusterIndex{
+	idx := &RandomClusterIndex{
 		hosts: make([]Host, 0, size),
 	}
+
+	config.InitLogger(&idx.log, idx)
+
+	return idx
 }
 
 func (index *RandomClusterIndex) Category() (string, interface{}) {
@@ -34,7 +44,7 @@ func (index *RandomClusterIndex) Category() (string, interface{}) {
 
 func (index *RandomClusterIndex) IsQualified(host Host) (interface{}, ClusterIndexQualification) {
 	// Since all hosts are qualified, we check if the host is in the index only.
-	if _, ok := host.GetMeta(hostMetaRandomIndex).(int32); ok {
+	if _, ok := host.GetMeta(HostMetaRandomIndex).(int32); ok {
 		return expectedRandomIndex, ClusterIndexQualified
 	} else {
 		return expectedRandomIndex, ClusterIndexNewQualified
@@ -63,7 +73,7 @@ func (index *RandomClusterIndex) Add(host Host) {
 		i = index.freeStart // old len(index.hosts) or current len(index.hosts) - 1
 		index.freeStart += 1
 	}
-	host.SetMeta(hostMetaRandomIndex, i)
+	host.SetMeta(HostMetaRandomIndex, i)
 	index.len += 1
 }
 
@@ -75,7 +85,7 @@ func (index *RandomClusterIndex) Remove(host Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
-	i, ok := host.GetMeta(hostMetaRandomIndex).(int32)
+	i, ok := host.GetMeta(HostMetaRandomIndex).(int32)
 	if !ok {
 		return
 	}
@@ -98,7 +108,7 @@ func (index *RandomClusterIndex) compactLocked(from int32) {
 	for i := frontier + 1; i < len(index.hosts); i++ {
 		if index.hosts[i] != nil {
 			index.hosts[frontier], index.hosts[i] = index.hosts[i], nil
-			index.hosts[frontier].SetMeta(hostMetaRandomIndex, frontier)
+			index.hosts[frontier].SetMeta(HostMetaRandomIndex, frontier)
 			frontier += 1
 		}
 	}
@@ -110,13 +120,28 @@ func (index *RandomClusterIndex) GetMetrics(_ Host) []float64 {
 	return nil
 }
 
-func (index *RandomClusterIndex) Seek(metrics ...[]float64) (ret Host, pos interface{}) {
+func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret Host, pos interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
 	if index.len == 0 {
 		return nil, nil
 	}
+
+	// Convert the blacklist into a slice of a concrete type; in this case, []int32.
+	__blacklist := make([]int32, 0)
+	for i, meta := range blacklist {
+		if meta == nil {
+			index.log.Error("Blacklist contains nil entry at index %d.", i)
+			continue
+		}
+
+		__blacklist = append(__blacklist, meta.(int32))
+	}
+
+	hostsSeen := 0
+
+	index.log.Debug("Searching for host. Size of blacklist: %d. Number of hosts in index: %d.", len(__blacklist), index.Len())
 
 	for ret == nil {
 		// Generate a new permutation if seekStart is invalid.
@@ -127,6 +152,17 @@ func (index *RandomClusterIndex) Seek(metrics ...[]float64) (ret Host, pos inter
 		ret = index.hosts[index.perm[index.seekStart]]
 		index.seekStart++
 		pos = index.seekStart
+
+		// If the given host is blacklisted, then look for a different host.
+		if slices.Contains(__blacklist, ret.GetMeta(HostMetaRandomIndex).(int32)) {
+			ret = nil
+			hostsSeen += 1
+		}
+
+		if hostsSeen >= index.Len() {
+			index.log.Error("All hosts within index have been inspected. One should have been found by now.")
+			return
+		}
 	}
 	return
 }
@@ -138,5 +174,5 @@ func (index *RandomClusterIndex) SeekFrom(pos interface{}, metrics ...[]float64)
 	} else {
 		index.seekStart = 0
 	}
-	return index.Seek(metrics...)
+	return index.Seek(make([]interface{}, 0), metrics...)
 }

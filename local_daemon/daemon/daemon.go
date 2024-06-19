@@ -389,7 +389,7 @@ func (d *SchedulerDaemon) registerKernelReplica(ctx context.Context, kernelRegis
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
 	// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, false)
+	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false)
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
@@ -854,9 +854,8 @@ func (d *SchedulerDaemon) StartKernelReplica(ctx context.Context, in *gateway.Ke
 	// Initialize kernel client with new context.
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
 
-	// kernel := client.NewKernelClient(kernelCtx, in, connInfo)
 	listenPorts, err := d.availablePorts.RequestPorts()
-	kernel := client.NewKernelClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, false)
+	kernel := client.NewKernelClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false)
 
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
@@ -980,7 +979,10 @@ func (d *SchedulerDaemon) stopKernel(ctx context.Context, kernel client.KernelRe
 
 	wg.Wait()
 
-	// d.getInvoker(kernel).Close()
+	if d.deploymentMode == types.DockerMode {
+		d.log.Debug("Stopping container for kernel %s-%d via its invoker now.", kernel.ID(), kernel.ReplicaID())
+		d.getInvoker(kernel).Close()
+	}
 	return nil
 }
 

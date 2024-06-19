@@ -90,4 +90,10 @@ type KernelReplica interface {
 	// Designate the replica as ready.
 	// Only used by the Cluster Gateway, not by the Local Daemon.
 	SetReady()
+
+	// Get the Host on which the replica is hosted.
+	GetHost() Host
+
+	// Set the Host of the kernel.
+	SetHost(Host)
 }

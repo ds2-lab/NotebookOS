@@ -819,7 +819,7 @@ class RaftLog:
 
   def ensure_path(self, base_path):
     if base_path != "" and not os.path.exists(base_path):
-      os.makedirs(base_path, 0o750)
+      os.makedirs(base_path, 0o750, exist_ok = True) # It's OK if it already exists.
 
   async def _offload(self, val: SyncValue) -> SyncValue:
     """Offload the buffer to the storage server."""

@@ -512,6 +512,17 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 // 	return nil
 // }
 
+// Register a channel that is used to notify waiting goroutines that the Pod/Container has started.
+func (c *BasicKubeClient) RegisterChannel(kernelId string, startedChan chan string) {
+	// Store the new channel in the mapping.
+	channels, ok := c.scaleUpChannels.Get(kernelId)
+	if !ok {
+		channels = make([]chan string, 0, 4)
+	}
+	channels = append(channels, startedChan)
+	c.scaleUpChannels.Set(kernelId, channels)
+}
+
 // Scale-up a CloneSet by increasing its number of replicas by 1.
 //
 // Accepts as a parameter a chan string that can be used to wait until the new Pod has been created.
@@ -521,7 +532,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 // Parameters:
 // - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale-out.
 // - podStartedChannel (chan string): Used to notify waiting goroutines that the Pod has started.
-func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string, podStartedChannel chan string) error {
+func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -538,14 +549,6 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string, podStartedChannel ch
 		Factor:   1.0,
 		Jitter:   0.1,
 	}
-
-	// Store the new channel in the mapping.
-	channels, ok := c.scaleUpChannels.Get(kernelId)
-	if !ok {
-		channels = make([]chan string, 0, 4)
-	}
-	channels = append(channels, podStartedChannel)
-	c.scaleUpChannels.Set(kernelId, channels)
 
 	// Increase the number of replicas.
 	retryErr := retry.RetryOnConflict(retryParameters, func() error {

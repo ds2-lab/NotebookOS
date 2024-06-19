@@ -202,6 +202,20 @@ func (mr *MockKernelReplicaClientMockRecorder) ExtractSourceKernelFrame(frames a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExtractSourceKernelFrame", reflect.TypeOf((*MockKernelReplicaClient)(nil).ExtractSourceKernelFrame), frames)
 }
 
+// GetHost mocks base method.
+func (m *MockKernelReplicaClient) GetHost() core.Host {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetHost")
+	ret0, _ := ret[0].(core.Host)
+	return ret0
+}
+
+// GetHost indicates an expected call of GetHost.
+func (mr *MockKernelReplicaClientMockRecorder) GetHost() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHost", reflect.TypeOf((*MockKernelReplicaClient)(nil).GetHost))
+}
+
 // HostId mocks base method.
 func (m *MockKernelReplicaClient) HostId() string {
 	m.ctrl.T.Helper()
@@ -481,6 +495,18 @@ func (m *MockKernelReplicaClient) SetContext(arg0 context.Context) {
 func (mr *MockKernelReplicaClientMockRecorder) SetContext(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetContext", reflect.TypeOf((*MockKernelReplicaClient)(nil).SetContext), arg0)
+}
+
+// SetHost mocks base method.
+func (m *MockKernelReplicaClient) SetHost(arg0 core.Host) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetHost", arg0)
+}
+
+// SetHost indicates an expected call of SetHost.
+func (mr *MockKernelReplicaClientMockRecorder) SetHost(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHost", reflect.TypeOf((*MockKernelReplicaClient)(nil).SetHost), arg0)
 }
 
 // SetPersistentID mocks base method.

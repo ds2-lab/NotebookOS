@@ -138,8 +138,22 @@ type ClusterScheduler interface {
 	RefreshAll() []error
 }
 
+// Watches for new Pods/Containers.
+//
+// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
+type ContainerWatcher interface {
+	// Register a channel that is used to notify waiting goroutines that the Pod/Container has started.
+	//
+	// Accepts as a parameter a chan string that can be used to wait until the new Container has been created.
+	// The ID of the new Container will be sent over the channel when the new Container is started.
+	// The error will be nil on success.
+	RegisterChannel(kernelId string, startedChan chan string)
+}
+
 // This client is used by the Cluster Gateway and Cluster Scheduler to interact with Kubernetes.
 type KubeClient interface {
+	ContainerWatcher
+
 	KubeClientset() *kubernetes.Clientset // Get the Kubernetes client.
 	ClusterGateway() ClusterGateway       // Get the associated Gateway daemon.
 
@@ -164,14 +178,12 @@ type KubeClient interface {
 	// RemoveLabelFromNode(nodeId string, labelKey string, labelValue string) error
 
 	// Scale-up a CloneSet by increasing its number of replicas by 1.
-	// Accepts as a parameter a chan string that can be used to wait until the new Pod has been created.
-	// The name of the new Pod will be sent over the channel when the new Pod is started.
-	// The error will be nil on success.
+	// Important: RegisterChannel() should be called FIRST, before this function is called.
 	//
 	// Parameters:
 	// - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale-out.
 	// - podStartedChannel (chan string): Used to notify waiting goroutines that the Pod has started.
-	ScaleOutCloneSet(string, chan string) error
+	ScaleOutCloneSet(string) error
 
 	// Scale-down a CloneSet by decreasing its number of replicas by 1.
 	// Returns a chan string that can be used to wait until the new Pod has been created.
@@ -201,7 +213,7 @@ type AddReplicaOperation interface {
 	SetReplicaHostname(hostname string)                  // Set the IP address of the new replica.
 	SetReplicaJoinedSMR()                                // Record that the new replica has joined its SMR cluster. This also sends a notification on the ReplicaJoinedSmrChannel. NOTE: This does NOT mark the associated replica as ready. That must be done separately.
 	Completed() bool                                     // Return true if the operation has completed successfully.
-	PodStartedChannel() chan string                      // Return the channel used to notify that the new Pod has started.
+	ReplicaStartedChannel() chan string                  // Return the channel used to notify that the new Pod has started.
 	ReplicaJoinedSmrChannel() chan struct{}              // Return the channel that is used to notify that the new replica has joined its SMR cluster.
 	ReplicaRegisteredChannel() chan struct{}             // Return the channel that is used to notify that the new replica has registered with the Gateway.
 	DataDirectory() string                               // Return the path to etcd-raft data directory in HDFS.

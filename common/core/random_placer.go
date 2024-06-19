@@ -44,7 +44,7 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []Host {
 }
 
 // FindHost returns a single host that can satisfy the spec.
-func (placer *RandomPlacer) FindHost(spec types.Spec) Host {
-	host, _ := placer.index.Seek()
+func (placer *RandomPlacer) FindHost(blacklist []interface{}, spec types.Spec) Host {
+	host, _ := placer.index.Seek(blacklist)
 	return host
 }

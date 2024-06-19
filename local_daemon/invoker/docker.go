@@ -40,6 +40,7 @@ const (
 	VarContainerImage   = "{image}"
 	VarConnectionFile   = "{connection_file}"
 	VarContainerName    = "{container_name}"
+	VarContainerNewName = "{container_new_name}"
 	VarContainerNetwork = "{network}"
 	VarStorageVolume    = "{storage}"
 	VarConfigFile       = "{config_file}"
@@ -58,8 +59,9 @@ var (
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
-	dockerInvokerCmd  = "docker run -d --name {container_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker {image}"
+	dockerInvokerCmd  = "docker run -d --name {container_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker --label kernel_id={kernel_id} {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
+	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
 
 	ErrUnexpectedReplicaExpression  = fmt.Errorf("unexpected replica expression, expected url")
 	ErrConfigurationFilesDoNotExist = errors.New("one or more of the necessary configuration files do not exist on the host's file system")
@@ -259,7 +261,7 @@ func (ivk *DockerInvoker) Close() error {
 	}
 
 	argv := strings.Split(strings.ReplaceAll(dockerShutdownCmd, VarContainerName, ivk.containerName), " ")
-	ivk.log.Debug("Stopping kernel %s......", argv)
+	ivk.log.Debug("Stopping container %s via %s.", ivk.containerName, argv)
 	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
 	if err := cmd.Run(); err != nil {
 		ivk.log.Error("[Error] Failed to stop container/kenel %s: %v\n", ivk.containerName, err)
@@ -271,8 +273,28 @@ func (ivk *DockerInvoker) Close() error {
 	ivk.closed = nil
 	ivk.log.Debug("Closed container/kernel %s.\n", ivk.containerName)
 	ivk.setStatus(jupyter.KernelStatusExited)
+
 	// Status will not change anymore, reset the handler.
 	ivk.statusChanged = ivk.defaultStatusChangedHandler
+
+	// Rename the stopped Container so that we can create a new one with the same name in its place.
+	idx := 0
+	for idx < 50 /* TODO: This is bad/highly inefficient and will also break if a Container is migrated more than 50 times. */ {
+		rename_cmd_str := strings.ReplaceAll(dockerRenameCmd, VarContainerName, ivk.containerName)
+		newName := fmt.Sprintf("%s-old-%d", ivk.containerName, idx)
+		rename_cmd_str = strings.ReplaceAll(rename_cmd_str, VarContainerNewName, newName)
+		rename_argv := strings.Split(rename_cmd_str, " ")
+		ivk.log.Debug("Renaming (stopped) container %s via %s.", ivk.containerName, rename_argv)
+		renameCmd := exec.CommandContext(context.Background(), rename_argv[0], rename_argv[1:]...)
+		if err := renameCmd.Run(); err != nil {
+			ivk.log.Error("[Error] Failed to rename container %s: %v\n", ivk.containerName, err)
+			idx += 1
+			continue
+		} else {
+			break
+		}
+	}
+
 	return nil
 }
 

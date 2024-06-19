@@ -59,7 +59,7 @@ func (op *addReplicaOperationImpl) String() string {
 }
 
 // Return the channel that is used to notify that the new Pod has started.
-func (op *addReplicaOperationImpl) PodStartedChannel() chan string {
+func (op *addReplicaOperationImpl) ReplicaStartedChannel() chan string {
 	return op.podStartedChannel
 }
 

@@ -29,7 +29,7 @@ type Placer interface {
 
 	// FindHost returns a host that can satisfy the spec.
 	// This method is provided for development. Implementation are not required to implement this method.
-	FindHost(types.Spec) Host
+	FindHost(blacklist []interface{}, metrics types.Spec) Host
 
 	// Place atomically places a replica on a host.
 	// The subsription rate of the host will be checked before placing the replica. If the rate is above the threshold, a new host will be launched to place the replica.

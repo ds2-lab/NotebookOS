@@ -181,8 +181,14 @@ type clusterGatewayImpl struct {
 	// Kubernetes client. This is shared with the associated Cluster Gateway.
 	kubeClient domain.KubeClient
 
+	// Watches for new Pods/Containers.
+	//
+	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
+	containerWatcher domain.ContainerWatcher
+
 	clusterScheduler domain.ClusterScheduler
 
+	// gRPC connection to the Dashboard.
 	clusterDashboard gateway.ClusterDashboardClient
 
 	// Run via Docker on a single system rather than using the Kubernetes-based deployment.
@@ -285,6 +291,9 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	if daemon.KubernetesMode() {
 		daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
+		daemon.containerWatcher = daemon.kubeClient
+	} else {
+		daemon.containerWatcher = NewDockerContainerWatcher()
 	}
 
 	daemon.clusterScheduler = scheduler.NewClusterScheduler(daemon, daemon.kubeClient, clusterDaemonOptions.ClusterSchedulerOptions)
@@ -1118,7 +1127,7 @@ func (d *clusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 	addReplicaOp.SetReplicaHostname(in.KernelIp)
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID(), in.HostId, true)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID(), in.HostId, host, true)
 	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
@@ -1262,7 +1271,7 @@ func (d *clusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, true)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, host, true)
 	d.log.Debug("Validating new kernelReplicaClientImpl for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
@@ -1559,32 +1568,6 @@ func (d *clusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gate
 	return &gateway.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
 }
 
-// func (d *clusterGatewayImpl) migrate_removeLast(ctx context.Context, in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
-// 	// First, add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
-// 	opts := NewAddReplicaWaitOptions(true, true, true)
-// 	addReplicaOp, err := d.addReplica(in, opts, nil)
-// 	if err != nil {
-// 		d.log.Error("Failed to add new replica %d to kernel %s: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
-// 		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
-// 	}
-
-// 	var num_seconds int = 5
-// 	d.log.Debug("Done adding replica %d of kernel %s. Sleeping for %d seconds.", addReplicaOp.ReplicaId(), in.KernelId, num_seconds)
-// 	time.Sleep(time.Second * time.Duration(num_seconds))
-// 	d.log.Debug("Removing replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
-
-// 	// We pass 'false' for `wait` here, as we don't really need to wait for the CloneSet to scale-down.
-// 	// As long as the replica is stopped, we can continue.
-// 	err = d.removeReplica(in.ReplicaId, in.KernelId, false)
-// 	if err != nil {
-// 		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
-// 	}
-
-// 	d.log.Debug("Done migrating replica %d of kernel %s now.", in.ReplicaId, in.KernelId)
-
-// 	return &gateway.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
-// }
-
 func (d *clusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
 	if d.DockerMode() {
 		return make([]corev1.Node, 0), types.ErrIncompatibleDeploymentMode /* TODO: Should I return an error here? Probably? */
@@ -1626,68 +1609,6 @@ func (d *clusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *gatew
 	// If there was an error, then err will be non-nil.
 	// If there was no error, then err will be nil.
 	return resp, err
-
-	// return d.migrate_removeLast(ctx, in)
-
-	// The ID of the replica that we're migrating.
-	// var targetReplicaId int32 = in.ReplicaId
-
-	// The spec to be used for the new replica that is created during the migration.
-	// var newSpec *gateway.KernelReplicaSpec = kernel.PrepareNewReplica(in.PersistentId)
-
-	// d.log.Debug("Migrating replica %d of kernel %s now. New replica ID: %d.", targetReplicaId, kernel.ID(), newSpec.ReplicaId)
-	// d.log.Warn("WARNING: This feature has not been reimplemented for Kubernetes yet. This will fail.")
-
-	// replicaSpec := kernel.PrepareNewReplica(in.PersistentId)
-
-	// TODO: Pass decision to the cluster scheduler.
-	// host := d.placer.FindHost(replicaSpec.Kernel.Resource)
-
-	// var err error
-	// defer func() {
-	// 	if err != nil {
-	// 		d.log.Warn("Failed to start replica(%s:%d): %v", kernel.KernelSpec().Id, replicaSpec.ReplicaId, err)
-	// 	}
-	// }()
-
-	// hostname, err := d.kubeClient.InitiateKernelMigration(ctx, kernel, targetReplicaId, newSpec)
-
-	// if err != nil {
-	// 	d.log.Error("Error encountered while migrating replica %d of kernel %s: %v", targetReplicaId, kernel.ID(), err)
-	// 	err = d.errorf(err) // Reassign err.
-	// }
-
-	// `err` may be nil here. The fact that we're returning `err` here doesn't mean `err` is necessarily non-nil.
-	// return &gateway.MigrateKernelResponse{Id: targetReplicaId, Hostname: hostname}, err
-
-	// replicaConnInfo, err := d.placer.Place(host, replicaSpec)
-	// if err != nil {
-	// 	return nil, d.errorf(err)
-	// }
-
-	// // Initialize kernel client
-	// replica := client.NewKernelClient(context.Background(), replicaSpec, replicaConnInfo.ConnectionInfo())
-	// err = replica.Validate()
-	// if err != nil {
-	// 	d.closeReplica(host, kernel, replica, int(replicaSpec.ReplicaId), "validation error")
-	// 	return nil, d.errorf(err)
-	// }
-
-	// err = kernel.AddReplica(replica, host)
-	// if err != nil {
-	// 	d.closeReplica(host, kernel, replica, int(replicaSpec.ReplicaId), "failed adding to the kernel")
-	// 	return nil, d.errorf(err)
-	// }
-
-	// // Simply remove the replica from the kernel, the caller should stop the replica after confirmed that the new replica is ready.
-	// go func() {
-	// 	_, err := kernel.RemoveReplicaByID(in.ReplicaId, d.placer.Reclaim, true)
-	// 	if err != nil {
-	// 		d.log.Warn("Failed to remove replica(%s:%d): %v", kernel.ID(), in.ReplicaId, err)
-	// 	}
-	// }()
-
-	// return &gateway.ReplicaId{Id: replicaSpec.ReplicaId}, nil
 }
 
 func (d *clusterGatewayImpl) Start() error {
@@ -2150,30 +2071,64 @@ func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 	d.activeAddReplicaOpsPerKernel.Store(kernelId, ops)
 	d.addReplicaMutex.Unlock()
 
-	err := d.kubeClient.ScaleOutCloneSet(kernelId, addReplicaOp.PodStartedChannel())
-	if err != nil {
-		d.log.Error("Failed to add replica to kernel %s. Could not scale-up CloneSet.", kernelId)
-		d.log.Error("Reason: %v", err)
-		return addReplicaOp, err
+	d.containerWatcher.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
+
+	if d.KubernetesMode() {
+		err := d.kubeClient.ScaleOutCloneSet(kernelId)
+		if err != nil {
+			d.log.Error("Failed to add replica to kernel %s. Could not scale-up CloneSet because: %v", kernelId, err)
+			return addReplicaOp, err
+		}
+	} else {
+		blacklist := make([]interface{}, 0)
+
+		// We "blacklist" all of the hosts for which other replicas of this kernel are scheduled.
+		// That way, we'll necessarily select a host on which no other replicas of this kernel are running.
+		for _, replica := range kernel.Replicas() {
+			host := replica.GetHost()
+			if host == nil {
+				// This shouldn't happen as far as I know, but if it does, then we can't really identify the proper host to migrate to.
+				d.log.Error("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID())
+
+				go d.notifyDashboard("No Host Assigned to Kernel", fmt.Sprintf("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID()), WarningNotification)
+				continue
+			}
+
+			d.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", replica.GetHost().ID(), replica.GetHost().NodeName(), replica.ID(), replica.ReplicaID())
+			blacklist = append(blacklist, replica.GetHost().GetMeta(core.HostMetaRandomIndex))
+		}
+
+		host := d.placer.FindHost(blacklist, newReplicaSpec.ResourceSpec())
+		d.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.", host.ID(), kernelId, in.ReplicaId, host.ID())
+		connInfo, err := d.placer.Place(host, newReplicaSpec)
+
+		if err != nil {
+			d.log.Error("Failed to add replica to kernel %s. Exception encountered by Placer: %v.", kernelId, err)
+			return addReplicaOp, err
+		} else {
+			d.log.Debug("Received replica connection info after calling placer.Place: %v", connInfo)
+		}
 	}
 
-	d.log.Debug("Waiting for new Pod to be created for kernel %s.", kernelId)
+	d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
 
-	// Always wait for the scale-out operation to complete and the new Pod to be created.
-	newPodName := <-addReplicaOp.PodStartedChannel()
-	d.log.Debug("New Pod %s has been created for kernel %s.", newPodName, kernelId)
-	addReplicaOp.SetPodName(newPodName)
-	d.addReplicaOperationsByNewPodName.Store(newPodName, addReplicaOp)
+	if d.KubernetesMode() {
+		// Always wait for the scale-out operation to complete and the new replica to be created.
+		newReplicaName := <-addReplicaOp.ReplicaStartedChannel()
+		d.log.Debug("New replica %s has been created for kernel %s.", newReplicaName, kernelId)
+		addReplicaOp.SetPodName(newReplicaName)
+		d.addReplicaOperationsByNewPodName.Store(newReplicaName, addReplicaOp)
 
-	d.Lock()
+		d.Lock()
 
-	channel, ok := d.addReplicaNewPodNotifications.Load(newPodName)
+		channel, ok := d.addReplicaNewPodNotifications.Load(newReplicaName)
 
-	if ok {
-		channel <- addReplicaOp
+		if ok {
+			channel <- addReplicaOp
+		}
+
+		d.Unlock()
 	}
-
-	d.Unlock()
 
 	if opts.WaitRegistered() {
 		d.log.Debug("Waiting for new replica %d of kernel %s to register.", addReplicaOp.ReplicaId(), kernelId)
@@ -2258,26 +2213,20 @@ func (d *clusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) err
 
 	d.log.Debug("Successfully removed replica %d of kernel %s.", smrNodeId, kernelId)
 
-	podStoppedChannel := make(chan struct{}, 1) // Buffered.
+	// If we're running in Kubernetes mode, then we'll explicitly scale-in the CloneSet and wait for the Pod to stop.
+	if d.KubernetesMode() {
+		podStoppedChannel := make(chan struct{}, 1) // Buffered.
 
-	// Next, scale-down the CloneSet, taking care to ensure the correct Pod is deleted.
-	err = d.kubeClient.ScaleInCloneSet(kernelId, oldPodName, podStoppedChannel)
-	if err != nil {
-		d.log.Error("Error while scaling-in CloneSet for kernel %s: %v", kernelId, err)
-		return err
+		// Next, scale-in the CloneSet, taking care to ensure the correct Pod is deleted.
+		err = d.kubeClient.ScaleInCloneSet(kernelId, oldPodName, podStoppedChannel)
+		if err != nil {
+			d.log.Error("Error while scaling-in CloneSet for kernel %s: %v", kernelId, err)
+			return err
+		}
+
+		<-podStoppedChannel
+		d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
 	}
-
-	<-podStoppedChannel
-	d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
-
-	// if wait {
-	// 	select {
-	// 	case <-podStoppedChannel:
-	// 		{
-	// 			d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
-	// 		}
-	// 	}
-	// }
 
 	return nil
 }
