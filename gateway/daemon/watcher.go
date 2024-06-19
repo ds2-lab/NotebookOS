@@ -67,6 +67,8 @@ func (w *DockerContainerWatcher) monitor() {
 	}
 	client := &http.Client{Transport: transport}
 
+	w.log.Debug("Monitoring for Docker container-start events for project \"%s\", network \"%s\"", w.projectName, w.networkName)
+
 	resp, err := client.Get(w.url)
 	if err != nil {
 		panic(err)
@@ -93,6 +95,8 @@ func (w *DockerContainerWatcher) monitor() {
 			shortContainerId := fullContainerId[0:12]
 			attributes := containerCreationEvent["Actor"].(map[string]interface{})["Attributes"].(map[string]interface{})
 			kernelId := attributes["kernel_id"].(string)
+
+			w.log.Debug("Docker Container %s for kernel %s has started running.", shortContainerId, kernelId)
 
 			channels, ok := w.channels.Get(kernelId)
 

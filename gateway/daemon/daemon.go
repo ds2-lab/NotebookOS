@@ -2112,23 +2112,21 @@ func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 
 	d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
 
-	if d.KubernetesMode() {
-		// Always wait for the scale-out operation to complete and the new replica to be created.
-		newReplicaName := <-addReplicaOp.ReplicaStartedChannel()
-		d.log.Debug("New replica %s has been created for kernel %s.", newReplicaName, kernelId)
-		addReplicaOp.SetPodName(newReplicaName)
-		d.addReplicaOperationsByNewPodName.Store(newReplicaName, addReplicaOp)
+	// Always wait for the scale-out operation to complete and the new replica to be created.
+	newReplicaName := <-addReplicaOp.ReplicaStartedChannel()
+	d.log.Debug("New replica %s has been created for kernel %s.", newReplicaName, kernelId)
+	addReplicaOp.SetPodName(newReplicaName)
+	d.addReplicaOperationsByNewPodName.Store(newReplicaName, addReplicaOp)
 
-		d.Lock()
+	d.Lock()
 
-		channel, ok := d.addReplicaNewPodNotifications.Load(newReplicaName)
+	channel, ok := d.addReplicaNewPodNotifications.Load(newReplicaName)
 
-		if ok {
-			channel <- addReplicaOp
-		}
-
-		d.Unlock()
+	if ok {
+		channel <- addReplicaOp
 	}
+
+	d.Unlock()
 
 	if opts.WaitRegistered() {
 		d.log.Debug("Waiting for new replica %d of kernel %s to register.", addReplicaOp.ReplicaId(), kernelId)
