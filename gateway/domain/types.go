@@ -17,6 +17,8 @@ import (
 
 const (
 	FilterRoute = "/filter" // Used by the ClusterScheduler to expose an HTTP endpoint.
+
+	DockerProjectName = "distributed_cluster"
 )
 
 type ClusterDaemonOptions struct {

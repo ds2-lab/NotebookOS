@@ -1,4 +1,7 @@
-name: distributed_cluster
+# Important: this value should not be changed. 
+# If you have to change it, then you need to update the code.
+# Specifically, you need to change the value of the 'DockerProjectName' variable/const that is defined in "gateway/domain/types.go".
+name: distributed_cluster 
 
 services:
 
