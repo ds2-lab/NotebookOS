@@ -796,14 +796,22 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 		return nil, nil
 	}
 
-	invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)
-	connInfo, err := invoker.InvokeWithContext(ctx, in)
+	var kernelInvoker invoker.KernelInvoker
+	if d.deploymentMode == types.DockerMode {
+		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)
+	} else if d.deploymentMode == types.LocalMode {
+		kernelInvoker = invoker.NewLocalInvoker()
+	} else {
+		panic(fmt.Sprintf("Unknown/unsupported deployment mode: \"%s\"", d.deploymentMode))
+	}
+
+	connInfo, err := kernelInvoker.InvokeWithContext(ctx, in)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
 	// Initialize kernel client with new context.
-	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
+	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, kernelInvoker)
 
 	listenPorts, err := d.availablePorts.RequestPorts()
 	if err != nil {

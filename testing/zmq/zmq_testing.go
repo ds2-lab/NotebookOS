@@ -326,7 +326,6 @@ func TestZMQ() {
 		fmt.Printf("Message ID: \"%s\"\n", msgId)
 
 		frames := [][]byte{[]byte(kernelId),
-			// []byte(fmt.Sprintf("dest.%s.req.%s", kernelId, reqId)),
 			[]byte("<IDS|MSG>"),
 			[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
 			[]byte(fmt.Sprintf("{\"msg_id\": \"%s\", \"msg_type\": \"kernel_info_request\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", msgId, kernelId)),

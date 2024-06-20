@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
@@ -77,8 +76,6 @@ type DockerInvoker struct {
 	closing       int32
 
 	hdfsNameNodeEndpoint string
-
-	log logger.Logger
 }
 
 func NewDockerInvoker(opts *jupyter.ConnectionInfo, hdfsNameNodeEndpoint string) *DockerInvoker {

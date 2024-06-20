@@ -105,7 +105,7 @@ var _ = Describe("End to End (E2E) Tests", func() {
 				&gateway.KernelSpec{
 					Id:              kernelId,
 					Session:         kernelId,
-					Argv:            make([]string, 0),
+					Argv:            []string{"python3.11", "-m", "distributed_notebook.kernel", "-f", "/home/bcarver2/go/pkg/distributed-notebook/testing/e2e/connection_files/fake_kernel1_connection.json", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
 					SignatureScheme: "hmac-sha256",
 					Key:             "",
 					ResourceSpec: &gateway.ResourceSpec{

@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
@@ -39,6 +41,17 @@ type LocalInvoker struct {
 	closed        chan struct{}
 	status        jupyter.KernelStatus
 	statusChanged StatucChangedHandler
+
+	log logger.Logger
+}
+
+func NewLocalInvoker() *LocalInvoker {
+	invoker := &LocalInvoker{}
+	invoker.statusChanged = invoker.defaultStatusChangedHandler
+
+	config.InitLogger(&invoker.log, invoker)
+
+	return invoker
 }
 
 func (ivk *LocalInvoker) InvokeWithContext(ctx context.Context, spec *gateway.KernelReplicaSpec) (*jupyter.ConnectionInfo, error) {
