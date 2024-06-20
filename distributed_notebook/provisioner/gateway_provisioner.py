@@ -10,9 +10,8 @@ from typing import Any, Dict, List, Optional, Union
 from traitlets.config import Unicode
 
 import grpc
-from gateway import gateway_pb2
-from gateway.gateway_pb2_grpc import LocalGatewayStub
-
+from ..gateway import gateway_pb2
+from ..gateway.gateway_pb2_grpc import LocalGatewayStub
 
 class GatewayProvisioner(KernelProvisionerBase):
     # The properties read from the config of the kernel spec: "metadata.kernel_provisioner.config"

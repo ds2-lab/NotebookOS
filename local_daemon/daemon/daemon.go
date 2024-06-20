@@ -791,10 +791,10 @@ func (d *SchedulerDaemonImpl) LocalMode() bool {
 // StartKernel launches a new kernel via Docker.
 // This is ONLY used in the Docker-based deployment mode.
 func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
-	if d.LocalMode() {
-		d.log.Warn("LocalDaemon cannot explicitly create kernel replica, as we're not running in Docker mode.")
-		return nil, nil
-	}
+	// if d.LocalMode() {
+	// 	d.log.Warn("LocalDaemon cannot explicitly create kernel replica, as we're not running in Docker mode.")
+	// 	return nil, nil
+	// }
 
 	var kernelInvoker invoker.KernelInvoker
 	if d.deploymentMode == types.DockerMode {

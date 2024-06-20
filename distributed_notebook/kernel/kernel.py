@@ -173,7 +173,7 @@ class DistributedKernel(IPythonKernel):
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
         
-        self.deployment_mode:str = os.environ.get("DEPLOYMENT_MODE")
+        self.deployment_mode:str = os.environ.get("DEPLOYMENT_MODE", "local")
         if len(self.deployment_mode) == 0:
             raise ValueError("Could not determine deployment mode.")
         else:

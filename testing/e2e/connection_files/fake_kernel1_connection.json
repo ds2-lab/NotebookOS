@@ -1,0 +1,14 @@
+{
+    "ip": "0.0.0.0",
+    "control_port": 6000,
+    "shell_port": 6001,
+    "stdin_port": 6002,
+    "hb_port": 6003,
+    "iopub_port": 6004,
+    "iosub_port": 6005,
+    "transport": "tcp",
+    "signature_scheme": "hmac-sha256",
+    "key": "cc74f3a3-0bc3771722401fdc7cae939d",
+    "starting_resource_port": 0,
+    "num_resource_ports": 0
+  }
