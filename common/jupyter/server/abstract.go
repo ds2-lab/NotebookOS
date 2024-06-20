@@ -167,6 +167,7 @@ func (s *AbstractServer) NumAcksReceived() int {
 
 func (s *AbstractServer) Listen(socket *types.Socket) error {
 	if s.Meta.Transport != "tcp" {
+		s.Log.Error("Unsupported transport specified: \"%s\". Only \"tcp\" is supported.", s.Meta.Transport)
 		return types.ErrNotSupported
 	}
 

@@ -55,14 +55,6 @@ func (g *Router) String() string {
 	return "router"
 }
 
-// func (g *Router) Unlock() {
-// 	g.destMutex.Unlock()
-// }
-
-// func (g *Router) Lock() {
-// 	g.destMutex.Lock()
-// }
-
 // Start initializes the zmq sockets and starts the service.
 func (g *Router) Start() error {
 	// Start listening on all sockets.
@@ -75,7 +67,8 @@ func (g *Router) Start() error {
 
 		err := g.server.Listen(socket)
 		if err != nil {
-			return fmt.Errorf("could not listen on router socket(port:%d): %w", socket.Port, err)
+			g.server.Log.Error("Error while trying to listen on %v socket %s (port=%d): %v", socket.Type, socket.Name, socket.Port, err)
+			return fmt.Errorf("could not listen on router socket (port:%d): %w", socket.Port, err)
 		}
 
 		defer socket.Socket.Close()

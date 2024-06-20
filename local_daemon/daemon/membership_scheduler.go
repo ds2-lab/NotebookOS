@@ -9,15 +9,16 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 )
 
 // MembershipScheduler is a core.Scheduler that for testing the membership changing.
 type MembershipScheduler struct {
-	daemon *SchedulerDaemon
+	daemon domain.SchedulerDaemon
 	log    logger.Logger
 }
 
-func NewMembershipScheduler(daemon *SchedulerDaemon) *MembershipScheduler {
+func NewMembershipScheduler(daemon domain.SchedulerDaemon) *MembershipScheduler {
 	scheduler := &MembershipScheduler{
 		daemon: daemon,
 	}
@@ -34,7 +35,7 @@ func (s *MembershipScheduler) triggerMigration(kernel core.Kernel) error {
 	persistentId := kernel.(client.KernelReplicaClient).PersistentID()
 	s.log.Info("Triggering hard-coded migration of replica %d of kernel %s", kernel.(client.KernelReplicaClient).ReplicaID(), kernel.ID())
 
-	resp, err := s.daemon.Provisioner.MigrateKernelReplica(context.Background(), &gateway.MigrationRequest{
+	resp, err := s.daemon.Provisioner().MigrateKernelReplica(context.Background(), &gateway.MigrationRequest{
 		TargetReplica: &gateway.ReplicaInfo{
 			KernelId:     kernel.ID(),
 			ReplicaId:    kernel.(client.KernelReplicaClient).ReplicaID(),

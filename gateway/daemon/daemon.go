@@ -271,8 +271,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	switch clusterDaemonOptions.DeploymentMode {
 	case "":
 		{
-			daemon.log.Info("No 'deployment_mode' specified. Running in default mode: KUBERNETES mode.")
-			daemon.deploymentMode = types.KubernetesMode
+			daemon.log.Info("No 'deployment_mode' specified. Running in default mode: LOCAL mode.")
+			daemon.deploymentMode = types.LocalMode
 		}
 	case "local":
 		{
@@ -303,7 +303,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	if daemon.KubernetesMode() {
 		daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
 		daemon.containerWatcher = daemon.kubeClient
-	} else {
+	} else if daemon.DockerMode() {
 		daemon.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
 	}
 

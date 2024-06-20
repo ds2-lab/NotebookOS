@@ -17,6 +17,8 @@ import (
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+
+	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 )
 
 var (
@@ -31,7 +33,7 @@ type virtualGpuAllocatorImpl struct {
 	kubeClient kubernetes.Interface
 	nodeName   string
 
-	opts *VirtualGpuPluginServerOptions
+	opts *domain.VirtualGpuPluginServerOptions
 
 	resourceManager ResourceManager
 	stopChan        chan interface{}
@@ -45,7 +47,7 @@ type virtualGpuAllocatorImpl struct {
 }
 
 // Creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.
-func NewVirtualGpuAllocatorForTesting(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
+func NewVirtualGpuAllocatorForTesting(opts *domain.VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
 	var kubeconfig string
 	if home := homedir.HomeDir(); home != "" {
 		kubeconfig = filepath.Join(home, ".kube", "config")
@@ -62,7 +64,7 @@ func NewVirtualGpuAllocatorForTesting(opts *VirtualGpuPluginServerOptions, nodeN
 	return newVirtualGpuAllocatorImpl(opts, nodeName, podCache, kubeConfig, vgpusChangedChan)
 }
 
-func NewVirtualGpuAllocator(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
+func NewVirtualGpuAllocator(opts *domain.VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
 	kubeConfig, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
@@ -71,7 +73,7 @@ func NewVirtualGpuAllocator(opts *VirtualGpuPluginServerOptions, nodeName string
 	return newVirtualGpuAllocatorImpl(opts, nodeName, podCache, kubeConfig, vgpusChangedChan)
 }
 
-func newVirtualGpuAllocatorImpl(opts *VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, kubeConfig *rest.Config, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
+func newVirtualGpuAllocatorImpl(opts *domain.VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, kubeConfig *rest.Config, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
 	allocator := &virtualGpuAllocatorImpl{
 		opts:             opts,
 		stopChan:         make(chan interface{}),

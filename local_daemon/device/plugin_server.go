@@ -14,6 +14,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/pkg/errors"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/klog/v2"
@@ -33,7 +34,7 @@ var (
 type virtualGpuPluginServerImpl struct {
 	srv        *grpc.Server
 	socketFile string // Fully-qualified path.
-	opts       *VirtualGpuPluginServerOptions
+	opts       *domain.VirtualGpuPluginServerOptions
 	log        logger.Logger
 	podCache   PodCache
 
@@ -45,7 +46,7 @@ type virtualGpuPluginServerImpl struct {
 	allocator *virtualGpuAllocatorImpl
 }
 
-func NewVirtualGpuPluginServer(opts *VirtualGpuPluginServerOptions, nodeName string, disabled bool) VirtualGpuPluginServer {
+func NewVirtualGpuPluginServer(opts *domain.VirtualGpuPluginServerOptions, nodeName string, disabled bool) VirtualGpuPluginServer {
 	socketFile := filepath.Join(opts.DevicePluginPath, vgpuSocketName)
 
 	server := &virtualGpuPluginServerImpl{

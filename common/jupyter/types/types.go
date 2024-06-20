@@ -55,7 +55,7 @@ type ConnectionInfo struct {
 	IOPubPort            int    `json:"iopub_port" name:"iopub-port" description:"The port for iopub messages on the kernel (for the pub socket). In clients, we'll create a SUB socket using this to connect to the kernel's PUB socket."`
 	IOSubPort            int    `json:"iosub_port" name:"iosub-port" description:"The port for iopub messages (for the sub socket)."`
 	AckPort              int    `json:"ack_port" name:"ack-port" description:"The port to use for the ACK socket."`
-	Transport            string `json:"transport"`
+	Transport            string `json:"transport" name:"transport"`
 	SignatureScheme      string `json:"signature_scheme"`
 	Key                  string `json:"key"`
 	StartingResourcePort int    `json:"starting_resource_port" name:"starting-resource-port" description:"The first 'resource port'. Resource ports are the ports exposed by the Kubernetes services that are available for ZMQ sockets to listen on."`

@@ -14,6 +14,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"github.com/zhangjyr/distributed-notebook/local_daemon/device"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 	"github.com/zhangjyr/distributed-notebook/local_daemon/mock_device"
 	"go.uber.org/mock/gomock"
 )
@@ -24,7 +25,7 @@ const (
 
 var _ = Describe("Local Daemon Tests", func() {
 	var (
-		schedulerDaemon  *SchedulerDaemon
+		schedulerDaemon  *SchedulerDaemonImpl
 		vgpuPluginServer device.VirtualGpuPluginServer
 		mockCtrl         *gomock.Controller
 		kernel           *mock_client.MockKernelReplicaClient
@@ -40,7 +41,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		kernel = mock_client.NewMockKernelReplicaClient(mockCtrl)
 		gpuManager = NewGpuManager(numGPUs)
 
-		schedulerDaemon = &SchedulerDaemon{
+		schedulerDaemon = &SchedulerDaemonImpl{
 			transport:              "tcp",
 			kernels:                hashmap.NewCornelkMap[string, client.KernelReplicaClient](1000),
 			closed:                 make(chan struct{}),
@@ -100,7 +101,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
 				[]byte(""), /* Header */
 				[]byte(""), /* Parent header*/
-				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
+				[]byte(fmt.Sprintf("{\"%s\": 2}", domain.TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
 			jframes := types.JupyterFrames(unsignedFrames)
@@ -122,7 +123,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			GinkgoWriter.Printf("Header: %v\n", header)
 
 			Expect(err).To(BeNil())
-			Expect(header.MsgType).To(Equal(ShellYieldExecute))
+			Expect(header.MsgType).To(Equal(domain.ShellYieldExecute))
 		})
 
 		It("Should convert the 'execute_request' message to a 'yeild_request' message if there are insufficient GPUs available", func() {
@@ -159,7 +160,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			GinkgoWriter.Printf("Header: %v\n", header)
 
 			Expect(err).To(BeNil())
-			Expect(header.MsgType).To(Equal(ShellYieldExecute))
+			Expect(header.MsgType).To(Equal(domain.ShellYieldExecute))
 		})
 
 		It("Should correctly return a 'yield_execute' message if the kernel is set to yield the next execute request.", func() {
@@ -195,7 +196,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			GinkgoWriter.Printf("Header: %v\n", header)
 
 			Expect(err).To(BeNil())
-			Expect(header.MsgType).To(Equal(ShellYieldExecute))
+			Expect(header.MsgType).To(Equal(domain.ShellYieldExecute))
 		})
 
 		It("Should correctly return two different signatures when the Jupyter message's header is changed by modifying the date.", func() {
@@ -275,7 +276,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			GinkgoWriter.Printf("Header: %v\n", header)
 
 			Expect(err).To(BeNil())
-			Expect(header.MsgType).To(Equal(ShellExecuteRequest))
+			Expect(header.MsgType).To(Equal(domain.ShellExecuteRequest))
 
 			By("Creating a pending allocation for the associated kernel")
 

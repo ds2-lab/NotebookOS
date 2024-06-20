@@ -17,6 +17,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+
+	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 )
 
 // Return the first n device IDs.
@@ -135,7 +137,7 @@ var _ = Describe("Allocator Tests", func() {
 	var (
 		allocator    device.VirtualGpuAllocator
 		allDevices   device.Devices
-		opts         *device.VirtualGpuPluginServerOptions
+		opts         *domain.VirtualGpuPluginServerOptions
 		mockCtrl     *gomock.Controller
 		mockPodCache *mock_device.MockPodCache
 		nodeName     string = "TestNode"
@@ -146,7 +148,7 @@ var _ = Describe("Allocator Tests", func() {
 		mockPodCache = mock_device.NewMockPodCache(mockCtrl)
 		totalVirtualGPUs = 64
 
-		opts = &device.VirtualGpuPluginServerOptions{
+		opts = &domain.VirtualGpuPluginServerOptions{
 			NumVirtualGPUs:   totalVirtualGPUs,
 			DevicePluginPath: "/var/lib/kubelet/device-plugins/",
 		}
