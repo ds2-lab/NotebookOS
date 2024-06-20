@@ -30,14 +30,14 @@ func TestProxy(t *testing.T) {
 
 var _ = Describe("Cluster Gateway Tests", func() {
 	var (
-		clusterGateway *clusterGatewayImpl
+		clusterGateway *ClusterGatewayImpl
 		mockCtrl       *gomock.Controller
 		kernel         *mock_client.MockDistributedKernelClient
 		kernel_key     string = "23d90942-8c3de3a713a5c3611792b7a5"
 	)
 
 	BeforeEach(func() {
-		clusterGateway = &clusterGatewayImpl{
+		clusterGateway = &ClusterGatewayImpl{
 			activeExecutions: hashmap.NewCornelkMap[string, *client.ActiveExecution](64),
 		}
 		config.InitLogger(&clusterGateway.log, clusterGateway)

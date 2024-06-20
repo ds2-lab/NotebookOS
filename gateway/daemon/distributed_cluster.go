@@ -18,7 +18,7 @@ import (
 type DistributedCluster struct {
 	gateway.UnimplementedDistributedClusterServer
 
-	gatewayDaemon *clusterGatewayImpl
+	gatewayDaemon *ClusterGatewayImpl
 
 	clusterDashboard gateway.ClusterDashboardClient
 
@@ -28,7 +28,7 @@ type DistributedCluster struct {
 	log logger.Logger
 }
 
-func NewDistributedCluster(gatewayDaemon *clusterGatewayImpl, opts *domain.ClusterDaemonOptions) *DistributedCluster {
+func NewDistributedCluster(gatewayDaemon *ClusterGatewayImpl, opts *domain.ClusterDaemonOptions) *DistributedCluster {
 	dc := &DistributedCluster{
 		gatewayDaemon: gatewayDaemon,
 	}

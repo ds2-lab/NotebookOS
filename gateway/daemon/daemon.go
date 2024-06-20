@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -92,7 +93,7 @@ type GatewayDaemonConfig func(domain.ClusterGateway)
 
 type FailureHandler func(c client.DistributedKernelClient) error
 
-// clusterGatewayImpl serves distributed notebook gateway for three roles:
+// ClusterGatewayImpl serves distributed notebook gateway for three roles:
 // 1. A jupyter remote kernel gateway.
 // 2. A global scheduler that coordinate host schedulers.
 // 3. Implemented net.Listener interface to bi-directional gRPC calls.
@@ -100,7 +101,7 @@ type FailureHandler func(c client.DistributedKernelClient) error
 // Some useful resources for jupyter protocol:
 // https://jupyter-client.readthedocs.io/en/stable/messaging.html
 // https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
-type clusterGatewayImpl struct {
+type ClusterGatewayImpl struct {
 	sync.Mutex
 
 	id string
@@ -195,8 +196,8 @@ type clusterGatewayImpl struct {
 	deploymentMode types.DeploymentMode
 }
 
-func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *clusterGatewayImpl {
-	daemon := &clusterGatewayImpl{
+func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
+	daemon := &ClusterGatewayImpl{
 		id:                               uuid.New().String(),
 		connectionOptions:                opts,
 		transport:                        "tcp",
@@ -273,6 +274,11 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			daemon.log.Info("No 'deployment_mode' specified. Running in default mode: KUBERNETES mode.")
 			daemon.deploymentMode = types.KubernetesMode
 		}
+	case "local":
+		{
+			daemon.log.Info("Running in LOCAL mode.")
+			daemon.deploymentMode = types.LocalMode
+		}
 	case "docker":
 		{
 			daemon.log.Info("Running in DOCKER mode.")
@@ -285,7 +291,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	default:
 		{
-			panic(fmt.Sprintf("Unknown/unsupported deployment mode: \"%s\"", clusterDaemonOptions.DeploymentMode))
+			daemon.log.Error("Unknown/unsupported deployment mode: \"%s\"", clusterDaemonOptions.DeploymentMode)
+			daemon.log.Error("The supported deployment modes are: ")
+			daemon.log.Error("- \"kubernetes\"")
+			daemon.log.Error("- \"docker\"")
+			daemon.log.Error("- \"local\"")
+			os.Exit(1)
 		}
 	}
 
@@ -450,17 +461,17 @@ func (wg *registrationWaitGroups) Wait() {
 	wg.WaitNotified()
 }
 
-func (d *clusterGatewayImpl) SetClusterOptions(opts *core.CoreOptions) {
+func (d *ClusterGatewayImpl) SetClusterOptions(opts *core.CoreOptions) {
 	d.ClusterOptions = opts
 }
 
-func (d *clusterGatewayImpl) ConnectionOptions() *jupyter.ConnectionInfo {
+func (d *ClusterGatewayImpl) ConnectionOptions() *jupyter.ConnectionInfo {
 	return d.connectionOptions
 }
 
 // Listen listens on the TCP network address addr and returns a net.Listener that intercepts incoming connections.
-func (d *clusterGatewayImpl) Listen(transport string, addr string) (net.Listener, error) {
-	d.log.Debug("clusterGatewayImpl is listening on transport %s, addr %s.", transport, addr)
+func (d *ClusterGatewayImpl) Listen(transport string, addr string) (net.Listener, error) {
+	d.log.Debug("ClusterGatewayImpl is listening on transport %s, addr %s.", transport, addr)
 
 	// Initialize listener
 	lis, err := net.Listen(transport, addr)
@@ -473,7 +484,7 @@ func (d *clusterGatewayImpl) Listen(transport string, addr string) (net.Listener
 }
 
 // net.Listener implementation
-func (d *clusterGatewayImpl) Accept() (net.Conn, error) {
+func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	// Inspired by https://github.com/dustin-decker/grpc-firewall-bypass
 	incoming, err := d.listener.Accept()
 	if err != nil {
@@ -481,7 +492,7 @@ func (d *clusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 	conn := incoming
 
-	d.log.Debug("clusterGatewayImpl is accepting a new connection.")
+	d.log.Debug("ClusterGatewayImpl is accepting a new connection.")
 
 	// Initialize yamux session for bi-directional gRPC calls
 	// At gateway side, we first wait a incoming replacement connection, then create a reverse provisioner connection to the host scheduler.
@@ -534,18 +545,18 @@ func (d *clusterGatewayImpl) Accept() (net.Conn, error) {
 	return conn, nil
 }
 
-// Close are compatible with clusterGatewayImpl.Close().
+// Close are compatible with ClusterGatewayImpl.Close().
 
-func (d *clusterGatewayImpl) Addr() net.Addr {
+func (d *ClusterGatewayImpl) Addr() net.Addr {
 	return d.listener.Addr()
 }
 
 // Return the associated ClusterGateway.
-func (d *clusterGatewayImpl) ClusterScheduler() domain.ClusterScheduler {
+func (d *ClusterGatewayImpl) ClusterScheduler() domain.ClusterScheduler {
 	return d.clusterScheduler
 }
 
-func (d *clusterGatewayImpl) SetID(ctx context.Context, hostId *gateway.HostId) (*gateway.HostId, error) {
+func (d *ClusterGatewayImpl) SetID(ctx context.Context, hostId *gateway.HostId) (*gateway.HostId, error) {
 	return nil, ErrNotImplemented
 }
 
@@ -554,7 +565,7 @@ func (d *clusterGatewayImpl) SetID(ctx context.Context, hostId *gateway.HostId) 
 // before writing the contents of its data directory to HDFS.
 //
 // Returns the path to the data directory in HDFS.
-func (d *clusterGatewayImpl) issuePrepareMigrateRequest(kernelId string, nodeId int32) string {
+func (d *ClusterGatewayImpl) issuePrepareMigrateRequest(kernelId string, nodeId int32) string {
 	d.log.Info("Issuing 'prepare-to-migrate' request to replica %d of kernel %s now.", nodeId, kernelId)
 
 	kernelClient, ok := d.kernels.Load(kernelId)
@@ -596,7 +607,7 @@ func (d *clusterGatewayImpl) issuePrepareMigrateRequest(kernelId string, nodeId 
 
 // Issue an 'update-replica' request to a random replica of a specific kernel, informing that replica and its peers
 // that the replica with ID = `nodeId` has a new peer address, namely `newAddress`.
-func (d *clusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId int32, newAddress string) {
+func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId int32, newAddress string) {
 	d.log.Info("Issuing 'update-replica' request to kernel %s for replica %d, newAddr = %s.", kernelId, nodeId, newAddress)
 
 	kernelClient, ok := d.kernels.Load(kernelId)
@@ -632,7 +643,7 @@ func (d *clusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 
 // Issue an 'add-replica' request to a random replica of a specific kernel, informing that replica and its peers
 // to add a new replica to the cluster (with ID `nodeId`).
-// func (d *clusterGatewayImpl) issueAddNodeRequest(kernelId string, nodeId int32, address string) {
+// func (d *ClusterGatewayImpl) issueAddNodeRequest(kernelId string, nodeId int32, address string) {
 // 	d.log.Info("Issuing 'add-replica' request to kernel %s for replica %d.", kernelId, nodeId)
 
 // 	kernelClient, ok := d.kernels.Load(kernelId)
@@ -666,7 +677,7 @@ func (d *clusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 // 	time.Sleep(time.Second * 5)
 // }
 
-func (d *clusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification *gateway.SmrReadyNotification) (*gateway.Void, error) {
+func (d *ClusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification *gateway.SmrReadyNotification) (*gateway.Void, error) {
 	kernelId := smrReadyNotification.KernelId
 
 	// First, check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
@@ -681,7 +692,7 @@ func (d *clusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification 
 	return gateway.VOID, nil
 }
 
-// func (d *clusterGatewayImpl) SmrNodeRemoved(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
+// func (d *ClusterGatewayImpl) SmrNodeRemoved(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
 // 	kernelId := replicaInfo.KernelId
 // 	d.log.Debug("Received SMR Node-Removed notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
 
@@ -696,7 +707,7 @@ func (d *clusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification 
 // 	return gateway.VOID, nil
 // }
 
-func (d *clusterGatewayImpl) SmrNodeAdded(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
+func (d *ClusterGatewayImpl) SmrNodeAdded(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
 	kernelId := replicaInfo.KernelId
 	d.log.Debug("Received SMR Node-Added notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
 
@@ -712,19 +723,19 @@ func (d *clusterGatewayImpl) SmrNodeAdded(ctx context.Context, replicaInfo *gate
 	return gateway.VOID, nil
 }
 
-func (d *clusterGatewayImpl) ExecutionFailed(c client.DistributedKernelClient) error {
+func (d *ClusterGatewayImpl) ExecutionFailed(c client.DistributedKernelClient) error {
 	execution := c.ActiveExecution()
 	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.", execution.ExecutionId(), execution.AttemptId(), c.ID())
 
 	return d.failureHandler(c)
 }
 
-func (d *clusterGatewayImpl) defaultFailureHandler(c client.DistributedKernelClient) error {
+func (d *ClusterGatewayImpl) defaultFailureHandler(c client.DistributedKernelClient) error {
 	d.log.Warn("There is no failure handler for the DEFAULT policy.")
 	return fmt.Errorf("there is no failure handler for the DEFAULT policy; cannot handle error")
 }
 
-func (d *clusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ notificationType) (err error) {
+func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ notificationType) (err error) {
 	if d.clusterDashboard != nil {
 		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 			Title:            notificationName,
@@ -742,7 +753,7 @@ func (d *clusterGatewayImpl) notifyDashboard(notificationName string, notificati
 	return err
 }
 
-func (d *clusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeName string, errorName string, errorMessage string) (err error) {
+func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeName string, errorName string, errorMessage string) (err error) {
 	d.RemoveHost(context.TODO(), &gateway.HostId{
 		Id:       localDaemonId,
 		NodeName: nodeName, /* Not needed */
@@ -753,7 +764,7 @@ func (d *clusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeN
 }
 
 // Used to issue an "info" notification to the Cluster Dashboard.
-func (d *clusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) (err error) {
+func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) (err error) {
 	if d.clusterDashboard != nil {
 		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 			Title:            notificationName,
@@ -772,7 +783,7 @@ func (d *clusterGatewayImpl) notifyDashboardOfInfo(notificationName string, mess
 }
 
 // Used to issue an "error" notification to the Cluster Dashboard.
-func (d *clusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) (err error) {
+func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) (err error) {
 	if d.clusterDashboard != nil {
 		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 			Title:            errorName,
@@ -790,7 +801,7 @@ func (d *clusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 	return err
 }
 
-func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClient) error {
+func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClient) error {
 	// Dynamically migrate one of the existing replicas to another node.
 	//
 	// Randomly select a replica to migrate.
@@ -921,7 +932,7 @@ func (d *clusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	return nil
 }
 
-func (d *clusterGatewayImpl) verifyFrames(signkey []byte, signatureScheme string, offset int, frames jupyter.JupyterFrames) bool {
+func (d *ClusterGatewayImpl) verifyFrames(signkey []byte, signatureScheme string, offset int, frames jupyter.JupyterFrames) bool {
 	expect, err := frames.CreateSignature(signatureScheme, signkey, offset)
 	if err != nil {
 		d.log.Error("Error when creating signature to verify JFrames: %v", err)
@@ -939,27 +950,27 @@ func (d *clusterGatewayImpl) verifyFrames(signkey []byte, signatureScheme string
 	return verified
 }
 
-func (d *clusterGatewayImpl) dynamicV3FailureHandler(c client.DistributedKernelClient) error {
+func (d *ClusterGatewayImpl) dynamicV3FailureHandler(c client.DistributedKernelClient) error {
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 }
 
-func (d *clusterGatewayImpl) dynamicV4FailureHandler(c client.DistributedKernelClient) error {
+func (d *ClusterGatewayImpl) dynamicV4FailureHandler(c client.DistributedKernelClient) error {
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 }
 
 // Return true if we're running in Docker (i.e., the Docker-based deployment).
 // We could technically be running within a Docker container that is managed/orchestrated
 // by Kubernetes. In this case, this function would return false.
-func (d *clusterGatewayImpl) DockerMode() bool {
+func (d *ClusterGatewayImpl) DockerMode() bool {
 	return d.deploymentMode == types.DockerMode
 }
 
 // Return true if we're running in Kubernetes.
-func (d *clusterGatewayImpl) KubernetesMode() bool {
+func (d *ClusterGatewayImpl) KubernetesMode() bool {
 	return d.deploymentMode == types.KubernetesMode
 }
 
-func (d *clusterGatewayImpl) launchReplicaDocker(replicaId int, host core.Host, numReplicas int32, in *gateway.KernelSpec) {
+func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host core.Host, numReplicas int32, in *gateway.KernelSpec) {
 	var err error
 	defer func() {
 		if err != nil {
@@ -982,8 +993,8 @@ func (d *clusterGatewayImpl) launchReplicaDocker(replicaId int, host core.Host, 
 }
 
 // StartKernel launches a new kernel.
-func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
-	d.log.Info("clusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v].", in.Id, in.Session, in.ResourceSpec)
+func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
+	d.log.Info("ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v].", in.Id, in.Session, in.ResourceSpec)
 
 	// Try to find existing kernel by session id first. The kernel that associated with the session id will not be clear during restart.
 	kernel, ok := d.kernels.Load(in.Id)
@@ -1091,7 +1102,7 @@ func (d *clusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 // TODO(Ben): Do I really need the main lock for this function?
 // IMPORTANT: This must be called with the main mutex held.
 // IMPORTANT: This will release the main mutex before returning.
-func (d *clusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRegistrationNotification, kernel client.DistributedKernelClient, waitGroup *registrationWaitGroups) (*gateway.KernelRegistrationNotificationResponse, error) {
+func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRegistrationNotification, kernel client.DistributedKernelClient, waitGroup *registrationWaitGroups) (*gateway.KernelRegistrationNotificationResponse, error) {
 	addReplicaOp, ok := d.addReplicaOperationsByNewPodName.Load(in.PodName)
 
 	// If we cannot find the migration operation, then we have an unlikely race here.
@@ -1176,7 +1187,7 @@ func (d *clusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 // Possible errors:
 // - ErrKernelSpecNotFound: If there is no mapping from the provided kernel's ID to a kernel spec.
 // - ErrResourceSpecNotFound: If there is no resource spec included within the kernel spec of the specified kernel.
-func (d *clusterGatewayImpl) AddReplicaDynamic(ctx context.Context, in *gateway.KernelId) error {
+func (d *ClusterGatewayImpl) AddReplicaDynamic(ctx context.Context, in *gateway.KernelId) error {
 	// Steps:
 	// - Identify a target node with sufficient resources to serve an execution request for the associated kernel.
 	// - Add a label to that node to ensure the new replica is scheduled onto that node.
@@ -1203,7 +1214,7 @@ func (d *clusterGatewayImpl) AddReplicaDynamic(ctx context.Context, in *gateway.
 	return nil
 }
 
-func (d *clusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelRegistrationNotification) (*gateway.KernelRegistrationNotificationResponse, error) {
+func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelRegistrationNotification) (*gateway.KernelRegistrationNotificationResponse, error) {
 	d.log.Info("Received kernel registration notification.")
 
 	connectionInfo := in.ConnectionInfo
@@ -1312,14 +1323,14 @@ func (d *clusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 	return response, nil
 }
 
-func (d *clusterGatewayImpl) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
+func (d *ClusterGatewayImpl) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
 	d.log.Debug("StartKernelReplica has been instructed to StartKernel. This is actually not supported/implemented.")
 
 	return nil, ErrNotSupported
 }
 
 // KernelStatus returns the status of a kernel.
-func (d *clusterGatewayImpl) GetKernelStatus(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
+func (d *ClusterGatewayImpl) GetKernelStatus(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		return d.statusErrorf(jupyter.KernelStatusExited, nil)
@@ -1329,12 +1340,12 @@ func (d *clusterGatewayImpl) GetKernelStatus(ctx context.Context, in *gateway.Ke
 }
 
 // KillKernel kills a kernel.
-func (d *clusterGatewayImpl) KillKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
+func (d *ClusterGatewayImpl) KillKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
 	return d.StopKernel(ctx, in)
 }
 
 // StopKernel stops a kernel.
-func (d *clusterGatewayImpl) StopKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
+func (d *ClusterGatewayImpl) StopKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find Kernel %s; cannot stop kernel.", in.GetId())
@@ -1407,7 +1418,7 @@ func (d *clusterGatewayImpl) StopKernel(ctx context.Context, in *gateway.KernelI
 }
 
 // WaitKernel waits for a kernel to exit.
-func (d *clusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
+func (d *ClusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		return d.statusErrorf(jupyter.KernelStatusExited, nil)
@@ -1416,7 +1427,7 @@ func (d *clusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelI
 	return d.statusErrorf(kernel.WaitClosed(), nil)
 }
 
-func (d *clusterGatewayImpl) SpoofNotifications(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
+func (d *ClusterGatewayImpl) SpoofNotifications(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
 	go func() {
 		d.notifyDashboard("Spoofed Error", "This is a made-up error message sent by the Cluster Gateway.", ErrorNotification)
 		d.notifyDashboard("Spoofed Warning", "This is a made-up warning message sent by the Cluster Gateway.", WarningNotification)
@@ -1428,30 +1439,30 @@ func (d *clusterGatewayImpl) SpoofNotifications(ctx context.Context, in *gateway
 }
 
 // ClusterGateway implementation.
-func (d *clusterGatewayImpl) ID(ctx context.Context, in *gateway.Void) (*gateway.ProvisionerId, error) {
+func (d *ClusterGatewayImpl) ID(ctx context.Context, in *gateway.Void) (*gateway.ProvisionerId, error) {
 	d.log.Debug("Returning ID for RPC. ID=%s", d.id)
 	return &gateway.ProvisionerId{Id: d.id}, nil
 }
 
-func (d *clusterGatewayImpl) RemoveHost(ctx context.Context, in *gateway.HostId) (*gateway.Void, error) {
+func (d *ClusterGatewayImpl) RemoveHost(ctx context.Context, in *gateway.HostId) (*gateway.Void, error) {
 	d.cluster.GetHostManager().Delete(in.Id)
 	return gateway.VOID, nil
 }
 
 // This is the single-node version of the function; it's only supposed to be issued to local daemons.
 // The cluster-level version of this method is 'GetClusterActualGpuInfo'.
-func (d *clusterGatewayImpl) GetActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.GpuInfo, error) {
+func (d *ClusterGatewayImpl) GetActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.GpuInfo, error) {
 	return nil, ErrNotImplemented
 }
 
 // This is the single-node version of the function; it's only supposed to be issued to local daemons.
 // The cluster-level version of this method is 'GetClusterVirtualGpuInfo'.
-func (d *clusterGatewayImpl) GetVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuInfo, error) {
+func (d *ClusterGatewayImpl) GetVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuInfo, error) {
 	return nil, ErrNotImplemented
 }
 
 // Return the current GPU resource metrics on the node.
-func (d *clusterGatewayImpl) GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
+func (d *ClusterGatewayImpl) GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
 	resp := &gateway.ClusterActualGpuInfo{
 		GpuInfo: make(map[string]*gateway.GpuInfo),
 	}
@@ -1471,7 +1482,7 @@ func (d *clusterGatewayImpl) GetClusterActualGpuInfo(ctx context.Context, in *ga
 }
 
 // Return the current vGPU (or "deflated GPU") resource metrics on the node.
-func (d *clusterGatewayImpl) getClusterVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterVirtualGpuInfo, error) {
+func (d *ClusterGatewayImpl) getClusterVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterVirtualGpuInfo, error) {
 	resp := &gateway.ClusterVirtualGpuInfo{
 		GpuInfo: make(map[string]*gateway.VirtualGpuInfo),
 	}
@@ -1496,7 +1507,7 @@ func (d *clusterGatewayImpl) getClusterVirtualGpuInfo(ctx context.Context, in *g
 // For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
 // this function is called with the new total number specified as 32, then the operation will fail.
 // In this case (when the operation fails), an ErrInvalidParameter is returned.
-func (d *clusterGatewayImpl) setTotalVirtualGPUs(ctx context.Context, in *gateway.SetVirtualGPUsRequest) (*gateway.VirtualGpuInfo, error) {
+func (d *ClusterGatewayImpl) setTotalVirtualGPUs(ctx context.Context, in *gateway.SetVirtualGPUsRequest) (*gateway.VirtualGpuInfo, error) {
 	d.log.Debug("Recevied 'SetTotalVirtualGPUs' request targeting node %s with %d vGPU(s).", in.KubernetesNodeName, in.Value)
 	var targetHost core.Host
 	d.log.Debug("We currently have %d LocalDaemons connected.", d.cluster.GetHostManager().Len())
@@ -1531,7 +1542,7 @@ func (d *clusterGatewayImpl) setTotalVirtualGPUs(ctx context.Context, in *gatewa
 	return resp, err
 }
 
-func (d *clusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
+func (d *ClusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
 	// We pass 'false' for `wait` here, as we don't really need to wait for the CloneSet to scale-down.
 	// As long as the replica is stopped, we can continue.
 	dataDirectory := d.issuePrepareMigrateRequest(in.KernelId, in.ReplicaId)
@@ -1568,7 +1579,7 @@ func (d *clusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gate
 	return &gateway.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
 }
 
-func (d *clusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
+func (d *ClusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
 	if d.DockerMode() {
 		return make([]corev1.Node, 0), types.ErrIncompatibleDeploymentMode /* TODO: Should I return an error here? Probably? */
 	}
@@ -1576,7 +1587,7 @@ func (d *clusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
 	return d.kubeClient.GetKubernetesNodes()
 }
 
-func (d *clusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *gateway.MigrationRequest) (*gateway.MigrateKernelResponse, error) {
+func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *gateway.MigrationRequest) (*gateway.MigrateKernelResponse, error) {
 	replicaInfo := in.TargetReplica
 	targetNode := in.GetTargetNodeId()
 
@@ -1611,7 +1622,7 @@ func (d *clusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *gatew
 	return resp, err
 }
 
-func (d *clusterGatewayImpl) Start() error {
+func (d *ClusterGatewayImpl) Start() error {
 	d.log.Info("Starting router...")
 
 	// Start the HTTP Kubernetes Scheduler service.
@@ -1626,7 +1637,7 @@ func (d *clusterGatewayImpl) Start() error {
 	return err
 }
 
-func (d *clusterGatewayImpl) Close() error {
+func (d *ClusterGatewayImpl) Close() error {
 	if !atomic.CompareAndSwapInt32(&d.closed, 0, 1) {
 		// Closed already
 		return nil
@@ -1647,7 +1658,7 @@ func (d *clusterGatewayImpl) Close() error {
 }
 
 // RouterProvider implementations.
-func (d *clusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 	err := d.forwardRequest(nil, jupyter.ControlMessage, msg)
 
 	// When a kernel is first created/being nudged, Jupyter Server will send both a Shell and Control request.
@@ -1664,11 +1675,11 @@ func (d *clusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Ms
 	return err
 }
 
-func (d *clusterGatewayImpl) kernelShellHandler(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) kernelShellHandler(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
 	return d.ShellHandler(kernel, msg)
 }
 
-func (d *clusterGatewayImpl) AckHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) AckHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 	ack, err := server.ExtractMessageAcknowledgement(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message acknowledgement from ACK message because: %s", err.Error())
@@ -1679,7 +1690,7 @@ func (d *clusterGatewayImpl) AckHandler(info router.RouterInfo, msg *zmq4.Msg) e
 	return nil
 }
 
-func (d *clusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 	kernelId, header, err := d.headerFromMsg(msg)
 	if err != nil {
 		d.log.Error("Could not parse Shell message from %s because: %v", info.String(), err)
@@ -1732,7 +1743,7 @@ func (d *clusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg)
 	return nil
 }
 
-func (d *clusterGatewayImpl) processExecutionReply(kernelId string) {
+func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) {
 	d.log.Debug("Received execute-reply from kernel %s.", kernelId)
 
 	activeExecution, ok := d.activeExecutions.Load(kernelId)
@@ -1745,7 +1756,7 @@ func (d *clusterGatewayImpl) processExecutionReply(kernelId string) {
 	d.activeExecutions.Delete(kernelId)
 }
 
-func (d *clusterGatewayImpl) processExecuteRequest(msg *zmq4.Msg, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
+func (d *ClusterGatewayImpl) processExecuteRequest(msg *zmq4.Msg, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernel.ID(), msg)
 
 	activeExecution := client.NewActiveExecution(kernel.ID(), header.Session, 1, kernel.Size(), msg)
@@ -1755,17 +1766,17 @@ func (d *clusterGatewayImpl) processExecuteRequest(msg *zmq4.Msg, kernel client.
 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernel.ID(), activeExecution)
 }
 
-func (d *clusterGatewayImpl) StdinHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) StdinHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 	return d.forwardRequest(nil, jupyter.StdinMessage, msg)
 }
 
-func (d *clusterGatewayImpl) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 	return d.forwardRequest(nil, jupyter.HBMessage, msg)
 }
 
 // Ensure that the next 'execute_request' for the specified kernel fails.
 // This is to be used exclusively for testing/debugging purposes.
-func (d *clusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.KernelId) (*gateway.Void, error) {
+func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.KernelId) (*gateway.Void, error) {
 	d.log.Debug("Received 'FailNextExecution' request targeting kernel %s.", in.Id)
 
 	var (
@@ -1806,7 +1817,7 @@ func (d *clusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
-// func (d *clusterGatewayImpl) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
+// func (d *ClusterGatewayImpl) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
 // 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
 // 	if kernelId != "" {
 // 		return kernelId, false, nil
@@ -1820,7 +1831,7 @@ func (d *clusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.
 // 	return header.Session, true, nil
 // }
 
-func (d *clusterGatewayImpl) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
+func (d *ClusterGatewayImpl) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
 	jFrames := jupyter.JupyterFrames(frames)
 	if err := jFrames.Validate(); err != nil {
 		d.log.Error(utils.RedStyle.Render("[ERROR] Failed to validate message frames while extracting header from message: %v"), err)
@@ -1836,7 +1847,7 @@ func (d *clusterGatewayImpl) headerFromFrames(frames [][]byte) (*jupyter.Message
 }
 
 // Return the add-replica operation associated with the given Kernel ID and SMR Node ID of the new replica.
-func (d *clusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (domain.AddReplicaOperation, bool) {
+func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (domain.AddReplicaOperation, bool) {
 	d.addReplicaMutex.Lock()
 	defer d.addReplicaMutex.Unlock()
 
@@ -1857,7 +1868,7 @@ func (d *clusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 	return nil, false
 }
 
-func (d *clusterGatewayImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, err error) {
+func (d *ClusterGatewayImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, err error) {
 	// d.log.Debug("Extracting kernel ID from ZMQ %v message: %v", msg.Type, msg)
 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
 
@@ -1872,7 +1883,7 @@ func (d *clusterGatewayImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, head
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
-func (d *clusterGatewayImpl) kernelIdAndTypeFromMsg(msg *zmq4.Msg) (id string, messageType string, sessId bool, err error) {
+func (d *ClusterGatewayImpl) kernelIdAndTypeFromMsg(msg *zmq4.Msg) (id string, messageType string, sessId bool, err error) {
 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
 	header, err := d.headerFromFrames(msg.Frames[offset:])
 	if err != nil {
@@ -1888,7 +1899,7 @@ func (d *clusterGatewayImpl) kernelIdAndTypeFromMsg(msg *zmq4.Msg) (id string, m
 }
 
 // Extract the Kernel ID and the message type from the given ZMQ message.
-func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.DistributedKernelClient, messageType string, err error) {
+func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.DistributedKernelClient, messageType string, err error) {
 	var (
 		kernelId string
 	)
@@ -1911,7 +1922,7 @@ func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 	return kernel, messageType, nil
 }
 
-// func (d *clusterGatewayImpl) kernelFromMsg(msg *zmq4.Msg) (client.DistributedKernelClient, error) {
+// func (d *ClusterGatewayImpl) kernelFromMsg(msg *zmq4.Msg) (client.DistributedKernelClient, error) {
 // 	kernelId, header, err := d.headerFromMsg(msg)
 // 	if err != nil {
 // 		return nil, err
@@ -1930,7 +1941,7 @@ func (d *clusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 // 	return kernel, nil
 // }
 
-func (d *clusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
+func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
 	goroutineId := goid.Get()
 	var messageType string
 	if kernel == nil {
@@ -1950,7 +1961,7 @@ func (d *clusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClien
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 
-func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
 	goroutineId := goid.Get()
 	socket := from.Socket(typ)
 	if socket == nil {
@@ -1995,27 +2006,27 @@ func (d *clusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 	return err // Will be nil on success.
 }
 
-func (d *clusterGatewayImpl) errorf(err error) error {
+func (d *ClusterGatewayImpl) errorf(err error) error {
 	if err == nil {
 		return nil
 	}
 	return status.Errorf(codes.Internal, err.Error())
 }
 
-func (d *clusterGatewayImpl) statusErrorf(status jupyter.KernelStatus, err error) (*gateway.KernelStatus, error) {
+func (d *ClusterGatewayImpl) statusErrorf(status jupyter.KernelStatus, err error) (*gateway.KernelStatus, error) {
 	if err != nil {
 		return nil, d.errorf(err)
 	}
 	return &gateway.KernelStatus{Status: int32(status)}, nil
 }
 
-func (d *clusterGatewayImpl) cleanUp() {
+func (d *ClusterGatewayImpl) cleanUp() {
 	// Clear nothing for now:
 	// Hosts and kernels may contact other gateways to restore status.
 	close(d.cleaned)
 }
 
-// func (d *clusterGatewayImpl) closeReplica(host core.Host, kernel client.DistributedKernelClient, replica *client.kernelReplicaClientImpl, replicaId int, reason string) {
+// func (d *ClusterGatewayImpl) closeReplica(host core.Host, kernel client.DistributedKernelClient, replica *client.kernelReplicaClientImpl, replicaId int, reason string) {
 // 	defer replica.Close()
 
 // 	if err := d.placer.Reclaim(host, kernel, false); err != nil {
@@ -2032,7 +2043,7 @@ func (d *clusterGatewayImpl) cleanUp() {
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in HDFS.
-func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string) (domain.AddReplicaOperation, error) {
+func (d *ClusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string) (domain.AddReplicaOperation, error) {
 	// TODO: Add support/logic for Docker-based deployment.
 
 	var kernelId string = in.KernelId
@@ -2165,7 +2176,7 @@ func (d *clusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 // Parameters:
 // - smrNodeId (int32): The SMR node ID of the replica that should be removed.
 // - kernelId (string): The ID of the kernel from which we're removing a replica.
-func (d *clusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) error {
+func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) error {
 	// TODO: Add support/logic for Docker-based deployment.
 
 	kernelClient, ok := d.kernels.Load(kernelId)
@@ -2229,7 +2240,7 @@ func (d *clusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) err
 	return nil
 }
 
-func (d *clusterGatewayImpl) listKernels() (*gateway.ListKernelsResponse, error) {
+func (d *ClusterGatewayImpl) listKernels() (*gateway.ListKernelsResponse, error) {
 	resp := &gateway.ListKernelsResponse{
 		Kernels: make([]*gateway.DistributedJupyterKernel, 0, max(d.kernelIdToKernel.Len(), 1)),
 	}
