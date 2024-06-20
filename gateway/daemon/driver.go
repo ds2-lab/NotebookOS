@@ -32,7 +32,7 @@ var (
 type GatewayFinalzer func(fix bool, identity string, distributedCluster *DistributedCluster)
 
 // Create/initialize and return the Tracer and Consul Clients.
-func CreateConsulAndTracer(options *domain.Options) (opentracing.Tracer, *consul.Client) {
+func CreateConsulAndTracer(options *domain.ClusterGatewayOptions) (opentracing.Tracer, *consul.Client) {
 	var (
 		tracer       opentracing.Tracer
 		consulClient *consul.Client
@@ -95,7 +95,7 @@ func CreateComponents() {
 
 }
 
-func CreateAndStartClusterGatewayComponents(options *domain.Options, done *sync.WaitGroup, finalize GatewayFinalzer, sig chan os.Signal) (*ClusterGatewayImpl, *DistributedCluster) {
+func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOptions, done *sync.WaitGroup, finalize GatewayFinalzer, sig chan os.Signal) (*ClusterGatewayImpl, *DistributedCluster) {
 	if done == nil {
 		panic("The provided sync.WaitGroup cannot be nil.")
 	}

@@ -71,7 +71,7 @@ func (o ClusterDaemonOptions) String() string {
 	return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HDFSNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HDFSNameNodeEndpoint)
 }
 
-type Options struct {
+type ClusterGatewayOptions struct {
 	config.LoggerOptions
 	jupyter.ConnectionInfo
 	core.CoreOptions

@@ -17,9 +17,9 @@ import (
 )
 
 var (
-	options domain.Options = domain.Options{}
-	logger                 = config.GetLogger("")
-	sig                    = make(chan os.Signal, 1)
+	options domain.ClusterGatewayOptions = domain.ClusterGatewayOptions{}
+	logger                               = config.GetLogger("")
+	sig                                  = make(chan os.Signal, 1)
 )
 
 func init() {

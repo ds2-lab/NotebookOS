@@ -16,6 +16,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	localdaemon "github.com/zhangjyr/distributed-notebook/local_daemon/daemon"
+	localdaemondomain "github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 	"go.uber.org/mock/gomock"
 )
 
@@ -172,7 +173,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Key:                  "TestKey",
 				StartingResourcePort: 10007,
 				NumResourcePorts:     64,
-			}, &localdaemon.SchedulerDaemonOptions{
+			}, &localdaemondomain.SchedulerDaemonOptions{
 				DirectServer:     false,
 				SMRPort:          11080,
 				NumGPUs:          8,
