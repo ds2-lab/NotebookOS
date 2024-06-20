@@ -1,6 +1,7 @@
 package e2e_testing
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -12,7 +13,10 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/gateway/daemon"
 
@@ -48,6 +52,18 @@ func getLocalDaemonOptions(configPath string) *local_daemon_domain.LocalDaemonOp
 	return options
 }
 
+func createGrpcGatewayClient() (client gateway.LocalGatewayClient, conn *grpc.ClientConn, err error) {
+	conn, err = grpc.Dial("127.0.0.1:18080", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	Expect(err).To(BeNil())
+	Expect(conn).ToNot(BeNil())
+
+	fmt.Printf("Connected to Gateway via gRPC.\n")
+
+	client = gateway.NewLocalGatewayClient(conn)
+	Expect(client).ToNot(BeNil())
+	return
+}
+
 var _ = Describe("End to End (E2E) Tests", func() {
 	BeforeEach(func() {
 		config.LogLevel = logger.LOG_LEVEL_ALL
@@ -61,24 +77,59 @@ var _ = Describe("End to End (E2E) Tests", func() {
 
 			// Create the Cluster Gateway.
 			gatewayOptions := getGatewayOptions("/home/bcarver2/go/pkg/distributed-notebook/yaml/local/gateway-daemon.yml")
-			gateway, _ := clustergateway.CreateAndStartClusterGatewayComponents(gatewayOptions, &done, finalizeGateway, sig)
+			clusterGateway, _ := clustergateway.CreateAndStartClusterGatewayComponents(gatewayOptions, &done, finalizeGateway, sig)
 
-			Expect(gateway).ToNot(BeNil())
-
-			time.Sleep(time.Second * 5)
+			Expect(clusterGateway).ToNot(BeNil())
 
 			// Create the Local Daemon(s).
 			localDaemon1Options := getLocalDaemonOptions("/home/bcarver2/go/pkg/distributed-notebook/yaml/local/local-daemon0.yml")
-			localDaemon1 := local_daemon.CreateAndStartLocalDaemonComponents(localDaemon1Options, &done, finalizeLocalDaemon, sig)
+			localDaemon1, closeConnections := local_daemon.CreateAndStartLocalDaemonComponents(localDaemon1Options, &done, finalizeLocalDaemon, sig)
 
 			Expect(localDaemon1).ToNot(BeNil())
 
-			time.Sleep(time.Second * 5)
+			fmt.Printf("Creating ClusterGatewayClient now...\n")
+
+			time.Sleep(time.Millisecond * 500)
+
+			client, conn, err := createGrpcGatewayClient()
+			Expect(err).To(BeNil())
+			Expect(conn).ToNot(BeNil())
+			Expect(client).ToNot(BeNil())
+
+			fmt.Printf("Successfully created new ClusterGatewayClient.\n")
+
+			fmt.Printf("Creating new Kernel now...\n")
+
+			kernelId := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+			resp, err := client.StartKernel(context.Background(),
+				&gateway.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					Argv:            make([]string, 0),
+					SignatureScheme: "hmac-sha256",
+					Key:             "",
+					ResourceSpec: &gateway.ResourceSpec{
+						Cpu:    1,
+						Memory: 1,
+						Gpu:    1,
+					},
+				})
+
+			Expect(err).To(BeNil())
+			Expect(resp).ToNot(BeNil())
+
+			fmt.Printf("Response: %v\n", resp)
+
+			// done.Wait()
+
+			closeConnections()
+			conn.Close()
 		})
 	})
 })
 
 func finalizeLocalDaemon(fix bool) {
+	log.Printf("finalizeLocalDaemon(%v) called.\n", fix)
 	if !fix {
 		return
 	}
@@ -93,6 +144,8 @@ func finalizeLocalDaemon(fix bool) {
 }
 
 func finalizeGateway(fix bool, identity string, distributedCluster *daemon.DistributedCluster) {
+	log.Printf("finalizeLocalDaemon(%v, %s, %v) called.\n", fix, identity, distributedCluster)
+
 	if !fix {
 		return
 	}

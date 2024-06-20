@@ -91,10 +91,6 @@ type SchedulerDaemonImpl struct {
 	// Manages "actual" GPU allocations.
 	gpuManager *GpuManager
 
-	// "Local mode" is a sort of debug mode where we're running locally rather than in Kubernetes.
-	// This will later be replaced by Docker mode, which was the original way of deploying this system.
-	localMode bool
-
 	// Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
 	hdfsNameNodeEndpoint string
 
@@ -300,7 +296,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)
 
 	var connInfo *jupyter.ConnectionInfo
-	if d.localMode {
+	if d.LocalMode() {
 		connInfo = registrationPayload.ConnectionInfo
 	} else {
 		connInfo = &jupyter.ConnectionInfo{
@@ -795,9 +791,9 @@ func (d *SchedulerDaemonImpl) LocalMode() bool {
 // StartKernel launches a new kernel via Docker.
 // This is ONLY used in the Docker-based deployment mode.
 func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
-	if !d.DockerMode() {
-		d.log.Error("LocalDaemon cannot explicitly create kernel replica, as we're not running in Docker mode.")
-		return nil, types.ErrIncompatibleDeploymentMode
+	if d.LocalMode() {
+		d.log.Warn("LocalDaemon cannot explicitly create kernel replica, as we're not running in Docker mode.")
+		return nil, nil
 	}
 
 	invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)

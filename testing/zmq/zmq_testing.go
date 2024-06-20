@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/testing/fake_kernel"
 )
 
 var (
@@ -48,82 +49,7 @@ var (
 			Foreground(lipgloss.Color("#8400D6"))
 )
 
-type socketWrapper struct {
-	zmq4.Socket
-
-	Type types.MessageType
-}
-
-type FakeKernel struct {
-	ID              string
-	ReplicaID       int
-	Session         string
-	BaseSocketPort  int
-	LocalDaemonPort int
-
-	ShellSocket     *socketWrapper
-	IOPubSocket     *socketWrapper
-	StdinSocket     *socketWrapper
-	ControlSocket   *socketWrapper
-	HeartbeatSocket *socketWrapper
-}
-
-func NewFakeKernel(replicaId int, session string, baseSocketPort int, localDaemonPort int) *FakeKernel {
-	ctx := context.Background()
-	fullID := fmt.Sprintf("%s-%d", session, replicaId)
-	kernel := &FakeKernel{
-		ID:              fullID,
-		ReplicaID:       replicaId,
-		Session:         session,
-		LocalDaemonPort: localDaemonPort,
-		BaseSocketPort:  baseSocketPort,
-		HeartbeatSocket: &socketWrapper{zmq4.NewRep(ctx), types.HBMessage},
-		ControlSocket:   &socketWrapper{zmq4.NewRouter(ctx), types.ControlMessage},
-		ShellSocket:     &socketWrapper{zmq4.NewRouter(ctx), types.ShellMessage},
-		StdinSocket:     &socketWrapper{zmq4.NewRouter(ctx), types.StdinMessage},
-		IOPubSocket:     &socketWrapper{zmq4.NewPub(ctx), types.IOMessage},
-	}
-
-	kernel.ControlSocket.Socket.SetOption("ROUTER_MANDATORY", 1)
-	kernel.ShellSocket.Socket.SetOption("ROUTER_MANDATORY", 1)
-
-	fmt.Printf("Kernel %s is listening and serving HeartbeatSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort)
-	err := kernel.HeartbeatSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort))
-	if err != nil {
-		panic(err)
-	}
-	go Serve(kernel.HeartbeatSocket, fullID, false, true)
-
-	fmt.Printf("Kernel %s is listening and serving ControlSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+1)
-	err = kernel.ControlSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+1))
-	if err != nil {
-		panic(err)
-	}
-	go Serve(kernel.ControlSocket, fullID, true, true)
-
-	fmt.Printf("Kernel %s is listening and serving ShellSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+2)
-	err = kernel.ShellSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+2))
-	if err != nil {
-		panic(err)
-	}
-	go Serve(kernel.ShellSocket, fullID, true, true)
-
-	fmt.Printf("Kernel %s is listening and serving StdinSocket at tcp://127.0.0.1:%d\n", kernel.ID, baseSocketPort+3)
-	err = kernel.StdinSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+3))
-	if err != nil {
-		panic(err)
-	}
-	go Serve(kernel.StdinSocket, fullID, false, true)
-
-	err = kernel.IOPubSocket.Listen(fmt.Sprintf("tcp://127.0.0.1:%d", baseSocketPort+4))
-	if err != nil {
-		panic(err)
-	}
-
-	return kernel
-}
-
-func Serve(socket *socketWrapper, id string, sendAcks bool, sendReplies bool) {
+func Serve(socket *fake_kernel.SocketWrapper, id string, sendAcks bool, sendReplies bool) {
 	for {
 		msg, err := socket.Recv()
 		if err != nil {
@@ -167,17 +93,6 @@ func Serve(socket *socketWrapper, id string, sendAcks bool, sendReplies bool) {
 			messageFrames[idx+3] = []byte("{\"FROM KERNEL\": \"FROM KERNEL\"}")
 			messageFrames[idx+4] = []byte("{\"FROM KERNEL\": \"FROM KERNEL\"}")
 			messageFrames[idx+5] = []byte("{\"FROM KERNEL\": \"FROM KERNEL\"}")
-
-			// frames := [][]byte{
-			// 	[]byte("<IDS|MSG>"),
-			// 	[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
-			// 	[]byte(fmt.Sprintf("{\"msg_type\": \"ACK\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", id)),
-			// 	[]byte("FROM KERNEL"),
-			// 	[]byte("FROM KERNEL"),
-			// 	[]byte("FROM KERNEL"),
-			// }
-
-			// idents = append(idents, frames...)
 
 			ack_message := zmq4.NewMsgFrom(messageFrames...)
 
@@ -288,7 +203,7 @@ func RegisterFakeKernel(kernelId string, replicaId int, wg *sync.WaitGroup) {
 		panic(err)
 	}
 
-	kernel := NewFakeKernel(replicaId, kernelId, baseSocketPort, localDaemonPort)
+	kernel := fake_kernel.NewFakeKernel(replicaId, kernelId, baseSocketPort, localDaemonPort)
 	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", kernel.LocalDaemonPort))
 	if err != nil {
 		panic(err)
@@ -380,8 +295,8 @@ func TestZMQ() {
 	}
 	fmt.Printf("Connected to %s (control).\n", ctrlDialAddr)
 
-	go Serve(&socketWrapper{shellSocket, types.ShellMessage}, kernelId, false, false)
-	go Serve(&socketWrapper{controlSocket, types.ControlMessage}, kernelId, false, false)
+	go Serve(&fake_kernel.SocketWrapper{shellSocket, types.ShellMessage}, kernelId, false, false)
+	go Serve(&fake_kernel.SocketWrapper{controlSocket, types.ControlMessage}, kernelId, false, false)
 
 	for {
 		fmt.Println("\n\n\n\n[1] Control. [2] Shell. [0] Quit.")

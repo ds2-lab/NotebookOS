@@ -84,8 +84,10 @@ func GetGrpcOptions(tracer opentracing.Tracer) []grpc.ServerOption {
 	return gOpts
 }
 
-func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, done *sync.WaitGroup, finalize LocalDaemonFinalizer, sig chan os.Signal) *SchedulerDaemonImpl {
+func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, done *sync.WaitGroup, finalize LocalDaemonFinalizer, sig chan os.Signal) (*SchedulerDaemonImpl, func()) {
 	tracer, consulClient := CreateConsulAndTracer(options)
+
+	gOpts := GetGrpcOptions(tracer)
 
 	var nodeName string
 	if options.IsLocalMode() {
@@ -95,8 +97,6 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	} else {
 		nodeName = os.Getenv("NODE_NAME")
 	}
-
-	gOpts := GetGrpcOptions(tracer)
 
 	// We largely disable the DevicePlugin server if we're running in LocalMode or if we're not running in Kubernetes mode.
 	disableDevicePluginServer := options.DeploymentMode != string(types.KubernetesMode)
@@ -112,7 +112,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
-	defer lis.Close()
+	// defer lis.Close()
 	globalLogger.Info("Scheduler listening for gRPC at %v", lis.Addr())
 
 	start := time.Now()
@@ -137,7 +137,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 		lis.Close()
 		log.Fatalf("Failed to connect to provisioner after %d attempt(s). Most recent error: %v", numAttempts, err)
 	}
-	defer provConn.Close()
+	// defer provConn.Close()
 
 	// Initialize provisioner and wait for ready
 	provisioner, err := NewProvisioner(provConn)
@@ -225,5 +225,10 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 		}
 	}()
 
-	return scheduler
+	closeConnections := func() {
+		lis.Close()
+		provisioner.Close()
+	}
+
+	return scheduler, closeConnections
 }
