@@ -46,6 +46,11 @@ func NewDistributedCluster(gatewayDaemon *ClusterGatewayImpl, opts *domain.Clust
 func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{}) {
 	dc.log.Error("Entity %s has panicked.", identity)
 
+	if dc.clusterDashboard == nil {
+		dc.log.Warn("We do not have an active connection with the cluster dashboard.")
+		panic(fatalErr)
+	}
+
 	_, err := dc.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 		Title:            fmt.Sprintf("%s panicked.", identity),
 		Message:          fmt.Sprintf("%v", fatalErr),

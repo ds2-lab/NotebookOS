@@ -469,6 +469,14 @@ func (d *ClusterGatewayImpl) ConnectionOptions() *jupyter.ConnectionInfo {
 	return d.connectionOptions
 }
 
+func (d *ClusterGatewayImpl) NumLocalDaemonsConnected() int {
+	return d.cluster.GetHostManager().Len()
+}
+
+func (d *ClusterGatewayImpl) NumKernelsRegistered() int {
+	return d.kernels.Len()
+}
+
 // Listen listens on the TCP network address addr and returns a net.Listener that intercepts incoming connections.
 func (d *ClusterGatewayImpl) Listen(transport string, addr string) (net.Listener, error) {
 	d.log.Debug("ClusterGatewayImpl is listening on transport %s, addr %s.", transport, addr)
@@ -1034,6 +1042,8 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 	d.kernelSpecs.Store(in.Id, in)
 	d.waitGroups.Store(in.Id, created)
 
+	d.log.Debug("Created and stored new DistributedKernel %s.", in.Id)
+
 	// If we're in KubeMode, then
 	if d.KubernetesMode() {
 		_, err := d.kubeClient.DeployDistributedKernels(ctx, in)
@@ -1042,7 +1052,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 			d.log.Error("%v", err)
 			return nil, status.Errorf(codes.Internal, "Failed to start kernel")
 		}
-	} else {
+	} else if d.DockerMode() {
 		hosts := d.placer.FindHosts(in.ResourceSpec)
 		for i, host := range hosts {
 			// Launch replicas in parallel.
@@ -1050,10 +1060,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 		}
 	}
 
-	d.log.Debug("Waiting for all 3 replicas of new kernel %s to register.", in.Id)
+	d.log.Debug("Waiting for replicas of new kernel %s to register.", in.Id)
 	// Wait for all replicas to be created.
 	created.Wait()
-	d.log.Debug("All 3 replicas of new kernel %s have registered.", in.Id)
+	d.log.Debug("All replicas of new kernel %s have registered.", in.Id)
 
 	if kernel.Size() == 0 {
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
@@ -1064,7 +1074,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 		d.kernels.Store(sess, kernel)
 	}
 
-	// Now that all 3 replicas have started, we need to remove labels from all of the other Kubernetes nodes.
+	// Now that all replicas have started, we need to remove labels from all of the other Kubernetes nodes.
 
 	// Option #1:
 	// - When scheduling a new kernel, add labels to ALL of the Kubernetes nodes and allow system to schedule kernels whenever.

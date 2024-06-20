@@ -203,7 +203,9 @@ func RegisterFakeKernel(kernelId string, replicaId int, wg *sync.WaitGroup) {
 		panic(err)
 	}
 
-	kernel := fake_kernel.NewFakeKernel(replicaId, kernelId, baseSocketPort, localDaemonPort)
+	kernel := fake_kernel.NewFakeKernel(replicaId, kernelId, "149a41b5-0df54cf013c3035a3084a319", baseSocketPort, localDaemonPort)
+	kernel.Start()
+
 	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", kernel.LocalDaemonPort))
 	if err != nil {
 		panic(err)
