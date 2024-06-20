@@ -39,7 +39,7 @@ func init() {
 // This adds several key debug endpoints.
 //
 // Important: this should be called from its own goroutine.
-func CreateAndStartDebugHttpServer() {
+func createAndStartDebugHttpServer() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Received HTTP debug connection to '/'")
 		w.WriteHeader(http.StatusOK)
@@ -82,7 +82,7 @@ func main() {
 	logger.Info("Starting Cluster Gateway with the following options: %v", options)
 
 	if options.DebugMode {
-		go CreateAndStartDebugHttpServer()
+		go createAndStartDebugHttpServer()
 	}
 
 	daemon.CreateAndStartClusterGatewayComponents(&options, &done, finalize, sig)

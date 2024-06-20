@@ -21,6 +21,10 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
+//
+// This file contains methods that are useful for a driver script for the Cluster Gateway.
+//
+
 const (
 	ServiceName = "gateway"
 )
@@ -29,7 +33,7 @@ var (
 	globalLogger = config.GetLogger("")
 )
 
-type GatewayFinalzer func(fix bool, identity string, distributedCluster *DistributedCluster)
+type GatewayFinalizer func(fix bool, identity string, distributedCluster *DistributedCluster)
 
 // Create/initialize and return the Tracer and Consul Clients.
 func CreateConsulAndTracer(options *domain.ClusterGatewayOptions) (opentracing.Tracer, *consul.Client) {
@@ -95,7 +99,7 @@ func CreateComponents() {
 
 }
 
-func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOptions, done *sync.WaitGroup, finalize GatewayFinalzer, sig chan os.Signal) (*ClusterGatewayImpl, *DistributedCluster) {
+func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOptions, done *sync.WaitGroup, finalize GatewayFinalizer, sig chan os.Signal) (*ClusterGatewayImpl, *DistributedCluster) {
 	if done == nil {
 		panic("The provided sync.WaitGroup cannot be nil.")
 	}
