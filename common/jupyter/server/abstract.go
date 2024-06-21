@@ -382,7 +382,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					if contd != nil {
 						contd <- false
 					}
-					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Done handling %s messages: %v."), goroutineId, socket.Type.String(), err)
+					s.Log.Debug("[gid=%d] Done handling %s messages: %v.", goroutineId, socket.Type.String(), err)
 					return
 				}
 				// 3. If a new request is pending, compete with the new serve routing to serve the request.
@@ -391,13 +391,13 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					if contd != nil {
 						contd <- false
 					}
-					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Done handling %s messages: %v."), goroutineId, socket.Type.String(), err)
+					s.Log.Debug("[gid=%d] Done handling %s messages: %v.", goroutineId, socket.Type.String(), err)
 					return
 				}
 			} else if err != nil {
 				s.Log.Error(utils.RedStyle.Render("[gid=%d] Error on handle %s message: %v. Message: %v."), goroutineId, socket.Type.String(), err, msg)
 
-				s.Log.Error("[gid=%d] Will NOT abort serving for now.", goroutineId)
+				s.Log.Debug("[gid=%d] Will NOT abort serving for now.", goroutineId)
 				if contd != nil {
 					contd <- true
 				}
@@ -854,7 +854,7 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 
 		if err == nil {
 			msg = &got
-			s.Log.Debug("[gid=%d] Got message from socket: %v", types.JupyterFrames(got.Frames))
+			s.Log.Debug("[gid=%d] Got message from socket: %v", goroutineId, types.JupyterFrames(got.Frames))
 		} else {
 			msg = err
 			s.Log.Error("[gid=%d] Received error upon trying to read %v message: %v", goroutineId, socket.Type, err)

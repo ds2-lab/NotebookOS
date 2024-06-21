@@ -1024,7 +1024,7 @@ func (d *SchedulerDaemonImpl) Close() error {
 // RouterProvider implementations.
 func (d *SchedulerDaemonImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 	// Kernel ID is not available in the control message.
-	_, header, err := d.headerFromMsg(msg)
+	_, header, _, err := d.headerFromMsg(msg)
 	if err != nil {
 		return err
 	}
@@ -1110,13 +1110,26 @@ func (d *SchedulerDaemonImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg
 }
 
 // Deallocate the GPU resources associated with the kernel.
-func (d *SchedulerDaemonImpl) processExecuteReply(msg *zmq4.Msg, kernel core.KernelInfo, header *jupyter.MessageHeader) error {
-	err := d.gpuManager.ReleaseAllocatedGPUs(kernel.(client.KernelReplicaClient).ReplicaID(), kernel.ID())
+func (d *SchedulerDaemonImpl) processExecuteReply(msg *zmq4.Msg, kernel core.KernelInfo, header *jupyter.MessageHeader, offset int) error {
+	// Check if we need to release allocated GPUs.
+	// We only release allocated GPUs if this kernel replica executed the code.
+	// If this replica yielded, then there will be no GPUs to release.
+	jFrames := jupyter.JupyterFrames(msg.Frames[offset:])
+	var msgErr jupyter.MessageError
+	err := json.Unmarshal(jFrames[jupyter.JupyterFrameContent], &msgErr)
 	if err != nil {
-		d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernel.(client.KernelReplicaClient).ReplicaID(), kernel.ID(), err)
+		d.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", kernel.(client.KernelReplicaClient).ReplicaID(), kernel.(client.KernelReplicaClient).ID(), err)
+		return err
 	}
 
-	return err /* will be nil on success */
+	if msgErr.Status == jupyter.MessageStatusOK {
+		err := d.gpuManager.ReleaseAllocatedGPUs(kernel.(client.KernelReplicaClient).ReplicaID(), kernel.ID())
+		if err != nil {
+			d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernel.(client.KernelReplicaClient).ReplicaID(), kernel.ID(), err)
+		}
+	}
+
+	return nil /* will be nil on success */
 }
 
 func (d *SchedulerDaemonImpl) processExecuteRequest(msg *zmq4.Msg, kernel client.KernelReplicaClient, header *jupyter.MessageHeader, offset int) *zmq4.Msg {
@@ -1392,12 +1405,12 @@ func (d *SchedulerDaemonImpl) headerFromFrames(frames [][]byte) (*jupyter.Messag
 	return &header, nil
 }
 
-func (d *SchedulerDaemonImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, err error) {
-	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
+func (d *SchedulerDaemonImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, offset int, err error) {
+	kernelId, _, offset = d.router.ExtractDestFrame(msg.Frames)
 
 	header, err = d.headerFromFrames(msg.Frames[offset:])
 
-	return kernelId, header, err
+	return kernelId, header, offset, err
 }
 
 func (d *SchedulerDaemonImpl) headerAndOffsetFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, offset int, err error) {
@@ -1471,11 +1484,11 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 	}
 
 	if typ == jupyter.ShellMessage {
-		_, header, err := d.headerFromMsg(msg)
+		_, header, offset, err := d.headerFromMsg(msg)
 		if err != nil {
 			d.log.Error("Failed to extract header from %v message for kernel %s because: %v", typ, from.ID(), err)
 		} else if header.MsgType == domain.ShellExecuteReply {
-			d.processExecuteReply(msg, from, header)
+			d.processExecuteReply(msg, from, header, offset)
 		}
 	}
 
