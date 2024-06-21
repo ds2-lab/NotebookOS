@@ -19,7 +19,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/go-zeromq/zmq4"
-	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/testing/fake_kernel"
@@ -219,16 +218,48 @@ func RegisterFakeKernel(kernelId string, replicaId int, wg *sync.WaitGroup) {
 	wg.Done()
 }
 
-func StartFakeKernel(kernelId string, wg *sync.WaitGroup) *gateway.KernelConnectionInfo {
+func ConnectToDistributedClusterGRPC() (gateway.DistributedClusterClient, *grpc.ClientConn) {
+	conn, err := grpc.Dial("localhost:18077", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Connected to Gateway.\n")
+
+	client := gateway.NewDistributedClusterClient(conn)
+
+	return client, conn
+}
+
+func ConnectToLocalGatewayGRPC() (gateway.LocalGatewayClient, *grpc.ClientConn) {
 	conn, err := grpc.Dial("localhost:18080", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
 	}
-	defer conn.Close()
 
 	fmt.Printf("Connected to Gateway.\n")
 
 	client := gateway.NewLocalGatewayClient(conn)
+
+	return client, conn
+}
+
+func ConnectToClusterGatewayGRPC() (gateway.ClusterGatewayClient, *grpc.ClientConn) {
+	conn, err := grpc.Dial("localhost:18081", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Connected to Gateway.\n")
+
+	client := gateway.NewClusterGatewayClient(conn)
+
+	return client, conn
+}
+
+func StartFakeKernel(kernelId string, wg *sync.WaitGroup) *gateway.KernelConnectionInfo {
+	client, conn := ConnectToLocalGatewayGRPC()
+	defer conn.Close()
 
 	fmt.Printf("Created new ClusterGatewayClient.\n")
 
@@ -297,22 +328,25 @@ func TestZMQ() {
 	}
 	fmt.Printf("Connected to %s (control).\n", ctrlDialAddr)
 
-	go Serve(&fake_kernel.SocketWrapper{shellSocket, types.ShellMessage}, kernelId, false, false)
-	go Serve(&fake_kernel.SocketWrapper{controlSocket, types.ControlMessage}, kernelId, false, false)
+	go Serve(&fake_kernel.SocketWrapper{Socket: shellSocket, Type: types.ShellMessage}, kernelId, false, false)
+	go Serve(&fake_kernel.SocketWrapper{Socket: controlSocket, Type: types.ControlMessage}, kernelId, false, false)
+
+	client, conn := ConnectToLocalGatewayGRPC()
+	defer conn.Close()
 
 	for {
 		fmt.Println("\n\n\n\n[1] Control. [2] Shell. [0] Quit.")
 		var input string
 		fmt.Scanln(&input)
 
-		var socket zmq4.Socket
+		// var socket zmq4.Socket
 		var socketType string
 		if input == "1" {
-			socket = controlSocket
-			socketType = "CONTROL"
+			// socket = controlSocket
+			socketType = "control"
 		} else if input == "2" {
-			socket = shellSocket
-			socketType = "SHELL"
+			// socket = shellSocket
+			socketType = "shell"
 		} else if input == "0" {
 			fmt.Printf("Exiting now.")
 			break
@@ -321,26 +355,37 @@ func TestZMQ() {
 			continue
 		}
 
-		reqId := uuid.New()
-		msgId := uuid.New()
+		resp, err := client.PingKernel(context.Background(), &gateway.PingInstruction{
+			SocketType: socketType,
+			KernelId:   kernelId,
+		})
 
-		fmt.Printf("Request ID: \"%s\"\n", reqId)
-		fmt.Printf("Message ID: \"%s\"\n", msgId)
-
-		frames := [][]byte{[]byte(kernelId),
-			[]byte("<IDS|MSG>"),
-			[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
-			[]byte(fmt.Sprintf("{\"msg_id\": \"%s\", \"msg_type\": \"kernel_info_request\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", msgId, kernelId)),
-			[]byte("{\"FROM FRONTEND\": \"FROM FRONTEND\"}"),
-			[]byte("{\"FROM FRONTEND\": \"FROM FRONTEND\"}"),
-			[]byte("{\"FROM FRONTEND\": \"FROM FRONTEND\"}"),
-		}
-
-		msg := zmq4.NewMsgFrom(frames...)
-		err = socket.Send(msg)
 		if err != nil {
-			fmt.Printf("[ERROR] Failed to send %s message because: %v\n", socketType, err)
+			panic(err)
 		}
+
+		fmt.Printf("Received 'ping-kernel' reply: %v\n", resp)
+
+		// reqId := uuid.New()
+		// msgId := uuid.New()
+
+		// fmt.Printf("Request ID: \"%s\"\n", reqId)
+		// fmt.Printf("Message ID: \"%s\"\n", msgId)
+
+		// frames := [][]byte{[]byte(kernelId),
+		// 	[]byte("<IDS|MSG>"),
+		// 	[]byte("dbbdb1eb6f7934ef17e76d92347d57b21623a0775b5d6c4dae9ea972e8ac1e9d"),
+		// 	[]byte(fmt.Sprintf("{\"msg_id\": \"%s\", \"msg_type\": \"kernel_info_request\", \"username\": \"username\", \"session\": \"%s\", \"date\": \"2024-06-06T14:45:58.228995Z\", \"version\": \"5.3\"}", msgId, kernelId)),
+		// 	[]byte("{\"FROM FRONTEND\": \"FROM FRONTEND\"}"),
+		// 	[]byte("{\"FROM FRONTEND\": \"FROM FRONTEND\"}"),
+		// 	[]byte("{\"FROM FRONTEND\": \"FROM FRONTEND\"}"),
+		// }
+
+		// msg := zmq4.NewMsgFrom(frames...)
+		// err = socket.Send(msg)
+		// if err != nil {
+		// 	fmt.Printf("[ERROR] Failed to send %s message because: %v\n", socketType, err)
+		// }
 
 		time.Sleep(time.Millisecond * 1250)
 	}

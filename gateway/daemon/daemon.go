@@ -76,6 +76,7 @@ var (
 	ErrHeaderNotFound            = errors.New("message header not found")
 	ErrKernelNotFound            = errors.New("kernel not found")
 	ErrHostNotFound              = errors.New("host not found")
+	ErrInvalidSocketType         = errors.New("invalid socket type specified")
 	ErrKernelNotReady            = errors.New("kernel not ready")
 	ErrActiveExecutionNotFound   = errors.New("active execution for specified kernel could not be found")
 	ErrKernelSpecNotFound        = errors.New("kernel spec not found")
@@ -84,7 +85,8 @@ var (
 	ErrInvalidJupyterMessage     = errors.New("invalid jupter message")
 	ErrKernelIDRequired          = errors.New("kernel id frame is required for kernel_info_request")
 	ErrDaemonNotFoundOnNode      = errors.New("could not find a local daemon on the specified kubernetes node")
-	ErrFailedToVerifyMessage     = errors.New("failed to verify ZMQ message after re-encoding it with modified contents")
+	ErrFailedToVerifyMessage     = errors.New("failed to verify ZMQ message after (re)encoding it with modified contents")
+	ErrRequestTimedOut           = errors.New("request timed out")
 )
 
 type notificationType int32
@@ -459,6 +461,93 @@ func (wg *registrationWaitGroups) WaitRegistered() {
 func (wg *registrationWaitGroups) Wait() {
 	wg.WaitRegistered()
 	wg.WaitNotified()
+}
+
+func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingInstruction) (*gateway.Pong, error) {
+	kernelId := in.KernelId
+
+	var messageType string
+	var socketType jupyter.MessageType
+	if in.SocketType == "shell" {
+		socketType = jupyter.ShellMessage
+		messageType = "ping_kernel_shell_request"
+	} else if in.SocketType == "control" {
+		socketType = jupyter.ControlMessage
+		messageType = "ping_kernel_ctrl_request"
+	} else {
+		d.log.Error("Invalid socket type specified: \"%s\"", in.SocketType)
+		return &gateway.Pong{
+			Id:      kernelId,
+			Success: false,
+		}, ErrInvalidSocketType
+	}
+
+	kernel, loaded := d.kernels.Load(kernelId)
+	if !loaded {
+		d.log.Error("Received 'ping-kernel' request for unknown kernel \"%s\"...", kernelId)
+		return &gateway.Pong{
+			Id:      kernelId,
+			Success: false,
+		}, ErrKernelNotFound
+	}
+
+	var (
+		msg zmq4.Msg
+		err error
+	)
+	frames := jupyter.NewJupyterFramesWithHeader(messageType, kernel.Sessions()[0])
+	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
+	if err != nil {
+		d.log.Error("Failed to sign Jupyter message for kernel %s because: %v", kernelId, err)
+		return &gateway.Pong{
+			Id:      kernelId,
+			Success: false,
+		}, ErrFailedToVerifyMessage
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	doneChan := make(chan struct{})
+
+	startTime := time.Now()
+	var numRepliesReceived atomic.Int32
+	responseHandler := func(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+		latestNumRepliesReceived := numRepliesReceived.Add(1)
+		d.log.Debug("Received %v ping_reply from kernel %s. Received %d/3 replies. Time elapsed: %v.", typ, from.ID(), latestNumRepliesReceived, time.Since(startTime))
+
+		// Notify that all replies have been received.
+		if latestNumRepliesReceived == 3 {
+			doneChan <- struct{}{}
+		}
+
+		return nil
+	}
+
+	kernel.RequestWithHandler(ctx, "Forwarding", socketType, &msg, responseHandler, func() {})
+
+	select {
+	case <-ctx.Done():
+		{
+			err := ctx.Err()
+			if err != nil {
+				d.log.Error("'ping-kernel' request for kernel %s failed after receiving %d/3 replies: %v", kernelId, numRepliesReceived.Load(), err)
+				return &gateway.Pong{
+					Id:      kernelId,
+					Success: false,
+				}, ErrRequestTimedOut
+			}
+		}
+	case <-doneChan:
+		{
+			d.log.Debug("Received all 3 'ping_reply' responses from replicas of kernel %s in %v.", kernelId, time.Since(startTime))
+		}
+	}
+
+	return &gateway.Pong{
+		Id:      kernelId,
+		Success: true,
+	}, nil
 }
 
 func (d *ClusterGatewayImpl) SetClusterOptions(opts *core.CoreOptions) {

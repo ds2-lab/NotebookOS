@@ -130,12 +130,14 @@ class DistributedKernel(IPythonKernel):
             "add_replica_request",
             "update_replica_request",
             "prepare_to_migrate_request",
-            "stop_running_training_code"
+            "stop_running_training_code",
+            "ping_kernel_ctrl_request",
         ]
 
         self.msg_types = [
             *self.msg_types,
-            "yield_execute"
+            "yield_execute",
+            "ping_kernel_shell_request",
         ]
 
         super().__init__(**kwargs)
@@ -636,6 +638,32 @@ class DistributedKernel(IPythonKernel):
         
         await super().execute_request(stream, ident, parent)
 
+    async def ping_kernel_ctrl_request(self, stream, ident, parent):
+        """ Respond to a 'ping kernel' Control request. """
+        self.log.debug("Ping-Kernel (CONTROL) received.")
+        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+            stream,
+            "ping_reply",
+            {"timestamp": time.time()},
+            parent,
+            metadata={},
+            ident=ident,
+        )
+        self.log.debug(f"Sent ping_reply (control): {str(reply_msg)}")
+
+    async def ping_kernel_shell_request(self, stream, ident, parent):
+        """ Respond to a 'ping kernel' Shell request. """
+        self.log.debug("Ping-Kernel (SHELL) received.")
+        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+            stream,
+            "ping_reply",
+            {"timestamp": time.time()},
+            parent,
+            metadata={},
+            ident=ident,
+        )
+        self.log.debug(f"Sent ping_reply (shell): {str(reply_msg)}")
+        
     async def yield_execute(self, stream, ident, parent):
         """
         Similar to the do_execute method, but this method ALWAYS proposes "YIELD" instead of "LEAD".

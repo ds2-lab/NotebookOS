@@ -272,6 +272,11 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.Pong.FromString,
                 )
+        self.PingKernel = channel.unary_unary(
+                '/gateway.DistributedCluster/PingKernel',
+                request_serializer=gateway__pb2.PingInstruction.SerializeToString,
+                response_deserializer=gateway__pb2.Pong.FromString,
+                )
         self.ListKernels = channel.unary_unary(
                 '/gateway.DistributedCluster/ListKernels',
                 request_serializer=gateway__pb2.Void.SerializeToString,
@@ -325,6 +330,13 @@ class DistributedClusterServicer(object):
 
     def Ping(self, request, context):
         """Used to test connectivity.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PingKernel(self, request, context):
+        """Used to test connectivity with kernels.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -394,6 +406,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
             'Ping': grpc.unary_unary_rpc_method_handler(
                     servicer.Ping,
                     request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.Pong.SerializeToString,
+            ),
+            'PingKernel': grpc.unary_unary_rpc_method_handler(
+                    servicer.PingKernel,
+                    request_deserializer=gateway__pb2.PingInstruction.FromString,
                     response_serializer=gateway__pb2.Pong.SerializeToString,
             ),
             'ListKernels': grpc.unary_unary_rpc_method_handler(
@@ -485,6 +502,23 @@ class DistributedCluster(object):
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/gateway.DistributedCluster/Ping',
             gateway__pb2.Void.SerializeToString,
+            gateway__pb2.Pong.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def PingKernel(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.DistributedCluster/PingKernel',
+            gateway__pb2.PingInstruction.SerializeToString,
             gateway__pb2.Pong.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
@@ -699,6 +733,11 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.KernelId.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 )
+        self.PingKernel = channel.unary_unary(
+                '/gateway.LocalGateway/PingKernel',
+                request_serializer=gateway__pb2.PingInstruction.SerializeToString,
+                response_deserializer=gateway__pb2.Pong.FromString,
+                )
         self.WaitKernel = channel.unary_unary(
                 '/gateway.LocalGateway/WaitKernel',
                 request_serializer=gateway__pb2.KernelId.SerializeToString,
@@ -792,6 +831,13 @@ class LocalGatewayServicer(object):
 
     def StopKernel(self, request, context):
         """StopKernel stops a kernel gracefully and return immediately.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PingKernel(self, request, context):
+        """Used to test connectivity with kernels.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -903,6 +949,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
                     servicer.StopKernel,
                     request_deserializer=gateway__pb2.KernelId.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'PingKernel': grpc.unary_unary_rpc_method_handler(
+                    servicer.PingKernel,
+                    request_deserializer=gateway__pb2.PingInstruction.FromString,
+                    response_serializer=gateway__pb2.Pong.SerializeToString,
             ),
             'WaitKernel': grpc.unary_unary_rpc_method_handler(
                     servicer.WaitKernel,
@@ -1064,6 +1115,23 @@ class LocalGateway(object):
         return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/StopKernel',
             gateway__pb2.KernelId.SerializeToString,
             gateway__pb2.Void.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def PingKernel(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/gateway.LocalGateway/PingKernel',
+            gateway__pb2.PingInstruction.SerializeToString,
+            gateway__pb2.Pong.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

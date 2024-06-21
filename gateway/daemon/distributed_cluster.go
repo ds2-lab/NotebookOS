@@ -197,6 +197,10 @@ func (dc *DistributedCluster) Ping(ctx context.Context, in *gateway.Void) (*gate
 	return &gateway.Pong{Id: dc.gatewayDaemon.id}, nil
 }
 
+func (dc *DistributedCluster) PingKernel(ctx context.Context, in *gateway.PingInstruction) (*gateway.Pong, error) {
+	return dc.gatewayDaemon.PingKernel(ctx, in)
+}
+
 // Ensure that the next 'execute_request' for the specified kernel fails.
 // This is to be used exclusively for testing/debugging purposes.
 func (dc *DistributedCluster) FailNextExecution(ctx context.Context, in *gateway.KernelId) (*gateway.Void, error) {

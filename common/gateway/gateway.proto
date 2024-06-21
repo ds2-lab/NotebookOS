@@ -43,6 +43,9 @@ service DistributedCluster {
 
   // Used to test connectivity.
   rpc Ping(Void) returns (Pong) {} 
+
+  // Used to test connectivity with kernels.
+  rpc PingKernel(PingInstruction) returns (Pong) {}
   
   // Return a list of all of the current kernel IDs.
   rpc ListKernels(Void) returns (ListKernelsResponse) {}
@@ -77,6 +80,12 @@ service ClusterDashboard {
 
 message Pong {
   string id = 1;
+  bool success = 2;
+}
+
+message PingInstruction {
+  string kernelId = 1; // The kernel to target 
+  string socketType = 2; // The type of socket to use to issue the "ping" ("control" or "shell")
 }
 
 message Notification {
@@ -157,6 +166,9 @@ service LocalGateway {
 
   // StopKernel stops a kernel gracefully and return immediately.
   rpc StopKernel(KernelId) returns (Void) {}
+
+  // Used to test connectivity with kernels.
+  rpc PingKernel(PingInstruction) returns (Pong) {}
 
   // WaitKernel waits for a kernel to stop and return status.
   rpc WaitKernel(KernelId) returns (KernelStatus) {}

@@ -739,6 +739,21 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 			}
 		}
 
+		// TODO: Remove this eventually once all bugs are fixed.
+		// These next two if-statements are used to ensure that the handler for 'ping_reply' responses is always called.
+		// They're used to test connectivity with kernels, so we always want them to be called.
+		_, header, err := c.headerFromMsg(msg)
+		if err != nil {
+			panic(err)
+		}
+		if header.MsgType == "ping_reply" {
+			if handler == nil {
+				panic("Handler is nil")
+			}
+
+			return handler(&ReplicaKernelInfo{KernelInfo: c, replica: replica}, typ, msg)
+		}
+
 		// Handler will only be called once.
 		forwarded := false
 		once.Do(func() {
@@ -749,7 +764,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 			forwarded = true
 		})
 		if !forwarded {
-			c.log.Debug("Discard %v response from %v", typ, replica)
+			c.log.Debug("Discard %v \"%s\" response from %v", typ, header.MsgType, replica)
 		}
 		return err
 	}

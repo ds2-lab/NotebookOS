@@ -535,6 +535,10 @@ func (d *SchedulerDaemonImpl) GetActualGpuInfo(ctx context.Context, in *gateway.
 	return gpuInfo, nil
 }
 
+func (d *SchedulerDaemonImpl) PingKernel(ctx context.Context, in *gateway.PingInstruction) (*gateway.Pong, error) {
+	return nil, domain.ErrNotImplemented
+}
+
 func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway.ReplicaInfo) (*gateway.PrepareToMigrateResponse, error) {
 	kernelId := req.KernelId
 	replicaId := req.ReplicaId
