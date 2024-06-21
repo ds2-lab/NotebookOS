@@ -1146,7 +1146,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *zmq4.Msg, kernel client
 			if val, ok := metadataDict[domain.TargetReplicaArg]; ok {
 				targetReplicaAsFloat64, ok := val.(float64)
 				if !ok {
-					d.log.Error("Could not parse target replica ID in metadata ('%v') for 'execute_request' message: %v", targetReplicaAsFloat64, err)
+					d.log.Error("Could not parse target replica ID in metadata ('%v') for 'execute_request' message: %v", val, err)
 					targetReplicaId = -1
 				} else {
 					targetReplicaId = int32(targetReplicaAsFloat64)
@@ -1164,7 +1164,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *zmq4.Msg, kernel client
 		// If this is true, then we'll yield the execution.
 		// Note that we may pass 0 to force the execution to fail, for testing/debugging purposes.
 		// No SMR replica can have an ID of 0.
-		differentTargetReplicaSpecified bool = (targetReplicaId != -1 && targetReplicaId != kernel.ReplicaID())
+		differentTargetReplicaSpecified bool = (targetReplicaId != int32(-1) && targetReplicaId != kernel.ReplicaID())
 
 		// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
 		err error
@@ -1201,9 +1201,12 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *zmq4.Msg, kernel client
 		if err != nil {
 			d.log.Debug("Insufficient GPUs available (%s) for replica %d of kernel %s to execute code (%v required).", d.gpuManager.IdleGPUs(), kernel.ReplicaID(), kernel.ID(), 0 /* Placeholder */)
 			reason = domain.YieldInsufficientGPUs
-		} else {
+		} else if differentTargetReplicaSpecified {
 			d.log.Debug("Replica %d of kernel %s is targeted, while we have replica %d running on this node.", targetReplicaId, kernel.ID(), kernel.ReplicaID() /* Placeholder */)
 			reason = domain.YieldDifferentReplicaTargeted
+		} else if kernel.SupposedToYieldNextExecutionRequest() {
+			d.log.Debug("Replica %d of kernel %s has been explicitly instructed to yield its next execution request.", kernel.ReplicaID(), kernel.ID())
+			reason = domain.YieldExplicitlyInstructed
 		}
 		metadataDict["yield-reason"] = reason
 		// Convert the message to a yield request.
@@ -1478,8 +1481,8 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 
 	d.log.Debug("Forwarding %v response from %v via %s: %v", typ, from, socket.Name, msg)
 	// We should only use the router here if that's where the socket came from...
-	go sender.SendMessage(true, socket, "" /* will be auto-resolved */, msg, sender, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
-	err := socket.Send(*msg)
+	err := sender.SendMessage(true, socket, "" /* will be auto-resolved */, msg, sender, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
+	// err := socket.Send(*msg)
 
 	if err != nil {
 		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())

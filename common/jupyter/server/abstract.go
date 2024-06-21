@@ -100,9 +100,15 @@ type AbstractServer struct {
 	// logger
 	Log logger.Logger
 
+	// Used when sending ACKs. Basically, if this server uses Router sockets, then we need to prepend the ID to the messages.
+	// Some servers use Dealer sockets, whcih don't need to prepend the ID.
 	PrependId bool
 
+	// If true, then will ACK messages upon receiving them (for CONTROL and SHELL sockets only).
 	ShouldAckMessages bool
+
+	// Local IPv4, for debugging purposes.
+	localIpAdderss string
 
 	// Unique name of the server, mostly for debugging.
 	Name string
@@ -142,6 +148,15 @@ func New(ctx context.Context, info *types.ConnectionInfo, init func(server *Abst
 		if socket != nil {
 			socket.Type = types.MessageType(i)
 		}
+	}
+
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		server.Log.Error("Could not resolve local IPv4 because: %v", err)
+	} else {
+		defer conn.Close()
+		localAddr := conn.LocalAddr().(*net.UDPAddr)
+		server.localIpAdderss = localAddr.IP.String()
 	}
 
 	return server
@@ -202,6 +217,7 @@ func (s *AbstractServer) handleAck(msg *zmq4.Msg, socket *types.Socket, dest Req
 	if ackReceived, loaded = s.acksReceived.Load(rspId); loaded && !ackReceived && ackChan != nil {
 		// Notify that we received an ACK and return.
 		s.acksReceived.Store(rspId, true)
+		// s.Log.Debug("[gid=%d] [2] Received ACK for %v message %v via %s.", goroutineId, socket.Type, rspId, socket.Name)
 		// s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
 		ackChan <- struct{}{}
 		// s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
@@ -227,7 +243,16 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 
 	// s.Log.Debug("Message is of type %v and is NOT an ACK. Will send an ACK.", socket.Type)
 
-	dstId, rspId, _ := dest.ExtractDestFrame(msg.Frames)
+	dstId, rspId, jOffset := dest.ExtractDestFrame(msg.Frames)
+	parentHeader, err := s.headerFromMessage(msg, jOffset)
+	if err != nil {
+		panic(err)
+	}
+
+	parentHeaderEncoded, err := json.Marshal(&parentHeader)
+	if err != nil {
+		panic(err)
+	}
 
 	headerMap := make(map[string]string)
 	headerMap["msg_id"] = uuid.NewString()
@@ -243,23 +268,23 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 			[]byte("<IDS|MSG>"),
 			[]byte(""),
 			header,
-			[]byte(s.Meta.IP),
-			[]byte(socket.Name),
-			[]byte(s.Name))
+			parentHeaderEncoded,
+			[]byte(fmt.Sprintf("%s (R: %s, L: %s)", socket.Name, s.Meta.IP, s.localIpAdderss)),
+			[]byte(fmt.Sprintf("%s (%s)", time.Now().Format(time.RFC3339Nano), s.Name)))
 	} else {
 		ack_msg = zmq4.NewMsgFrom(
 			[]byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, dstId, rspId)),
 			[]byte("<IDS|MSG>"),
 			[]byte(""),
 			header,
-			[]byte(s.Meta.IP),
-			[]byte(socket.Name),
-			[]byte(s.Name))
+			parentHeaderEncoded,
+			[]byte(fmt.Sprintf("%s (R: %s, L: %s)", socket.Name, s.Meta.IP, s.localIpAdderss)),
+			[]byte(fmt.Sprintf("%s (%s)", time.Now().Format(time.RFC3339Nano), s.Name)))
 	}
 
-	s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sending ACK message via %s: %v"), goroutineId, socket.Name, ack_msg)
+	s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sending ACK for %v \"%v\" (MsgId=%v, ReqId=%v) message via %s: %v"), goroutineId, socket.Type, parentHeader.MsgType, parentHeader.MsgID, rspId, socket.Name, ack_msg)
 
-	err := socket.Send(ack_msg)
+	err = socket.Send(ack_msg)
 	if err != nil {
 		s.Log.Error("[gid=%d] Error while sending ACK message: %v", goroutineId, err)
 		return err
@@ -325,7 +350,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 				_, rspId, _ := dest.ExtractDestFrame(v.Frames)
 				if is_ack {
-					s.Log.Debug(utils.GreenStyle.Render("[gid=%d] [1] Received ACK via %s: %v (%v): %v"), goroutineId, socket.Name, rspId, socket.Type, msg)
+					s.Log.Debug(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %v message %v via %s: %v"), goroutineId, socket.Type, rspId, socket.Name, msg)
 					s.handleAck(v, socket, dest, rspId)
 					if contd != nil {
 						contd <- true
@@ -538,6 +563,7 @@ func (s *AbstractServer) updateMessageHeader(msg *types.JupyterMessage, offset i
 
 	// Re-encode the header.
 	frames := types.JupyterFrames(msg.Frames)
+	msg.Header = header
 
 	err = frames[offset:].EncodeHeader(header)
 	if err != nil {
@@ -828,6 +854,7 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 
 		if err == nil {
 			msg = &got
+			s.Log.Debug("[gid=%d] Got message from socket: %v", types.JupyterFrames(got.Frames))
 		} else {
 			msg = err
 			s.Log.Error("[gid=%d] Received error upon trying to read %v message: %v", goroutineId, socket.Type, err)

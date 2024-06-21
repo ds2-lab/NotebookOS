@@ -498,7 +498,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingIns
 	frames := jupyter.NewJupyterFramesWithHeader(messageType, kernel.Sessions()[0])
 	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
 	if err != nil {
-		d.log.Error("Failed to sign Jupyter message for kernel %s because: %v", kernelId, err)
+		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v", kernelId, kernel.ConnectionInfo().SignatureScheme, err)
 		return &gateway.Pong{
 			Id:      kernelId,
 			Success: false,
