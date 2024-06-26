@@ -188,6 +188,8 @@ fi
 # Kind 
 go install sigs.k8s.io/kind@v0.22.0
 
+cd ~/go/pkg
+
 if ! command stat zmq4 &> /dev/null; then 
     git clone https://github.com/go-zeromq/zmq4.git
 fi 
@@ -199,6 +201,41 @@ fi
 if ! command stat distributed-notebook &> /dev/null; then 
     git clone https://github.com/zhangjyr/distributed-notebook.git
 fi 
+
+###############
+# Hadoop HDFS #
+###############
+
+# Install Java
+sudo apt-get update && sudo apt-get install -y openjdk-8-jdk ssh
+
+# Create hadoop user
+HADOOP_USER=hadoop
+HADOOP_PASSWORD="12345"
+sudo useradd -p "$(openssl passwd -6 $HADOOP_PASSWORD)" $HADOOP_USER
+
+# Create SSH key for hadoop and move it to the proper location.
+ssh-keygen -t rsa -N "" -f hadoop.key
+mv hadoop.key ~/.ssh/hadoop.key 
+mv hadoop.key.pub ~/.ssh/hadoop.key.pub
+cat ~/.ssh/hadoop.key >> ~/.ssh/authorized_keys
+sudo cp ~/.ssh/authorized_keys /home/hadoop/.ssh/authorized_keys
+chmod 640 ~/.ssh/authorized_keys
+sudo chown hadoop /home/hadoop/.ssh/authorized_keys
+
+# Set some environment variables in the hadoop user's .bashrc file as well as the hadoop-env.sh file (only the latter of which is more important/actually does something...)
+sudo bash -c 'cat hadoop-env >> /home/hadoop/.bashrc'
+sudo bash -c 'cat hadoop-env >> /home/hadoop/hadoop/etc/hadoop/hadoop-env.sh'
+
+# Download hadoop HDFS and set it up in the hadoop user's home directory.
+ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/hadoop.key hadoop@localhost "wget https://dlcdn.apache.org/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz ; tar -xvzf hadoop-3.3.6.tar.gz ; mv hadoop-3.3.6 hadoop ; mkdir -p ~/hadoopdata/hdfs/{namenode,datanode}"
+
+# Copy the HDFS configuration.
+sudo cp -r ./hdfs_configuration/* /home/hadoop/hadoop/etc/hadoop/
+sudo chown -R hadoop /home/hadoop/hadoop/etc/hadoop/
+
+# Format the file system.
+ssh -i ~/.ssh/hadoop.key hadoop@localhost 'env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 ~/hadoop/bin/hdfs namenode -format'
 
 #################
 # scusemua/gopy #
@@ -212,5 +249,5 @@ docker build -t scusemua/gopy .
 
 cd $GOPATH_ENV/pkg/distributed-notebook 
 cd smr && make build-linux-amd64
-git checkout static-scheduling
+git checkout ben/feature/docker
 make build-smr-linux-amd64
