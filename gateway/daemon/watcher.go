@@ -91,6 +91,8 @@ func (w *DockerContainerWatcher) monitor() {
 				continue
 			}
 
+			w.log.Debug("Received container-creation event: %v", containerCreationEvent)
+
 			fullContainerId := containerCreationEvent["id"].(string)
 			shortContainerId := fullContainerId[0:12]
 			attributes := containerCreationEvent["Actor"].(map[string]interface{})["Attributes"].(map[string]interface{})

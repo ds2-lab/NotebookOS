@@ -372,8 +372,12 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		return // nil, status.Errorf(codes.Internal, err.Error())
 	}
 
-	// Handle kernel response.
-	kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
+	// If we're running in Docker mode, then we'll already have set these.
+	if d.deploymentMode == types.KubernetesMode {
+		// Handle kernel response.
+		kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
+		kernel.AddIOHandler(jupyter.MessageTypeErrorReport, d.handleErrorReport)
+	}
 
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
@@ -846,6 +850,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 
 	// Handle kernel response.
 	kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
+	kernel.AddIOHandler(jupyter.MessageTypeErrorReport, d.handleErrorReport)
 
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
@@ -1504,6 +1509,29 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 	}
 
 	return nil // Will be nil on success.
+}
+
+func (d *SchedulerDaemonImpl) handleErrorReport(kernel core.Kernel, frames jupyter.JupyterFrames, raw *zmq4.Msg) error {
+	var errorReport jupyter.ErrorReport
+	if err := frames.DecodeContent(&errorReport); err != nil {
+		d.log.Error("Failed to decode content of 'error report' message: %v", err)
+		return err
+	}
+
+	d.log.Error("Received '%s' error from kernel %s: %v", errorReport.ErrorTitle, kernel.ID(), errorReport.ErrorMessage)
+
+	if errorReport.KernelId != kernel.ID() {
+		d.log.Error("Error report specifies kernel %s, but our records indicate that the report originated from kernel %s...", errorReport.KernelId, kernel.ID())
+	}
+
+	go d.provisioner.Notify(context.TODO(), &gateway.Notification{
+		Title:            errorReport.ErrorTitle,
+		Message:          errorReport.ErrorMessage,
+		NotificationType: 0,
+		Panicked:         false,
+	})
+
+	return nil
 }
 
 func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel core.Kernel, frames jupyter.JupyterFrames, raw *zmq4.Msg) error {

@@ -26,4 +26,9 @@ var (
 	PurpleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#8400D6"))
+	GrayStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#808080"))
+
+	NotificationStyles = []lipgloss.Style{RedStyle, OrangeStyle, GrayStyle, GreenStyle}
 )

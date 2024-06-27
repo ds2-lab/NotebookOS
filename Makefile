@@ -44,7 +44,7 @@ install-kernel:
 build-grpc-go:
 	protoc --go_out=. --go_opt=paths=source_relative \
   	--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-    common/gateway/gateway.proto
+    common/gateway/gateway.proto --experimental_allow_proto3_optional
 
 # protoc --go_out=. --go_opt=paths=source_relative \
 # --go-grpc_out=. --go-grpc_opt=paths=source_relative \

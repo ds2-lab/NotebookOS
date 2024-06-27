@@ -49,9 +49,29 @@ enable_storage = True
 # Used as the value for an environment variable that was not set.
 UNAVAILABLE: str = "N/A"
 
-logging.basicConfig(level=logging.DEBUG,
-                    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
+# logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
 
+class CustomFormatter(logging.Formatter):
+    grey = "\x1b[38;20m"
+    yellow = "\x1b[33;20m"
+    red = "\x1b[31;20m"
+    bold_red = "\x1b[31;1m"
+    reset = "\x1b[0m"
+    format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] "
+    # format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
+
+    FORMATS = {
+        logging.DEBUG: grey + format + reset,
+        logging.INFO: grey + format + reset,
+        logging.WARNING: yellow + format + reset,
+        logging.ERROR: red + format + reset,
+        logging.CRITICAL: bold_red + format + reset
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
@@ -144,11 +164,17 @@ class DistributedKernel(IPythonKernel):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
+        self.log.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(CustomFormatter())
+        self.log.addHandler(ch)
 
         self.log.info("TEST -- INFO")
         self.log.debug("TEST -- DEBUG")
         self.log.warn("TEST -- WARN")
-        self.log.error("TEST -- ERROR")      
+        self.log.error("TEST -- ERROR")   
+        self.log.critical("TEST -- CRITICAL")     
         
         self.received_message_ids: set = set()  
 
@@ -1226,7 +1252,7 @@ class DistributedKernel(IPythonKernel):
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
             self.report_error(errorTitle="Failed to Create RaftLog", errorMessage = str(ex))
-            exit(1)
+            raise ex
 
         self.log.debug("Successfully created RaftLog.")
         return self.synclog

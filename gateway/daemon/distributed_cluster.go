@@ -10,6 +10,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -54,7 +55,7 @@ func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{})
 	_, err := dc.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 		Title:            fmt.Sprintf("%s panicked.", identity),
 		Message:          fmt.Sprintf("%v", fatalErr),
-		NotificationType: int32(ErrorNotification),
+		NotificationType: int32(types.ErrorNotification),
 		Panicked:         true,
 	})
 
