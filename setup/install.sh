@@ -2,6 +2,20 @@
 
 # This is an installation script to prepare an Ubuntu virtual machine for development.
 
+mkdir ~/go
+mkdir ~/go/pkg 
+
+pushd ~/go/pkg 
+
+if [ "$1" != "" ]; then
+    GIT_TOKEN=$1
+    git clone https://Scusemua@$(GIT_TOKEN)github.com/zhangjyr/distributed-notebook
+else 
+    git clone https://Scusemua@github.com/zhangjyr/distributed-notebook
+fi 
+
+popd 
+
 # Python 3
 if ! command python3.11 --version &> /dev/null; then 
     printf "\n[WARNING] Python3.11 is not installed. Installing it now...\n"
@@ -193,6 +207,9 @@ fi
 
 # Kind 
 go install sigs.k8s.io/kind@v0.22.0
+
+# Protoc Golang Bindings 
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 
 cd ~/go/pkg
 
