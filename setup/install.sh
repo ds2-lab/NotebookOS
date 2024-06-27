@@ -2,6 +2,7 @@
 
 # This is an installation script to prepare an Ubuntu virtual machine for development.
 
+# Python 3
 if ! command python3.11 --version &> /dev/null; then 
     printf "\n[WARNING] Python3.11 is not installed. Installing it now...\n"
 
@@ -74,6 +75,11 @@ if ! command -v docker version &> /dev/null; then
         echo "Successfully installed Docker."
     fi 
 fi 
+
+# Protoc (protobuffers compiler)
+if ! command protoc --version &> /dev/null; then 
+    sudo apt-get --assume-yes install protobuf-compiler
+fi
 
 # Docker, non-root user.
 if ! command -v docker run hello-world &> /dev/null; then 
