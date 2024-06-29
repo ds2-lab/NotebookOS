@@ -193,11 +193,11 @@ var defaultSnapshotCount uint64 = 10000
 // hdfs_data_directory is (possibly) the path to the data directory within HDFS, meaning
 // we were migrated and our data directory was written to HDFS so that we could retrieve it.
 func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_directory string, peerAddresses []string, peerIDs []int, join bool, debug_port int) *LogNode {
+	fmt.Printf("Creating a new LogNode.\n")
+
 	if len(peerAddresses) != len(peerIDs) {
 		log.Fatalf("Received unequal number of peer addresses (%d) and peer node IDs (%d). They must be equal.\n", len(peerAddresses), len(peerIDs))
 	}
-
-	fmt.Printf("Creating a new LogNode.\n")
 
 	node := &LogNode{
 		proposeC:            make(chan *proposalContext),
@@ -272,7 +272,8 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		},
 	})
 	if err != nil {
-		node.logger.Error("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname))
+		node.logger.Error("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname), zap.Error(err))
+		panic(err)
 	} else {
 		node.logger.Info(fmt.Sprintf("Successfully connected to HDFS at '%s'", hdfsHostname), zap.String("hostname", hdfsHostname))
 		node.hdfsClient = hdfsClient

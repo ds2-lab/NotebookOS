@@ -316,9 +316,6 @@ extern char* smr_ErrEOF();
 extern void smr_Set_ErrEOF(char* val);
 extern long long int smr_ProposalDeadline();
 extern void smr_Set_ProposalDeadline(long long int val);
-extern long long int smr_LogSnapshotter_Load(long long int _handle);
-extern long long int smr_LogSnapshotter_LoadNewestAvailable(long long int _handle, long long int arg_0);
-extern char* smr_LogSnapshotter_SaveSnap(long long int _handle, long long int arg_0);
 extern char* smr_LogStorage_Close(long long int _handle);
 extern char* smr_LogStorage_ReleaseLockTo(long long int _handle, long long unsigned int arg_0);
 extern char* smr_LogStorage_Save(long long int _handle, long long int arg_0, long long int arg_1);
@@ -327,6 +324,15 @@ extern char* smr_ReadCloser_Close(long long int _handle);
 extern long long int smr_ReadCloser_Read(long long int _handle, long long int p);
 extern char* smr_WriteCloser_Close(long long int _handle);
 extern long long int smr_WriteCloser_Write(long long int _handle, long long int p);
+extern long long int smr_LogSnapshotter_Load(long long int _handle);
+extern long long int smr_LogSnapshotter_LoadNewestAvailable(long long int _handle, long long int arg_0);
+extern char* smr_LogSnapshotter_SaveSnap(long long int _handle, long long int arg_0);
+
+// --- wrapping struct: smr.Bytes ---
+//
+extern long long int smr_Bytes_CTor();
+extern long long int smr_Bytes_Bytes(long long int _handle);
+extern long long int smr_Bytes_Len(long long int _handle);
 
 // --- wrapping struct: smr.IntRet ---
 //
@@ -377,12 +383,6 @@ extern long long int smr_LogNodeConfig_WithSnapshotCallback(long long int _handl
 extern long long int smr_SMRContext_CTor();
 extern char* smr_SMRContext_ID(long long int _handle);
 extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
-
-// --- wrapping struct: smr.Bytes ---
-//
-extern long long int smr_Bytes_CTor();
-extern long long int smr_Bytes_Bytes(long long int _handle);
-extern long long int smr_Bytes_Len(long long int _handle);
 extern long long int smr_NewLogNode(char* store_path, long long int id, char* hdfsHostname, char* hdfs_data_directory, long long int peerAddresses, long long int peerIDs, char join, long long int debug_port);
 extern long long int smr_NewConfig();
 extern long long int smr_NewBytes(char* bytes, GoInt len);

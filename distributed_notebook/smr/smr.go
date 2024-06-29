@@ -1636,56 +1636,6 @@ func smr_Set_ProposalDeadline(val C.longlong) {
 
 // ---- Interfaces ---
 
-//export smr_LogSnapshotter_Load
-func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
-	if __err != nil {
-		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
-	}
-	cret, __err := vifc.(smr.LogSnapshotter).Load()
-
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		C.free(unsafe.Pointer(estr))
-		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
-	}
-	return handleFromPtr_Ptr_raftpb_Snapshot(cret)
-}
-
-//export smr_LogSnapshotter_LoadNewestAvailable
-func smr_LogSnapshotter_LoadNewestAvailable(_handle CGoHandle, arg_0 CGoHandle) CGoHandle {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
-	if __err != nil {
-		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
-	}
-	cret, __err := vifc.(smr.LogSnapshotter).LoadNewestAvailable(deptrFromHandle_Slice_walpb_Snapshot(arg_0))
-
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		C.free(unsafe.Pointer(estr))
-		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
-	}
-	return handleFromPtr_Ptr_raftpb_Snapshot(cret)
-}
-
-//export smr_LogSnapshotter_SaveSnap
-func smr_LogSnapshotter_SaveSnap(_handle CGoHandle, arg_0 CGoHandle) *C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
-	if __err != nil {
-		return C.CString("")
-	}
-	__err = vifc.(smr.LogSnapshotter).SaveSnap(*ptrFromHandle_raftpb_Snapshot(arg_0))
-
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		return estr
-	}
-	return C.CString("")
-}
-
 //export smr_LogStorage_Close
 func smr_LogStorage_Close(_handle CGoHandle) *C.char {
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
@@ -1787,7 +1737,85 @@ func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
 
 }
 
+//export smr_LogSnapshotter_Load
+func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
+	if __err != nil {
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	cret, __err := vifc.(smr.LogSnapshotter).Load()
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		C.free(unsafe.Pointer(estr))
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	return handleFromPtr_Ptr_raftpb_Snapshot(cret)
+}
+
+//export smr_LogSnapshotter_LoadNewestAvailable
+func smr_LogSnapshotter_LoadNewestAvailable(_handle CGoHandle, arg_0 CGoHandle) CGoHandle {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
+	if __err != nil {
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	cret, __err := vifc.(smr.LogSnapshotter).LoadNewestAvailable(deptrFromHandle_Slice_walpb_Snapshot(arg_0))
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		C.free(unsafe.Pointer(estr))
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	return handleFromPtr_Ptr_raftpb_Snapshot(cret)
+}
+
+//export smr_LogSnapshotter_SaveSnap
+func smr_LogSnapshotter_SaveSnap(_handle CGoHandle, arg_0 CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
+	if __err != nil {
+		return C.CString("")
+	}
+	__err = vifc.(smr.LogSnapshotter).SaveSnap(*ptrFromHandle_raftpb_Snapshot(arg_0))
+
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
 // ---- Structs ---
+
+// --- wrapping struct: smr.Bytes ---
+//
+//export smr_Bytes_CTor
+func smr_Bytes_CTor() CGoHandle {
+	return CGoHandle(handleFromPtr_smr_Bytes(&smr.Bytes{}))
+}
+
+//export smr_Bytes_Bytes
+func smr_Bytes_Bytes(_handle CGoHandle) CGoHandle {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
+	if __err != nil {
+		return handleFromPtr_Slice_byte(nil)
+	}
+	cret := gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Bytes()
+
+	return handleFromPtr_Slice_byte(&cret)
+}
+
+//export smr_Bytes_Len
+func smr_Bytes_Len(_handle CGoHandle) C.longlong {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
+	if __err != nil {
+		return C.longlong(0)
+	}
+	return C.longlong(gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Len())
+
+}
 
 // --- wrapping struct: smr.IntRet ---
 //
@@ -2354,34 +2382,6 @@ func smr_SMRContext_Cancel(_handle CGoHandle, goRun C.char) {
 	} else {
 		gopyh.Embed(vifc, reflect.TypeOf(smr.SMRContext{})).(*smr.SMRContext).Cancel()
 	}
-}
-
-// --- wrapping struct: smr.Bytes ---
-//
-//export smr_Bytes_CTor
-func smr_Bytes_CTor() CGoHandle {
-	return CGoHandle(handleFromPtr_smr_Bytes(&smr.Bytes{}))
-}
-
-//export smr_Bytes_Bytes
-func smr_Bytes_Bytes(_handle CGoHandle) CGoHandle {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
-	if __err != nil {
-		return handleFromPtr_Slice_byte(nil)
-	}
-	cret := gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Bytes()
-
-	return handleFromPtr_Slice_byte(&cret)
-}
-
-//export smr_Bytes_Len
-func smr_Bytes_Len(_handle CGoHandle) C.longlong {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
-	if __err != nil {
-		return C.longlong(0)
-	}
-	return C.longlong(gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Len())
-
 }
 
 // ---- Slices ---

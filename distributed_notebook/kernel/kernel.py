@@ -49,7 +49,7 @@ enable_storage = True
 # Used as the value for an environment variable that was not set.
 UNAVAILABLE: str = "N/A"
 
-# logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
 
 class CustomFormatter(logging.Formatter):
     grey = "\x1b[38;20m"
@@ -164,11 +164,11 @@ class DistributedKernel(IPythonKernel):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
-        self.log.setLevel(logging.DEBUG)
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.DEBUG)
-        ch.setFormatter(CustomFormatter())
-        self.log.addHandler(ch)
+        # self.log.setLevel(logging.DEBUG)
+        # ch = logging.StreamHandler()
+        # ch.setLevel(logging.DEBUG)
+        # ch.setFormatter(CustomFormatter())
+        # self.log.addHandler(ch)
 
         self.log.info("TEST -- INFO")
         self.log.debug("TEST -- DEBUG")
@@ -353,7 +353,7 @@ class DistributedKernel(IPythonKernel):
         if len(response) == 0:
             self.log.error(
                 "Received empty (i.e., 0 bytes in length) response from local daemon during registration...")
-            exit(1)
+            raise ValueError("received empty response from local daemon during registration procedure")
 
         self.log.info("Received %d byte(s) in response from LocalDaemon: %s", len(
             response), str(response))
@@ -364,13 +364,28 @@ class DistributedKernel(IPythonKernel):
 
         # self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in response_dict["replicas"]]
 
+        if "replicas" not in response_dict:
+            self.log.error("No replicas contained in registration response from local daemon.")
+            self.log.error("Registration response:")
+            for k, v in response_dict.items():
+                self.log.error(f"\t{k}: {v}")
+            raise ValueError("registration response from local daemon did not contained a \"replicas\" entry")
+
         # Note: we expect the keys to be integers; however, they will have been converted to strings.
         # See https://stackoverflow.com/a/1451857 for details.
         # We convert the string keys, which are node IDs, back to integers.
         #
         # We also append ":<SMR_PORT>" to each address before storing it in the map.
+        replicas = response_dict["replicas"]
+        if replicas == None or len(replicas) == 0:
+            self.log.error("No replicas contained in registration response from local daemon.")
+            self.log.error("Registration response:")
+            for k, v in response_dict.items():
+                self.log.error(f"\t{k}: {v}")
+            raise ValueError("registration response from local daemon did not contained a \"replicas\" entry")
+        
         self.smr_nodes_map = {int(node_id_str): (node_addr + ":" + str(self.smr_port))
-                              for node_id_str, node_addr in response_dict["replicas"].items()}
+                              for node_id_str, node_addr in replicas.items()}
 
         # If we're part of a migration operation, then we should receive both a persistent ID AND an HDFS Data Directory.
         # If we're not part of a migration operation, then we'll JUST receive the persistent ID.

@@ -57,16 +57,17 @@ class RaftLog:
   _snapshotCallback: Optional[Callable[[Any], bytes]] = None # The callback to be called when a snapshot is needed.
 
   def __init__(self, base_path: str, id: int, hdfs_hostname:str, data_directory:str, peer_addrs: Iterable[str], peer_ids: Iterable[int], join: bool = False, debug_port:int = 8464):
+    self._log.info("Creating RaftNode %d now." % id)
+
     self._store: str = base_path
     self._id: int = id
+    self._log: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
     self.ensure_path(self._store)
     self._offloader: FileLog = FileLog(self._store)
-    self._log: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
     
     if len(hdfs_hostname) == 0:
       raise ValueError("HDFS hostname is empty.")
 
-    self._log.info("Creating LogNode %d now." % id)
     self._log.info("_store: %s" % self._store)
     self._log.info("hdfs_hostname: \"%s\"" % hdfs_hostname)
     self._log.info("data_directory: \"%s\"" % data_directory)
@@ -74,6 +75,8 @@ class RaftLog:
     self._log.info("peer_ids: %s" % peer_ids)
     self._log.info("join: %s" % join)
     self._log.info("debug_port: %d" % debug_port)
+
+    self._log.info("Creating LogNode %d now." % id)
     self._node = NewLogNode(self._store, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
 
     self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
@@ -819,7 +822,9 @@ class RaftLog:
 
   def ensure_path(self, base_path):
     if base_path != "" and not os.path.exists(base_path):
+      self._log.debug("Creating persistent store directory: \"%s\"", base_path)
       os.makedirs(base_path, 0o750, exist_ok = True) # It's OK if it already exists.
+      self._log.debug("Created persistent store directory \"%s\" (or it already existed)", base_path)
 
   async def _offload(self, val: SyncValue) -> SyncValue:
     """Offload the buffer to the storage server."""
