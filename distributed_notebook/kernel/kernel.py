@@ -5,6 +5,7 @@ import inspect
 import os
 import logging
 import json
+import signal
 import sys
 import socket
 import traceback
@@ -24,7 +25,20 @@ from threading import Lock
 
 from jupyter_client.session import extract_dates
 
+from ..smr.smr import PrintTestMessage
+
 from multiprocessing import Process, Queue
+
+def sigabrt_handler(sig, frame):
+    print(f'Received SIGABORT handler: {sig} {frame}')
+    sys.exit(0)
+
+def sigint_handler(sig, frame):
+    print(f'Received SIGINT handler: {sig} {frame}')
+    sys.exit(0)
+
+signal.signal(signal.SIGABRT, sigabrt_handler)
+signal.signal(signal.SIGINT, sigint_handler)
 
 class ExecutionYieldError(Exception):
     """Exception raised when execution is yielded."""
@@ -164,17 +178,21 @@ class DistributedKernel(IPythonKernel):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
-        # self.log.setLevel(logging.DEBUG)
-        # ch = logging.StreamHandler()
-        # ch.setLevel(logging.DEBUG)
-        # ch.setFormatter(CustomFormatter())
-        # self.log.addHandler(ch)
+        self.log.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(CustomFormatter())
+        self.log.addHandler(ch)
 
         self.log.info("TEST -- INFO")
         self.log.debug("TEST -- DEBUG")
         self.log.warn("TEST -- WARN")
         self.log.error("TEST -- ERROR")   
         self.log.critical("TEST -- CRITICAL")     
+
+        self.log.info("Calling Go-level `PrintTestMessage` function now...")
+        PrintTestMessage()
+        self.log.info("Called Go-level `PrintTestMessage` function now...")
         
         self.received_message_ids: set = set()  
 
@@ -320,7 +338,7 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Failed to connect to LocalDaemon at %s:%d" %
                            (local_daemon_service_name, server_port))
             self.log.error("Reason: %s" % str(ex))
-            return
+            raise ex 
 
         registration_payload = {
             "op": "register",

@@ -26,11 +26,13 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/colinmarc/hdfs/v2"
@@ -60,6 +62,7 @@ var (
 	ProposalDeadline = 1 * time.Minute
 	ErrClosed        = errors.New("node closed")
 	ErrEOF           = io.EOF.Error() // For python module to check if io.EOF is returned
+	sig              = make(chan os.Signal, 1)
 )
 
 type StateValueCallback func(ReadCloser, int, string) string
@@ -137,7 +140,7 @@ type LogNode struct {
 	hdfsClient *hdfs.Client // HDFS client for reading/writing the data directory during migrations.
 
 	id    int            // Client ID for raft session
-	peers map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1.
+	peers map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1. Each address should be prefixed by "http://"
 	join  bool           // Node is joining an existing cluster
 
 	waldir              string // Path to WAL directory
@@ -183,6 +186,14 @@ type LogNode struct {
 
 var defaultSnapshotCount uint64 = 10000
 
+func PrintTestMessage() {
+	fmt.Printf("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec auctor quam vel sapien porta, rutrum facilisis ex scelerisque. Vestibulum bibendum luctus ullamcorper. Nunc mattis magna ut sapien ornare posuere. Mauris lorem massa, molestie sodales consequat a, pellentesque a urna. Maecenas consequat nibh vel dolor ultricies, vitae malesuada mauris sollicitudin. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed placerat tellus et enim mattis volutpat. Mauris rhoncus mollis justo vel feugiat. Integer finibus aliquet erat ac porta.\n")
+	fmt.Printf("Proin cursus id nibh a semper. Donec eget augue aliquam, efficitur nisl vitae, auctor diam. Interdum et malesuada fames ac ante ipsum primis in faucibus. Sed tempus dui vel eros efficitur scelerisque. Pellentesque scelerisque leo nibh, et congue justo viverra ut. Suspendisse id dui vitae lacus tincidunt congue. Nam tempus est elementum consectetur tincidunt.\n")
+	fmt.Printf("Ut sit amet justo et risus porta aliquet. Donec id quam ligula. Etiam in purus maximus, aliquet leo sit amet, blandit lacus. Vivamus in euismod ligula. Phasellus pellentesque dapibus faucibus. Curabitur vel tellus a lorem convallis iaculis. Sed molestie gravida felis eu ultrices. Suspendisse consequat sed turpis ac aliquet.\n")
+	fmt.Printf("Maecenas facilisis nulla sit amet volutpat luctus. Aenean maximus a diam aliquet bibendum. Nunc ut tellus vel felis congue luctus ut sit amet erat. Cras scelerisque, felis in posuere mollis, purus nunc ultrices odio, sit amet euismod sem lorem vel massa. Sed turpis neque, mattis sit amet scelerisque eu, bibendum hendrerit magna. Phasellus efficitur lacinia euismod. Proin faucibus dignissim elementum. Interdum et malesuada fames ac ante ipsum primis in faucibus. Phasellus dolor eros, finibus sit amet nisl pellentesque, sollicitudin fermentum nisl. Pellentesque sollicitudin leo velit, et tempus tellus tempor quis. Mauris ut diam ut orci imperdiet faucibus.\n")
+	fmt.Printf("Aliquam accumsan ut tortor id cursus. Donec tincidunt ullamcorper ligula sed finibus. Maecenas ac turpis a dui placerat eleifend. Aenean suscipit ut turpis sit amet feugiat. Maecenas porta commodo sapien non tempus. Curabitur bibendum fermentum libero vel dapibus. Maecenas vitae tellus in massa aliquet lacinia. Fusce dictum mi tortor, sit amet vestibulum lectus suscipit suscipit. Pellentesque metus nisi, sodales quis semper eu, iaculis at velit.\n")
+}
+
 // NewLogNode initiates a raft instance and returns a committed log entry
 // channel and error channel. Proposals for log updates are sent over the
 // provided the proposal channel. All log entries are replayed over the
@@ -193,6 +204,14 @@ var defaultSnapshotCount uint64 = 10000
 // hdfs_data_directory is (possibly) the path to the data directory within HDFS, meaning
 // we were migrated and our data directory was written to HDFS so that we could retrieve it.
 func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_directory string, peerAddresses []string, peerIDs []int, join bool, debug_port int) *LogNode {
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+
+	go func() {
+		s := <-sig
+
+		fmt.Printf("Received signal: %v\n", s)
+	}()
+
 	fmt.Printf("Creating a new LogNode.\n")
 
 	if len(peerAddresses) != len(peerIDs) {
@@ -231,8 +250,11 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		node.waldir = path.Join(store_path, fmt.Sprintf("dnlog-%d", id))
 		node.snapdir = path.Join(store_path, fmt.Sprintf("dnlog-%d-snap", id))
 
-		node.logger.Info(fmt.Sprintf("LogNode %d WAL directory: '%s'", id, node.waldir))
-		node.logger.Info(fmt.Sprintf("LogNode %d Snapshot directory: '%s'", id, node.snapdir))
+		node.sugaredLogger.Infof("LogNode %d WAL directory: '%s'", id, node.waldir)
+		node.sugaredLogger.Infof("LogNode %d Snapshot directory: '%s'", id, node.snapdir)
+
+		fmt.Printf("LogNode %d WAL directory: '%s'", id, node.waldir)
+		fmt.Printf("LogNode %d Snapshot directory: '%s'\n", id, node.snapdir)
 	}
 	testId, _ := node.patchPropose(nil)
 	node.proposalPadding = len(testId)
@@ -243,6 +265,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		peer_id := peerIDs[i]
 
 		node.logger.Info("Discovered peer.", zap.String("peer_address", peer_addr), zap.Int("peer_id", peer_id))
+		fmt.Printf("Discovered peer %d: %s.\n", peer_id, peer_addr)
 		node.peers[peer_id] = peer_addr
 	}
 
@@ -251,6 +274,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 	}
 
 	node.sugaredLogger.Infof("Connecting to HDFS at '%s'", hdfsHostname)
+	fmt.Printf("Connecting to HDFS at '%s'\n", hdfsHostname)
 
 	hdfsClient, err := hdfs.NewClient(hdfs.ClientOptions{
 		Addresses: []string{hdfsHostname},
@@ -275,7 +299,8 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		node.logger.Error("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname), zap.Error(err))
 		panic(err)
 	} else {
-		node.logger.Info(fmt.Sprintf("Successfully connected to HDFS at '%s'", hdfsHostname), zap.String("hostname", hdfsHostname))
+		node.sugaredLogger.Infof("Successfully connected to HDFS at '%s'", hdfsHostname)
+		fmt.Printf("Successfully connected to HDFS at '%s'\n", hdfsHostname)
 		node.hdfsClient = hdfsClient
 	}
 
@@ -302,6 +327,8 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 	}
 
 	debug.SetPanicOnFault(true)
+
+	fmt.Printf("Returning LogNode now.\n")
 
 	return node
 }
