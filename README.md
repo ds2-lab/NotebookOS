@@ -96,3 +96,16 @@ sudo make build-smr-linux-amd64
 ```
 
 The command in the `smr/` directory does something along the lines of regenerate the Python/Golang/C bindings. The command from the root directory compiles the generated Go code. Something like that.
+
+## Common Errors:
+
+### glibc Issues
+```
+./gateway: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.34' not found (required by ./gateway)
+```
+
+If you see the above error, then try rebuildin *all* Docker images locally, including the base image. Specifically, rebuild these images (in roughly this order):
+- `dockfiles/base-image`
+- `dockfiles/cpu-python3-amd64` (or `dockfiles/cpu-python3-arm64`, depending on your CPU architecture)
+- `dockfiles/gateway`
+- `dockfiles/local_daemon`
