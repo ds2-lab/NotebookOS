@@ -104,8 +104,20 @@ The command in the `smr/` directory does something along the lines of regenerate
 ./gateway: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.34' not found (required by ./gateway)
 ```
 
-If you see the above error, then try rebuildin *all* Docker images locally, including the base image. Specifically, rebuild these images (in roughly this order):
+If you see the above error, then try rebuilding *all* Docker images locally, including the base image. Specifically, rebuild these images (in roughly this order):
 - `dockfiles/base-image`
 - `dockfiles/cpu-python3-amd64` (or `dockfiles/cpu-python3-arm64`, depending on your CPU architecture)
 - `dockfiles/gateway`
 - `dockfiles/local_daemon`
+
+Once rebuilt, you can redeploy the application and see if that issue is resolved. If the error persists, then you may have an incompatible glibc version installed locally (compared to the glibc version found within the Docker images).
+
+You can see the version number of your locally-installed glibc via `ldd --version`. You can see the version installed within the Docker containers by running one of the containers and executing that command:
+``` sh
+docker run -it --entrypoint /bin/bash <container id>
+ldd --version
+```
+
+At the time of writing this, the glibc version found in the Gateway and Local Daemon Docker containers is: `ldd (Debian GLIBC 2.36-9+deb12u7) 2.36`
+
+The version found within the Jupyter Docker container is: `ldd (Ubuntu GLIBC 2.35-0ubuntu3.8) 2.35`
