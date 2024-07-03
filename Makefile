@@ -38,6 +38,9 @@ build-smr-linux-arm64:
 build-smr-linux-amd64:
 	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out scusemua/gopy /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-amd64"
 
+build-gateway:
+	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out scusemua/dist-notebook-base /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-amd64"
+
 install-kernel:
 	./install_kernel.sh
 
