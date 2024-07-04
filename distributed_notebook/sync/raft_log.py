@@ -87,6 +87,8 @@ class RaftLog:
     self._log.info("Actually creating LogNode %d now." % id)
 
     self._node = NewLogNode(self._store, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
+    if self._node == None:
+      raise RuntimeError("Failed to create LogNode.")
 
     self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
     self.my_proposals: Dict[int, Dict[int, SyncValue]] = {} # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
@@ -218,7 +220,10 @@ class RaftLog:
 
     # self._printIOLoopInformationDebug()
 
-    self._node.Start(config)
+    startSuccessful: bool = self._node.Start(config)
+    if not startSuccessful:
+      self._log.error("Failed to start LogNode.")
+      raise RuntimeError("failed to start the Golang-level LogNode component")
     self._log.info("Started LogNode.")
 
     # self._printIOLoopInformationDebug()

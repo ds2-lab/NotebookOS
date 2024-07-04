@@ -1285,7 +1285,7 @@ class DistributedKernel(IPythonKernel):
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
             self.report_error(errorTitle="Failed to Create RaftLog", errorMessage = str(ex))
-            raise ex
+            exit(1)
 
         self.log.debug("Successfully created RaftLog.")
         return self.synclog
