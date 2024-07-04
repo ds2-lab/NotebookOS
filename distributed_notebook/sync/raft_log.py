@@ -133,7 +133,7 @@ class RaftLog:
       "largest_peer_attempt_number": self.largest_peer_attempt_number,
       "proposals_per_term": self.proposals_per_term,
       "own_proposal_times": self.own_proposal_times,
-      "first_lead_proposal_received_per_term  ": self.first_lead_proposal_received_per_term,
+      "first_lead_proposal_received_per_term": self.first_lead_proposal_received_per_term,
       "first_proposal_received_per_term": self.first_proposal_received_per_term,
       "timeout_durations": self.timeout_durations,
       "discard_after": self.discard_after,
