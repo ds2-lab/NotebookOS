@@ -60,3 +60,9 @@ COPY dockfiles/cpu-python3-amd64/jupyter_server_config.py /home/jovyan/.jupyter/
 
 # Switch back to jovyan
 USER jovyan:users
+
+# ENTRYPOINT ["/usr/bin/env"]
+# CMD ["tini" "-g" "-vvv" "--" "start.sh"]
+
+ENTRYPOINT ["tini", "-g", "-vvv", "--", "start.sh"]
+#CMD ["start-notebook.py"]
