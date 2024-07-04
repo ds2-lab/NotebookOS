@@ -187,8 +187,6 @@ class RaftLog:
     # self._leader_term = data_dict["_leader_term"]
     # self._leader_id = data_dict["_leader_id"]
     # self._expected_term = data_dict["_expected_term"]
-    
-    return json.dumps(data_dict)
 
   @property
   def num_changes(self) -> int:

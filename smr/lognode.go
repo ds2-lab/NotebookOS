@@ -306,9 +306,10 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		DatanodeDialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
 			port := strings.Split(address, ":")[1]                       // Get the port that the DataNode is using. Discard the IP address.
 			modified_address := fmt.Sprintf("%s:%s", "172.17.0.1", port) // Return the IP address that will enable the local k8s Pods to find the local DataNode.
-			node.logger.Info(fmt.Sprintf("Dialing HDFS DataNode. Original address '%s'. Modified address: %s.\n", address, modified_address), zap.String("original_address", address), zap.String("modified_address", modified_address))
+			node.sugaredLogger.Infof("Dialing HDFS DataNode. Original address: '%s'. Modified address: %s.\n", address, modified_address)
 			conn, err := (&net.Dialer{}).DialContext(ctx, network, modified_address)
 			if err != nil {
+				node.sugaredLogger.Errorf("Failed to dial HDFS DataNode at address '%s' because: %v", modified_address, err)
 				return nil, err
 			}
 
@@ -726,37 +727,39 @@ func (node *LogNode) ReadDataDirectoryFromHDFS() (serialized_state_bytes []byte,
 		node.logger.Debug("Did not find a serialized state file. Hopefully you weren't expecting one!")
 	}
 
-	node.logger.Info(fmt.Sprintf("Walking the HDFS data directory '%s'", node.hdfs_data_directory), zap.String("directory", node.hdfs_data_directory))
+	node.sugaredLogger.Debugf("Walking the HDFS data directory '%s'", node.hdfs_data_directory)
 	walk_err := node.hdfsClient.Walk(node.hdfs_data_directory, func(path string, info fs.FileInfo, err error) error {
+		node.sugaredLogger.Debugf("Processing file system object at path \"%s\": %v", path, info)
+
 		if info.IsDir() {
-			node.logger.Info(fmt.Sprintf("Found remote directory '%s'", path), zap.String("directory", path))
+			node.sugaredLogger.Debugf("Found remote directory '%s'", path)
 			err := os.MkdirAll(path, os.FileMode(int(0777)))
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create local directory '%s': %v", path, err), zap.String("directory", path), zap.Error(err))
+				node.sugaredLogger.Errorf("Exception encountered while trying to create local directory '%s': %v", path, err)
 				return err
 			}
 
-			node.logger.Info(fmt.Sprintf("Successfully created local directory '%s'", path), zap.String("directory", path))
+			node.sugaredLogger.Debugf("Successfully created local directory '%s'", path)
 			// Convert the remote HDFS path to a local path based on the persistent store ID.
 		} else {
-			node.logger.Info(fmt.Sprintf("Found remote file '%s'", path), zap.String("file", path))
+			node.sugaredLogger.Debugf("Found remote file '%s'", path)
 			err := node.hdfsClient.CopyToLocal(path, path)
 
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.logger.Error(fmt.Sprintf("Exception encountered while trying to copy remote-to-local for file '%s': %v", path, err), zap.String("file", path), zap.Error(err))
+				node.sugaredLogger.Errorf("Exception encountered while trying to copy remote-to-local for file '%s': %v", path, err)
 				return err
 			}
 
-			node.logger.Info(fmt.Sprintf("Successfully copied remote HDFS file to local file system: '%s'", path), zap.String("file", path))
+			node.sugaredLogger.Debugf("Successfully copied remote HDFS file to local file system: '%s'", path)
 		}
 
 		return nil
 	})
 
 	if walk_err != nil {
-		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory '%s'): %v", node.data_dir, walk_err), zap.Error(walk_err))
+		node.sugaredLogger.Errorf("Exception encountered while trying to create HDFS directory '%s'): %v", node.data_dir, walk_err)
 		return serialized_state_bytes, walk_err
 	}
 

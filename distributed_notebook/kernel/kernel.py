@@ -993,7 +993,9 @@ class DistributedKernel(IPythonKernel):
             else:
                 self.log.info(
                     "I've already removed myself from the SMR cluster and closed my sync-log.")
-
+        else:
+            self.log.info("Not stopping/removing node from etcd/raft cluster.")
+            
         # Give time for the "smr_node_removed" message to be sent.
         # time.sleep(2)
         return super().do_shutdown(restart)
@@ -1284,7 +1286,17 @@ class DistributedKernel(IPythonKernel):
                                    debug_port = self.debug_port)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
+            
+            # Print the stack.
+            stack:list[str] = traceback.format_stack()
+            for stack_entry in stack:
+                self.log.error(stack_entry)
+            
             self.report_error(errorTitle="Failed to Create RaftLog", errorMessage = str(ex))
+            
+            # Sleep for 30 seconds to provide plenty of time for the error-report message to be sent before exiting. 
+            await asyncio.sleep(30)
+            
             exit(1)
 
         self.log.debug("Successfully created RaftLog.")
