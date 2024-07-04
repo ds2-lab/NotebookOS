@@ -250,21 +250,35 @@ HADOOP_USER=hadoop
 HADOOP_PASSWORD="12345"
 sudo useradd -p "$(openssl passwd -6 $HADOOP_PASSWORD)" $HADOOP_USER
 
+sudo mkdir /home/hadoop/
+sudo mkdir /home/hadoop/.ssh
+sudo chmod -R 777 /home/hadoop/
+sudo chown -R hadoop /home/hadoop/
+
 # Create SSH key for hadoop and move it to the proper location.
+pushd ~/.ssh/
 ssh-keygen -t rsa -N "" -f hadoop.key
-mv hadoop.key ~/.ssh/hadoop.key 
-mv hadoop.key.pub ~/.ssh/hadoop.key.pub
-cat ~/.ssh/hadoop.key >> ~/.ssh/authorized_keys
+cp hadoop.key /home/hadoop/.ssh/hadoop.key 
+cp hadoop.key.pub /home/hadoop/.ssh/hadoop.key.pub
+cp hadoop.key /home/hadoop/.ssh/id_rsa
+cp hadoop.key.pub /home/hadoop/.ssh/id_rsa.pub
+cat ~/.ssh/hadoop.key.pub >> ~/.ssh/authorized_keys
 sudo cp ~/.ssh/authorized_keys /home/hadoop/.ssh/authorized_keys
 chmod 640 ~/.ssh/authorized_keys
 sudo chown hadoop /home/hadoop/.ssh/authorized_keys
+sudo chown hadoop /home/hadoop/.ssh/hadoop.key 
+sudo chown hadoop /home/hadoop/.ssh/hadoop.key.pub
+sudo chown hadoop /home/hadoop/.ssh/id_rsa
+sudo chown hadoop /home/hadoop/.ssh/id_rsa.pub
+popd 
+
+# Download hadoop HDFS and set it up in the hadoop user's home directory.
+# NOTE: you may have to execute these commands manually, one at a time, if this doesn't work... 
+ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/hadoop.key hadoop@localhost "wget https://dlcdn.apache.org/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz ; tar -xvzf hadoop-3.3.6.tar.gz ; mv hadoop-3.3.6 hadoop ; mkdir -p ~/hadoopdata/hdfs/{namenode,datanode}"
 
 # Set some environment variables in the hadoop user's .bashrc file as well as the hadoop-env.sh file (only the latter of which is more important/actually does something...)
 sudo bash -c 'cat hadoop-env >> /home/hadoop/.bashrc'
 sudo bash -c 'cat hadoop-env >> /home/hadoop/hadoop/etc/hadoop/hadoop-env.sh'
-
-# Download hadoop HDFS and set it up in the hadoop user's home directory.
-ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/hadoop.key hadoop@localhost "wget https://dlcdn.apache.org/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz ; tar -xvzf hadoop-3.3.6.tar.gz ; mv hadoop-3.3.6 hadoop ; mkdir -p ~/hadoopdata/hdfs/{namenode,datanode}"
 
 # Copy the HDFS configuration.
 sudo cp -r ./hdfs_configuration/* /home/hadoop/hadoop/etc/hadoop/
