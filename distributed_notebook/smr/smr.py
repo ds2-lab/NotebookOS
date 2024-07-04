@@ -341,31 +341,6 @@ def Set_ProposalDeadline(value):
 
 # ---- Interfaces ---
 
-# Python type for interface smr.LogSnapshotter
-class LogSnapshotter(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Load(self):
-		"""Load() object, str"""
-		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_Load(self.handle))
-	def LoadNewestAvailable(self, arg_0):
-		"""LoadNewestAvailable([]object) object, str"""
-		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_LoadNewestAvailable(self.handle, arg_0.handle))
-	def SaveSnap(self, arg_0):
-		"""SaveSnap(object) str"""
-		return _smr.smr_LogSnapshotter_SaveSnap(self.handle, arg_0.handle)
-
 # Python type for interface smr.LogStorage
 class LogStorage(go.GoClass):
 	""""""
@@ -437,6 +412,31 @@ class WriteCloser(go.GoClass):
 	def Write(self, p):
 		"""Write(object p) object"""
 		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
+
+# Python type for interface smr.LogSnapshotter
+class LogSnapshotter(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Load(self):
+		"""Load() object, str"""
+		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_Load(self.handle))
+	def LoadNewestAvailable(self, arg_0):
+		"""LoadNewestAvailable([]object) object, str"""
+		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_LoadNewestAvailable(self.handle, arg_0.handle))
+	def SaveSnap(self, arg_0):
+		"""SaveSnap(object) str"""
+		return _smr.smr_LogSnapshotter_SaveSnap(self.handle, arg_0.handle)
 
 
 # ---- Structs ---

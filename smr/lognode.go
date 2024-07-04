@@ -714,7 +714,7 @@ func (node *LogNode) ReadDataDirectoryFromHDFS() (serialized_state_bytes []byte,
 	serialized_state_bytes = make([]byte, 0)
 
 	serialized_state_file := filepath.Join(node.data_dir, SerializedStateFile)
-	if _, err := node.hdfsClient.Stat(serialized_state_file); err != nil {
+	if _, err := node.hdfsClient.Stat(serialized_state_file); err == nil {
 		serialized_state_bytes, err = node.hdfsClient.ReadFile(serialized_state_file)
 		if err != nil {
 			node.logger.Error("Failed to read 'serialized state' from file.", zap.String("path", serialized_state_file), zap.Error(err))
@@ -859,7 +859,7 @@ func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state []byte, resolve R
 			node.logger.Info(fmt.Sprintf("Found local file '%s'", path), zap.String("file", path))
 
 			// If the file already exists...
-			if _, err := node.hdfsClient.Stat(path); err != nil {
+			if _, err := node.hdfsClient.Stat(path); err == nil {
 				// ... then we need to remove it and re-write it.
 				// TODO (Ben): Can we optimize this so that we only need to add the new data?
 				err = node.hdfsClient.Remove(path)

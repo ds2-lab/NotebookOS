@@ -64,5 +64,5 @@ USER jovyan:users
 # ENTRYPOINT ["/usr/bin/env"]
 # CMD ["tini" "-g" "-vvv" "--" "start.sh"]
 
-ENTRYPOINT ["tini", "-g", "-vvv", "--", "start.sh"]
+# ENTRYPOINT ["tini", "-g", "-vvv", "--", "start.sh"]
 #CMD ["start-notebook.py"]
