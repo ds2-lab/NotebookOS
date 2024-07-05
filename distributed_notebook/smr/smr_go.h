@@ -316,6 +316,10 @@ extern char* smr_ErrEOF();
 extern void smr_Set_ErrEOF(char* val);
 extern long long int smr_ProposalDeadline();
 extern void smr_Set_ProposalDeadline(long long int val);
+extern char* smr_ReadCloser_Close(long long int _handle);
+extern long long int smr_ReadCloser_Read(long long int _handle, long long int p);
+extern char* smr_WriteCloser_Close(long long int _handle);
+extern long long int smr_WriteCloser_Write(long long int _handle, long long int p);
 extern long long int smr_LogSnapshotter_Load(long long int _handle);
 extern long long int smr_LogSnapshotter_LoadNewestAvailable(long long int _handle, long long int arg_0);
 extern char* smr_LogSnapshotter_SaveSnap(long long int _handle, long long int arg_0);
@@ -323,10 +327,6 @@ extern char* smr_LogStorage_Close(long long int _handle);
 extern char* smr_LogStorage_ReleaseLockTo(long long int _handle, long long unsigned int arg_0);
 extern char* smr_LogStorage_Save(long long int _handle, long long int arg_0, long long int arg_1);
 extern void smr_LogStorage_SaveSnapshot(long long int _handle, long long int arg_0, char goRun);
-extern char* smr_ReadCloser_Close(long long int _handle);
-extern long long int smr_ReadCloser_Read(long long int _handle, long long int p);
-extern char* smr_WriteCloser_Close(long long int _handle);
-extern long long int smr_WriteCloser_Write(long long int _handle, long long int p);
 
 // --- wrapping struct: smr.Bytes ---
 //

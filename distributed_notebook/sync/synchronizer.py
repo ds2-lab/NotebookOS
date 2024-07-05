@@ -80,7 +80,7 @@ class Synchronizer:
   def execution_count(self) -> int:
     return self._ast.execution_count
 
-  def change_handler(self, val: SyncValue):
+  def change_handler(self, val: SyncValue, restoring:bool = False):
     """Change handler"""
     ## TODO: Buffer changes of one execution and apply changes atomically
     if not val.end:

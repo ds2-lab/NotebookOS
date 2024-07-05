@@ -55,6 +55,7 @@ class RaftLog:
   _handler: Callable[[SyncValue], None] # The handler to be called when a change is committed.
   _shouldSnapshotCallback: Optional[Callable[[SyncLog], bool]] = None # The callback to be called when a snapshot is needed.
   _snapshotCallback: Optional[Callable[[Any], bytes]] = None # The callback to be called when a snapshot is needed.
+  _catchingUpAfterMigration: bool = False # If true, then the "remote updates" that we're receiving are us catching up to where we were before a migration/eviction was triggered.
 
   def __init__(self, base_path: str, id: int, hdfs_hostname:str, data_directory:str, peer_addrs: Iterable[str], peer_ids: Iterable[int], join: bool = False, debug_port:int = 8464):
     self._log: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
@@ -90,6 +91,7 @@ class RaftLog:
     if self._node == None:
       raise RuntimeError("Failed to create LogNode.")
 
+    self.my_current_attempt_number : int = 1 # Attached to proposals. Sort of an ID within an election term. 
     self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
     self.my_proposals: Dict[int, Dict[int, SyncValue]] = {} # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
     self.my_current_attempt_number:int = 1 # The current attempt number for the current term. 
@@ -183,6 +185,12 @@ class RaftLog:
     self.sync_proposals_per_term = data_dict["sync_proposals_per_term"]
     self.decisions_proposed = data_dict["decisions_proposed"]
     
+    # If true, then the "remote updates" that we're receiving are us catching up to where we were before a migration/eviction was triggered.
+    self._catchingUpAfterMigration = True 
+
+    # The value of _leader_term before a migration/eviction was triggered.
+    self.leader_term_before_migration: int = data_dict["_leader_term"]
+
     # Commenting these out for now; it's not clear if we should set these in this way yet.
     # self._leader_term = data_dict["_leader_term"]
     # self._leader_id = data_dict["_leader_id"]
@@ -246,7 +254,7 @@ class RaftLog:
     return syncval.key == KEY_LEAD or syncval.key == KEY_YIELD or syncval.key == KEY_SYNC
 
   def _handleProposal(self, proposal: SyncValue, received_at: float = time.time()) -> bytes:
-    """Handle a LEAD/YIELD proposal.
+    """Handle a committed LEAD/YIELD proposal.
 
     Args:
         proposal (SyncValue): the committed proposal.
@@ -319,15 +327,20 @@ class RaftLog:
     numProposalsReceived:int = len(self.proposals_per_term.get(term, {}))
     self._log.debug("Received %d proposal(s) in term %d so far." % (numProposalsReceived, term))
 
+    first_proposal: SyncValue = self.first_proposal_received_per_term.get(term, None)
+
     # If this is the first 'LEAD' proposal we're receiving in this term, then take note of the time.
-    if self.first_proposal_received_per_term.get(term, None) is None: # if numProposalsReceived == 1:
+    # Alternatively, if we receive a new proposal with a higher attempt number, then that must mean another round of proposals has begun.
+    # In this case, we'll reset the 'discard' timer and treat this newly-received proposal as the "first" proposal. 
+    if first_proposal is None or first_proposal.attempt_number < proposal.attempt_number: # if numProposalsReceived == 1:
       timeout: float = min(5 * (time.time() - proposal.timestamp), 10) # Timeout of 10 seconds at-most.
       self.timeout_durations[term] = timeout
       self.discard_after[term] = proposal.timestamp + timeout
       self.first_proposal_received_per_term[term] = proposal
+      first_proposal = proposal 
 
       self._log.debug("Timeout for term %d will be %.6f seconds. Will discard any proposals received after time %s." % (term, timeout, datetime.datetime.fromtimestamp(self.discard_after[term]).strftime('%Y-%m-%d %H:%M:%S.%f')))
-    elif self.first_proposal_received_per_term.get(term, None) is not None and received_at > self.discard_after[term]:
+    elif first_proposal is not None and received_at > self.discard_after[term]:
       # If we've received at least one 'LEAD' proposal, then the timeout has been set, so we check if we need to discard this proposal.
       self._log.debug("Term %d proposal from node %d was received after timeout. Will be discarding." % (term, proposal.val))
 
@@ -461,10 +474,10 @@ class RaftLog:
     self._log.debug("Scheduled the setting of result on _decisionProposalFuture now.")
     
   def _handleSyncProposal(self, proposal: SyncValue) -> bytes:
-    """Handle a 'SYNC' (KEY_SYNC) proposal.
+    """Handle a committed 'SYNC' (KEY_SYNC) proposal.
 
     Args:
-        proposal (SyncValue): The proposed value.
+        proposal (SyncValue): The SyncVal that was commtited as part of the proposal. 
     """
     self._log.debug("Received 'SYNC' proposal from Node %d in term %s proposing that Node %d wins." % (proposal.val, proposal.term, proposal.proposed_node))
 
@@ -524,10 +537,23 @@ class RaftLog:
         return GoNilError()
 
       self._log.debug("Setting _leader_term (currently %d) to %d." % (self._leader_term, syncval.term))
+      old_leader_term:int = self._leader_term
       self._leader_term = syncval.term
-      self._log.debug("Resetting attempt number and largest peer attempt number.")
-      self.my_current_attempt_number = 1 # Reset the current attempt number. 
-      self.largest_peer_attempt_number[self._leader_term] = 0 # Reset the current "largest peer" attempt number. 
+
+      if self._catchingUpAfterMigration:
+        # Check if we've caught-up now.
+        if self._leader_term >= self.leader_term_before_migration:
+          self._catchingUpAfterMigration = False 
+          self._log.debug(f"We're done catching up. Current and previous leader term are both equal to {self._leader_term}.")
+        else:
+          self._log.debug(f"We're not done catching-up yet. Previous leader term: {self.leader_term_before_migration}, current leader term: {self._leader_term}.")
+      
+      # if self._leader_term > old_leader_term:
+      #  # Only reset these values if we're done "catching up". 
+      #  self._log.debug(f"Resetting attempt number and largest peer attempt number (we're not catching up post-migration and the leader term just increased from {old_leader_term} to {self._leader_term}).")
+      #  self.my_current_attempt_number = 1 # Reset the current attempt number. 
+      #  self.largest_peer_attempt_number[self._leader_term] = 0 # Reset the current "largest peer" attempt number. 
+      
       # For values synchronized from other replicas or replayed, count _ignore_changes
       if syncval.op is None or syncval.op == "":
         self._ignore_changes = self._ignore_changes + 1
@@ -544,11 +570,6 @@ class RaftLog:
     #   reader.close()
 
   def _restore(self, rc, sz) -> bytes:
-  #   future = asyncio.run_coroutine_threadsafe(self._restoreImpl(buff), self._start_loop)
-  #   return future.result()
-
-  # async def _restoreImpl(self, buff) -> bytes:
-  #   """Restore history"""
     self._log.debug("Restoring...")
 
     reader = readCloser(ReadCloser(handle=rc), sz)
@@ -559,9 +580,6 @@ class RaftLog:
       syncval = unpickler.load()
     except Exception:
       pass
-    # unpickler will close the reader
-    # finally:
-    #   reader.close()
 
     # Recount _ignore_changes
     self._ignore_changes = 0
@@ -623,6 +641,12 @@ class RaftLog:
     self._log.debug("RaftLog %d is proposing to lead term %d. Current leader term: %d." % (self._id, term, self._leader_term))
     is_leading:bool = await self.handle_election(term, SyncValue(None, self._id, timestamp = time.time(), term=term, key=KEY_LEAD, attempt_number=self.my_current_attempt_number))
     self._log.debug("RaftLog %d: returning from lead for term %d after waiting, is_leading=%s" % (self._id, term, str(is_leading)))
+
+    # TODO(Ben):
+    # Is there one singular place I could have this happen?
+    self.my_current_attempt_number = 1 # Reset the current attempt number. 
+    self.largest_peer_attempt_number[self._leader_term] = 0 # Reset the current "largest peer" attempt number. 
+
     return is_leading
 
   async def yield_execution(self, term) -> bool:
@@ -633,6 +657,12 @@ class RaftLog:
     is_leading:bool = await self.handle_election(term, SyncValue(-1, self._id, timestamp = time.time(), term=term, key=KEY_YIELD, attempt_number=self.my_current_attempt_number))
     assert is_leading == False
     self._log.debug("RaftLog %d: returning from yield_execution for term %d." % (self._id, term))
+
+    # TODO(Ben):
+    # Is there one singular place I could have this happen?
+    self.my_current_attempt_number = 1 # Reset the current attempt number. 
+    self.largest_peer_attempt_number[self._leader_term] = 0 # Reset the current "largest peer" attempt number. 
+
     return False 
 
   async def handle_election(self, term, proposal: SyncValue):
@@ -661,18 +691,27 @@ class RaftLog:
     self._leading = self._future_loop.create_future()
     _leading = self._leading
     self.own_proposal_times[term] = time.time()
-    self._log.debug("RaftLog %d: appending %s proposal for term %d. Attempt number(proposal=%d,local_var=%d)." % (self._id, proposal.key, term, proposal.attempt_number, self.my_current_attempt_number))
+    self._log.debug("RaftLog %d: appending %s proposal for term %d. Attempt number: (proposal=%d,local_var=%d)." % (self._id, proposal.key, term, proposal.attempt_number, self.my_current_attempt_number))
     # Append is blocking. We are guaranteed to gain leading status if terms match.
     await self.append(proposal)
-    self._log.debug("RaftLog %d: appended %s proposal for term %d. Attempt number(proposal=%d,local_var=%d)" % (self._id, proposal.key, term, proposal.attempt_number, self.my_current_attempt_number))
+    self._log.debug("RaftLog %d: appended %s proposal for term %d. Attempt number: (proposal=%d,local_var=%d)" % (self._id, proposal.key, term, proposal.attempt_number, self.my_current_attempt_number))
     
     decisionProposal: SyncValue = await _decisionProposalFuture
     self._decisionProposalFuture = None 
     
+    my_term_proposals: Dict[int, SyncValue] = self.my_proposals.get(term, {})
+    my_term_proposals[decisionProposal.attempt_number] = decisionProposal
+    self.my_current_attempt_number += 1 # Now that we have our proposal, we'll increment the attempt number in case we propose something else again soon.
+    self.my_proposals[term] = my_term_proposals
+
     if decisionProposal.key == KEY_SYNC:
       self._log.debug("RaftLog %d: Got decision to propose: I think Node %d should win in term %d." % (self._id, decisionProposal.proposed_node, decisionProposal.term))
     elif decisionProposal.key == KEY_FAILURE:
       self._log.debug("RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'." % self._id)
+      
+      # None of the replicas proposed 'LEAD'
+      # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
+
       return False 
     else:
       raise ValueError("Unexpected key on decision proposal: \"%s\"", decisionProposal.key)
@@ -681,11 +720,6 @@ class RaftLog:
       raise ValueError("Received decision proposal with different term: %d. Expected: %d." % (decisionProposal.term, term))
     
     self._log.debug("RaftLog %d: Appending decision proposal for term %s now." % (self._id, decisionProposal.term))
-    
-    my_term_proposals: Dict[int, SyncValue] = self.my_proposals.get(term, {})
-    my_term_proposals[decisionProposal.attempt_number] = decisionProposal
-    self.my_current_attempt_number += 1 # Now that we have our proposal, we'll increment the attempt number in case we propose something else again soon.
-    self.my_proposals[term] = my_term_proposals
     
     await self.append_decision(decisionProposal)
     self._log.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (self._id, decisionProposal.term))

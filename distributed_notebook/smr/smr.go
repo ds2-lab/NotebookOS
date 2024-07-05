@@ -1636,6 +1636,46 @@ func smr_Set_ProposalDeadline(val C.longlong) {
 
 // ---- Interfaces ---
 
+//export smr_ReadCloser_Close
+func smr_ReadCloser_Close(_handle CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
+	if __err != nil {
+		return C.CString("")
+	}
+	return C.CString(vifc.(smr.ReadCloser).Close())
+
+}
+
+//export smr_ReadCloser_Read
+func smr_ReadCloser_Read(_handle CGoHandle, p CGoHandle) CGoHandle {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_IntRet(nil)
+	}
+	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.ReadCloser).Read(*ptrFromHandle_smr_Bytes(p)))
+
+}
+
+//export smr_WriteCloser_Close
+func smr_WriteCloser_Close(_handle CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
+	if __err != nil {
+		return C.CString("")
+	}
+	return C.CString(vifc.(smr.WriteCloser).Close())
+
+}
+
+//export smr_WriteCloser_Write
+func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_IntRet(nil)
+	}
+	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.WriteCloser).Write(*ptrFromHandle_smr_Bytes(p)))
+
+}
+
 //export smr_LogSnapshotter_Load
 func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
@@ -1745,46 +1785,6 @@ func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.cha
 	} else {
 		vifc.(smr.LogStorage).SaveSnapshot(*ptrFromHandle_walpb_Snapshot(arg_0))
 	}
-}
-
-//export smr_ReadCloser_Close
-func smr_ReadCloser_Close(_handle CGoHandle) *C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
-	if __err != nil {
-		return C.CString("")
-	}
-	return C.CString(vifc.(smr.ReadCloser).Close())
-
-}
-
-//export smr_ReadCloser_Read
-func smr_ReadCloser_Read(_handle CGoHandle, p CGoHandle) CGoHandle {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_IntRet(nil)
-	}
-	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.ReadCloser).Read(*ptrFromHandle_smr_Bytes(p)))
-
-}
-
-//export smr_WriteCloser_Close
-func smr_WriteCloser_Close(_handle CGoHandle) *C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
-	if __err != nil {
-		return C.CString("")
-	}
-	return C.CString(vifc.(smr.WriteCloser).Close())
-
-}
-
-//export smr_WriteCloser_Write
-func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_IntRet(nil)
-	}
-	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.WriteCloser).Write(*ptrFromHandle_smr_Bytes(p)))
-
 }
 
 // ---- Structs ---

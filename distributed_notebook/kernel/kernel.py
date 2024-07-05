@@ -11,7 +11,7 @@ import socket
 import traceback
 import time
 
-from traitlets.traitlets import Set
+# from traitlets.traitlets import Set
 
 import typing as t
 from typing import Union, Optional, Dict, Any
@@ -25,7 +25,7 @@ from threading import Lock
 
 from jupyter_client.session import extract_dates
 
-from ..smr.smr import PrintTestMessage
+# from ..smr.smr import PrintTestMessage
 
 from multiprocessing import Process, Queue
 
@@ -190,9 +190,9 @@ class DistributedKernel(IPythonKernel):
         self.log.error("TEST -- ERROR")   
         self.log.critical("TEST -- CRITICAL")     
 
-        self.log.info("Calling Go-level `PrintTestMessage` function now...")
-        PrintTestMessage()
-        self.log.info("Called Go-level `PrintTestMessage` function now...")
+        # self.log.info("Calling Go-level `PrintTestMessage` function now...")
+        # PrintTestMessage()
+        # self.log.info("Called Go-level `PrintTestMessage` function now...")
         
         self.received_message_ids: set = set()  
 
@@ -479,7 +479,7 @@ class DistributedKernel(IPythonKernel):
             self.send_ack(self.shell_stream, msg_type, msg_id, idents, message) # Send an ACK.
             return
         
-        self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
+        # self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
         msg_id:str = msg_deserialized["header"]["msg_id"]
         msg_type:str = msg_deserialized["header"]["msg_type"]
         self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg_deserialized) # Send an ACK.
@@ -673,7 +673,7 @@ class DistributedKernel(IPythonKernel):
             return True
 
     def send_ack(self, stream, msg_type:str, msg_id:str, ident, parent):
-        self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
+        # self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
         ack_msg = self.session.send(  # type:ignore[assignment]
             stream,
             "ACK",
@@ -685,7 +685,7 @@ class DistributedKernel(IPythonKernel):
             parent,
             ident=ident,
         )
-        self.log.debug(f"Sent 'ACK' for {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
+        # self.log.debug(f"Sent 'ACK' for {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -995,7 +995,7 @@ class DistributedKernel(IPythonKernel):
                     "I've already removed myself from the SMR cluster and closed my sync-log.")
         else:
             self.log.info("Not stopping/removing node from etcd/raft cluster.")
-            
+
         # Give time for the "smr_node_removed" message to be sent.
         # time.sleep(2)
         return super().do_shutdown(restart)
@@ -1026,6 +1026,17 @@ class DistributedKernel(IPythonKernel):
         # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
         #
 
+        try:
+            data_dir_path = await self.synclog.write_data_dir_to_hdfs()
+            self.log.info(
+                "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % data_dir_path)
+            return {'status': 'ok', "data_directory": data_dir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
+        except Exception as e:
+            self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
+                           self.smr_node_id, self.kernel_id, str(e))
+            self.log.error(traceback.format_exc())
+            return self.gen_error_response(e), False
+
         self.log.info(
             "Closing the SyncLog (and therefore the etcd-Raft process) now.")
         try:
@@ -1036,17 +1047,6 @@ class DistributedKernel(IPythonKernel):
         except Exception as e:
             self.log.error("Failed to close the SyncLog for replica %d of kernel %s.",
                            self.smr_node_id, self.kernel_id)
-            self.log.error(traceback.format_exc())
-            return self.gen_error_response(e), False
-
-        try:
-            data_dir_path = await self.synclog.write_data_dir_to_hdfs()
-            self.log.info(
-                "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % data_dir_path)
-            return {'status': 'ok', "data_directory": data_dir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
-        except Exception as e:
-            self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
-                           self.smr_node_id, self.kernel_id, str(e))
             self.log.error(traceback.format_exc())
             return self.gen_error_response(e), False
 

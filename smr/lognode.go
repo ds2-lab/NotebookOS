@@ -307,7 +307,11 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 			port := strings.Split(address, ":")[1]                       // Get the port that the DataNode is using. Discard the IP address.
 			modified_address := fmt.Sprintf("%s:%s", "172.17.0.1", port) // Return the IP address that will enable the local k8s Pods to find the local DataNode.
 			node.sugaredLogger.Infof("Dialing HDFS DataNode. Original address: '%s'. Modified address: %s.\n", address, modified_address)
-			conn, err := (&net.Dialer{}).DialContext(ctx, network, modified_address)
+
+			childCtx, cancel := context.WithTimeout(ctx, time.Second*30)
+			defer cancel()
+
+			conn, err := (&net.Dialer{}).DialContext(childCtx, network, modified_address)
 			if err != nil {
 				node.sugaredLogger.Errorf("Failed to dial HDFS DataNode at address '%s' because: %v", modified_address, err)
 				return nil, err
@@ -585,6 +589,15 @@ func (node *LogNode) close() {
 			default:
 			}
 		}
+	}
+
+	if node.hdfsClient != nil {
+		err := node.hdfsClient.Close()
+		if err != nil {
+			node.logger.Error("Error while closing HDFS client.", zap.Error(err))
+		}
+	} else {
+		node.logger.Warn("HDFS Client is nil. Will skip closing it.")
 	}
 }
 
@@ -1269,14 +1282,14 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 		for {
 			select {
 			case commit := <-node.commitC:
-				node.logger.Info(fmt.Sprintf("LogNode %d: Applying commit with %d data item(s) to local state machine.", node.id, len(commit.data)))
-				for idx, d := range commit.data {
+				// node.logger.Info(fmt.Sprintf("LogNode %d: Applying commit with %d data item(s) to local state machine.", node.id, len(commit.data)))
+				for _, d := range commit.data {
 					realData, ctx := node.doneProposal(d)
 					id := ""
 					if ctx != nil {
 						id = ctx.ID()
 					}
-					node.sugaredLogger.Infof("LogNode %d: Applying data item %d/%d to local state machine.", node.id, idx+1, len(commit.data))
+					// node.sugaredLogger.Infof("LogNode %d: Applying data item %d/%d to local state machine.", node.id, idx+1, len(commit.data))
 					if err := fromCError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
 						node.logFatalf("LogNode: Error on replay state (%v)", err)
 					}
@@ -1305,9 +1318,9 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-node.node.Ready():
-			if len(rd.CommittedEntries) > 0 || rd.HardState.Commit > 0 {
-				node.logger.Info("ready", zap.Int("num-committed-entries", len(rd.CommittedEntries)), zap.Uint64("hardstate.commit", rd.HardState.Commit))
-			}
+			// if len(rd.CommittedEntries) > 0 || rd.HardState.Commit > 0 {
+			// 	node.logger.Info("ready", zap.Int("num-committed-entries", len(rd.CommittedEntries)), zap.Uint64("hardstate.commit", rd.HardState.Commit))
+			// }
 			if node.wal != nil {
 				node.wal.Save(rd.HardState, rd.Entries)
 			}

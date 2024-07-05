@@ -16,7 +16,6 @@ import (
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/petermattis/goid"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -1446,7 +1445,7 @@ func (d *SchedulerDaemonImpl) kernelFromMsg(msg *zmq4.Msg) (kernel client.Kernel
 }
 
 func (d *SchedulerDaemonImpl) forwardRequest(ctx context.Context, kernel client.KernelReplicaClient, typ jupyter.MessageType, msg *zmq4.Msg, done func()) (err error) {
-	goroutineId := goid.Get()
+	// goroutineId := goid.Get()
 	if kernel == nil {
 		kernel, err = d.kernelFromMsg(msg)
 		if err != nil {
@@ -1454,7 +1453,7 @@ func (d *SchedulerDaemonImpl) forwardRequest(ctx context.Context, kernel client.
 		}
 	}
 
-	d.log.Debug("[gid=%d] Forwarding %v message to replica %d of kernel %s.", goroutineId, typ, kernel.ReplicaID(), kernel.ID())
+	// d.log.Debug("[gid=%d] Forwarding %v message to replica %d of kernel %s.", goroutineId, typ, kernel.ReplicaID(), kernel.ID())
 	if done == nil {
 		done = func() {}
 	}
@@ -1497,7 +1496,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 		}
 	}
 
-	d.log.Debug("Forwarding %v response from %v via %s: %v", typ, from, socket.Name, msg)
+	// d.log.Debug("Forwarding %v response from %v via %s: %v", typ, from, socket.Name, msg)
 	// We should only use the router here if that's where the socket came from...
 	err := sender.SendMessage(true, socket, "" /* will be auto-resolved */, msg, sender, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
 	// err := socket.Send(*msg)
@@ -1505,7 +1504,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 	if err != nil {
 		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
 	} else {
-		d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
+		// d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
 	}
 
 	return nil // Will be nil on success.

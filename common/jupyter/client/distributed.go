@@ -576,7 +576,7 @@ func (c *distributedKernelClientImpl) InitializeShellForwarder(handler core.Kern
 
 	go c.server.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.KernelSpec().Id, jupyter.JOffsetAutoDetect)
-		c.log.Debug("Received shell message via DistributedShellForwarder. Message: %v", msg)
+		// c.log.Debug("Received shell message via DistributedShellForwarder. Message: %v", msg)
 		return handler(srv.(*distributedKernelClientImpl), typ, msg)
 	}, false /* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be ACK'd. */)
 
@@ -657,11 +657,11 @@ func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.Kerne
 	}
 
 	jupyterMessageType = header.MsgType
-	if jupyterMessageType != KernelInfoReply {
-		c.log.Debug("Received shell '%v' response from kernel %s: %v", jupyterMessageType, c.id, msg)
-	} else { // We don't print the message if it is just a KernelInfoReply.
-		c.log.Debug("Received shell '%v' response from kernel %s.", jupyterMessageType, c.id)
-	}
+	// if jupyterMessageType != KernelInfoReply {
+	// 	c.log.Debug("Received shell '%v' response from kernel %s: %v", jupyterMessageType, c.id, msg)
+	// } else { // We don't print the message if it is just a KernelInfoReply.
+	// 	c.log.Debug("Received shell '%v' response from kernel %s.", jupyterMessageType, c.id)
+	// }
 
 	jFrames, _ := c.SkipIdentities(msg.Frames)
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]

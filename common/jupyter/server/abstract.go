@@ -186,14 +186,14 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 		return types.ErrNotSupported
 	}
 
-	s.Log.Debug("%s [%s] socket about to listen. Socket has port %d", socket.Type.String(), socket.Socket.Type(), socket.Port)
+	// s.Log.Debug("%s [%s] socket about to listen. Socket has port %d", socket.Type.String(), socket.Socket.Type(), socket.Port)
 
 	err := socket.Listen(fmt.Sprintf("tcp://:%d", socket.Port))
 	if err != nil {
 		return err
 	}
 
-	s.Log.Debug("%s [%s] socket started to listen. Socket has port %d", socket.Type.String(), socket.Socket.Type(), socket.Port)
+	// s.Log.Debug("%s [%s] socket started to listen. Socket has port %d", socket.Type.String(), socket.Socket.Type(), socket.Port)
 
 	// Update the port number if it is 0.
 	socket.Port = socket.Addr().(*net.TCPAddr).Port
@@ -222,9 +222,9 @@ func (s *AbstractServer) handleAck(msg *zmq4.Msg, socket *types.Socket, dest Req
 		ackChan <- struct{}{}
 		// s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
 	} else if ackChan == nil { // If ackChan is nil, then that means we weren't expecting an ACK in the first place.
-		s.Log.Error("[gid=%d] [3] Received ACK for %v message %v via %s; however, we were not expecting an ACK for that message...", goroutineId, socket.Type, rspId, socket.Name)
+		// s.Log.Error("[gid=%d] [3] Received ACK for %v message %v via %s; however, we were not expecting an ACK for that message...", goroutineId, socket.Type, rspId, socket.Name)
 	} else if ackReceived {
-		s.Log.Error("[gid=%d] [4] Received ACK for %v message %v via %s; however, we already received an ACK for that message...", goroutineId, socket.Type, rspId, socket.Name)
+		// s.Log.Error("[gid=%d] [4] Received ACK for %v message %v via %s; however, we already received an ACK for that message...", goroutineId, socket.Type, rspId, socket.Name)
 	} else if !loaded {
 		panic(fmt.Sprintf("[gid=%d] Did not have ACK entry for message %s", goroutineId, rspId))
 	} else {
@@ -282,7 +282,7 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 			[]byte(fmt.Sprintf("%s (%s)", time.Now().Format(time.RFC3339Nano), s.Name)))
 	}
 
-	s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sending ACK for %v \"%v\" (MsgId=%v, ReqId=%v) message via %s: %v"), goroutineId, socket.Type, parentHeader.MsgType, parentHeader.MsgID, rspId, socket.Name, ack_msg)
+	// s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sending ACK for %v \"%v\" (MsgId=%v, ReqId=%v) message via %s: %v"), goroutineId, socket.Type, parentHeader.MsgType, parentHeader.MsgID, rspId, socket.Name, ack_msg)
 
 	err = socket.Send(ack_msg)
 	if err != nil {
@@ -308,11 +308,11 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 	var contd chan bool
 	if socket.PendingReq == nil {
 		go s.poll(socket, chMsg, nil)
-		s.Log.Debug("[gid=%d] Start serving %v messages via %s", goroutineId, socket.Type.String(), socket.Name)
+		// s.Log.Debug("[gid=%d] Start serving %v messages via %s", goroutineId, socket.Type.String(), socket.Name)
 	} else {
 		contd = make(chan bool)
 		go s.poll(socket, chMsg, contd)
-		s.Log.Debug("[gid=%d] Start waiting for the response of %v requests via %s", goroutineId, socket.Type.String(), socket.Name)
+		// s.Log.Debug("[gid=%d] Start waiting for the response of %v requests via %s", goroutineId, socket.Type.String(), socket.Name)
 	}
 
 	for {
@@ -339,7 +339,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				err = v
 			case *zmq4.Msg:
 				if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage {
-					s.Log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message of type %d with %d frame(s) via %s: %v"), goroutineId, socket.Type, v.Type, len(v.Frames), socket.Name, v)
+					// s.Log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message of type %d with %d frame(s) via %s: %v"), goroutineId, socket.Type, v.Type, len(v.Frames), socket.Name, v)
 				}
 
 				// TODO: Optimize this. Lots of redundancy here, and that we also do the same parsing again later.
@@ -350,7 +350,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 				_, rspId, _ := dest.ExtractDestFrame(v.Frames)
 				if is_ack {
-					s.Log.Debug(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %v message %v via %s: %v"), goroutineId, socket.Type, rspId, socket.Name, msg)
+					// s.Log.Debug(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %v message %v via %s: %v"), goroutineId, socket.Type, rspId, socket.Name, msg)
 					s.handleAck(v, socket, dest, rspId)
 					if contd != nil {
 						contd <- true
@@ -362,12 +362,12 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 				err = handler(server, socket.Type, v)
 
-				s.Log.Debug("[gid=%d] Handler for %v message \"%v\" has returned. Error: %v.", goroutineId, socket.Type, rspId, err)
+				// s.Log.Debug("[gid=%d] Handler for %v message \"%v\" has returned. Error: %v.", goroutineId, socket.Type, rspId, err)
 			}
 
 			// Stop serving on error.
 			if err == io.EOF {
-				s.Log.Debug(utils.OrangeStyle.Render("[gid=%d] Socket %s [%v] closed."), goroutineId, socket.Name, socket.Type)
+				// s.Log.Debug(utils.OrangeStyle.Render("[gid=%d] Socket %s [%v] closed."), goroutineId, socket.Name, socket.Type)
 				if contd != nil {
 					contd <- false
 				}
@@ -382,7 +382,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					if contd != nil {
 						contd <- false
 					}
-					s.Log.Debug("[gid=%d] Done handling %s messages: %v.", goroutineId, socket.Type.String(), err)
+					// s.Log.Debug("[gid=%d] Done handling %s messages: %v.", goroutineId, socket.Type.String(), err)
 					return
 				}
 				// 3. If a new request is pending, compete with the new serve routing to serve the request.
@@ -391,13 +391,13 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					if contd != nil {
 						contd <- false
 					}
-					s.Log.Debug("[gid=%d] Done handling %s messages: %v.", goroutineId, socket.Type.String(), err)
+					// s.Log.Debug("[gid=%d] Done handling %s messages: %v.", goroutineId, socket.Type.String(), err)
 					return
 				}
 			} else if err != nil {
 				s.Log.Error(utils.RedStyle.Render("[gid=%d] Error on handle %s message: %v. Message: %v."), goroutineId, socket.Type.String(), err, msg)
 
-				s.Log.Debug("[gid=%d] Will NOT abort serving for now.", goroutineId)
+				// s.Log.Debug("[gid=%d] Will NOT abort serving for now.", goroutineId)
 				if contd != nil {
 					contd <- true
 				}
@@ -420,7 +420,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 		if socket.PendingReq != nil {
 			contd <- true
-			s.Log.Debug("[gid=%d] Continue waiting for the resposne of %s requests(%d)", goroutineId, socket.Type.String(), socket.PendingReq.Len())
+			// s.Log.Debug("[gid=%d] Continue waiting for the resposne of %s requests(%d)", goroutineId, socket.Type.String(), socket.PendingReq.Len())
 		}
 	}
 }
@@ -463,15 +463,15 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
 	_, reqId, jOffset := dest.ExtractDestFrame(msg.Frames)
 	if reqId == "" {
-		var jFrames types.JupyterFrames
-		if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-			jFrames = types.JupyterFrames(msg.Frames)
-			s.Log.Debug("[gid=%d] Adding destination '%s' to frames at offset %d now. Old frames: %v.", goroutineId, dest.RequestDestID(), jOffset, jFrames.String())
-		}
+		// var jFrames types.JupyterFrames
+		// if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
+		// jFrames = types.JupyterFrames(msg.Frames)
+		// s.Log.Debug("[gid=%d] Adding destination '%s' to frames at offset %d now. Old frames: %v.", goroutineId, dest.RequestDestID(), jOffset, jFrames.String())
+		// }
 		msg.Frames, reqId = dest.AddDestFrame(msg.Frames, dest.RequestDestID(), jOffset)
 
 		if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.Log.Debug("[gid=%d] Added destination '%s' to frames at offset %d. New frames: %v.", goroutineId, dest.RequestDestID(), jOffset, jFrames.String())
+			// s.Log.Debug("[gid=%d] Added destination '%s' to frames at offset %d. New frames: %v.", goroutineId, dest.RequestDestID(), jOffset, jFrames.String())
 		}
 	}
 
@@ -630,7 +630,7 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 		}
 
 		if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sent %v \"%s\" message with reqID=%v via %s. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d. Message: %v"), goroutineId, socket.Type, req.Header.MsgType, reqId, socket.Name, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries, req)
+			// s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sent %v \"%s\" message with reqID=%v via %s. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d. Message: %v"), goroutineId, socket.Type, req.Header.MsgType, reqId, socket.Name, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries, req)
 		}
 
 		// If an ACK is required, then we'll block until the ACK is received, or until timing out, at which point we'll try sending the message again.
@@ -639,7 +639,7 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 
 			if success {
 				if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-					s.Log.Debug(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message %v has successfully been ACK'd on attempt %d/%d."), goroutineId, socket.Type, req.Header.MsgType, reqId, num_tries+1, max_num_tries)
+					// s.Log.Debug(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message %v has successfully been ACK'd on attempt %d/%d."), goroutineId, socket.Type, req.Header.MsgType, reqId, num_tries+1, max_num_tries)
 				}
 				return nil
 			} else {
@@ -695,7 +695,7 @@ func (s *AbstractServer) AddDestFrame(frames [][]byte, destID string, jOffset in
 		_, reqID, jOffset = s.ExtractDestFrame(frames)
 		// If the dest frame is already there, we are done.
 		if reqID != "" {
-			s.Log.Debug("Destination frame found. ReqID: %s", reqID)
+			// s.Log.Debug("Destination frame found. ReqID: %s", reqID)
 			return frames, reqID
 		}
 	}
@@ -854,33 +854,33 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 
 		if err == nil {
 			msg = &got
-			s.Log.Debug("[gid=%d] Got message from socket: %v", goroutineId, types.JupyterFrames(got.Frames))
+			// s.Log.Debug("[gid=%d] Got message from socket: %v", goroutineId, types.JupyterFrames(got.Frames))
 		} else {
 			msg = err
-			s.Log.Error("[gid=%d] Received error upon trying to read %v message: %v", goroutineId, socket.Type, err)
+			// s.Log.Error("[gid=%d] Received error upon trying to read %v message: %v", goroutineId, socket.Type, err)
 		}
 		select {
 		case chMsg <- msg:
 		// Quit on router closed.
 		case <-s.Ctx.Done():
-			s.Log.Warn("[gid=%d] Polling is stopping. Router is closed.", goroutineId)
+			// s.Log.Warn("[gid=%d] Polling is stopping. Router is closed.", goroutineId)
 			return
 		}
 		// Quit on error.
 		if err != nil {
-			s.Log.Warn("[gid=%d] Polling is stopping. Received error: %v", goroutineId, err)
+			// s.Log.Warn("[gid=%d] Polling is stopping. Received error: %v", goroutineId, err)
 			return
 		}
 
 		// Wait for continue signal or quit.
 		if contd != nil {
-			s.Log.Debug("[gid=%d] %v socket %s is waiting to be instructed to continue.", goroutineId, socket.Type, socket.Name)
+			// s.Log.Debug("[gid=%d] %v socket %s is waiting to be instructed to continue.", goroutineId, socket.Type, socket.Name)
 			proceed := <-contd
 			if !proceed {
 				s.Log.Warn("[gid=%d] Polling is stopping.", goroutineId)
 				return
 			}
-			s.Log.Debug("[gid=%d] %v socket %s has been instructed to continue.", goroutineId, socket.Type, socket.Name)
+			// s.Log.Debug("[gid=%d] %v socket %s has been instructed to continue.", goroutineId, socket.Type, socket.Name)
 		}
 	}
 }
@@ -932,7 +932,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 				// Unexpected response without request ID, fallback to default handler.
 				handler = defaultHandler
 			} else {
-				s.Log.Debug(utils.BlueStyle.Render("Received response with ID=%s on socket %s"), rspId, socket.Name)
+				// s.Log.Debug(utils.BlueStyle.Render("Received response with ID=%s on socket %s"), rspId, socket.Name)
 				matchReqId = rspId
 
 				// Automatically remove destination kernel ID frame.
@@ -982,7 +982,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 				s.Log.Warn(utils.RedStyle.Render("Error on handle %v response: %v. Message: %v."), msgType, err, msg)
 			}
 		} else if matchReqId != "" {
-			s.Log.Debug(utils.OrangeStyle.Render("Discard %v response to request %s."), msgType, matchReqId)
+			// s.Log.Debug(utils.OrangeStyle.Render("Discard %v response to request %s."), msgType, matchReqId)
 		}
 
 		// Stop serving anyway.
