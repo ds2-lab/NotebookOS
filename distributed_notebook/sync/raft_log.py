@@ -459,7 +459,7 @@ class RaftLog:
       self._log.debug("Node %d has won in term %d as proposed by node %d." % (proposal.proposed_node, proposal.term, proposal.val))
     else:
       self._log.debug("Our leader_term (%d) >= 'leader_term' of latest committed 'SYNC' message (%d)..." % (self._leader_term, proposal.term))
-    
+
     # Set the future if the term is expected.
     _leading = self._leading
     if _leading is not None and self._leader_term >= self._expected_term:

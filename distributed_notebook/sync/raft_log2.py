@@ -84,8 +84,6 @@ class RaftLog(object):
         self._offloader: FileLog = FileLog(self._persistent_store_path)
         self._num_replicas: int = num_replicas
         self._last_winner_id: int = -1 
-        
-
 
         self._create_persistent_store_directory(base_path)
 
@@ -205,20 +203,54 @@ class RaftLog(object):
         term:int = proposal.election_term 
         self.logger.debug("Received {} from node {}. Term {}, attempt {}, timestamp {} ({}), match {}...".format(proposal.key, proposal.proposer_id, term, proposal.attempt_number, proposal.timestamp, time_str, self._node_id == proposal.proposer_id))
 
-        try:
-            proposal_accepted:bool = self._current_election.add_proposal(proposal, self._future_io_loop, overwrite = True, received_at = received_at)
-
-            # If False is returned, then the proposal was simply rejected due to being received too late.
-            if not proposal_accepted:
-                self.logger.warn(f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because it was received too late.")
-
+        val: Optional[tuple[asyncio.Future[Any], float]] = self._current_election.add_proposal(proposal, self._future_io_loop, received_at = received_at)
+        if val != None:
             # Future to decide the result of the election by a certain time limit. 
-            self.decision_future: Optional[asyncio.Future[Any]] = None 
-        except ValueError as ex:
-            self.logger.warn(f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because: {ex}")
-            proposal_accepted:bool = False 
+            _pick_and_propose_winner_future, _discard_after = val
+
+            async def resolve():
+                assert self._current_election != None 
+                sleep_duration: float = _discard_after - time.time() 
+                current_term: int = self._current_election.term_number
+                assert sleep_duration > 0 
+                await asyncio.sleep(sleep_duration)
+
+                if _pick_and_propose_winner_future.done():
+                    return 
+
+                if self._current_election.term_number != current_term:
+                    self.logger.warn(f"Election term has changed in resolve(). Was {current_term}, is now {self._current_election.term_number}.")
+                    return 
+
+                try:
+                    selected_winner:bool = self._tryPickWinnerToPropose() 
+
+                    if not selected_winner:
+                        assert not self._current_election.is_active
+
+                    _pick_and_propose_winner_future.set_result(1)
+                except asyncio.InvalidStateError:
+                    self.logger.error("Future for picking and proposing a winner of election term {} has already been resolved...")
+            
+            # Schedule `resolve` to be called.
+            # It will sleep until the discardAt time expires, at which point a decision needs to be made.
+            # If a decision was already made for that election, then the `resolve` function will simply return.
+            self._future_io_loop.call_soon_threadsafe(resolve)
         
         self.logger.debug(f"Received {self._current_election.num_proposals_received} proposal(s) so far during term {self._current_election.term_number}.")
+
+        self._tryPickWinnerToPropose() 
+
+        self._ignore_changes = self._ignore_changes + 1
+        return GoNilError() 
+    
+    def _tryPickWinnerToPropose(self, election_override: Optional[Election] = None)->bool:
+        """
+        Try to select a winner to propose for the current election.
+
+        Return True if a winner was selected for proposal (including just proposing 'FAILURE' due to all nodes proposing 'YIELD); otherwise, return False. 
+        """
+        assert self._current_election != None 
 
         try:
             id: int = self._current_election.pick_winner_to_propose(last_winner_id = self._last_winner_id)
@@ -226,15 +258,16 @@ class RaftLog(object):
                 assert self._election_decision_future != None 
                 self.logger.debug(f"Will propose that node {id} win the election in term {self._current_election.term_number}.")
                 self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = id, proposer_id = self._node_id, election_term = self._current_election.term_number, attempt_number = self._current_election.current_attempt_number))
+                return True
             else:
                 assert self._election_decision_future != None 
                 self.logger.debug(f"Will propose 'FAILURE' for election in term {self._current_election.term_number}.")
                 self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = -1, proposer_id = self._node_id, election_term = self._current_election.term_number, attempt_number = self._current_election.current_attempt_number))
+                return True
         except ValueError as ex:
             self.logger.debug(f"No winner to propose yet for election in term {self._current_election.term_number}.")
-
-        self._ignore_changes = self._ignore_changes + 1
-        return GoNilError() 
+        
+        return False 
     
     def _valueCommitted(self, goObject, value_size: int, value_id: str) -> bytes:
         received_at:float = time.time()
