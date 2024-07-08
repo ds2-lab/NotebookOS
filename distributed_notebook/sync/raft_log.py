@@ -368,6 +368,10 @@ class RaftLog:
       self._log.error("Erroneously found that we've received 0 proposals so far in term %d." % term)
       raise ValueError("Erroneously found that we've received 0 proposals so far in term %d." % term)
 
+    # If we've not yet received enough proposals to make a decision -- including discarded proposals -- then we will stop.
+    # TODO(Ben): We should also probably verify that we're not outside the "discard window", meaning enough time has passed that we'll 
+    # just discard any future proposals, in which case we should make a decision anyway. 
+    # TODO(Ben): We need a way to make a decision if we receive 2 proposals and then don't receive anymore (before the discard window has elapsed), as we'll just stall forever in this case.
     if (num_proposals + num_discarded) < 3:
       self._log.debug("We've not received enough proposals yet to propose a decision (received: %d, discarded: %d)." % (num_proposals, num_discarded))
       return GoNilError()
@@ -455,7 +459,7 @@ class RaftLog:
       self._log.debug("Node %d has won in term %d as proposed by node %d." % (proposal.proposed_node, proposal.term, proposal.val))
     else:
       self._log.debug("Our leader_term (%d) >= 'leader_term' of latest committed 'SYNC' message (%d)..." % (self._leader_term, proposal.term))
-
+    
     # Set the future if the term is expected.
     _leading = self._leading
     if _leading is not None and self._leader_term >= self._expected_term:

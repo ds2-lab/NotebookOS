@@ -80,9 +80,12 @@ class RaftLog(object):
         # The id of the leader.
         self._leader_id: int = 0
         self._persistent_store_path:str = base_path
-        self._node_id = id 
+        self._node_id:int = id 
         self._offloader: FileLog = FileLog(self._persistent_store_path)
-        self._num_replicas = num_replicas
+        self._num_replicas: int = num_replicas
+        self._last_winner_id: int = -1 
+        
+
 
         self._create_persistent_store_directory(base_path)
 
@@ -154,11 +157,11 @@ class RaftLog(object):
             os.makedirs(path, 0o750, exist_ok = True) # It's OK if it already exists.
             self.logger.debug(f"Created persistent store directory \"{path}\" (or it already exists).")
 
-    def _handleVote(self, vote: LeaderElectionVote) -> bytes:
+    def _handleVote(self, vote: LeaderElectionVote, received_at = time.time()) -> bytes:
         assert self._current_election != None 
 
         # The first 'VOTE' proposal received during the term automatically wins.
-        was_first_vote_proposal:bool = self._current_election.add_vote_proposal(vote, overwrite = True)
+        was_first_vote_proposal:bool = self._current_election.add_vote_proposal(vote, overwrite = True, received_at = received_at)
         if not was_first_vote_proposal:
             self.logger.debug(f"We've already received at least 1 other 'VOTE' proposal during term {self._current_election.term_number}. Ignoring 'VOTE' proposal from node {vote.proposer_id}.")
             return GoNilError() 
@@ -169,6 +172,7 @@ class RaftLog(object):
             self._leader_id = vote.proposed_node_id
             self.logger.debug("Node %d has won in term %d as proposed by node %d." % (vote.proposed_node_id, vote.election_term, vote.proposer_id))
             self._current_election.complete_election(vote.proposed_node_id)
+            self._last_winner_id = vote.proposed_node_id
             self._last_completed_election = self._current_election
         else:
             self.logger.debug("Our leader_term (%d) >= 'leader_term' of latest committed 'SYNC' message (%d)..." % (self._leader_term, vote.election_term))
@@ -195,26 +199,43 @@ class RaftLog(object):
             received_at (float): the time at which we received this proposal.
         """
         assert self._current_election != None 
-        discarded:bool = False
-
+        assert self._current_election.term_number == proposal.election_term
+        
         time_str = datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
         term:int = proposal.election_term 
         self.logger.debug("Received {} from node {}. Term {}, attempt {}, timestamp {} ({}), match {}...".format(proposal.key, proposal.proposer_id, term, proposal.attempt_number, proposal.timestamp, time_str, self._node_id == proposal.proposer_id))
 
         try:
-            self._current_election.add_proposal(proposal, overwrite = True, received_at = received_at)
+            proposal_accepted:bool = self._current_election.add_proposal(proposal, self._future_io_loop, overwrite = True, received_at = received_at)
+
+            # If False is returned, then the proposal was simply rejected due to being received too late.
+            if not proposal_accepted:
+                self.logger.warn(f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because it was received too late.")
+
+            # Future to decide the result of the election by a certain time limit. 
+            self.decision_future: Optional[asyncio.Future[Any]] = None 
         except ValueError as ex:
             self.logger.warn(f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because: {ex}")
-            discarded = True 
+            proposal_accepted:bool = False 
         
         self.logger.debug(f"Received {self._current_election.num_proposals_received} proposal(s) so far during term {self._current_election.term_number}.")
 
-
+        try:
+            id: int = self._current_election.pick_winner_to_propose(last_winner_id = self._last_winner_id)
+            if id > 0:
+                assert self._election_decision_future != None 
+                self.logger.debug(f"Will propose that node {id} win the election in term {self._current_election.term_number}.")
+                self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = id, proposer_id = self._node_id, election_term = self._current_election.term_number, attempt_number = self._current_election.current_attempt_number))
+            else:
+                assert self._election_decision_future != None 
+                self.logger.debug(f"Will propose 'FAILURE' for election in term {self._current_election.term_number}.")
+                self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = -1, proposer_id = self._node_id, election_term = self._current_election.term_number, attempt_number = self._current_election.current_attempt_number))
+        except ValueError as ex:
+            self.logger.debug(f"No winner to propose yet for election in term {self._current_election.term_number}.")
 
         self._ignore_changes = self._ignore_changes + 1
-        
         return GoNilError() 
-
+    
     def _valueCommitted(self, goObject, value_size: int, value_id: str) -> bytes:
         received_at:float = time.time()
 
@@ -232,7 +253,7 @@ class RaftLog(object):
             raise ex 
         
         if isinstance(committedValue, LeaderElectionVote):
-            return self._handleVote(committedValue)
+            return self._handleVote(committedValue, received_at = received_at)
         elif isinstance(committedValue, LeaderElectionProposal):
             return self._handleProposal(committedValue, received_at = received_at)
 
