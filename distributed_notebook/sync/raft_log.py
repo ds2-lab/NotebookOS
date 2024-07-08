@@ -79,12 +79,6 @@ class RaftLog:
 
     self._log.info("Creating LogNode %d now." % id)
 
-    print("AAAA AAA AA A", flush = True)
-
-    time.sleep(1)
-
-    print("AAAA AAA AA A", flush = True)
-
     self._log.info("Actually creating LogNode %d now." % id)
 
     self._node = NewLogNode(self._store, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
