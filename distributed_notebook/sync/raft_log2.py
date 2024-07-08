@@ -76,7 +76,7 @@ class RaftLog(object):
         self._node_id = id 
         self._offloader: FileLog = FileLog(self._persistent_store_path)
 
-        self._create_persistent_store_path(base_path)
+        self._create_persistent_store_directory(base_path)
 
         self.logger.info("persistent store path: %s" % self._persistent_store_path)
         self.logger.info("hdfs_hostname: \"%s\"" % hdfs_hostname)
@@ -99,11 +99,8 @@ class RaftLog(object):
         self._elections: Dict[int, Election] = {} 
         # The current/active election.
         self._current_election: Optional[Election] = None 
-        # The last election.
-        self._previous_election: Optional[Election] = None 
-
-        # The election term number of whoever won the last election.
-        self._current_leader_term_number:int = 0
+        # The most recent election to have been completed successfully.
+        self._last_completed_election: Optional[Election] = None 
         
         # TBD
         self._change_handler: Optional[Callable[[SynchronizedValue], None]] = None 
@@ -140,7 +137,7 @@ class RaftLog(object):
         # This will just do nothing if there's no serialized state to be loaded.
         self._load_and_apply_serialized_state()
 
-    def _create_persistent_store_path(self, path: str):
+    def _create_persistent_store_directory(self, path: str):
         """
         Create a directory at the specified path if it does not already exist.
         """
@@ -175,8 +172,8 @@ class RaftLog(object):
             "num_proposals_discarded": self.num_proposals_discarded,
             "sync_proposals_per_term": self.sync_proposals_per_term,
             "decisions_proposed": self.decisions_proposed,
-            "_leader_term": self._leader_term,
-            "_leader_id": self._leader_id,
+            "_leader_term": self.current_leader_term_number,
+            "_leader_id": self._current_leader_id,
             "_expected_term": self._expected_term,
         }
         
@@ -249,7 +246,16 @@ class RaftLog(object):
             asyncio.run_coroutine_threadsafe(future.resolve(key, err), loop) # type: ignore 
 
         return future, resolve
-    
+
+    def _is_leading(self, term) -> Tuple[bool, bool]:
+        """Check if the current node is leading, return (wait, is_leading)"""
+        if self.current_leader_term_number > term:
+            return False, False
+        elif self.current_leader_term_number == term:
+            return False, self._current_leader_id == self._node_id
+        else:
+            return True, False
+
     def _create_new_election(self, term_number:int = -1)->Election:
         """
         Create and register a new election with the given term number.
@@ -257,16 +263,18 @@ class RaftLog(object):
         This modifies the following fields:
             - self._elections
             - self._election 
-            - self._previous_election
-
+            - self._last_completed_election
+        
         Raises a ValueError if any of the following conditions are met:
             - term_number < 0
             - we already have an active election 
             - term_number < the previous election's term number  
+            - the current election is not in the state ElectionState.COMPLETE (i.e., the current election needs to have completed successfully)
         """
         if term_number < 0:
             raise ValueError(f"illegal term number specified for new election: {term_number}")
         
+        # TODO: We may want to "relax" these conditions, or rather the consequences of these conditions, and attempt to proceed even if there's an error.
         if self.has_active_election:
             assert self._current_election != None 
             self.logger.error(f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
@@ -274,11 +282,17 @@ class RaftLog(object):
         elif self._current_election != None and self._current_election.term_number > term_number:
             self.logger.error(f"Creating new election with term number {term_number} despite already previous election having a larger term number of {self._current_election.term_number}") 
             raise ValueError(f"attempted to create new election with term number smaller than previous election's term number ({term_number} < {self._current_election.term_number})") 
-        
+        elif self._current_election != None and not self._current_election.completed_successfully:
+            self.logger.error(f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet completed successfully.")
+            raise ValueError(f"current election (term number: {self._current_election.term_number}) has not yet completed successfully (current state: {self._current_election._election_state})")
+
         new_election: Election = Election(term_number)
         self._elections[term_number] = new_election
-        self._previous_election = new_election
+        self._last_completed_election = self._current_election
         self._current_election = new_election
+
+        if self._last_completed_election != None:
+            assert self._last_completed_election.completed_successfully
 
         return new_election
 
@@ -346,14 +360,14 @@ class RaftLog(object):
         # TODO: Implement functionality of specifying term 0 to guarantee winning of election.
         if target_term_number == 0:
             raise ValueError("specifiying target term of 0 is not yet supported")
-        
-        if target_term_number <= self._current_leader_term_number:
-            self.logger.error(f"Current leader term {self._current_leader_term_number} > specified target term {target_term_number}...")
-            return False 
 
         # The current election field must be non-null.
         if self._current_election == None:
             raise ValueError("current election field is None")
+        
+        if self._last_completed_election != None and target_term_number <= self.current_leader_term_number:
+            self.logger.error(f"Current leader term {self.current_leader_term_number} > specified target term {target_term_number}...")
+            return False 
         
         # The current election field's term number must match the specified target term number.
         if self._current_election.term_number != target_term_number:
@@ -404,6 +418,45 @@ class RaftLog(object):
         # Return the new proposal.
         return proposal 
 
+    def sync(self, term):
+        """Synchronization changes since specified execution counter."""
+        pass
+
+    def reset(self, term, logs: Tuple[SynchronizedValue]):
+        """Clear logs equal and before specified term and replaced with specified logs"""
+        pass
+
+    async def add_node(self, node_id, address):
+        """Add a node to the etcd-raft cluster."""
+        self.logger.info("Adding node %d at addr %s to the SMR cluster." % (node_id, address))
+        future, resolve = self._get_callback()
+        self._log_node.AddNode(node_id, address, resolve)
+        res = await future.result()
+        self.logger.info("Result of AddNode: %s" % str(res))
+
+    async def update_node(self, node_id, address):
+        """Add a node to the etcd-raft  cluster."""
+        self.logger.info("Updating node %d with new addr %s." % (node_id, address))
+        future, resolve = self._get_callback()
+        self._log_node.UpdateNode(node_id, address, resolve)
+        res = await future.result()
+        self.logger.info("Result of UpdateNode: %s" % str(res))
+        
+        self.proposals_per_term[self.current_leader_term_number]
+
+    async def remove_node(self, node_id):
+        """Remove a node from the etcd-raft cluster."""
+        self.logger.info("Removing node %d from the SMR cluster." % node_id)
+        future, resolve = self._get_callback()
+
+        try:
+            self._log_node.RemoveNode(node_id, resolve)
+        except Exception as ex:
+            self.logger.error("Error in LogNode while removing replica %d: %s" % (node_id, str(ex)))
+
+        res = await future.result()
+        self.logger.info("Result of RemoveNode: %s" % str(res))
+
     def has_active_election(self)->bool:
         """
         Return true if the following two conditions are met:
@@ -414,6 +467,31 @@ class RaftLog(object):
             return False 
         
         return self.current_election.is_active
+
+    @property 
+    def current_leader_term_number(self)->int:
+        """
+        The term number that was committed with the result of the most recently completed election. 
+        This is the term number of the current leader.
+
+        -1 indicates that no node has won an election yet.
+        """
+        if self._last_completed_election == None:
+            return -1 
+        
+        return self._last_completed_election.term_number
+
+    @property 
+    def current_leader_id(self)->int:
+        """
+        The SMR node ID of the node that was most recently elected leader.
+
+        -1 indicates that no node has won an election yet.
+        """
+        if self._last_completed_election == None:
+            return -1 
+        
+        return self._last_completed_election.term_number
 
     @property 
     def expected_term(self)->Optional[int]:
@@ -432,8 +510,8 @@ class RaftLog(object):
         return self._current_election
 
     @property 
-    def previous_election(self)->Optional[Election]:
-        return self._previous_election
+    def last_completed_election(self)->Optional[Election]:
+        return self._last_completed_election
 
     def start(self, handler: Callable[[SynchronizedValue], None])->None:
         """
