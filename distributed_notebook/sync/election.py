@@ -1,7 +1,7 @@
 from typing import Dict
 from enum import Enum
 
-from .log import SyncValue, ProposedValue, LeaderElectionVote
+from .log import SyncValue, SynchronizedValue, LeaderElectionVote
 
 class ElectionState(Enum):
     INACTIVE = 1    # Created, but not yet started.

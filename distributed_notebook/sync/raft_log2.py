@@ -13,7 +13,7 @@ from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 
 from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser, PrintTestMessage
 from ..smr.go import Slice_string, Slice_int, Slice_byte
-from .log import SyncLog, ProposedValue, LeaderElectionVote
+from .log import SyncLog, SynchronizedValue, LeaderElectionVote, LeaderElectionProposal, ElectionProposalKey
 from .checkpoint import Checkpoint
 from .future import Future
 from .errors import print_trace, SyncError, GoError, GoNilError
@@ -101,23 +101,26 @@ class RaftLog(object):
         self._current_election: Optional[Election] = None 
         # The last election.
         self._previous_election: Optional[Election] = None 
+
+        # The election term number of whoever won the last election.
+        self._current_leader_term_number:int = 0
         
         # TBD
-        self._change_handler: Optional[Callable[[ProposedValue], None]] = None 
+        self._change_handler: Optional[Callable[[SynchronizedValue], None]] = None 
 
         self.my_current_attempt_number : int = 1 # Attached to proposals. Sort of an ID within an election term. 
         self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
-        self._proposed_values: OrderedDict[int, OrderedDict[int, ProposedValue]] = OrderedDict() # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
+        self._proposed_values: OrderedDict[int, OrderedDict[int, LeaderElectionProposal]] = OrderedDict() # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
         self.my_current_attempt_number:int = 1 # The current attempt number for the current term. 
         self.largest_peer_attempt_number:Dict[int, int] = {0:0} # The largest attempt number received from a peer's proposal.
-        self.proposals_per_term: Dict[int, Dict[int, ProposedValue]] = {} # Mapping from term number -> dict. Inner dict is map from SMR node ID -> proposal.
+        self.proposals_per_term: Dict[int, Dict[int, LeaderElectionProposal]] = {} # Mapping from term number -> dict. Inner dict is map from SMR node ID -> proposal.
         self.own_proposal_times: Dict[int, float] = {} # Mapping from term number -> the time at which we proposed LEAD/YIELD in that term.
-        self.first_lead_proposal_received_per_term: Dict[int, ProposedValue] = {} # Mapping from term number -> the first 'LEAD' proposal received in that term.
-        self.first_proposal_received_per_term: Dict[int, ProposedValue] = {} # Mapping from term number -> the first proposal received in that term.
+        self.first_lead_proposal_received_per_term: Dict[int, LeaderElectionProposal] = {} # Mapping from term number -> the first 'LEAD' proposal received in that term.
+        self.first_proposal_received_per_term: Dict[int, LeaderElectionProposal] = {} # Mapping from term number -> the first proposal received in that term.
         self.timeout_durations: Dict[int, float] = {} # Mapping from term number -> the timeout (in seconds) for that term.
         self.discard_after: Dict[int, float] = {} # Mapping from term number -> the time after which received proposals will be discarded.
         self.num_proposals_discarded: Dict[int, int] = {} # Mapping from term number -> the number of proposals that were discarded in that term.
-        self.sync_proposals_per_term: Dict[int, ProposedValue] = {} # Mapping from term number -> the first SYNC proposal committed during that term.
+        self.sync_proposals_per_term: Dict[int, LeaderElectionProposal] = {} # Mapping from term number -> the first SYNC proposal committed during that term.
         self.decisions_proposed: Dict[int, bool] = {} # Mapping from term number -> boolean flag indicating whether we've proposed (but not necessarily committed) a decision for the given term yet.
 
         self._ignore_changes: int = 0
@@ -279,9 +282,58 @@ class RaftLog(object):
 
         return new_election
 
+    async def _offload_value(self, val: SynchronizedValue) -> SynchronizedValue:
+        """Offload the buffer to the storage server."""
+        # Ensure path exists.
+        should_end_execution = val.should_end_execution
+        val.set_should_end_execution(False)
+        val.set_data(offloadPath(await self._offloader.append(val)))
+        val.set_prmap(None)
+        val.set_should_end_execution(should_end_execution)
+        return val
+
+    async def _append_value(
+            self,
+            value: SynchronizedValue
+    ):
+        """
+        Append some data to the synchronized Raft log.
+        """
+        if not value.has_operation:
+            # Count _ignore_changes
+            self._ignore_changes += 1
+
+        # Ensure key is specified.
+        if value.key is not None:
+            if value.data is not None and type(value.data) is bytes and len(value.data) > MAX_MEMORY_OBJECT:
+                value = await self._offload_value(value)
+
+        await self._serialize_and_append_value(value)
+
+    async def _append_election_proposal(
+            self,
+            proposal: LeaderElectionProposal
+    ):
+        """
+        Explicitly propose and append (to the synchronized Raft log) a proposal for the current election.
+        """
+        await self._serialize_and_append_value(proposal)
+
+    async def _serialize_and_append_value(self, value: SynchronizedValue):
+        """
+        Serialize the SynchronizedValue (using the pickle module) and explicitly propose and append it to the synchronized etcd-raft log. 
+        """
+        # Serialize the value.
+        dumped = pickle.dumps(value)
+
+        # Propose and wait the future.
+        future, resolve = self._get_callback()
+        self._log_node.Propose(NewBytes(dumped), resolve, value.key)
+        await future.result()
+
     async def _handle_election(
             self, 
-            proposal: ProposedValue,
+            proposal: LeaderElectionProposal,
             target_term_number: int = -1
         ) -> bool:
         """
@@ -289,13 +341,68 @@ class RaftLog(object):
 
         The `target_term_number` argument is just a safety mechanism to ensure that the current election matches the intended/target term number.
         """
+        self.logger.debug(f"RaftLog {self._node_id} handling election in term {target_term_number}, attempt #{proposal.attempt_number}. Will be proposing {proposal.election_proposal_key}.")
+
+        # TODO: Implement functionality of specifying term 0 to guarantee winning of election.
+        if target_term_number == 0:
+            raise ValueError("specifiying target term of 0 is not yet supported")
+        
+        if target_term_number <= self._current_leader_term_number:
+            self.logger.error(f"Current leader term {self._current_leader_term_number} > specified target term {target_term_number}...")
+            return False 
+
+        # The current election field must be non-null.
         if self._current_election == None:
             raise ValueError("current election field is None")
         
+        # The current election field's term number must match the specified target term number.
         if self._current_election.term_number != target_term_number:
             raise ValueError(f"current election is targeting term {self._current_election.term_number}, whereas the target term number was specified to be {target_term_number}")
+        
+        # The proposal's term number must match the specified target term number.
+        if proposal.election_term != target_term_number:
+            raise ValueError(f"proposal is targeting election term {proposal.election_term}, whereas caller specified election term {target_term_number}")
+
+        # Do some additional sanity checks:
+        # The proposal must already be registered. 
+        # This means that there will be at least one proposal for the specified target term number (which matches the proposal's term number; we already checked verified that above).
+        assert target_term_number in self._proposed_values # At least one proposal for the specified term?
+        assert proposal.attempt_number in self._proposed_values[target_term_number] # The proposal is registered under its attempt number?
+        assert self._proposed_values[target_term_number][proposal.attempt_number] == proposal # Equality check for ultimate sanity check. 
+
+
 
         return False 
+
+    def _create_election_proposal(self, key: ElectionProposalKey, term_number: int) -> LeaderElectionProposal:
+        """
+        Create and register a proposal for the current term.
+
+        This updates the `self._proposed_values` field.
+
+        The attempt number for the new proposal is "calculated" based on whether there already exists a previous proposal for this election term.
+        """
+        attempt_number:int = 1
+        
+        # Get the existing proposals for the specified term.
+        existing_proposals: Dict[int, LeaderElectionProposal] = self._proposed_values.get(term_number, OrderedDict()) 
+
+        # If there is at least one existing proposal for the specified term, then we'll get the most-recent proposal's attempt number.
+        if len(existing_proposals) > 0:
+            last_attempt_number: int = next(reversed(existing_proposals)) # This is O(1), as OrderedDict uses a doubly-linked list internally.
+            attempt_number = last_attempt_number # Could be on one line, but this is more readable in my opinion.
+        
+        # Create the new proposal.
+        proposal: LeaderElectionProposal = LeaderElectionProposal(key, proposer_id = self._node_id, election_term = term_number, attempt_number = attempt_number)
+        
+        # Add the new proposal to the mapping of proposals for the specified term.
+        existing_proposals[attempt_number] = proposal 
+
+        # Update the mapping (of proposals for the specified term) in the `self._proposed_values` field.
+        self._proposed_values[term_number] = existing_proposals
+
+        # Return the new proposal.
+        return proposal 
 
     def has_active_election(self)->bool:
         """
@@ -309,6 +416,18 @@ class RaftLog(object):
         return self.current_election.is_active
 
     @property 
+    def expected_term(self)->Optional[int]:
+        """
+        This is the term number we're expecting for the current election.
+
+        It's equal to the current election's term number.
+        """
+        if self._current_election != None:
+            return self._current_election.term_number
+        
+        return -1 
+
+    @property 
     def current_election(self)->Optional[Election]:
         return self._current_election
 
@@ -316,7 +435,7 @@ class RaftLog(object):
     def previous_election(self)->Optional[Election]:
         return self._previous_election
 
-    def start(self, handler: Callable[[ProposedValue], None])->None:
+    def start(self, handler: Callable[[SynchronizedValue], None])->None:
         """
         Register the change handler, restore internal states, and start monitoring for changes committed to the Raft log.
         """
@@ -410,36 +529,6 @@ class RaftLog(object):
         self._log_node.WriteDataDirectoryToHDFS(Slice_byte(serialized_state), resolve)
         data_dir_path = await future.result()
         return data_dir_path
-    
-    def _create_proposal(self, term_number: int) -> ProposedValue:
-        """
-        Create and register a proposal for the current term.
-
-        This updates the `self._proposed_values` field.
-
-        The attempt number for the new proposal is "calculated" based on whether there already exists a previous proposal for this election term.
-        """
-        attempt_number:int = 1
-        
-        # Get the existing proposals for the specified term.
-        existing_proposals: Dict[int, ProposedValue] = self._proposed_values.get(term_number, OrderedDict()) 
-
-        # If there is at least one existing proposal for the specified term, then we'll get the most-recent proposal's attempt number.
-        if len(existing_proposals) > 0:
-            last_attempt_number: int = next(reversed(existing_proposals)) # This is O(1), as OrderedDict uses a doubly-linked list internally.
-            attempt_number = last_attempt_number # Could be on one line, but this is more readable in my opinion.
-        
-        # Create the new proposal.
-        proposal: ProposedValue = ProposedValue(None, proposer_id = self._node_id, election_term = term_number, attempt_number = attempt_number)
-        
-        # Add the new proposal to the mapping of proposals for the specified term.
-        existing_proposals[attempt_number] = proposal 
-
-        # Update the mapping (of proposals for the specified term) in the `self._proposed_values` field.
-        self._proposed_values[term_number] = existing_proposals
-
-        # Return the new proposal.
-        return proposal 
 
     async def try_lead_execution(self, term_number: int) -> bool:
         """
@@ -448,22 +537,23 @@ class RaftLog(object):
         A subsequent call to append (without successfully being elected as leader) will fail.
         """
         self.logger.debug("RaftLog %d is proposing to lead term %d." % (self._node_id, term_number))
-        proposal: ProposedValue = ProposedValue(None, 1, term_number)
+        proposal: LeaderElectionProposal = self._create_election_proposal(ElectionProposalKey.LEAD, term_number)
         is_leading:bool = await self._handle_election(proposal, target_term_number = term_number)
 
-        return False  
+        return is_leading  
 
     async def try_yield_execution(self, term_number: int) -> bool:
         """
         Request to explicitly yield the current term update (and therefore the execution of user-submitted code) to another replica.
         """
         self.logger.debug("RaftLog %d: proposing to yield term %d." % (self._node_id, term_number))
-        proposal: ProposedValue = ProposedValue(None, 1, term_number)
+        proposal: LeaderElectionProposal = self._create_election_proposal(ElectionProposalKey.YIELD, term_number)
         is_leading:bool = await self._handle_election(proposal, target_term_number = term_number)
 
+        # If is_leading is True, then we have a problem, as we proposed YIELD.
+        # We should never be elected leader if we propose YIELD.
         if is_leading:
             raise RuntimeError(f"we were elected leader of election {term_number} despite proposing 'YIELD'")
 
-        assert is_leading == False 
-
+        # Return hard-coded False, as is_leading must be False.
         return False 

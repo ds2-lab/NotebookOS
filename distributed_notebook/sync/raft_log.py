@@ -651,6 +651,7 @@ class RaftLog:
     _leading = self._leading
     self.own_proposal_times[term] = time.time()
     self._log.debug("RaftLog %d: appending %s proposal for term %d. Attempt number: (proposal=%d,local_var=%d)." % (self._id, proposal.key, term, proposal.attempt_number, self.my_current_attempt_number))
+    
     # Append is blocking. We are guaranteed to gain leading status if terms match.
     await self.append(proposal)
     self._log.debug("RaftLog %d: appended %s proposal for term %d. Attempt number: (proposal=%d,local_var=%d)" % (self._id, proposal.key, term, proposal.attempt_number, self.my_current_attempt_number))

@@ -2,7 +2,7 @@ import os
 import pickle
 from typing import Tuple
 
-from .log import SyncLog, SyncValue
+from .log import SyncLog, SyncValue, SynchronizedValue
 
 FILELOG_ARCHIVE = "lineage.dat"
 CHECKPOINT_ARCHIVE = "checkpoint.dat"
@@ -134,10 +134,10 @@ class FileLog:
       self.logs.append([])
     return True
 
-  async def append(self, val: SyncValue):
+  async def append(self, val: SynchronizedValue):
     """Append the difference of the value of specified key to the synchronization queue"""
     if val.key is not None:
-      relative_path = self.get_path(val.term, val)
+      relative_path = self.get_path(val.election_term, val)
       filepath = os.path.join(self.store, relative_path)
       self.ensure_path(os.path.dirname(filepath))
 
@@ -188,7 +188,7 @@ class FileLog:
     if not os.path.exists(base_path):
       os.makedirs(base_path, 0o750)
 
-  def get_path(self, term, val: SyncValue):
+  def get_path(self, term, val: SynchronizedValue):
     # TODO: Sanitize the key.
     return os.path.join("t{}".format(term), val.key)
 

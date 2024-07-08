@@ -1,17 +1,26 @@
 from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 from typing_extensions import Protocol, runtime_checkable
+from enum import Enum 
+
 import time 
 import datetime
 import uuid 
 
-KEY_SYNC_END = "_end_"
-OP_SYNC_ADD = "add"
-OP_SYNC_PUT = "put"
-OP_SYNC_DEL = "del"
+KEY_NONE:str = ""
+KEY_SYNC_END:str = "_end_"
+OP_SYNC_ADD:str = "add"
+OP_SYNC_PUT:str = "put"
+OP_SYNC_DEL:str = "del"
+OP_NONE:str = "" 
 
-class ProposedValue(object):
+class ElectionProposalKey(Enum):
+  YIELD = "YIELD"
+  LEAD = "LEAD"
+  VOTE = "VOTE" # Previously 'SYNC'
+
+class SynchronizedValue(object):
   """
-  A value for log proposal.
+  Base class for a value for log proposal.
 
   This is an updated/rewritten version of the SyncValue class. 
   """
@@ -22,13 +31,66 @@ class ProposedValue(object):
       proposer_id: int = -1, # The SMR node ID of the node proposing this value.
       attempt_number: int = -1, # Serves as a sort of "sub-term", as elections can be re-tried if they fail (i.e., if everyone proposes "YIELD")
       election_term: int = -1, # The election term on which this value is intended to be proposed.
+      prmap: Optional[list[str]] = None,
+      should_end_execution: bool = False,
+      key: str = KEY_NONE,
+      operation:str = OP_NONE, 
   ):
-    self._proposer_id = proposer_id
+    self._proposer_id: int = proposer_id
     self._election_term: int = election_term
     self._attempt_number: int = attempt_number
-    self._data:Any = data 
-    self._id:str = str(uuid.uuid4())
-    self._timestamp = time.time() 
+    self._data: Any = data 
+    self._id: str = str(uuid.uuid4())
+    self._timestamp: float = time.time() 
+    self._operation: str = operation
+    
+    self._should_end_execution: bool = should_end_execution
+    self._prmap: Optional[list[str]] = prmap
+    self._key: str = key 
+
+  @property
+  def key(self)->str:
+    return self._key 
+  
+  def set_key(self, key:str)->None: 
+    self._key = key 
+
+  @property 
+  def should_end_execution(self)->bool:
+    return self._should_end_execution 
+  
+  def set_should_end_execution(self, should_end_execution:bool)->None:
+    self._should_end_execution = should_end_execution
+
+  @property 
+  def prmap(self)->Optional[list[str]]:
+    return self._prmap 
+  
+  def set_prmap(self, prmap: Optional[list[str]])->None:
+    self._prmap = prmap 
+
+  @property 
+  def has_operation(self)->bool:
+    """
+    True if the SynchronizedValue has an explicitly-defined operation (i.e., the `self._operation` field is not the empty string).
+    """
+    return len(self.operation) > 0 
+
+  @property 
+  def op(self)->str:
+    """
+    Alias of `self.operation` 
+
+    The named operation of the synchronized value, which may be the empty string.
+    """
+    return self.operation 
+
+  @property 
+  def operation(self)->str:
+    """
+    The named operation of the synchronized value, which may be the empty string.
+    """
+    return self._operation 
 
   @property 
   def proposer_id(self)->int:
@@ -64,6 +126,9 @@ class ProposedValue(object):
   def data(self)->Any:
     return self._data 
   
+  def set_data(self, data:Any)->None:
+    self._data = data 
+  
   @property 
   def election_term(self)->int:
     return self._election_term 
@@ -72,24 +137,41 @@ class ProposedValue(object):
   def attempt_number(self)->int:
     return self._attempt_number
 
-class LeaderElectionVote(ProposedValue):
+class LeaderElectionProposal(SynchronizedValue):
   """
-  A special type of ProposedValue encapsulating a vote for a leader during a leader election.
+  A special type of SynchronizedValue encapsulating a "LEAD" or "YIELD" proposal during a leader election.
+  """
+  def __init__(self, election_proposal_key: ElectionProposalKey, **kwargs):
+    # LeaderElectionProposals cannot have data. 
+    super().__init__(None, **kwargs)
+
+    # The "key" of this proposal, which indicates whether it is a LEAD or a YIELD proposal.
+    self._proposal_key = election_proposal_key
+
+  @property 
+  def election_proposal_key(self)->ElectionProposalKey:
+    """
+    The "key" of this proposal, which indicates whether it is a LEAD or a YIELD proposal.
+    """
+    return self._proposal_key
+
+class LeaderElectionVote(SynchronizedValue):
+  """
+  A special type of SynchronizedValue encapsulating a vote for a leader during a leader election.
 
   These elections occur when code is submitted for execution by the user.
   """
-  def __init__(
-      self,
-      data: Any, # The value/data attached to the proposal.
-      election_term: int = -1, # The election term on which this value is intended to be proposed.
-      proposed_node_id: int = -1, # The SMR node ID of the node being voted for.
-  ):
-    super().__init__(data, election_term = election_term)
+  def __init__(self, proposed_node_id: int, **kwargs):
+    super().__init__(None, **kwargs)
 
+    # The SMR node ID of the node being voted for
     self._proposed_node_id:int = proposed_node_id
   
   @property 
   def proposed_node_id(self)->int:
+    """
+    The SMR node ID of the node being voted for
+    """
     return self._proposed_node_id 
 
 class SyncValue:
