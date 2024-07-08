@@ -247,10 +247,10 @@ class SyncLog(Protocol):
     """Set the callback that will be called when the SyncLog decides to checkpoint.
       callback will be in the form callback(Checkpointer)."""
 
-  async def yield_execution(self, term) -> bool:
+  async def try_yield_execution(self, term) -> bool:
     """Request yield the update of a term to another replica."""
 
-  async def lead(self, term) -> bool:
+  async def try_lead_execution(self, term) -> bool:
     """Request to lead the update of a term. A following append call 
        without leading status will fail."""
     return False

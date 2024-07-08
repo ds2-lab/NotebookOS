@@ -861,7 +861,14 @@ class RaftLog(object):
         A subsequent call to append (without successfully being elected as leader) will fail.
         """
         self.logger.debug("RaftLog %d is proposing to lead term %d." % (self._node_id, term_number))
+
+        # Create the new election.
+        self._create_new_election(term_number = term_number)
+
+        # Create a proposal.
         proposal: LeaderElectionProposal = self._create_election_proposal(ElectionProposalKey.LEAD, term_number)
+
+        # Orchestrate/carry out the election.
         is_leading:bool = await self._handle_election(proposal, target_term_number = term_number)
 
         return is_leading  
@@ -871,7 +878,14 @@ class RaftLog(object):
         Request to explicitly yield the current term update (and therefore the execution of user-submitted code) to another replica.
         """
         self.logger.debug("RaftLog %d: proposing to yield term %d." % (self._node_id, term_number))
+
+        # Create the new election.
+        self._create_new_election(term_number = term_number)
+
+        # Create a proposal.
         proposal: LeaderElectionProposal = self._create_election_proposal(ElectionProposalKey.YIELD, term_number)
+
+        # Orchestrate/carry out the election.
         is_leading:bool = await self._handle_election(proposal, target_term_number = term_number)
 
         # If is_leading is True, then we have a problem, as we proposed YIELD.

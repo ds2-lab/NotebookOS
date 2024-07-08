@@ -42,7 +42,7 @@ class OffloadPath:
   def __str__(self):
     return self.path
 
-class RaftLog:
+class OldRaftLog:
   """A log that stores the changes of a python object."""
   _leader_term: int = 0   # Mar 2023: Term will updated after a lead() call. For now, we don't care if the jupyter's execution_count, which is equal to the term, is continuous or not.
   _leader_id: int = 0     # The id of the leader.

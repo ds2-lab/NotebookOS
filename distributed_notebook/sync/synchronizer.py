@@ -133,7 +133,9 @@ class Synchronizer:
         self._syncing = False
         self._log.debug("exit execution syncing [2]")
     except Exception as e:
-      print_trace()
+      # print_trace(limit = 10)
+      self._log.error("Exception encountered in change handler for synchronizer: %s" % str(ex))
+      self._log.error(traceback.format_stack(limit = 10))
       
   async def propose_lead(self, execution_count: int) -> int:
     """Propose to lead the next execution.
@@ -147,17 +149,23 @@ class Synchronizer:
     try:
       # Propose to lead specified term. 
       # Term 0 tries to lead the next term whatever and will always success.
-      if await self._synclog.lead(execution_count):
+      if await self._synclog.try_lead_execution(execution_count):
         self._log.debug("We won the election to lead term %d" % execution_count)
         # Synchronized, execution_count was updated to last execution.
         self._async_loop = asyncio.get_running_loop() # Update async_loop.
         return self._synclog.term
     except SyncError as se:
       self._log.warning("SyncError: {}".format(se))
-      print_trace()
+      # print_trace(limit = 10)
+      stack:list[str] = traceback.format_stack(limit = 10)
+      for frame in stack:
+        self._log.error(frame)
     except Exception as e:
       self._log.error("Exception encountered while proposing LEAD: %s" % str(e))
-      print_trace()
+      # print_trace(limit = 10)
+      stack:list[str] = traceback.format_stack(limit = 10)
+      for frame in stack:
+        self._log.error(frame)
       raise e 
     
     self._log.debug("We lost the election to lead term %d" % execution_count)
@@ -174,15 +182,21 @@ class Synchronizer:
     """
     self._log.debug("Synchronizer is proposing to yield term %d" % execution_count)
     try:
-      if await self._synclog.yield_execution(execution_count):
+      if await self._synclog.try_yield_execution(execution_count):
         self._log.error("synclog.yield_exection returned true despite the fact that we're yielding...")
         raise ValueError("synclog.yield_exection returned true despite the fact that we're yielding")
     except SyncError as se:
       self._log.warning("SyncError: {}".format(se))
-      print_trace()
+      # print_trace(limit = 10)
+      stack:list[str] = traceback.format_stack(limit = 10)
+      for frame in stack:
+        self._log.error(frame)
     except Exception as e:
       self._log.error("Exception encountered while proposing YIELD: %s" % str(e))
-      print_trace()
+      # print_trace(limit = 10)
+      stack:list[str] = traceback.format_stack(limit = 10)
+      for frame in stack:
+        self._log.error(frame)
       raise e
     
     self._log.debug("Successfully yielded the execution to another replica for term %d" % execution_count)
