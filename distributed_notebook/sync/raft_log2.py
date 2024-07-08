@@ -58,6 +58,7 @@ class RaftLog(object):
         data_directory: str = "/storage",
         peer_addrs: Iterable[str] = [], 
         peer_ids: Iterable[int] = [], 
+        num_replicas: int = 3,
         join: bool = False, 
         debug_port:int = 8464,
         heartbeat_tick: int = 10, # Raft-related
@@ -72,9 +73,16 @@ class RaftLog(object):
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
         self.logger.info("Creating RaftNode %d now." % id)
 
+        # The term that the leader is expecting.
+        self._expected_term: int = 0 
+        # Updated after a LEAD call. This is the term of the LEADER. Used to check if received proposals are old/new. 
+        self._leader_term: int = 0 
+        # The id of the leader.
+        self._leader_id: int = 0
         self._persistent_store_path:str = base_path
         self._node_id = id 
         self._offloader: FileLog = FileLog(self._persistent_store_path)
+        self._num_replicas = num_replicas
 
         self._create_persistent_store_directory(base_path)
 
@@ -146,11 +154,149 @@ class RaftLog(object):
             os.makedirs(path, 0o750, exist_ok = True) # It's OK if it already exists.
             self.logger.debug(f"Created persistent store directory \"{path}\" (or it already exists).")
 
+    def _handleVote(self, vote: LeaderElectionVote) -> bytes:
+        assert self._current_election != None 
+
+        # The first 'VOTE' proposal received during the term automatically wins.
+        was_first_vote_proposal:bool = self._current_election.add_vote_proposal(vote, overwrite = True)
+        if not was_first_vote_proposal:
+            self.logger.debug(f"We've already received at least 1 other 'VOTE' proposal during term {self._current_election.term_number}. Ignoring 'VOTE' proposal from node {vote.proposer_id}.")
+            return GoNilError() 
+        
+        if self._leader_term < vote.election_term:
+            self.logger.debug("Our 'leader_term' (%d) < 'leader_term' of latest committed 'SYNC' (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value)." % (self._leader_term, vote.election_term, vote.election_term, vote.proposed_node_id))
+            self._leader_term = vote.election_term
+            self._leader_id = vote.proposed_node_id
+            self.logger.debug("Node %d has won in term %d as proposed by node %d." % (vote.proposed_node_id, vote.election_term, vote.proposer_id))
+            self._current_election.complete_election(vote.proposed_node_id)
+            self._last_completed_election = self._current_election
+        else:
+            self.logger.debug("Our leader_term (%d) >= 'leader_term' of latest committed 'SYNC' message (%d)..." % (self._leader_term, vote.election_term))
+        
+        # Set the future if the term is expected.
+        _leading = self._leading
+        if _leading is not None and self._leader_term >= self._expected_term:
+            self.logger.debug("Scheduling the setting of result on '_leading' future to %d." % (self._leader_term, self._leader_term))
+            self._future_io_loop.call_later(0, _leading.set_result, self._leader_term)
+            self._leading = None # Ensure the future is set only once.
+            self.logger.debug("Scheduled setting of result on '_leading' future.")
+        else:
+            self.logger.debug("Skipping setting result on _leading. _leading is None: %s. self._leader_term (%d) >= self._expected_term (%d): %s." % (self._leading == None, self._leader_term, self._expected_term, self._leader_term >= self._expected_term))
+
+        self._ignore_changes = self._ignore_changes + 1
+
+        return GoNilError()
+    
+    def _handleProposal(self, proposal: LeaderElectionProposal, received_at: float = 0) -> bytes:
+        """Handle a committed LEAD/YIELD proposal.
+
+        Args:
+            proposal (LeaderElectionProposal): the committed proposal.
+            received_at (float): the time at which we received this proposal.
+        """
+        assert self._current_election != None 
+        discarded:bool = False
+
+        time_str = datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
+        term:int = proposal.election_term 
+        self.logger.debug("Received {} from node {}. Term {}, attempt {}, timestamp {} ({}), match {}...".format(proposal.key, proposal.proposer_id, term, proposal.attempt_number, proposal.timestamp, time_str, self._node_id == proposal.proposer_id))
+
+        try:
+            self._current_election.add_proposal(proposal, overwrite = True, received_at = received_at)
+        except ValueError as ex:
+            self.logger.warn(f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because: {ex}")
+            discarded = True 
+        
+        self.logger.debug(f"Received {self._current_election.num_proposals_received} proposal(s) so far during term {self._current_election.term_number}.")
+
+
+
+        self._ignore_changes = self._ignore_changes + 1
+        
+        return GoNilError() 
+
     def _valueCommitted(self, goObject, value_size: int, value_id: str) -> bytes:
-        pass 
+        received_at:float = time.time()
+
+        if id != "":
+            self.logger.debug(f"Our proposal {self._node_id} of size {value_size} bytes was committed.")
+        else:
+            self.logger.debug(f"Received remote update of size {value_size} bytes")
+        
+        reader = readCloser(ReadCloser(handle=goObject), value_size)
+        
+        try:
+            committedValue: SynchronizedValue = pickle.load(reader)
+        except Exception as ex:
+            self.logger.error(f"Failed to unpickle committed value because: {ex}")
+            raise ex 
+        
+        if isinstance(committedValue, LeaderElectionVote):
+            return self._handleVote(committedValue)
+        elif isinstance(committedValue, LeaderElectionProposal):
+            return self._handleProposal(committedValue, received_at = received_at)
+
+        # Skip state updates from current node.
+        if value_id != "":
+            return GoNilError()
+        
+        self._leader_term = committedValue.election_term
+
+        # For values synchronized from other replicas or replayed, count _ignore_changes
+        if not committedValue.has_operation:
+            self._ignore_changes = self._ignore_changes + 1
+        
+        assert self._change_handler != None 
+        try:
+            self._change_handler(self._load_value(committedValue))
+        except Exception as ex:
+            self.logger.error(f"Failed to handle changed value because: {ex}")
+            print_trace(limit = 10)
+            raise ex 
+
+        return GoNilError()
 
     def _valueRestored(self, goObject, value_size: int) -> bytes:
-        pass 
+        self.logger.debug(f"Restoring value of size {value_size} now...")
+
+        reader = readCloser(ReadCloser(handle=goObject), value_size)
+        unpickler = pickle.Unpickler(reader)
+
+        syncval = None
+        try:
+            syncval = unpickler.load()
+        except Exception:
+            pass
+
+        # Recount _ignore_changes
+        self._ignore_changes = 0
+        restored = 0
+        while syncval is not None:
+            try:
+                assert self._change_handler != None 
+                self._change_handler(self._load_value(syncval))
+                restored = restored + 1
+
+                syncval = None
+                syncval = unpickler.load()
+            except SyncError as se:
+                self.logger.error("Error on restoreing snapshot: {}".format(se))
+                return GoError(se)
+            except Exception:
+                pass
+
+        self.logger.debug(f"Restored value of size {value_size} bytes: {restored}")
+        return GoNilError()
+
+    def _load_value(self, val: SynchronizedValue) -> SynchronizedValue:
+        """Onload the buffer from the storage server."""
+        if type(val.data) is not offloadPath:
+            return val
+
+        should_end_execution = val.should_end_execution
+        val = self._offloader._load(val.data.path) # type: ignore
+        val.set_should_end_execution(should_end_execution)
+        return val
 
     def _get_serialized_state(self) -> bytes:
         """
@@ -172,9 +318,9 @@ class RaftLog(object):
             "num_proposals_discarded": self.num_proposals_discarded,
             "sync_proposals_per_term": self.sync_proposals_per_term,
             "decisions_proposed": self.decisions_proposed,
-            "_leader_term": self.current_leader_term_number,
-            "_leader_id": self._current_leader_id,
-            "_expected_term": self._expected_term,
+            "_leader_term": self._leader_term,
+            "_leader_id": self._leader_id,
+            "_expected_term": self.expected_term,
         }
         
         return pickle.dumps(data_dict)
@@ -249,10 +395,10 @@ class RaftLog(object):
 
     def _is_leading(self, term) -> Tuple[bool, bool]:
         """Check if the current node is leading, return (wait, is_leading)"""
-        if self.current_leader_term_number > term:
+        if self._leader_term > term:
             return False, False
-        elif self.current_leader_term_number == term:
-            return False, self._current_leader_id == self._node_id
+        elif self._leader_term == term:
+            return False, self._leader_id == self._node_id
         else:
             return True, False
 
@@ -286,7 +432,7 @@ class RaftLog(object):
             self.logger.error(f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet completed successfully.")
             raise ValueError(f"current election (term number: {self._current_election.term_number}) has not yet completed successfully (current state: {self._current_election._election_state})")
 
-        new_election: Election = Election(term_number)
+        new_election: Election = Election(term_number, self._num_replicas)
         self._elections[term_number] = new_election
         self._last_completed_election = self._current_election
         self._current_election = new_election
@@ -313,6 +459,8 @@ class RaftLog(object):
         """
         Append some data to the synchronized Raft log.
         """
+        self._leader_term = value.election_term
+
         if not value.has_operation:
             # Count _ignore_changes
             self._ignore_changes += 1
@@ -353,6 +501,8 @@ class RaftLog(object):
         """
         Orchestrate an election. Return a boolean indicating whether or not we are now the "leader".
 
+        The election should have been setup/created prior to calling this function.
+
         The `target_term_number` argument is just a safety mechanism to ensure that the current election matches the intended/target term number.
         """
         self.logger.debug(f"RaftLog {self._node_id} handling election in term {target_term_number}, attempt #{proposal.attempt_number}. Will be proposing {proposal.election_proposal_key}.")
@@ -365,9 +515,11 @@ class RaftLog(object):
         if self._current_election == None:
             raise ValueError("current election field is None")
         
-        if self._last_completed_election != None and target_term_number <= self.current_leader_term_number:
-            self.logger.error(f"Current leader term {self.current_leader_term_number} > specified target term {target_term_number}...")
+        if self._last_completed_election != None and target_term_number <= self._leader_term:
+            self.logger.error(f"Current leader term {self._leader_term} > specified target term {target_term_number}...")
             return False 
+        
+        self._expected_term = target_term_number
         
         # The current election field's term number must match the specified target term number.
         if self._current_election.term_number != target_term_number:
@@ -384,9 +536,54 @@ class RaftLog(object):
         assert proposal.attempt_number in self._proposed_values[target_term_number] # The proposal is registered under its attempt number?
         assert self._proposed_values[target_term_number][proposal.attempt_number] == proposal # Equality check for ultimate sanity check. 
 
+        # Define the `_leading` feature.
+        # Save a reference to the currently-running IO loop so that we can resolve the `_leading` future on this same IO loop later.
+        self._future_io_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        # This is the future we'll use to submit a formal vote for who should lead, based on the proposals that are committed to the etcd-raft log.
+        self._election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = self._future_io_loop.create_future()
+        # This is the future that we'll use to inform the local kernel replica if it has been selected to "lead" the election (and therefore execute the user-submitted code).
+        self._leading_future: Optional[asyncio.Future[bool]] = self._future_io_loop.create_future()
 
+        # Create local references.
+        _election_decision_future: asyncio.Future[Any] = self._election_decision_future 
+        _leading_future: asyncio.Future[bool] = self._leading_future 
 
-        return False 
+        await self._append_election_proposal(proposal)
+
+        voteProposal: LeaderElectionVote = await _election_decision_future
+        self._election_decision_future = None 
+
+        # Validate that the term number matches the current election.
+        if voteProposal.election_term != self._current_election.term_number:
+            raise ValueError(f"received LeaderElectionVote with mis-matched term number ({voteProposal.election_term}) compared to current election term number ({self._current_election.term_number})")
+        
+        if voteProposal.election_failed:
+            self.logger.debug("RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'." % self._node_id)
+            
+            # None of the replicas proposed 'LEAD'
+            # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
+            return False 
+        
+        self.logger.debug("RaftLog %d: Appending decision proposal for term %s now." % (self._node_id, voteProposal.election_term))
+        await self._append_value(voteProposal)
+        self.logger.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (self._node_id, voteProposal.election_term))
+
+        # Validate the term
+        wait, is_leading = self._is_leading(target_term_number)
+        if not wait:
+            self.logger.debug("RaftLog %d: returning for term %d without waiting, is_leading=%s" % (self._node_id, target_term_number, str(is_leading)))
+            return is_leading
+        
+        # Wait for the future to be set.
+        self.logger.debug("waiting on _leading Future to be resolved.")
+        await _leading_future
+        self.logger.debug("Successfully waited for self._leading.")
+        self._leading_future = None
+
+        # Validate the term
+        wait, is_leading = self._is_leading(target_term_number)
+        assert wait == False
+        return is_leading
 
     def _create_election_proposal(self, key: ElectionProposalKey, term_number: int) -> LeaderElectionProposal:
         """
@@ -442,7 +639,7 @@ class RaftLog(object):
         res = await future.result()
         self.logger.info("Result of UpdateNode: %s" % str(res))
         
-        self.proposals_per_term[self.current_leader_term_number]
+        self.proposals_per_term[self._leader_term]
 
     async def remove_node(self, node_id):
         """Remove a node from the etcd-raft cluster."""
@@ -469,29 +666,18 @@ class RaftLog(object):
         return self.current_election.is_active
 
     @property 
-    def current_leader_term_number(self)->int:
+    def leader_term(self)->int:
         """
-        The term number that was committed with the result of the most recently completed election. 
-        This is the term number of the current leader.
-
-        -1 indicates that no node has won an election yet.
+        Updated after a LEAD call. This is the term of the LEADER. Used to check if received proposals are old/new. 
         """
-        if self._last_completed_election == None:
-            return -1 
-        
-        return self._last_completed_election.term_number
+        return self._leader_term
 
     @property 
-    def current_leader_id(self)->int:
+    def leader_id(self)->int:
         """
-        The SMR node ID of the node that was most recently elected leader.
-
-        -1 indicates that no node has won an election yet.
+        ID of the current leader. Updated after a LEAD call. Used to check if received proposals are old/new.
         """
-        if self._last_completed_election == None:
-            return -1 
-        
-        return self._last_completed_election.term_number
+        return self._leader_id
 
     @property 
     def expected_term(self)->Optional[int]:

@@ -341,7 +341,7 @@ class RaftLog:
     # Check if this is the first 'LEAD' proposal we're receiving this term.
     # If so, and if we're not discarding the proposal, then record that it is the first 'LEAD' proposal.
     if not discarded and proposal.key == KEY_LEAD and self.first_lead_proposal_received_per_term.get(term, None) == None:
-      self._log.debug("'LEAD' proposal from Node %d is first LEAD proposal in term %d." % (proposal.val, term))
+      self._log.debug("'%s' proposal from Node %d is first LEAD proposal in term %d." % (proposal.key, proposal.val, term))
       self.first_lead_proposal_received_per_term[term] = proposal
 
     self._ignore_changes = self._ignore_changes + 1
@@ -506,12 +506,6 @@ class RaftLog:
           self._log.debug(f"We're done catching up. Current and previous leader term are both equal to {self._leader_term}.")
         else:
           self._log.debug(f"We're not done catching-up yet. Previous leader term: {self.leader_term_before_migration}, current leader term: {self._leader_term}.")
-      
-      # if self._leader_term > old_leader_term:
-      #  # Only reset these values if we're done "catching up". 
-      #  self._log.debug(f"Resetting attempt number and largest peer attempt number (we're not catching up post-migration and the leader term just increased from {old_leader_term} to {self._leader_term}).")
-      #  self.my_current_attempt_number = 1 # Reset the current attempt number. 
-      #  self.largest_peer_attempt_number[self._leader_term] = 0 # Reset the current "largest peer" attempt number. 
       
       # For values synchronized from other replicas or replayed, count _ignore_changes
       if syncval.op is None or syncval.op == "":
@@ -680,7 +674,6 @@ class RaftLog:
       raise ValueError("Received decision proposal with different term: %d. Expected: %d." % (decisionProposal.term, term))
     
     self._log.debug("RaftLog %d: Appending decision proposal for term %s now." % (self._id, decisionProposal.term))
-    
     await self.append_decision(decisionProposal)
     self._log.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (self._id, decisionProposal.term))
     self.decisions_proposed[term] = True

@@ -149,6 +149,14 @@ class LeaderElectionProposal(SynchronizedValue):
     self._proposal_key = election_proposal_key
 
   @property 
+  def is_lead(self)->bool:
+    return self._proposal_key == ElectionProposalKey.LEAD
+
+  @property 
+  def is_yield(self)->bool:
+    return self._proposal_key == ElectionProposalKey.YIELD
+
+  @property 
   def election_proposal_key(self)->ElectionProposalKey:
     """
     The "key" of this proposal, which indicates whether it is a LEAD or a YIELD proposal.
@@ -160,6 +168,8 @@ class LeaderElectionVote(SynchronizedValue):
   A special type of SynchronizedValue encapsulating a vote for a leader during a leader election.
 
   These elections occur when code is submitted for execution by the user.
+
+  This used to be 'SYNC' in the original RaftLog implementation.
   """
   def __init__(self, proposed_node_id: int, **kwargs):
     super().__init__(None, **kwargs)
@@ -173,6 +183,22 @@ class LeaderElectionVote(SynchronizedValue):
     The SMR node ID of the node being voted for
     """
     return self._proposed_node_id 
+
+  @property 
+  def election_succeeded(self)->bool:
+    """
+    True if a particular node was selected/voted for (rather than all nodes proposing 'YIELD', which would constitute a failure/failed election.)
+    Basically, True if at least one node proposed 'LEAD', and False if all nodes proposed 'YIELD'.
+    """
+    return self._proposed_node_id != -1 
+
+  @property 
+  def election_failed(self)->bool:
+    """
+    True if all nodes proposed 'YIELD'.
+    False if at least one node proposed 'LEAD'.
+    """
+    return self._proposed_node_id == -1 
 
 class SyncValue:
   """A value for log proposal."""
