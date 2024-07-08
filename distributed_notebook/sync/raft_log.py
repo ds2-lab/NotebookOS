@@ -105,7 +105,7 @@ class RaftLog:
       raise ValueError("Could not create LogNode. See logs for details.")
     elif not self._node.ConnectedToHDFS():
       self._log.error("The LogNode failed to connect to HDFS.")
-      raise ValueError("The LogNode failed to connect to HDFS")
+      raise RuntimeError("The LogNode failed to connect to HDFS")
 
     self._log.info("Successfully created LogNode %d." % id)
 
@@ -218,16 +218,11 @@ class RaftLog:
     self._async_loop = asyncio.get_running_loop()
     self._start_loop = self._async_loop
 
-    # self._printIOLoopInformationDebug()
-
     startSuccessful: bool = self._node.Start(config)
     if not startSuccessful:
       self._log.error("Failed to start LogNode.")
       raise RuntimeError("failed to start the Golang-level LogNode component")
     self._log.info("Started LogNode.")
-
-    # self._printIOLoopInformationDebug()
-
     self._log.info("Started RaftLog.")
 
   def _printIOLoopInformationDebug(self):
@@ -354,36 +349,6 @@ class RaftLog:
 
     # Default to '_handleOtherProposal' in case of an erroneous key field.
     # return self.proposal_handlers.get(proposal.key, self._handleOtherProposal)(proposal)
-
-  # def _handleLeadProposal(self, proposal: SyncValue) -> bytes:
-  #   """Handle a LEAD proposal."""
-    # if self._leader_term < proposal.term:
-    #   self._log.debug("Our 'leader_term' (%d) < 'leader_term' of latest commit (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value).", self._leader_term, proposal.term, proposal.term, proposal.val)
-    #   self._leader_term = proposal.term
-    #   self._leader_id = proposal.val
-
-    #   self.winners_per_term[proposal.term] = proposal.val
-    #   self._log.debug("Node %d has won in term %d.", proposal.val, proposal.term)
-
-    # # Set the future if the term is expected.
-    # _leading = self._leading
-    # if _leading is not None and self._leader_term >= self._expected_term:
-    #   self._log.debug("leader_term=%d, expected_term=%d. Setting result on '_leading' future to %d.", self._leader_term, self._expected_term, self._leader_term)
-    #   self._start_loop.call_later(0, _leading.set_result, self._leader_term)
-    #   self._leading = None # Ensure the future is set only once.
-
-    # self._ignore_changes = self._ignore_changes + 1
-    # return GoNilError()
-
-  # def _handleYieldProposal(self, proposal: SyncValue) -> bytes:
-    # Set the future if the term is expected.
-    # _leading = self._leading
-    # if _leading is not None and self._leader_term >= self._expected_term:
-    #   self._log.debug("leader_term=%d, expected_term=%d. Setting result on '_leading' future to %d.", self._leader_term, self._expected_term, self._leader_term)
-    #   self._start_loop.call_later(0, _leading.set_result, self._leader_term)
-
-    # self._ignore_changes = self._ignore_changes + 1
-    # return GoNilError()
 
   def _makeDecision(self, term: int) -> bytes:
     """Make a decision on who should execute the code for the given term.
@@ -645,7 +610,7 @@ class RaftLog:
 
   async def yield_execution(self, term) -> bool:
     """
-    Request to lead the update of a term. A following append call without leading status will fail.
+    Request to yield the update of a term. A following append call without leading status will fail.
     """
     self._log.debug("RaftLog %d: proposing to yield term %d. Current leader term: %d." % (self._id, term, self._leader_term))
     is_leading:bool = await self.handle_election(term, SyncValue(-1, self._id, timestamp = time.time(), term=term, key=KEY_YIELD, attempt_number=self.my_current_attempt_number))

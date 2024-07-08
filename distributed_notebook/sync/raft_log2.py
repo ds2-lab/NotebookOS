@@ -6,17 +6,20 @@ import asyncio
 import json
 import logging
 import time
-from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 import datetime
+
+from collections import OrderedDict
+from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 
 from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser, PrintTestMessage
 from ..smr.go import Slice_string, Slice_int, Slice_byte
-from .log import SyncLog, SyncValue
+from .log import SyncLog, ProposedValue, LeaderElectionVote
 from .checkpoint import Checkpoint
 from .future import Future
 from .errors import print_trace, SyncError, GoError, GoNilError
 from .reader import readCloser
 from .file_log import FileLog
+from .election import Election
 
 KEY_LEAD = "_lead_" # Propose to lead the execution term (i.e., execute the user's code).
 KEY_YIELD = "_yield_" # Propose to yield the execution to another replica.
@@ -56,8 +59,10 @@ class RaftLog(object):
         peer_addrs: Iterable[str] = [], 
         peer_ids: Iterable[int] = [], 
         join: bool = False, 
-        debug_port:int = 8464
-    ):
+        debug_port:int = 8464,
+        heartbeat_tick: int = 10, # Raft-related
+        election_tick:int = 1     # Raft-related
+    ):  
         if len(hdfs_hostname) == 0:
             raise ValueError("HDFS hostname is empty.")
         
@@ -67,13 +72,13 @@ class RaftLog(object):
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
         self.logger.info("Creating RaftNode %d now." % id)
 
-        self.persistent_store_path:str = base_path
-        self.node_id = id 
-        self.offloader: FileLog = FileLog(self.persistent_store_path)
+        self._persistent_store_path:str = base_path
+        self._node_id = id 
+        self._offloader: FileLog = FileLog(self._persistent_store_path)
 
-        self.create_persistent_store_path(base_path)
+        self._create_persistent_store_path(base_path)
 
-        self.logger.info("persistent store path: %s" % self.persistent_store_path)
+        self.logger.info("persistent store path: %s" % self._persistent_store_path)
         self.logger.info("hdfs_hostname: \"%s\"" % hdfs_hostname)
         self.logger.info("data_directory: \"%s\"" % data_directory)
         self.logger.info("peer_addrs: %s" % peer_addrs)
@@ -81,37 +86,58 @@ class RaftLog(object):
         self.logger.info("join: %s" % join)
         self.logger.info("debug_port: %d" % debug_port)
 
-        self.log_node = NewLogNode(self.persistent_store_path, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
-        if self.log_node == None:
+        self._log_node = NewLogNode(self._persistent_store_path, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
+        if self._log_node == None:
             raise RuntimeError("Failed to create LogNode.")
-        elif not self.log_node.ConnectedToHDFS():
+        elif not self._log_node.ConnectedToHDFS():
             self.logger.error("The LogNode failed to connect to HDFS.")
             raise RuntimeError("The LogNode failed to connect to HDFS")
         
         self.logger.info(f"Successfully created LogNode {id}.")
+
+        # Mapping from term number to the election associated with that term. 
+        self._elections: Dict[int, Election] = {} 
+        # The current/active election.
+        self._current_election: Optional[Election] = None 
+        # The last election.
+        self._previous_election: Optional[Election] = None 
         
+        # TBD
+        self._change_handler: Optional[Callable[[ProposedValue], None]] = None 
+
         self.my_current_attempt_number : int = 1 # Attached to proposals. Sort of an ID within an election term. 
         self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
-        self.my_proposals: Dict[int, Dict[int, SyncValue]] = {} # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
+        self._proposed_values: OrderedDict[int, OrderedDict[int, ProposedValue]] = OrderedDict() # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
         self.my_current_attempt_number:int = 1 # The current attempt number for the current term. 
         self.largest_peer_attempt_number:Dict[int, int] = {0:0} # The largest attempt number received from a peer's proposal.
-        self.proposals_per_term: Dict[int, Dict[int, SyncValue]] = {} # Mapping from term number -> dict. Inner dict is map from SMR node ID -> proposal.
+        self.proposals_per_term: Dict[int, Dict[int, ProposedValue]] = {} # Mapping from term number -> dict. Inner dict is map from SMR node ID -> proposal.
         self.own_proposal_times: Dict[int, float] = {} # Mapping from term number -> the time at which we proposed LEAD/YIELD in that term.
-        self.first_lead_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first 'LEAD' proposal received in that term.
-        self.first_proposal_received_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first proposal received in that term.
+        self.first_lead_proposal_received_per_term: Dict[int, ProposedValue] = {} # Mapping from term number -> the first 'LEAD' proposal received in that term.
+        self.first_proposal_received_per_term: Dict[int, ProposedValue] = {} # Mapping from term number -> the first proposal received in that term.
         self.timeout_durations: Dict[int, float] = {} # Mapping from term number -> the timeout (in seconds) for that term.
         self.discard_after: Dict[int, float] = {} # Mapping from term number -> the time after which received proposals will be discarded.
         self.num_proposals_discarded: Dict[int, int] = {} # Mapping from term number -> the number of proposals that were discarded in that term.
-        self.sync_proposals_per_term: Dict[int, SyncValue] = {} # Mapping from term number -> the first SYNC proposal committed during that term.
+        self.sync_proposals_per_term: Dict[int, ProposedValue] = {} # Mapping from term number -> the first SYNC proposal committed during that term.
         self.decisions_proposed: Dict[int, bool] = {} # Mapping from term number -> boolean flag indicating whether we've proposed (but not necessarily committed) a decision for the given term yet.
 
-        self.ignore_changes: int = 0
-        self.closed = None 
+        self._ignore_changes: int = 0
+
+        # This can be set such that it will be resolved when close() is called.
+        self._closed: Optional[Callable[[str, Exception]]] = None 
+
+        self._heartbeat_tick:int = heartbeat_tick
+        self._election_tick:int = election_tick
+
+        self._valueCommittedCallback: Callable[[Any, int, str]] = self._valueCommitted
+        self._valueRestoredCallback: Callable[[Any, int]] = self._valueRestored 
+
+        self._async_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._start_loop: Optional[asyncio.AbstractEventLoop] = None
 
         # This will just do nothing if there's no serialized state to be loaded.
-        self.load_and_apply_serialized_state()
+        self._load_and_apply_serialized_state()
 
-    def create_persistent_store_path(self, path: str):
+    def _create_persistent_store_path(self, path: str):
         """
         Create a directory at the specified path if it does not already exist.
         """
@@ -120,15 +146,21 @@ class RaftLog(object):
             os.makedirs(path, 0o750, exist_ok = True) # It's OK if it already exists.
             self.logger.debug(f"Created persistent store directory \"{path}\" (or it already exists).")
 
-    def get_serialized_state(self) -> bytes:
+    def _valueCommitted(self, goObject, value_size: int, value_id: str) -> bytes:
+        pass 
+
+    def _valueRestored(self, goObject, value_size: int) -> bytes:
+        pass 
+
+    def _get_serialized_state(self) -> bytes:
         """
         Serialize important state so that it can be written to HDFS (for recovery purposes).
         
-        This return value of this function should be passed to the `self._node.WriteDataDirectoryToHDFS` function.
+        This return value of this function should be passed to the `self._log_node.WriteDataDirectoryToHDFS` function.
         """        
         data_dict:dict = {
             "winners_per_term": self.winners_per_term,
-            "my_proposals": self.my_proposals,
+            "proposed_values": self._proposed_values,
             "my_current_attempt_number": self.my_current_attempt_number,
             "largest_peer_attempt_number": self.largest_peer_attempt_number,
             "proposals_per_term": self.proposals_per_term,
@@ -147,30 +179,30 @@ class RaftLog(object):
         
         return pickle.dumps(data_dict)
 
-    def load_and_apply_serialized_state(self) -> None:
+    def _load_and_apply_serialized_state(self) -> None:
         """
         Retrieve the serialized state read by the Go-level LogNode. 
         This state is read from HDFS during migration/error recovery.
         Update our local state with the state retrieved from HDFS.
         """
-        serialized_state_bytes:bytes = bytes(self._node.GetSerializedState()) # Convert the Go bytes (Slice_byte) to Python bytes.
+        serialized_state_bytes:bytes = bytes(self._log_node.GetSerializedState()) # Convert the Go bytes (Slice_byte) to Python bytes.
         
         if len(serialized_state_bytes) == 0:
-            self._log.debug("No serialized state found. Nothing to load and apply.")
+            self.logger.debug("No serialized state found. Nothing to load and apply.")
             return 
         
         data_dict:dict = pickle.loads(serialized_state_bytes) # json.loads(serialized_state_json)
         if len(data_dict) == 0:
-            self._log.debug("No serialized state found. Nothing to apply.")
+            self.logger.debug("No serialized state found. Nothing to apply.")
             return 
         
         for key, entry in data_dict.items():
-            self._log.debug(f"Retrived state \"{key}\": {str(entry)}")
+            self.logger.debug(f"Retrived state \"{key}\": {str(entry)}")
         
         # TODO: 
         # There may be some bugs that arrise from these values being somewhat old or outdated, potentially.
         self.winners_per_term = data_dict["winners_per_term"]
-        self.my_proposals = data_dict["my_proposals"]
+        self._proposed_values = data_dict["proposed_values"]
         self.my_current_attempt_number = data_dict["my_current_attempt_number"]
         self.largest_peer_attempt_number = data_dict["largest_peer_attempt_number"]
         self.proposals_per_term = data_dict["proposals_per_term"]
@@ -193,3 +225,245 @@ class RaftLog(object):
         # self._leader_term = data_dict["_leader_term"]
         # self._leader_id = data_dict["_leader_id"]
         # self._expected_term = data_dict["_expected_term"]
+
+    def _get_callback(self)-> Tuple[asyncio.Future, Callable[[str, Exception]]]:
+        """Get the future object for the specified key."""
+        # Prepare callback settings.
+        # Callback can be called from a different thread. Schedule the result of the future object to the await thread.
+        loop = asyncio.get_running_loop()
+
+        if loop == self._async_loop:
+            self.logger.debug("Registering callback future on _async_loop. _async_loop.is_running: %s" % str(self._async_loop.is_running())) # type: ignore
+        elif loop == self._start_loop:
+            self.logger.debug("Registering callback future on _start_loop. _start_loop.is_running: %s" % str(self._start_loop.is_running())) # type: ignore
+        else:
+            self.logger.debug("Registering callback future on unknown loop. loop.is_running: %s" % str(loop.is_running()))
+
+        future: asyncio.Future = Future(loop=loop) # type: ignore
+        self._async_loop = loop
+        def resolve(key, err):
+            # must use local variable
+            asyncio.run_coroutine_threadsafe(future.resolve(key, err), loop) # type: ignore 
+
+        return future, resolve
+    
+    def _create_new_election(self, term_number:int = -1)->Election:
+        """
+        Create and register a new election with the given term number.
+
+        This modifies the following fields:
+            - self._elections
+            - self._election 
+            - self._previous_election
+
+        Raises a ValueError if any of the following conditions are met:
+            - term_number < 0
+            - we already have an active election 
+            - term_number < the previous election's term number  
+        """
+        if term_number < 0:
+            raise ValueError(f"illegal term number specified for new election: {term_number}")
+        
+        if self.has_active_election:
+            assert self._current_election != None 
+            self.logger.error(f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
+            raise ValueError(f"attempted to create new election while already having an active election")
+        elif self._current_election != None and self._current_election.term_number > term_number:
+            self.logger.error(f"Creating new election with term number {term_number} despite already previous election having a larger term number of {self._current_election.term_number}") 
+            raise ValueError(f"attempted to create new election with term number smaller than previous election's term number ({term_number} < {self._current_election.term_number})") 
+        
+        new_election: Election = Election(term_number)
+        self._elections[term_number] = new_election
+        self._previous_election = new_election
+        self._current_election = new_election
+
+        return new_election
+
+    async def _handle_election(
+            self, 
+            proposal: ProposedValue,
+            target_term_number: int = -1
+        ) -> bool:
+        """
+        Orchestrate an election. Return a boolean indicating whether or not we are now the "leader".
+
+        The `target_term_number` argument is just a safety mechanism to ensure that the current election matches the intended/target term number.
+        """
+        if self._current_election == None:
+            raise ValueError("current election field is None")
+        
+        if self._current_election.term_number != target_term_number:
+            raise ValueError(f"current election is targeting term {self._current_election.term_number}, whereas the target term number was specified to be {target_term_number}")
+
+        return False 
+
+    def has_active_election(self)->bool:
+        """
+        Return true if the following two conditions are met:
+            - (a): We have an election (i.e., the _current_election field is non-nil)
+            - (b): The current election is in the ACTIVE state
+        """
+        if self.current_election == None:
+            return False 
+        
+        return self.current_election.is_active
+
+    @property 
+    def current_election(self)->Optional[Election]:
+        return self._current_election
+
+    @property 
+    def previous_election(self)->Optional[Election]:
+        return self._previous_election
+
+    def start(self, handler: Callable[[ProposedValue], None])->None:
+        """
+        Register the change handler, restore internal states, and start monitoring for changes committed to the Raft log.
+        """
+        self._change_handler = handler 
+
+        config = NewConfig() 
+        config.ElectionTick = self._heartbeat_tick 
+        config.HeartbeatTick = self._election_tick 
+
+        config = config.WithChangeCallback(self._valueCommittedCallback).WithRestoreCallback(self._valueRestoredCallback)
+        
+        if self._shouldSnapshotCallback is not None:
+            config = config.WithShouldSnapshotCallback(self._shouldSnapshotCallback)
+        if self._snapshotCallback is not None:
+            config = config.WithSnapshotCallback(self._snapshotCallback)
+
+        self.logger.info(f"Starting LogNode {self._node_id} now.")
+
+        self._async_loop = asyncio.get_running_loop()
+        self._start_loop = self._async_loop
+
+        startSuccessful: bool = self._log_node.Start(config)
+        if not startSuccessful:
+            self.logger.error("Failed to start LogNode.")
+            raise RuntimeError("failed to start the Golang-level LogNode component")
+        
+        self.logger.info("Successfully started RaftLog and LogNode.")
+
+    def close(self)->None:
+        """
+        Ensure all async coroutines have completed. Clean up resources. Stop the LogNode.
+        """
+        self.logger.warn(f"Closing LogNode {self._node_id} now.")
+        self._log_node.Close()
+        
+        if self._closed is not None: 
+            if self._start_loop is None:
+                self.logger.error("Cannot resolve '_closed' future; start loop is None...")
+            else:
+                asyncio.run_coroutine_threadsafe(self._closed.resolve(None, None), self._start_loop) 
+                self._closed = None
+        
+        self.logger.debug("RaftLog %d has closed." % self._node_id)
+
+    def set_should_checkpoint_callback(self, callback):
+        """Set the callback that will be called when the SyncLog decides if to checkpoint or not.
+        callback will be in the form callback(SyncLog) bool"""
+        if callback is None:
+            self._shouldSnapshotCallback = None
+            return
+
+        def shouldSnapshotCallback(logNode):
+            # Initialize object using LogNode(handle=logNode) if neccessary.
+            # print("in direct shouldSnapshotCallback")
+            return callback(self)
+
+        self._shouldSnapshotCallback = shouldSnapshotCallback
+
+    def set_checkpoint_callback(self, callback):
+        """Set the callback that will be called when the SyncLog decides to checkpoint.
+        callback will be in the form callback(Checkpointer)."""
+        if callback is None:
+            self._snapshotCallback = None
+            return
+
+        def snapshotCallback(wc) -> bytes:
+            try:
+                checkpointer = Checkpoint(writeCloser(WriteCloser(handle=wc)))
+                callback(checkpointer)
+                # Reset _ignore_changes
+                self._ignore_changes = 0
+                return GoNilError()
+            except Exception as e:
+                self.logger.error("Error on snapshoting: {}".format(e))
+                return GoError(e)
+
+        self._snapshotCallback = snapshotCallback
+
+    async def write_data_dir_to_hdfs(self):
+        """
+        Write the contents of the etcd-Raft data directory to HDFS.
+        """
+        self.logger.info("Writing etcd-Raft data directory to HDFS.")
+        
+        serialized_state:bytes = self._get_serialized_state()
+        self.logger.info("Serialized important state to be written along with etcd-Raft data. Size: %d bytes." % len(serialized_state))
+        
+        future, resolve = self._get_callback()
+        
+        # Convert the Python bytes (bytes) to Go bytes (Slice_byte).
+        self._log_node.WriteDataDirectoryToHDFS(Slice_byte(serialized_state), resolve)
+        data_dir_path = await future.result()
+        return data_dir_path
+    
+    def _create_proposal(self, term_number: int) -> ProposedValue:
+        """
+        Create and register a proposal for the current term.
+
+        This updates the `self._proposed_values` field.
+
+        The attempt number for the new proposal is "calculated" based on whether there already exists a previous proposal for this election term.
+        """
+        attempt_number:int = 1
+        
+        # Get the existing proposals for the specified term.
+        existing_proposals: Dict[int, ProposedValue] = self._proposed_values.get(term_number, OrderedDict()) 
+
+        # If there is at least one existing proposal for the specified term, then we'll get the most-recent proposal's attempt number.
+        if len(existing_proposals) > 0:
+            last_attempt_number: int = next(reversed(existing_proposals)) # This is O(1), as OrderedDict uses a doubly-linked list internally.
+            attempt_number = last_attempt_number # Could be on one line, but this is more readable in my opinion.
+        
+        # Create the new proposal.
+        proposal: ProposedValue = ProposedValue(None, proposer_id = self._node_id, election_term = term_number, attempt_number = attempt_number)
+        
+        # Add the new proposal to the mapping of proposals for the specified term.
+        existing_proposals[attempt_number] = proposal 
+
+        # Update the mapping (of proposals for the specified term) in the `self._proposed_values` field.
+        self._proposed_values[term_number] = existing_proposals
+
+        # Return the new proposal.
+        return proposal 
+
+    async def try_lead_execution(self, term_number: int) -> bool:
+        """
+        Request to serve as the leader for the update of a term (and therefore to be the replica to execute user-submitted code).
+
+        A subsequent call to append (without successfully being elected as leader) will fail.
+        """
+        self.logger.debug("RaftLog %d is proposing to lead term %d." % (self._node_id, term_number))
+        proposal: ProposedValue = ProposedValue(None, 1, term_number)
+        is_leading:bool = await self._handle_election(proposal, target_term_number = term_number)
+
+        return False  
+
+    async def try_yield_execution(self, term_number: int) -> bool:
+        """
+        Request to explicitly yield the current term update (and therefore the execution of user-submitted code) to another replica.
+        """
+        self.logger.debug("RaftLog %d: proposing to yield term %d." % (self._node_id, term_number))
+        proposal: ProposedValue = ProposedValue(None, 1, term_number)
+        is_leading:bool = await self._handle_election(proposal, target_term_number = term_number)
+
+        if is_leading:
+            raise RuntimeError(f"we were elected leader of election {term_number} despite proposing 'YIELD'")
+
+        assert is_leading == False 
+
+        return False 

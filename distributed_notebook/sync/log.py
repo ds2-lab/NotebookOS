@@ -1,12 +1,96 @@
-from typing import Tuple, Optional, Any
+from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 from typing_extensions import Protocol, runtime_checkable
 import time 
 import datetime
+import uuid 
 
 KEY_SYNC_END = "_end_"
 OP_SYNC_ADD = "add"
 OP_SYNC_PUT = "put"
 OP_SYNC_DEL = "del"
+
+class ProposedValue(object):
+  """
+  A value for log proposal.
+
+  This is an updated/rewritten version of the SyncValue class. 
+  """
+
+  def __init__(
+      self,
+      data: Any, # The value/data attached to the proposal.
+      proposer_id: int = -1, # The SMR node ID of the node proposing this value.
+      attempt_number: int = -1, # Serves as a sort of "sub-term", as elections can be re-tried if they fail (i.e., if everyone proposes "YIELD")
+      election_term: int = -1, # The election term on which this value is intended to be proposed.
+  ):
+    self._proposer_id = proposer_id
+    self._election_term: int = election_term
+    self._attempt_number: int = attempt_number
+    self._data:Any = data 
+    self._id:str = str(uuid.uuid4())
+    self._timestamp = time.time() 
+
+  @property 
+  def proposer_id(self)->int:
+    """
+    # The SMR node ID of the node proposing this value.
+    """
+    return self._proposer_id 
+
+  @property
+  def timestamp(self)->float:
+    """
+    The timestamp at which this proposal was created.
+    """
+    return self._timestamp
+
+  @property 
+  def ts(self)->float:
+    """
+    Alias of `self.timestamp`
+
+    The timestamp at which this proposal was created.
+    """
+    return self.timestamp  
+
+  @property 
+  def id(self)->str:
+      """
+      Return the UUID v4 uniquely identifying this proposed value.
+      """
+      return self._id 
+    
+  @property 
+  def data(self)->Any:
+    return self._data 
+  
+  @property 
+  def election_term(self)->int:
+    return self._election_term 
+  
+  @property 
+  def attempt_number(self)->int:
+    return self._attempt_number
+
+class LeaderElectionVote(ProposedValue):
+  """
+  A special type of ProposedValue encapsulating a vote for a leader during a leader election.
+
+  These elections occur when code is submitted for execution by the user.
+  """
+  def __init__(
+      self,
+      data: Any, # The value/data attached to the proposal.
+      election_term: int = -1, # The election term on which this value is intended to be proposed.
+      proposed_node_id: int = -1, # The SMR node ID of the node being voted for.
+  ):
+    super().__init__(data, election_term = election_term)
+
+    self._proposed_node_id:int = proposed_node_id
+  
+  @property 
+  def proposed_node_id(self)->int:
+    return self._proposed_node_id 
 
 class SyncValue:
   """A value for log proposal."""
