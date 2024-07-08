@@ -137,8 +137,8 @@ class RaftLog(object):
         self._heartbeat_tick:int = heartbeat_tick
         self._election_tick:int = election_tick
 
-        self._valueCommittedCallback: Callable[[Any, int, str]] = self._valueCommitted
-        self._valueRestoredCallback: Callable[[Any, int]] = self._valueRestored 
+        self._valueCommittedCallback: Callable[[Any, int, str], Any] = self._valueCommitted
+        self._valueRestoredCallback: Callable[[Any, int], Any] = self._valueRestored 
 
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
         self._start_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -372,9 +372,12 @@ class RaftLog(object):
             "num_proposals_discarded": self.num_proposals_discarded,
             "sync_proposals_per_term": self.sync_proposals_per_term,
             "decisions_proposed": self.decisions_proposed,
-            "_leader_term": self._leader_term,
-            "_leader_id": self._leader_id,
-            "_expected_term": self.expected_term,
+            "leader_term": self._leader_term,
+            "leader_id": self._leader_id,
+            "expected_term": self.expected_term,
+            "elections": self._elections,
+            "current_election": self._current_election,
+            "last_completed_election": self._last_completed_election,
         }
         
         return pickle.dumps(data_dict)
@@ -414,6 +417,9 @@ class RaftLog(object):
         self.num_proposals_discarded = data_dict["num_proposals_discarded"]
         self.sync_proposals_per_term = data_dict["sync_proposals_per_term"]
         self.decisions_proposed = data_dict["decisions_proposed"]
+        self._elections = data_dict["elections"]
+        self._current_election = data_dict["current_election"]
+        self._last_completed_election = data_dict["last_completed_election"]
         
         # If true, then the "remote updates" that we're receiving are us catching up to where we were before a migration/eviction was triggered.
         self._catchingUpAfterMigration = True 
@@ -422,11 +428,11 @@ class RaftLog(object):
         self.leader_term_before_migration: int = data_dict["_leader_term"]
 
         # Commenting these out for now; it's not clear if we should set these in this way yet.
-        # self._leader_term = data_dict["_leader_term"]
-        # self._leader_id = data_dict["_leader_id"]
-        # self._expected_term = data_dict["_expected_term"]
+        # self._leader_term = data_dict["leader_term"]
+        # self._leader_id = data_dict["leader_id"]
+        self._expected_term = data_dict["expected_term"]
 
-    def _get_callback(self)-> Tuple[asyncio.Future, Callable[[str, Exception]]]:
+    def _get_callback(self)-> Tuple[asyncio.Future, Callable[[str, Exception], Any]]:
         """Get the future object for the specified key."""
         # Prepare callback settings.
         # Callback can be called from a different thread. Schedule the result of the future object to the await thread.

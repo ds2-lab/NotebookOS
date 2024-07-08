@@ -23,7 +23,7 @@ from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from .util import extract_header
 from threading import Lock
 
-from jupyter_client.session import extract_dates
+from jupyter_client.jsonutil import extract_dates
 
 # from ..smr.smr import PrintTestMessage
 
@@ -377,8 +377,8 @@ class DistributedKernel(IPythonKernel):
             response), str(response))
 
         response_dict = json.loads(response)
-        self.smr_node_id = response_dict["smr_node_id"]
-        self.hostname = response_dict["hostname"]
+        self.smr_node_id: int = response_dict["smr_node_id"]
+        self.hostname:str = response_dict["hostname"]
 
         # self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in response_dict["replicas"]]
 
@@ -402,6 +402,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error(f"\t{k}: {v}")
             raise ValueError("registration response from local daemon did not contained a \"replicas\" entry")
         
+        self.num_replicas: int = len(replicas)
         self.smr_nodes_map = {int(node_id_str): (node_addr + ":" + str(self.smr_port))
                               for node_id_str, node_addr in replicas.items()}
 
@@ -450,6 +451,8 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Persistent store confirmed: " + self.store)
 
     async def dispatch_shell(self, msg):
+        assert self.session != None 
+
         idents, msg_without_idents = self.session.feed_identities(msg, copy=False)
         try:
             msg_deserialized = self.session.deserialize(msg_without_idents, content=False, copy=False)
@@ -1281,8 +1284,14 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Creating RaftLog now.")
         try:
-            self.synclog = RaftLog(store, self.smr_node_id, self.hdfs_namenode_hostname,
-                                   self.hdfs_data_directory, addrs, ids, join=self.smr_join,
+            self.synclog = RaftLog(self.smr_node_id, 
+                                   base_path = store,
+                                   num_replicas = self.num_replicas,
+                                   hdfs_hostname = self.hdfs_namenode_hostname,
+                                   data_directory = self.hdfs_data_directory, 
+                                   peer_addrs = addrs, 
+                                   peer_ids = ids, 
+                                   join=self.smr_join,
                                    debug_port = self.debug_port)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
