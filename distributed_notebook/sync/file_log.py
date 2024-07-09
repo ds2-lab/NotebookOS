@@ -186,7 +186,7 @@ class FileLog:
 
   def ensure_path(self, base_path):
     if not os.path.exists(base_path):
-      os.makedirs(base_path, 0o750)
+      os.makedirs(base_path, 0o750, exist_ok=True)
 
   def get_path(self, term, val: SynchronizedValue):
     # TODO: Sanitize the key.
