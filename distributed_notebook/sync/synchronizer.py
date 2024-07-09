@@ -5,7 +5,7 @@ import logging
 import traceback
 from typing import Any, Optional, Union
 
-from .log import Checkpointer, SyncLog, SyncValue, KEY_SYNC_END
+from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
 from .ast import SyncAST
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
@@ -80,10 +80,10 @@ class Synchronizer:
   def execution_count(self) -> int:
     return self._ast.execution_count
 
-  def change_handler(self, val: SyncValue, restoring:bool = False):
+  def change_handler(self, val: SynchronizedValue, restoring:bool = False):
     """Change handler"""
     ## TODO: Buffer changes of one execution and apply changes atomically
-    if not val.end:
+    if not val.should_end_execution:
       if not self._syncing:
         self._log.debug("enter execution syncing...")
         self._syncing = True
@@ -93,7 +93,7 @@ class Synchronizer:
       return
 
     try:
-      self._log.debug("Updating: {}, ended: {}".format(val.key, val.end))
+      self._log.debug("Updating: {}, ended: {}".format(val.key, val.should_end_execution))
       existed: Optional[SyncObject] = None
       if val.key == KEY_SYNC_AST:
         existed = self._ast
@@ -101,8 +101,8 @@ class Synchronizer:
         existed = self._tags[val.key]
 
       if existed == None: 
-        if isinstance(val.val, SyncObject):
-          existed = val.val
+        if isinstance(val.data, SyncObject):
+          existed = val.data
         else:
           existed = SyncObjectWrapper(self._referer) # Initialize an empty object wrapper.
 
@@ -129,13 +129,15 @@ class Synchronizer:
         self._tags[val.key] = existed
         self.global_ns[val.key] = existed.object
 
-      if val.end:
+      if val.should_end_execution:
         self._syncing = False
         self._log.debug("exit execution syncing [2]")
     except Exception as e:
       # print_trace(limit = 10)
-      self._log.error("Exception encountered in change handler for synchronizer: %s" % str(ex))
-      self._log.error(traceback.format_stack(limit = 10))
+      self._log.error("Exception encountered in change handler for synchronizer: %s" % str(e))
+      tb: list[str] = traceback.format_exception(e)
+      for frame in tb:
+        self._log.error(frame)
       
   async def propose_lead(self, execution_count: int) -> int:
     """Propose to lead the next execution.
@@ -157,13 +159,13 @@ class Synchronizer:
     except SyncError as se:
       self._log.warning("SyncError: {}".format(se))
       # print_trace(limit = 10)
-      stack:list[str] = traceback.format_stack(limit = 10)
+      stack:list[str] = traceback.format_exception(se)
       for frame in stack:
         self._log.error(frame)
     except Exception as e:
       self._log.error("Exception encountered while proposing LEAD: %s" % str(e))
       # print_trace(limit = 10)
-      stack:list[str] = traceback.format_stack(limit = 10)
+      stack:list[str] = traceback.format_exception(e)
       for frame in stack:
         self._log.error(frame)
       raise e 
@@ -188,13 +190,13 @@ class Synchronizer:
     except SyncError as se:
       self._log.warning("SyncError: {}".format(se))
       # print_trace(limit = 10)
-      stack:list[str] = traceback.format_stack(limit = 10)
+      stack:list[str] = traceback.format_exception(se)
       for frame in stack:
         self._log.error(frame)
     except Exception as e:
       self._log.error("Exception encountered while proposing YIELD: %s" % str(e))
       # print_trace(limit = 10)
-      stack:list[str] = traceback.format_stack(limit = 10)
+      stack:list[str] = traceback.format_exception(e)
       for frame in stack:
         self._log.error(frame)
       raise e
@@ -239,7 +241,7 @@ class Synchronizer:
       synclog = checkpointer
 
     try:
-      sync_ast: Optional[SyncValue]
+      sync_ast: Optional[SynchronizedValue]
       if checkpointing:
         sync_ast = self._ast.dump(meta=source)
       else:
@@ -250,17 +252,17 @@ class Synchronizer:
 
       self._log.debug("Syncing execution, ast: {}...".format(sync_ast))
       keys = self._ast.globals
-      meta = SyncObjectMeta(batch=(str(sync_ast.term) if not checkpointing else "{}c".format(sync_ast.term)))
+      meta = SyncObjectMeta(batch=(str(sync_ast.election_term) if not checkpointing else "{}c".format(sync_ast.election_term)))
       # TODO: Recalculate the number of expected synchronizations within the execution.
       expected = len(keys) # globals + the ast
       synced = 0
 
       self._syncing = True
       self._log.debug("Setting sync_ast.term to term of AST: %d" % (self._ast.execution_count))
-      sync_ast.term = self._ast.execution_count
-      sync_ast.key = KEY_SYNC_AST
+      sync_ast.set_election_term(self._ast.execution_count)
+      sync_ast.set_key(KEY_SYNC_AST)
       if expected == 0:
-        sync_ast.end = expected == 0
+        sync_ast.set_should_end_execution(expected == 0)
         # Because should_checkpoint_callback will be called during final append call, 
         # set the end of _syncing before the final append call.
         self._syncing = False
@@ -321,13 +323,13 @@ class Synchronizer:
       self._syncing = False
 
     if sync_val is not None:
-      sync_val.term = self._ast.execution_count
-      sync_val.key = key
-      sync_val.end = end_execution
+      sync_val.set_election_term(self._ast.execution_count)
+      sync_val.set_key(key)
+      sync_val.set_should_end_execution(end_execution)
       await synclog.append(sync_val)
     elif end_execution:
       # Synthecize end
-      await synclog.append(SyncValue(None, None, term=self._ast.execution_count, end=True, key=KEY_SYNC_END))
+      await synclog.append(SynchronizedValue(None, None, election_term=self._ast.execution_count, should_end_execution=True, key=KEY_SYNC_END))
 
   def should_checkpoint_callback(self, synclog: SyncLog) -> bool:
     cp = False

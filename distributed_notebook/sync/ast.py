@@ -3,7 +3,7 @@ import logging
 from copy import copy, deepcopy
 from typing import Tuple, Any, Optional
 
-from .log import SyncValue
+from .log import SynchronizedValue
 from .errors import SyncError
 
 ExplorerActionCopy = 0
@@ -50,12 +50,12 @@ class SyncAST(ast.NodeVisitor):
   def globals(self):
     return self._globals.keys()
 
-  def dump(self, meta=None) -> SyncValue:
-    """Return SyncValue for checkpoint"""
-    return SyncValue(self._executions, (self._tree, tuple(self._globals.keys())))
+  def dump(self, meta=None) -> SynchronizedValue:
+    """Return SynchronizedValue for checkpoint"""
+    return SynchronizedValue(self._executions, (self._tree, tuple(self._globals.keys())))
 
-  def diff(self, raw, meta=None) -> Optional[SyncValue]:
-    """Update AST with the AST of incremental execution and return SyncValue 
+  def diff(self, raw, meta=None) -> Optional[SynchronizedValue]:
+    """Update AST with the AST of incremental execution and return SynchronizedValue 
        for synchronization. The execution_count will increase by 1."""
     assert meta != None and isinstance(meta, str)
     # The AST we're comparing against, raw, may be None if the user's code had a syntax error.
@@ -79,27 +79,27 @@ class SyncAST(ast.NodeVisitor):
       ret = self._tree
 
     self._executions = self._executions+1
-    return SyncValue(self._executions, (ret, tuple(self._globals.keys())))
+    return SynchronizedValue(self._executions, (ret, tuple(self._globals.keys())))
   
-  def update(self, val: SyncValue) -> Any:
+  def update(self, val: SynchronizedValue) -> Any:
     """Apply the AST of incremental execution to the full AST. 
        Raising exception if the exection count is not the immediate
        next execution."""
     if self._tree is None:
       # Restore
-      self._tree = val.val[0]
+      self._tree = val.data[0]
     elif val.tag <= self._executions:
       # Update but execution count dismatch.
       raise SyncError("Failed to update AST, expects large than {}, but got {}".format(self._executions, val.tag))
     else:
       # Update
-      self._tree.body.extend(val.val[0].body)
+      self._tree.body.extend(val.data[0].body)
       
     self._globals = {}
-    for key in val.val[1]:
+    for key in val.data[1]:
       self._globals[key] = None
     self._executions = val.tag
-    return val.val[0]
+    return val.data[0]
 
   def sync(self, tree, source):
     """Legacy method that applies incremental AST to the full AST."""

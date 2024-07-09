@@ -85,7 +85,10 @@ class RaftLog(object):
         self._num_replicas: int = num_replicas
         self._last_winner_id: int = -1 
 
-        self._create_persistent_store_directory(base_path)
+        try:
+            self._create_persistent_store_directory(base_path)
+        except Exception as ex:
+            self.logger.error(f"Error while creating persistent datastore directory \"{base_path}\": {ex}")
 
         self.logger.info("persistent store path: %s" % self._persistent_store_path)
         self.logger.info("hdfs_hostname: \"%s\"" % hdfs_hostname)
@@ -481,7 +484,7 @@ class RaftLog(object):
             raise ValueError(f"illegal term number specified for new election: {term_number}")
         
         # TODO: We may want to "relax" these conditions, or rather the consequences of these conditions, and attempt to proceed even if there's an error.
-        if self.has_active_election:
+        if self.has_active_election():
             assert self._current_election != None 
             self.logger.error(f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
             raise ValueError(f"attempted to create new election while already having an active election")
@@ -499,6 +502,8 @@ class RaftLog(object):
 
         if self._last_completed_election != None:
             assert self._last_completed_election.completed_successfully
+
+        self.logger.info(f"Created new election with term number {term_number}")
 
         return new_election
 
@@ -565,7 +570,7 @@ class RaftLog(object):
 
         The `target_term_number` argument is just a safety mechanism to ensure that the current election matches the intended/target term number.
         """
-        self.logger.debug(f"RaftLog {self._node_id} handling election in term {target_term_number}, attempt #{proposal.attempt_number}. Will be proposing {proposal.election_proposal_key}.")
+        self.logger.debug(f"RaftLog {self._node_id} handling election in term {target_term_number}, attempt #{proposal.attempt_number}. Will be proposing {proposal.key}.")
 
         # TODO: Implement functionality of specifying term 0 to guarantee winning of election.
         if target_term_number == 0:
@@ -664,7 +669,7 @@ class RaftLog(object):
             attempt_number = last_attempt_number # Could be on one line, but this is more readable in my opinion.
         
         # Create the new proposal.
-        proposal: LeaderElectionProposal = LeaderElectionProposal(key, proposer_id = self._node_id, election_term = term_number, attempt_number = attempt_number)
+        proposal: LeaderElectionProposal = LeaderElectionProposal(key = str(key), proposer_id = self._node_id, election_term = term_number, attempt_number = attempt_number)
         
         # Add the new proposal to the mapping of proposals for the specified term.
         existing_proposals[attempt_number] = proposal 

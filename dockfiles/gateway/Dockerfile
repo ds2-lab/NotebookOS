@@ -12,5 +12,6 @@ ADD ./kernel-configmap.yaml kernel-configmap.yaml
 
 EXPOSE 8080/tcp
 EXPOSE 9996/tcp 
+EXPOSE 8079/tcp 
 
 ENTRYPOINT [ "./gateway", "-yaml", "gateway.yml", "-debug"]

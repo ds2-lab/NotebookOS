@@ -65,6 +65,7 @@ UNAVAILABLE: str = "N/A"
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
 
+# TODO(Ben): Fix this, potentially.
 class CustomFormatter(logging.Formatter):
     grey = "\x1b[38;20m"
     yellow = "\x1b[33;20m"
@@ -184,11 +185,11 @@ class DistributedKernel(IPythonKernel):
         ch.setFormatter(CustomFormatter())
         self.log.addHandler(ch)
 
-        self.log.info("TEST -- INFO")
-        self.log.debug("TEST -- DEBUG")
-        self.log.warn("TEST -- WARN")
-        self.log.error("TEST -- ERROR")   
-        self.log.critical("TEST -- CRITICAL")     
+        # self.log.info("TEST -- INFO")
+        # self.log.debug("TEST -- DEBUG")
+        # self.log.warn("TEST -- WARN")
+        # self.log.error("TEST -- ERROR")   
+        # self.log.critical("TEST -- CRITICAL")     
 
         # self.log.info("Calling Go-level `PrintTestMessage` function now...")
         # PrintTestMessage()
@@ -226,21 +227,21 @@ class DistributedKernel(IPythonKernel):
             self.log.debug(f"Deployment mode: {self.deployment_mode}")
         
         session_id:str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
-        self.kernel_id:str = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
+        self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
         
         if self.deployment_mode == DeploymentMode_Kubernetes:
-            self.pod_name:str = os.environ.get("POD_NAME", default=UNAVAILABLE)
-            self.node_name:str = os.environ.get("NODE_NAME", default=UNAVAILABLE)
+            self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
+            self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
             self.docker_container_id:str = "N/A"
         elif self.deployment_mode == DeploymentMode_Docker:
             import socket 
             
             self.docker_container_id:str = socket.gethostname()
-            self.pod_name:str = os.environ.get("POD_NAME", default=self.docker_container_id)
-            self.node_name:str = os.environ.get("NODE_NAME", default="DockerNode")
+            self.pod_name = os.environ.get("POD_NAME", default=self.docker_container_id)
+            self.node_name = os.environ.get("NODE_NAME", default="DockerNode")
         else:
-            self.pod_name:str = os.environ.get("POD_NAME", default=UNAVAILABLE)
-            self.node_name:str = os.environ.get("NODE_NAME", default=UNAVAILABLE)
+            self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
+            self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
             self.docker_container_id:str = "N/A"
 
         self.log.info("Connection file path: \"%s\"" % connection_file_path)
@@ -378,7 +379,7 @@ class DistributedKernel(IPythonKernel):
 
         response_dict = json.loads(response)
         self.smr_node_id: int = response_dict["smr_node_id"]
-        self.hostname:str = response_dict["hostname"]
+        self.hostname = response_dict["hostname"]
 
         # self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in response_dict["replicas"]]
 
@@ -1033,12 +1034,10 @@ class DistributedKernel(IPythonKernel):
             data_dir_path = await self.synclog.write_data_dir_to_hdfs()
             self.log.info(
                 "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % data_dir_path)
-            return {'status': 'ok', "data_directory": data_dir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
         except Exception as e:
             self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
                            self.smr_node_id, self.kernel_id, str(e))
-            self.log.error(traceback.format_exc())
-            return self.gen_error_response(e), False
+            self.log.error(traceback.format_exception(e))
 
         self.log.info(
             "Closing the SyncLog (and therefore the etcd-Raft process) now.")
@@ -1047,10 +1046,11 @@ class DistributedKernel(IPythonKernel):
             self.synclog_stopped = True
             self.log.info(
                 "SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
+            return {'status': 'ok', "data_directory": data_dir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
         except Exception as e:
             self.log.error("Failed to close the SyncLog for replica %d of kernel %s.",
                            self.smr_node_id, self.kernel_id)
-            self.log.error(traceback.format_exc())
+            self.log.error(traceback.format_exception(e))
             return self.gen_error_response(e), False
 
     async def stop_running_training_code(self, stream, ident, parent):
@@ -1297,7 +1297,7 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Error while creating RaftLog: %s" % str(ex))
             
             # Print the stack.
-            stack:list[str] = traceback.format_stack()
+            stack:list[str] = traceback.format_exception(ex)
             for stack_entry in stack:
                 self.log.error(stack_entry)
             

@@ -27,6 +27,7 @@ class SynchronizedValue(object):
 
   def __init__(
       self,
+      tag: Any,
       data: Any, # The value/data attached to the proposal.
       proposer_id: int = -1, # The SMR node ID of the node proposing this value.
       attempt_number: int = -1, # Serves as a sort of "sub-term", as elections can be re-tried if they fail (i.e., if everyone proposes "YIELD")
@@ -36,6 +37,7 @@ class SynchronizedValue(object):
       key: str = KEY_NONE,
       operation:str = OP_NONE, 
   ):
+    self._tag: Any = tag
     self._proposer_id: int = proposer_id
     self._election_term: int = election_term
     self._attempt_number: int = attempt_number
@@ -47,6 +49,10 @@ class SynchronizedValue(object):
     self._should_end_execution: bool = should_end_execution
     self._prmap: Optional[list[str]] = prmap
     self._key: str = key 
+
+  @property 
+  def tag(self)->Any:
+    return self._tag
 
   @property
   def key(self)->str:
@@ -133,6 +139,9 @@ class SynchronizedValue(object):
   def election_term(self)->int:
     return self._election_term 
   
+  def set_election_term(self, term)->None:
+    self._election_term = term
+  
   @property 
   def attempt_number(self)->int:
     return self._attempt_number
@@ -141,27 +150,29 @@ class LeaderElectionProposal(SynchronizedValue):
   """
   A special type of SynchronizedValue encapsulating a "LEAD" or "YIELD" proposal during a leader election.
   """
-  def __init__(self, election_proposal_key: ElectionProposalKey, **kwargs):
+  def __init__(self, **kwargs):
+    if "key" not in kwargs:
+      raise ValueError("Must specify a \"key\" keyword argument when creating an instance of `LeaderElectionProposal`")
+    
     # LeaderElectionProposals cannot have data. 
-    super().__init__(None, **kwargs)
-
-    # The "key" of this proposal, which indicates whether it is a LEAD or a YIELD proposal.
-    self._proposal_key = election_proposal_key
+    super().__init__(None, None, **kwargs)
 
   @property 
   def is_lead(self)->bool:
-    return self._proposal_key == ElectionProposalKey.LEAD
+    return self._key == str(ElectionProposalKey.LEAD)
 
   @property 
   def is_yield(self)->bool:
-    return self._proposal_key == ElectionProposalKey.YIELD
+    return self._key == str(ElectionProposalKey.YIELD)
 
   @property 
-  def election_proposal_key(self)->ElectionProposalKey:
+  def election_proposal_key(self)->str:
     """
+    Alias for `self.key`.
+    
     The "key" of this proposal, which indicates whether it is a LEAD or a YIELD proposal.
     """
-    return self._proposal_key
+    return self._key 
 
 class LeaderElectionVote(SynchronizedValue):
   """
@@ -172,7 +183,7 @@ class LeaderElectionVote(SynchronizedValue):
   This used to be 'SYNC' in the original RaftLog implementation.
   """
   def __init__(self, proposed_node_id: int, **kwargs):
-    super().__init__(None, **kwargs)
+    super().__init__(None, None, **kwargs)
 
     # The SMR node ID of the node being voted for
     self._proposed_node_id:int = proposed_node_id
@@ -255,13 +266,13 @@ class SyncLog(Protocol):
        without leading status will fail."""
     return False
 
-  async def append(self, val: SyncValue):
+  async def append(self, val: SynchronizedValue):
     """Append the difference of the value of specified key to the synchronization queue."""
 
   def sync(self, term):
     """Manually trigger the synchronization of changes since specified term."""
 
-  def reset(self, term, logs: Tuple[SyncValue]):
+  def reset(self, term, logs: Tuple[SynchronizedValue]):
     """Clear logs equal and before specified term and replaced with specified logs"""
 
   def close(self):

@@ -6,7 +6,7 @@ import logging
 from typing import Generator, Tuple, Optional, Any, Callable
 from typing_extensions import Protocol, runtime_checkable
 
-from .log import SyncValue, OP_SYNC_PUT, OP_SYNC_ADD
+from .log import SynchronizedValue, OP_SYNC_PUT, OP_SYNC_ADD
 from .referer import EMPTY_TUPLE, SyncReferer, SyncRID
 from .profiler import PickleProfile, PickleProfiler
 from .object import SyncObjectMeta
@@ -42,12 +42,12 @@ class SyncLogObject:
     if unpickler is not None:
       self._unpickler = unpickler
 
-  def dump(self, meta=None) -> SyncValue:
+  def dump(self, meta=None) -> SynchronizedValue:
     """Get a view of the object for checkpoint."""
     pickled, prmap, hash = self.get_hash(self.raw, self.batch_from_meta(meta))
-    return SyncValue(hash, pickled, prmap=prmap)
+    return SynchronizedValue(hash, pickled, prmap=prmap)
   
-  def diff(self, raw, meta=None) -> Optional[SyncValue]:
+  def diff(self, raw, meta=None) -> Optional[SynchronizedValue]:
     """Update the object with new raw object and get the difference view for synchronization"""
     pickled, prmap, hash = self.get_hash(raw, self.batch_from_meta(meta))
     # print("old {}:{}, new {}:{}, match:{}".format(self.raw, self._hash, raw, hash, hash == self._hash))
@@ -57,17 +57,17 @@ class SyncLogObject:
         op = OP_SYNC_PUT
       self._hash = hash
       self.raw = raw
-      return SyncValue(hash, pickled, prmap=prmap, op=op)
+      return SynchronizedValue(hash, pickled, prmap=prmap, op=op)
 
     return None
 
-  def update(self, val: SyncValue) -> Any:
+  def update(self, val: SynchronizedValue) -> Any:
     """Apply the difference view to the object"""
     if val.tag == self._hash:
       return self.raw
 
-    if type(val.val) == bytes:
-      buff = io.BytesIO(val.val)
+    if type(val.data) == bytes:
+      buff = io.BytesIO(val.data)
       unpickler = Unpickler(buff)
       unpickler.persistent_load = self._referer.dereference(val.prmap)
       diff = unpickler.load()
@@ -77,7 +77,7 @@ class SyncLogObject:
       #   print("tag updated")
       #   val.tag = tag
     else:
-      diff = val.val
+      diff = val.data
     
     self._hash = val.tag
     self.raw = diff

@@ -39,14 +39,15 @@ services:
     restart: always
 
   gateway:
-    build: 
-      context: ./gateway
-      dockerfile: Dockerfile
-    image: scusemua/gateway-docker
+    #build: 
+    #  context: ./gateway
+    #  dockerfile: Dockerfile
+    image: scusemua/gateway
     labels:
       app: "distributed_cluster"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./gateway/gateway.yml:/gateway.yml
     container_name: 'gateway'
     restart: always
     expose:
@@ -71,13 +72,14 @@ services:
     build:
       context: ./local_daemon
       dockerfile: Dockerfile
-    image: scusemua/daemon-docker
+    image: scusemua/daemon
     labels:
       app: "distributed_cluster"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base
       - storage:/home/$USER/kernel_storage
+      - ./local_daemon/daemon.yml:/daemon.yml
     depends_on:
       - gateway
       - docker-hoster

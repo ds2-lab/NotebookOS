@@ -5,7 +5,7 @@ import time
 from typing import Dict, Optional, List, Type, MutableMapping, Any
 from enum import Enum
 
-from .log import SyncValue, SynchronizedValue, LeaderElectionVote, LeaderElectionProposal
+from .log import LeaderElectionVote, LeaderElectionProposal
 
 class ElectionState(Enum):
     INACTIVE = 1    # Created, but not yet started.
@@ -441,21 +441,33 @@ class Election(object):
 
         # Update the current attempt number if the newly-received proposal has a greater attempt number than any of the other proposals that we've seen so far. 
         if latest_attempt_number > self._current_attempt_number:
+            old_largest:int = self._current_attempt_number 
             self._current_attempt_number = latest_attempt_number
 
             # If we previously failed and just got a new proposal with a new highest attempt number, then restart! 
             # We'll purge/discard the old proposals down below.
             if self._election_state == ElectionState.FAILED:
+                self.logger.debug(f"Election {self.term_number} restarting. Received new highest attempt number ({latest_attempt_number}; prev: {old_largest}).")
                 self.restart()
 
-        # Check if there's already an existing proposal. 
+        # Check if we need to discard the proposal due to there already being an existing proposal from that node with an attempt number >= the attempt number of the proposal we just received.
         # If the new proposal has an attempt number equal to or lower than the last proposal we received from this node, then that's a problem.
         existing_proposal: Optional[LeaderElectionProposal] = self._proposals.get(proposer_id, None) 
         if existing_proposal != None and existing_proposal.attempt_number >= latest_attempt_number:
             self.logger.warn(f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because new proposal has attempt number ({latest_attempt_number}) <= existing proposal from same node's attempt number ({existing_proposal.attempt_number}).")
             return None 
 
+        # Check if we need to discard the proposal due to it being received late.
+        if self._discard_after > 0 and received_at > self._discard_after: # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
+            self._num_discarded_proposals += 1
+            self.logger.warn(f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because it was received too late.")
+            return None   
+        
+        # We're not discarding the proposal, so let's officially store the new proposal. 
+        self._proposals[proposer_id] = proposal
+
         # Check if this is the first 'LEAD' proposal that we've received. 
+        # If so, we'll return a future that can be used to ensure we make a decision after the timeout period, even if we've not received all other proposals.
         if self._first_lead_proposal == None and proposal.is_lead:
             self._first_lead_proposal = proposal 
             self._timeout = 10 
@@ -463,12 +475,7 @@ class Election(object):
 
             self._pick_and_propose_winner_future = asyncio.Future(loop = future_io_loop)
             
-            return self._pick_and_propose_winner_future, self._discard_after
-        elif self._discard_after > 0 and received_at > self._discard_after: # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
-            self._num_discarded_proposals += 1
-            self.logger.warn(f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because it was received too late.")
-            return None             
+            return self._pick_and_propose_winner_future, self._discard_after        
 
-        # Store the new proposal. 
-        self._proposals[proposer_id] = proposal
+        # It wasn't the first 'LEAD' proposal, so we just return None. 
         return None  
