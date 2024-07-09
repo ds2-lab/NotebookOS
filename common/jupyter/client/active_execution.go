@@ -13,7 +13,6 @@ const (
 
 	KEY_YIELD = "YIELD"
 	KEY_LEAD  = "LEAD"
-	KEY_SYNC  = "SYNC"
 )
 
 var (

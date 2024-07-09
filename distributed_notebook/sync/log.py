@@ -4,8 +4,9 @@ from enum import Enum
 
 import time 
 import datetime
-import uuid 
+import uuid
 
+KEY_FAILURE = "_failure_" # We cannot execute this request... 
 KEY_NONE:str = ""
 KEY_SYNC_END:str = "_end_"
 OP_SYNC_ADD:str = "add"
@@ -14,9 +15,9 @@ OP_SYNC_DEL:str = "del"
 OP_NONE:str = "" 
 
 class ElectionProposalKey(Enum):
-  YIELD = "YIELD"
-  LEAD = "LEAD"
-  VOTE = "VOTE" # Previously 'SYNC'
+  YIELD = "_yield_" # Propose to yield the execution to another replica.
+  LEAD = "_lead_"   # Propose to lead the execution term (i.e., execute the user's code).
+  SYNC = "_sync_"   # Synchronize to confirm decision about who is executing the code.
 
 class SynchronizedValue(object):
   """
@@ -183,6 +184,14 @@ class LeaderElectionVote(SynchronizedValue):
   This used to be 'SYNC' in the original RaftLog implementation.
   """
   def __init__(self, proposed_node_id: int, **kwargs):
+    if "key" in kwargs:
+      _key = kwargs.pop("key")
+
+      if _key != str(ElectionProposalKey.SYNC):
+        raise ValueError(f"the \"key\" keyword argument must be equal to \"{ElectionProposalKey.SYNC}\" for `LeaderElectionVote`. This is handled automatically; no need to pass a \"key\" keyword argument.")
+    else:
+      kwargs["key"] = str(ElectionProposalKey.SYNC)
+      
     super().__init__(None, None, **kwargs)
 
     # The SMR node ID of the node being voted for

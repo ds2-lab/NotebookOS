@@ -11,7 +11,7 @@ import datetime
 from collections import OrderedDict
 from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 
-from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser, PrintTestMessage
+from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser
 from ..smr.go import Slice_string, Slice_int, Slice_byte
 from .log import SyncLog, SynchronizedValue, LeaderElectionVote, LeaderElectionProposal, ElectionProposalKey
 from .checkpoint import Checkpoint
@@ -19,12 +19,7 @@ from .future import Future
 from .errors import print_trace, SyncError, GoError, GoNilError
 from .reader import readCloser
 from .file_log import FileLog
-from .election import Election
-
-KEY_LEAD = "_lead_" # Propose to lead the execution term (i.e., execute the user's code).
-KEY_YIELD = "_yield_" # Propose to yield the execution to another replica.
-KEY_SYNC = "_sync_" # Synchronize to confirm decision about who is executing the code.
-KEY_FAILURE = "_failure_" # We cannot execute this request... 
+from .election import Election, ElectionState
 
 MAX_MEMORY_OBJECT = 1024 * 1024
 
@@ -168,7 +163,7 @@ class RaftLog(object):
             return GoNilError() 
         
         if self._leader_term < vote.election_term:
-            self.logger.debug("Our 'leader_term' (%d) < 'leader_term' of latest committed 'SYNC' (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value)." % (self._leader_term, vote.election_term, vote.election_term, vote.proposed_node_id))
+            self.logger.debug("Our 'leader_term' (%d) < 'election_term' of latest committed 'SYNC' (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value)." % (self._leader_term, vote.election_term, vote.election_term, vote.proposed_node_id))
             self._leader_term = vote.election_term
             self._leader_id = vote.proposed_node_id
             self.logger.debug("Node %d has won in term %d as proposed by node %d." % (vote.proposed_node_id, vote.election_term, vote.proposer_id))
@@ -176,17 +171,17 @@ class RaftLog(object):
             self._last_winner_id = vote.proposed_node_id
             self._last_completed_election = self._current_election
         else:
-            self.logger.debug("Our leader_term (%d) >= 'leader_term' of latest committed 'SYNC' message (%d)..." % (self._leader_term, vote.election_term))
+            self.logger.debug("Our leader_term (%d) >= 'election_term' of latest committed 'SYNC' message (%d)..." % (self._leader_term, vote.election_term))
         
         # Set the future if the term is expected.
-        _leading = self._leading
-        if _leading is not None and self._leader_term >= self._expected_term:
-            self.logger.debug("Scheduling the setting of result on '_leading' future to %d." % (self._leader_term, self._leader_term))
-            self._future_io_loop.call_later(0, _leading.set_result, self._leader_term)
-            self._leading = None # Ensure the future is set only once.
-            self.logger.debug("Scheduled setting of result on '_leading' future.")
+        _leading_future = self._leading_future
+        if _leading_future is not None and self._leader_term >= self._expected_term:
+            self.logger.debug(f"Scheduling the setting of result on '_leading_future' future to {self._leader_term}.")
+            self._future_io_loop.call_later(0, _leading_future.set_result, self._leader_term) # type: ignore
+            self._leading_future = None # Ensure the future is set only once.
+            self.logger.debug("Scheduled setting of result on '_leading_future' future.")
         else:
-            self.logger.debug("Skipping setting result on _leading. _leading is None: %s. self._leader_term (%d) >= self._expected_term (%d): %s." % (self._leading == None, self._leader_term, self._expected_term, self._leader_term >= self._expected_term))
+            self.logger.debug("Skipping setting result on _leading_future. _leading_future is None: %s. self._leader_term (%d) >= self._expected_term (%d): %s." % (self._leading_future == None, self._leader_term, self._expected_term, self._leader_term >= self._expected_term))
 
         self._ignore_changes = self._ignore_changes + 1
 
@@ -242,12 +237,12 @@ class RaftLog(object):
         
         self.logger.debug(f"Received {self._current_election.num_proposals_received} proposal(s) so far during term {self._current_election.term_number}.")
 
-        self._tryPickWinnerToPropose() 
+        self._tryPickWinnerToPropose(proposal.election_term) 
 
         self._ignore_changes = self._ignore_changes + 1
         return GoNilError() 
     
-    def _tryPickWinnerToPropose(self, election_override: Optional[Election] = None)->bool:
+    def _tryPickWinnerToPropose(self, term_number: int)->bool:
         """
         Try to select a winner to propose for the current election.
 
@@ -260,15 +255,15 @@ class RaftLog(object):
             if id > 0:
                 assert self._election_decision_future != None 
                 self.logger.debug(f"Will propose that node {id} win the election in term {self._current_election.term_number}.")
-                self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = id, proposer_id = self._node_id, election_term = self._current_election.term_number, attempt_number = self._current_election.current_attempt_number))
+                self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = id, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
                 return True
             else:
                 assert self._election_decision_future != None 
                 self.logger.debug(f"Will propose 'FAILURE' for election in term {self._current_election.term_number}.")
-                self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = -1, proposer_id = self._node_id, election_term = self._current_election.term_number, attempt_number = self._current_election.current_attempt_number))
+                self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = -1, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
                 return True
         except ValueError as ex:
-            self.logger.debug(f"No winner to propose yet for election in term {self._current_election.term_number}.")
+            self.logger.debug(f"No winner to propose yet for election in term {self._current_election.term_number} because: {ex}")
         
         return False 
     
@@ -297,6 +292,7 @@ class RaftLog(object):
         if value_id != "":
             return GoNilError()
         
+        self.logger.debug(f"Updating self._leader_term from {self._leader_term} to {committedValue.election_term}, the leader term of the committed non-proposal SynchronizedValue.")
         self._leader_term = committedValue.election_term
 
         # For values synchronized from other replicas or replayed, count _ignore_changes
@@ -517,25 +513,14 @@ class RaftLog(object):
         val.set_should_end_execution(should_end_execution)
         return val
 
-    async def _append_value(
+    async def _append_election_vote(
             self,
-            value: SynchronizedValue
+            vote: LeaderElectionVote
     ):
         """
-        Append some data to the synchronized Raft log.
+        Explicitly propose and append (to the synchronized Raft log) a vote for the winner of the current election.
         """
-        self._leader_term = value.election_term
-
-        if not value.has_operation:
-            # Count _ignore_changes
-            self._ignore_changes += 1
-
-        # Ensure key is specified.
-        if value.key is not None:
-            if value.data is not None and type(value.data) is bytes and len(value.data) > MAX_MEMORY_OBJECT:
-                value = await self._offload_value(value)
-
-        await self._serialize_and_append_value(value)
+        await self._serialize_and_append_value(vote)
 
     async def _append_election_proposal(
             self,
@@ -579,6 +564,11 @@ class RaftLog(object):
         # The current election field must be non-null.
         if self._current_election == None:
             raise ValueError("current election field is None")
+        elif self._current_election.state != ElectionState.INACTIVE:
+            raise ValueError(f"current election is in state {self._current_election.state}; should be in state 'ElectionState.INACTIVE' when `_handle_election()` is called.")
+
+        # Start the election.
+        self._current_election.start()
         
         if self._last_completed_election != None and target_term_number <= self._leader_term:
             self.logger.error(f"Current leader term {self._leader_term} > specified target term {target_term_number}...")
@@ -630,7 +620,7 @@ class RaftLog(object):
             return False 
         
         self.logger.debug("RaftLog %d: Appending decision proposal for term %s now." % (self._node_id, voteProposal.election_term))
-        await self._append_value(voteProposal)
+        await self._append_election_vote(voteProposal)
         self.logger.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (self._node_id, voteProposal.election_term))
 
         # Validate the term
@@ -640,9 +630,9 @@ class RaftLog(object):
             return is_leading
         
         # Wait for the future to be set.
-        self.logger.debug("waiting on _leading Future to be resolved.")
+        self.logger.debug("Waiting on _leading_future Future to be resolved.")
         await _leading_future
-        self.logger.debug("Successfully waited for self._leading.")
+        self.logger.debug("Successfully waited for resolution of _leading_future.")
         self._leading_future = None
 
         # Validate the term
@@ -679,6 +669,29 @@ class RaftLog(object):
 
         # Return the new proposal.
         return proposal 
+
+    async def append(
+            self,
+            value: SynchronizedValue
+    ):
+        """
+        Append some data to the synchronized Raft log.
+        """
+        if value.key != str(ElectionProposalKey.LEAD) and value.key != str(ElectionProposalKey.YIELD):
+            self.logger.debug(f"Updating self._leader_term from {self._leader_term} to {value.election_term}, the election term of the SynchronizedValue (with key=\"{value.key}\") that we're appending.")
+            self._leader_term = value.election_term
+
+        if not value.has_operation:
+            # Count _ignore_changes
+            self._ignore_changes += 1
+
+        # Ensure key is specified.
+        if value.key is not None:
+            if value.data is not None and type(value.data) is bytes and len(value.data) > MAX_MEMORY_OBJECT:
+                value = await self._offload_value(value)
+
+        await self._serialize_and_append_value(value)
+
 
     def sync(self, term):
         """Synchronization changes since specified execution counter."""
@@ -730,6 +743,14 @@ class RaftLog(object):
         
         return self.current_election.is_active
 
+    @property
+    def term(self) -> int:
+        """Current leader term."""
+        if self._current_election != None and self._current_election.term_number != self._leader_term:
+            self.logger.warn(f"Returning _leader_term of {self._leader_term}; however, _current_election.term_number = {self._current_election.term_number}")
+
+        return self._leader_term
+
     @property 
     def leader_term(self)->int:
         """
@@ -743,6 +764,11 @@ class RaftLog(object):
         ID of the current leader. Updated after a LEAD call. Used to check if received proposals are old/new.
         """
         return self._leader_id
+
+    @property
+    def num_changes(self) -> int:
+        """The number of incremental changes since first term or the latest checkpoint."""
+        return self._log_node.NumChanges() - self._ignore_changes
 
     @property 
     def expected_term(self)->Optional[int]:

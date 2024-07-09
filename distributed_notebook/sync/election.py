@@ -73,7 +73,7 @@ class Election(object):
         # Future created when the first 'LEAD' proposal for the current election is received.
         self._pick_and_propose_winner_future: Optional[asyncio.Future[Any]] = None 
 
-        self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
+        self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(term_number))
 
     def set_pick_and_propose_winner_future(self, future: asyncio.Future[Any])->None:
         self._pick_and_propose_winner_future = future
@@ -336,7 +336,8 @@ class Election(object):
 
         # If the election isn't active, then we shouldn't be proposing anybody.
         if self._election_state != ElectionState.ACTIVE:
-            raise ValueError(f"election for term {self._term_number} is in invalid state ({self._election_state}) to be trying to identify a winner to propose")
+            self.logger.error(f"Election {self._term_number} in invalid state while trying to select winner: {self._election_state}")
+            raise RuntimeError(f"election for term {self._term_number} is in invalid state ({self._election_state}) to be trying to identify a winner to propose")
 
         # If `self._discard_after` hasn't even been set yet, then we should keep waiting for more proposals before making a decision.
         # Likewise, if `self._discard_after` has been set already, but there's still time to receive more proposals, then we should wait before making a decision.
@@ -345,6 +346,7 @@ class Election(object):
         # If we've not yet received all proposals AND we should keep waiting, then we'll raise a ValueError, indicating that we should not yet select a node to propose as winner.
         # If we have received all proposals, or if we'll be discarding any future proposals that we receive, then we should go ahead and try to decide. 
         if (len(self._proposals) + self._num_discarded_proposals < self._num_replicas) and should_wait: 
+            self.logger.debug(f"Cannot pick winner for election {self.term_number} yet. Received: {len(self._proposals)}, discarded: {self._num_discarded_proposals}, number of replicas: {self._num_replicas}.")
             raise ValueError(f"insufficient number of proposals received to select a winner to propose (received: {len(self._proposals)}, discarded: {self._num_discarded_proposals}, number of replicas: {self._num_replicas})")
         
         # If we know the last winner and we have a proposal from them...
