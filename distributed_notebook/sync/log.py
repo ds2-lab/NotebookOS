@@ -10,6 +10,7 @@ import uuid
 KEY_FAILURE = "_failure_" # We cannot execute this request... 
 KEY_NONE:str = ""
 KEY_SYNC_END:str = "_end_"
+KEY_CATCHUP:str = "_catchup_" 
 OP_SYNC_ADD:str = "add"
 OP_SYNC_PUT:str = "put"
 OP_SYNC_DEL:str = "del"

@@ -678,7 +678,7 @@ class DistributedKernel(IPythonKernel):
 
     def send_ack(self, stream, msg_type:str, msg_id:str, ident, parent):
         # self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
-        ack_msg = self.session.send(  # type:ignore[assignment]
+        self.session.send(  # type:ignore[assignment]
             stream,
             "ACK",
             {
@@ -1218,7 +1218,9 @@ class DistributedKernel(IPythonKernel):
         """
         Send an error report/message to our local daemon via our IOPub socket.
         """
-        self.session.send(self.iopub_socket, "error_report", {"error": errorTitle, "message": errorMessage, "kernel_id": self.kernel_id}, ident=self._topic("error_report"))
+        self.log.debug(f"Sending 'error_report' message for error \"{errorTitle}\" now...")
+        err_msg = self.session.send(self.iopub_socket, "error_report", {"error": errorTitle, "message": errorMessage, "kernel_id": self.kernel_id}, ident=self._topic("error_report"))
+        self.log.debug(f"Sent 'error_report' message: {str(err_msg)}")
 
     def gen_simple_response(self, execution_count=0):
         return {'status': 'ok',
@@ -1313,6 +1315,11 @@ class DistributedKernel(IPythonKernel):
             exit(1)
 
         self.log.debug("Successfully created RaftLog.")
+
+        if self.synclog.needs_to_catch_up:
+            self.log.debug("RaftLog needs to propose new value.")
+            await self.synclog.catchup_with_peers()
+
         return self.synclog
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):

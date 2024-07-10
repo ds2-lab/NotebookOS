@@ -13,7 +13,7 @@ from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 
 from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser
 from ..smr.go import Slice_string, Slice_int, Slice_byte
-from .log import SyncLog, SynchronizedValue, LeaderElectionVote, LeaderElectionProposal, ElectionProposalKey
+from .log import SyncLog, SynchronizedValue, LeaderElectionVote, LeaderElectionProposal, ElectionProposalKey, KEY_CATCHUP
 from .checkpoint import Checkpoint
 from .future import Future
 from .errors import print_trace, SyncError, GoError, GoNilError
@@ -127,8 +127,19 @@ class RaftLog(object):
         self.sync_proposals_per_term: Dict[int, LeaderElectionProposal] = {} # Mapping from term number -> the first SYNC proposal committed during that term.
         self.decisions_proposed: Dict[int, bool] = {} # Mapping from term number -> boolean flag indicating whether we've proposed (but not necessarily committed) a decision for the given term yet.
         
+        # Future that is resolved when we propose that somebody win the current election.
+        # This future returns the `LeaderElectionVote` that we will propose to nominate/synchronize the winner of the election with our peers.
+        self._election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = None 
+        # The IO loop on which the `_election_decision_future` is/was created.
         self._future_io_loop: Optional[asyncio.AbstractEventLoop] = None 
         
+        # The SynchronizedValue that we propose/append and then wait to see get committed in order to know that we've caught-up with our peers after a migration/restart.
+        self._catchup_value: Optional[SynchronizedValue] = None 
+        # Future that is created so that we can wait for the `self._catchup_value` to be fully committed. This just returns the committed `_catchup_value`.
+        self._catchup_future: Optional[asyncio.Future[SynchronizedValue]] = None 
+        # The IO loop that the `self._catchup_future` is created on.
+        self._catchup_io_loop: Optional[asyncio.AbstractEventLoop] = None 
+
         self._ignore_changes: int = 0
 
         # This can be set such that it will be resolved when close() is called.
@@ -137,16 +148,16 @@ class RaftLog(object):
         self._heartbeat_tick:int = heartbeat_tick
         self._election_tick:int = election_tick
 
+        # Called by Go (into Python) when a value is committed.
         self._valueCommittedCallback: Callable[[Any, int, str], Any] = self._valueCommitted
+        # Called by Go (into Python) when a value is restored (from a checkpoint/backup).
         self._valueRestoredCallback: Callable[[Any, int], Any] = self._valueRestored 
 
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
         self._start_loop: Optional[asyncio.AbstractEventLoop] = None
 
-        # self._catchingUpAfterMigration: bool = False 
-
         # This will just do nothing if there's no serialized state to be loaded.
-        self._load_and_apply_serialized_state()
+        self._needs_to_catch_up:bool = self._load_and_apply_serialized_state()
 
     def _create_persistent_store_directory(self, path: str):
         """
@@ -158,6 +169,11 @@ class RaftLog(object):
             self.logger.debug(f"Created persistent store directory \"{path}\" (or it already exists).")
 
     def _handleVote(self, vote: LeaderElectionVote, received_at = time.time()) -> bytes:
+        if self.needs_to_catch_up:
+            # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
+            self.logger.warn(f"Discarding LeaderElectionVote, as we need to catch-up: {vote}")
+            return GoNilError() 
+        
         assert self._current_election != None 
 
         # The first 'VOTE' proposal received during the term automatically wins.
@@ -198,6 +214,12 @@ class RaftLog(object):
             proposal (LeaderElectionProposal): the committed proposal.
             received_at (float): the time at which we received this proposal.
         """
+        
+        if self.needs_to_catch_up:
+            # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
+            self.logger.warn(f"Discarding LeaderElectionProposal, as we need to catch-up: {proposal}")
+            return GoNilError() 
+        
         assert self._current_election != None 
 
         # If we receive a proposal without having an active election, then one of two things is possile:
@@ -310,7 +332,7 @@ class RaftLog(object):
     def _valueCommitted(self, goObject, value_size: int, value_id: str) -> bytes:
         received_at:float = time.time()
 
-        if id != "":
+        if value_id != "":
             self.logger.debug(f"Our proposal of size {value_size} bytes was committed.")
         else:
             self.logger.debug(f"Received remote update of size {value_size} bytes")
@@ -322,6 +344,18 @@ class RaftLog(object):
         except Exception as ex:
             self.logger.error(f"Failed to unpickle committed value because: {ex}")
             raise ex 
+        
+        if self.needs_to_catch_up:
+            assert self._catchup_value != None 
+            assert self._catchup_future != None 
+            assert self._catchup_io_loop != None 
+            
+            if committedValue.key == KEY_CATCHUP and committedValue.proposer_id == self._node_id and committedValue.id == self._catchup_value.id:
+                self.logger.debug(f"Received our catch-up value (ID={committedValue.id}). We must be caught-up!")
+                self._needs_to_catch_up = False 
+                self._catchup_value = None 
+
+                self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, committedValue)
         
         if isinstance(committedValue, LeaderElectionVote):
             return self._handleVote(committedValue, received_at = received_at)
@@ -421,22 +455,26 @@ class RaftLog(object):
         
         return pickle.dumps(data_dict)
 
-    def _load_and_apply_serialized_state(self) -> None:
+    def _load_and_apply_serialized_state(self) -> bool:
         """
         Retrieve the serialized state read by the Go-level LogNode. 
         This state is read from HDFS during migration/error recovery.
         Update our local state with the state retrieved from HDFS.
+
+        Returns:
+            (bool) True if serialized state was loaded, indicating that this replica was started after an eviction/migration.
+               If no serialized state was loaded, then this simply returns False. 
         """
         serialized_state_bytes:bytes = bytes(self._log_node.GetSerializedState()) # Convert the Go bytes (Slice_byte) to Python bytes.
         
         if len(serialized_state_bytes) == 0:
             self.logger.debug("No serialized state found. Nothing to load and apply.")
-            return 
+            return False
         
         data_dict:dict = pickle.loads(serialized_state_bytes) # json.loads(serialized_state_json)
         if len(data_dict) == 0:
             self.logger.debug("No serialized state found. Nothing to apply.")
-            return 
+            return False
         
         for key, entry in data_dict.items():
             self.logger.debug(f"Retrived state \"{key}\": {str(entry)}")
@@ -475,6 +513,8 @@ class RaftLog(object):
             self._future_io_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
         except RuntimeError:
             self.logger.error("Failed to get running event loop from asyncio module.")
+        
+        return True 
 
     def _get_callback(self)-> Tuple[asyncio.Future, Callable[[str, Exception], Any]]:
         """Get the future object for the specified key."""
@@ -555,6 +595,36 @@ class RaftLog(object):
         self.logger.info(f"Created new election with term number {term_number}")
 
         return new_election
+
+    def _create_election_proposal(self, key: ElectionProposalKey, term_number: int) -> LeaderElectionProposal:
+        """
+        Create and register a proposal for the current term.
+
+        This updates the `self._proposed_values` field.
+
+        The attempt number for the new proposal is "calculated" based on whether there already exists a previous proposal for this election term.
+        """
+        attempt_number:int = 1
+        
+        # Get the existing proposals for the specified term.
+        existing_proposals: Dict[int, LeaderElectionProposal] = self._proposed_values.get(term_number, OrderedDict()) 
+
+        # If there is at least one existing proposal for the specified term, then we'll get the most-recent proposal's attempt number.
+        if len(existing_proposals) > 0:
+            last_attempt_number: int = next(reversed(existing_proposals)) # This is O(1), as OrderedDict uses a doubly-linked list internally.
+            attempt_number = last_attempt_number # Could be on one line, but this is more readable in my opinion.
+        
+        # Create the new proposal.
+        proposal: LeaderElectionProposal = LeaderElectionProposal(key = str(key), proposer_id = self._node_id, election_term = term_number, attempt_number = attempt_number)
+        
+        # Add the new proposal to the mapping of proposals for the specified term.
+        existing_proposals[attempt_number] = proposal 
+
+        # Update the mapping (of proposals for the specified term) in the `self._proposed_values` field.
+        self._proposed_values[term_number] = existing_proposals
+
+        # Return the new proposal.
+        return proposal 
 
     async def _offload_value(self, val: SynchronizedValue) -> SynchronizedValue:
         """Offload the buffer to the storage server."""
@@ -648,7 +718,7 @@ class RaftLog(object):
         # Save a reference to the currently-running IO loop so that we can resolve the `_leading` future on this same IO loop later.
         self._future_io_loop = asyncio.get_running_loop()
         # This is the future we'll use to submit a formal vote for who should lead, based on the proposals that are committed to the etcd-raft log.
-        self._election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = self._future_io_loop.create_future()
+        self._election_decision_future = self._future_io_loop.create_future()
         # This is the future that we'll use to inform the local kernel replica if it has been selected to "lead" the election (and therefore execute the user-submitted code).
         self._leading_future: Optional[asyncio.Future[bool]] = self._future_io_loop.create_future()
 
@@ -693,40 +763,45 @@ class RaftLog(object):
         assert wait == False
         return is_leading
 
-    def _create_election_proposal(self, key: ElectionProposalKey, term_number: int) -> LeaderElectionProposal:
+    def sync(self, term):
+        """Synchronization changes since specified execution counter."""
+        pass
+
+    def reset(self, term, logs: Tuple[SynchronizedValue]):
+        """Clear logs equal and before specified term and replaced with specified logs"""
+        pass
+
+    def has_active_election(self)->bool:
         """
-        Create and register a proposal for the current term.
-
-        This updates the `self._proposed_values` field.
-
-        The attempt number for the new proposal is "calculated" based on whether there already exists a previous proposal for this election term.
+        Return true if the following two conditions are met:
+            - (a): We have an election (i.e., the _current_election field is non-nil)
+            - (b): The current election is in the ACTIVE state
         """
-        attempt_number:int = 1
+        if self.current_election == None:
+            return False 
         
-        # Get the existing proposals for the specified term.
-        existing_proposals: Dict[int, LeaderElectionProposal] = self._proposed_values.get(term_number, OrderedDict()) 
+        return self.current_election.is_active
 
-        # If there is at least one existing proposal for the specified term, then we'll get the most-recent proposal's attempt number.
-        if len(existing_proposals) > 0:
-            last_attempt_number: int = next(reversed(existing_proposals)) # This is O(1), as OrderedDict uses a doubly-linked list internally.
-            attempt_number = last_attempt_number # Could be on one line, but this is more readable in my opinion.
+    async def catchup_with_peers(self):
+        """
+        Propose a new value and wait for it to be committed so as to know that we're "caught up".
+        """
+        if not self.needs_to_catch_up:
+            raise ValueError("no need to catch-up with peers")
         
-        # Create the new proposal.
-        proposal: LeaderElectionProposal = LeaderElectionProposal(key = str(key), proposer_id = self._node_id, election_term = term_number, attempt_number = attempt_number)
-        
-        # Add the new proposal to the mapping of proposals for the specified term.
-        existing_proposals[attempt_number] = proposal 
+        self._catchup_value = SynchronizedValue(None, None, proposer_id = self._node_id, key = KEY_CATCHUP, election_term = self._leader_term, should_end_execution = False, operation = KEY_CATCHUP)
+        self._catchup_io_loop = asyncio.get_running_loop()
+        self._catchup_future = self._catchup_io_loop.create_future() 
 
-        # Update the mapping (of proposals for the specified term) in the `self._proposed_values` field.
-        self._proposed_values[term_number] = existing_proposals
+        await self.append(self._catchup_value) 
+        await self._catchup_future # Wait for the value to be committed.
 
-        # Return the new proposal.
-        return proposal 
+        # Reset these fields after we're done.
+        self._catchup_future = None 
+        self._catchup_io_loop = None 
+        self._catchup_value = None # This should already be None at this point; we set it to None in the 'value committted' handler.
 
-    async def append(
-            self,
-            value: SynchronizedValue
-    ):
+    async def append(self, value: SynchronizedValue):
         """
         Append some data to the synchronized Raft log.
         """
@@ -744,15 +819,6 @@ class RaftLog(object):
                 value = await self._offload_value(value)
 
         await self._serialize_and_append_value(value)
-
-
-    def sync(self, term):
-        """Synchronization changes since specified execution counter."""
-        pass
-
-    def reset(self, term, logs: Tuple[SynchronizedValue]):
-        """Clear logs equal and before specified term and replaced with specified logs"""
-        pass
 
     async def add_node(self, node_id, address):
         """Add a node to the etcd-raft cluster."""
@@ -784,17 +850,15 @@ class RaftLog(object):
 
         res = await future.result()
         self.logger.info("Result of RemoveNode: %s" % str(res))
+    
+    @property 
+    def needs_to_catch_up(self) -> bool:
+        """
+        If we loaded serialized state when we were started, then we were created during a migration/eviction procedure.
 
-    def has_active_election(self)->bool:
+        As a result, we should propose a new value and watch for it to be committed, so that we know that we're up-to-date with the rest of the cluster.
         """
-        Return true if the following two conditions are met:
-            - (a): We have an election (i.e., the _current_election field is non-nil)
-            - (b): The current election is in the ACTIVE state
-        """
-        if self.current_election == None:
-            return False 
-        
-        return self.current_election.is_active
+        return self._needs_to_catch_up
 
     @property
     def term(self) -> int:
