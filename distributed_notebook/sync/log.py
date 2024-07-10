@@ -2,6 +2,7 @@ from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 from typing_extensions import Protocol, runtime_checkable
 from enum import Enum 
 
+import datetime 
 import time 
 import datetime
 import uuid
@@ -50,6 +51,9 @@ class SynchronizedValue(object):
     self._should_end_execution: bool = should_end_execution
     self._prmap: Optional[list[str]] = prmap
     self._key: str = key 
+
+  def __str__(self):
+    return f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},Tag={self._tag},Proposer=Node{self.proposer_id},ElectionTerm={self.election_term},AttemptNumber=Node{self._attempt_number},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%c')}]"
 
   @property 
   def tag(self)->Any:
@@ -196,6 +200,9 @@ class LeaderElectionVote(SynchronizedValue):
 
     # The SMR node ID of the node being voted for
     self._proposed_node_id:int = proposed_node_id
+  
+  def __str__(self):
+    return f"LeaderElectionVote[Proposer=Node{self.proposer_id},Proposed=Node{self.proposed_node_id},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%c')},ElectionTerm={self.election_term},AttemptNumber=Node{self._attempt_number}]"
   
   @property 
   def proposed_node_id(self)->int:

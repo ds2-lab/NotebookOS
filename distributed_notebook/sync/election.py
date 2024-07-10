@@ -75,6 +75,21 @@ class Election(object):
 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(term_number))
 
+    def __getstate__(self):
+        """
+        Override so that we can omit any non-picklable fields, such as the `_pick_and_propose_winner_future` field.
+        """
+        state = self.__dict__.copy()
+        del state["_pick_and_propose_winner_future"]
+        return state 
+    
+    def __setstate__(self, state):
+        """
+        Override so that we can add back any non-picklable fields, such as the `_pick_and_propose_winner_future` field.
+        """
+        self.__dict__.update(state)
+        self._pick_and_propose_winner_future: Optional[asyncio.Future[Any]] = None
+
     def set_pick_and_propose_winner_future(self, future: asyncio.Future[Any])->None:
         self._pick_and_propose_winner_future = future
 

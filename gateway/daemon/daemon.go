@@ -2195,21 +2195,24 @@ func (d *ClusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 	} else {
 		blacklist := make([]interface{}, 0)
 
+		// Commented-out because we aren't actually using this logic right now.
+		// We don't actually need to consider a "blacklist" for non-k8s scheduling.
+		//
 		// We "blacklist" all of the hosts for which other replicas of this kernel are scheduled.
 		// That way, we'll necessarily select a host on which no other replicas of this kernel are running.
-		for _, replica := range kernel.Replicas() {
-			host := replica.GetHost()
-			if host == nil {
-				// This shouldn't happen as far as I know, but if it does, then we can't really identify the proper host to migrate to.
-				d.log.Error("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID())
+		// for _, replica := range kernel.Replicas() {
+		// 	host := replica.GetHost()
+		// 	if host == nil {
+		// 		// This shouldn't happen as far as I know, but if it does, then we can't really identify the proper host to migrate to.
+		// 		d.log.Error("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID())
 
-				go d.notifyDashboard("No Host Assigned to Kernel", fmt.Sprintf("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID()), jupyter.WarningNotification)
-				continue
-			}
+		// 		go d.notifyDashboard("No Host Assigned to Kernel", fmt.Sprintf("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID()), jupyter.WarningNotification)
+		// 		continue
+		// 	}
 
-			d.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", replica.GetHost().ID(), replica.GetHost().NodeName(), replica.ID(), replica.ReplicaID())
-			blacklist = append(blacklist, replica.GetHost().GetMeta(core.HostMetaRandomIndex))
-		}
+		// 	d.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", replica.GetHost().ID(), replica.GetHost().NodeName(), replica.ID(), replica.ReplicaID())
+		// 	blacklist = append(blacklist, replica.GetHost().GetMeta(core.HostMetaRandomIndex))
+		// }
 
 		host := d.placer.FindHost(blacklist, newReplicaSpec.ResourceSpec())
 		d.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.", host.ID(), kernelId, in.ReplicaId, host.ID())

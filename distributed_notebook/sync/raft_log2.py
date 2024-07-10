@@ -126,7 +126,9 @@ class RaftLog(object):
         self.num_proposals_discarded: Dict[int, int] = {} # Mapping from term number -> the number of proposals that were discarded in that term.
         self.sync_proposals_per_term: Dict[int, LeaderElectionProposal] = {} # Mapping from term number -> the first SYNC proposal committed during that term.
         self.decisions_proposed: Dict[int, bool] = {} # Mapping from term number -> boolean flag indicating whether we've proposed (but not necessarily committed) a decision for the given term yet.
-
+        
+        self._future_io_loop: Optional[asyncio.AbstractEventLoop] = None 
+        
         self._ignore_changes: int = 0
 
         # This can be set such that it will be resolved when close() is called.
@@ -140,6 +142,8 @@ class RaftLog(object):
 
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
         self._start_loop: Optional[asyncio.AbstractEventLoop] = None
+
+        # self._catchingUpAfterMigration: bool = False 
 
         # This will just do nothing if there's no serialized state to be loaded.
         self._load_and_apply_serialized_state()
@@ -171,7 +175,7 @@ class RaftLog(object):
             self._last_winner_id = vote.proposed_node_id
             self._last_completed_election = self._current_election
         else:
-            self.logger.debug("Our leader_term (%d) >= 'election_term' of latest committed 'SYNC' message (%d)..." % (self._leader_term, vote.election_term))
+            self.logger.warn("Our leader_term (%d) >= the 'election_term' of latest committed 'SYNC' message (%d)..." % (self._leader_term, vote.election_term))
         
         # Set the future if the term is expected.
         _leading_future = self._leading_future
@@ -195,8 +199,37 @@ class RaftLog(object):
             received_at (float): the time at which we received this proposal.
         """
         assert self._current_election != None 
-        assert self._current_election.term_number == proposal.election_term
+
+        # If we receive a proposal without having an active election, then one of two things is possile:
+        # - We are replaying the Raft WAL following an eviction/migration.
+        # - We have not yet received the ZMQ 'execute-code' request that would've prompted us to create an election.
+        #   So, we'll simply create the election here -- using the term number of the proposal we just received.
+        #   It was committed, so we know the other replicas received it at some point.
+        if self._current_election == None:
+            self.logger.warn(f"Received \"{proposal._key}\" proposal from node {proposal.proposer_id} at time {datetime.datetime.fromtimestamp(received_at).strftime('%c')}; however, current election is null. Proposal: {str(proposal)}")
+
+            if self._last_completed_election != None and self._last_completed_election.term_number <= proposal.election_term:
+                self.logger.error(f"Last completed election has term number {self._last_completed_election.term_number}; however, new proposal has term number {proposal.election_term}...")
+                raise ValueError(f"inconsistent term numbers between last-completed election {self._last_completed_election.term_number}")
+
+            self.logger.warn(f"Creating new election with term number {proposal.election_term} for latest \"{proposal._key}\" proposal received from node {proposal.proposer_id}.")
+            self._create_new_election(proposal.election_term)
+
+        # if self._current_election.term_number != proposal.election_term:
+        #     if self._catchingUpAfterMigration:
+        #         return # Do nothing.
+        #     else:
+        #         self.logger.error(f"Current election term number {self._current_election.term_number} != proposal term number {proposal.election_term}")
+        #         raise ValueError(f"current election term number {self._current_election.term_number} != proposal term number {proposal.election_term}")
+        # elif self._current_election.term_number == proposal.election_term and self._catchingUpAfterMigration:
+        #     self._catchingUpAfterMigration = False # Done catching up.
         
+        if self._future_io_loop == None:
+            try:
+                self._future_io_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                raise ValueError("Future IO loop cannot be nil whilst handling a proposal; attempted to resolve _future_io_loop, but could not do so.")
+
         time_str = datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
         term:int = proposal.election_term 
         self.logger.debug("Received {} from node {}. Term {}, attempt {}, timestamp {} ({}), match {}...".format(proposal.key, proposal.proposer_id, term, proposal.attempt_number, proposal.timestamp, time_str, self._node_id == proposal.proposer_id))
@@ -221,7 +254,7 @@ class RaftLog(object):
                     return 
 
                 try:
-                    selected_winner:bool = self._tryPickWinnerToPropose() 
+                    selected_winner:bool = self._tryPickWinnerToPropose(current_term) 
 
                     if not selected_winner:
                         assert not self._current_election.is_active
@@ -248,8 +281,15 @@ class RaftLog(object):
 
         Return True if a winner was selected for proposal (including just proposing 'FAILURE' due to all nodes proposing 'YIELD); otherwise, return False. 
         """
-        assert self._current_election != None 
-
+        if self._current_election == None:
+            raise ValueError(f"cannot try to pick winner for election {term_number}; current election field is null.")
+        
+        if self._future_io_loop == None:
+            try:
+                self._future_io_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                raise ValueError(f"cannot try to pick winner for election {term_number}; 'future IO loop' field is null, and there is no running IO loop right now.")
+            
         try:
             id: int = self._current_election.pick_winner_to_propose(last_winner_id = self._last_winner_id)
             if id > 0:
@@ -271,7 +311,7 @@ class RaftLog(object):
         received_at:float = time.time()
 
         if id != "":
-            self.logger.debug(f"Our proposal {self._node_id} of size {value_size} bytes was committed.")
+            self.logger.debug(f"Our proposal of size {value_size} bytes was committed.")
         else:
             self.logger.debug(f"Received remote update of size {value_size} bytes")
         
@@ -421,15 +461,20 @@ class RaftLog(object):
         self._last_completed_election = data_dict["last_completed_election"]
         
         # If true, then the "remote updates" that we're receiving are us catching up to where we were before a migration/eviction was triggered.
-        self._catchingUpAfterMigration = True 
+        # self._catchingUpAfterMigration = True 
 
         # The value of _leader_term before a migration/eviction was triggered.
-        self.leader_term_before_migration: int = data_dict["_leader_term"]
+        self.leader_term_before_migration: int = data_dict["leader_term"]
 
         # Commenting these out for now; it's not clear if we should set these in this way yet.
         # self._leader_term = data_dict["leader_term"]
         # self._leader_id = data_dict["leader_id"]
         self._expected_term = data_dict["expected_term"]
+
+        try:
+            self._future_io_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
+        except RuntimeError:
+            self.logger.error("Failed to get running event loop from asyncio module.")
 
     def _get_callback(self)-> Tuple[asyncio.Future, Callable[[str, Exception], Any]]:
         """Get the future object for the specified key."""
@@ -482,8 +527,16 @@ class RaftLog(object):
         # TODO: We may want to "relax" these conditions, or rather the consequences of these conditions, and attempt to proceed even if there's an error.
         if self.has_active_election():
             assert self._current_election != None 
-            self.logger.error(f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
-            raise ValueError(f"attempted to create new election while already having an active election")
+
+            # If we already have an election with a different term number, then that's problematic.
+            if self._current_election.term_number != term_number:
+                self.logger.error(f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
+                raise ValueError(f"attempted to create new election while already having an active election")
+            else:
+                # However, if we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_execute') ZMQ message.
+                # During this delay, we may have received a committed proposal from another replica for this election, which prompted us to create the election at that point.
+                # So, we'll just return the election that we already have, since the term numbers match. 
+                return self._current_election
         elif self._current_election != None and self._current_election.term_number > term_number:
             self.logger.error(f"Creating new election with term number {term_number} despite already previous election having a larger term number of {self._current_election.term_number}") 
             raise ValueError(f"attempted to create new election with term number smaller than previous election's term number ({term_number} < {self._current_election.term_number})") 
@@ -593,7 +646,7 @@ class RaftLog(object):
 
         # Define the `_leading` feature.
         # Save a reference to the currently-running IO loop so that we can resolve the `_leading` future on this same IO loop later.
-        self._future_io_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        self._future_io_loop = asyncio.get_running_loop()
         # This is the future we'll use to submit a formal vote for who should lead, based on the proposals that are committed to the etcd-raft log.
         self._election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = self._future_io_loop.create_future()
         # This is the future that we'll use to inform the local kernel replica if it has been selected to "lead" the election (and therefore execute the user-submitted code).

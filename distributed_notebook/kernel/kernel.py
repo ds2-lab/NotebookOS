@@ -1037,7 +1037,11 @@ class DistributedKernel(IPythonKernel):
         except Exception as e:
             self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
                            self.smr_node_id, self.kernel_id, str(e))
-            self.log.error(traceback.format_exception(e))
+            tb: list[str] = traceback.format_exception(e)
+            for frame in tb:
+                self.log.error(frame)
+            
+            self.report_error("Failed to Write HDFS Data Directory", errorMessage = str(e))
 
         self.log.info(
             "Closing the SyncLog (and therefore the etcd-Raft process) now.")

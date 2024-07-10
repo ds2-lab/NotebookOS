@@ -1046,7 +1046,7 @@ func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 func (node *LogNode) replayWAL() *wal.WAL {
 	node.logger.Info("Replaying WAL now.")
 	snapshot := node.loadSnapshot()
-	// Restore kernal from snapshot
+	// Restore kernel from snapshot
 	if snapshot != nil && !raft.IsEmptySnap(*snapshot) {
 		if node.config.onRestore == nil {
 			node.logFatalf("no RestoreCallback configured on start.")
