@@ -458,9 +458,8 @@ func (c *distributedKernelClientImpl) AddReplica(r core.KernelReplica, host core
 	r.SetContext(context.WithValue(r.Context(), CtxKernelHost, host))
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.replicas[r.ReplicaID()] = r
+	c.mu.Unlock()
 
 	// On adding replica, we keep the position of the replica in the kernel aligned with the replica ID.
 	// The replica ID starts with 1.

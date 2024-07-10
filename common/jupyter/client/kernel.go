@@ -341,6 +341,7 @@ func (c *kernelReplicaClientImpl) HostId() string {
 // Designate the replica as ready.
 // Only used by the Cluster Gateway, not by the Local Daemon.
 func (c *kernelReplicaClientImpl) SetReady() {
+	c.log.Debug("Kernel %s-%d has been designated as ready.", c.id, c.replicaId)
 	c.ready = true
 }
 

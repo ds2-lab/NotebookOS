@@ -112,21 +112,16 @@ class RaftLog(object):
         # TBD
         self._change_handler: Optional[Callable[[SynchronizedValue], None]] = None 
 
-        self.my_current_attempt_number : int = 1 # Attached to proposals. Sort of an ID within an election term. 
-        self.winners_per_term: Dict[int, int] = {} # Mapping from term number -> SMR node ID of the winner of that term.
-        self._proposed_values: OrderedDict[int, OrderedDict[int, LeaderElectionProposal]] = OrderedDict() # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
-        self.my_current_attempt_number:int = 1 # The current attempt number for the current term. 
-        self.largest_peer_attempt_number:Dict[int, int] = {0:0} # The largest attempt number received from a peer's proposal.
-        self.proposals_per_term: Dict[int, Dict[int, LeaderElectionProposal]] = {} # Mapping from term number -> dict. Inner dict is map from SMR node ID -> proposal.
-        self.own_proposal_times: Dict[int, float] = {} # Mapping from term number -> the time at which we proposed LEAD/YIELD in that term.
-        self.first_lead_proposal_received_per_term: Dict[int, LeaderElectionProposal] = {} # Mapping from term number -> the first 'LEAD' proposal received in that term.
-        self.first_proposal_received_per_term: Dict[int, LeaderElectionProposal] = {} # Mapping from term number -> the first proposal received in that term.
-        self.timeout_durations: Dict[int, float] = {} # Mapping from term number -> the timeout (in seconds) for that term.
-        self.discard_after: Dict[int, float] = {} # Mapping from term number -> the time after which received proposals will be discarded.
-        self.num_proposals_discarded: Dict[int, int] = {} # Mapping from term number -> the number of proposals that were discarded in that term.
-        self.sync_proposals_per_term: Dict[int, LeaderElectionProposal] = {} # Mapping from term number -> the first SYNC proposal committed during that term.
-        self.decisions_proposed: Dict[int, bool] = {} # Mapping from term number -> boolean flag indicating whether we've proposed (but not necessarily committed) a decision for the given term yet.
-        
+        # If we receive a proposal with a larger term number than our current election, then it is possible
+        # that we simply received the proposal before receiving the associated "execute_request" or "yield_execute" message 
+        # that would've prompted us to start the election locally. So, we'll just buffer the proposal for now, and when
+        # we receive the "execute_request" or "yield_execute" message, we'll process any buffered proposals at that point.
+        #
+        # This map maintains the buffered proposals. The mapping is from term number to a list of buffered proposals for that term.
+        self._buffered_proposals: dict[int, List[LeaderElectionProposal]] = {}
+        # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
+        self._proposed_values: OrderedDict[int, OrderedDict[int, LeaderElectionProposal]] = OrderedDict() 
+
         # Future that is resolved when we propose that somebody win the current election.
         # This future returns the `LeaderElectionVote` that we will propose to nominate/synchronize the winner of the election with our peers.
         self._election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = None 
@@ -230,29 +225,15 @@ class RaftLog(object):
         
         assert self._current_election != None 
 
-        # If we receive a proposal without having an active election, then one of two things is possile:
-        # - We are replaying the Raft WAL following an eviction/migration.
-        # - We have not yet received the ZMQ 'execute-code' request that would've prompted us to create an election.
-        #   So, we'll simply create the election here -- using the term number of the proposal we just received.
-        #   It was committed, so we know the other replicas received it at some point.
-        # if self._current_election == None:
-        #     self.logger.warn(f"Received \"{proposal._key}\" proposal from node {proposal.proposer_id} at time {datetime.datetime.fromtimestamp(received_at).strftime('%c')}; however, current election is null. Proposal: {str(proposal)}")
-
-        #     if self._last_completed_election != None and self._last_completed_election.term_number <= proposal.election_term:
-        #         self.logger.error(f"Last completed election has term number {self._last_completed_election.term_number}; however, new proposal has term number {proposal.election_term}...")
-        #         raise ValueError(f"inconsistent term numbers between last-completed election {self._last_completed_election.term_number}")
-
-        #     self.logger.warn(f"Creating new election with term number {proposal.election_term} for latest \"{proposal._key}\" proposal received from node {proposal.proposer_id}.")
-        #     self._create_new_election(proposal.election_term)
-
-        # if self._current_election.term_number != proposal.election_term:
-        #     if self._catchingUpAfterMigration:
-        #         return # Do nothing.
-        #     else:
-        #         self.logger.error(f"Current election term number {self._current_election.term_number} != proposal term number {proposal.election_term}")
-        #         raise ValueError(f"current election term number {self._current_election.term_number} != proposal term number {proposal.election_term}")
-        # elif self._current_election.term_number == proposal.election_term and self._catchingUpAfterMigration:
-        #     self._catchingUpAfterMigration = False # Done catching up.
+        # If we receive a proposal with a larger term number than our current election, then it is possible
+        # that we simply received the proposal before receiving the associated "execute_request" or "yield_execute" message 
+        # that would've prompted us to start the election locally. So, we'll just buffer the proposal for now, and when
+        # we receive the "execute_request" or "yield_execute" message, we'll process any buffered proposals at that point.
+        if proposal.election_term > self._current_election.term_number:
+            # Save the proposal in the "buffered proposals" mapping.
+            buffered_proposals: List[LeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
+            buffered_proposals.append(proposal)
+            self._buffered_proposals[proposal.election_term] = buffered_proposals
         
         if self._future_io_loop == None:
             try:
@@ -444,19 +425,8 @@ class RaftLog(object):
         This return value of this function should be passed to the `self._log_node.WriteDataDirectoryToHDFS` function.
         """        
         data_dict:dict = {
-            "winners_per_term": self.winners_per_term,
             "proposed_values": self._proposed_values,
-            "my_current_attempt_number": self.my_current_attempt_number,
-            "largest_peer_attempt_number": self.largest_peer_attempt_number,
-            "proposals_per_term": self.proposals_per_term,
-            "own_proposal_times": self.own_proposal_times,
-            "first_lead_proposal_received_per_term": self.first_lead_proposal_received_per_term,
-            "first_proposal_received_per_term": self.first_proposal_received_per_term,
-            "timeout_durations": self.timeout_durations,
-            "discard_after": self.discard_after,
-            "num_proposals_discarded": self.num_proposals_discarded,
-            "sync_proposals_per_term": self.sync_proposals_per_term,
-            "decisions_proposed": self.decisions_proposed,
+            "buffered_proposals": self._buffered_proposals,
             "leader_term": self._leader_term,
             "leader_id": self._leader_id,
             "expected_term": self.expected_term,
@@ -493,19 +463,8 @@ class RaftLog(object):
         
         # TODO: 
         # There may be some bugs that arrise from these values being somewhat old or outdated, potentially.
-        self.winners_per_term = data_dict["winners_per_term"]
+        self._buffered_proposals =  data_dict["buffered_proposals"]
         self._proposed_values = data_dict["proposed_values"]
-        self.my_current_attempt_number = data_dict["my_current_attempt_number"]
-        self.largest_peer_attempt_number = data_dict["largest_peer_attempt_number"]
-        self.proposals_per_term = data_dict["proposals_per_term"]
-        self.own_proposal_times = data_dict["own_proposal_times"]
-        self.first_lead_proposal_received_per_term = data_dict["first_lead_proposal_received_per_term"]
-        self.first_proposal_received_per_term = data_dict["first_proposal_received_per_term"]
-        self.timeout_durations = data_dict["timeout_durations"]
-        self.discard_after = data_dict["discard_after"]
-        self.num_proposals_discarded = data_dict["num_proposals_discarded"]
-        self.sync_proposals_per_term = data_dict["sync_proposals_per_term"]
-        self.decisions_proposed = data_dict["decisions_proposed"]
         self._elections = data_dict["elections"]
         self._current_election = data_dict["current_election"]
         self._last_completed_election = data_dict["last_completed_election"]
@@ -746,6 +705,11 @@ class RaftLog(object):
         _election_decision_future: asyncio.Future[Any] = self._election_decision_future 
         _leading_future: asyncio.Future[bool] = self._leading_future 
 
+        buffered_proposals: List[LeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
+        for buffered_proposal in buffered_proposals:
+            # TODO: Is it OK to just pass the current time for `received_at`? Or should I save the time at which it was received and buffered, and pass that instead?
+            self._handleProposal(buffered_proposal, received_at = time.time()) 
+
         await self._append_election_proposal(proposal)
 
         voteProposal: LeaderElectionVote = await _election_decision_future
@@ -878,8 +842,6 @@ class RaftLog(object):
         self._log_node.UpdateNode(node_id, address, resolve)
         res = await future.result()
         self.logger.info("Result of UpdateNode: %s" % str(res))
-        
-        self.proposals_per_term[self._leader_term]
 
     async def remove_node(self, node_id):
         """Remove a node from the etcd-raft cluster."""

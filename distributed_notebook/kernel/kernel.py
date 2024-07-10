@@ -486,6 +486,7 @@ class DistributedKernel(IPythonKernel):
         # self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
         msg_id:str = msg_deserialized["header"]["msg_id"]
         msg_type:str = msg_deserialized["header"]["msg_type"]
+        self.log.debug(f"Received shell message \"{msg_type}\" (ID={msg_id})")
         self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg_deserialized) # Send an ACK.
         
         await super().dispatch_shell(msg)
@@ -495,8 +496,18 @@ class DistributedKernel(IPythonKernel):
     def should_handle(self, stream, msg, idents):
         """Check whether a (shell-channel?) message should be handled"""
         msg_id = msg["header"]["msg_id"]
+        msg_type = msg["header"]["msg_type"]
         if msg_id in self.received_message_ids:
             # Is it safe to assume a msg_id will not be resubmitted?
+            self.log.warn(f"Received duplicate \"{msg_id}\" message with ID={msg_type}.")
+
+            # Check if the message has a "ForceReprocess" field in its metadata frame with a value of "true".
+            # If so, then we'll reprocess it anyway -- as these are likely resubmitted 'yield_execute' or 'execute_request' messages.
+            metadata:dict[str, Any] = msg.get("metadata", {})
+            if "force_reprocess" in metadata:
+                # Presumably this will be True, but if it isn't True, then we definitely shouldn't reprocess the message.
+                return metadata["force_reprocess"]
+
             return False
         else:
             self.received_message_ids.add(msg_id)

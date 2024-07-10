@@ -1,4 +1,5 @@
 import asyncio
+import datetime 
 import logging 
 import time 
 
@@ -32,6 +33,13 @@ class Election(object):
 
         # Mapping from SMR Node ID to the LeaderElectionProposal that it proposed during this election term.
         self._proposals: Dict[int, LeaderElectionProposal] = {} 
+
+        # Set of node IDs for which we're missing proposals.
+        # The set of node IDs for which we've received proposals is simply `self._proposals.keys()`.
+        # This field is reset if the election is restarted.
+        self._missing_proposals: set[int] = set()
+        for node_id in range(1, num_replicas + 1):
+            self._missing_proposals.add(node_id)
 
         # Mapping from SMR Node ID to the LeaderElectionVote that it proposed during this election term.
         self._vote_proposals: Dict[int, LeaderElectionVote] = {} 
@@ -304,6 +312,7 @@ class Election(object):
         else:
             self.logger.debug(f"Discarding proposals from ALL nodes with attempt number < {latest_attempt_number}.")
 
+        num_discarded:int = 0
         # Iterate over all of the proposals, checking which (if any) need to be discarded.
         # We do this even if the proposal we just received did not overwrite an existing proposal (in case a proposal was lost).
         to_remove: List[int] = [] 
@@ -338,6 +347,11 @@ class Election(object):
 
             # Delete the mapping in the main proposal dictionary.
             del self._proposals[prop_id]
+
+            num_discarded += 1
+
+        self.logger.debug(f"Discarded {num_discarded} proposal(s) with term number < {latest_attempt_number}.")
+        num_votes_discarded:int = 0
         
         # Iterate over all of the proposals, checking which (if any) need to be discarded.
         # We do this even if the proposal we just received did not overwrite an existing proposal (in case a proposal was lost).
@@ -362,6 +376,9 @@ class Election(object):
 
             # Delete the mapping in the main "vote" proposal dictionary.
             del self._vote_proposals[prop_id]
+            num_votes_discarded += 1
+            
+        self.logger.debug(f"Discarded {num_discarded} vote proposal(s) with term number < {latest_attempt_number}.")
 
     def set_pick_and_propose_winner_future(self, future: asyncio.Future[Any])->None:
         self._pick_and_propose_winner_future = future
@@ -406,6 +423,11 @@ class Election(object):
         self._election_state = ElectionState.ACTIVE
         self._num_restarts += 1
         
+        # Repopulate the 'missing node IDs' set.
+        self._missing_proposals.clear()
+        for node_id in range(1, self._num_replicas + 1):
+            self._missing_proposals.add(node_id)
+
         # Reset these counters.
         self._num_lead_proposals_received = 0
         self._num_yield_proposals_received = 0
@@ -455,6 +477,8 @@ class Election(object):
 
         self._winner_id = winner_id 
         self._election_state = ElectionState.COMPLETE
+
+        self.logger.debug(f"Election {self.term_number} has completed successfully with winner: node {winner_id}.")
 
     def pick_winner_to_propose(self, last_winner_id: int = -1)->int:
         """
@@ -577,6 +601,9 @@ class Election(object):
         proposer_id:int = proposal.proposer_id
         latest_attempt_number:int = proposal.attempt_number
 
+        if proposal.election_term != self.term_number:
+            raise ValueError(f"\"{proposal.key}\" proposal from node {proposal.proposer_id} (ts={datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%c')}) is from term {proposal.election_term}, whereas this election is for term {self.term_number}.")
+
         # Update the current attempt number if the newly-received proposal has a greater attempt number than any of the other proposals that we've seen so far. 
         if latest_attempt_number > self._current_attempt_number:
             old_largest:int = self._current_attempt_number 
@@ -604,19 +631,22 @@ class Election(object):
         
         # We're not discarding the proposal, so let's officially store the new proposal. 
         self._proposals[proposer_id] = proposal
+        self._missing_proposals.remove(proposer_id)
 
         if proposal.is_lead:
             self._num_lead_proposals_received += 1
-            self.logger.debug(f"Accepted \"LEAD\" proposal. NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
+            self.logger.debug(f"Accepted \"LEAD\" proposal from node {proposal.proposer_id}. NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
         else:
             self._num_yield_proposals_received += 1
-            self.logger.debug(f"Accepted \"YIELD\" proposal. NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
+            self.logger.debug(f"Accepted \"YIELD\" proposal from node {proposal.proposer_id}. NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
         
             if self._num_yield_proposals_received >= 3:
                 self._expecting_failure = True 
                 self.logger.warn("Received third 'YIELD' proposal. Election is doomed to fail! Automatically transitioning to the 'FAILED' state.")
                 self.election_failed()
                 self._auto_failed = True 
+        
+        self.logger.debug(f"Received proposals from node(s): {', '.join([str(k) for k in self._proposals.keys()])}. Missing proposals from node(s): {', '.join([str(k) for k in self._missing_proposals])}")
                 
         # Check if this is the first 'LEAD' proposal that we've received. 
         # If so, we'll return a future that can be used to ensure we make a decision after the timeout period, even if we've not received all other proposals.

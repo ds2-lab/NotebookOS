@@ -54,7 +54,8 @@ const (
 
 	// Passed within the metadata dict of an 'execute_request' ZMQ message.
 	// This indicates that a specific replica should execute the code.
-	TargetReplicaArg = "target_replica"
+	TargetReplicaArg  = "target_replica"
+	ForceReprocessArg = "force_reprocess"
 )
 
 var (
@@ -697,7 +698,7 @@ func (d *ClusterGatewayImpl) issuePrepareMigrateRequest(kernelId string, nodeId 
 	return dataDirectory
 }
 
-// Issue an 'update-replica' request to a random replica of a specific kernel, informing that replica and its peers
+// Issue an 'update-replica' request to a replica of a specific kernel, informing that replica and its peers
 // that the replica with ID = `nodeId` has a new peer address, namely `newAddress`.
 func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId int32, newAddress string) {
 	d.log.Info("Issuing 'update-replica' request to kernel %s for replica %d, newAddr = %s.", kernelId, nodeId, newAddress)
@@ -712,12 +713,16 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 		panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernelId))
 	}
 
+	if targetReplica.ReplicaID() == nodeId { // This shouldn't happen, but it appears to have happened once already?
+		panic(fmt.Sprintf("Cannot issue 'Update Replica' request to replica %d, as it is in the process of registering...", nodeId))
+	}
+
 	host := targetReplica.Context().Value(client.CtxKernelHost).(core.Host)
 	if host == nil {
 		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
 	}
 
-	d.log.Debug("Issuing UpdateReplicaAddr RPC for replica %d of kernel %s.", nodeId, kernelId)
+	d.log.Debug("Issuing UpdateReplicaAddr RPC for replica %d of kernel %s. Sending request to Local Daemon of replica %d.", nodeId, kernelId, targetReplica.ReplicaID())
 	replicaInfo := &gateway.ReplicaInfoWithAddr{
 		Id:       nodeId,
 		KernelId: kernelId,
@@ -726,6 +731,7 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 
 	// Issue the 'update-replica' request. We panic if there was an error.
 	if _, err := host.UpdateReplicaAddr(context.TODO(), replicaInfo); err != nil {
+		d.log.Debug("Failed to add replica %d of kernel %s to SMR cluster because: %v", nodeId, kernelId, err)
 		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
 	}
 
@@ -973,6 +979,7 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 
 	// Specify the target replica.
 	metadataDict[TargetReplicaArg] = targetReplica
+	metadataDict[ForceReprocessArg] = true
 	err = frames[offset:].EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("Failed to encode metadata frame because: %v", err)
@@ -1238,7 +1245,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
 	}
 
-	d.log.Debug("Adding Replica kernelReplicaClientImpl for kernel %s, replica %d on host %s.", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID())
+	d.log.Debug("Adding replica for kernel %s, replica %d on host %s.", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID())
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
 		panic(fmt.Sprintf("kernelReplicaClientImpl::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
@@ -1264,6 +1271,8 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 	d.Unlock()
 
 	addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
+
+	d.log.Debug("About to issue 'update replica' request for replica %d of kernel %s. Client ready: %v", replicaSpec.ReplicaId, in.KernelId, replica.IsReady())
 
 	d.issueUpdateReplicaRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
 
