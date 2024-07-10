@@ -58,16 +58,6 @@ class Synchronizer:
   def close(self):
     pass
 
-  # def _change_handler(self, buff, id):
-  #   # Ignore local proposal.
-  #   print("got changed: {}".format(id))
-  #   if id != "":
-  #     return
-    
-  #   reader = io.BytesIO(bytes(Slice_byte(handle=buff)))
-  #   syncval = pickle.load(reader)
-  #   self.change_handler(syncval)
-
   @property
   def module(self):
     return self._module

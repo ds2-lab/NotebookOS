@@ -1262,6 +1262,13 @@ class DistributedKernel(IPythonKernel):
         # asyncio.run_coroutine_threadsafe(self.synchronizer.start(), control_loop.asyncio_loop)
         self.synchronizer.start()
 
+        # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be started before we attempt to catch-up.
+        # The catch-up process involves appending a new value and waiting until it gets committed. This cannot be done until the RaftLog has started.
+        # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
+        if self.synclog.needs_to_catch_up:
+            self.log.debug("RaftLog needs to propose new value.")
+            await self.synclog.catchup_with_peers()
+
         self.log.info("Started Synchronizer.")
 
     async def get_synclog(self, store_path) -> RaftLog:
@@ -1315,10 +1322,6 @@ class DistributedKernel(IPythonKernel):
             exit(1)
 
         self.log.debug("Successfully created RaftLog.")
-
-        if self.synclog.needs_to_catch_up:
-            self.log.debug("RaftLog needs to propose new value.")
-            await self.synclog.catchup_with_peers()
 
         return self.synclog
 
