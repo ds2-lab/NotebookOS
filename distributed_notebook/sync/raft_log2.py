@@ -159,6 +159,14 @@ class RaftLog(object):
         # This will just do nothing if there's no serialized state to be loaded.
         self._needs_to_catch_up:bool = self._load_and_apply_serialized_state()
 
+        # If we do need to catch up, then we'll create the state necessary to do so now. 
+        # As soon as we call `RaftLog::start`, we could begin receiving proposals, so we need this state to exist now.
+        # (We compare committed values against `self._catchup_value` when `self._need_to_catch_up` is true.)
+        if self._needs_to_catch_up:
+            self._catchup_value = SynchronizedValue(None, None, proposer_id = self._node_id, key = KEY_CATCHUP, election_term = self.leader_term_before_migration, should_end_execution = False, operation = KEY_CATCHUP)
+            self._catchup_io_loop = asyncio.get_running_loop()
+            self._catchup_future = self._catchup_io_loop.create_future() 
+
     def _create_persistent_store_directory(self, path: str):
         """
         Create a directory at the specified path if it does not already exist.
@@ -227,15 +235,15 @@ class RaftLog(object):
         # - We have not yet received the ZMQ 'execute-code' request that would've prompted us to create an election.
         #   So, we'll simply create the election here -- using the term number of the proposal we just received.
         #   It was committed, so we know the other replicas received it at some point.
-        if self._current_election == None:
-            self.logger.warn(f"Received \"{proposal._key}\" proposal from node {proposal.proposer_id} at time {datetime.datetime.fromtimestamp(received_at).strftime('%c')}; however, current election is null. Proposal: {str(proposal)}")
+        # if self._current_election == None:
+        #     self.logger.warn(f"Received \"{proposal._key}\" proposal from node {proposal.proposer_id} at time {datetime.datetime.fromtimestamp(received_at).strftime('%c')}; however, current election is null. Proposal: {str(proposal)}")
 
-            if self._last_completed_election != None and self._last_completed_election.term_number <= proposal.election_term:
-                self.logger.error(f"Last completed election has term number {self._last_completed_election.term_number}; however, new proposal has term number {proposal.election_term}...")
-                raise ValueError(f"inconsistent term numbers between last-completed election {self._last_completed_election.term_number}")
+        #     if self._last_completed_election != None and self._last_completed_election.term_number <= proposal.election_term:
+        #         self.logger.error(f"Last completed election has term number {self._last_completed_election.term_number}; however, new proposal has term number {proposal.election_term}...")
+        #         raise ValueError(f"inconsistent term numbers between last-completed election {self._last_completed_election.term_number}")
 
-            self.logger.warn(f"Creating new election with term number {proposal.election_term} for latest \"{proposal._key}\" proposal received from node {proposal.proposer_id}.")
-            self._create_new_election(proposal.election_term)
+        #     self.logger.warn(f"Creating new election with term number {proposal.election_term} for latest \"{proposal._key}\" proposal received from node {proposal.proposer_id}.")
+        #     self._create_new_election(proposal.election_term)
 
         # if self._current_election.term_number != proposal.election_term:
         #     if self._catchingUpAfterMigration:
@@ -365,6 +373,10 @@ class RaftLog(object):
         # Skip state updates from current node.
         if value_id != "":
             return GoNilError()
+        
+        if committedValue.election_term < self._leader_term:
+            self.logger.warn(f"Committed value has election term {committedValue.election_term} < our leader term of {self._leader_term}...")
+            # raise ValueError(f"Leader term of committed value {committedValue.election_term} is less than our current leader term {self._leader_term}")
         
         self.logger.debug(f"Updating self._leader_term from {self._leader_term} to {committedValue.election_term}, the leader term of the committed non-proposal SynchronizedValue.")
         self._leader_term = committedValue.election_term
@@ -565,7 +577,7 @@ class RaftLog(object):
             raise ValueError(f"illegal term number specified for new election: {term_number}")
         
         # TODO: We may want to "relax" these conditions, or rather the consequences of these conditions, and attempt to proceed even if there's an error.
-        if self.has_active_election():
+        if self.has_active_or_failed_election():
             assert self._current_election != None 
 
             # If we already have an election with a different term number, then that's problematic.
@@ -612,7 +624,11 @@ class RaftLog(object):
         # If there is at least one existing proposal for the specified term, then we'll get the most-recent proposal's attempt number.
         if len(existing_proposals) > 0:
             last_attempt_number: int = next(reversed(existing_proposals)) # This is O(1), as OrderedDict uses a doubly-linked list internally.
-            attempt_number = last_attempt_number # Could be on one line, but this is more readable in my opinion.
+            attempt_number = last_attempt_number + 1 # Could be on one line, but this is more readable in my opinion.
+
+            self.logger.debug(f"Found previous proposal for term {term_number}. Setting attempt number to last attempt number ({last_attempt_number}) + 1 = {attempt_number}")
+        else:
+            self.logger.debug(f"Found no previous proposal for term {term_number}.")
         
         # Create the new proposal.
         proposal: LeaderElectionProposal = LeaderElectionProposal(key = str(key), proposer_id = self._node_id, election_term = term_number, attempt_number = attempt_number)
@@ -687,11 +703,15 @@ class RaftLog(object):
         # The current election field must be non-null.
         if self._current_election == None:
             raise ValueError("current election field is None")
-        elif self._current_election.state != ElectionState.INACTIVE:
-            raise ValueError(f"current election is in state {self._current_election.state}; should be in state 'ElectionState.INACTIVE' when `_handle_election()` is called.")
+        elif self._current_election.state == ElectionState.ACTIVE or self._current_election.state == ElectionState.COMPLETE:
+            raise ValueError(f"current election is in state {self._current_election.state}; should be in 'INACTIVE' or 'FAILED' state when `_handle_election()` is called.")
 
-        # Start the election.
-        self._current_election.start()
+        if self._current_election.is_inactive:
+            # Start the election.
+            self._current_election.start()
+        elif self._current_election.is_in_failed_state:
+            # Restart the election.
+            self._current_election.restart(latest_attempt_number = proposal.attempt_number)
         
         if self._last_completed_election != None and target_term_number <= self._leader_term:
             self.logger.error(f"Current leader term {self._leader_term} > specified target term {target_term_number}...")
@@ -737,6 +757,8 @@ class RaftLog(object):
         
         if voteProposal.election_failed:
             self.logger.debug("RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'." % self._node_id)
+
+            self._current_election.election_failed()
             
             # None of the replicas proposed 'LEAD'
             # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
@@ -782,16 +804,37 @@ class RaftLog(object):
         
         return self.current_election.is_active
 
+    def has_active_or_failed_election(self)->bool:
+        """
+        Return true if the following two conditions are met:
+            - (a): We have an election (i.e., the _current_election field is non-nil)
+            - (b): The current election is in the ACTIVE state or the FAILED state
+        """
+        if self.current_election == None:
+            return False 
+        
+        return self.current_election.is_active or self.current_election.is_in_failed_state
+
     async def catchup_with_peers(self):
         """
         Propose a new value and wait for it to be committed so as to know that we're "caught up".
         """
+        # Ensure that we actually do need to catch up.
         if not self.needs_to_catch_up:
             raise ValueError("no need to catch-up with peers")
         
-        self._catchup_value = SynchronizedValue(None, None, proposer_id = self._node_id, key = KEY_CATCHUP, election_term = self._leader_term, should_end_execution = False, operation = KEY_CATCHUP)
-        self._catchup_io_loop = asyncio.get_running_loop()
-        self._catchup_future = self._catchup_io_loop.create_future() 
+        # Ensure that the "catchup" value has already been created.
+        if self._catchup_value == None:
+             raise ValueError("\"catchup\" value is None")
+        
+        # Ensure that the "catchup" IO loop is set so that Golang code (that has called into Python code)
+        # can populate the "catchup" Future with a result (using the "catchup" IO loop).
+        if self._catchup_io_loop == None:
+             raise ValueError("\"catchup\" IO loop is None")
+        
+        # Ensure that the "catchup" future has been created already.
+        if self._catchup_future == None:
+             raise ValueError("\"catchup\" future is None")
 
         await self.append(self._catchup_value) 
         await self._catchup_future # Wait for the value to be committed.

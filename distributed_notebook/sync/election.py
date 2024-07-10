@@ -32,12 +32,14 @@ class Election(object):
 
         # Mapping from SMR Node ID to the LeaderElectionProposal that it proposed during this election term.
         self._proposals: Dict[int, LeaderElectionProposal] = {} 
+
         # Mapping from SMR Node ID to the LeaderElectionVote that it proposed during this election term.
         self._vote_proposals: Dict[int, LeaderElectionVote] = {} 
 
         # Mapping from SMR node ID to an inner mapping.
         # The inner mapping is a mapping from attempt number to the associated LeaderElectionProposal proposed by that node (during that attempt) during this election term.
         self._discarded_proposals: Dict[int, Dict[int, LeaderElectionProposal]] = {}
+
         # Mapping from SMR node ID to an inner mapping.
         # The inner mapping is a mapping from attempt number to the associated LeaderElectionVote proposed by that node (during that attempt) during this election term.
         self._discarded_vote_proposals: Dict[int, Dict[int, LeaderElectionVote]] = {}
@@ -45,14 +47,44 @@ class Election(object):
         # The current state/status of the election.
         self._election_state: ElectionState = ElectionState.INACTIVE
 
+        # Flag mostly used for debugging/sanity-checking.
+        # If we see that we've received 3 'YIELD' proposals, then the election already knows that it is going to fail.
+        # The failure isn't made official until one of the replicas had a 'FAILURE' sync/vote proposal committed. 
+        self._expecting_failure: bool = False 
+
+        # This is set to True if the election automatically transitions itself to the 'FAILED' state upon receiving 3 'YIELD' proposals.
+        # This field is reset if the election is restarted.
+        self._auto_failed:bool = False 
+
+        # True if the winner for this election already been selected; otherwise, this is False. 
+        # This field is reset if the election is restarted.
+        self._winner_selected:bool = False 
+
+        # The node ID of whatever node the local replica proposed as the winner. 
+        # This field is reset if the election is restarted.
+        self._proposed_winner: int = 0
+
         # The first 'LEAD' proposal we received during this election.
+        # This field is reset if the election is restarted.
         self._first_lead_proposal: Optional[LeaderElectionProposal] = None  
 
         # The number of proposals that have been discarded (due to being received after the timeout period).
+        # This value is reset if the election fails and is restarted.
         self._num_discarded_proposals: int = 0
+        
+        # The total number of proposals that have been discarded (due to being received after the timeout period) across all attempts/failures.
+        self._lifetime_num_discarded_proposals: int = 0 
 
         # The number of 'vote' proposals that have been discarded (due to being received after the timeout period).
         self._num_discarded_vote_proposals: int = 0
+
+        # The number of 'LEAD' proposals that we've received, excluding any proposals that were discarded.
+        # If the election fails (i.e., everybody proposes 'YIELD') and is later restarted, then this value is reset to 0.
+        self._num_lead_proposals_received: int = 0
+        
+        # The number of 'YIELD' proposals that we've received, excluding any proposals that were discarded.
+        # If the election fails (i.e., everybody proposes 'YIELD') and is later restarted, then this value is reset to 0.
+        self._num_yield_proposals_received: int = 0
 
         # The time at which we will start discarding new proposals.
         self._discard_after: float = -1
@@ -90,9 +122,6 @@ class Election(object):
         self.__dict__.update(state)
         self._pick_and_propose_winner_future: Optional[asyncio.Future[Any]] = None
 
-    def set_pick_and_propose_winner_future(self, future: asyncio.Future[Any])->None:
-        self._pick_and_propose_winner_future = future
-
     @property 
     def num_discarded_vote_proposals(self)->int:
         """
@@ -106,6 +135,13 @@ class Election(object):
         The number of proposals that have been discarded (due to being received after the timeout period).
         """
         return self._num_discarded_proposals
+
+    @property 
+    def lifetime_num_discarded_proposals(self)->int:
+        """
+        The number of proposals that have been discarded (due to being received after the timeout period).
+        """
+        return self._lifetime_num_discarded_proposals
 
     @property 
     def current_attempt_number(self)->int:
@@ -172,7 +208,7 @@ class Election(object):
         return self._election_state
 
     @property 
-    def did_fail(self)->bool:
+    def is_in_failed_state(self)->bool:
         return self._election_state == ElectionState.FAILED
 
     @property
@@ -190,6 +226,10 @@ class Election(object):
     def is_active(self)->bool:
         return self._election_state == ElectionState.ACTIVE
 
+    @property
+    def is_inactive(self)->bool:
+        return self._election_state == ElectionState.INACTIVE
+    
     @property 
     def term_number(self)->int:
         """
@@ -241,6 +281,15 @@ class Election(object):
         """
         return len(self._proposals) == self._num_replicas
 
+    def _try_set_pick_and_propose_winner_future_result(self):
+        """
+        Set the result on the `self._pick_and_propose_winner_future` asyncio.Future object, if it exists and has not already been completed.
+        """
+        # If this future is non-nil, then set its result so that it won't be repeated again later.
+        if self._pick_and_propose_winner_future != None:
+            assert not self._pick_and_propose_winner_future.done()
+            self._pick_and_propose_winner_future.set_result(1)
+
     def _received_proposal_from_node(self, node_id: int) -> bool:
         return node_id in self._proposals
 
@@ -250,6 +299,11 @@ class Election(object):
 
         If we discard the first-received 'LEAD' proposal from this term, then we'll also cancel and clear the `_pick_and_propose_winner_future` Future.
         """
+        if proposer_id >= 1:
+            self.logger.debug(f"Discarding proposals with attempt number < {latest_attempt_number}, excluding proposals from node {proposer_id}.")
+        else:
+            self.logger.debug(f"Discarding proposals from ALL nodes with attempt number < {latest_attempt_number}.")
+
         # Iterate over all of the proposals, checking which (if any) need to be discarded.
         # We do this even if the proposal we just received did not overwrite an existing proposal (in case a proposal was lost).
         to_remove: List[int] = [] 
@@ -273,9 +327,17 @@ class Election(object):
                         self._pick_and_propose_winner_future.cancel()
                         self._pick_and_propose_winner_future = None 
             
-            # Remove proposals with smaller attempt numbers.
-            for prop_id in to_remove:
-                del self._proposals[prop_id]
+        # Remove proposals with smaller attempt numbers.
+        for prop_id in to_remove:
+            # Get the proposal that we're about to discard.
+            proposal_to_discard: LeaderElectionProposal = self._proposals[prop_id]
+            
+            # Update the "discarded proposals" mapping.
+            inner_prop_mapping: MutableMapping[int, LeaderElectionProposal] = self._discarded_proposals.get(self.term_number, {})
+            inner_prop_mapping[proposal_to_discard.attempt_number] = proposal_to_discard
+
+            # Delete the mapping in the main proposal dictionary.
+            del self._proposals[prop_id]
         
         # Iterate over all of the proposals, checking which (if any) need to be discarded.
         # We do this even if the proposal we just received did not overwrite an existing proposal (in case a proposal was lost).
@@ -289,23 +351,29 @@ class Election(object):
             if prop.attempt_number < latest_attempt_number:
                 to_remove.append(prop_id)
             
-            # Remove proposals with smaller attempt numbers.
-            for prop_id in to_remove:
-                # Get the proposal that we're about to discard.
-                proposal_to_discard: LeaderElectionVote = self._vote_proposals[prop_id]
-                
-                # Update the "discarded proposals" mapping.
-                inner_mapping: MutableMapping[int, LeaderElectionVote] = self._discarded_vote_proposals.get(self.term_number, {})
-                inner_mapping[proposal_to_discard.attempt_number] = proposal_to_discard
+        # Remove proposals with smaller attempt numbers.
+        for prop_id in to_remove:
+            # Get the proposal that we're about to discard.
+            vote_proposal_to_discard: LeaderElectionVote = self._vote_proposals[prop_id]
+            
+            # Update the "discarded 'vote' proposals" mapping.
+            inner_vote_proposal_mapping: MutableMapping[int, LeaderElectionVote] = self._discarded_vote_proposals.get(self.term_number, {})
+            inner_vote_proposal_mapping[vote_proposal_to_discard.attempt_number] = vote_proposal_to_discard
 
-                # Delete the mapping.
-                del self._vote_proposals[prop_id]
+            # Delete the mapping in the main "vote" proposal dictionary.
+            del self._vote_proposals[prop_id]
+
+    def set_pick_and_propose_winner_future(self, future: asyncio.Future[Any])->None:
+        self._pick_and_propose_winner_future = future
 
     def start(self)->None:
         """
         Designate the election has having been started. 
 
         If the election is already in the 'active' state, then this will raise a ValueError.
+
+        State Transition:
+        INACTIVE --> ACTIVE
         """
         if self._election_state == ElectionState.ACTIVE:
             raise ValueError(f"election for term {self.term_number} is already active")
@@ -318,20 +386,69 @@ class Election(object):
 
         self._election_state = ElectionState.ACTIVE
     
-    def restart(self)->None:
+    def restart(self, latest_attempt_number:int = -1)->None:
         """
         Restart a failed election.
+
+        State Transition:
+        FAILED --> ACTIVE
         """
+        if not self.is_in_failed_state:
+            raise ValueError(f"election for term {self.term_number} is not in 'FAILED' state; instead, it is in state '{self._election_state}'. Cannot restart the election.")
+
+        if latest_attempt_number <= 0:
+            raise ValueError(f"invalid 'last attempt number' {latest_attempt_number} when restarting election for term {self.term_number} (must be > 0).")
+
         if self._election_state != ElectionState.FAILED:
             raise ValueError(f"election for term {self.term_number} is not in 'FAILED' state and thus cannot be restarted (current state: {self._election_state})")
         
         self._pick_and_propose_winner_future = None 
         self._election_state = ElectionState.ACTIVE
         self._num_restarts += 1
+        
+        # Reset these counters.
+        self._num_lead_proposals_received = 0
+        self._num_yield_proposals_received = 0
+        self._num_discarded_proposals = 0 
+        self._proposed_winner = 0
+        self._winner_selected = False 
+        self._auto_failed = False 
+        self._first_lead_proposal = None 
+
+        # Discard old proposals.
+        # We pass -1 for `proposer_id` because we want to wipe away ALL proposals from ALL nodes.
+        self._discard_old_proposals(proposer_id = -1, latest_attempt_number = latest_attempt_number)
+
+        self._proposals.clear() 
+
+        self._vote_proposals.clear() 
+
+    def election_failed(self):
+        """
+        Record that the election has failed. This transitions the election to the FAILED state.
+
+        State Transition:
+        ACTIVE --> FAILED 
+        """
+        # We should only fail active elections. 
+        # The exception is that the election could've automatically "failed itself" if it received 3 'YIELD' proposals.
+        # Elections automatically transition to the 'FAILED' state in this case.
+        # This helps avoid issues in which there may be network delays for the last 'SYNC' proposal, committing the FAILURE.
+        # If a replica sees 3 'YIELD' proposals, then the election necessarily failed; there's no way for it to continue without being restarted.
+        if self._election_state != ElectionState.ACTIVE and not self._auto_failed:
+            raise ValueError(f"election is in invalid state {self._election_state} (and the election did not automatically fail itself).")
+
+        if not self._expecting_failure:
+            self.logger.warn(f"Election failed, but we weren't expecting a failure... NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}, NumDiscarded: {self.num_discarded_proposals}.")
+
+        self._election_state = ElectionState.FAILED 
 
     def complete_election(self, winner_id: int):
         """
         Mark the election as having completed successfully. 
+
+        State Transition:
+        ACTIVE --> COMPELTE 
         """
         if self._election_state != ElectionState.ACTIVE:
             raise ValueError(f"election for term {self.term_number} is not active (current state: {self._election_state}); cannot complete election")
@@ -349,10 +466,20 @@ class Election(object):
         """
         current_time: float = time.time() 
 
+        if self._election_state == ElectionState.INACTIVE:
+            raise RuntimeError(f"election for term {self._term_number} has not yet been started; cannot identify winner to propose")
+        
+        if self._election_state == ElectionState.COMPLETE:
+            raise RuntimeError(f"election for term {self._term_number} has already completed successfully; cannot identify winner to propose")
+
+        if self._winner_selected:
+            raise RuntimeError(f"election for term {self._term_number} already selected a node to propose as winner: node {self._proposed_winner}")
+
         # If the election isn't active, then we shouldn't be proposing anybody.
-        if self._election_state != ElectionState.ACTIVE:
-            self.logger.error(f"Election {self._term_number} in invalid state while trying to select winner: {self._election_state}")
-            raise RuntimeError(f"election for term {self._term_number} is in invalid state ({self._election_state}) to be trying to identify a winner to propose")
+        # if self._election_state == ElectionState.FAILED and not self._winner_selected:
+        #     self._try_set_pick_and_propose_winner_future_result()
+        #     self._winner_selected = True 
+        #     return -1 
 
         # If `self._discard_after` hasn't even been set yet, then we should keep waiting for more proposals before making a decision.
         # Likewise, if `self._discard_after` has been set already, but there's still time to receive more proposals, then we should wait before making a decision.
@@ -364,35 +491,29 @@ class Election(object):
             self.logger.debug(f"Cannot pick winner for election {self.term_number} yet. Received: {len(self._proposals)}, discarded: {self._num_discarded_proposals}, number of replicas: {self._num_replicas}.")
             raise ValueError(f"insufficient number of proposals received to select a winner to propose (received: {len(self._proposals)}, discarded: {self._num_discarded_proposals}, number of replicas: {self._num_replicas})")
         
-        # If we know the last winner and we have a proposal from them...
-        if last_winner_id > 0 and self._received_proposal_from_node(last_winner_id):
-            last_winners_proposal: LeaderElectionProposal = self._proposals[last_winner_id]
+        # By default, we'll return -1, indicating that we should propose FAILURE.
+        # But if we have someone else to propose -- either the first 'LEAD' proposal from this term, 
+        # or the winner of the last election if they proposed 'LEAD' again this term,
+        # then we'll return that someone else instead of returning -1.
+        self._proposed_winner = -1 
 
-            # And the winner of the last election proposed 'LEAD' again, then we'll propose that they lead this election.
-            if last_winners_proposal.is_lead:
-                # If this future is non-nil, then set its result so that it won't be repeated again later.
-                self._try_set_pick_and_propose_winner_future_result()
-                return last_winner_id
-            
+        # If we know the last winner and we have a proposal from them,
+        # and the winner of the last election proposed 'LEAD' again, 
+        # then we'll propose that they lead this election.
+        if last_winner_id > 0 and self._received_proposal_from_node(last_winner_id) and self._proposals[last_winner_id].is_lead:
+            self._proposed_winner = last_winner_id  
+            self.logger.debug(f"Will propose node {self._proposed_winner}; node {self._proposed_winner} won last time, and they proposed 'LEAD' again during this election (term {self._term_number}).")
         # If we've received at least one 'LEAD' proposal, then return the node ID of whoever proposed 'LEAD' first.
-        if self._first_lead_proposal != None:
-            # If this future is non-nil, then set its result so that it won't be repeated again later.
-            self._try_set_pick_and_propose_winner_future_result()
-            return self._first_lead_proposal.proposer_id
+        elif self._first_lead_proposal != None:
+            self._proposed_winner = self._first_lead_proposal.proposer_id
+            self.logger.debug(f"Will propose node {self._proposed_winner}; first 'LEAD' proposal for election term {self._term_number} came from node {self._proposed_winner}.")
+        else:
+            self.logger.warn("We have nobody to propose as the winner of the election. Proposing 'FAILURE'")
 
-        self._try_set_pick_and_propose_winner_future_result()
-
-        # Return -1, indicating that we should propose FAILURE.
-        return -1 
-
-    def _try_set_pick_and_propose_winner_future_result(self):
-        """
-        Set the result on the `self._pick_and_propose_winner_future` asyncio.Future object, if it exists and has not already been completed.
-        """
         # If this future is non-nil, then set its result so that it won't be repeated again later.
-        if self._pick_and_propose_winner_future != None:
-            assert not self._pick_and_propose_winner_future.done()
-            self._pick_and_propose_winner_future.set_result(1)
+        self._try_set_pick_and_propose_winner_future_result()
+        self._winner_selected = True 
+        return self._proposed_winner
 
     def add_vote_proposal(self, vote: LeaderElectionVote, overwrite: bool = False, received_at = time.time()) -> bool:
         """
@@ -465,7 +586,7 @@ class Election(object):
             # We'll purge/discard the old proposals down below.
             if self._election_state == ElectionState.FAILED:
                 self.logger.debug(f"Election {self.term_number} restarting. Received new highest attempt number ({latest_attempt_number}; prev: {old_largest}).")
-                self.restart()
+                self.restart(latest_attempt_number = latest_attempt_number)
 
         # Check if we need to discard the proposal due to there already being an existing proposal from that node with an attempt number >= the attempt number of the proposal we just received.
         # If the new proposal has an attempt number equal to or lower than the last proposal we received from this node, then that's a problem.
@@ -477,12 +598,26 @@ class Election(object):
         # Check if we need to discard the proposal due to it being received late.
         if self._discard_after > 0 and received_at > self._discard_after: # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
             self._num_discarded_proposals += 1
+            self._lifetime_num_discarded_proposals += 1
             self.logger.warn(f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because it was received too late.")
             return None   
         
         # We're not discarding the proposal, so let's officially store the new proposal. 
         self._proposals[proposer_id] = proposal
 
+        if proposal.is_lead:
+            self._num_lead_proposals_received += 1
+            self.logger.debug(f"Accepted \"LEAD\" proposal. NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
+        else:
+            self._num_yield_proposals_received += 1
+            self.logger.debug(f"Accepted \"YIELD\" proposal. NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
+        
+            if self._num_yield_proposals_received >= 3:
+                self._expecting_failure = True 
+                self.logger.warn("Received third 'YIELD' proposal. Election is doomed to fail! Automatically transitioning to the 'FAILED' state.")
+                self.election_failed()
+                self._auto_failed = True 
+                
         # Check if this is the first 'LEAD' proposal that we've received. 
         # If so, we'll return a future that can be used to ensure we make a decision after the timeout period, even if we've not received all other proposals.
         if self._first_lead_proposal == None and proposal.is_lead:
