@@ -328,6 +328,12 @@ extern char* smr_LogStorage_ReleaseLockTo(long long int _handle, long long unsig
 extern char* smr_LogStorage_Save(long long int _handle, long long int arg_0, long long int arg_1);
 extern void smr_LogStorage_SaveSnapshot(long long int _handle, long long int arg_0, char goRun);
 
+// --- wrapping struct: smr.SMRContext ---
+//
+extern long long int smr_SMRContext_CTor();
+extern char* smr_SMRContext_ID(long long int _handle);
+extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
+
 // --- wrapping struct: smr.Bytes ---
 //
 extern long long int smr_Bytes_CTor();
@@ -377,12 +383,6 @@ extern long long int smr_LogNodeConfig_WithChangeCallback(long long int _handle,
 extern long long int smr_LogNodeConfig_WithRestoreCallback(long long int _handle, PyObject* cb);
 extern long long int smr_LogNodeConfig_WithShouldSnapshotCallback(long long int _handle, PyObject* cb);
 extern long long int smr_LogNodeConfig_WithSnapshotCallback(long long int _handle, PyObject* cb);
-
-// --- wrapping struct: smr.SMRContext ---
-//
-extern long long int smr_SMRContext_CTor();
-extern char* smr_SMRContext_ID(long long int _handle);
-extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
 extern long long int smr_NewLogNode(char* store_path, long long int id, char* hdfsHostname, char* hdfs_data_directory, long long int peerAddresses, long long int peerIDs, char join, long long int debug_port);
 extern long long int smr_NewConfig();
 extern void smr_PrintTestMessage(char goRun);

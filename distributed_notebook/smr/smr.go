@@ -1789,6 +1789,36 @@ func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.cha
 
 // ---- Structs ---
 
+// --- wrapping struct: smr.SMRContext ---
+//
+//export smr_SMRContext_CTor
+func smr_SMRContext_CTor() CGoHandle {
+	return CGoHandle(handleFromPtr_smr_SMRContext(&smr.SMRContext{}))
+}
+
+//export smr_SMRContext_ID
+func smr_SMRContext_ID(_handle CGoHandle) *C.char {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.SMRContext")
+	if __err != nil {
+		return C.CString("")
+	}
+	return C.CString(gopyh.Embed(vifc, reflect.TypeOf(smr.SMRContext{})).(*smr.SMRContext).ID())
+
+}
+
+//export smr_SMRContext_Cancel
+func smr_SMRContext_Cancel(_handle CGoHandle, goRun C.char) {
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.SMRContext")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		go gopyh.Embed(vifc, reflect.TypeOf(smr.SMRContext{})).(*smr.SMRContext).Cancel()
+	} else {
+		gopyh.Embed(vifc, reflect.TypeOf(smr.SMRContext{})).(*smr.SMRContext).Cancel()
+	}
+}
+
 // --- wrapping struct: smr.Bytes ---
 //
 //export smr_Bytes_CTor
@@ -2348,36 +2378,6 @@ func smr_LogNodeConfig_WithSnapshotCallback(_handle CGoHandle, cb *C.PyObject) C
 		return C.GoString(C.PyBytes_AsString(_fcret))
 	}))
 
-}
-
-// --- wrapping struct: smr.SMRContext ---
-//
-//export smr_SMRContext_CTor
-func smr_SMRContext_CTor() CGoHandle {
-	return CGoHandle(handleFromPtr_smr_SMRContext(&smr.SMRContext{}))
-}
-
-//export smr_SMRContext_ID
-func smr_SMRContext_ID(_handle CGoHandle) *C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.SMRContext")
-	if __err != nil {
-		return C.CString("")
-	}
-	return C.CString(gopyh.Embed(vifc, reflect.TypeOf(smr.SMRContext{})).(*smr.SMRContext).ID())
-
-}
-
-//export smr_SMRContext_Cancel
-func smr_SMRContext_Cancel(_handle CGoHandle, goRun C.char) {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.SMRContext")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		go gopyh.Embed(vifc, reflect.TypeOf(smr.SMRContext{})).(*smr.SMRContext).Cancel()
-	} else {
-		gopyh.Embed(vifc, reflect.TypeOf(smr.SMRContext{})).(*smr.SMRContext).Cancel()
-	}
 }
 
 // ---- Slices ---

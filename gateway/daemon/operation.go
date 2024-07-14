@@ -162,7 +162,6 @@ func (op *addReplicaOperationImpl) ReplicaRegistered() bool {
 // This also sends a notification on the replicaRegisteredChannel.
 func (op *addReplicaOperationImpl) SetReplicaRegistered() {
 	op.replicaRegistered = true
-
 	op.replicaRegisteredChannel <- struct{}{} // KernelID isn't needed.
 }
 

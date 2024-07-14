@@ -410,6 +410,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 				}
 			case serialized_state := <-serialized_state_chan:
 				{
+					node.logger.Info("Successfully read data directory from HDFS to local storage.")
 					node.serialized_state_bytes = serialized_state
 					done = true
 				}
@@ -417,7 +418,6 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		}
 
 		ticker.Stop()
-		node.logger.Info("Successfully read data directory from HDFS to local storage.")
 	} else {
 		node.logger.Info("Did not receive a valid HDFS data directory path. Not reading data directory from HDFS.", zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
 	}
@@ -968,18 +968,31 @@ func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state []byte, resolve R
 				}
 			}
 
-			err := node.hdfsClient.CopyToRemote(path, path)
+			var num_tries int = 1
+			for {
+				err := node.hdfsClient.CopyToRemote(path, path)
 
-			// Based on the documentation within the HDFS package, we can just ignore an ErrReplicating.
-			// Specifically, if the datanodes have acknowledged all writes but not yet to the namenode,
-			// then this can return ErrReplicating (wrapped in an os.PathError). This indicates
-			// that all data has been written, but the lease is still open for the file.
-			// It is safe in this case to either ignore the error.
-			// exponential backoff.
-			if err != nil && !hdfs.IsErrReplicating(err) {
-				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.logger.Error(fmt.Sprintf("Exception encountered while trying to copy local-to-remote for file '%s': %v", path, err), zap.String("file", path), zap.Error(err))
-				return err
+				// Based on the documentation within the HDFS package, we can just ignore an ErrReplicating.
+				// Specifically, if the datanodes have acknowledged all writes but not yet to the namenode,
+				// then this can return ErrReplicating (wrapped in an os.PathError). This indicates
+				// that all data has been written, but the lease is still open for the file.
+				// It is safe in this case to either ignore the error or perform.
+				if err != nil {
+					// If it is a replication error, then we'll simply retry with exponential backoff until we close without an error.
+					// This is what the Java HDFS client does.
+					if hdfs.IsErrReplicating(err) {
+						node.sugaredLogger.Warnf("Could not close file \"%s\" on attempt #%d; data is still being replicated. Will retry.", num_tries, path)
+						time.Sleep(time.Second * 2 * time.Duration(num_tries))
+						num_tries += 1
+						continue
+					} else {
+						// If we return an error from this function, then WalkDir will stop entirely and return that error.
+						node.sugaredLogger.Errorf("Exception encountered while trying to copy local-to-remote for file '%s': %v", path, err)
+						return err
+					}
+				}
+
+				break
 			}
 
 			node.logger.Info(fmt.Sprintf("Successfully copied local file to HDFS: '%s'", path), zap.String("file", path))
