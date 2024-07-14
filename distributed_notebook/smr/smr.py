@@ -341,34 +341,6 @@ def Set_ProposalDeadline(value):
 
 # ---- Interfaces ---
 
-# Python type for interface smr.LogStorage
-class LogStorage(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Close(self):
-		"""Close() str"""
-		return _smr.smr_LogStorage_Close(self.handle)
-	def ReleaseLockTo(self, arg_0):
-		"""ReleaseLockTo(long) str"""
-		return _smr.smr_LogStorage_ReleaseLockTo(self.handle, arg_0)
-	def Save(self, arg_0, arg_1):
-		"""Save(object, []object) str"""
-		return _smr.smr_LogStorage_Save(self.handle, arg_0.handle, arg_1.handle)
-	def SaveSnapshot(self, arg_0, goRun=False):
-		"""SaveSnapshot(object) """
-		_smr.smr_LogStorage_SaveSnapshot(self.handle, arg_0.handle, goRun)
-
 # Python type for interface smr.ReadCloser
 class ReadCloser(go.GoClass):
 	""""""
@@ -438,147 +410,36 @@ class LogSnapshotter(go.GoClass):
 		"""SaveSnap(object) str"""
 		return _smr.smr_LogSnapshotter_SaveSnap(self.handle, arg_0.handle)
 
+# Python type for interface smr.LogStorage
+class LogStorage(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_LogStorage_Close(self.handle)
+	def ReleaseLockTo(self, arg_0):
+		"""ReleaseLockTo(long) str"""
+		return _smr.smr_LogStorage_ReleaseLockTo(self.handle, arg_0)
+	def Save(self, arg_0, arg_1):
+		"""Save(object, []object) str"""
+		return _smr.smr_LogStorage_Save(self.handle, arg_0.handle, arg_1.handle)
+	def SaveSnapshot(self, arg_0, goRun=False):
+		"""SaveSnapshot(object) """
+		_smr.smr_LogStorage_SaveSnapshot(self.handle, arg_0.handle, goRun)
+
 
 # ---- Structs ---
-
-# Python type for struct smr.LogNodeConfig
-class LogNodeConfig(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_LogNodeConfig_CTor()
-			_smr.IncRef(self.handle)
-			if  0 < len(args):
-				self.ElectionTick = args[0]
-			if "ElectionTick" in kwargs:
-				self.ElectionTick = kwargs["ElectionTick"]
-			if  1 < len(args):
-				self.HeartbeatTick = args[1]
-			if "HeartbeatTick" in kwargs:
-				self.HeartbeatTick = kwargs["HeartbeatTick"]
-			if  2 < len(args):
-				self.Debug = args[2]
-			if "Debug" in kwargs:
-				self.Debug = kwargs["Debug"]
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.LogNodeConfig{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.LogNodeConfig ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	@property
-	def ElectionTick(self):
-		return _smr.smr_LogNodeConfig_ElectionTick_Get(self.handle)
-	@ElectionTick.setter
-	def ElectionTick(self, value):
-		if isinstance(value, go.GoClass):
-			_smr.smr_LogNodeConfig_ElectionTick_Set(self.handle, value.handle)
-		else:
-			_smr.smr_LogNodeConfig_ElectionTick_Set(self.handle, value)
-	@property
-	def HeartbeatTick(self):
-		return _smr.smr_LogNodeConfig_HeartbeatTick_Get(self.handle)
-	@HeartbeatTick.setter
-	def HeartbeatTick(self, value):
-		if isinstance(value, go.GoClass):
-			_smr.smr_LogNodeConfig_HeartbeatTick_Set(self.handle, value.handle)
-		else:
-			_smr.smr_LogNodeConfig_HeartbeatTick_Set(self.handle, value)
-	@property
-	def Debug(self):
-		return _smr.smr_LogNodeConfig_Debug_Get(self.handle)
-	@Debug.setter
-	def Debug(self, value):
-		if isinstance(value, go.GoClass):
-			_smr.smr_LogNodeConfig_Debug_Set(self.handle, value.handle)
-		else:
-			_smr.smr_LogNodeConfig_Debug_Set(self.handle, value)
-	def WithChangeCallback(self, cb):
-		"""WithChangeCallback(callable cb) object"""
-		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithChangeCallback(self.handle, cb))
-	def WithRestoreCallback(self, cb):
-		"""WithRestoreCallback(callable cb) object"""
-		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithRestoreCallback(self.handle, cb))
-	def WithShouldSnapshotCallback(self, cb):
-		"""WithShouldSnapshotCallback(callable cb) object"""
-		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithShouldSnapshotCallback(self.handle, cb))
-	def WithSnapshotCallback(self, cb):
-		"""WithSnapshotCallback(callable cb) object"""
-		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithSnapshotCallback(self.handle, cb))
-
-# Python type for struct smr.SMRContext
-class SMRContext(go.context_Context):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_SMRContext_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.SMRContext{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.SMRContext ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def ID(self):
-		"""ID() str"""
-		return _smr.smr_SMRContext_ID(self.handle)
-	def Cancel(self, goRun=False):
-		"""Cancel() """
-		_smr.smr_SMRContext_Cancel(self.handle, goRun)
 
 # Python type for struct smr.Bytes
 class Bytes(go.GoClass):
@@ -785,16 +646,16 @@ class LogNode(go.GoClass):
 		"""WaitToClose() str lastErr"""
 		return _smr.smr_LogNode_WaitToClose(self.handle)
 	def Close(self):
-		"""Close() str"""
-		return _smr.smr_LogNode_Close(self.handle)
-	def ReadDataDirectoryFromHDFS(self):
-		"""ReadDataDirectoryFromHDFS() []int serialized_state_bytes, str err
+		"""Close() str
 		
-		Read the data directory for this Raft node back from HDFS to local storage.
-		
-		This assumes the HDFS path and the local path are identical.
+		IMPORTANT: This does NOT close the HDFS client.
+		This is because, when migrating a raft cluster member, we must first stop the raft
+		node before copying the contents of its data directory.
 		"""
-		return go.Slice_byte(handle=_smr.smr_LogNode_ReadDataDirectoryFromHDFS(self.handle))
+		return _smr.smr_LogNode_Close(self.handle)
+	def CloseHdfsClient(self):
+		"""CloseHdfsClient() str"""
+		return _smr.smr_LogNode_CloseHdfsClient(self.handle)
 	def WriteDataDirectoryToHDFS(self, serialized_state, resolve, goRun=False):
 		"""WriteDataDirectoryToHDFS([]int serialized_state, callable resolve) 
 		
@@ -814,6 +675,145 @@ class LogNode(go.GoClass):
 		"""ReportSnapshot(long id, int status) """
 		_smr.smr_LogNode_ReportSnapshot(self.handle, id, status, goRun)
 
+# Python type for struct smr.LogNodeConfig
+class LogNodeConfig(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_LogNodeConfig_CTor()
+			_smr.IncRef(self.handle)
+			if  0 < len(args):
+				self.ElectionTick = args[0]
+			if "ElectionTick" in kwargs:
+				self.ElectionTick = kwargs["ElectionTick"]
+			if  1 < len(args):
+				self.HeartbeatTick = args[1]
+			if "HeartbeatTick" in kwargs:
+				self.HeartbeatTick = kwargs["HeartbeatTick"]
+			if  2 < len(args):
+				self.Debug = args[2]
+			if "Debug" in kwargs:
+				self.Debug = kwargs["Debug"]
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.LogNodeConfig{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.LogNodeConfig ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	@property
+	def ElectionTick(self):
+		return _smr.smr_LogNodeConfig_ElectionTick_Get(self.handle)
+	@ElectionTick.setter
+	def ElectionTick(self, value):
+		if isinstance(value, go.GoClass):
+			_smr.smr_LogNodeConfig_ElectionTick_Set(self.handle, value.handle)
+		else:
+			_smr.smr_LogNodeConfig_ElectionTick_Set(self.handle, value)
+	@property
+	def HeartbeatTick(self):
+		return _smr.smr_LogNodeConfig_HeartbeatTick_Get(self.handle)
+	@HeartbeatTick.setter
+	def HeartbeatTick(self, value):
+		if isinstance(value, go.GoClass):
+			_smr.smr_LogNodeConfig_HeartbeatTick_Set(self.handle, value.handle)
+		else:
+			_smr.smr_LogNodeConfig_HeartbeatTick_Set(self.handle, value)
+	@property
+	def Debug(self):
+		return _smr.smr_LogNodeConfig_Debug_Get(self.handle)
+	@Debug.setter
+	def Debug(self, value):
+		if isinstance(value, go.GoClass):
+			_smr.smr_LogNodeConfig_Debug_Set(self.handle, value.handle)
+		else:
+			_smr.smr_LogNodeConfig_Debug_Set(self.handle, value)
+	def WithChangeCallback(self, cb):
+		"""WithChangeCallback(callable cb) object"""
+		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithChangeCallback(self.handle, cb))
+	def WithRestoreCallback(self, cb):
+		"""WithRestoreCallback(callable cb) object"""
+		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithRestoreCallback(self.handle, cb))
+	def WithShouldSnapshotCallback(self, cb):
+		"""WithShouldSnapshotCallback(callable cb) object"""
+		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithShouldSnapshotCallback(self.handle, cb))
+	def WithSnapshotCallback(self, cb):
+		"""WithSnapshotCallback(callable cb) object"""
+		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithSnapshotCallback(self.handle, cb))
+
+# Python type for struct smr.SMRContext
+class SMRContext(go.context_Context):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_SMRContext_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.SMRContext{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.SMRContext ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def ID(self):
+		"""ID() str"""
+		return _smr.smr_SMRContext_ID(self.handle)
+	def Cancel(self, goRun=False):
+		"""Cancel() """
+		_smr.smr_SMRContext_Cancel(self.handle, goRun)
+
 
 # ---- Slices ---
 
@@ -822,9 +822,6 @@ class LogNode(go.GoClass):
 
 
 # ---- Constructors ---
-def NewConfig():
-	"""NewConfig() object"""
-	return LogNodeConfig(handle=_smr.smr_NewConfig())
 def NewLogNode(store_path, id, hdfsHostname, hdfs_data_directory, peerAddresses, peerIDs, join, debug_port):
 	"""NewLogNode(str store_path, int id, str hdfsHostname, str hdfs_data_directory, []str peerAddresses, []int peerIDs, bool join, int debug_port) object
 	
@@ -839,6 +836,9 @@ def NewLogNode(store_path, id, hdfsHostname, hdfs_data_directory, peerAddresses,
 	we were migrated and our data directory was written to HDFS so that we could retrieve it.
 	"""
 	return LogNode(handle=_smr.smr_NewLogNode(store_path, id, hdfsHostname, hdfs_data_directory, peerAddresses.handle, peerIDs.handle, join, debug_port))
+def NewConfig():
+	"""NewConfig() object"""
+	return LogNodeConfig(handle=_smr.smr_NewConfig())
 
 
 # ---- Functions ---

@@ -158,9 +158,10 @@ class RaftLog(object):
         # As soon as we call `RaftLog::start`, we could begin receiving proposals, so we need this state to exist now.
         # (We compare committed values against `self._catchup_value` when `self._need_to_catch_up` is true.)
         if self._needs_to_catch_up:
-            self._catchup_value = SynchronizedValue(None, None, proposer_id = self._node_id, key = KEY_CATCHUP, election_term = self.leader_term_before_migration, should_end_execution = False, operation = KEY_CATCHUP)
+            self._catchup_value = SynchronizedValue(None, None, proposer_id = self._node_id, key = KEY_CATCHUP, election_term = self._leader_term_before_migration, should_end_execution = False, operation = KEY_CATCHUP)
             self._catchup_io_loop = asyncio.get_running_loop()
             self._catchup_future = self._catchup_io_loop.create_future() 
+            self.logger.debug(f"Created new 'catchup value' with ID={self._catchup_value.id}, timestamp={self._catchup_value._timestamp}, and election term={self._catchup_value.election_term}.")
 
     def _create_persistent_store_directory(self, path: str):
         """
@@ -218,22 +219,27 @@ class RaftLog(object):
             received_at (float): the time at which we received this proposal.
         """
         
-        if self.needs_to_catch_up:
-            # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
-            self.logger.warn(f"Discarding LeaderElectionProposal, as we need to catch-up: {proposal}")
-            return GoNilError() 
-        
         assert self._current_election != None 
 
         # If we receive a proposal with a larger term number than our current election, then it is possible
         # that we simply received the proposal before receiving the associated "execute_request" or "yield_execute" message 
         # that would've prompted us to start the election locally. So, we'll just buffer the proposal for now, and when
         # we receive the "execute_request" or "yield_execute" message, we'll process any buffered proposals at that point.
+        #
+        # Also, we check this first before checking if we should simply discard the proposal, in case we receive a legitimate, 
+        # new execution request early for some reason. This shouldn't happen, but if it does, we can just buffer the request.
         if proposal.election_term > self._current_election.term_number:
+            self.logger.warn(f"")
             # Save the proposal in the "buffered proposals" mapping.
             buffered_proposals: List[LeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
             buffered_proposals.append(proposal)
             self._buffered_proposals[proposal.election_term] = buffered_proposals
+            return GoNilError() 
+
+        if self.needs_to_catch_up:
+            # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
+            self.logger.warn(f"Discarding LeaderElectionProposal, as we need to catch-up: {proposal}")
+            return GoNilError() 
         
         if self._future_io_loop == None:
             try:
@@ -340,7 +346,8 @@ class RaftLog(object):
             assert self._catchup_io_loop != None 
             
             if committedValue.key == KEY_CATCHUP and committedValue.proposer_id == self._node_id and committedValue.id == self._catchup_value.id:
-                self.logger.debug(f"Received our catch-up value (ID={committedValue.id}). We must be caught-up!")
+                self.logger.debug(f"Received our catch-up value (ID={committedValue.id}, timestamp={committedValue._timestamp}, election term={committedValue.election_term}). We must be caught-up!")
+                assert self._leader_term_before_migration == committedValue.election_term
                 self._needs_to_catch_up = False 
                 self._catchup_value = None 
 
@@ -473,7 +480,7 @@ class RaftLog(object):
         # self._catchingUpAfterMigration = True 
 
         # The value of _leader_term before a migration/eviction was triggered.
-        self.leader_term_before_migration: int = data_dict["leader_term"]
+        self._leader_term_before_migration: int = data_dict["leader_term"]
 
         # Commenting these out for now; it's not clear if we should set these in this way yet.
         # self._leader_term = data_dict["leader_term"]
@@ -941,6 +948,15 @@ class RaftLog(object):
         
         self.logger.info("Successfully started RaftLog and LogNode.")
 
+    # Close the LogNode's HDFS client.
+    def closeHdfsClient(self)->None:
+        self._log_node.CloseHdfsClient()
+
+    # IMPORTANT: This does NOT close the HDFS client within the LogNode. 
+    # This is because, when migrating a raft cluster member, we must first stop the raft
+    # node before copying the contents of its data directory.
+    #
+    # To close the HDFS client within the LogNode, call the `closeHdfsClient` method.
     def close(self)->None:
         """
         Ensure all async coroutines have completed. Clean up resources. Stop the LogNode.

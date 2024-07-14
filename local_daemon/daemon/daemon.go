@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -40,6 +41,8 @@ var (
 	ctxKernelInvoker = utils.ContextKey("invoker")
 
 	cleanUpInterval = time.Minute
+
+	ErrExistingReplicaAlreadyRunning = errors.New("an existing replica of the target kernel is already running on this node")
 )
 
 // SchedulerDaemonImpl is the daemon that proxy requests to kernel replicas on local-host.
@@ -802,11 +805,18 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 	// 	d.log.Warn("LocalDaemon cannot explicitly create kernel replica, as we're not running in Docker mode.")
 	// 	return nil, nil
 	// }
+	kernelId := in.Kernel.Id
+	d.log.Debug("Starting new replica of kernel %s", kernelId)
+
+	if otherReplica, loaded := d.kernels.Load(kernelId); loaded {
+		d.log.Error("We already have a replica of kernel %s running locally (replica %d). Cannot launch new replica on this node.", kernelId, otherReplica.ReplicaID())
+		return nil, ErrExistingReplicaAlreadyRunning
+	}
 
 	var kernelInvoker invoker.KernelInvoker
-	if d.deploymentMode == types.DockerMode {
+	if d.DockerMode() {
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)
-	} else if d.deploymentMode == types.LocalMode {
+	} else if d.LocalMode() {
 		kernelInvoker = invoker.NewLocalInvoker()
 	} else {
 		panic(fmt.Sprintf("Unknown/unsupported deployment mode: \"%s\"", d.deploymentMode))
@@ -916,6 +926,9 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *gateway.Kernel
 
 	d.log.Debug("Successfully stopped replica %d of kernel %s.", kernel.ReplicaID(), in.Id)
 
+	// Remove the kernel from our hash map.
+	d.kernels.Delete(in.Id)
+
 	listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
 	err = d.availablePorts.ReturnPorts(listenPorts)
 	if err != nil {
@@ -951,9 +964,11 @@ func (d *SchedulerDaemonImpl) stopKernel(ctx context.Context, kernel client.Kern
 
 	wg.Wait()
 
-	if d.deploymentMode == types.DockerMode {
+	if d.DockerMode() {
 		d.log.Debug("Stopping container for kernel %s-%d via its invoker now.", kernel.ID(), kernel.ReplicaID())
 		d.getInvoker(kernel).Close()
+	} else {
+		d.log.Debug("Skipping invoker::Close step for kernel %s-%d; we're running in \"%v\" mode.", kernel.ID(), kernel.ReplicaID(), d.deploymentMode)
 	}
 	return nil
 }

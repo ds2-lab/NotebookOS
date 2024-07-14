@@ -59,10 +59,11 @@ const (
 )
 
 var (
-	ProposalDeadline = 1 * time.Minute
-	ErrClosed        = errors.New("node closed")
-	ErrEOF           = io.EOF.Error() // For python module to check if io.EOF is returned
-	sig              = make(chan os.Signal, 1)
+	ProposalDeadline   = 1 * time.Minute
+	ErrClosed          = errors.New("node closed")
+	ErrEOF             = io.EOF.Error() // For python module to check if io.EOF is returned
+	ErrHdfsClientIsNil = errors.New("hdfs client is nil; cannot close it")
+	sig                = make(chan os.Signal, 1)
 )
 
 type StateValueCallback func(ReadCloser, int, string) string
@@ -299,6 +300,18 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 	hdfsClient, err := hdfs.NewClient(hdfs.ClientOptions{
 		Addresses: []string{hdfsHostname},
 		User:      "jovyan",
+		NamenodeDialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
+			conn, err := (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+				DualStack: true,
+			}).DialContext(ctx, network, address)
+			if err != nil {
+				node.sugaredLogger.Errorf("Failed to dial HDFS DataNode at address '%s' because: %v", address, err)
+				return nil, err
+			}
+			return conn, nil
+		},
 		// Temporary work-around to deal with Kubernetes networking issues with HDFS.
 		// The HDFS NameNode returns the IP for the client to use to connect to the DataNode for reading/writing file blocks.
 		// At least for development/testing, I am using a local Kubernetes cluster and a local HDFS deployment.
@@ -311,7 +324,11 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 			childCtx, cancel := context.WithTimeout(ctx, time.Second*30)
 			defer cancel()
 
-			conn, err := (&net.Dialer{}).DialContext(childCtx, network, modified_address)
+			conn, err := (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+				DualStack: true,
+			}).DialContext(childCtx, network, modified_address)
 			if err != nil {
 				node.sugaredLogger.Errorf("Failed to dial HDFS DataNode at address '%s' because: %v", modified_address, err)
 				return nil, err
@@ -340,14 +357,66 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 			return nil
 		}
 
-		// TODO(Ben): Read the 'serialized state' file as well, and return that data back to the Python layer.
-		node.serialized_state_bytes, err = node.ReadDataDirectoryFromHDFS()
+		// TODO: Make configurable, or make this interval longer to support larger recoveries.
+		// Alternatively, have the Goroutine that's reading the data from HDFS periodically indicate that it is still alive/making progress,
+		// and as long as that is happening, we continue waiting, with a timeout such that no progress after <timeout> means the whole operation has failed.
+		timeout_interval := time.Duration(60 * time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout_interval)
+		defer cancel()
 
-		if err != nil {
-			node.logger.Error("Error while reading data directory from HDFS.", zap.Error(err), zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
-			return nil
+		progress_chan := make(chan string, 8)
+		serialized_state_chan := make(chan []byte)
+		error_chan := make(chan error)
+		go func(ctx context.Context) {
+			signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+
+			// TODO(Ben): Read the 'serialized state' file as well, and return that data back to the Python layer.
+			serialized_state_bytes, err := node.ReadDataDirectoryFromHDFS(ctx, progress_chan)
+			if err != nil {
+				error_chan <- err
+				return
+			}
+			serialized_state_chan <- serialized_state_bytes
+		}(ctx)
+
+		tickInterval := time.Duration(10 * time.Second)
+		ticker := time.NewTicker(tickInterval)
+		noProgress := 0
+		done := false
+		for !done {
+			select {
+			case msg := <-progress_chan:
+				{
+					node.logger.Debug("Made progress.", zap.String("msg", msg))
+					noProgress = 0
+				}
+			case <-ticker.C:
+				{
+					noProgress += 1
+					node.sugaredLogger.Warn("Progress has not been made in roughly %v.", time.Duration(tickInterval*time.Duration(noProgress)))
+				}
+			case <-ctx.Done():
+				{
+					err := ctx.Err()
+					node.logger.Error("Operation to read data from HDFS timed-out.", zap.Duration("timeout_interval", timeout_interval), zap.Error(err))
+					ticker.Stop()
+					return nil
+				}
+			case err := <-error_chan:
+				{
+					node.logger.Error("Error while reading data directory from HDFS.", zap.Error(err), zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
+					ticker.Stop()
+					return nil
+				}
+			case serialized_state := <-serialized_state_chan:
+				{
+					node.serialized_state_bytes = serialized_state
+					done = true
+				}
+			}
 		}
 
+		ticker.Stop()
 		node.logger.Info("Successfully read data directory from HDFS to local storage.")
 	} else {
 		node.logger.Info("Did not receive a valid HDFS data directory path. Not reading data directory from HDFS.", zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
@@ -548,6 +617,9 @@ func (node *LogNode) WaitToClose() (lastErr error) {
 	return
 }
 
+// IMPORTANT: This does NOT close the HDFS client.
+// This is because, when migrating a raft cluster member, we must first stop the raft
+// node before copying the contents of its data directory.
 func (node *LogNode) Close() error {
 	node.close()
 
@@ -561,6 +633,24 @@ func (node *LogNode) Close() error {
 	return lastErr
 }
 
+func (node *LogNode) CloseHdfsClient() error {
+	if node.hdfsClient != nil {
+		err := node.hdfsClient.Close()
+		if err != nil {
+			node.logger.Error("Error while closing HDFS client.", zap.Error(err))
+			return err
+		}
+	} else {
+		node.logger.Warn("HDFS Client is nil. Will skip closing it.")
+		return ErrHdfsClientIsNil
+	}
+
+	return nil
+}
+
+// IMPORTANT: This does NOT close the HDFS client.
+// This is because, when migrating a raft cluster member, we must first stop the raft
+// node before copying the contents of its data directory.
 func (node *LogNode) close() {
 	node.logger.Info("Closing nodes...")
 	// Clear node channels
@@ -589,15 +679,6 @@ func (node *LogNode) close() {
 			default:
 			}
 		}
-	}
-
-	if node.hdfsClient != nil {
-		err := node.hdfsClient.Close()
-		if err != nil {
-			node.logger.Error("Error while closing HDFS client.", zap.Error(err))
-		}
-	} else {
-		node.logger.Warn("HDFS Client is nil. Will skip closing it.")
 	}
 }
 
@@ -724,7 +805,7 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 // Read the data directory for this Raft node back from HDFS to local storage.
 //
 // This assumes the HDFS path and the local path are identical.
-func (node *LogNode) ReadDataDirectoryFromHDFS() (serialized_state_bytes []byte, err error) {
+func (node *LogNode) ReadDataDirectoryFromHDFS(ctx context.Context, progress_chan chan<- string) (serialized_state_bytes []byte, err error) {
 	serialized_state_bytes = make([]byte, 0)
 
 	serialized_state_file := filepath.Join(node.data_dir, SerializedStateFile)
@@ -742,10 +823,11 @@ func (node *LogNode) ReadDataDirectoryFromHDFS() (serialized_state_bytes []byte,
 
 	node.sugaredLogger.Debugf("Walking the HDFS data directory '%s'", node.hdfs_data_directory)
 	walk_err := node.hdfsClient.Walk(node.hdfs_data_directory, func(path string, info fs.FileInfo, err error) error {
-		node.sugaredLogger.Debugf("Processing file system object at path \"%s\": %v", path, info)
+		node.sugaredLogger.Debugf("Processing file system object at path \"%s\"", path)
+		node.sugaredLogger.Debugf("Base name: \"%s\", Size: %d bytes, Mode: %v, ModTime: %v, IsDir: %v", info.Name(), info.Size(), info.Mode(), info.ModTime(), info.IsDir())
 
 		if info.IsDir() {
-			node.sugaredLogger.Debugf("Found remote directory '%s'", path)
+			// node.sugaredLogger.Debugf("Found remote directory '%s'", path)
 			err := os.MkdirAll(path, os.FileMode(int(0777)))
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
@@ -753,10 +835,10 @@ func (node *LogNode) ReadDataDirectoryFromHDFS() (serialized_state_bytes []byte,
 				return err
 			}
 
+			progress_chan <- path
 			node.sugaredLogger.Debugf("Successfully created local directory '%s'", path)
-			// Convert the remote HDFS path to a local path based on the persistent store ID.
 		} else {
-			node.sugaredLogger.Debugf("Found remote file '%s'", path)
+			// node.sugaredLogger.Debugf("Found remote file '%s'", path)
 			err := node.hdfsClient.CopyToLocal(path, path)
 
 			if err != nil {
@@ -765,6 +847,7 @@ func (node *LogNode) ReadDataDirectoryFromHDFS() (serialized_state_bytes []byte,
 				return err
 			}
 
+			progress_chan <- path
 			node.sugaredLogger.Debugf("Successfully copied remote HDFS file to local file system: '%s'", path)
 		}
 

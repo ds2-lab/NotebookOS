@@ -252,10 +252,12 @@ func (ivk *DockerInvoker) Shutdown() error {
 
 func (ivk *DockerInvoker) Close() error {
 	if ivk.containerName == "" {
+		ivk.log.Error("Cannot stop kernel container. The kernel container has not been launched yet.")
 		return jupyter.ErrKernelNotLaunched
 	}
 
 	if !atomic.CompareAndSwapInt32(&ivk.closing, 0, 1) {
+		ivk.log.Debug("Container %s is already closing. Waiting for it to close.", ivk.containerName)
 		// Wait for the closing to be done.
 		<-ivk.closed
 		return nil

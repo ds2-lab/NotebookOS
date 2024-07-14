@@ -664,10 +664,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Overrode shell hooks.")
 
         # Notify the client that the SMR is ready.
-        self.session.send(self.iopub_socket, "smr_ready", {
-                          "persistent_id": self.persistent_id}, ident=self._topic("smr_ready"))  # type: ignore
-
-        self.log.info("Notified local daemon that SMR is ready.")
+        # await self.smr_ready() 
 
         # TODO(Ben): Should this go before the "smr_ready" send?
         # It probably shouldn't matter -- or if it does, then more synchronization is recuired.
@@ -1027,20 +1024,35 @@ class DistributedKernel(IPythonKernel):
         if not self.synclog:
             self.log.warn("We do not have a SyncLog. Nothing to do in order to prepare to migrate...")
             return
-
-        # self.log.info("Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
-        # try:
-        #     await self.synclog.remove_node(self.smr_node_id)
-        #     self.synclog_removed = True
-        #     self.log.info("Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
-        # except Exception as e:
-        #     self.log.error("Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
-        #     return self.gen_error_response(e), False
-
         #
         # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
         #
+        # According to the official documentation, we must first stop the Raft node before copying the data directory.
 
+        # Step 1: stop the raft node
+        self.log.info(
+            "Closing the SyncLog (and therefore the etcd-Raft process) now.")
+        try:
+            self.synclog.close()
+            self.synclog_stopped = True
+            self.log.info(
+                "SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
+        except Exception as e:
+            self.log.error("Failed to close the SyncLog for replica %d of kernel %s.",
+                           self.smr_node_id, self.kernel_id)
+            tb: list[str] = traceback.format_exception(e)
+            for frame in tb:
+                self.log.error(frame)
+
+            # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
+            self.report_error(f"Failed to Close SyncLog for Replica {self.smr_node_id} of Kernel {self.kernel_id}", errorMessage = str(e))
+
+            # Attempt to close the HDFS client.
+            self.synclog.closeHdfsClient()
+
+            return self.gen_error_response(e), False
+        
+        # Step 2: copy the data directory to HDFS
         try:
             data_dir_path = await self.synclog.write_data_dir_to_hdfs()
             self.log.info(
@@ -1052,21 +1064,28 @@ class DistributedKernel(IPythonKernel):
             for frame in tb:
                 self.log.error(frame)
             
+            # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
             self.report_error("Failed to Write HDFS Data Directory", errorMessage = str(e))
 
-        self.log.info(
-            "Closing the SyncLog (and therefore the etcd-Raft process) now.")
-        try:
-            self.synclog.close()
-            self.synclog_stopped = True
-            self.log.info(
-                "SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
-            return {'status': 'ok', "data_directory": data_dir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
-        except Exception as e:
-            self.log.error("Failed to close the SyncLog for replica %d of kernel %s.",
-                           self.smr_node_id, self.kernel_id)
-            self.log.error(traceback.format_exception(e))
+            # Attempt to close the HDFS client.
+            self.synclog.closeHdfsClient()
+
             return self.gen_error_response(e), False
+        
+        try:
+            self.synclog.closeHdfsClient()
+        except Exception as e:
+            self.log.error("Failed to close the HDFS client within the LogNode.")
+            tb: list[str] = traceback.format_exception(e)
+            for frame in tb:
+                self.log.error(frame)
+
+            # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
+            self.report_error(f"Failed to Close HDFS Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}", errorMessage = str(e))
+
+            # We don't return an error here, though. 
+        
+        return {'status': 'ok', "data_directory": data_dir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
 
     async def stop_running_training_code(self, stream, ident, parent):
         """
@@ -1177,7 +1196,7 @@ class DistributedKernel(IPythonKernel):
         For example, its attempt number(s) for the current term will be starting over.
         """
         if not await self.check_persistent_store():
-            return self.gen_error_response(err_wait_persistent_store)
+            return self.gen_error_response(err_wait_persistent_store), False
 
         self.log.info("Updating replica %d with new addr %s now.", id, addr)
 
@@ -1279,8 +1298,23 @@ class DistributedKernel(IPythonKernel):
         if self.synclog.needs_to_catch_up:
             self.log.debug("RaftLog needs to propose new value.")
             await self.synclog.catchup_with_peers()
+        
+        # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
+        await self.smr_ready() 
 
         self.log.info("Started Synchronizer.")
+
+    async def smr_ready(self)->None:
+        """
+        Inform our local daemon that we've joined our SMR cluster.
+
+        If we've been started following a migration, then this should only be called once we're fully caught-up.
+        """
+        # Notify the client that the SMR is ready.
+        self.session.send(self.iopub_socket, "smr_ready", {
+                          "persistent_id": self.persistent_id}, ident=self._topic("smr_ready"))  # type: ignore
+
+        self.log.info("Notified local daemon that SMR is ready.")
 
     async def get_synclog(self, store_path) -> RaftLog:
         assert isinstance(self.smr_nodes, list)

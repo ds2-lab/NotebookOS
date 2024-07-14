@@ -41,6 +41,9 @@ class Synchronizer:
     
     self._log = logging.getLogger(__class__.__name__)
     self._log.setLevel(logging.DEBUG)
+
+    self._log.debug("Finished setting callbacks for Synclog (within Synchronizer).")
+
     self._async_loop = asyncio.get_running_loop()
     self._tags = {}
     self._ast = SyncAST()
