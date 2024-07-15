@@ -57,6 +57,7 @@ import (
 const (
 	SerializedStateFile    string = "serialized_state.json"
 	NewSerializedStateFile string = "serialized_state_new.json"
+	DoneString             string = "DONE"
 )
 
 var (
@@ -375,7 +376,6 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		defer cancel()
 
 		progress_chan := make(chan string, 8)
-		serialized_state_chan := make(chan []byte)
 		error_chan := make(chan error)
 		go func(ctx context.Context) {
 			signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
@@ -386,7 +386,8 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 				error_chan <- err
 				return
 			}
-			serialized_state_chan <- serialized_state_bytes
+			node.serialized_state_bytes = serialized_state_bytes
+			progress_chan <- DoneString
 		}(ctx)
 
 		tickInterval := time.Duration(10 * time.Second)
@@ -397,13 +398,19 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 			select {
 			case msg := <-progress_chan:
 				{
-					node.logger.Debug("Made progress.", zap.String("msg", msg))
-					noProgress = 0
+					if msg == DoneString { // If we received the special 'DONE' message, then we're done reading the entire data directory.
+						node.logger.Info("Successfully read entire data directory from HDFS to local storage and received serialized state from other goroutine.")
+						done = true
+					} else /* The message we received will be the path of whatever file or directory was copied from remote storage (HDFS) to our local file system */ {
+						node.logger.Debug("Made progress.", zap.String("msg", msg))
+						noProgress = 0
+					}
 				}
 			case <-ticker.C:
 				{
 					noProgress += 1
 					node.sugaredLogger.Warn("Progress has not been made in roughly %v.", time.Duration(tickInterval*time.Duration(noProgress)))
+					continue
 				}
 			case <-ctx.Done():
 				{
@@ -418,12 +425,6 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 					ticker.Stop()
 					return nil
 				}
-			case serialized_state := <-serialized_state_chan:
-				{
-					node.logger.Info("Successfully read data directory from HDFS to local storage.")
-					node.serialized_state_bytes = serialized_state
-					done = true
-				}
 			}
 		}
 
@@ -436,10 +437,17 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 
 	fmt.Fprintf(os.Stderr, "Returning LogNode now.\n")
 
+	node.ServeHttpDebug()
+
 	return node
 }
 
 func (node *LogNode) ServeHttpDebug() {
+	if node.debug_port == -1 {
+		node.logger.Warn("Debug port is -1. HTTP debug server is disabled.")
+		return
+	}
+
 	go func() {
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 
@@ -455,7 +463,7 @@ func (node *LogNode) ServeHttpDebug() {
 			w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
 		})
 
-		if err := http.ListenAndServe(fmt.Sprintf("localhost:%d", node.debug_port), nil); err != nil {
+		if err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", node.debug_port), nil); err != nil {
 			fmt.Fprintf(os.Stderr, "[ERROR] Failed to serve HTTP debug server on port %d because: %v\n", node.debug_port, err)
 			log.Fatal("ListenAndServe: ", err)
 		}
@@ -881,6 +889,8 @@ func (node *LogNode) ReadDataDirectoryFromHDFS(ctx context.Context, progress_cha
 		return serialized_state_bytes, walk_err
 	}
 
+	node.logger.Debug("Successfully read all data from HDFS data directory.", zap.Int("serialized-state-size", len(serialized_state_bytes)))
+
 	return serialized_state_bytes, nil
 }
 
@@ -992,31 +1002,89 @@ func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state []byte, resolve R
 			}
 
 			var num_tries int = 1
-			for {
-				err := node.hdfsClient.CopyToRemote(path, path)
 
-				// Based on the documentation within the HDFS package, we can just ignore an ErrReplicating.
-				// Specifically, if the datanodes have acknowledged all writes but not yet to the namenode,
-				// then this can return ErrReplicating (wrapped in an os.PathError). This indicates
-				// that all data has been written, but the lease is still open for the file.
-				// It is safe in this case to either ignore the error or perform.
+			// The node.hdfsClient has a CopyLocalToRemote function which does exactly what the code below does.
+			// The only difference is that we retry remote.Close() in a loop until it stops returning ErrReplicating and succeeds.
+			// Because hdfsClient.CopyLocalToRemote doesn't do this, we don't call that function and instead inline that function's logic below.
+
+			// Open the local file that we'll be copying.
+			local, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+
+			// Create the remote file that we'll be copying to.
+			// TODO: Switch to using Append to only write the new data.
+			// TODO: Persist data back to intermediate storage in the background.
+			remote, err := node.hdfsClient.Create(path)
+			if err != nil {
+				return err
+			}
+
+			// Copy the local file to the remote HDFS file.
+			// TODO: Switch to using Append to only write the new data.
+			_, err = io.Copy(remote, local)
+			if err != nil {
+				node.logger.Error("Failed to copy local file to HDFS.", zap.String("path", path), zap.Error(err))
+				remote.Close()
+				return err
+			}
+
+			// Close the local file.
+			local.Close()
+
+			// Close the remote file.
+			// Like the HDFS Java client, we'll keep retrying the Close operation if we receive an ErrReplicating.
+			for {
+				// Try to close the remote (HDFS) file.
+				err := remote.Close()
+
+				// If we received an error, then we'll handle it in one of two ways, depending on what the error is...
 				if err != nil {
 					// If it is a replication error, then we'll simply retry with exponential backoff until we close without an error.
 					// This is what the Java HDFS client does.
 					if hdfs.IsErrReplicating(err) {
-						node.sugaredLogger.Warnf("Could not close file \"%s\" on attempt #%d; data is still being replicated. Will retry.", num_tries, path)
+						node.sugaredLogger.Warnf("Could not close file \"%s\" on attempt #%d; data is still being replicated. Will retry.", path, num_tries)
 						time.Sleep(time.Second * 2 * time.Duration(num_tries))
 						num_tries += 1
 						continue
 					} else {
+						// It's not a ErrReplication error, so something else went wrong...
 						// If we return an error from this function, then WalkDir will stop entirely and return that error.
 						node.sugaredLogger.Errorf("Exception encountered while trying to copy local-to-remote for file '%s': %v", path, err)
 						return err
 					}
 				}
 
+				// We successfully closed the remote file, so let's break out of the for-loop.
 				break
 			}
+
+			// for {
+			// 	err := node.hdfsClient.CopyToRemote(path, path)
+
+			// 	// Based on the documentation within the HDFS package, we can just ignore an ErrReplicating.
+			// 	// Specifically, if the datanodes have acknowledged all writes but not yet to the namenode,
+			// 	// then this can return ErrReplicating (wrapped in an os.PathError). This indicates
+			// 	// that all data has been written, but the lease is still open for the file.
+			// 	// It is safe in this case to either ignore the error or perform.
+			// 	if err != nil {
+			// 		// If it is a replication error, then we'll simply retry with exponential backoff until we close without an error.
+			// 		// This is what the Java HDFS client does.
+			// 		if hdfs.IsErrReplicating(err) {
+			// 			node.sugaredLogger.Warnf("Could not close file \"%s\" on attempt #%d; data is still being replicated. Will retry.", path, num_tries)
+			// 			time.Sleep(time.Second * 2 * time.Duration(num_tries))
+			// 			num_tries += 1
+			// 			continue
+			// 		} else {
+			// 			// If we return an error from this function, then WalkDir will stop entirely and return that error.
+			// 			node.sugaredLogger.Errorf("Exception encountered while trying to copy local-to-remote for file '%s': %v", path, err)
+			// 			return err
+			// 		}
+			// 	}
+
+			// 	break
+			// }
 
 			node.logger.Info(fmt.Sprintf("Successfully copied local file to HDFS: '%s'", path), zap.String("file", path))
 		}

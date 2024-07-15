@@ -56,6 +56,8 @@ const (
 	// This indicates that a specific replica should execute the code.
 	TargetReplicaArg  = "target_replica"
 	ForceReprocessArg = "force_reprocess"
+
+	DockerKernelDebugPortDefault int32 = 32000
 )
 
 var (
@@ -192,6 +194,9 @@ type ClusterGatewayImpl struct {
 
 	// Run via Docker on a single system rather than using the Kubernetes-based deployment.
 	deploymentMode types.DeploymentMode
+
+	// Used in Docker mode. Assigned to individual kernel replicas, incremented after each assignment.
+	dockerModeKernelDebugPort atomic.Int32
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
@@ -281,11 +286,14 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		{
 			daemon.log.Info("Running in DOCKER mode.")
 			daemon.deploymentMode = types.DockerMode
+
+			daemon.initializeDockerKernelDebugPort()
 		}
 	case "kubernetes":
 		{
 			daemon.log.Info("Running in KUBERNETES mode.")
 			daemon.deploymentMode = types.KubernetesMode
+			daemon.dockerModeKernelDebugPort.Store(-1)
 		}
 	default:
 		{
@@ -574,6 +582,41 @@ func (d *ClusterGatewayImpl) Listen(transport string, addr string) (net.Listener
 
 	d.listener = lis
 	return d, nil
+}
+
+func (d *ClusterGatewayImpl) initializeDockerKernelDebugPort() {
+	// Need to find a series of at least 5 available ports.
+	startingPort := DockerKernelDebugPortDefault
+	for startingPort < 64000 {
+		// If we get through the check without this being flipped to false, then we'll know we succeeded in finding 5 free ports available.
+		success := true
+
+		// Look for 5 free ports in a row.
+		port := startingPort
+		for ; port < startingPort+5; startingPort++ {
+			ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+
+			// If there was an error, then the port is already in-use.
+			if err != nil {
+				// Indicate that we failed.
+				success = false
+				break
+			}
+
+			// Close the listener.
+			ln.Close()
+		}
+
+		// If we found 5 free ports in a row, then we'll start here.
+		if success {
+			d.log.Debug("Assigning 'docker kernel debug port' an initial value of %d.", startingPort)
+			d.dockerModeKernelDebugPort.Store(startingPort)
+			break
+		}
+
+		// We'll try again (to find 5 free ports in a row), beginning with the next port we've not yet tested.
+		startingPort = port + 1
+	}
 }
 
 // net.Listener implementation
@@ -1073,26 +1116,38 @@ func (d *ClusterGatewayImpl) KubernetesMode() bool {
 	return d.deploymentMode == types.KubernetesMode
 }
 
-func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host core.Host, numReplicas int32, in *gateway.KernelSpec) {
+// Important: exactly ONE of `kernelSpec` and `replicaSpec` must be non-nil. That is, they cannot both be nil, and they cannot both be non-nil.
+func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host core.Host, numReplicas int32, kernelSpec *gateway.KernelSpec, replicaSpec *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
 	var err error
 	defer func() {
 		if err != nil {
-			d.log.Warn("Failed to start replica(%s:%d): %v", in.Id, replicaId, err)
+			d.log.Warn("Failed to start replica(%s:%d): %v", kernelSpec.Id, replicaId, err)
 		}
 	}()
 
-	var replicaConnInfo *gateway.KernelConnectionInfo
-	replicaSpec := &gateway.KernelReplicaSpec{
-		Kernel:      in,
-		ReplicaId:   int32(replicaId),
-		NumReplicas: numReplicas,
+	if kernelSpec == nil && replicaSpec == nil {
+		panic("Both `kernelSpec` and `replicaSpec` cannot be nil; exactly one of these two arguments must be non-nil.")
 	}
+
+	if kernelSpec != nil && replicaSpec != nil {
+		panic("Both `kernelSpec` and `replicaSpec` cannot be non-nil; exactly one of these two arguments must be non-nil.")
+	}
+
+	var replicaConnInfo *gateway.KernelConnectionInfo
+	replicaSpec = &gateway.KernelReplicaSpec{
+		Kernel:                    kernelSpec,
+		ReplicaId:                 int32(replicaId),
+		NumReplicas:               numReplicas,
+		DockerModeKernelDebugPort: d.dockerModeKernelDebugPort.Add(1),
+	}
+
 	replicaConnInfo, err = d.placer.Place(host, replicaSpec)
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	d.log.Debug("Received replica connection info after calling placer.Place: %v", replicaConnInfo)
+	return replicaConnInfo, nil
 }
 
 // StartKernel launches a new kernel.
@@ -1148,10 +1203,34 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 			return nil, status.Errorf(codes.Internal, "Failed to start kernel")
 		}
 	} else if d.DockerMode() {
+		errorChan := make(chan interface{}, 3)
 		hosts := d.placer.FindHosts(in.ResourceSpec)
 		for i, host := range hosts {
 			// Launch replicas in parallel.
-			go d.launchReplicaDocker(i+1, host, int32(len(hosts)), in)
+			go func(replicaId int, target_host core.Host) {
+				_, err := d.launchReplicaDocker(replicaId, target_host, int32(len(hosts)), in, nil) /* Only 1 of arguments 3 and 4 can be non-nil */
+
+				if err != nil {
+					errorChan <- err
+				} else {
+					errorChan <- struct{}{}
+				}
+			}(i+1, host)
+		}
+
+		responsesReceived := 0
+		responsesRequired := len(hosts)
+
+		for responsesReceived < responsesRequired {
+			val := <-errorChan
+			if err, ok := val.(error); ok {
+				d.log.Error("Error while launching at least one of the replicas of kernel %s: %v", in.Id, err)
+				return nil, err
+			}
+
+			responsesReceived += 1
+
+			d.log.Debug("Launched %d/%d replica(s) of kernel %s.", responsesReceived, responsesRequired, in.Id)
 		}
 	}
 
@@ -2226,7 +2305,9 @@ func (d *ClusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 
 		host := d.placer.FindHost(blacklist, newReplicaSpec.ResourceSpec())
 		d.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.", host.ID(), kernelId, in.ReplicaId, host.ID())
-		connInfo, err := d.placer.Place(host, newReplicaSpec)
+
+		connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaId), host, 1, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
+		// connInfo, err := d.placer.Place(host, newReplicaSpec)
 
 		if err != nil {
 			d.log.Error("Failed to add replica to kernel %s. Exception encountered by Placer: %v.", kernelId, err)

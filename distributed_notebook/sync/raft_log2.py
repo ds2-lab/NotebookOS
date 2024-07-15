@@ -61,12 +61,15 @@ class RaftLog(object):
     ):  
         if len(hdfs_hostname) == 0:
             raise ValueError("HDFS hostname is empty.")
-        
-        if debug_port <= 1023 or debug_port >= 65535:
-           raise ValueError("Invalid debug port specified.")
-
+    
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
         self.logger.info("Creating RaftNode %d now." % id)
+
+        if debug_port <= 1023 or debug_port >= 65535:
+            if debug_port == -1:
+               self.logger.warn("Debug port specified as -1. Golang HTTP debug server will be disabled.")
+            else:
+                raise ValueError("Invalid debug port specified.")
 
         # The term that the leader is expecting.
         self._expected_term: int = 0 

@@ -298,6 +298,7 @@ class Slice_walpb_Snapshot(go.GoClass):
 
 
 #---- Constants from Go: Python can only ask that you please don't change these! ---
+DoneString = "DONE"
 NewSerializedStateFile = "serialized_state_new.json"
 SerializedStateFile = "serialized_state.json"
 
@@ -440,53 +441,6 @@ class WriteCloser(go.GoClass):
 
 
 # ---- Structs ---
-
-# Python type for struct smr.SMRContext
-class SMRContext(go.context_Context):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_SMRContext_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.SMRContext{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.SMRContext ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def ID(self):
-		"""ID() str"""
-		return _smr.smr_SMRContext_ID(self.handle)
-	def Cancel(self, goRun=False):
-		"""Cancel() """
-		_smr.smr_SMRContext_Cancel(self.handle, goRun)
 
 # Python type for struct smr.Bytes
 class Bytes(go.GoClass):
@@ -806,6 +760,53 @@ class LogNodeConfig(go.GoClass):
 	def String(self):
 		"""String() str"""
 		return _smr.smr_LogNodeConfig_String(self.handle)
+
+# Python type for struct smr.SMRContext
+class SMRContext(go.context_Context):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_SMRContext_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.SMRContext{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.SMRContext ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def ID(self):
+		"""ID() str"""
+		return _smr.smr_SMRContext_ID(self.handle)
+	def Cancel(self, goRun=False):
+		"""Cancel() """
+		_smr.smr_SMRContext_Cancel(self.handle, goRun)
 
 
 # ---- Slices ---

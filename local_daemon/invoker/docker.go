@@ -1,6 +1,7 @@
 package invoker
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -49,6 +50,7 @@ const (
 	VarSpecCpu          = "{spec_cpu}"
 	VarSpecMemory       = "{spec_memory}"
 	VarSpecGpu          = "{spec_gpu}"
+	VarDebugPort        = "{kernel_debug_port}"
 	HostMountDir        = "{host_mount_dir}"
 	TargetMountDir      = "{target_mount_dir}"
 )
@@ -59,7 +61,7 @@ var (
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
-	dockerInvokerCmd  = "docker run -d -t --name {container_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker --label kernel_id={kernel_id} --label app=distributed_cluster {image}"
+	dockerInvokerCmd  = "docker run -d -t --name {container_name} -p {kernel_debug_port}:{kernel_debug_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker --label kernel_id={kernel_id} --label app=distributed_cluster {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
 
@@ -77,10 +79,11 @@ type DockerInvoker struct {
 	closing       int32
 	id            string // Uniquely identifies this Invoker instance.
 
+	kernelDebugPort      int
 	hdfsNameNodeEndpoint string
 }
 
-func NewDockerInvoker(opts *jupyter.ConnectionInfo, hdfsNameNodeEndpoint string) *DockerInvoker {
+func NewDockerInvoker(opts *jupyter.ConnectionInfo, hdfsNameNodeEndpoint string, kernelDebugPort int) *DockerInvoker {
 	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
 	if smrPort == 0 {
 		smrPort = KernelSMRPortDefault
@@ -96,6 +99,7 @@ func NewDockerInvoker(opts *jupyter.ConnectionInfo, hdfsNameNodeEndpoint string)
 		smrPort:              smrPort,
 		hdfsNameNodeEndpoint: hdfsNameNodeEndpoint,
 		id:                   uuid.NewString(),
+		kernelDebugPort:      kernelDebugPort,
 	}
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
@@ -144,6 +148,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *gateway.K
 
 	ivk.log.Debug("hostMountDir = \"%v\"\n", hostMountDir)
 	ivk.log.Debug("targetMountDir = \"%v\"\n", hostMountDir)
+	ivk.log.Debug("kernel debug port = %d", ivk.kernelDebugPort)
 
 	ivk.log.Debug("Prepared connection info: %v\n", connectionInfo)
 
@@ -189,6 +194,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *gateway.K
 	cmd = strings.ReplaceAll(cmd, VarSpecCpu, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Cpu))
 	cmd = strings.ReplaceAll(cmd, VarSpecMemory, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Memory))
 	cmd = strings.ReplaceAll(cmd, VarSpecGpu, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Gpu))
+	cmd = strings.ReplaceAll(cmd, VarDebugPort, fmt.Sprintf("%d", ivk.kernelDebugPort))
 
 	for i, arg := range spec.Kernel.Argv {
 		spec.Kernel.Argv[i] = strings.ReplaceAll(arg, VarConnectionFile, connectionFile)
@@ -269,8 +275,15 @@ func (ivk *DockerInvoker) Close() error {
 	argv := strings.Split(strings.ReplaceAll(dockerShutdownCmd, VarContainerName, ivk.containerName), " ")
 	ivk.log.Debug("Stopping container %s via %s.", ivk.containerName, argv)
 	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
+
+	var outb, errb bytes.Buffer
+	cmd.Stdout = &outb
+	cmd.Stderr = &errb
+
 	if err := cmd.Run(); err != nil {
 		ivk.log.Error("[Error] Failed to stop container/kenel %s: %v\n", ivk.containerName, err)
+		ivk.log.Error("STDOUT: %s", outb.String())
+		ivk.log.Error("STDERR: %s", errb.String())
 		return err
 	}
 
@@ -292,8 +305,15 @@ func (ivk *DockerInvoker) Close() error {
 		rename_argv := strings.Split(rename_cmd_str, " ")
 		ivk.log.Debug("Renaming (stopped) container %s via %s.", ivk.containerName, rename_argv)
 		renameCmd := exec.CommandContext(context.Background(), rename_argv[0], rename_argv[1:]...)
+
+		var renameOutb, renameErrb bytes.Buffer
+		renameCmd.Stdout = &renameOutb
+		renameCmd.Stderr = &renameErrb
+
 		if err := renameCmd.Run(); err != nil {
 			ivk.log.Error("[Error] Failed to rename container %s: %v\n", ivk.containerName, err)
+			ivk.log.Error("STDOUT: %s", renameOutb.String())
+			ivk.log.Error("STDERR: %s", renameErrb.String())
 			idx += 1
 			continue
 		} else {
@@ -387,8 +407,15 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *gateway.KernelReplicaSpec) (*j
 func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []string) error {
 	ivk.log.Debug("Starting Docker container %s now...\n", name)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+
+	var outb, errb bytes.Buffer
+	cmd.Stdout = &outb
+	cmd.Stderr = &errb
+
 	if err := cmd.Run(); err != nil {
 		ivk.log.Debug("Failed to launch container/kernel %s: %v", name, err)
+		ivk.log.Error("STDOUT: %s", outb.String())
+		ivk.log.Error("STDERR: %s", errb.String())
 		return err
 	}
 

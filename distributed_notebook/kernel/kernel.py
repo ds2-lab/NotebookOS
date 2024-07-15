@@ -418,6 +418,13 @@ class DistributedKernel(IPythonKernel):
             self.log.info("Received path to data directory in HDFS from registration: \"%s\"" %
                           response_dict["data_directory"])
             self.hdfs_data_directory = response_dict["data_directory"]
+        
+        if "debug_port" in response_dict:
+            self.debug_port = int(response_dict["debug_port"])
+            self.log.info(f"Assigned debug port to {self.debug_port}")
+        else:
+            self.log.warn("No \"debug_port\" entry found in response from local daemon.")
+            self.debug_port = -1
 
         self.log.info("[SMR-NODE-ID-ASSIGNED]%d" %  self.smr_node_id)
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)

@@ -265,6 +265,7 @@ message KernelReplicaSpec {
   repeated string replicas = 4;
   bool join = 5;
   optional string persistentId = 6;
+  int32 dockerModeKernelDebugPort = 7;
 }
 
 message ResourceSpec {
@@ -371,6 +372,7 @@ message KernelRegistrationNotificationResponse {
   ResourceSpec resourceSpec = 4;
   optional string persistentId = 5;
   optional string dataDirectory = 6;
+  // int32 dockerKernelDebugPort = 7;
 }
 
 // The status of a kernel.

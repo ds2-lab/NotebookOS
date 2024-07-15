@@ -43,6 +43,7 @@ var (
 	cleanUpInterval = time.Minute
 
 	ErrExistingReplicaAlreadyRunning = errors.New("an existing replica of the target kernel is already running on this node")
+	ErrNilArgument                   = errors.New("one or more of the required arguments was nil")
 )
 
 // SchedulerDaemonImpl is the daemon that proxy requests to kernel replicas on local-host.
@@ -101,6 +102,9 @@ type SchedulerDaemonImpl struct {
 	// Kubernetes or Docker.
 	deploymentMode types.DeploymentMode
 
+	// When using Docker mode, we assign "debug ports" to kernels so that they can serve a Go HTTP server for debugging.
+	kernelDebugPorts hashmap.HashMap[string, int]
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -136,6 +140,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		nodeName:                     nodeName,
 		kernels:                      hashmap.NewCornelkMap[string, client.KernelReplicaClient](1000),
 		kernelClientCreationChannels: hashmap.NewCornelkMap[string, chan *gateway.KernelConnectionInfo](250),
+		kernelDebugPorts:             hashmap.NewCornelkMap[string, int](250),
 		availablePorts:               utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
 		closed:                       make(chan struct{}),
 		cleaned:                      make(chan struct{}),
@@ -346,7 +351,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		kernelConnectionInfo        *gateway.KernelConnectionInfo
 	)
 	if d.deploymentMode == types.KubernetesMode {
-		invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)
+		invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint, -1)
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
 		kernel = client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false)
@@ -488,10 +493,14 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	kernel.SetResourceSpec(response.ResourceSpec)
 	kernel.SetReplicaID(response.Id)
 
+	var kernelDebugPort int = -1
+	kernelDebugPort, _ = d.kernelDebugPorts.Load(kernel.ID())
+
 	payload := map[string]interface{}{
 		"smr_node_id": response.Id,
 		"hostname":    remote_ip,
 		"replicas":    response.Replicas,
+		"debug_port":  kernelDebugPort,
 	}
 
 	if response.PersistentId != nil && response.GetPersistentId() != "" {
@@ -896,10 +905,17 @@ func (d *SchedulerDaemonImpl) initializeKernelClient(id string, connInfo *jupyte
 // StartKernel launches a new kernel via Docker.
 // This is ONLY used in the Docker-based deployment mode.
 func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
-	// if d.LocalMode() {
-	// 	d.log.Warn("LocalDaemon cannot explicitly create kernel replica, as we're not running in Docker mode.")
-	// 	return nil, nil
-	// }
+	if in == nil {
+		d.log.Error("`gateway.KernelReplicaSpec` argument is nil in call to StartKernelReplica...")
+		return nil, ErrNilArgument
+	}
+
+	if in.Kernel == nil {
+		d.log.Error("The `gateway.KernelSpec` field within the gateway.KernelReplicaSpec argument is nil in call to StartKernelReplica...")
+		d.log.Error("gateway.KernelReplicaSpec: %v", in)
+		return nil, ErrNilArgument
+	}
+
 	kernelId := in.Kernel.Id
 	d.log.Debug("Starting new replica of kernel %s", kernelId)
 
@@ -910,7 +926,9 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 
 	var kernelInvoker invoker.KernelInvoker
 	if d.DockerMode() {
-		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)
+		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint, int(in.DockerModeKernelDebugPort))
+
+		d.kernelDebugPorts.Store(kernelId, int(in.DockerModeKernelDebugPort))
 	} else if d.LocalMode() {
 		kernelInvoker = invoker.NewLocalInvoker()
 	} else {
