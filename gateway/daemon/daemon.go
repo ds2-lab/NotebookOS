@@ -593,11 +593,12 @@ func (d *ClusterGatewayImpl) initializeDockerKernelDebugPort() {
 
 		// Look for 5 free ports in a row.
 		port := startingPort
-		for ; port < startingPort+5; startingPort++ {
+		for ; port < startingPort+5; port++ {
 			ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 
 			// If there was an error, then the port is already in-use.
 			if err != nil {
+				d.log.Warn("Port %d was unavailable; cannot use for docker kernel debug port.", port)
 				// Indicate that we failed.
 				success = false
 				break
@@ -1119,11 +1120,6 @@ func (d *ClusterGatewayImpl) KubernetesMode() bool {
 // Important: exactly ONE of `kernelSpec` and `replicaSpec` must be non-nil. That is, they cannot both be nil, and they cannot both be non-nil.
 func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host core.Host, numReplicas int32, kernelSpec *gateway.KernelSpec, replicaSpec *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
 	var err error
-	defer func() {
-		if err != nil {
-			d.log.Warn("Failed to start replica(%s:%d): %v", kernelSpec.Id, replicaId, err)
-		}
-	}()
 
 	if kernelSpec == nil && replicaSpec == nil {
 		panic("Both `kernelSpec` and `replicaSpec` cannot be nil; exactly one of these two arguments must be non-nil.")
@@ -1133,16 +1129,34 @@ func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host core.Host, 
 		panic("Both `kernelSpec` and `replicaSpec` cannot be non-nil; exactly one of these two arguments must be non-nil.")
 	}
 
-	var replicaConnInfo *gateway.KernelConnectionInfo
-	replicaSpec = &gateway.KernelReplicaSpec{
-		Kernel:                    kernelSpec,
-		ReplicaId:                 int32(replicaId),
-		NumReplicas:               numReplicas,
-		DockerModeKernelDebugPort: d.dockerModeKernelDebugPort.Add(1),
+	var kernelId string
+	if kernelSpec != nil {
+		kernelId = kernelSpec.Id
+		d.log.Debug("Launching replica %d of kernel %s on host %v now.", replicaId, kernelId, host)
+		replicaSpec = &gateway.KernelReplicaSpec{
+			Kernel:                    kernelSpec,
+			ReplicaId:                 int32(replicaId),
+			NumReplicas:               numReplicas,
+			DockerModeKernelDebugPort: d.dockerModeKernelDebugPort.Add(1),
+		}
+	} else {
+		kernelId = replicaSpec.Kernel.Id
+
+		// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
+		if replicaSpec.DockerModeKernelDebugPort <= 1023 {
+			replicaSpec.DockerModeKernelDebugPort = d.dockerModeKernelDebugPort.Add(1)
+		}
+
+		d.log.Debug("Launching replica %d of kernel %s on host %v now.", replicaSpec.ReplicaId, kernelId, host)
 	}
 
-	replicaConnInfo, err = d.placer.Place(host, replicaSpec)
+	replicaConnInfo, err := d.placer.Place(host, replicaSpec)
 	if err != nil {
+		if kernelSpec != nil {
+			d.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
+		} else {
+			d.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
+		}
 		return nil, err
 	}
 
@@ -2306,7 +2320,7 @@ func (d *ClusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 		host := d.placer.FindHost(blacklist, newReplicaSpec.ResourceSpec())
 		d.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.", host.ID(), kernelId, in.ReplicaId, host.ID())
 
-		connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaId), host, 1, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
+		connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaId), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
 		// connInfo, err := d.placer.Place(host, newReplicaSpec)
 
 		if err != nil {
