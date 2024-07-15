@@ -341,50 +341,6 @@ def Set_ProposalDeadline(value):
 
 # ---- Interfaces ---
 
-# Python type for interface smr.ReadCloser
-class ReadCloser(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Close(self):
-		"""Close() str"""
-		return _smr.smr_ReadCloser_Close(self.handle)
-	def Read(self, p):
-		"""Read(object p) object"""
-		return IntRet(handle=_smr.smr_ReadCloser_Read(self.handle, p.handle))
-
-# Python type for interface smr.WriteCloser
-class WriteCloser(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Close(self):
-		"""Close() str"""
-		return _smr.smr_WriteCloser_Close(self.handle)
-	def Write(self, p):
-		"""Write(object p) object"""
-		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
-
 # Python type for interface smr.LogSnapshotter
 class LogSnapshotter(go.GoClass):
 	""""""
@@ -437,6 +393,50 @@ class LogStorage(go.GoClass):
 	def SaveSnapshot(self, arg_0, goRun=False):
 		"""SaveSnapshot(object) """
 		_smr.smr_LogStorage_SaveSnapshot(self.handle, arg_0.handle, goRun)
+
+# Python type for interface smr.ReadCloser
+class ReadCloser(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_ReadCloser_Close(self.handle)
+	def Read(self, p):
+		"""Read(object p) object"""
+		return IntRet(handle=_smr.smr_ReadCloser_Read(self.handle, p.handle))
+
+# Python type for interface smr.WriteCloser
+class WriteCloser(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_WriteCloser_Close(self.handle)
+	def Write(self, p):
+		"""Write(object p) object"""
+		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
 
 
 # ---- Structs ---
@@ -755,18 +755,8 @@ class LogNodeConfig(go.GoClass):
 	def __del__(self):
 		_smr.DecRef(self.handle)
 	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.LogNodeConfig{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
+		return self.String()
+	
 	def __repr__(self):
 		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
 		sv = 'smr.LogNodeConfig ( '
@@ -813,6 +803,9 @@ class LogNodeConfig(go.GoClass):
 	def WithSnapshotCallback(self, cb):
 		"""WithSnapshotCallback(callable cb) object"""
 		return LogNodeConfig(handle=_smr.smr_LogNodeConfig_WithSnapshotCallback(self.handle, cb))
+	def String(self):
+		"""String() str"""
+		return _smr.smr_LogNodeConfig_String(self.handle)
 
 
 # ---- Slices ---

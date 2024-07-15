@@ -90,7 +90,9 @@ class SyncAST(ast.NodeVisitor):
       self._tree = val.data[0]
     elif val.tag <= self._executions:
       # Update but execution count dismatch.
-      raise SyncError("Failed to update AST, expects large than {}, but got {}".format(self._executions, val.tag))
+      self._log.error(f"Failed to update AST. Expected tag to be greater than {self._executions}, but but SynchronizedValue had tag={val.tag}")
+      self._log.error(f"Synchronization value in question: {val}")
+      raise SyncError(f"Failed to update AST. Expected tag to be greater than {self._executions}, but SynchronizedValue had tag={val.tag}")
     else:
       # Update
       self._tree.body.extend(val.data[0].body)

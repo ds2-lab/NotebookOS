@@ -78,15 +78,16 @@ class Synchronizer:
     ## TODO: Buffer changes of one execution and apply changes atomically
     if not val.should_end_execution:
       if not self._syncing:
-        self._log.debug("enter execution syncing...")
+        self._log.debug(">> enter execution syncing...")
         self._syncing = True
     elif val.key == KEY_SYNC_END:
       self._syncing = False
-      self._log.debug("exit execution syncing [1]")
+      self._log.debug("<< exit execution syncing [1]")
       return
 
     try:
-      self._log.debug("Updating: {}, ended: {}".format(val.key, val.should_end_execution))
+      # self._log.debug("Updating: \"{}\", ended: {}".format(val.key, val.should_end_execution))
+      self._log.debug(f"Updating: {val}")
       existed: Optional[SyncObject] = None
       if val.key == KEY_SYNC_AST:
         existed = self._ast
@@ -124,7 +125,7 @@ class Synchronizer:
 
       if val.should_end_execution:
         self._syncing = False
-        self._log.debug("exit execution syncing [2]")
+        self._log.debug("<< exit execution syncing [2]")
     except Exception as e:
       # print_trace(limit = 10)
       self._log.error("Exception encountered in change handler for synchronizer: %s" % str(e))

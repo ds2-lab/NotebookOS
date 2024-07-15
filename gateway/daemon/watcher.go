@@ -128,3 +128,41 @@ func (w *DockerContainerWatcher) monitor() {
 		}
 	}
 }
+
+// type dockerEvent struct {
+// 	Action       string            `json:"Action"`
+// 	Actor        *dockerEventActor `json:"Actor"`
+// 	Type         string            `json:"Type"`
+// 	From         string            `json:"from"`
+// 	Id           string            `json:"id"`
+// 	Scope        string            `json:"scope"`
+// 	Status       string            `json:"create"`
+// 	TimestampStr string            `json:"time"`
+// 	TimeNanoStr  string            `json:"timeNano"`
+
+// 	// cachedTimestamp    time.Time `json:"-"`
+// 	// timestampConverted bool      `json:"-"`
+// }
+
+// func (e *dockerEvent) String() string {
+// 	out, err := json.Marshal(e)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+
+// 	return string(out)
+// }
+
+// type dockerEventActor struct {
+// 	Attributes map[string]interface{} `json:"Attributes"`
+// 	Id         string                 `json:"ID"`
+// }
+
+// func (a *dockerEventActor) String() string {
+// 	out, err := json.Marshal(a)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+
+// 	return string(out)
+// }

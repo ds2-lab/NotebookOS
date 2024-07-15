@@ -16,6 +16,7 @@ package smr
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -124,6 +125,15 @@ func (conf *LogNodeConfig) WithShouldSnapshotCallback(cb ShouldLogNodeCallback) 
 func (conf *LogNodeConfig) WithSnapshotCallback(cb WriteCallback) *LogNodeConfig {
 	conf.getSnapshot = cb
 	return conf
+}
+
+func (conf *LogNodeConfig) String() string {
+	out, err := json.Marshal(conf)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(out)
 }
 
 type commit struct {
@@ -467,6 +477,8 @@ type startError struct {
 }
 
 func (node *LogNode) Start(config *LogNodeConfig) bool {
+	node.sugaredLogger.Debugf("LogNode %d is starting with config: %v", node.id, config.String())
+
 	node.config = config
 	if !config.Debug {
 		node.logger = node.logger.WithOptions(zap.IncreaseLevel(zapcore.InfoLevel))
@@ -683,10 +695,11 @@ func (node *LogNode) close() {
 }
 
 func (node *LogNode) start(startErrorChan chan<- startError) {
-	node.logger.Info(fmt.Sprintf("LogNode %d is starting.", node.id))
+	node.sugaredLogger.Debugf("LogNode %d is beginning start procedure now.", node.id)
 	debug.SetPanicOnFault(true)
 
 	if node.isSnapEnabled() {
+		node.logger.Debug("Snapshots are enabled.")
 		if !fileutil.Exist(node.snapdir) {
 			if err := os.Mkdir(node.snapdir, 0750); err != nil {
 				node.logFatalf("LogNode: cannot create dir for snapshot (%v)", err)
@@ -698,13 +711,15 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 			}
 		}
 		node.snapshotter = snap.New(zap.NewExample(), node.snapdir)
+	} else {
+		node.logger.Warn("Snapshotting is disabled.")
 	}
 
 	oldWALExists := false
 	node.raftStorage = raft.NewMemoryStorage()
 	if node.isWALEnabled() {
 		oldWALExists = wal.Exist(node.waldir)
-		node.logger.Info(fmt.Sprintf("WAL is enabled. Old WAL ('%s') available? %v", node.waldir, oldWALExists))
+		node.logger.Debug(fmt.Sprintf("WAL is enabled. Old WAL ('%s') available? %v", node.waldir, oldWALExists))
 		node.wal = node.replayWAL()
 		if node.wal == nil {
 			startErrorChan <- startError{
@@ -713,10 +728,14 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 			}
 			return
 		}
+	} else {
+		node.logger.Warn("The Raft WAL is disabled.")
 	}
 
 	// signal replay has finished
 	node.snapshotterReady <- node.snapshotter
+
+	node.logger.Debug("Replaying has completed.")
 
 	rpeers := make([]raft.Peer, 0, len(node.peers))
 	for id, peer := range node.peers {
@@ -734,8 +753,10 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 	}
 
 	if oldWALExists || node.join {
+		node.sugaredLogger.Debugf("LogNode %d will be restarting, as the old WAL directory is available (%v), and/or we've been told to join (%v).", node.id, oldWALExists, node.join)
 		node.node = raft.RestartNode(c)
 	} else {
+		node.sugaredLogger.Debugf("LogNode %d will be starting (as if for the first time), as the old WAL directory is not available (%v) and we've not been instructed to join.", node.id, oldWALExists, node.join)
 		node.node = raft.StartNode(c, rpeers)
 	}
 
@@ -749,6 +770,7 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 		ErrorC:      make(chan error),
 	}
 
+	node.logger.Info("Starting Raft HTTP transport now.")
 	node.transport.Start()
 	for id, peer := range node.peers {
 		if id != node.id {
@@ -864,6 +886,7 @@ func (node *LogNode) ReadDataDirectoryFromHDFS(ctx context.Context, progress_cha
 
 // Write the data directory for this Raft node from local storage to HDFS.
 func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state []byte, resolve ResolveCallback) {
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 	debug.SetPanicOnFault(true)
 	err := node.hdfsClient.MkdirAll(node.data_dir, os.FileMode(int(0777)))
 	if err != nil {
@@ -1099,6 +1122,8 @@ func (node *LogNode) loadSnapshot() *raftpb.Snapshot {
 		if err != nil && err != snap.ErrNoSnapshot {
 			node.logWarnf("LogNode: error loading snapshot (%v)", err)
 		}
+
+		node.logger.Info("Loaded snapshot from WAL directory.", zap.String("waldir", node.waldir), zap.Int("snapshot-size-bytes", snapshot.Size()))
 		return snapshot
 	}
 	return nil
@@ -1140,36 +1165,53 @@ func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 
 // replayWAL replays WAL entries into the raft instance.
 func (node *LogNode) replayWAL() *wal.WAL {
-	node.logger.Info("Replaying WAL now.")
+	node.logger.Debug("Replaying WAL now.")
 	snapshot := node.loadSnapshot()
 	// Restore kernel from snapshot
 	if snapshot != nil && !raft.IsEmptySnap(*snapshot) {
 		if node.config.onRestore == nil {
-			node.logFatalf("no RestoreCallback configured on start.")
+			node.logFatalf("LogNode %d: no RestoreCallback configured on start.", node.id)
 			return nil
 		}
 		if err := fromCError(node.config.onRestore(&readerWrapper{reader: bytes.NewBuffer(snapshot.Data)}, len(snapshot.Data))); err != nil {
-			node.logFatalf("LogNode: failed to restore states (%v)", err)
+			node.logFatalf("LogNode %d: failed to restore states (%v)", node.id, err)
 			return nil
 		}
 	}
 
 	w := node.openWAL(snapshot)
 	if w == nil {
+		node.sugaredLogger.Warnf("Failed to open WAL snapshot.", zap.String("waldir", node.waldir))
 		return w
 	}
+
+	node.logger.Debug("Successfully opened WAL via snapshot")
+
+	// Recover the in-memory storage from persistent snapshot, state and entries.
 	_, st, ents, err := w.ReadAll()
 	if err != nil {
-		node.logFatalf("LogNode: failed to read WAL (%v)", err)
+		node.logFatalf("LogNode %d: failed to read WAL (%v)", node.id, err)
 		return nil
 	}
 	if snapshot != nil {
-		node.raftStorage.ApplySnapshot(*snapshot)
+		node.logger.Debug("Applying Snapshot to RaftStorage now.")
+		err = node.raftStorage.ApplySnapshot(*snapshot)
+		if err != nil {
+			node.logFatalf("LogNode %d: error encountered while applying WAL snapshot to Raft storage: %v", node.id, err)
+		}
 	}
-	node.raftStorage.SetHardState(st)
+	node.logger.Debug("Recovered Raft HardState from WAL snapshot.", zap.Uint64("Term", st.Term), zap.Uint64("Vote", st.Vote), zap.Uint64("Commit", st.Commit))
+	node.sugaredLogger.Debugf("Recovered %d entry/entries from WAL snapshot.", len(ents))
+	err = node.raftStorage.SetHardState(st)
+	if err != nil {
+		node.logFatalf("LogNode %d: error encountered while setting Raft HardState to the HardState recovered from WAL snapshot: %v", node.id, err)
+	}
 
-	// append to storage so raft starts at the right place in log
-	node.raftStorage.Append(ents)
+	// Append to storage so raft starts at the right place in log
+	err = node.raftStorage.Append(ents)
+	if err != nil {
+		node.logFatalf("LogNode %d: error encountered while appending entries recovered from WAL snapshot to Raft storage: %v", node.id, err)
+	}
 
 	node.logger.Info("Finished replaying WAL.")
 
@@ -1478,6 +1520,8 @@ func (node *LogNode) serveRaft() {
 		return
 	}
 
+	node.sugaredLogger.Infof("LogNode %d is beginning to serve Raft.", node.id)
+
 	err = (&http.Server{Handler: node.transport.Handler()}).Serve(ln)
 	select {
 	case <-node.httpstopc:
@@ -1553,16 +1597,19 @@ func (node *LogNode) waitProposal(ctx smrContext) bool {
 
 func (node *LogNode) logWarnf(format string, args ...interface{}) {
 	log.Printf(format, args...)
+	node.sugaredLogger.Warnf(format, args...)
 }
 
 func (node *LogNode) logFatalf(format string, args ...interface{}) {
 	log.Printf(format, args...)
+	node.sugaredLogger.Errorf(format, args...)
 	node.writeError(fmt.Errorf(format, args...))
 	node.close()
 }
 
 func (node *LogNode) panic(err error) {
 	log.Println(err)
+	node.logger.Error("Fatal error occurred.", zap.Error(err))
 	node.writeError(err)
 	node.close()
 }
