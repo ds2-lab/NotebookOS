@@ -72,10 +72,12 @@ type SchedulerDaemonImpl struct {
 	smrPort int
 
 	// members
-	transport string
-	ip        string
-	kernels   hashmap.HashMap[string, client.KernelReplicaClient]
-	log       logger.Logger
+	transport                    string
+	ip                           string
+	kernels                      hashmap.HashMap[string, client.KernelReplicaClient]
+	kernelClientCreationChannels hashmap.HashMap[string, chan *gateway.KernelConnectionInfo]
+
+	log logger.Logger
 
 	// The IOPub socket that the Gateway subscribes to.
 	// All pub/sub messages are forwarded from kernels to the gateway (througth us, the local daemon) using this socket.
@@ -128,20 +130,21 @@ type KernelRegistrationClient struct {
 func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *domain.SchedulerDaemonOptions, kernelRegistryPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...domain.SchedulerDaemonConfig) *SchedulerDaemonImpl {
 	ip := os.Getenv("POD_IP")
 	daemon := &SchedulerDaemonImpl{
-		connectionOptions:      connectionOptions,
-		transport:              "tcp",
-		ip:                     ip,
-		nodeName:               nodeName,
-		kernels:                hashmap.NewCornelkMap[string, client.KernelReplicaClient](1000),
-		availablePorts:         utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
-		closed:                 make(chan struct{}),
-		cleaned:                make(chan struct{}),
-		kernelRegistryPort:     kernelRegistryPort,
-		smrPort:                schedulerDaemonOptions.SMRPort,
-		gpuManager:             NewGpuManager(schedulerDaemonOptions.NumGPUs),
-		virtualGpuPluginServer: virtualGpuPluginServer,
-		deploymentMode:         types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
-		hdfsNameNodeEndpoint:   schedulerDaemonOptions.HDFSNameNodeEndpoint,
+		connectionOptions:            connectionOptions,
+		transport:                    "tcp",
+		ip:                           ip,
+		nodeName:                     nodeName,
+		kernels:                      hashmap.NewCornelkMap[string, client.KernelReplicaClient](1000),
+		kernelClientCreationChannels: hashmap.NewCornelkMap[string, chan *gateway.KernelConnectionInfo](250),
+		availablePorts:               utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
+		closed:                       make(chan struct{}),
+		cleaned:                      make(chan struct{}),
+		kernelRegistryPort:           kernelRegistryPort,
+		smrPort:                      schedulerDaemonOptions.SMRPort,
+		gpuManager:                   NewGpuManager(schedulerDaemonOptions.NumGPUs),
+		virtualGpuPluginServer:       virtualGpuPluginServer,
+		deploymentMode:               types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
+		hdfsNameNodeEndpoint:         schedulerDaemonOptions.HDFSNameNodeEndpoint,
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -295,8 +298,6 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 
 	d.log.Debug("Received registration payload: %v", registrationPayload)
 
-	invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)
-
 	var connInfo *jupyter.ConnectionInfo
 	if d.LocalMode() {
 		connInfo = registrationPayload.ConnectionInfo
@@ -335,71 +336,101 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		panic(err)
 	}
 
-	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
-	// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
-	kernel := client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false)
-	shell := d.router.Socket(jupyter.ShellMessage)
-	if d.schedulerDaemonOptions.DirectServer {
-		d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
-		var err error
-		shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
+	// If we're running in Kubernetes mode, then we need to create a new kernel client here (as well as a new DockerInvoker).
+	// If we're running in Docker mode, then we'll already have created the kernel client for this kernel.
+	// We create the kernel client in Docker mode when we launch the kernel (using a DockerInvoker).
+	var (
+		kernel                      client.KernelReplicaClient
+		kernelClientCreationChannel chan *gateway.KernelConnectionInfo
+		loaded                      bool
+		kernelConnectionInfo        *gateway.KernelConnectionInfo
+	)
+	if d.deploymentMode == types.KubernetesMode {
+		invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint)
+		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
+		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
+		kernel = client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false)
+
+		kernelConnectionInfo, err = d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
 		if err != nil {
-			d.closeKernel(kernel, fmt.Sprintf("failed to initialize shell forwarder for kernel \"%s\". Error: %v", kernelReplicaSpec.Kernel.Id, err))
-			return // nil, status.Errorf(codes.Internal, err.Error())
+			d.log.Error("Failed to initialize replica %d of kernel %s.", registrationPayload.ReplicaId, registrationPayload.Kernel.Id)
+			// TODO: Handle this more gracefully.
+			return
 		}
-		d.log.Debug("Successfully initialized shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
+	} else {
+		kernelClientCreationChannel, loaded = d.kernelClientCreationChannels.Load(kernelReplicaSpec.Kernel.Id)
+		if !loaded {
+			panic(fmt.Sprintf("Failed to load 'kernel client creation' channel for kernel \"%s\".", kernelReplicaSpec.Kernel.Id))
+		}
+
+		d.log.Debug("Waiting for notification that the KernelClient for kernel \"%s\" has been created.", kernelReplicaSpec.Kernel.Id)
+		kernelConnectionInfo = <-kernelClientCreationChannel
+		d.log.Debug("Received notification that the KernelClient for kernel \"%s\" was created.", kernelReplicaSpec.Kernel.Id)
+
+		kernel, loaded = d.kernels.Load(kernelReplicaSpec.Kernel.Id)
+
+		if !loaded {
+			panic(fmt.Sprintf("Failed to load kernel client with ID \"%s\", even though one should have already been created...", kernelReplicaSpec.Kernel.Id))
+		}
 	}
 
-	iopub, err := kernel.InitializeIOForwarder()
+	// shell := d.router.Socket(jupyter.ShellMessage)
+	// if d.schedulerDaemonOptions.DirectServer {
+	// 	d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
+	// 	var err error
+	// 	shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
+	// 	if err != nil {
+	// 		d.log.Error("Failed to initialize shell forwarder (ZMQ shell socket) for kernel %s because: %v", kernelReplicaSpec.Kernel.Id, err)
+	// 		d.closeKernel(kernel, fmt.Sprintf("failed to initialize shell forwarder for kernel \"%s\". Error: %v", kernelReplicaSpec.Kernel.Id, err))
+	// 		return // nil, status.Errorf(codes.Internal, err.Error())
+	// 	}
+	// 	d.log.Debug("Successfully initialized shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
+	// }
 
-	if err != nil {
-		d.closeKernel(kernel, fmt.Sprintf("failed to initialize io forwarder (IO PUB socket) for kernel \"%s\". Error: %v", kernelReplicaSpec.Kernel.Id, err))
-		return // nil, status.Errorf(codes.Internal, err.Error())
-	}
+	// iopub, err := kernel.InitializeIOForwarder()
+	// if err != nil {
+	// 	d.log.Error("Failed to initialize IO forwarder (ZMQ IOPUB socket) for kernel %s because: %v", kernelReplicaSpec.Kernel.Id, err)
+	// 	d.closeKernel(kernel, fmt.Sprintf("failed to initialize io forwarder (IO PUB socket) for kernel \"%s\". Error: %v", kernelReplicaSpec.Kernel.Id, err))
+	// 	return // nil, status.Errorf(codes.Internal, err.Error())
+	// }
 
 	// Though named IOPub, it is a sub socket for a client.
 	// Subscribe to all messages.
 	// Dial our self if the client is running and serving heartbeat.
 	// Try dial, ignore failure.
 	// The function will default to `kernelReplicaClientImpl::handleMsg` if the provided handler is null.
-	iosub, err := kernel.InitializeIOSub(nil, "")
-	if err != nil {
-		d.log.Error("Failed to initialize IO SUB socket. Error: %v", err)
-		d.closeKernel(kernel, fmt.Sprintf("Failed to initialize IO SUB socket. Error: %v", err))
-		return
-	}
+	// iosub, err := kernel.InitializeIOSub(nil, "")
+	// if err != nil {
+	// 	d.log.Error("Failed to initialize IO SUB socket. Error: %v", err)
+	// 	d.closeKernel(kernel, fmt.Sprintf("Failed to initialize IO SUB socket. Error: %v", err))
+	// 	return
+	// }
 
-	if err := kernel.Validate(); err != nil {
-		d.closeKernel(kernel, "validation error")
-		return // nil, status.Errorf(codes.Internal, err.Error())
-	}
-
-	// If we're running in Docker mode, then we'll already have set these.
-	if d.deploymentMode == types.KubernetesMode {
-		// Handle kernel response.
-		kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
-		kernel.AddIOHandler(jupyter.MessageTypeErrorReport, d.handleErrorReport)
-	}
+	// if err := kernel.Validate(); err != nil {
+	// 	d.log.Error("Failed to validate connection with new kernel %s because: %v", kernelReplicaSpec.Kernel.Id, err)
+	// 	d.closeKernel(kernel, "validation error")
+	// 	return // nil, status.Errorf(codes.Internal, err.Error())
+	// }
 
 	// Register kernel.
-	d.kernels.Store(kernel.ID(), kernel)
+	// d.kernels.Store(kernel.ID(), kernel)
 
 	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
 	for _, session := range kernel.Sessions() {
 		d.kernels.Store(session, kernel)
 	}
 
-	// d.log.Debug("iopub.Port: %d", d.iopub.Port)
-
+	// TODO: Is this any different than the KernelConnectionInfo object that's created while initializing the kernel client?
+	// If not, then we should just return the `kernelConnectionInfo` variable directly (that's the one created when initializing the kernel client).
 	info := &gateway.KernelConnectionInfo{
 		Ip:              d.ip,
 		Transport:       d.transport,
 		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
-		ShellPort:       int32(shell.Port),
+		ShellPort:       int32(kernelConnectionInfo.ShellPort),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(iopub.Port), // TODO(Ben): Are these still needed? I think so...
-		IosubPort:       int32(iosub.Port), // TODO(Ben): Are these still needed? I think so...
+		IopubPort:       int32(kernelConnectionInfo.IopubPort), // TODO(Ben): Are these still needed? I think so...
+		IosubPort:       int32(kernelConnectionInfo.IosubPort), // TODO(Ben): Are these still needed? I think so...
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}
@@ -798,6 +829,70 @@ func (d *SchedulerDaemonImpl) LocalMode() bool {
 	return d.deploymentMode == types.LocalMode
 }
 
+// Initialize a kernel client for a new kernel.
+// Initialize shell/IO forwarders, validate the connection with the kernel (which includes connecting to the ZMQ sockets), etc.
+// If there's an error at any point during the initialization process, then the kernel connection/client is closed and an error is returned.
+func (d *SchedulerDaemonImpl) initializeKernelClient(id string, connInfo *jupyter.ConnectionInfo, kernel client.KernelReplicaClient) (*gateway.KernelConnectionInfo, error) {
+	shell := d.router.Socket(jupyter.ShellMessage)
+	if d.schedulerDaemonOptions.DirectServer {
+		var err error
+		shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
+		if err != nil {
+			d.log.Error("Failed to initialize shell forwarder (ZMQ shell socket) for kernel %s because: %v", id, err)
+			d.closeKernel(kernel, "failed initializing shell forwarder")
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+
+		d.log.Debug("Successfully initialized shell forwarder for kernel \"%s\"", id)
+	}
+
+	iopub, err := kernel.InitializeIOForwarder()
+	if err != nil {
+		d.log.Error("Failed to initialize IO forwarder (ZMQ IOPUB socket) for kernel %s because: %v", id, err)
+		d.closeKernel(kernel, "failed initializing io forwarder")
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	iosub, err := kernel.InitializeIOSub(nil, "")
+	if err != nil {
+		d.log.Error("Failed to initialize IO SUB socket. Error: %v", err)
+		d.closeKernel(kernel, fmt.Sprintf("Failed to initialize IO SUB socket. Error: %v", err))
+		return nil, err
+	}
+
+	if err := kernel.Validate(); err != nil {
+		d.log.Error("Failed to validate connection with new kernel %s because: %v", id, err)
+		d.closeKernel(kernel, "validation error")
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	// Handle kernel response.
+	kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
+	kernel.AddIOHandler(jupyter.MessageTypeErrorReport, d.handleErrorReport)
+
+	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager (manager.py).
+	for _, session := range kernel.Sessions() {
+		d.kernels.Store(session, kernel)
+	}
+
+	info := &gateway.KernelConnectionInfo{
+		Ip:              d.ip,
+		Transport:       d.transport,
+		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
+		ShellPort:       int32(shell.Port),
+		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
+		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
+		IopubPort:       int32(iopub.Port),
+		IosubPort:       int32(iosub.Port),
+		SignatureScheme: connInfo.SignatureScheme,
+		Key:             connInfo.Key,
+	}
+
+	d.log.Info("Kernel %s started: %v", id, info)
+
+	return info, nil
+}
+
 // StartKernel launches a new kernel via Docker.
 // This is ONLY used in the Docker-based deployment mode.
 func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
@@ -822,6 +917,11 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 		panic(fmt.Sprintf("Unknown/unsupported deployment mode: \"%s\"", d.deploymentMode))
 	}
 
+	// When the kernel registers, we need the kernel client that we create here.
+	// We use this channel to notify the goroutine handling the registration that the kernel client is setup and connected.
+	kernelClientCreationChannel := make(chan *gateway.KernelConnectionInfo)
+	d.kernelClientCreationChannels.Store(in.Kernel.Id, kernelClientCreationChannel)
+
 	connInfo, err := kernelInvoker.InvokeWithContext(ctx, in)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -838,49 +938,18 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 
 	kernel := client.NewKernelClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false)
 
-	shell := d.router.Socket(jupyter.ShellMessage)
-	if d.schedulerDaemonOptions.DirectServer {
-		var err error
-		shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
-		if err != nil {
-			d.closeKernel(kernel, "failed initializing shell forwarder")
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-	}
-	iopub, err := kernel.InitializeIOForwarder()
-	if err != nil {
-		d.closeKernel(kernel, "failed initializing io forwarder")
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-	if err := kernel.Validate(); err != nil {
-		d.closeKernel(kernel, "validation error")
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-
-	// Handle kernel response.
-	kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
-	kernel.AddIOHandler(jupyter.MessageTypeErrorReport, d.handleErrorReport)
-
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
-	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
-	for _, session := range kernel.Sessions() {
-		d.kernels.Store(session, kernel)
+
+	info, err := d.initializeKernelClient(in.Kernel.Id, connInfo, kernel)
+	if err != nil {
+		d.log.Error("Failed to initialize replica %d of kernel %s.", in.ReplicaId, in.Kernel.Id)
+		return nil, err
 	}
 
-	info := &gateway.KernelConnectionInfo{
-		Ip:              d.ip,
-		Transport:       d.transport,
-		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
-		ShellPort:       int32(shell.Port),
-		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
-		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(iopub.Port),
-		SignatureScheme: connInfo.SignatureScheme,
-		Key:             connInfo.Key,
-	}
+	// Notify that the kernel client has been setup successfully.
+	kernelClientCreationChannel <- info
 
-	d.log.Info("Kernel %s started: %v", in.ID(), info)
 	return info, nil
 }
 

@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
@@ -74,6 +75,7 @@ type DockerInvoker struct {
 	containerName string
 	smrPort       int
 	closing       int32
+	id            string // Uniquely identifies this Invoker instance.
 
 	hdfsNameNodeEndpoint string
 }
@@ -93,6 +95,7 @@ func NewDockerInvoker(opts *jupyter.ConnectionInfo, hdfsNameNodeEndpoint string)
 		tempBase:             utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
 		smrPort:              smrPort,
 		hdfsNameNodeEndpoint: hdfsNameNodeEndpoint,
+		id:                   uuid.NewString(),
 	}
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
@@ -252,7 +255,7 @@ func (ivk *DockerInvoker) Shutdown() error {
 
 func (ivk *DockerInvoker) Close() error {
 	if ivk.containerName == "" {
-		ivk.log.Error("Cannot stop kernel container. The kernel container has not been launched yet.")
+		ivk.log.Error("Cannot stop kernel container. The kernel container has not been launched yet. [DockerInvoker ID = \"%s\"]", ivk.id)
 		return jupyter.ErrKernelNotLaunched
 	}
 
@@ -389,6 +392,6 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 		return err
 	}
 
-	ivk.log.Debug("Successfully launched container/kernel %s.", name)
+	ivk.log.Debug("Successfully launched container/kernel %s. [DockerInvoker ID = \"%s\"]", name, ivk.id)
 	return nil
 }
