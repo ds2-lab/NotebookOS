@@ -429,31 +429,40 @@ class RaftLog(object):
         syncval = None
         try:
             syncval = unpickler.load()
-        except Exception:
-            pass
+        except Exception as ex:
+            self.logger.error(f"Could not load first synchronized value to restore (value_size = {value_size}) because: {ex}")
 
         # Recount _ignore_changes
         self._ignore_changes = 0
-        restored = 0
+        restored: int = 0
         while syncval is not None:
+            assert self._change_handler != None 
+            self.logger.debug("Loading next SynchronizedValue to restore.")
             try:
-                assert self._change_handler != None 
-                self.logger.debug("Loading next SynchronizedValue to restore.")
-                value = self._load_value(syncval)
-                self.logger.debug(f"Restoring SynchronizedValue: {value}")
-                self._change_handler(value)
-                restored = restored + 1
-
-                syncval = None
-                syncval = unpickler.load()
+                loaded_value: Optional[SynchronizedValue] = self._load_value(syncval)
             except SyncError as se:
-                self.logger.error(f"Error on restoring snapshot: {se}")
+                self.logger.error(f"Error while loading SynchronizedValue {syncval}: {se}")
                 return GoError(se)
             except Exception as ex:
-                self.logger.error(f"Unexpected exception encountered while restoring snapshot: {ex}")
+                self.logger.error(f"Unexpected exception encountered while loading SynchronizedValue {syncval}: {ex}")
+                return GoError(ex)
+            
+            self.logger.debug(f"Restoring SynchronizedValue: {loaded_value}")
+            try:
+                self._change_handler(loaded_value)
+                restored = restored + 1
+            except SyncError as se:
+                self.logger.error(f"Error while restoring SynchronizedValue {loaded_value}: {se}")
+                return GoError(se)
+            except Exception as ex:
+                self.logger.error(f"Unexpected exception encountered while restoring SynchronizedValue {loaded_value}: {ex}")
                 return GoError(ex)
 
-        self.logger.debug(f"Restored value of size {value_size} bytes: {restored}")
+            syncval = None
+            loaded_value = None 
+            syncval = unpickler.load()
+
+        self.logger.debug(f"Restored state of size {value_size} bytes. Number of individual values restored: {restored}")
         return GoNilError()
 
     def _load_value(self, val: SynchronizedValue) -> SynchronizedValue:

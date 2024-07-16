@@ -36,13 +36,3 @@ build:
 	
 
 
-
-include ../env.mk
-
-build-smr-linux-amd64:
-	@echo "Building SMR for Linux AMD64"
-	@echo "PYTHON3_INCLUDES_PATH: \"$(PYTHON3_INCLUDES_PATH)\""
-	@echo "PYTHON3_LIB_PATH: \"$(PYTHON3_LIB_PATH)\""
-	export CGO_CFLAGS="-I$(PYTHON3_INCLUDES_PATH) -fPIC -Ofast"
-	export CGO_LDFLAGS="-L$(PYTHON3_LIB_PATH) -lpython3.11 -lcrypt -lpthread -ldl -lutil -lm -lm"
-	go build -mod=mod -buildmode=c-shared -buildvcs=false -o _smr.cpython-311-x86_64-linux-gnu.so .
