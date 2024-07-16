@@ -54,7 +54,7 @@ class SynchronizedValue(object):
     self._key: str = key 
 
   def __str__(self):
-    return f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},Tag={self._tag},Proposer=Node{self.proposer_id},ElectionTerm={self.election_term},AttemptNumber=Node{self._attempt_number},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%c')}]"
+    return f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},Tag={self._tag},Proposer=Node{self.proposer_id},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%c')}]"
 
   @property 
   def tag(self)->Any:
@@ -203,7 +203,7 @@ class LeaderElectionVote(SynchronizedValue):
     self._proposed_node_id:int = proposed_node_id
   
   def __str__(self):
-    return f"LeaderElectionVote[Proposer=Node{self.proposer_id},Proposed=Node{self.proposed_node_id},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%c')},ElectionTerm={self.election_term},AttemptNumber=Node{self._attempt_number}]"
+    return f"LeaderElectionVote[Proposer=Node{self.proposer_id},Proposed=Node{self.proposed_node_id},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%c')},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number}]"
   
   @property 
   def proposed_node_id(self)->int:
