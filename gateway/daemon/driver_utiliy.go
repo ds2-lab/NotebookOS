@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -70,6 +71,8 @@ func GetGrpcOptions(identity string, tracer opentracing.Tracer, distributedClust
 			recovery.UnaryServerInterceptor(
 				recovery.WithRecoveryHandler(
 					func(p any) (err error) {
+						fmt.Printf("gRPC Recovery Handler called with error: %v\n", err)
+						debug.PrintStack()
 						// Enable the Distributed Cluster to handle panics, which ultimately
 						// just involves sending a notification of the panic to the Dashboard.
 						if distributedCluster != nil {

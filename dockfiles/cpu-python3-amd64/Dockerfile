@@ -21,7 +21,7 @@ USER root:root
 RUN mkdir -p /storage && chown jovyan:users /storage
 
 # For debugging.
-RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip -y
+RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vim -y
 # RUN python3 -m pip install kubernetes 
 
 # Install frontend extension.
@@ -60,3 +60,9 @@ COPY dockfiles/cpu-python3-amd64/jupyter_server_config.py /home/jovyan/.jupyter/
 
 # Switch back to jovyan
 USER jovyan:users
+
+# ENTRYPOINT ["/usr/bin/env"]
+# CMD ["tini" "-g" "-vvv" "--" "start.sh"]
+
+# ENTRYPOINT ["tini", "-g", "-vvv", "--", "start.sh"]
+#CMD ["start-notebook.py"]

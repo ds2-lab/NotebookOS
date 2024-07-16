@@ -30,6 +30,9 @@ service ClusterGateway {
   rpc SmrReady(SmrReadyNotification) returns (Void) {}
 
   rpc SmrNodeAdded(ReplicaInfo) returns (Void) {}
+
+  // Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
+  rpc Notify(Notification) returns (Void) {}
 }
 
 // gRPC service provided by the Cluster Gateway and "used" by the Dashboard

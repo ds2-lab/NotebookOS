@@ -9,6 +9,7 @@ const (
 	IOTopicSMRNodeAdded = "smr_node_added"
 	// IOTopicSMRNodeRemoved = "smr_node_removed"
 
+	MessageTypeErrorReport             = "error_report"
 	MessageTypeSMRLeadTask             = "smr_lead_task"
 	MessageTypeLeadAfterYield          = "smr_lead_after_yield" // Used by kernels to report an error that they've been selected to lead despite yielding.
 	MessageTypeAddReplicaRequest       = "add_replica_request"
@@ -65,4 +66,11 @@ type MessageSMRAddOrUpdateReplicaRequest struct {
 
 func (m MessageSMRAddOrUpdateReplicaRequest) String() string {
 	return fmt.Sprintf("MessageSMRAddOrUpdateReplicaRequest[NodeID=%d, Address=%s]", m.NodeID, m.Address)
+}
+
+// {"error": errorTitle, "message": errorMessage, "kernel_id": self.kernel_id}
+type ErrorReport struct {
+	ErrorTitle   string `json:"error"`
+	ErrorMessage string `json:"message"`
+	KernelId     string `json:"kernel_id"`
 }

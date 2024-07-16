@@ -38,13 +38,16 @@ build-smr-linux-arm64:
 build-smr-linux-amd64:
 	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out scusemua/gopy /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-amd64"
 
+build-gateway:
+	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out scusemua/dist-notebook-base /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-amd64"
+
 install-kernel:
 	./install_kernel.sh
 
 build-grpc-go:
 	protoc --go_out=. --go_opt=paths=source_relative \
   	--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-    common/gateway/gateway.proto
+    common/gateway/gateway.proto --experimental_allow_proto3_optional
 
 # protoc --go_out=. --go_opt=paths=source_relative \
 # --go-grpc_out=. --go-grpc_opt=paths=source_relative \

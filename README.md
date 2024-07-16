@@ -96,3 +96,36 @@ sudo make build-smr-linux-amd64
 ```
 
 The command in the `smr/` directory does something along the lines of regenerate the Python/Golang/C bindings. The command from the root directory compiles the generated Go code. Something like that.
+
+## Common Errors:
+
+### glibc Issues
+```
+./gateway: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.34' not found (required by ./gateway)
+```
+
+If you see the above error, then try rebuilding *all* Docker images locally, including the base image. Specifically, rebuild these images (in roughly this order):
+- `dockfiles/base-image`
+- `dockfiles/cpu-python3-amd64` (or `dockfiles/cpu-python3-arm64`, depending on your CPU architecture)
+- `dockfiles/gateway`
+- `dockfiles/local_daemon`
+
+Once rebuilt, you can redeploy the application and see if that issue is resolved. If the error persists, then you may have an incompatible glibc version installed locally (compared to the glibc version found within the Docker images).
+
+You can see the version number of your locally-installed glibc via `ldd --version`. You can see the version installed within the Docker containers by running one of the containers and executing that command:
+``` sh
+docker run -it --entrypoint /bin/bash <container id>
+ldd --version
+```
+
+At the time of writing this, the glibc version found in the Gateway and Local Daemon Docker containers is: `ldd (Debian GLIBC 2.36-9+deb12u7) 2.36`
+
+The version found within the Jupyter Docker container is: `ldd (Ubuntu GLIBC 2.35-0ubuntu3.8) 2.35`
+
+### Kernel Replcia Containers/Pods Crashing with No Error Messages in Logs (Exit Code 134)
+
+If the container/pod exits with error code 134, then this indicates that the application terminated with the 'Aborted' signal (SIGABRT) -- at least in the case of Docker containers. This indicates that there was a critical error during the application's execution. 
+
+It seems common that, if such an error occurs within the Golang code of kernel, then it will often exit without flushing everything to `stdout`/`stderr` (whic is weird, because I thought `stderr` was typically unbuffered?). In any case, if you're observing crashes with nothing helpful in the logs, then common issues may be that the kernels are failing to connect to HDFS or each other (i.e., network connectivity issues of some kind). There may also be some other kind of issue within the Golang code that is causing the kernel to crash.
+
+Ensure that the HDFS hostname being passed to the kernels is (a) correct, and (b) usable from within the container/pod. For example, if you're running HDFS on your host VM and the kernels in Docker containers on that VM, then they can probably connect via something like `172.0.17.1:9000` if the network mode of the container is bridge (`--network 'bridge'`, or you deployed the cluster using `docker compose`, which creates a default network). If you use such a hostname without the proper network configuration, then the HDFS connection will fail.

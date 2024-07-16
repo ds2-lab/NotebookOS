@@ -26,11 +26,13 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/colinmarc/hdfs/v2"
@@ -60,6 +62,7 @@ var (
 	ProposalDeadline = 1 * time.Minute
 	ErrClosed        = errors.New("node closed")
 	ErrEOF           = io.EOF.Error() // For python module to check if io.EOF is returned
+	sig              = make(chan os.Signal, 1)
 )
 
 type StateValueCallback func(ReadCloser, int, string) string
@@ -137,7 +140,7 @@ type LogNode struct {
 	hdfsClient *hdfs.Client // HDFS client for reading/writing the data directory during migrations.
 
 	id    int            // Client ID for raft session
-	peers map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1.
+	peers map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1. Each address should be prefixed by "http://"
 	join  bool           // Node is joining an existing cluster
 
 	waldir              string // Path to WAL directory
@@ -183,6 +186,14 @@ type LogNode struct {
 
 var defaultSnapshotCount uint64 = 10000
 
+func PrintTestMessage() {
+	fmt.Printf("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec auctor quam vel sapien porta, rutrum facilisis ex scelerisque. Vestibulum bibendum luctus ullamcorper. Nunc mattis magna ut sapien ornare posuere. Mauris lorem massa, molestie sodales consequat a, pellentesque a urna. Maecenas consequat nibh vel dolor ultricies, vitae malesuada mauris sollicitudin. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed placerat tellus et enim mattis volutpat. Mauris rhoncus mollis justo vel feugiat. Integer finibus aliquet erat ac porta.\n")
+	fmt.Printf("Proin cursus id nibh a semper. Donec eget augue aliquam, efficitur nisl vitae, auctor diam. Interdum et malesuada fames ac ante ipsum primis in faucibus. Sed tempus dui vel eros efficitur scelerisque. Pellentesque scelerisque leo nibh, et congue justo viverra ut. Suspendisse id dui vitae lacus tincidunt congue. Nam tempus est elementum consectetur tincidunt.\n")
+	fmt.Printf("Ut sit amet justo et risus porta aliquet. Donec id quam ligula. Etiam in purus maximus, aliquet leo sit amet, blandit lacus. Vivamus in euismod ligula. Phasellus pellentesque dapibus faucibus. Curabitur vel tellus a lorem convallis iaculis. Sed molestie gravida felis eu ultrices. Suspendisse consequat sed turpis ac aliquet.\n")
+	fmt.Printf("Maecenas facilisis nulla sit amet volutpat luctus. Aenean maximus a diam aliquet bibendum. Nunc ut tellus vel felis congue luctus ut sit amet erat. Cras scelerisque, felis in posuere mollis, purus nunc ultrices odio, sit amet euismod sem lorem vel massa. Sed turpis neque, mattis sit amet scelerisque eu, bibendum hendrerit magna. Phasellus efficitur lacinia euismod. Proin faucibus dignissim elementum. Interdum et malesuada fames ac ante ipsum primis in faucibus. Phasellus dolor eros, finibus sit amet nisl pellentesque, sollicitudin fermentum nisl. Pellentesque sollicitudin leo velit, et tempus tellus tempor quis. Mauris ut diam ut orci imperdiet faucibus.\n")
+	fmt.Printf("Aliquam accumsan ut tortor id cursus. Donec tincidunt ullamcorper ligula sed finibus. Maecenas ac turpis a dui placerat eleifend. Aenean suscipit ut turpis sit amet feugiat. Maecenas porta commodo sapien non tempus. Curabitur bibendum fermentum libero vel dapibus. Maecenas vitae tellus in massa aliquet lacinia. Fusce dictum mi tortor, sit amet vestibulum lectus suscipit suscipit. Pellentesque metus nisi, sodales quis semper eu, iaculis at velit.\n")
+}
+
 // NewLogNode initiates a raft instance and returns a committed log entry
 // channel and error channel. Proposals for log updates are sent over the
 // provided the proposal channel. All log entries are replayed over the
@@ -193,11 +204,30 @@ var defaultSnapshotCount uint64 = 10000
 // hdfs_data_directory is (possibly) the path to the data directory within HDFS, meaning
 // we were migrated and our data directory was written to HDFS so that we could retrieve it.
 func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_directory string, peerAddresses []string, peerIDs []int, join bool, debug_port int) *LogNode {
+	fmt.Fprintf(os.Stderr, "Creating a new LogNode.\n")
+
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+
+	go func() {
+		s := <-sig
+
+		fmt.Printf("Received signal: %v\n", s)
+		fmt.Fprintf(os.Stderr, "Received signal: %v.\n", s)
+	}()
+
 	if len(peerAddresses) != len(peerIDs) {
-		log.Fatalf("Received unequal number of peer addresses (%d) and peer node IDs (%d). They must be equal.\n", len(peerAddresses), len(peerIDs))
+		fmt.Fprintf(os.Stderr, "[ERROR] Received unequal number of peer addresses (%d) and peer node IDs (%d). They must be equal.\n", len(peerAddresses), len(peerIDs))
+		return nil
 	}
 
-	fmt.Printf("Creating a new LogNode.\n")
+	fmt.Fprintf(os.Stderr, "Checking validity of hdfs hostname.\n")
+
+	if len(hdfsHostname) == 0 {
+		fmt.Fprintf(os.Stderr, "[ERROR] Cannot connect to HDFS; no hostname received.")
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "Creating LogNode struct now.\n")
 
 	node := &LogNode{
 		proposeC:            make(chan *proposalContext),
@@ -220,37 +250,51 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		// rest of structure populated after WAL replay
 	}
 
+	fmt.Fprintf(os.Stderr, "Created LogNode struct Creating zap loggers now.\n")
+
 	logger, err := zap.NewDevelopment()
 	if err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "[ERROR] Failed to create Zap Development logger because: %v\n", err)
+		return nil
 	}
 	node.logger = logger
 	node.sugaredLogger = logger.Sugar()
+
+	if node.sugaredLogger == nil {
+		fmt.Fprintf(os.Stderr, "[ERROR] Failed to create sugared version of Zap development logger.")
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "Created LogNode Zap loggers. Parsing store path now (store_path=%s)\n", store_path)
 
 	if store_path != "" {
 		node.waldir = path.Join(store_path, fmt.Sprintf("dnlog-%d", id))
 		node.snapdir = path.Join(store_path, fmt.Sprintf("dnlog-%d-snap", id))
 
-		node.logger.Info(fmt.Sprintf("LogNode %d WAL directory: '%s'", id, node.waldir))
-		node.logger.Info(fmt.Sprintf("LogNode %d Snapshot directory: '%s'", id, node.snapdir))
+		node.sugaredLogger.Infof("LogNode %d WAL directory: '%s'", id, node.waldir)
+		node.sugaredLogger.Infof("LogNode %d Snapshot directory: '%s'", id, node.snapdir)
+
+		fmt.Printf("LogNode %d WAL directory: '%s'", id, node.waldir)
+		fmt.Printf("LogNode %d Snapshot directory: '%s'\n", id, node.snapdir)
 	}
+
+	fmt.Fprintf(os.Stderr, "Calling patchPropose now.\n")
 	testId, _ := node.patchPropose(nil)
 	node.proposalPadding = len(testId)
 
+	fmt.Fprintf(os.Stderr, "Populating list of peers now.\n")
 	node.peers = make(map[int]string, len(peerAddresses))
 	for i := 0; i < len(peerAddresses); i++ {
 		peer_addr := peerAddresses[i]
 		peer_id := peerIDs[i]
 
 		node.logger.Info("Discovered peer.", zap.String("peer_address", peer_addr), zap.Int("peer_id", peer_id))
+		fmt.Printf("Discovered peer %d: %s.\n", peer_id, peer_addr)
 		node.peers[peer_id] = peer_addr
 	}
 
-	if len(hdfsHostname) == 0 {
-		panic("Cannot connect to HDFS; no hostname received.")
-	}
-
 	node.sugaredLogger.Infof("Connecting to HDFS at '%s'", hdfsHostname)
+	fmt.Printf("Connecting to HDFS at '%s'\n", hdfsHostname)
 
 	hdfsClient, err := hdfs.NewClient(hdfs.ClientOptions{
 		Addresses: []string{hdfsHostname},
@@ -262,19 +306,28 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		DatanodeDialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
 			port := strings.Split(address, ":")[1]                       // Get the port that the DataNode is using. Discard the IP address.
 			modified_address := fmt.Sprintf("%s:%s", "172.17.0.1", port) // Return the IP address that will enable the local k8s Pods to find the local DataNode.
-			node.logger.Info(fmt.Sprintf("Dialing HDFS DataNode. Original address '%s'. Modified address: %s.\n", address, modified_address), zap.String("original_address", address), zap.String("modified_address", modified_address))
-			conn, err := (&net.Dialer{}).DialContext(ctx, network, modified_address)
+			node.sugaredLogger.Infof("Dialing HDFS DataNode. Original address: '%s'. Modified address: %s.\n", address, modified_address)
+
+			childCtx, cancel := context.WithTimeout(ctx, time.Second*30)
+			defer cancel()
+
+			conn, err := (&net.Dialer{}).DialContext(childCtx, network, modified_address)
 			if err != nil {
+				node.sugaredLogger.Errorf("Failed to dial HDFS DataNode at address '%s' because: %v", modified_address, err)
 				return nil, err
 			}
 
 			return conn, nil
 		},
 	})
+
 	if err != nil {
-		node.logger.Error("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname))
+		node.logger.Error("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname), zap.Error(err))
+		// log.Fatalf("Failed to create HDFS client (addr=%s) because: %v\n", hdfsHostname, err)
+		return nil
 	} else {
-		node.logger.Info(fmt.Sprintf("Successfully connected to HDFS at '%s'", hdfsHostname), zap.String("hostname", hdfsHostname))
+		node.sugaredLogger.Infof("Successfully connected to HDFS at '%s'", hdfsHostname)
+		fmt.Printf("Successfully connected to HDFS at '%s'\n", hdfsHostname)
 		node.hdfsClient = hdfsClient
 	}
 
@@ -302,11 +355,15 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 
 	debug.SetPanicOnFault(true)
 
+	fmt.Fprintf(os.Stderr, "Returning LogNode now.\n")
+
 	return node
 }
 
 func (node *LogNode) ServeHttpDebug() {
 	go func() {
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+
 		log.Printf("Serving debug HTTP server on port %d.\n", node.debug_port)
 
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -320,6 +377,7 @@ func (node *LogNode) ServeHttpDebug() {
 		})
 
 		if err := http.ListenAndServe(fmt.Sprintf("localhost:%d", node.debug_port), nil); err != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] Failed to serve HTTP debug server on port %d because: %v\n", node.debug_port, err)
 			log.Fatal("ListenAndServe: ", err)
 		}
 	}()
@@ -334,12 +392,32 @@ func (node *LogNode) NumChanges() int {
 	return int(node.num_changes)
 }
 
-func (node *LogNode) Start(config *LogNodeConfig) {
+type startError struct {
+	ErrorOccurred bool
+	Error         error
+}
+
+func (node *LogNode) Start(config *LogNodeConfig) bool {
 	node.config = config
 	if !config.Debug {
 		node.logger = node.logger.WithOptions(zap.IncreaseLevel(zapcore.InfoLevel))
 	}
-	go node.start()
+
+	startErrorChan := make(chan startError)
+
+	go func() {
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+		node.start(startErrorChan)
+	}()
+
+	startError := <-startErrorChan
+
+	if startError.ErrorOccurred {
+		node.logger.Error("Failed to start LogNode.", zap.Error(startError.Error))
+		return false
+	}
+
+	return true
 }
 
 func (node *LogNode) StartAndWait(config *LogNodeConfig) {
@@ -357,7 +435,10 @@ func (node *LogNode) GetSerializedState() []byte {
 // Append the difference of the value of specified key to the synchronization queue.
 func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
 	_, ctx := node.generateProposal(val.Bytes(), ProposalDeadline)
-	go node.propose(ctx, node.sendProposal, resolve, msg)
+	go func() {
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+		node.propose(ctx, node.sendProposal, resolve, msg)
+	}()
 }
 
 // func (node *LogNode) propose(val []byte, resolve ResolveCallback, msg string) {
@@ -509,9 +590,18 @@ func (node *LogNode) close() {
 			}
 		}
 	}
+
+	if node.hdfsClient != nil {
+		err := node.hdfsClient.Close()
+		if err != nil {
+			node.logger.Error("Error while closing HDFS client.", zap.Error(err))
+		}
+	} else {
+		node.logger.Warn("HDFS Client is nil. Will skip closing it.")
+	}
 }
 
-func (node *LogNode) start() {
+func (node *LogNode) start(startErrorChan chan<- startError) {
 	node.logger.Info(fmt.Sprintf("LogNode %d is starting.", node.id))
 	debug.SetPanicOnFault(true)
 
@@ -519,6 +609,10 @@ func (node *LogNode) start() {
 		if !fileutil.Exist(node.snapdir) {
 			if err := os.Mkdir(node.snapdir, 0750); err != nil {
 				node.logFatalf("LogNode: cannot create dir for snapshot (%v)", err)
+				startErrorChan <- startError{
+					ErrorOccurred: true,
+					Error:         err,
+				}
 				return
 			}
 		}
@@ -532,6 +626,10 @@ func (node *LogNode) start() {
 		node.logger.Info(fmt.Sprintf("WAL is enabled. Old WAL ('%s') available? %v", node.waldir, oldWALExists))
 		node.wal = node.replayWAL()
 		if node.wal == nil {
+			startErrorChan <- startError{
+				ErrorOccurred: true,
+				Error:         fmt.Errorf("WalReplayError: node.wal is nil after replaying; this should not happen"),
+			}
 			return
 		}
 	}
@@ -579,7 +677,7 @@ func (node *LogNode) start() {
 	}
 
 	go node.serveRaft()
-	node.serveChannels()
+	node.serveChannels(startErrorChan)
 }
 
 func (node *LogNode) isSnapEnabled() bool {
@@ -630,7 +728,7 @@ func (node *LogNode) ReadDataDirectoryFromHDFS() (serialized_state_bytes []byte,
 	serialized_state_bytes = make([]byte, 0)
 
 	serialized_state_file := filepath.Join(node.data_dir, SerializedStateFile)
-	if _, err := node.hdfsClient.Stat(serialized_state_file); err != nil {
+	if _, err := node.hdfsClient.Stat(serialized_state_file); err == nil {
 		serialized_state_bytes, err = node.hdfsClient.ReadFile(serialized_state_file)
 		if err != nil {
 			node.logger.Error("Failed to read 'serialized state' from file.", zap.String("path", serialized_state_file), zap.Error(err))
@@ -642,37 +740,39 @@ func (node *LogNode) ReadDataDirectoryFromHDFS() (serialized_state_bytes []byte,
 		node.logger.Debug("Did not find a serialized state file. Hopefully you weren't expecting one!")
 	}
 
-	node.logger.Info(fmt.Sprintf("Walking the HDFS data directory '%s'", node.hdfs_data_directory), zap.String("directory", node.hdfs_data_directory))
+	node.sugaredLogger.Debugf("Walking the HDFS data directory '%s'", node.hdfs_data_directory)
 	walk_err := node.hdfsClient.Walk(node.hdfs_data_directory, func(path string, info fs.FileInfo, err error) error {
+		node.sugaredLogger.Debugf("Processing file system object at path \"%s\": %v", path, info)
+
 		if info.IsDir() {
-			node.logger.Info(fmt.Sprintf("Found remote directory '%s'", path), zap.String("directory", path))
+			node.sugaredLogger.Debugf("Found remote directory '%s'", path)
 			err := os.MkdirAll(path, os.FileMode(int(0777)))
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create local directory '%s': %v", path, err), zap.String("directory", path), zap.Error(err))
+				node.sugaredLogger.Errorf("Exception encountered while trying to create local directory '%s': %v", path, err)
 				return err
 			}
 
-			node.logger.Info(fmt.Sprintf("Successfully created local directory '%s'", path), zap.String("directory", path))
+			node.sugaredLogger.Debugf("Successfully created local directory '%s'", path)
 			// Convert the remote HDFS path to a local path based on the persistent store ID.
 		} else {
-			node.logger.Info(fmt.Sprintf("Found remote file '%s'", path), zap.String("file", path))
+			node.sugaredLogger.Debugf("Found remote file '%s'", path)
 			err := node.hdfsClient.CopyToLocal(path, path)
 
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.logger.Error(fmt.Sprintf("Exception encountered while trying to copy remote-to-local for file '%s': %v", path, err), zap.String("file", path), zap.Error(err))
+				node.sugaredLogger.Errorf("Exception encountered while trying to copy remote-to-local for file '%s': %v", path, err)
 				return err
 			}
 
-			node.logger.Info(fmt.Sprintf("Successfully copied remote HDFS file to local file system: '%s'", path), zap.String("file", path))
+			node.sugaredLogger.Debugf("Successfully copied remote HDFS file to local file system: '%s'", path)
 		}
 
 		return nil
 	})
 
 	if walk_err != nil {
-		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory '%s'): %v", node.data_dir, walk_err), zap.Error(walk_err))
+		node.sugaredLogger.Errorf("Exception encountered while trying to create HDFS directory '%s'): %v", node.data_dir, walk_err)
 		return serialized_state_bytes, walk_err
 	}
 
@@ -775,7 +875,7 @@ func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state []byte, resolve R
 			node.logger.Info(fmt.Sprintf("Found local file '%s'", path), zap.String("file", path))
 
 			// If the file already exists...
-			if _, err := node.hdfsClient.Stat(path); err != nil {
+			if _, err := node.hdfsClient.Stat(path); err == nil {
 				// ... then we need to remove it and re-write it.
 				// TODO (Ben): Can we optimize this so that we only need to add the new data?
 				err = node.hdfsClient.Remove(path)
@@ -1114,11 +1214,15 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	node.num_changes = 0
 }
 
-func (node *LogNode) serveChannels() {
+func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 	node.logger.Info(fmt.Sprintf("LogNode %d is serving channels.", node.id))
 
 	snap, err := node.raftStorage.Snapshot()
 	if err != nil {
+		startErrorChan <- startError{
+			ErrorOccurred: true,
+			Error:         err,
+		}
 		node.panic(err)
 		return
 	}
@@ -1178,14 +1282,14 @@ func (node *LogNode) serveChannels() {
 		for {
 			select {
 			case commit := <-node.commitC:
-				node.logger.Info(fmt.Sprintf("LogNode %d: Applying commit with %d data item(s) to local state machine.", node.id, len(commit.data)))
-				for idx, d := range commit.data {
+				// node.logger.Info(fmt.Sprintf("LogNode %d: Applying commit with %d data item(s) to local state machine.", node.id, len(commit.data)))
+				for _, d := range commit.data {
 					realData, ctx := node.doneProposal(d)
 					id := ""
 					if ctx != nil {
 						id = ctx.ID()
 					}
-					node.sugaredLogger.Infof("LogNode %d: Applying data item %d/%d to local state machine.", node.id, idx+1, len(commit.data))
+					// node.sugaredLogger.Infof("LogNode %d: Applying data item %d/%d to local state machine.", node.id, idx+1, len(commit.data))
 					if err := fromCError(node.config.onChange(&readerWrapper{reader: bytes.NewBuffer(realData)}, len(realData), id)); err != nil {
 						node.logFatalf("LogNode: Error on replay state (%v)", err)
 					}
@@ -1200,6 +1304,12 @@ func (node *LogNode) serveChannels() {
 		}
 	}()
 
+	// No error occurred!
+	startErrorChan <- startError{
+		ErrorOccurred: false,
+		Error:         nil,
+	}
+
 	// event loop on raft state machine updates
 	for {
 		select {
@@ -1208,9 +1318,9 @@ func (node *LogNode) serveChannels() {
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-node.node.Ready():
-			if len(rd.CommittedEntries) > 0 || rd.HardState.Commit > 0 {
-				node.logger.Info("ready", zap.Int("num-committed-entries", len(rd.CommittedEntries)), zap.Uint64("hardstate.commit", rd.HardState.Commit))
-			}
+			// if len(rd.CommittedEntries) > 0 || rd.HardState.Commit > 0 {
+			// 	node.logger.Info("ready", zap.Int("num-committed-entries", len(rd.CommittedEntries)), zap.Uint64("hardstate.commit", rd.HardState.Commit))
+			// }
 			if node.wal != nil {
 				node.wal.Save(rd.HardState, rd.Entries)
 			}

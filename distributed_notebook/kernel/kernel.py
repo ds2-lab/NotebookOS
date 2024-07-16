@@ -5,12 +5,13 @@ import inspect
 import os
 import logging
 import json
+import signal
 import sys
 import socket
 import traceback
 import time
 
-from traitlets.traitlets import Set
+# from traitlets.traitlets import Set
 
 import typing as t
 from typing import Union, Optional, Dict, Any
@@ -24,7 +25,20 @@ from threading import Lock
 
 from jupyter_client.session import extract_dates
 
+# from ..smr.smr import PrintTestMessage
+
 from multiprocessing import Process, Queue
+
+def sigabrt_handler(sig, frame):
+    print(f'Received SIGABORT handler: {sig} {frame}')
+    sys.exit(0)
+
+def sigint_handler(sig, frame):
+    print(f'Received SIGINT handler: {sig} {frame}')
+    sys.exit(0)
+
+signal.signal(signal.SIGABRT, sigabrt_handler)
+signal.signal(signal.SIGINT, sigint_handler)
 
 class ExecutionYieldError(Exception):
     """Exception raised when execution is yielded."""
@@ -49,9 +63,29 @@ enable_storage = True
 # Used as the value for an environment variable that was not set.
 UNAVAILABLE: str = "N/A"
 
-logging.basicConfig(level=logging.DEBUG,
-                    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
 
+class CustomFormatter(logging.Formatter):
+    grey = "\x1b[38;20m"
+    yellow = "\x1b[33;20m"
+    red = "\x1b[31;20m"
+    bold_red = "\x1b[31;1m"
+    reset = "\x1b[0m"
+    format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] "
+    # format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
+
+    FORMATS = {
+        logging.DEBUG: grey + format + reset,
+        logging.INFO: grey + format + reset,
+        logging.WARNING: yellow + format + reset,
+        logging.ERROR: red + format + reset,
+        logging.CRITICAL: bold_red + format + reset
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
@@ -144,11 +178,21 @@ class DistributedKernel(IPythonKernel):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
+        self.log.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(CustomFormatter())
+        self.log.addHandler(ch)
 
         self.log.info("TEST -- INFO")
         self.log.debug("TEST -- DEBUG")
         self.log.warn("TEST -- WARN")
-        self.log.error("TEST -- ERROR")      
+        self.log.error("TEST -- ERROR")   
+        self.log.critical("TEST -- CRITICAL")     
+
+        # self.log.info("Calling Go-level `PrintTestMessage` function now...")
+        # PrintTestMessage()
+        # self.log.info("Called Go-level `PrintTestMessage` function now...")
         
         self.received_message_ids: set = set()  
 
@@ -294,7 +338,7 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Failed to connect to LocalDaemon at %s:%d" %
                            (local_daemon_service_name, server_port))
             self.log.error("Reason: %s" % str(ex))
-            return
+            raise ex 
 
         registration_payload = {
             "op": "register",
@@ -327,7 +371,7 @@ class DistributedKernel(IPythonKernel):
         if len(response) == 0:
             self.log.error(
                 "Received empty (i.e., 0 bytes in length) response from local daemon during registration...")
-            exit(1)
+            raise ValueError("received empty response from local daemon during registration procedure")
 
         self.log.info("Received %d byte(s) in response from LocalDaemon: %s", len(
             response), str(response))
@@ -338,13 +382,28 @@ class DistributedKernel(IPythonKernel):
 
         # self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in response_dict["replicas"]]
 
+        if "replicas" not in response_dict:
+            self.log.error("No replicas contained in registration response from local daemon.")
+            self.log.error("Registration response:")
+            for k, v in response_dict.items():
+                self.log.error(f"\t{k}: {v}")
+            raise ValueError("registration response from local daemon did not contained a \"replicas\" entry")
+
         # Note: we expect the keys to be integers; however, they will have been converted to strings.
         # See https://stackoverflow.com/a/1451857 for details.
         # We convert the string keys, which are node IDs, back to integers.
         #
         # We also append ":<SMR_PORT>" to each address before storing it in the map.
+        replicas = response_dict["replicas"]
+        if replicas == None or len(replicas) == 0:
+            self.log.error("No replicas contained in registration response from local daemon.")
+            self.log.error("Registration response:")
+            for k, v in response_dict.items():
+                self.log.error(f"\t{k}: {v}")
+            raise ValueError("registration response from local daemon did not contained a \"replicas\" entry")
+        
         self.smr_nodes_map = {int(node_id_str): (node_addr + ":" + str(self.smr_port))
-                              for node_id_str, node_addr in response_dict["replicas"].items()}
+                              for node_id_str, node_addr in replicas.items()}
 
         # If we're part of a migration operation, then we should receive both a persistent ID AND an HDFS Data Directory.
         # If we're not part of a migration operation, then we'll JUST receive the persistent ID.
@@ -420,7 +479,7 @@ class DistributedKernel(IPythonKernel):
             self.send_ack(self.shell_stream, msg_type, msg_id, idents, message) # Send an ACK.
             return
         
-        self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
+        # self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
         msg_id:str = msg_deserialized["header"]["msg_id"]
         msg_type:str = msg_deserialized["header"]["msg_type"]
         self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg_deserialized) # Send an ACK.
@@ -614,7 +673,7 @@ class DistributedKernel(IPythonKernel):
             return True
 
     def send_ack(self, stream, msg_type:str, msg_id:str, ident, parent):
-        self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
+        # self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
         ack_msg = self.session.send(  # type:ignore[assignment]
             stream,
             "ACK",
@@ -626,7 +685,7 @@ class DistributedKernel(IPythonKernel):
             parent,
             ident=ident,
         )
-        self.log.debug(f"Sent 'ACK' for {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
+        # self.log.debug(f"Sent 'ACK' for {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -934,6 +993,8 @@ class DistributedKernel(IPythonKernel):
             else:
                 self.log.info(
                     "I've already removed myself from the SMR cluster and closed my sync-log.")
+        else:
+            self.log.info("Not stopping/removing node from etcd/raft cluster.")
 
         # Give time for the "smr_node_removed" message to be sent.
         # time.sleep(2)
@@ -965,6 +1026,17 @@ class DistributedKernel(IPythonKernel):
         # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
         #
 
+        try:
+            data_dir_path = await self.synclog.write_data_dir_to_hdfs()
+            self.log.info(
+                "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % data_dir_path)
+            return {'status': 'ok', "data_directory": data_dir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
+        except Exception as e:
+            self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
+                           self.smr_node_id, self.kernel_id, str(e))
+            self.log.error(traceback.format_exc())
+            return self.gen_error_response(e), False
+
         self.log.info(
             "Closing the SyncLog (and therefore the etcd-Raft process) now.")
         try:
@@ -975,17 +1047,6 @@ class DistributedKernel(IPythonKernel):
         except Exception as e:
             self.log.error("Failed to close the SyncLog for replica %d of kernel %s.",
                            self.smr_node_id, self.kernel_id)
-            self.log.error(traceback.format_exc())
-            return self.gen_error_response(e), False
-
-        try:
-            data_dir_path = await self.synclog.write_data_dir_to_hdfs()
-            self.log.info(
-                "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % data_dir_path)
-            return {'status': 'ok', "data_directory": data_dir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
-        except Exception as e:
-            self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
-                           self.smr_node_id, self.kernel_id, str(e))
             self.log.error(traceback.format_exc())
             return self.gen_error_response(e), False
 
@@ -1225,7 +1286,17 @@ class DistributedKernel(IPythonKernel):
                                    debug_port = self.debug_port)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
+            
+            # Print the stack.
+            stack:list[str] = traceback.format_stack()
+            for stack_entry in stack:
+                self.log.error(stack_entry)
+            
             self.report_error(errorTitle="Failed to Create RaftLog", errorMessage = str(ex))
+            
+            # Sleep for 30 seconds to provide plenty of time for the error-report message to be sent before exiting. 
+            await asyncio.sleep(30)
+            
             exit(1)
 
         self.log.debug("Successfully created RaftLog.")

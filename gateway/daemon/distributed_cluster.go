@@ -10,6 +10,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -44,7 +45,7 @@ func NewDistributedCluster(gatewayDaemon *ClusterGatewayImpl, opts *domain.Clust
 // Parameter:
 // - identity (string): The identity of the entity/goroutine that panicked.
 func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{}) {
-	dc.log.Error("Entity %s has panicked.", identity)
+	dc.log.Error("Entity %s has panicked with error: %v", identity, fatalErr)
 
 	if dc.clusterDashboard == nil {
 		dc.log.Warn("We do not have an active connection with the cluster dashboard.")
@@ -54,7 +55,7 @@ func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{})
 	_, err := dc.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 		Title:            fmt.Sprintf("%s panicked.", identity),
 		Message:          fmt.Sprintf("%v", fatalErr),
-		NotificationType: int32(ErrorNotification),
+		NotificationType: int32(types.ErrorNotification),
 		Panicked:         true,
 	})
 
@@ -119,7 +120,7 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 	dc.log.Debug("Accepted new session for Cluster Dashboard. Dialing to create reverse connection with dummy dialer now...")
 
 	// Dial to create a reversion connection with dummy dialer.
-	gConn, err := grpc.Dial(":0",
+	gConn, err := grpc.Dial(":0", // grpc.NewClient("passthrough://:0",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			conn, err := cliSession.Open()

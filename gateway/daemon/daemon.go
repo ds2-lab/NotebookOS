@@ -55,11 +55,6 @@ const (
 	// Passed within the metadata dict of an 'execute_request' ZMQ message.
 	// This indicates that a specific replica should execute the code.
 	TargetReplicaArg = "target_replica"
-
-	ErrorNotification   notificationType = 0
-	WarningNotification notificationType = 1
-	InfoNotfication     notificationType = 2
-	SuccessNotification notificationType = 3
 )
 
 var (
@@ -71,6 +66,8 @@ var (
 	ErrNotSupported       = status.Errorf(codes.Unimplemented, "not supported in daemon")
 	ErrInvalidParameter   = status.Errorf(codes.InvalidArgument, "invalid parameter")
 	ErrFailedToRemove     = status.Errorf(codes.Internal, "replica removal failed")
+
+	NotificationTypeNames = []string{"ERROR", "WARNING", "INFO", "SUCCESS"}
 
 	// Internal errors
 	ErrHeaderNotFound            = errors.New("message header not found")
@@ -88,8 +85,6 @@ var (
 	ErrFailedToVerifyMessage     = errors.New("failed to verify ZMQ message after (re)encoding it with modified contents")
 	ErrRequestTimedOut           = errors.New("request timed out")
 )
-
-type notificationType int32
 
 type GatewayDaemonConfig func(domain.ClusterGateway)
 
@@ -832,7 +827,7 @@ func (d *ClusterGatewayImpl) defaultFailureHandler(c client.DistributedKernelCli
 	return fmt.Errorf("there is no failure handler for the DEFAULT policy; cannot handle error")
 }
 
-func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ notificationType) (err error) {
+func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ jupyter.NotificationType) (err error) {
 	if d.clusterDashboard != nil {
 		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 			Title:            notificationName,
@@ -856,7 +851,7 @@ func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeN
 		NodeName: nodeName, /* Not needed */
 	})
 
-	go d.notifyDashboard(errorName, errorMessage, WarningNotification)
+	go d.notifyDashboard(errorName, errorMessage, jupyter.WarningNotification)
 	return
 }
 
@@ -866,7 +861,7 @@ func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, mess
 		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 			Title:            notificationName,
 			Message:          message,
-			NotificationType: int32(InfoNotfication),
+			NotificationType: int32(jupyter.InfoNotfication),
 		})
 
 		if err != nil {
@@ -885,7 +880,7 @@ func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 			Title:            errorName,
 			Message:          errorMessage,
-			NotificationType: int32(ErrorNotification),
+			NotificationType: int32(jupyter.ErrorNotification),
 		})
 
 		if err != nil {
@@ -1192,7 +1187,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 	}
 	d.log.Info("Kernel(%s) started: %v", kernel.ID(), info)
 
-	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running.", kernel.ID()), SuccessNotification)
+	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running.", kernel.ID()), jupyter.SuccessNotification)
 
 	return info, nil
 }
@@ -1508,7 +1503,7 @@ func (d *ClusterGatewayImpl) StopKernel(ctx context.Context, in *gateway.KernelI
 	}
 
 	if err == nil {
-		go d.notifyDashboard("Kernel Stopped", fmt.Sprintf("Kernel %s has been terminated successfully.", kernel.ID()), SuccessNotification)
+		go d.notifyDashboard("Kernel Stopped", fmt.Sprintf("Kernel %s has been terminated successfully.", kernel.ID()), jupyter.SuccessNotification)
 	} else {
 		go d.notifyDashboardOfError("Failed to Terminate Kernel", fmt.Sprintf("An error was encountered while trying to terminate kernel %s: %v.", kernel.ID(), err))
 	}
@@ -1526,12 +1521,20 @@ func (d *ClusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelI
 	return d.statusErrorf(kernel.WaitClosed(), nil)
 }
 
+func (d *ClusterGatewayImpl) Notify(ctx context.Context, in *gateway.Notification) (*gateway.Void, error) {
+	d.log.Debug(utils.NotificationStyles[in.NotificationType].Render("Received %v notification \"%s\": %s", NotificationTypeNames[in.NotificationType], in.Title, in.Message))
+
+	d.notifyDashboard(in.Title, in.Message, jupyter.NotificationType(in.NotificationType))
+
+	return gateway.VOID, nil
+}
+
 func (d *ClusterGatewayImpl) SpoofNotifications(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
 	go func() {
-		d.notifyDashboard("Spoofed Error", "This is a made-up error message sent by the Cluster Gateway.", ErrorNotification)
-		d.notifyDashboard("Spoofed Warning", "This is a made-up warning message sent by the Cluster Gateway.", WarningNotification)
-		d.notifyDashboard("Spoofed Info Notification", "This is a made-up 'info' message sent by the Cluster Gateway.", InfoNotfication)
-		d.notifyDashboard("Spoofed Success Notification", "This is a made-up 'success' message sent by the Cluster Gateway.", SuccessNotification)
+		d.notifyDashboard("Spoofed Error", "This is a made-up error message sent by the Cluster Gateway.", jupyter.ErrorNotification)
+		d.notifyDashboard("Spoofed Warning", "This is a made-up warning message sent by the Cluster Gateway.", jupyter.WarningNotification)
+		d.notifyDashboard("Spoofed Info Notification", "This is a made-up 'info' message sent by the Cluster Gateway.", jupyter.InfoNotfication)
+		d.notifyDashboard("Spoofed Success Notification", "This is a made-up 'success' message sent by the Cluster Gateway.", jupyter.SuccessNotification)
 	}()
 
 	return gateway.VOID, nil
@@ -2042,13 +2045,13 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 
 func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
 	goroutineId := goid.Get()
-	var messageType string
+	// var messageType string
 	if kernel == nil {
 		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message targeting unknown kernel/session. Inspecting now..."), goroutineId, typ)
-		kernel, messageType, err = d.kernelAndTypeFromMsg(msg)
+		kernel, _ /* messageType */, err = d.kernelAndTypeFromMsg(msg)
 	} else {
 		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message targeting kernel %s. Inspecting now..."), goroutineId, typ, kernel.ID())
-		_, messageType, err = d.kernelAndTypeFromMsg(msg)
+		_, _ /* messageType */, err = d.kernelAndTypeFromMsg(msg)
 	}
 
 	if err != nil {
@@ -2056,7 +2059,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClien
 		return err
 	}
 
-	d.log.Debug("[gid=%d] Forwarding %v message of type %s to replicas of kernel %s.", goroutineId, typ, messageType, kernel.ID())
+	// d.log.Debug("[gid=%d] Forwarding %v message of type %s to replicas of kernel %s.", goroutineId, typ, messageType, kernel.ID())
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 
@@ -2075,14 +2078,14 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 		_, header, err := d.headerFromMsg(msg)
 
 		if err != nil {
-			d.log.Error("[gid=%d] Failed to extract header from %v message.", goroutineId, typ)
-			d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
+			// d.log.Error("[gid=%d] Failed to extract header from %v message.", goroutineId, typ)
+			// d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
 			sendErr := socket.Send(*msg)
 
 			if sendErr != nil {
 				d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())
 			} else {
-				d.log.Debug("[gid=%d] Successfully forwarded %v response from kernel %s via %s.", goroutineId, typ, from.ID(), socket.Name)
+				// d.log.Debug("[gid=%d] Successfully forwarded %v response from kernel %s via %s.", goroutineId, typ, from.ID(), socket.Name)
 			}
 
 			return sendErr
@@ -2093,13 +2096,13 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 		}
 	}
 
-	d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
+	// d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
 	err := socket.Send(*msg)
 
 	if err != nil {
 		d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())
 	} else {
-		d.log.Debug("[gid=%d] Successfully forwarded %v response from kernel %s via %s.", goroutineId, typ, from.ID(), socket.Name)
+		// d.log.Debug("[gid=%d] Successfully forwarded %v response from kernel %s via %s.", goroutineId, typ, from.ID(), socket.Name)
 	}
 
 	return err // Will be nil on success.
@@ -2200,7 +2203,7 @@ func (d *ClusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 				// This shouldn't happen as far as I know, but if it does, then we can't really identify the proper host to migrate to.
 				d.log.Error("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID())
 
-				go d.notifyDashboard("No Host Assigned to Kernel", fmt.Sprintf("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID()), WarningNotification)
+				go d.notifyDashboard("No Host Assigned to Kernel", fmt.Sprintf("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID()), jupyter.WarningNotification)
 				continue
 			}
 

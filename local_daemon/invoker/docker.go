@@ -58,7 +58,7 @@ var (
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
-	dockerInvokerCmd  = "docker run -d --name {container_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker --label kernel_id={kernel_id} --label app=distributed_cluster {image}"
+	dockerInvokerCmd  = "docker run -d -t --name {container_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker --label kernel_id={kernel_id} --label app=distributed_cluster {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
 
@@ -192,6 +192,10 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *gateway.K
 	}
 
 	argv := append(strings.Split(cmd, " "), spec.Kernel.Argv...)
+
+	// argv = append(argv, ">")
+	// argv = append(argv, "kernel_output.log")
+	argv = append(argv, "2>&1")
 
 	configurationFilesExist := ivk.validateConfigFilesExist(connectionFile, configFile)
 	if !configurationFilesExist {
