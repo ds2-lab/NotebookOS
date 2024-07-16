@@ -15,7 +15,7 @@ Follow https://github.com/scusemua/gopy and execute:
 ~~~bash
 $ python3 -m pip install pybindgen
 $ go install golang.org/x/tools/cmd/goimports@latest
-$ go install github.com/scusemua/gopy@v0.4.3
+$ go install github.com/scusemua/gopy@go-python-master
 $ make 
 ~~~
 

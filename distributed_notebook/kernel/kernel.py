@@ -10,6 +10,7 @@ import sys
 import socket
 import traceback
 import time
+import uuid
 
 # from traitlets.traitlets import Set
 
@@ -275,21 +276,34 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Failed to obtain connection info from file \"%s\" because: %s" % (connection_file_path, str(ex)))
 
         self.log.info("Connection info: %s" % str(connection_info))
-        # self.log.info("IPython config info: %s" % str(config_info))
+        
+        # Allow setting env variable to prevent registration altogether. 
+        skip_registration_override:bool = (os.environ.get("SKIP_REGISTRATION", "false").lower() == "true") 
 
-        if self.should_register_with_local_daemon:
+        if self.should_register_with_local_daemon and not skip_registration_override:
             self.register_with_local_daemon(connection_info, session_id)
+            self.__init_tcp_server()
         else:
             self.log.warn("Skipping registration step with local daemon.")
+            self.__init_tcp_server()
+            self.smr_node_id: int = int(os.environ.get("smr_node_id", "1"))
+            self.hostname: str = os.environ.get("hostname", str(socket.gethostname()))
+            self.num_replicas: int = 1
+            self.persistent_id:str = os.environ.get("persistent_id", str(uuid.uuid4()))
+            self.smr_nodes_map = {1: self.hostname + ":" + str(self.smr_port)}
+            self.persistent_id
+            self.debug_port: int = int(os.environ.get("debug_port", "31000"))
+            self.start()
         
+        # TODO: Remove this after finish debugging the ACK stuff.
+        # self.auth = None
+
+    def __init_tcp_server(self):
         self.local_tcp_server_queue: Queue = Queue()
         self.local_tcp_server_process: Process = Process(target = self.server_process, args=(self.local_tcp_server_queue, ))
         self.local_tcp_server_process.daemon = True 
         self.local_tcp_server_process.start() 
         self.log.info(f"Local TCP server process has PID={self.local_tcp_server_process.pid}")
-        
-        # TODO: Remove this after finish debugging the ACK stuff.
-        # self.auth = None
 
     # TODO(Ben): Is the existence of this process slowing down the termination process? 
     def server_process(self, queue: Queue):
@@ -444,10 +458,7 @@ class DistributedKernel(IPythonKernel):
         if self.persistent_id != Undefined and self.persistent_id != "":
             assert isinstance(self.persistent_id, str)
 
-            asyncio.run_coroutine_threadsafe(
-                self.init_persistent_store_on_start(
-                    self.persistent_id), self.control_thread.io_loop.asyncio_loop  # type: ignore
-            )
+            asyncio.run_coroutine_threadsafe(self.init_persistent_store_on_start(self.persistent_id), self.control_thread.io_loop.asyncio_loop)
 
     async def init_persistent_store_on_start(self, persistent_id: str):
         self.log.info(
@@ -658,6 +669,9 @@ class DistributedKernel(IPythonKernel):
             "Initializing the Persistent Store with Persistent ID: \"%s\"" % persistent_id)
         self.log.info("Full path of Persistent Store: \"%s\"" % store)
         self.log.info("Disabling `outstream` now.")
+
+        sys.stderr.flush()
+        sys.stdout.flush()
 
         # Disable outstream
         self.toggle_outstream(override=True, enable=False)
@@ -1299,6 +1313,9 @@ class DistributedKernel(IPythonKernel):
         # asyncio.run_coroutine_threadsafe(self.synchronizer.start(), control_loop.asyncio_loop)
         self.synchronizer.start()
 
+        sys.stderr.flush()
+        sys.stdout.flush()
+
         # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be started before we attempt to catch-up.
         # The catch-up process involves appending a new value and waiting until it gets committed. This cannot be done until the RaftLog has started.
         # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
@@ -1346,6 +1363,9 @@ class DistributedKernel(IPythonKernel):
         store = ""
         if enable_storage:
             store = store_path
+
+        sys.stderr.flush()
+        sys.stdout.flush()
 
         self.log.debug("Creating RaftLog now.")
         try:

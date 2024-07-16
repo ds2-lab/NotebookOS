@@ -115,7 +115,7 @@ class Slice_raftpb_ConfChangeSingle(go.GoClass):
 		return self
 	def __next__(self):
 		if self.index < len(self):
-			rv = _smr.Slice_raftpb_ConfChangeSingle_elem(self.handle, self.index)
+			rv = go.raftpb_ConfChangeSingle(handle=_smr.Slice_raftpb_ConfChangeSingle_elem(self.handle, self.index))
 			self.index = self.index + 1
 			return rv
 		raise StopIteration
@@ -198,7 +198,7 @@ class Slice_raftpb_Entry(go.GoClass):
 		return self
 	def __next__(self):
 		if self.index < len(self):
-			rv = _smr.Slice_raftpb_Entry_elem(self.handle, self.index)
+			rv = go.raftpb_Entry(handle=_smr.Slice_raftpb_Entry_elem(self.handle, self.index))
 			self.index = self.index + 1
 			return rv
 		raise StopIteration
@@ -281,7 +281,7 @@ class Slice_walpb_Snapshot(go.GoClass):
 		return self
 	def __next__(self):
 		if self.index < len(self):
-			rv = _smr.Slice_walpb_Snapshot_elem(self.handle, self.index)
+			rv = go.walpb_Snapshot(handle=_smr.Slice_walpb_Snapshot_elem(self.handle, self.index))
 			self.index = self.index + 1
 			return rv
 		raise StopIteration
@@ -341,6 +341,28 @@ def Set_ProposalDeadline(value):
 
 
 # ---- Interfaces ---
+
+# Python type for interface smr.WriteCloser
+class WriteCloser(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_WriteCloser_Close(self.handle)
+	def Write(self, p):
+		"""Write(object p) object"""
+		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
 
 # Python type for interface smr.LogSnapshotter
 class LogSnapshotter(go.GoClass):
@@ -417,150 +439,8 @@ class ReadCloser(go.GoClass):
 		"""Read(object p) object"""
 		return IntRet(handle=_smr.smr_ReadCloser_Read(self.handle, p.handle))
 
-# Python type for interface smr.WriteCloser
-class WriteCloser(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Close(self):
-		"""Close() str"""
-		return _smr.smr_WriteCloser_Close(self.handle)
-	def Write(self, p):
-		"""Write(object p) object"""
-		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
-
 
 # ---- Structs ---
-
-# Python type for struct smr.Bytes
-class Bytes(go.GoClass):
-	"""Wrapper of python bytes for buffered stream.\n"""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_Bytes_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.Bytes{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.Bytes ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def Bytes(self):
-		"""Bytes() []int
-		
-		Return the underlying byte slice as buffer.
-		"""
-		return go.Slice_byte(handle=_smr.smr_Bytes_Bytes(self.handle))
-	def Len(self):
-		"""Len() int
-		
-		Get the length of the underlying byte slice.
-		"""
-		return _smr.smr_Bytes_Len(self.handle)
-
-# Python type for struct smr.IntRet
-class IntRet(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_IntRet_CTor()
-			_smr.IncRef(self.handle)
-			if  0 < len(args):
-				self.N = args[0]
-			if "N" in kwargs:
-				self.N = kwargs["N"]
-			if  1 < len(args):
-				self.Err = args[1]
-			if "Err" in kwargs:
-				self.Err = kwargs["Err"]
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.IntRet{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.IntRet ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	@property
-	def N(self):
-		return _smr.smr_IntRet_N_Get(self.handle)
-	@N.setter
-	def N(self, value):
-		if isinstance(value, go.GoClass):
-			_smr.smr_IntRet_N_Set(self.handle, value.handle)
-		else:
-			_smr.smr_IntRet_N_Set(self.handle, value)
-	@property
-	def Err(self):
-		return _smr.smr_IntRet_Err_Get(self.handle)
-	@Err.setter
-	def Err(self, value):
-		if isinstance(value, go.GoClass):
-			_smr.smr_IntRet_Err_Set(self.handle, value.handle)
-		else:
-			_smr.smr_IntRet_Err_Set(self.handle, value)
 
 # Python type for struct smr.LogNode
 class LogNode(go.GoClass):
@@ -808,6 +688,126 @@ class SMRContext(go.context_Context):
 		"""Cancel() """
 		_smr.smr_SMRContext_Cancel(self.handle, goRun)
 
+# Python type for struct smr.Bytes
+class Bytes(go.GoClass):
+	"""Wrapper of python bytes for buffered stream.\n"""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_Bytes_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.Bytes{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.Bytes ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def Bytes(self):
+		"""Bytes() []int
+		
+		Return the underlying byte slice as buffer.
+		"""
+		return go.Slice_byte(handle=_smr.smr_Bytes_Bytes(self.handle))
+	def Len(self):
+		"""Len() int
+		
+		Get the length of the underlying byte slice.
+		"""
+		return _smr.smr_Bytes_Len(self.handle)
+
+# Python type for struct smr.IntRet
+class IntRet(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_IntRet_CTor()
+			_smr.IncRef(self.handle)
+			if  0 < len(args):
+				self.N = args[0]
+			if "N" in kwargs:
+				self.N = kwargs["N"]
+			if  1 < len(args):
+				self.Err = args[1]
+			if "Err" in kwargs:
+				self.Err = kwargs["Err"]
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.IntRet{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.IntRet ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	@property
+	def N(self):
+		return _smr.smr_IntRet_N_Get(self.handle)
+	@N.setter
+	def N(self, value):
+		if isinstance(value, go.GoClass):
+			_smr.smr_IntRet_N_Set(self.handle, value.handle)
+		else:
+			_smr.smr_IntRet_N_Set(self.handle, value)
+	@property
+	def Err(self):
+		return _smr.smr_IntRet_Err_Get(self.handle)
+	@Err.setter
+	def Err(self, value):
+		if isinstance(value, go.GoClass):
+			_smr.smr_IntRet_Err_Set(self.handle, value.handle)
+		else:
+			_smr.smr_IntRet_Err_Set(self.handle, value)
+
 
 # ---- Slices ---
 
@@ -836,6 +836,9 @@ def NewConfig():
 
 
 # ---- Functions ---
+def CreateBytes(len):
+	"""CreateBytes(int len) []int"""
+	return go.Slice_byte(handle=_smr.smr_CreateBytes(len))
 def PrintTestMessage(goRun=False):
 	"""PrintTestMessage() """
 	_smr.smr_PrintTestMessage(goRun)

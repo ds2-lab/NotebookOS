@@ -10,8 +10,8 @@ LIBEXT=.so
 
 # get the CC and flags used to build python:
 GCC = $(shell $(GOCMD) env CC)
-CFLAGS = -I/usr/include/python3.10
-LDFLAGS = -L/usr/lib/x86_64-linux-gnu -lpython3.10 -lcrypt -ldl  -lm -lm
+CFLAGS = "-I/usr/include/python3.10"
+LDFLAGS = "-L/usr/lib/x86_64-linux-gnu" "-lpython3.10" -lcrypt -ldl  -lm -lm
 
 all: gen build
 

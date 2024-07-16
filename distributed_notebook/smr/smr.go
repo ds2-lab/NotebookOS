@@ -8,8 +8,8 @@ package main
 
 /*
 
-#cgo CFLAGS: -I/usr/include/python3.10 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion
-#cgo LDFLAGS: -L/usr/lib/x86_64-linux-gnu -lpython3.10 -lcrypt -ldl  -lm -lm
+#cgo CFLAGS: "-I/usr/include/python3.10" -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion
+#cgo LDFLAGS: "-L/usr/lib/x86_64-linux-gnu" "-lpython3.10" -lcrypt -ldl  -lm -lm
 
 // #define Py_LIMITED_API // need full API for PyRun*
 #include <Python.h>
@@ -50,10 +50,11 @@ static inline void gopy_err_handle() {
 */
 import "C"
 import (
+	"errors"
 	"fmt"
 	"reflect"
 
-	"github.com/zhangjyr/gopy/gopyh" // handler
+	"github.com/scusemua/gopy/gopyh" // handler
 
 	"context"
 	"time"
@@ -138,6 +139,14 @@ func complex128GoToPy(c complex128) *C.PyObject {
 func complex128PyToGo(o *C.PyObject) complex128 {
 	v := C.PyComplex_AsCComplex(o)
 	return complex(float64(v.real), float64(v.imag))
+}
+
+// errorGoToPy converts a Go error to python-compatible C.CString
+func errorGoToPy(e error) *C.char {
+	if e != nil {
+		return C.CString(e.Error())
+	}
+	return C.CString("")
 }
 
 // --- generated code for package: smr below: ---
@@ -486,6 +495,80 @@ func Slice_byte_set(handle CGoHandle, _idx int, _vl C.char) {
 func Slice_byte_append(handle CGoHandle, _vl C.char) {
 	s := ptrFromHandle_Slice_byte(handle)
 	*s = append(*s, byte(_vl))
+}
+
+//export Slice_byte_from_bytes
+func Slice_byte_from_bytes(o *C.PyObject) CGoHandle {
+	size := C.PyBytes_Size(o)
+	ptr := unsafe.Pointer(C.PyBytes_AsString(o))
+	data := make([]byte, size)
+	tmp := unsafe.Slice((*byte)(ptr), size)
+	copy(data, tmp)
+	return handleFromPtr_Slice_byte(&data)
+}
+
+//export Slice_byte_to_bytes
+func Slice_byte_to_bytes(handle CGoHandle) *C.PyObject {
+	s := deptrFromHandle_Slice_byte(handle)
+	ptr := unsafe.Pointer(&s[0])
+	size := len(s)
+	return C.PyBytes_FromStringAndSize((*C.char)(ptr), C.long(size))
+}
+
+// Converters for implicit pointer handles for type: []error
+func ptrFromHandle_Slice_error(h CGoHandle) *[]error {
+	p := gopyh.VarFromHandle((gopyh.CGoHandle)(h), "[]error")
+	if p == nil {
+		return nil
+	}
+	return p.(*[]error)
+}
+func deptrFromHandle_Slice_error(h CGoHandle) []error {
+	p := ptrFromHandle_Slice_error(h)
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+func handleFromPtr_Slice_error(p interface{}) CGoHandle {
+	return CGoHandle(gopyh.Register("[]error", p))
+}
+
+// --- wrapping slice: []error ---
+//
+//export Slice_error_CTor
+func Slice_error_CTor() CGoHandle {
+	return CGoHandle(handleFromPtr_Slice_error(&[]error{}))
+}
+
+//export Slice_error_len
+func Slice_error_len(handle CGoHandle) int {
+	return len(deptrFromHandle_Slice_error(handle))
+}
+
+//export Slice_error_elem
+func Slice_error_elem(handle CGoHandle, _idx int) *C.char {
+	s := deptrFromHandle_Slice_error(handle)
+	return errorGoToPy(s[_idx])
+}
+
+//export Slice_error_subslice
+func Slice_error_subslice(handle CGoHandle, _st, _ed int) CGoHandle {
+	s := deptrFromHandle_Slice_error(handle)
+	ss := s[_st:_ed]
+	return CGoHandle(handleFromPtr_Slice_error(&ss))
+}
+
+//export Slice_error_set
+func Slice_error_set(handle CGoHandle, _idx int, _vl *C.char) {
+	s := deptrFromHandle_Slice_error(handle)
+	s[_idx] = errors.New(C.GoString(_vl))
+}
+
+//export Slice_error_append
+func Slice_error_append(handle CGoHandle, _vl *C.char) {
+	s := ptrFromHandle_Slice_error(handle)
+	*s = append(*s, errors.New(C.GoString(_vl)))
 }
 
 // Converters for implicit pointer handles for type: []float32
@@ -1636,14 +1719,40 @@ func smr_Set_ProposalDeadline(val C.longlong) {
 
 // ---- Interfaces ---
 
+//export smr_WriteCloser_Close
+func smr_WriteCloser_Close(_handle CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
+	if __err != nil {
+		return C.CString("")
+	}
+	return C.CString(vifc.(smr.WriteCloser).Close())
+
+}
+
+//export smr_WriteCloser_Write
+func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_IntRet(nil)
+	}
+	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.WriteCloser).Write(*ptrFromHandle_smr_Bytes(p)))
+
+}
+
 //export smr_LogSnapshotter_Load
 func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
 	if __err != nil {
 		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
 	}
 	cret, __err := vifc.(smr.LogSnapshotter).Load()
 
+	C.PyEval_RestoreThread(_saved_thread)
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
@@ -1655,12 +1764,14 @@ func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
 
 //export smr_LogSnapshotter_LoadNewestAvailable
 func smr_LogSnapshotter_LoadNewestAvailable(_handle CGoHandle, arg_0 CGoHandle) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
 	if __err != nil {
 		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
 	}
 	cret, __err := vifc.(smr.LogSnapshotter).LoadNewestAvailable(deptrFromHandle_Slice_walpb_Snapshot(arg_0))
 
+	C.PyEval_RestoreThread(_saved_thread)
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
@@ -1672,12 +1783,14 @@ func smr_LogSnapshotter_LoadNewestAvailable(_handle CGoHandle, arg_0 CGoHandle) 
 
 //export smr_LogSnapshotter_SaveSnap
 func smr_LogSnapshotter_SaveSnap(_handle CGoHandle, arg_0 CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
 	if __err != nil {
-		return C.CString("")
+		return errorGoToPy(nil)
 	}
 	__err = vifc.(smr.LogSnapshotter).SaveSnap(*ptrFromHandle_raftpb_Snapshot(arg_0))
 
+	C.PyEval_RestoreThread(_saved_thread)
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
@@ -1688,12 +1801,14 @@ func smr_LogSnapshotter_SaveSnap(_handle CGoHandle, arg_0 CGoHandle) *C.char {
 
 //export smr_LogStorage_Close
 func smr_LogStorage_Close(_handle CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
 	if __err != nil {
-		return C.CString("")
+		return errorGoToPy(nil)
 	}
 	__err = vifc.(smr.LogStorage).Close()
 
+	C.PyEval_RestoreThread(_saved_thread)
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
@@ -1704,12 +1819,14 @@ func smr_LogStorage_Close(_handle CGoHandle) *C.char {
 
 //export smr_LogStorage_ReleaseLockTo
 func smr_LogStorage_ReleaseLockTo(_handle CGoHandle, arg_0 C.ulonglong) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
 	if __err != nil {
-		return C.CString("")
+		return errorGoToPy(nil)
 	}
 	__err = vifc.(smr.LogStorage).ReleaseLockTo(uint64(arg_0))
 
+	C.PyEval_RestoreThread(_saved_thread)
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
@@ -1720,12 +1837,14 @@ func smr_LogStorage_ReleaseLockTo(_handle CGoHandle, arg_0 C.ulonglong) *C.char 
 
 //export smr_LogStorage_Save
 func smr_LogStorage_Save(_handle CGoHandle, arg_0 CGoHandle, arg_1 CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
 	if __err != nil {
-		return C.CString("")
+		return errorGoToPy(nil)
 	}
 	__err = vifc.(smr.LogStorage).Save(*ptrFromHandle_raftpb_HardState(arg_0), deptrFromHandle_Slice_raftpb_Entry(arg_1))
 
+	C.PyEval_RestoreThread(_saved_thread)
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
@@ -1736,6 +1855,8 @@ func smr_LogStorage_Save(_handle CGoHandle, arg_0 CGoHandle, arg_1 CGoHandle) *C
 
 //export smr_LogStorage_SaveSnapshot
 func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.char) {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
 	if __err != nil {
 		return
@@ -1749,6 +1870,8 @@ func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.cha
 
 //export smr_ReadCloser_Close
 func smr_ReadCloser_Close(_handle CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
 	if __err != nil {
 		return C.CString("")
@@ -1759,6 +1882,8 @@ func smr_ReadCloser_Close(_handle CGoHandle) *C.char {
 
 //export smr_ReadCloser_Read
 func smr_ReadCloser_Read(_handle CGoHandle, p CGoHandle) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
 	if __err != nil {
 		return handleFromPtr_Ptr_smr_IntRet(nil)
@@ -1767,86 +1892,7 @@ func smr_ReadCloser_Read(_handle CGoHandle, p CGoHandle) CGoHandle {
 
 }
 
-//export smr_WriteCloser_Close
-func smr_WriteCloser_Close(_handle CGoHandle) *C.char {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
-	if __err != nil {
-		return C.CString("")
-	}
-	return C.CString(vifc.(smr.WriteCloser).Close())
-
-}
-
-//export smr_WriteCloser_Write
-func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_IntRet(nil)
-	}
-	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.WriteCloser).Write(*ptrFromHandle_smr_Bytes(p)))
-
-}
-
 // ---- Structs ---
-
-// --- wrapping struct: smr.Bytes ---
-//
-//export smr_Bytes_CTor
-func smr_Bytes_CTor() CGoHandle {
-	return CGoHandle(handleFromPtr_smr_Bytes(&smr.Bytes{}))
-}
-
-//export smr_Bytes_Bytes
-func smr_Bytes_Bytes(_handle CGoHandle) CGoHandle {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
-	if __err != nil {
-		return handleFromPtr_Slice_byte(nil)
-	}
-	cret := gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Bytes()
-
-	return handleFromPtr_Slice_byte(&cret)
-}
-
-//export smr_Bytes_Len
-func smr_Bytes_Len(_handle CGoHandle) C.longlong {
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
-	if __err != nil {
-		return C.longlong(0)
-	}
-	return C.longlong(gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Len())
-
-}
-
-// --- wrapping struct: smr.IntRet ---
-//
-//export smr_IntRet_CTor
-func smr_IntRet_CTor() CGoHandle {
-	return CGoHandle(handleFromPtr_smr_IntRet(&smr.IntRet{}))
-}
-
-//export smr_IntRet_N_Get
-func smr_IntRet_N_Get(handle CGoHandle) C.longlong {
-	op := ptrFromHandle_smr_IntRet(handle)
-	return C.longlong(op.N)
-}
-
-//export smr_IntRet_N_Set
-func smr_IntRet_N_Set(handle CGoHandle, val C.longlong) {
-	op := ptrFromHandle_smr_IntRet(handle)
-	op.N = int(val)
-}
-
-//export smr_IntRet_Err_Get
-func smr_IntRet_Err_Get(handle CGoHandle) *C.char {
-	op := ptrFromHandle_smr_IntRet(handle)
-	return C.CString(op.Err)
-}
-
-//export smr_IntRet_Err_Set
-func smr_IntRet_Err_Set(handle CGoHandle, val *C.char) {
-	op := ptrFromHandle_smr_IntRet(handle)
-	op.Err = C.GoString(val)
-}
 
 // --- wrapping struct: smr.LogNode ---
 //
@@ -1857,6 +1903,8 @@ func smr_LogNode_CTor() CGoHandle {
 
 //export smr_LogNode_ServeHttpDebug
 func smr_LogNode_ServeHttpDebug(_handle CGoHandle, goRun C.char) {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return
@@ -1870,6 +1918,8 @@ func smr_LogNode_ServeHttpDebug(_handle CGoHandle, goRun C.char) {
 
 //export smr_LogNode_ConnectedToHDFS
 func smr_LogNode_ConnectedToHDFS(_handle CGoHandle) C.char {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return boolGoToPy(false)
@@ -1880,6 +1930,8 @@ func smr_LogNode_ConnectedToHDFS(_handle CGoHandle) C.char {
 
 //export smr_LogNode_NumChanges
 func smr_LogNode_NumChanges(_handle CGoHandle) C.longlong {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return C.longlong(0)
@@ -1890,6 +1942,8 @@ func smr_LogNode_NumChanges(_handle CGoHandle) C.longlong {
 
 //export smr_LogNode_Start
 func smr_LogNode_Start(_handle CGoHandle, config CGoHandle) C.char {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return boolGoToPy(false)
@@ -1900,6 +1954,8 @@ func smr_LogNode_Start(_handle CGoHandle, config CGoHandle) C.char {
 
 //export smr_LogNode_StartAndWait
 func smr_LogNode_StartAndWait(_handle CGoHandle, config CGoHandle, goRun C.char) {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return
@@ -1913,6 +1969,8 @@ func smr_LogNode_StartAndWait(_handle CGoHandle, config CGoHandle, goRun C.char)
 
 //export smr_LogNode_GetSerializedState
 func smr_LogNode_GetSerializedState(_handle CGoHandle) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return handleFromPtr_Slice_byte(nil)
@@ -1925,6 +1983,8 @@ func smr_LogNode_GetSerializedState(_handle CGoHandle) CGoHandle {
 //export smr_LogNode_Propose
 func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, msg *C.char, goRun C.char) {
 	_fun_arg := resolve
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return
@@ -1963,6 +2023,8 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 //export smr_LogNode_AddNode
 func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve *C.PyObject, goRun C.char) {
 	_fun_arg := resolve
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return
@@ -2001,6 +2063,8 @@ func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve
 //export smr_LogNode_RemoveNode
 func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObject, goRun C.char) {
 	_fun_arg := resolve
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return
@@ -2039,6 +2103,8 @@ func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObjec
 //export smr_LogNode_UpdateNode
 func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve *C.PyObject, goRun C.char) {
 	_fun_arg := resolve
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return
@@ -2076,12 +2142,14 @@ func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, reso
 
 //export smr_LogNode_WaitToClose
 func smr_LogNode_WaitToClose(_handle CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
-		return C.CString("")
+		return errorGoToPy(nil)
 	}
 	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WaitToClose()
 
+	C.PyEval_RestoreThread(_saved_thread)
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
@@ -2092,12 +2160,14 @@ func smr_LogNode_WaitToClose(_handle CGoHandle) *C.char {
 
 //export smr_LogNode_Close
 func smr_LogNode_Close(_handle CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
-		return C.CString("")
+		return errorGoToPy(nil)
 	}
 	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Close()
 
+	C.PyEval_RestoreThread(_saved_thread)
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
@@ -2108,12 +2178,14 @@ func smr_LogNode_Close(_handle CGoHandle) *C.char {
 
 //export smr_LogNode_CloseHdfsClient
 func smr_LogNode_CloseHdfsClient(_handle CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
-		return C.CString("")
+		return errorGoToPy(nil)
 	}
 	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).CloseHdfsClient()
 
+	C.PyEval_RestoreThread(_saved_thread)
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
@@ -2125,6 +2197,8 @@ func smr_LogNode_CloseHdfsClient(_handle CGoHandle) *C.char {
 //export smr_LogNode_WriteDataDirectoryToHDFS
 func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state CGoHandle, resolve *C.PyObject, goRun C.char) {
 	_fun_arg := resolve
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return
@@ -2162,12 +2236,14 @@ func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state CG
 
 //export smr_LogNode_Process
 func smr_LogNode_Process(_handle CGoHandle, ctx CGoHandle, m CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
-		return C.CString("")
+		return errorGoToPy(nil)
 	}
 	__err = gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Process(ptrFromHandle_context_Context(ctx), *ptrFromHandle_raftpb_Message(m))
 
+	C.PyEval_RestoreThread(_saved_thread)
 	if __err != nil {
 		estr := C.CString(__err.Error())
 		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
@@ -2178,6 +2254,8 @@ func smr_LogNode_Process(_handle CGoHandle, ctx CGoHandle, m CGoHandle) *C.char 
 
 //export smr_LogNode_IsIDRemoved
 func smr_LogNode_IsIDRemoved(_handle CGoHandle, id C.ulonglong) C.char {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return boolGoToPy(false)
@@ -2188,6 +2266,8 @@ func smr_LogNode_IsIDRemoved(_handle CGoHandle, id C.ulonglong) C.char {
 
 //export smr_LogNode_ReportUnreachable
 func smr_LogNode_ReportUnreachable(_handle CGoHandle, id C.ulonglong, goRun C.char) {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return
@@ -2201,6 +2281,8 @@ func smr_LogNode_ReportUnreachable(_handle CGoHandle, id C.ulonglong, goRun C.ch
 
 //export smr_LogNode_ReportSnapshot
 func smr_LogNode_ReportSnapshot(_handle CGoHandle, id C.ulonglong, status C.longlong, goRun C.char) {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return
@@ -2258,6 +2340,8 @@ func smr_LogNodeConfig_Debug_Set(handle CGoHandle, val C.char) {
 //export smr_LogNodeConfig_WithChangeCallback
 func smr_LogNodeConfig_WithChangeCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
 	_fun_arg := cb
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
 	if __err != nil {
 		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
@@ -2283,6 +2367,8 @@ func smr_LogNodeConfig_WithChangeCallback(_handle CGoHandle, cb *C.PyObject) CGo
 //export smr_LogNodeConfig_WithRestoreCallback
 func smr_LogNodeConfig_WithRestoreCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
 	_fun_arg := cb
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
 	if __err != nil {
 		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
@@ -2307,6 +2393,8 @@ func smr_LogNodeConfig_WithRestoreCallback(_handle CGoHandle, cb *C.PyObject) CG
 //export smr_LogNodeConfig_WithShouldSnapshotCallback
 func smr_LogNodeConfig_WithShouldSnapshotCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
 	_fun_arg := cb
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
 	if __err != nil {
 		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
@@ -2330,6 +2418,8 @@ func smr_LogNodeConfig_WithShouldSnapshotCallback(_handle CGoHandle, cb *C.PyObj
 //export smr_LogNodeConfig_WithSnapshotCallback
 func smr_LogNodeConfig_WithSnapshotCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
 	_fun_arg := cb
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
 	if __err != nil {
 		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
@@ -2352,6 +2442,8 @@ func smr_LogNodeConfig_WithSnapshotCallback(_handle CGoHandle, cb *C.PyObject) C
 
 //export smr_LogNodeConfig_String
 func smr_LogNodeConfig_String(_handle CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
 	if __err != nil {
 		return C.CString("")
@@ -2369,6 +2461,8 @@ func smr_SMRContext_CTor() CGoHandle {
 
 //export smr_SMRContext_ID
 func smr_SMRContext_ID(_handle CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.SMRContext")
 	if __err != nil {
 		return C.CString("")
@@ -2379,6 +2473,8 @@ func smr_SMRContext_ID(_handle CGoHandle) *C.char {
 
 //export smr_SMRContext_Cancel
 func smr_SMRContext_Cancel(_handle CGoHandle, goRun C.char) {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.SMRContext")
 	if __err != nil {
 		return
@@ -2390,6 +2486,69 @@ func smr_SMRContext_Cancel(_handle CGoHandle, goRun C.char) {
 	}
 }
 
+// --- wrapping struct: smr.Bytes ---
+//
+//export smr_Bytes_CTor
+func smr_Bytes_CTor() CGoHandle {
+	return CGoHandle(handleFromPtr_smr_Bytes(&smr.Bytes{}))
+}
+
+//export smr_Bytes_Bytes
+func smr_Bytes_Bytes(_handle CGoHandle) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
+	if __err != nil {
+		return handleFromPtr_Slice_byte(nil)
+	}
+	cret := gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Bytes()
+
+	return handleFromPtr_Slice_byte(&cret)
+}
+
+//export smr_Bytes_Len
+func smr_Bytes_Len(_handle CGoHandle) C.longlong {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
+	if __err != nil {
+		return C.longlong(0)
+	}
+	return C.longlong(gopyh.Embed(vifc, reflect.TypeOf(smr.Bytes{})).(*smr.Bytes).Len())
+
+}
+
+// --- wrapping struct: smr.IntRet ---
+//
+//export smr_IntRet_CTor
+func smr_IntRet_CTor() CGoHandle {
+	return CGoHandle(handleFromPtr_smr_IntRet(&smr.IntRet{}))
+}
+
+//export smr_IntRet_N_Get
+func smr_IntRet_N_Get(handle CGoHandle) C.longlong {
+	op := ptrFromHandle_smr_IntRet(handle)
+	return C.longlong(op.N)
+}
+
+//export smr_IntRet_N_Set
+func smr_IntRet_N_Set(handle CGoHandle, val C.longlong) {
+	op := ptrFromHandle_smr_IntRet(handle)
+	op.N = int(val)
+}
+
+//export smr_IntRet_Err_Get
+func smr_IntRet_Err_Get(handle CGoHandle) *C.char {
+	op := ptrFromHandle_smr_IntRet(handle)
+	return C.CString(op.Err)
+}
+
+//export smr_IntRet_Err_Set
+func smr_IntRet_Err_Set(handle CGoHandle, val *C.char) {
+	op := ptrFromHandle_smr_IntRet(handle)
+	op.Err = C.GoString(val)
+}
+
 // ---- Slices ---
 
 // ---- Maps ---
@@ -2398,20 +2557,35 @@ func smr_SMRContext_Cancel(_handle CGoHandle, goRun C.char) {
 
 //export smr_NewLogNode
 func smr_NewLogNode(store_path *C.char, id C.longlong, hdfsHostname *C.char, hdfs_data_directory *C.char, peerAddresses CGoHandle, peerIDs CGoHandle, join C.char, debug_port C.longlong) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	return handleFromPtr_Ptr_smr_LogNode(smr.NewLogNode(C.GoString(store_path), int(id), C.GoString(hdfsHostname), C.GoString(hdfs_data_directory), deptrFromHandle_Slice_string(peerAddresses), deptrFromHandle_Slice_int(peerIDs), boolPyToGo(join), int(debug_port)))
 
 }
 
 //export smr_NewConfig
 func smr_NewConfig() CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	return handleFromPtr_Ptr_smr_LogNodeConfig(smr.NewConfig())
 
 }
 
 // ---- Functions ---
 
+//export smr_CreateBytes
+func smr_CreateBytes(len C.char) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
+	cret := smr.CreateBytes(byte(len))
+
+	return handleFromPtr_Slice_byte(&cret)
+}
+
 //export smr_PrintTestMessage
 func smr_PrintTestMessage(goRun C.char) {
+	_saved_thread := C.PyEval_SaveThread()
+	defer C.PyEval_RestoreThread(_saved_thread)
 	if boolPyToGo(goRun) {
 		go smr.PrintTestMessage()
 	} else {

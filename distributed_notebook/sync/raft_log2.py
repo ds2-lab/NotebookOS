@@ -7,11 +7,12 @@ import json
 import logging
 import time
 import datetime
+import sys
 
 from collections import OrderedDict
 from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 
-from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser
+from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser, CreateBytes, PrintTestMessage
 from ..smr.go import Slice_string, Slice_int, Slice_byte
 from .log import SyncLog, SynchronizedValue, LeaderElectionVote, LeaderElectionProposal, ElectionProposalKey, KEY_CATCHUP
 from .checkpoint import Checkpoint
@@ -96,11 +97,19 @@ class RaftLog(object):
         self.logger.info("join: %s" % join)
         self.logger.info("debug_port: %d" % debug_port)
 
+        sys.stderr.flush()
+        sys.stdout.flush()
+
         self._log_node = NewLogNode(self._persistent_store_path, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
         if self._log_node == None:
+            self.logger.error("Failed to create LogNode.")
+            sys.stderr.flush()
+            sys.stdout.flush()
             raise RuntimeError("Failed to create LogNode.")
         elif not self._log_node.ConnectedToHDFS():
             self.logger.error("The LogNode failed to connect to HDFS.")
+            sys.stderr.flush()
+            sys.stdout.flush()
             raise RuntimeError("The LogNode failed to connect to HDFS")
         
         self.logger.info(f"Successfully created LogNode {id}.")
@@ -149,10 +158,17 @@ class RaftLog(object):
         # Called by Go (into Python) when a value is committed.
         self._valueCommittedCallback: Callable[[Any, int, str], Any] = self._valueCommitted
         # Called by Go (into Python) when a value is restored (from a checkpoint/backup).
+        # Note: this must not be an awaitable/it must not run on an IO loop.
+        # Because the Go LogNode::Start function is called by Python from within the asyncio IO loop,
+        # the IO loop will be blocked until LogNode::Start returns. We can call Python functions from Go
+        # in this scenario, but only if they are not executed on the io loop. 
         self._valueRestoredCallback: Callable[[Any, int], Any] = self._valueRestored 
 
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
         self._start_loop: Optional[asyncio.AbstractEventLoop] = None
+        
+        sys.stderr.flush()
+        sys.stdout.flush()
 
         # This will just do nothing if there's no serialized state to be loaded.
         self._needs_to_catch_up:bool = self._load_and_apply_serialized_state()
@@ -165,6 +181,9 @@ class RaftLog(object):
             self._catchup_io_loop = asyncio.get_running_loop()
             self._catchup_future = self._catchup_io_loop.create_future() 
             self.logger.debug(f"Created new 'catchup value' with ID={self._catchup_value.id}, timestamp={self._catchup_value._timestamp}, and election term={self._catchup_value.election_term}.")
+
+        sys.stderr.flush()
+        sys.stdout.flush()
 
     def _create_persistent_store_directory(self, path: str):
         """
@@ -179,6 +198,8 @@ class RaftLog(object):
         if self.needs_to_catch_up:
             # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
             self.logger.warn(f"Discarding LeaderElectionVote, as we need to catch-up: {vote}")
+            sys.stderr.flush()
+            sys.stdout.flush()
             return GoNilError() 
         
         assert self._current_election != None 
@@ -212,6 +233,8 @@ class RaftLog(object):
 
         self._ignore_changes = self._ignore_changes + 1
 
+        sys.stderr.flush()
+        sys.stdout.flush()
         return GoNilError()
     
     def _handleProposal(self, proposal: LeaderElectionProposal, received_at: float = 0) -> bytes:
@@ -237,11 +260,15 @@ class RaftLog(object):
             buffered_proposals: List[LeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
             buffered_proposals.append(proposal)
             self._buffered_proposals[proposal.election_term] = buffered_proposals
+            sys.stderr.flush()
+            sys.stdout.flush()
             return GoNilError() 
 
         if self.needs_to_catch_up:
             # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
             self.logger.warn(f"Discarding LeaderElectionProposal, as we need to catch-up: {proposal}")
+            sys.stderr.flush()
+            sys.stdout.flush()
             return GoNilError() 
         
         if self._future_io_loop == None:
@@ -293,6 +320,8 @@ class RaftLog(object):
         self._tryPickWinnerToPropose(proposal.election_term) 
 
         self._ignore_changes = self._ignore_changes + 1
+        sys.stderr.flush()
+        sys.stdout.flush()
         return GoNilError() 
     
     def _tryPickWinnerToPropose(self, term_number: int)->bool:
@@ -355,7 +384,7 @@ class RaftLog(object):
                 self._catchup_value = None 
 
                 self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, committedValue)
-        
+
         if isinstance(committedValue, LeaderElectionVote):
             return self._handleVote(committedValue, received_at = received_at)
         elif isinstance(committedValue, LeaderElectionProposal):
@@ -363,6 +392,8 @@ class RaftLog(object):
 
         # Skip state updates from current node.
         if value_id != "":
+            sys.stderr.flush()
+            sys.stdout.flush()
             return GoNilError()
         
         if committedValue.election_term < self._leader_term:
@@ -383,6 +414,9 @@ class RaftLog(object):
             self.logger.error(f"Failed to handle changed value because: {ex}")
             print_trace(limit = 10)
             raise ex 
+
+        sys.stderr.flush()
+        sys.stdout.flush()
 
         return GoNilError()
 
@@ -457,19 +491,78 @@ class RaftLog(object):
             (bool) True if serialized state was loaded, indicating that this replica was started after an eviction/migration.
                If no serialized state was loaded, then this simply returns False. 
         """
-        serialized_state_bytes:bytes = bytes(self._log_node.GetSerializedState()) # Convert the Go bytes (Slice_byte) to Python bytes.
+        self.logger.debug("Loading and applying serialized state. First, retrieving serialized state from LogNode.")
+
+        # PrintTestMessage()
+
+        # a = bytes([0, 1, 2, 3])
+        # self.logger.debug(f"Python bytes: {a}")
+        # sys.stderr.flush()
+        # sys.stdout.flush()
+        # b = CreateBytes(10)
+        # self.logger.debug(f"Go slice: {b}")
+        # sys.stderr.flush()
+        # sys.stdout.flush()
+        # c = CreateBytes(0)
+        # self.logger.debug(f"Go slice: {c}")
+        # sys.stderr.flush()
+        # sys.stdout.flush()
+
+        # self.logger.debug(f"Python bytes to Go: {Slice_byte.from_bytes(a)}")
+        # sys.stderr.flush()
+        # sys.stdout.flush()
+        # self.logger.debug(f"Go bytes to Python ([3,4,5]): {bytes(Slice_byte([3, 4, 5]))}")
+        # sys.stderr.flush()
+        # sys.stdout.flush()
+        # self.logger.debug(f"Go bytes to Python (b): {bytes(b)}")
+        # sys.stderr.flush()
+        # sys.stdout.flush()
+        # self.logger.debug(f"Go bytes to Python (c): {bytes(c)}")
+        # sys.stderr.flush()
+        # sys.stdout.flush()
+    
+        if self._log_node == None:
+            self.logger.error("LogNode is None. Cannot retrieve serialized state.")
+            sys.stderr.flush()
+            sys.stdout.flush()  
+            raise ValueError("LogNode is None while trying to retrieve and apply serialized state")
+
+        val: Slice_byte = self._log_node.GetSerializedState()
+        self.logger.debug(f"Retrieved serialized state from LogNode: {val}")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
+        try:
+            serialized_state_bytes:bytes = bytes(val) # Convert the Go bytes (Slice_byte) to Python bytes.
+        except Exception as ex:
+            self.logger.error(f"Failed to convert Golang Slice_bytes to Python bytes because: {ex}")
+            sys.stderr.flush()
+            sys.stdout.flush()
+            raise ex 
+    
+        print("Successfully converted Golang Slice_bytes to Python bytes.", flush = True)
+        print("Python bytes: ", serialized_state_bytes, flush = True)
         
         if len(serialized_state_bytes) == 0:
             self.logger.debug("No serialized state found. Nothing to load and apply.")
             return False
         
-        data_dict:dict = pickle.loads(serialized_state_bytes) # json.loads(serialized_state_json)
-        if len(data_dict) == 0:
-            self.logger.debug("No serialized state found. Nothing to apply.")
-            return False
+        try:
+            data_dict:dict = pickle.loads(serialized_state_bytes) # json.loads(serialized_state_json)
+            if len(data_dict) == 0:
+                self.logger.debug("No serialized state found. Nothing to apply.")
+                return False
+        except Exception as ex:
+            self.logger.error(f"Failed to unpickle serialized bytes because: {ex}")
+            sys.stderr.flush()
+            sys.stdout.flush()
+            raise ValueError("Invalid serialized state; could not be unpickled.")
         
         for key, entry in data_dict.items():
             self.logger.debug(f"Retrived state \"{key}\": {str(entry)}")
+        
+        sys.stderr.flush()
+        sys.stdout.flush()
         
         # TODO: 
         # There may be some bugs that arrise from these values being somewhat old or outdated, potentially.

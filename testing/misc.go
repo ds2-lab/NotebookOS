@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -203,9 +205,26 @@ func testGRPC() {
 	fmt.Printf("Response: %v\n", resp)
 }
 
-// func main() {
-// 	// testWalkDir()
-// 	// testGRPC()
-// 	// callStartKernel()
-// 	TestZMQ()
-// }
+func test_signal() {
+	sig := make(chan os.Signal, 1)
+
+	signal.Notify(sig)
+
+	go func() {
+		v := <-sig
+
+		fmt.Printf("Received signal: %v\n", v)
+	}()
+
+	for {
+		time.Sleep(time.Millisecond * 250)
+	}
+}
+
+func main() {
+	// testWalkDir()
+	// testGRPC()
+	// callStartKernel()
+	// TestZMQ()
+	test_signal()
+}

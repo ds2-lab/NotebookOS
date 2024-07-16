@@ -113,6 +113,12 @@ func (conf *LogNodeConfig) WithChangeCallback(cb StateValueCallback) *LogNodeCon
 	return conf
 }
 
+// Note: the restore callback should not be run on a Python IO loop.
+// LogNode::Start is called (from Python code --> Go code) on an asyncio IO loop.
+// While going from Python --> Go releases the GIL, the IO loop will still essentially be blocked.
+// So, while we can call back into Python code from Go (from the LogNode::Start method),
+// we must do so "directly", and not by scheduling something to run on an IO loop.
+// (If we schedule something to run on the IO loop, then it will not be executed until we return from LogNode::Start).
 func (conf *LogNodeConfig) WithRestoreCallback(cb StatesValueCallback) *LogNodeConfig {
 	conf.onRestore = cb
 	return conf
@@ -206,6 +212,14 @@ func PrintTestMessage() {
 	fmt.Printf("Aliquam accumsan ut tortor id cursus. Donec tincidunt ullamcorper ligula sed finibus. Maecenas ac turpis a dui placerat eleifend. Aenean suscipit ut turpis sit amet feugiat. Maecenas porta commodo sapien non tempus. Curabitur bibendum fermentum libero vel dapibus. Maecenas vitae tellus in massa aliquet lacinia. Fusce dictum mi tortor, sit amet vestibulum lectus suscipit suscipit. Pellentesque metus nisi, sodales quis semper eu, iaculis at velit.\n")
 }
 
+func CreateBytes(len byte) []byte {
+	res := make([]byte, len)
+	for i := (byte)(0); i < len; i++ {
+		res[i] = i
+	}
+	return res
+}
+
 // NewLogNode initiates a raft instance and returns a committed log entry
 // channel and error channel. Proposals for log updates are sent over the
 // provided the proposal channel. All log entries are replayed over the
@@ -262,7 +276,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		// rest of structure populated after WAL replay
 	}
 
-	fmt.Fprintf(os.Stderr, "Created LogNode struct Creating zap loggers now.\n")
+	// fmt.Fprintf(os.Stderr, "Created LogNode struct Creating zap loggers now.\n")
 
 	logger, err := zap.NewDevelopment()
 	if err != nil {
@@ -277,7 +291,9 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Created LogNode Zap loggers. Parsing store path now (store_path=%s)\n", store_path)
+	// fmt.Fprintf(os.Stderr, "Created LogNode Zap loggers. Parsing store path now (store_path=%s)\n", store_path)
+
+	node.ServeHttpDebug()
 
 	if store_path != "" {
 		node.waldir = path.Join(store_path, fmt.Sprintf("dnlog-%d", id))
@@ -290,11 +306,11 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 		fmt.Printf("LogNode %d Snapshot directory: '%s'\n", id, node.snapdir)
 	}
 
-	fmt.Fprintf(os.Stderr, "Calling patchPropose now.\n")
+	// fmt.Fprintf(os.Stderr, "Calling patchPropose now.\n")
 	testId, _ := node.patchPropose(nil)
 	node.proposalPadding = len(testId)
 
-	fmt.Fprintf(os.Stderr, "Populating list of peers now.\n")
+	// fmt.Fprintf(os.Stderr, "Populating list of peers now.\n")
 	node.peers = make(map[int]string, len(peerAddresses))
 	for i := 0; i < len(peerAddresses); i++ {
 		peer_addr := peerAddresses[i]
@@ -437,8 +453,6 @@ func NewLogNode(store_path string, id int, hdfsHostname string, hdfs_data_direct
 
 	fmt.Fprintf(os.Stderr, "Returning LogNode now.\n")
 
-	node.ServeHttpDebug()
-
 	return node
 }
 
@@ -453,15 +467,15 @@ func (node *LogNode) ServeHttpDebug() {
 
 		log.Printf("Serving debug HTTP server on port %d.\n", node.debug_port)
 
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
-		})
+		// http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// 	w.WriteHeader(http.StatusOK)
+		// 	w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
+		// })
 
-		http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
-		})
+		// http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		// 	w.WriteHeader(http.StatusOK)
+		// 	w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
+		// })
 
 		if err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", node.debug_port), nil); err != nil {
 			fmt.Fprintf(os.Stderr, "[ERROR] Failed to serve HTTP debug server on port %d because: %v\n", node.debug_port, err)
@@ -518,6 +532,7 @@ func (node *LogNode) StartAndWait(config *LogNodeConfig) {
 // This field is populated by ReadDataDirectoryFromHDFS if there is a serialized state file to be read.
 // It is only required during migration/error recovery.
 func (node *LogNode) GetSerializedState() []byte {
+	node.sugaredLogger.Debugf("Returning serialized state of size/length %d.", len(node.serialized_state_bytes))
 	return node.serialized_state_bytes
 }
 
@@ -710,7 +725,7 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 		node.logger.Debug("Snapshots are enabled.")
 		if !fileutil.Exist(node.snapdir) {
 			if err := os.Mkdir(node.snapdir, 0750); err != nil {
-				node.logFatalf("LogNode: cannot create dir for snapshot (%v)", err)
+				node.logFatalf("LogNode: cannot create directory \"%s\" for snapshot because: %v", node.snapdir, err)
 				startErrorChan <- startError{
 					ErrorOccurred: true,
 					Error:         err,

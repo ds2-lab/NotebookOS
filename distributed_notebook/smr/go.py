@@ -219,6 +219,99 @@ class Slice_byte(GoClass):
 		mx = min(len(self), len(src))
 		for i in range(mx):
 			self[i] = src[i]
+	@staticmethod
+	def from_bytes(value):
+		"""Create a Go []byte object from a Python bytes object"""
+		handle = _smr.Slice_byte_from_bytes(value)
+		return Slice_byte(handle=handle)
+	def __bytes__(self):
+		"""Convert the slice to a bytes object."""
+		if len(self) == 0:
+			return bytes()
+		return _smr.Slice_byte_to_bytes(self.handle)
+
+# Python type for slice []error
+class Slice_error(GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameter is a python list that we copy from
+		"""
+		self.index = 0
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.Slice_error_CTor()
+			_smr.IncRef(self.handle)
+			if len(args) > 0:
+				if not isinstance(args[0], _collections_abc.Iterable):
+					raise TypeError('Slice_error.__init__ takes a sequence as argument')
+				for elt in args[0]:
+					self.append(elt)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		s = 'go.Slice_error len: ' + str(len(self)) + ' handle: ' + str(self.handle) + ' ['
+		if len(self) < 120:
+			s += ', '.join(map(str, self)) + ']'
+		return s
+	def __repr__(self):
+		return 'go.Slice_error([' + ', '.join(map(str, self)) + '])'
+	def __len__(self):
+		return _smr.Slice_error_len(self.handle)
+	def __getitem__(self, key):
+		if isinstance(key, slice):
+			if key.step == None or key.step == 1:
+				st = key.start
+				ed = key.stop
+				if st == None:
+					st = 0
+				if ed == None:
+					ed = _smr.Slice_error_len(self.handle)
+				return Slice_error(handle=_smr.Slice_error_subslice(self.handle, st, ed))
+			return [self[ii] for ii in range(*key.indices(len(self)))]
+		elif isinstance(key, int):
+			if key < 0:
+				key += len(self)
+			if key < 0 or key >= len(self):
+				raise IndexError('slice index out of range')
+			return _smr.Slice_error_elem(self.handle, key)
+		else:
+			raise TypeError('slice index invalid type')
+	def __setitem__(self, idx, value):
+		if idx < 0:
+			idx += len(self)
+		if idx < len(self):
+			_smr.Slice_error_set(self.handle, idx, value)
+			return
+		raise IndexError('slice index out of range')
+	def __iadd__(self, value):
+		if not isinstance(value, _collections_abc.Iterable):
+			raise TypeError('Slice_error.__iadd__ takes a sequence as argument')
+		for elt in value:
+			self.append(elt)
+		return self
+	def __iter__(self):
+		self.index = 0
+		return self
+	def __next__(self):
+		if self.index < len(self):
+			rv = _smr.Slice_error_elem(self.handle, self.index)
+			self.index = self.index + 1
+			return rv
+		raise StopIteration
+	def append(self, value):
+		_smr.Slice_error_append(self.handle, value)
+	def copy(self, src):
+		""" copy emulates the go copy function, copying elements into this list from source list, up to min of size of each list """
+		mx = min(len(self), len(src))
+		for i in range(mx):
+			self[i] = src[i]
 
 # Python type for slice []float32
 class Slice_float32(GoClass):
