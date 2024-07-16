@@ -87,7 +87,7 @@ class Synchronizer:
 
     try:
       # self._log.debug("Updating: \"{}\", ended: {}".format(val.key, val.should_end_execution))
-      self._log.debug(f"Updating: {val}")
+      # self._log.debug(f"Updating: {val}")
       existed: Optional[SyncObject] = None
       if val.key == KEY_SYNC_AST:
         existed = self._ast
@@ -104,7 +104,7 @@ class Synchronizer:
       old_main_modules = sys.modules["__main__"]
       sys.modules["__main__"] = self._module
 
-      self._log.debug("restoring {}...".format(val.key))
+      self._log.debug(f"Restoring SynchronizedValue with key=\"{val.key}\": {val}")
       diff = existed.update(val)
       self._log.debug("{}:{}".format(val.key, type(diff)))
 

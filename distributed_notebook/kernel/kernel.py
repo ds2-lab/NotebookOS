@@ -31,11 +31,15 @@ from jupyter_client.jsonutil import extract_dates
 from multiprocessing import Process, Queue
 
 def sigabrt_handler(sig, frame):
-    print(f'Received SIGABORT handler: {sig} {frame}')
+    print(f'Received SIGABORT handler: {sig} {frame}', flush = True)
+    sys.stderr.flush()
+    sys.stdout.flush()
     sys.exit(0)
 
 def sigint_handler(sig, frame):
-    print(f'Received SIGINT handler: {sig} {frame}')
+    print(f'Received SIGINT handler: {sig} {frame}', flush = True)
+    sys.stderr.flush()
+    sys.stdout.flush()
     sys.exit(0)
 
 signal.signal(signal.SIGABRT, sigabrt_handler)
@@ -1075,9 +1079,9 @@ class DistributedKernel(IPythonKernel):
         
         # Step 2: copy the data directory to HDFS
         try:
-            data_dir_path = await self.synclog.write_data_dir_to_hdfs()
+            waldir_path:str = await self.synclog.write_data_dir_to_hdfs()
             self.log.info(
-                "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % data_dir_path)
+                "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % waldir_path)
         except Exception as e:
             self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
                            self.smr_node_id, self.kernel_id, str(e))
@@ -1106,7 +1110,7 @@ class DistributedKernel(IPythonKernel):
 
             # We don't return an error here, though. 
         
-        return {'status': 'ok', "data_directory": data_dir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
+        return {'status': 'ok', "data_directory": waldir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
 
     async def stop_running_training_code(self, stream, ident, parent):
         """
@@ -1388,9 +1392,12 @@ class DistributedKernel(IPythonKernel):
             
             self.report_error(errorTitle="Failed to Create RaftLog", errorMessage = str(ex))
             
-            # Sleep for 30 seconds to provide plenty of time for the error-report message to be sent before exiting. 
-            await asyncio.sleep(30)
+            # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting. 
+            await asyncio.sleep(10)
             
+            # Terminate.
+            await self.do_shutdown(False)
+
             exit(1)
 
         self.log.debug("Successfully created RaftLog.")

@@ -421,7 +421,7 @@ class RaftLog(object):
         return GoNilError()
 
     def _valueRestored(self, goObject, value_size: int) -> bytes:
-        self.logger.debug(f"Restoring value of size {value_size} now...")
+        self.logger.debug(f"Restoring state of size {value_size} now...")
 
         reader = readCloser(ReadCloser(handle=goObject), value_size)
         unpickler = pickle.Unpickler(reader)
@@ -438,16 +438,20 @@ class RaftLog(object):
         while syncval is not None:
             try:
                 assert self._change_handler != None 
-                self._change_handler(self._load_value(syncval))
+                self.logger.debug("Loading next SynchronizedValue to restore.")
+                value = self._load_value(syncval)
+                self.logger.debug(f"Restoring SynchronizedValue: {value}")
+                self._change_handler(value)
                 restored = restored + 1
 
                 syncval = None
                 syncval = unpickler.load()
             except SyncError as se:
-                self.logger.error("Error on restoreing snapshot: {}".format(se))
+                self.logger.error(f"Error on restoring snapshot: {se}")
                 return GoError(se)
-            except Exception:
-                pass
+            except Exception as ex:
+                self.logger.error(f"Unexpected exception encountered while restoring snapshot: {ex}")
+                return GoError(ex)
 
         self.logger.debug(f"Restored value of size {value_size} bytes: {restored}")
         return GoNilError()
@@ -455,6 +459,7 @@ class RaftLog(object):
     def _load_value(self, val: SynchronizedValue) -> SynchronizedValue:
         """Onload the buffer from the storage server."""
         if type(val.data) is not offloadPath:
+            self.logger.debug("Returning synchronization value directly.")
             return val
 
         should_end_execution = val.should_end_execution
@@ -1116,8 +1121,8 @@ class RaftLog(object):
         
         # Convert the Python bytes (bytes) to Go bytes (Slice_byte).
         self._log_node.WriteDataDirectoryToHDFS(Slice_byte(serialized_state), resolve)
-        data_dir_path = await future.result()
-        return data_dir_path
+        waldir_path:str = await future.result()
+        return waldir_path
 
     async def try_lead_execution(self, term_number: int) -> bool:
         """
