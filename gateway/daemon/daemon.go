@@ -1356,13 +1356,14 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 	updatedReplicas := waitGroup.AddReplica(replicaSpec.ReplicaId, in.KernelIp)
 
 	persistent_id := addReplicaOp.PersistentID()
-	dataDirectory := addReplicaOp.DataDirectory()
+	// dataDirectory := addReplicaOp.DataDirectory()
 	response := &gateway.KernelRegistrationNotificationResponse{
-		Id:            replicaSpec.ReplicaId,
-		Replicas:      updatedReplicas,
-		PersistentId:  &persistent_id,
-		DataDirectory: &dataDirectory,
-		SmrPort:       int32(d.smrPort),
+		Id:                     replicaSpec.ReplicaId,
+		Replicas:               updatedReplicas,
+		PersistentId:           &persistent_id,
+		ShouldReadDataFromHdfs: true,
+		// DataDirectory: &dataDirectory,
+		SmrPort: int32(d.smrPort),
 	}
 
 	d.Unlock()
@@ -1509,12 +1510,13 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 
 	persistentId := kernel.PersistentID()
 	response := &gateway.KernelRegistrationNotificationResponse{
-		Id:            replicaId,
-		Replicas:      waitGroup.GetReplicas(),
-		PersistentId:  &persistentId,
-		ResourceSpec:  kernelSpec.ResourceSpec,
-		DataDirectory: nil,
-		SmrPort:       int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
+		Id:                     replicaId,
+		Replicas:               waitGroup.GetReplicas(),
+		PersistentId:           &persistentId,
+		ResourceSpec:           kernelSpec.ResourceSpec,
+		SmrPort:                int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
+		ShouldReadDataFromHdfs: false,
+		// DataDirectory: nil,
 	}
 
 	d.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d: %v", kernelId, replicaId, response)

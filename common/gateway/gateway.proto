@@ -370,8 +370,9 @@ message KernelRegistrationNotificationResponse {
   map<int32,string> replicas = 2;
   int32 smrPort = 3;
   ResourceSpec resourceSpec = 4;
-  optional string persistentId = 5;
-  optional string dataDirectory = 6;
+  bool shouldReadDataFromHdfs = 5;
+  optional string persistentId = 6;
+  // optional string dataDirectory = 6;
   // int32 dockerKernelDebugPort = 7;
 }
 

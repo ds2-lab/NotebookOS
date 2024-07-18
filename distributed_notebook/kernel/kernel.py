@@ -77,15 +77,15 @@ class CustomFormatter(logging.Formatter):
     red = "\x1b[31;20m"
     bold_red = "\x1b[31;1m"
     reset = "\x1b[0m"
-    format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] "
+    format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] " # type: ignore
     # format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
 
     FORMATS = {
-        logging.DEBUG: grey + format + reset,
-        logging.INFO: grey + format + reset,
-        logging.WARNING: yellow + format + reset,
-        logging.ERROR: red + format + reset,
-        logging.CRITICAL: bold_red + format + reset
+        logging.DEBUG: grey + format + reset, # type: ignore
+        logging.INFO: grey + format + reset, # type: ignore
+        logging.WARNING: yellow + format + reset, # type: ignore
+        logging.ERROR: red + format + reset, # type: ignore
+        logging.CRITICAL: bold_red + format + reset # type: ignore
     }
 
     def format(self, record):
@@ -135,7 +135,7 @@ class DistributedKernel(IPythonKernel):
 
     kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(config=False)
 
-    data_directory: Union[str, Unicode] = Unicode(help="""The etcd-raft WAL/data directory. This will always be equal to the empty string unless we're created during a migration operation.""").tag(config=False)
+    # data_directory: Union[str, Unicode] = Unicode(help="""The etcd-raft WAL/data directory. This will always be equal to the empty string unless we're created during a migration operation.""").tag(config=False)
     
     debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(config=False)
 
@@ -269,7 +269,8 @@ class DistributedKernel(IPythonKernel):
 
         self.persistent_store_cv = asyncio.Condition()
         # Initialize to this. If we're part of a migration operation, then it will be set when we register with the local daemon.
-        self.hdfs_data_directory = ""
+        # self.hdfs_data_directory: str = ""
+        self.should_read_data_from_hdfs: bool = False 
 
         connection_info:dict = {}
         try:
@@ -291,12 +292,12 @@ class DistributedKernel(IPythonKernel):
             self.log.warn("Skipping registration step with local daemon.")
             self.__init_tcp_server()
             self.smr_node_id: int = int(os.environ.get("smr_node_id", "1"))
-            self.hostname: str = os.environ.get("hostname", str(socket.gethostname()))
+            self.hostname = os.environ.get("hostname", str(socket.gethostname()))
             self.num_replicas: int = 1
-            self.persistent_id:str = os.environ.get("persistent_id", str(uuid.uuid4()))
-            self.smr_nodes_map = {1: self.hostname + ":" + str(self.smr_port)}
+            self.persistent_id = os.environ.get("persistent_id", str(uuid.uuid4()))
+            self.smr_nodes_map = {1: str(self.hostname) + ":" + str(self.smr_port)}
             self.persistent_id
-            self.debug_port: int = int(os.environ.get("debug_port", "31000"))
+            self.debug_port = int(os.environ.get("debug_port", "31000"))
             self.start()
         
         # TODO: Remove this after finish debugging the ACK stuff.
@@ -432,10 +433,17 @@ class DistributedKernel(IPythonKernel):
                           response_dict["persistent_id"])
             self.persistent_id = response_dict["persistent_id"]
 
-        if "data_directory" in response_dict:
-            self.log.info("Received path to data directory in HDFS from registration: \"%s\"" %
-                          response_dict["data_directory"])
-            self.hdfs_data_directory = response_dict["data_directory"]
+        self.should_read_data_from_hdfs = response_dict.get("should_read_data_from_hdfs", False)
+
+        if self.should_read_data_from_hdfs:
+            self.log.debug("We SHOULD read data from HDFS.")
+        else:
+            self.log.debug("We should NOT read data from HDFS.")
+
+        # if "data_directory" in response_dict:
+        #     self.log.info("Received path to data directory in HDFS from registration: \"%s\"" %
+        #                   response_dict["data_directory"])
+            # self.hdfs_data_directory = response_dict["data_directory"]
         
         if "debug_port" in response_dict:
             self.debug_port = int(response_dict["debug_port"])
@@ -808,6 +816,7 @@ class DistributedKernel(IPythonKernel):
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
         if not silent:
+            assert self.execution_count != None 
             self.execution_count += 1
             self._publish_execute_input(code, parent, self.execution_count)
 
@@ -981,9 +990,9 @@ class DistributedKernel(IPythonKernel):
             self.execution_ast = None
             self.source = None
             await coro
-
-            self.log.info("Synchronized. End of sync execution {}".format(
-                self.execution_count - 1))
+            
+            assert self.execution_count != None 
+            self.log.info("Synchronized. End of sync execution {}".format(self.execution_count - 1))
             return reply_content
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
@@ -1110,7 +1119,7 @@ class DistributedKernel(IPythonKernel):
 
             # We don't return an error here, though. 
         
-        return {'status': 'ok', "data_directory": waldir_path, "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
+        return {'status': 'ok', "id": self.smr_node_id, "kernel_id": self.kernel_id}, True # "data_directory": waldir_path, 
 
     async def stop_running_training_code(self, stream, ident, parent):
         """
@@ -1377,7 +1386,7 @@ class DistributedKernel(IPythonKernel):
                                    base_path = store,
                                    num_replicas = self.num_replicas,
                                    hdfs_hostname = self.hdfs_namenode_hostname,
-                                   data_directory = self.hdfs_data_directory, 
+                                   should_read_data_from_hdfs = self.should_read_data_from_hdfs, # data_directory = self.hdfs_data_directory, 
                                    peer_addrs = addrs, 
                                    peer_ids = ids, 
                                    join=self.smr_join,

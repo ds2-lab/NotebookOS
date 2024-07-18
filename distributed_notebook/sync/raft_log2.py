@@ -51,7 +51,8 @@ class RaftLog(object):
         id: int,
         base_path: str = "/store", 
         hdfs_hostname: str = "172.17.0.1:9000",
-        data_directory: str = "/storage",
+        # data_directory: str = "/storage",
+        should_read_data_from_hdfs: bool = False,
         peer_addrs: Iterable[str] = [], 
         peer_ids: Iterable[int] = [], 
         num_replicas: int = 3,
@@ -91,7 +92,7 @@ class RaftLog(object):
 
         self.logger.info("persistent store path: %s" % self._persistent_store_path)
         self.logger.info("hdfs_hostname: \"%s\"" % hdfs_hostname)
-        self.logger.info("data_directory: \"%s\"" % data_directory)
+        self.logger.info("should read data from HDFS: \"%s\"" % should_read_data_from_hdfs)
         self.logger.info("peer_addrs: %s" % peer_addrs)
         self.logger.info("peer_ids: %s" % peer_ids)
         self.logger.info("join: %s" % join)
@@ -100,7 +101,7 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        self._log_node = NewLogNode(self._persistent_store_path, id, hdfs_hostname, data_directory, Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
+        self._log_node = NewLogNode(self._persistent_store_path, id, hdfs_hostname, should_read_data_from_hdfs, Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
         if self._log_node == None:
             self.logger.error("Failed to create LogNode.")
             sys.stderr.flush()
@@ -244,17 +245,20 @@ class RaftLog(object):
             proposal (LeaderElectionProposal): the committed proposal.
             received_at (float): the time at which we received this proposal.
         """
-        
-        assert self._current_election != None 
+        # assert self._current_election != None 
 
-        # If we receive a proposal with a larger term number than our current election, then it is possible
+        # If we do not have an election upon receiving a proposal, then we buffer the proposal, as we presumably
+        # haven't received the associated 'execute_request' or 'yield_execute' message, whereas one of our peer
+        # replicas did.
+        #
+        # Likewise, if we receive a proposal with a larger term number than our current election, then it is possible
         # that we simply received the proposal before receiving the associated "execute_request" or "yield_execute" message 
         # that would've prompted us to start the election locally. So, we'll just buffer the proposal for now, and when
         # we receive the "execute_request" or "yield_execute" message, we'll process any buffered proposals at that point.
         #
         # Also, we check this first before checking if we should simply discard the proposal, in case we receive a legitimate, 
         # new execution request early for some reason. This shouldn't happen, but if it does, we can just buffer the request.
-        if proposal.election_term > self._current_election.term_number:
+        if self._current_election == None or proposal.election_term > self._current_election.term_number:
             self.logger.warn(f"")
             # Save the proposal in the "buffered proposals" mapping.
             buffered_proposals: List[LeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
@@ -420,8 +424,44 @@ class RaftLog(object):
 
         return GoNilError()
 
+    def _valueRestored_Old(self, rc, sz) -> bytes:
+        self.logger.debug(f"Restoring: {rc} {sz}")
+
+        reader = readCloser(ReadCloser(handle=rc), sz)
+        unpickler = pickle.Unpickler(reader)
+
+        syncval = None
+        try:
+            syncval = unpickler.load()
+        except Exception:
+            pass
+
+        # Recount _ignore_changes
+        self._ignore_changes = 0
+        restored = 0
+        while syncval is not None:
+            try:
+                assert self._change_handler != None 
+                self._change_handler(self._load_value(syncval))
+                restored = restored + 1
+
+                syncval = None
+                syncval = unpickler.load()
+            except SyncError as se:
+                self.logger.error("Error on restoreing snapshot: {}".format(se))
+                return GoError(se)
+            except Exception:
+                pass
+
+        self.logger.debug("Restored {}".format(restored))
+        return GoNilError()
+
     def _valueRestored(self, goObject, value_size: int) -> bytes:
         self.logger.debug(f"Restoring state of size {value_size} now...")
+
+        # Set of IDs of SynchronizedValues that have been restored.
+        # We use this to monitor for duplicates.
+        restored_sync_values: set[str] = set()
 
         reader = readCloser(ReadCloser(handle=goObject), value_size)
         unpickler = pickle.Unpickler(reader)
@@ -440,14 +480,22 @@ class RaftLog(object):
             self.logger.debug("Loading next SynchronizedValue to restore.")
             try:
                 loaded_value: Optional[SynchronizedValue] = self._load_value(syncval)
-            except SyncError as se:
-                self.logger.error(f"Error while loading SynchronizedValue {syncval}: {se}")
-                return GoError(se)
             except Exception as ex:
                 self.logger.error(f"Unexpected exception encountered while loading SynchronizedValue {syncval}: {ex}")
                 return GoError(ex)
             
-            self.logger.debug(f"Restoring SynchronizedValue: {loaded_value}")
+            if loaded_value.id in restored_sync_values:
+                self.logger.error(f"Found duplicate SynchronizedValue during restoration process: {loaded_value}")
+                self.logger.error("Previously restored SynchronizedValues:")
+                for val in list(restored_sync_values):
+                    self.logger.error(val)
+                
+                # For now, just stop here. I'm not sure why this loops.
+                return GoNilError()
+                # return GoError(ValueError(f"Found duplicate SynchronizedValue during restoration process: {loaded_value}"))
+            else:
+                self.logger.debug(f"Restoring SynchronizedValue: {loaded_value}")
+
             try:
                 self._change_handler(loaded_value)
                 restored = restored + 1
@@ -456,11 +504,20 @@ class RaftLog(object):
                 return GoError(se)
             except Exception as ex:
                 self.logger.error(f"Unexpected exception encountered while restoring SynchronizedValue {loaded_value}: {ex}")
-                return GoError(ex)
+                # return GoError(ex)
+            
+            restored_sync_values.add(loaded_value.id)
 
             syncval = None
             loaded_value = None 
+            self.logger.debug(f"syncval before calling load: {syncval}")
             syncval = unpickler.load()
+            self.logger.debug(f"syncval after calling load: {syncval}")
+
+            if syncval != None:
+                self.logger.debug(f"Read next Synchronized Value from recovery data: {syncval}")
+            else:
+                self.logger.debug(f"Got 'None' from recovery data. We're done processing recovered state.")
 
         self.logger.debug(f"Restored state of size {value_size} bytes. Number of individual values restored: {restored}")
         return GoNilError()

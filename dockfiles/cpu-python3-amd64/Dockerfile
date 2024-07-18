@@ -5,7 +5,8 @@ FROM quay.io/jupyter/base-notebook:latest
 
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
-    JUPYTER_ALLOW_INSECURE_WRITES=1
+    JUPYTER_ALLOW_INSECURE_WRITES=1 \
+    GOTRACEBACK=crash
 
 # Install amd version of pytorch and torchvision
 # RUN python3 -m pip install torch torchvision

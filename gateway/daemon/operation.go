@@ -48,6 +48,13 @@ func NewAddReplicaOperation(client client.DistributedKernelClient, spec *gateway
 	return op
 }
 
+// True if the new replica should read data from HDFS; otherwise, false.
+// I guess, for addReplicaOps, this will always be true?
+// So, maybe this field is unnecessary...
+// func (op *addReplicaOperationImpl) ShouldReadDataFromHdfs() bool {
+// 	return op.shouldReadDataFromHdfs
+// }
+
 // Return the path to etcd-raft data directory in HDFS.
 func (op *addReplicaOperationImpl) DataDirectory() string {
 	return op.dataDirectory

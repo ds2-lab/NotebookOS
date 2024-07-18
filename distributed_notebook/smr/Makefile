@@ -36,3 +36,12 @@ build:
 	
 
 
+include ../env.mk
+
+build-smr-common:
+	@echo "\nBuilding SMR common now!!!"
+	goimports -w *.go
+	go build -mod=mod -buildmode=c-shared -o smr_go.so .
+	@echo "\nRunning build.py file now using \"$(PYTHON3)\""
+	$(PYTHON3) build.py
+	rm smr_go.so

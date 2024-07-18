@@ -1,6 +1,7 @@
 package hashmap
 
 import (
+	"fmt"
 	"log"
 	"reflect"
 
@@ -30,7 +31,8 @@ func (m *CornelkMap[K, V]) Load(key K) (ret V, ok bool) {
 	if v != nil {
 		ret, ok = v.(V)
 		if !ok {
-			log.Fatalf("CornelkMap.Load: type mismatch %v", v)
+			log.Panicf("CornelkMap.Load: type mismatch %v\n", v)
+			panic(fmt.Sprintf("CornelkMap.Load: type mismatch %v\n", v))
 		}
 	}
 	return ret, ok

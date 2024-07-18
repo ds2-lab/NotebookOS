@@ -221,7 +221,8 @@ type AddReplicaOperation interface {
 	ReplicaStartedChannel() chan string                  // Return the channel used to notify that the new Pod has started.
 	ReplicaJoinedSmrChannel() chan struct{}              // Return the channel that is used to notify that the new replica has joined its SMR cluster.
 	ReplicaRegisteredChannel() chan struct{}             // Return the channel that is used to notify that the new replica has registered with the Gateway.
-	DataDirectory() string                               // Return the path to etcd-raft data directory in HDFS.
+	// ShouldReadDataFromHdfs() bool                        // If true, then read data from the waldir and snapdir.
+	// DataDirectory() string                               // Return the path to etcd-raft data directory in HDFS.
 }
 
 // Represents and active, ongoing replica migration operation in which we are migrating a distributed kernel replica from one node to another.

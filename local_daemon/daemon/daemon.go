@@ -512,12 +512,14 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		d.log.Debug("No persistent ID to include in response.")
 	}
 
-	if response.DataDirectory != nil && response.GetDataDirectory() != "" {
-		d.log.Debug("Including data directory \"%s\" in notification response to replica %d of kernel %s.", response.GetDataDirectory(), response.Id, kernel.ID())
-		payload["data_directory"] = response.GetDataDirectory()
-	} else {
-		d.log.Debug("No data directory to include in response.")
-	}
+	payload["should_read_data_from_hdfs"] = response.ShouldReadDataFromHdfs
+
+	// if response.DataDirectory != nil && response.GetDataDirectory() != "" {
+	// 	d.log.Debug("Including data directory \"%s\" in notification response to replica %d of kernel %s.", response.GetDataDirectory(), response.Id, kernel.ID())
+	// 	payload["data_directory"] = response.GetDataDirectory()
+	// } else {
+	// 	d.log.Debug("No data directory to include in response.")
+	// }
 
 	payload_json, err := json.Marshal(payload)
 	if err != nil {
@@ -610,7 +612,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 	msg := &zmq4.Msg{Frames: frames}
 	var requestWG sync.WaitGroup
 	requestWG.Add(1)
-	var dataDirectory string
+	// var dataDirectory string
 
 	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
 		d.log.Debug("Received response from 'prepare-to-migrate' request.")
@@ -641,7 +643,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 			}
 		}
 
-		dataDirectory = respMessage.DataDirectory
+		// dataDirectory = respMessage.DataDirectory
 		if respMessage.Status == "error" {
 			var msgErr jupyter.MessageError
 			frames.DecodeBuffers(&msgErr)
@@ -664,16 +666,16 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 
 	// Because of how requests are handled under the covers, the value of `requestReceived` will necessarily be 1 at this point
 	// if we received a response. This is because the handler is called BEFORE Done() is called on the 'requestWG'.
-	d.log.Debug("Prepare-to-migrate request to replica %d of kernel %s succeeded. Data directory: \"%s\"", replicaId, kernelId, dataDirectory)
-
-	if dataDirectory == "" {
-		d.log.Error("Data directory is still the empty string despite the request completing successfully.")
-	}
+	// d.log.Debug("Prepare-to-migrate request to replica %d of kernel %s succeeded. Data directory: \"%s\"", replicaId, kernelId, dataDirectory)
+	d.log.Debug("Prepare-to-migrate request to replica %d of kernel %s succeeded.", replicaId, kernelId)
+	// if dataDirectory == "" {
+	// 	d.log.Error("Data directory is still the empty string despite the request completing successfully.")
+	// }
 
 	return &gateway.PrepareToMigrateResponse{
 		Id:       replicaId,
 		KernelId: kernelId,
-		DataDir:  dataDirectory,
+		// DataDir:  dataDirectory,
 	}, nil
 }
 
