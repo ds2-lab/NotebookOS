@@ -869,8 +869,12 @@ func (d *ClusterGatewayImpl) SmrNodeAdded(ctx context.Context, replicaInfo *gate
 	return gateway.VOID, nil
 }
 
+// When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
+// we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
+//
+// If we do not reconnect successfully, then this method is called.
 func (d *ClusterGatewayImpl) kernelReconnectionFailed(client client.DistributedKernelClient, kernel client.KernelReplicaClient, msg *zmq4.Msg, reconnectionError error) {
-	_, messageType, err := d.kernelAndTypeFromMsg()
+	_, messageType, err := d.kernelAndTypeFromMsg(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
 		d.log.Error("ZMQ message in question: %v", msg)
@@ -886,8 +890,13 @@ func (d *ClusterGatewayImpl) kernelReconnectionFailed(client client.DistributedK
 	}
 }
 
+// When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
+// we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
+//
+// If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
+// then this method is called.
 func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(client client.DistributedKernelClient, kernel client.KernelReplicaClient, msg *zmq4.Msg, resubmissionError error) {
-	_, messageType, err := d.kernelAndTypeFromMsg()
+	_, messageType, err := d.kernelAndTypeFromMsg(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
 		d.log.Error("ZMQ message in question: %v", msg)
