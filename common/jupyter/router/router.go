@@ -33,6 +33,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ShellPort, Name: fmt.Sprintf("Router-Router-Shell[%s]", name)}
 			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.StdinPort, Name: fmt.Sprintf("Router-Router-Stdin[%s]", name)}
 			s.PrependId = true
+			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages
 			s.Name = fmt.Sprintf("Router-%s", name)
 		}),

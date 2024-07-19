@@ -40,9 +40,9 @@ func NewAddReplicaOperation(client client.DistributedKernelClient, spec *gateway
 		replicaJoinedSMR:         false,
 		replicaRegistered:        false,
 		dataDirectory:            dataDirectory,
-		podStartedChannel:        make(chan string, 1),
-		replicaRegisteredChannel: make(chan struct{}, 1),
-		replicaJoinedSmrChannel:  make(chan struct{}, 1),
+		podStartedChannel:        make(chan string),   // TODO: These were originally buffered. Is it OK if they're not buffered?
+		replicaRegisteredChannel: make(chan struct{}), // TODO: These were originally buffered. Is it OK if they're not buffered?
+		replicaJoinedSmrChannel:  make(chan struct{}), // TODO: These were originally buffered. Is it OK if they're not buffered?
 	}
 
 	return op

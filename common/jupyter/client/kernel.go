@@ -45,10 +45,6 @@ type KernelReplicaClient interface {
 	// The ZMQ socket is subscribed to the specified topic, which should be "" (i.e., the empty string) if no subscription is desired.
 	InitializeIOSub(handler types.MessageHandler, subscriptionTopic string) (*types.Socket, error)
 
-	// Validate validates the kernel connections.
-	// If IOPub has been initialized, it will also validate the IOPub connection and start the IOPub forwarder.
-	Validate() error
-
 	ShellListenPort() int
 
 	IOPubListenPort() int
@@ -198,6 +194,7 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.ShellPort, Name: fmt.Sprintf("K-Dealer-Shell[%s]", spec.Kernel.Id)}
 			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.StdinPort, Name: fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id)}
 			s.Sockets.HB = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.HBPort, Name: fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id)}
+			s.ReconnectOnAckFailure = true
 			s.PrependId = false
 			s.Name = fmt.Sprintf("kernelReplicaClientImpl-%s", spec.Kernel.Id)
 			s.ShouldAckMessages = shouldAckMessages
@@ -379,7 +376,7 @@ func (c *kernelReplicaClientImpl) BindSession(sess string) {
 }
 
 // Validate validates the kernel connections. If IOPub has been initialized, it will also validate the IOPub connection and start the IOPub forwarder.
-func (c *kernelReplicaClientImpl) Validate() error {
+func (c *kernelReplicaClientImpl) Validate(forceReconnect bool) error {
 	if c.status >= types.KernelStatusRunning {
 		return nil
 	}
@@ -419,7 +416,7 @@ func (c *kernelReplicaClientImpl) Validate() error {
 }
 
 func (c *kernelReplicaClientImpl) InitializeShellForwarder(handler core.KernelMessageHandler) (*types.Socket, error) {
-	c.log.Debug("Initializing shell forwarder.")
+	c.log.Debug("Initializing shell forwarder for kernel client.")
 
 	shell := &types.Socket{
 		Socket: zmq4.NewRouter(c.client.Ctx),
@@ -504,14 +501,14 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 	requiresACK := (typ == types.ShellMessage) || (typ == types.ControlMessage)
 
 	// Add timeout if necessary.
-	c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
+	err := c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
 		// Kernel frame is automatically removed.
 		if handler != nil {
 			err = handler(server.(*kernelReplicaClientImpl), typ, msg)
 		}
 		return err
 	}, done, getOption, requiresACK)
-	return nil
+	return err
 }
 
 // Close closes the zmq sockets.

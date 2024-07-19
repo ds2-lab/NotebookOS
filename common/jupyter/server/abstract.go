@@ -118,7 +118,14 @@ type AbstractServer struct {
 	numAcksReceived int
 
 	// Maximum number of send attempts. Default: 5, when a message requires an ACK. Otherwise, 1.
-	maxNumRetries int
+	// If we fail to receive an ACK after sending this many messages, then we'll attempt to reconnect
+	// to the remote entity if `reconnectOnAckFailure` is true.
+	MaxNumRetries int
+
+	// If true, then we'll attempt to reconnect to the remote if we fail to receive an ACK from the remote
+	// after `MaxNumRetries` attempts. Some servers dial while others listen; hence, we have this flag to
+	// configure whether we should attempt to re-dial the remote or not.
+	ReconnectOnAckFailure bool
 
 	// Map from Request ID to a boolean indicating whether the ACK has been received.
 	// So, a value of false means that the request has not yet been received, whereas a value of true means that it has.
@@ -137,7 +144,7 @@ func New(ctx context.Context, info *types.ConnectionInfo, init func(server *Abst
 		CancelCtx:       cancelCtx,
 		Sockets:         &types.JupyterSocket{},
 		numAcksReceived: 0,
-		maxNumRetries:   5,
+		MaxNumRetries:   3,
 		acksReceived:    hashmap.NewSyncMap[string, bool](),
 		ackChannels:     hashmap.NewSyncMap[string, chan struct{}](),
 		// Log:       logger.NilLogger, // To be overwritten by init.
@@ -470,9 +477,9 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		// }
 		msg.Frames, reqId = dest.AddDestFrame(msg.Frames, dest.RequestDestID(), jOffset)
 
-		if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-			// s.Log.Debug("[gid=%d] Added destination '%s' to frames at offset %d. New frames: %v.", goroutineId, dest.RequestDestID(), jOffset, jFrames.String())
-		}
+		// if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
+		// 	s.Log.Debug("[gid=%d] Added destination '%s' to frames at offset %d. New frames: %v.", goroutineId, dest.RequestDestID(), jOffset, jFrames.String())
+		// }
 	}
 
 	jMsg := types.NewJupyterMessage(msg)
@@ -519,14 +526,23 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		}
 	}()
 
-	go func() {
-		if err := s.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, jOffset); err != nil {
-			s.Log.Debug("Error while sending %v message %s: %v", socket.Type, reqId, err)
-			if cancel != nil {
-				cancel()
-			}
+	// go func() {
+	// 	if err := s.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, jOffset); err != nil {
+	// 		s.Log.Debug("Error while sending %v message %s: %v", socket.Type, reqId, err)
+	// 		if cancel != nil {
+	// 			cancel()
+	// 		}
+	// 	}
+	// }()
+
+	if err := s.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, jOffset); err != nil {
+		s.Log.Debug("Error while sending %v message %s: %v", socket.Type, reqId, err)
+		if cancel != nil {
+			cancel()
 		}
-	}()
+
+		return err
+	}
 
 	return nil
 }
@@ -613,7 +629,7 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 	ackChan, _ := s.ackChannels.Load(reqId)
 	if requiresACK {
 		s.acksReceived.Store(reqId, false)
-		max_num_tries = s.maxNumRetries
+		max_num_tries = s.MaxNumRetries
 
 		if ackChan == nil {
 			panic(fmt.Sprintf("We need an ACK for %v message %s; however, the ACK channel is nil.", socket.Type, reqId))
@@ -629,18 +645,18 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 			return err
 		}
 
-		if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-			// s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sent %v \"%s\" message with reqID=%v via %s. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d. Message: %v"), goroutineId, socket.Type, req.Header.MsgType, reqId, socket.Name, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries, req)
-		}
+		// if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
+		// 	s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sent %v \"%s\" message with reqID=%v via %s. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d. Message: %v"), goroutineId, socket.Type, req.Header.MsgType, reqId, socket.Name, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries, req)
+		// }
 
 		// If an ACK is required, then we'll block until the ACK is received, or until timing out, at which point we'll try sending the message again.
 		if requiresACK {
 			success := s.waitForAck(ackChan, time.Second*5)
 
 			if success {
-				if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-					// s.Log.Debug(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message %v has successfully been ACK'd on attempt %d/%d."), goroutineId, socket.Type, req.Header.MsgType, reqId, num_tries+1, max_num_tries)
-				}
+				// if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
+				// 	s.Log.Debug(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message %v has successfully been ACK'd on attempt %d/%d."), goroutineId, socket.Type, req.Header.MsgType, reqId, num_tries+1, max_num_tries)
+				// }
 				return nil
 			} else {
 				s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d."), goroutineId, socket.Name, socket.Addr(), socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries)

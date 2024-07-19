@@ -40,17 +40,17 @@ func init() {
 //
 // Important: this should be called from its own goroutine.
 func createAndStartDebugHttpServer() {
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received HTTP debug connection to '/'")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
-	})
+	// http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// 	log.Printf("Received HTTP debug connection to '/'")
+	// 	w.WriteHeader(http.StatusOK)
+	// 	w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
+	// })
 
-	http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received HTTP debug connection to '/test'")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
-	})
+	// http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+	// 	log.Printf("Received HTTP debug connection to '/test'")
+	// 	w.WriteHeader(http.StatusOK)
+	// 	w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
+	// })
 
 	var address string = fmt.Sprintf(":%d", options.DebugPort)
 	log.Printf("Serving debug HTTP server: %s\n", address)

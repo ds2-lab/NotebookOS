@@ -55,15 +55,15 @@ func ValidateOptions() {
 func createAndStartDebugHttpServer() {
 	log.Printf("Serving debug HTTP server on port %d.\n", options.DebugPort)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
-	})
+	// http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// 	w.WriteHeader(http.StatusOK)
+	// 	w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
+	// })
 
-	http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
-	})
+	// http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+	// 	w.WriteHeader(http.StatusOK)
+	// 	w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
+	// })
 
 	if err := http.ListenAndServe(fmt.Sprintf("localhost:%d", options.DebugPort), nil); err != nil {
 		log.Fatal("ListenAndServe: ", err)
