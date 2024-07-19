@@ -92,6 +92,18 @@ func toCError(err error) string {
 	}
 }
 
+func finalize() {
+	if err := recover(); err != nil {
+		fmt.Printf("Panic/Error: %v\n", err)
+		fmt.Printf("Stacktrace:\n")
+		debug.PrintStack()
+
+		time.Sleep(time.Second * 30)
+
+		panic(err)
+	}
+}
+
 type LogNodeConfig struct {
 	ElectionTick  int
 	HeartbeatTick int
@@ -233,6 +245,7 @@ func CreateBytes(len byte) []byte {
 // hdfs_data_directory is (possibly) the path to the data directory within HDFS, meaning
 // we were migrated and our data directory was written to HDFS so that we could retrieve it.
 func NewLogNode(store_path string, id int, hdfsHostname string, shouldLoadDataFromHdfs bool, peerAddresses []string, peerIDs []int, join bool, httpDebugPort int) *LogNode {
+	defer finalize()
 	fmt.Fprintf(os.Stderr, "Creating a new LogNode.\n")
 
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
@@ -400,6 +413,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, shouldLoadDataFr
 		error_chan := make(chan error)
 		go func(ctx context.Context) {
 			signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+			defer finalize()
 
 			// TODO(Ben): Read the 'serialized state' file as well, and return that data back to the Python layer.
 			serialized_state_bytes, err := node.ReadDataDirectoryFromHDFS(ctx, progress_chan)
@@ -606,9 +620,13 @@ func (node *LogNode) UpdateNode(id int, addr string, resolve ResolveCallback) {
 
 func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, resolve ResolveCallback, msg string) {
 	debug.SetPanicOnFault(true)
+	defer finalize()
 
 	if resolve == nil {
+		node.logger.Debug("No Python callback provided. Using default resolve callback.")
 		resolve = node.defaultResolveCallback
+	} else {
+		node.sugaredLogger.Infof("Provided Python resolve callback: %v", resolve)
 	}
 
 	node.logger.Info("Proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
@@ -630,6 +648,7 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	}
 	node.logger.Info("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if resolve != nil {
+		node.logger.Debug("Calling `resolve` callback.", zap.Any("resolve-callback", resolve), zap.String("msg", msg))
 		resolve(msg, toCError(nil))
 	}
 }
@@ -723,6 +742,8 @@ func (node *LogNode) close() {
 }
 
 func (node *LogNode) start(startErrorChan chan<- startError) {
+	defer finalize()
+
 	node.sugaredLogger.Debugf("LogNode %d is beginning start procedure now.", node.id)
 	debug.SetPanicOnFault(true)
 
@@ -1467,6 +1488,7 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	// create pipeline and write
 	reader, writer := io.Pipe()
 	go func() {
+		defer finalize()
 		if err := fromCError(node.config.getSnapshot(&writerWrapper{writer: writer})); err != nil {
 			writer.CloseWithError(err)
 		}
@@ -1527,6 +1549,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 
 	// send proposals over raft
 	go func() {
+		defer finalize()
 		confChangeCount := uint64(0)
 
 		// Save local channel variables to avoid closing node channels.
@@ -1567,6 +1590,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 
 	// apply commits to state machine
 	go func() {
+		defer finalize()
 		for {
 			select {
 			case commit := <-node.commitC:
@@ -1658,6 +1682,7 @@ func (node *LogNode) processMessages(ms []raftpb.Message) []raftpb.Message {
 }
 
 func (node *LogNode) serveRaft() {
+	defer finalize()
 	defer close(node.httpdonec)
 
 	url, err := url.Parse(node.peers[node.id])

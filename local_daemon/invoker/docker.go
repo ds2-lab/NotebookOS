@@ -37,22 +37,23 @@ const (
 	KernelSMRPort        = "SMR_PORT"
 	KernelSMRPortDefault = 8080
 
-	DockerKernelName    = "kernel-%s"
-	VarContainerImage   = "{image}"
-	VarConnectionFile   = "{connection_file}"
-	VarContainerName    = "{container_name}"
-	VarContainerNewName = "{container_new_name}"
-	VarContainerNetwork = "{network}"
-	VarStorageVolume    = "{storage}"
-	VarConfigFile       = "{config_file}"
-	VarKernelId         = "{kernel_id}"
-	VarSessionId        = "{session_id}"
-	VarSpecCpu          = "{spec_cpu}"
-	VarSpecMemory       = "{spec_memory}"
-	VarSpecGpu          = "{spec_gpu}"
-	VarDebugPort        = "{kernel_debug_port}"
-	HostMountDir        = "{host_mount_dir}"
-	TargetMountDir      = "{target_mount_dir}"
+	DockerKernelName     = "kernel-%s"
+	VarContainerImage    = "{image}"
+	VarConnectionFile    = "{connection_file}"
+	VarContainerName     = "{container_name}"
+	VarContainerNewName  = "{container_new_name}"
+	VarContainerNetwork  = "{network}"
+	VarStorageVolume     = "{storage}"
+	VarConfigFile        = "{config_file}"
+	VarKernelId          = "{kernel_id}"
+	VarSessionId         = "{session_id}"
+	VarSpecCpu           = "{spec_cpu}"
+	VarSpecMemory        = "{spec_memory}"
+	VarSpecGpu           = "{spec_gpu}"
+	VarDebugPort         = "{kernel_debug_port}"
+	VarKernelDebugPyPort = "{kernel_debugpy_port}"
+	HostMountDir         = "{host_mount_dir}"
+	TargetMountDir       = "{target_mount_dir}"
 )
 
 var (
@@ -61,7 +62,7 @@ var (
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
-	dockerInvokerCmd  = "docker run -d -t --name {container_name} -p {kernel_debug_port}:{kernel_debug_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker --label kernel_id={kernel_id} --label app=distributed_cluster {image}"
+	dockerInvokerCmd  = "docker run -d -t --name {container_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker --label kernel_id={kernel_id} --label app=distributed_cluster {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
 
@@ -195,6 +196,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *gateway.K
 	cmd = strings.ReplaceAll(cmd, VarSpecMemory, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Memory))
 	cmd = strings.ReplaceAll(cmd, VarSpecGpu, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Gpu))
 	cmd = strings.ReplaceAll(cmd, VarDebugPort, fmt.Sprintf("%d", ivk.kernelDebugPort))
+	cmd = strings.ReplaceAll(cmd, VarKernelDebugPyPort, fmt.Sprintf("%d", ivk.kernelDebugPort+1000))
 
 	for i, arg := range spec.Kernel.Argv {
 		spec.Kernel.Argv[i] = strings.ReplaceAll(arg, VarConnectionFile, connectionFile)

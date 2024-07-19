@@ -1673,9 +1673,14 @@ func (d *ClusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelI
 }
 
 func (d *ClusterGatewayImpl) Notify(ctx context.Context, in *gateway.Notification) (*gateway.Void, error) {
-	d.log.Debug(utils.NotificationStyles[in.NotificationType].Render("Received %v notification \"%s\": %s", NotificationTypeNames[in.NotificationType], in.Title, in.Message))
+	d.log.Debug(utils.NotificationStyles[in.NotificationType].Render("Received %v notification \"%s\": %s"), NotificationTypeNames[in.NotificationType], in.Title, in.Message)
 
-	d.notifyDashboard(in.Title, in.Message, jupyter.NotificationType(in.NotificationType))
+	go func() {
+		err := d.notifyDashboard(in.Title, in.Message, jupyter.NotificationType(in.NotificationType))
+		if err != nil {
+			d.log.Error("Failed to notify dashboard of error because: %v", err)
+		}
+	}()
 
 	return gateway.VOID, nil
 }

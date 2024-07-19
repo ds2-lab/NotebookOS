@@ -398,8 +398,13 @@ func (c *kernelReplicaClientImpl) BindSession(sess string) {
 
 // Validate validates the kernel connections. If IOPub has been initialized, it will also validate the IOPub connection and start the IOPub forwarder.
 func (c *kernelReplicaClientImpl) Validate(forceReconnect bool) error {
-	if c.status >= types.KernelStatusRunning {
+	isConnected := c.status >= types.KernelStatusRunning
+	if isConnected && !forceReconnect { /* If we're already connected, then just return, unless `forceReconnect` is true */
 		return nil
+	} else if !isConnected {
+		c.log.Debug("Validating kernel connections for disconnected now.")
+	} else {
+		c.log.Debug("Forcibly revalidating kernel connections now.")
 	}
 	timer := time.NewTimer(0)
 
@@ -410,7 +415,7 @@ func (c *kernelReplicaClientImpl) Validate(forceReconnect bool) error {
 			return types.ErrKernelClosed
 		case <-timer.C:
 			c.mu.Lock()
-			// Wait for heartbeat connection to
+			// Wait for heartbeat connection.
 			if err := c.dial(nil, c.client.Sockets.HB); err != nil {
 				c.client.Log.Warn("Failed to dial heartbeat (%v:%v), retrying...", c.client.Sockets.HB.Addr(), err)
 				timer.Reset(heartbeatInterval)
@@ -419,10 +424,10 @@ func (c *kernelReplicaClientImpl) Validate(forceReconnect bool) error {
 			}
 			c.client.Log.Debug("Heartbeat connected")
 
-			// Dial all other sockets. If IO socket is set previously and has not been dialed
-			// because kernel is not ready, dial it now.
+			// Dial all other sockets.
+			// If IO socket is set previously and has not been dialed because kernel is not ready, then dial it now.
 			if err := c.dial(c.client.Sockets.All[types.HBMessage+1:]...); err != nil {
-				c.client.Log.Warn(err.Error())
+				c.client.Log.Error("Failed to dial at least one socket: %v", err)
 				c.Close()
 				c.status = types.KernelStatusExited
 				c.mu.Unlock()
@@ -541,17 +546,19 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 		// If we reconnect successfully, then we'll try to send it again.
 		// If we still fail to send the message at that point, then we'll just give up (for now).
 		if errors.Is(err, jupyter.ErrNoAck) {
-			c.log.Warn("Connectivity with client for replica %d of kernel %s on associated Local Daemon may have been lost. Will attempt to reconnect and resubmit request.", c.ReplicaID(), c.ID())
+			c.log.Warn("Connectivity with remote kernel client may have been lost. Will attempt to reconnect and resubmit %v message.", typ)
 
 			if validationError := c.Validate(true); validationError != nil {
-				c.log.Error("Failed to reconnect to client for replica %d of kernel %s (running on its associated local daemon) because: %v", c.ReplicaID(), c.ID(), validationError)
+				c.log.Error("Failed to reconnect to remote kernel client because: %v", validationError)
 				c.connectionRevalidationFailedCallback(c, msg, validationError)
 				return errors.Join(err, validationError)
 			}
 
+			c.log.Debug("Successfully reconnected with remote kernel client. Will attempt to resubmit %v message now.", typ)
+
 			secondAttemptErr := sendRequest()
 			if secondAttemptErr != nil {
-				c.log.Error("Failed to send request after successfully revalidating: %v", secondAttemptErr)
+				c.log.Error("Failed to resubmit %v message after successfully reconnecting: %v", typ, secondAttemptErr)
 				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, msg, secondAttemptErr)
 				return errors.Join(err, secondAttemptErr)
 			}

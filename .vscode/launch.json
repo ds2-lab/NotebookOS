@@ -5,20 +5,103 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python Debugger: Remote Attach Jupyter Kernel 33002",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "127.0.0.1",
+                "port": 33002
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ]
+        },
+        {
+            "name": "Python Debugger: Remote Attach Jupyter Kernel 33003",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "127.0.0.1",
+                "port": 33003
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ]
+        },
+        {
+            "name": "Python Debugger: Remote Attach Jupyter Kernel 33004",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "127.0.0.1",
+                "port": 33004
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ]
+        },
+        {
+            "name": "Python Debugger: Remote Attach Jupyter Kernel 33005",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "127.0.0.1",
+                "port": 33005
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ]
+        },
+        {
+            "name": "Python Debugger: Remote Attach Jupyter Kernel 33006",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "127.0.0.1",
+                "port": 33006
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ]
+        },
+        {
             "name": "Launch Cluster Gateway",
             "type": "go",
             "request": "launch",
             "mode": "auto",
             "program": "gateway/gateway.go",
-            "args": ["-yaml", "/home/bcarver2/go/pkg/distributed-notebook/yaml/gateway-daemon.yml", "-debug"]
-        },   
+            "args": [
+                "-yaml",
+                "/home/bcarver2/go/pkg/distributed-notebook/yaml/gateway-daemon.yml",
+                "-debug"
+            ]
+        },
         {
             "name": "Launch LocalDaemon0",
             "type": "go",
             "request": "launch",
             "mode": "auto",
             "program": "local_daemon/scheduler.go",
-            "args": ["-yaml", "/home/bcarver2/go/pkg/distributed-notebook/yaml/local-daemon0.yml", "-debug"]
-        }
+            "args": [
+                "-yaml",
+                "/home/bcarver2/go/pkg/distributed-notebook/yaml/local-daemon0.yml",
+                "-debug"
+            ]
+        },
     ]
 }

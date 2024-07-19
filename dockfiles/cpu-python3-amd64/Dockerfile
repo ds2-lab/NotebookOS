@@ -10,7 +10,7 @@ ENV LANG=C.UTF-8 \
 
 # Install amd version of pytorch and torchvision
 # RUN python3 -m pip install torch torchvision
-RUN python3 -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0
+RUN python3 -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0 debugpy
 
 # Prepare directories to have them owned by the user jovyan
 RUN mkdir -p /home/jovyan/.ipython/profile_default
@@ -58,6 +58,8 @@ RUN cd /distributed_notebook && ./install_kernel.sh
 
 # Copy the modified config file.
 COPY dockfiles/cpu-python3-amd64/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py
+
+EXPOSE 5678
 
 # Switch back to jovyan
 USER jovyan:users

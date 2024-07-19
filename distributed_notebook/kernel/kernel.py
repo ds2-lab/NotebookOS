@@ -11,6 +11,8 @@ import socket
 import traceback
 import time
 import uuid
+import faulthandler
+import debugpy
 
 # from traitlets.traitlets import Set
 
@@ -26,24 +28,33 @@ from threading import Lock
 
 from jupyter_client.jsonutil import extract_dates
 
+# import faulthandler
+
 # from ..smr.smr import PrintTestMessage
 
 from multiprocessing import Process, Queue
 
 def sigabrt_handler(sig, frame):
-    print(f'Received SIGABORT handler: {sig} {frame}', flush = True)
+    print(f'Received SIGABORT (Python): {sig} {frame}', flush = True)
     sys.stderr.flush()
     sys.stdout.flush()
     sys.exit(0)
 
 def sigint_handler(sig, frame):
-    print(f'Received SIGINT handler: {sig} {frame}', flush = True)
+    print(f'Received SIGINT (Python): {sig} {frame}', flush = True)
+    sys.stderr.flush()
+    sys.stdout.flush()
+    sys.exit(0)
+
+def sigterm_handler(sig, frame):
+    print(f'Received SIGINT (Python): {sig} {frame}', flush = True)
     sys.stderr.flush()
     sys.stdout.flush()
     sys.exit(0)
 
 signal.signal(signal.SIGABRT, sigabrt_handler)
 signal.signal(signal.SIGINT, sigint_handler)
+signal.signal(signal.SIGTERM, sigterm_handler)
 
 class ExecutionYieldError(Exception):
     """Exception raised when execution is yielded."""
@@ -161,6 +172,7 @@ class DistributedKernel(IPythonKernel):
     smr_nodes_map: dict
 
     def __init__(self, **kwargs):
+        faulthandler.enable()
         if super().log is not None:
             super().log.setLevel(logging.DEBUG)
         print(f' Kwargs: {kwargs}')
@@ -311,7 +323,9 @@ class DistributedKernel(IPythonKernel):
         self.log.info(f"Local TCP server process has PID={self.local_tcp_server_process.pid}")
 
     # TODO(Ben): Is the existence of this process slowing down the termination process? 
+    # TODO(Ben): Is this actually being used right now?
     def server_process(self, queue: Queue):
+        faulthandler.enable()
         self.log.info(f"[Local TCP Server] Starting. Port: {self.local_tcp_server_port}")
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(('127.0.0.1', self.local_tcp_server_port))
@@ -466,6 +480,15 @@ class DistributedKernel(IPythonKernel):
 
         self.log.info(
             "DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
+        
+        debugpy_port:int = self.debug_port + 1000
+        self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
+        debugpy.listen(("0.0.0.0", debugpy_port))
+        
+        if self.should_read_data_from_hdfs:
+            self.log.debug("Sleeping for 15 seconds to allow for attaching of a debugger.")
+            time.sleep(15)
+            self.log.debug("Done sleeping.")
 
         if self.persistent_id != Undefined and self.persistent_id != "":
             assert isinstance(self.persistent_id, str)

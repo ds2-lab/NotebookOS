@@ -2,7 +2,7 @@ from ipykernel.kernelapp import IPKernelApp
 from . import DistributedKernel
 
 from multiprocessing import Process
-
+import faulthandler
 import sys 
 import os 
 
@@ -10,6 +10,7 @@ def proc():
     # sys.stdout = open(str(os.getpid()) + ".out", "wb", buffering = 0)
     # sys.stderr = open(str(os.getpid()) + "_error.out", "wb", buffering=0)
     print("Driver process has started running.", flush = True)
+    faulthandler.enable()
     IPKernelApp.launch_instance(kernel_class=DistributedKernel)
     
 # def main():
