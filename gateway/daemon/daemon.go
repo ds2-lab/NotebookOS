@@ -873,7 +873,7 @@ func (d *ClusterGatewayImpl) SmrNodeAdded(ctx context.Context, replicaInfo *gate
 // we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
 //
 // If we do not reconnect successfully, then this method is called.
-func (d *ClusterGatewayImpl) kernelReconnectionFailed(client client.DistributedKernelClient, kernel client.KernelReplicaClient, msg *zmq4.Msg, reconnectionError error) {
+func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel client.KernelReplicaClient, msg *zmq4.Msg, reconnectionError error) { /* client client.DistributedKernelClient,  */
 	_, messageType, err := d.kernelAndTypeFromMsg(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
@@ -881,12 +881,12 @@ func (d *ClusterGatewayImpl) kernelReconnectionFailed(client client.DistributedK
 		messageType = "N/A"
 	}
 
-	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), client.ID(), msg.Type, messageType, reconnectionError)
+	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.Type, messageType, reconnectionError)
 	d.log.Error(errorMessage)
 
 	err = d.notifyDashboardOfError("Connection to Kernel Lost & Reconnection Failed", errorMessage)
 	if err != nil {
-		d.log.Error("Failed to notify Cluster Dashboard of connection loss with replica %d of kernel %s: %v", kernel.ReplicaID(), client.ID(), err)
+		d.log.Error("Failed to notify Cluster Dashboard of connection loss with replica %d of kernel %s: %v", kernel.ReplicaID(), kernel.ID(), err)
 	}
 }
 
@@ -895,7 +895,7 @@ func (d *ClusterGatewayImpl) kernelReconnectionFailed(client client.DistributedK
 //
 // If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
 // then this method is called.
-func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(client client.DistributedKernelClient, kernel client.KernelReplicaClient, msg *zmq4.Msg, resubmissionError error) {
+func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(kernel client.KernelReplicaClient, msg *zmq4.Msg, resubmissionError error) { /* client client.DistributedKernelClient, */
 	_, messageType, err := d.kernelAndTypeFromMsg(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
@@ -903,12 +903,12 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(cl
 		messageType = "N/A"
 	}
 
-	errorMessage := fmt.Sprintf("Failed to forward %v \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v", msg.Type, messageType, kernel.ReplicaID(), client.ID(), resubmissionError)
+	errorMessage := fmt.Sprintf("Failed to forward %v \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v", msg.Type, messageType, kernel.ReplicaID(), kernel.ID(), resubmissionError)
 	d.log.Error(errorMessage)
 
 	err = d.notifyDashboardOfError("Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
 	if err != nil {
-		d.log.Error("Failed to notify Cluster Dashboard of request resubmission failure: %v", kernel.ReplicaID(), client.ID(), err)
+		d.log.Error("Failed to notify Cluster Dashboard of request resubmission failure: %v", kernel.ReplicaID(), kernel.ID(), err)
 	}
 }
 
@@ -1222,7 +1222,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 		}
 
 		// Initialize kernel with new context.
-		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.ExecutionFailed, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.ExecutionFailed) /* d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection */
 		d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 		_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {
@@ -1379,7 +1379,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 	addReplicaOp.SetReplicaHostname(in.KernelIp)
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID(), in.HostId, host, true)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID(), in.HostId, host, true, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 	err := replica.Validate(false /* this is a new client */)
 	if err != nil {
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
@@ -1526,7 +1526,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, host, true)
+	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, host, true, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 	d.log.Debug("Validating new kernelReplicaClientImpl for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate(false /* this is a new client */)
 	if err != nil {

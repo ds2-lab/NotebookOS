@@ -34,8 +34,6 @@ var (
 
 // Callback to handle a case where an execution failed because all replicas yielded.
 type ExecutionFailedCallback func(c DistributedKernelClient) error
-type ConnectionRevalidationFailedCallback func(client DistributedKernelClient, replica KernelReplicaClient, msg *zmq4.Msg, err error)
-type ResubmissionAfterSuccessfulRevalidationFailedCallback func(client DistributedKernelClient, replica KernelReplicaClient, msg *zmq4.Msg, err error)
 
 // ReplicaRemover is a function that removes a replica from a kernel.
 // If noop is specified, it is the caller's responsibility to stop the replica.
@@ -195,19 +193,13 @@ type distributedKernelClientImpl struct {
 	// Callback for when execution fails (such as all replicas proposing 'YIELD').
 	executionFailedCallback ExecutionFailedCallback
 
-	// Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
-	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback
-
-	// If we successfully reconnect to a kernel and then fail to send the message again, then we call this.
-	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback
-
 	log     logger.Logger
 	mu      sync.RWMutex
 	closing int32
 	cleaned chan struct{}
 }
 
-func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string, executionFailedCallback ExecutionFailedCallback, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback, resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) DistributedKernelClient {
+func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numReplicas int, connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string, executionFailedCallback ExecutionFailedCallback) DistributedKernelClient {
 	kernel := &distributedKernelClientImpl{
 		id: spec.Id, persistentId: persistentId,
 		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, func(s *server.AbstractServer) {
@@ -219,18 +211,16 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
-		status:                               types.KernelStatusInitializing,
-		spec:                                 spec,
-		replicas:                             make(map[int32]core.KernelReplica, numReplicas), // make([]core.KernelReplica, numReplicas),
-		cleaned:                              make(chan struct{}),
-		connectionInfo:                       connectionInfo,
-		shellListenPort:                      shellListenPort,
-		iopubListenPort:                      iopubListenPort,
-		numActiveAddOperations:               0,
-		executionFailedCallback:              executionFailedCallback,
-		connectionRevalidationFailedCallback: connectionRevalidationFailedCallback,
-		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
-		nextNodeId: int32(numReplicas + 1),
+		status:                  types.KernelStatusInitializing,
+		spec:                    spec,
+		replicas:                make(map[int32]core.KernelReplica, numReplicas), // make([]core.KernelReplica, numReplicas),
+		cleaned:                 make(chan struct{}),
+		connectionInfo:          connectionInfo,
+		shellListenPort:         shellListenPort,
+		iopubListenPort:         iopubListenPort,
+		numActiveAddOperations:  0,
+		executionFailedCallback: executionFailedCallback,
+		nextNodeId:              int32(numReplicas + 1),
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)
@@ -807,34 +797,34 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 
 		wg.Add(1)
 		go func(kernel core.Kernel) {
-			kernelClient := kernel.(*kernelReplicaClientImpl)
+			// kernelClient := kernel.(*kernelReplicaClientImpl)
+			kernel.(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
+			// err := kernelClient.requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
 
-			err := kernelClient.requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
+			// if err != nil {
+			// 	c.log.Warn("Failed to send request to %v: %v", kernel, err)
 
-			if err != nil {
-				c.log.Warn("Failed to send request to %v: %v", kernel, err)
+			// 	// If the error is that we didn't receive any ACKs, then we'll try to reconnect to the kernel.
+			// 	// If we reconnect successfully, then we'll try to send it again.
+			// 	// If we still fail to send the message at that point, then we'll just give up (for now).
+			// 	if errors.Is(err, jupyter.ErrNoAck) {
+			// 		c.log.Warn("Connectivity with client for replica %d of kernel %s on associated Local Daemon may have been lost. Will attempt to reconnect and resubmit request.", kernelClient.ReplicaID(), kernel.ID())
 
-				// If the error is that we didn't receive any ACKs, then we'll try to reconnect to the kernel.
-				// If we reconnect successfully, then we'll try to send it again.
-				// If we still fail to send the message at that point, then we'll just give up (for now).
-				if errors.Is(err, jupyter.ErrNoAck) {
-					c.log.Warn("Connectivity with client for replica %d of kernel %s on associated Local Daemon may have been lost. Will attempt to reconnect and resubmit request.", kernelClient.ReplicaID(), kernel.ID())
+			// 		if validationError := kernel.Validate(true); validationError != nil {
+			// 			c.log.Error("Failed to reconnect to client for replica %d of kernel %s (running on its associated local daemon) because: %v", kernelClient.ReplicaID(), kernel.ID(), validationError)
+			// 			c.connectionRevalidationFailedCallback(c, kernelClient, msg, validationError)
+			// 			return
+			// 		}
 
-					if validationError := kernel.Validate(true); validationError != nil {
-						c.log.Error("Failed to reconnect to client for replica %d of kernel %s (running on its associated local daemon) because: %v", kernelClient.ReplicaID(), kernel.ID(), validationError)
-						c.connectionRevalidationFailedCallback(c, kernelClient, msg, validationError)
-						return
-					}
+			// 		secondAttemptErr := kernelClient.requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
+			// 		if secondAttemptErr != nil {
+			// 			c.log.Error("Failed to send request to %v after successfully revalidating: %v", kernel, secondAttemptErr)
+			// 			c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, kernelClient, msg, secondAttemptErr)
+			// 			return
+			// 		}
+			// 	}
 
-					secondAttemptErr := kernelClient.requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
-					if secondAttemptErr != nil {
-						c.log.Error("Failed to send request to %v after successfully revalidating: %v", kernel, secondAttemptErr)
-						c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, kernelClient, msg, secondAttemptErr)
-						return
-					}
-				}
-
-			}
+			// }
 		}(kernel)
 	}
 	if done != nil {

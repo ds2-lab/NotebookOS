@@ -126,6 +126,19 @@ type KernelReplicaClient interface {
 	HostId() string
 }
 
+// When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
+// we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
+//
+// If we do not reconnect successfully, then this method is called.
+type ConnectionRevalidationFailedCallback func(replica KernelReplicaClient, msg *zmq4.Msg, err error)
+
+// When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
+// we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
+//
+// If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
+// then this method is called.
+type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica KernelReplicaClient, msg *zmq4.Msg, err error)
+
 // Implementation of the KernelReplicaClient interface.
 //
 // All sockets except IOPub are connected on dialing.
@@ -161,6 +174,12 @@ type kernelReplicaClientImpl struct {
 	hostId                    string        // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
 	host                      core.Host     // The host that the kernel replica is running on.
 
+	// Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
+	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback
+
+	// If we successfully reconnect to a kernel and then fail to send the message again, then we call this.
+	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback
+
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback
 	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback
 	// smrNodeRemovedCallback SMRNodeUpdatedNotificationCallback
@@ -171,22 +190,24 @@ type kernelReplicaClientImpl struct {
 
 // NewKernelClient creates a new kernelReplicaClientImpl.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, host core.Host, shouldAckMessages bool) KernelReplicaClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, host core.Host, shouldAckMessages bool, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback, resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) KernelReplicaClient {
 	client := &kernelReplicaClientImpl{
-		id:                        spec.Kernel.Id,
-		persistentId:              persistentId,
-		replicaId:                 spec.ReplicaId,
-		spec:                      spec.Kernel,
-		addSourceKernelFrames:     addSourceKernelFrames,
-		shellListenPort:           shellListenPort,
-		iopubListenPort:           iopubListenPort,
-		kernelPodName:             kernelPodName,
-		kubernetesNodeName:        kubernetesNodeName,
-		smrNodeReadyCallback:      smrNodeReadyCallback,
-		smrNodeAddedCallback:      smrNodeAddedCallback,
-		yieldNextExecutionRequest: false,
-		host:                      host,
-		hostId:                    hostId,
+		id:                                   spec.Kernel.Id,
+		persistentId:                         persistentId,
+		replicaId:                            spec.ReplicaId,
+		spec:                                 spec.Kernel,
+		addSourceKernelFrames:                addSourceKernelFrames,
+		shellListenPort:                      shellListenPort,
+		iopubListenPort:                      iopubListenPort,
+		kernelPodName:                        kernelPodName,
+		kubernetesNodeName:                   kubernetesNodeName,
+		smrNodeReadyCallback:                 smrNodeReadyCallback,
+		smrNodeAddedCallback:                 smrNodeAddedCallback,
+		yieldNextExecutionRequest:            false,
+		host:                                 host,
+		hostId:                               hostId,
+		connectionRevalidationFailedCallback: connectionRevalidationFailedCallback,
+		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
 		// smrNodeRemovedCallback: smrNodeRemovedCallback,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
@@ -500,14 +521,43 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 
 	requiresACK := (typ == types.ShellMessage) || (typ == types.ControlMessage)
 
+	sendRequest := func() error {
+		return c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
+			// Kernel frame is automatically removed.
+			if handler != nil {
+				err = handler(server.(*kernelReplicaClientImpl), typ, msg)
+			}
+			return err
+		}, done, getOption, requiresACK)
+	}
+
 	// Add timeout if necessary.
-	err := c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
-		// Kernel frame is automatically removed.
-		if handler != nil {
-			err = handler(server.(*kernelReplicaClientImpl), typ, msg)
+	err := sendRequest()
+
+	if err != nil {
+		c.log.Warn("Failed to send request because: %v", err)
+
+		// If the error is that we didn't receive any ACKs, then we'll try to reconnect to the kernel.
+		// If we reconnect successfully, then we'll try to send it again.
+		// If we still fail to send the message at that point, then we'll just give up (for now).
+		if errors.Is(err, jupyter.ErrNoAck) {
+			c.log.Warn("Connectivity with client for replica %d of kernel %s on associated Local Daemon may have been lost. Will attempt to reconnect and resubmit request.", c.ReplicaID(), c.ID())
+
+			if validationError := c.Validate(true); validationError != nil {
+				c.log.Error("Failed to reconnect to client for replica %d of kernel %s (running on its associated local daemon) because: %v", c.ReplicaID(), c.ID(), validationError)
+				c.connectionRevalidationFailedCallback(c, msg, validationError)
+				return errors.Join(err, validationError)
+			}
+
+			secondAttemptErr := sendRequest()
+			if secondAttemptErr != nil {
+				c.log.Error("Failed to send request after successfully revalidating: %v", secondAttemptErr)
+				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, msg, secondAttemptErr)
+				return errors.Join(err, secondAttemptErr)
+			}
 		}
-		return err
-	}, done, getOption, requiresACK)
+	}
+
 	return err
 }
 

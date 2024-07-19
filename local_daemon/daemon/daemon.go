@@ -354,7 +354,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint, -1)
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
-		kernel = client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false)
+		kernel = client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 		kernelConnectionInfo, err = d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
 		if err != nil {
@@ -538,6 +538,57 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 
 	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
 	time.Sleep(time.Second * 1)
+}
+
+// When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
+// we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
+//
+// If we do not reconnect successfully, then this method is called.
+func (d *SchedulerDaemonImpl) kernelReconnectionFailed(kernel client.KernelReplicaClient, msg *zmq4.Msg, reconnectionError error) { /* client client.DistributedKernelClient,  */
+	var messageType string = "N/A"
+	_, header, _, err := d.headerFromMsg(msg)
+	if err != nil {
+		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
+		d.log.Error("ZMQ message in question: %v", msg)
+	} else {
+		messageType = header.MsgType
+	}
+
+	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.Type, messageType, reconnectionError)
+	d.log.Error(errorMessage)
+
+	go d.provisioner.Notify(context.TODO(), &gateway.Notification{
+		Title:            "Connection to Kernel Lost & Reconnection Failed",
+		Message:          errorMessage,
+		NotificationType: 0,
+		Panicked:         false,
+	})
+}
+
+// When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
+// we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
+//
+// If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
+// then this method is called.
+func (d *SchedulerDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(kernel client.KernelReplicaClient, msg *zmq4.Msg, resubmissionError error) { /* client client.DistributedKernelClient, */
+	var messageType string = "N/A"
+	_, header, _, err := d.headerFromMsg(msg)
+	if err != nil {
+		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
+		d.log.Error("ZMQ message in question: %v", msg)
+	} else {
+		messageType = header.MsgType
+	}
+
+	errorMessage := fmt.Sprintf("Failed to forward %v \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v", msg.Type, messageType, kernel.ReplicaID(), kernel.ID(), resubmissionError)
+	d.log.Error(errorMessage)
+
+	go d.provisioner.Notify(context.TODO(), &gateway.Notification{
+		Title:            "Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed",
+		Message:          errorMessage,
+		NotificationType: 0,
+		Panicked:         false,
+	})
 }
 
 func (d *SchedulerDaemonImpl) AckHandler(info router.RouterInfo, msg *zmq4.Msg) error {
@@ -956,7 +1007,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 		return nil, err
 	}
 
-	kernel := client.NewKernelClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false)
+	kernel := client.NewKernelClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
