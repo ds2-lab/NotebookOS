@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
@@ -162,17 +163,18 @@ type kernelReplicaClientImpl struct {
 	busyStatus                string
 	lastBStatusMsg            *zmq4.Msg
 	iobroker                  *MessageBroker[core.Kernel, *zmq4.Msg, types.JupyterFrames]
-	shell                     *types.Socket // Listener.
-	iopub                     *types.Socket // Listener.
-	addSourceKernelFrames     bool          // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the kernelReplicaClientImpl's kernel ID.
-	shellListenPort           int           // Port that the kernelReplicaClientImpl::shell socket listens on.
-	iopubListenPort           int           // Port that the kernelReplicaClientImpl::iopub socket listens on.
-	kernelPodName             string        // Name of the Pod housing the associated distributed kernel replica container.
-	kubernetesNodeName        string        // Name of the node that the Pod is running on.
-	ready                     bool          // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
-	yieldNextExecutionRequest bool          // If true, then we will yield the next 'execute_request'.
-	hostId                    string        // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
-	host                      core.Host     // The host that the kernel replica is running on.
+	shell                     *types.Socket         // Listener.
+	iopub                     *types.Socket         // Listener.
+	addSourceKernelFrames     bool                  // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the kernelReplicaClientImpl's kernel ID.
+	shellListenPort           int                   // Port that the kernelReplicaClientImpl::shell socket listens on.
+	iopubListenPort           int                   // Port that the kernelReplicaClientImpl::iopub socket listens on.
+	kernelPodName             string                // Name of the Pod housing the associated distributed kernel replica container.
+	kubernetesNodeName        string                // Name of the node that the Pod is running on.
+	ready                     bool                  // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
+	yieldNextExecutionRequest bool                  // If true, then we will yield the next 'execute_request'.
+	hostId                    string                // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
+	host                      core.Host             // The host that the kernel replica is running on.
+	connectionInfo            *types.ConnectionInfo // Connection information of the remote kernel (or kernel client) whom we're connecting to.
 
 	// Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
 	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback
@@ -206,20 +208,20 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		yieldNextExecutionRequest:            false,
 		host:                                 host,
 		hostId:                               hostId,
+		connectionInfo:                       info,
 		connectionRevalidationFailedCallback: connectionRevalidationFailedCallback,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
-		// smrNodeRemovedCallback: smrNodeRemovedCallback,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
-			s.Sockets.Control = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.ControlPort, Name: fmt.Sprintf("K-Dealer-Ctrl[%s]", spec.Kernel.Id)}
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.ShellPort, Name: fmt.Sprintf("K-Dealer-Shell[%s]", spec.Kernel.Id)}
-			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.StdinPort, Name: fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id)}
-			s.Sockets.HB = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: info.HBPort, Name: fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id)}
+			s.Sockets.Control = types.NewSocket(zmq4.NewDealer(s.Ctx), info.ControlPort, types.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", spec.Kernel.Id))
+			s.Sockets.Shell = types.NewSocket(zmq4.NewDealer(s.Ctx), info.ShellPort, types.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", spec.Kernel.Id))
+			s.Sockets.Stdin = types.NewSocket(zmq4.NewDealer(s.Ctx), info.StdinPort, types.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id))
+			s.Sockets.HB = types.NewSocket(zmq4.NewDealer(s.Ctx), info.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id))
 			s.ReconnectOnAckFailure = true
 			s.PrependId = false
 			s.Name = fmt.Sprintf("kernelReplicaClientImpl-%s", spec.Kernel.Id)
 			s.ShouldAckMessages = shouldAckMessages
-			// s.Sockets.Ack = &types.Socket{Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
+			// s.Sockets.Ack = types.NewSocket(Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
 			// IOPub is lazily initialized for different subclasses.
 			if spec.ReplicaId == 0 {
 				config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Kernel.Id))
@@ -236,6 +238,69 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 	client.log.Debug("Created new Kernel Client with spec %v, connection info %v.", spec, info)
 
 	return client
+}
+
+// Recreate and return the kernel's control socket.
+// This reuses the handler on the existing/previous control socket.
+func (c *kernelReplicaClientImpl) reinitializeControlSocket() *types.Socket {
+	handler := c.closeSocket(types.ControlMessage)
+	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.ControlPort, types.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", c.id), handler)
+	c.client.Sockets.Control = new_socket
+	c.client.Sockets.All[types.ControlMessage] = new_socket
+	return new_socket
+}
+
+// Recreate and return the kernel's shell socket.
+// This reuses the handler on the existing/previous shell socket.
+func (c *kernelReplicaClientImpl) reinitializeShellSocket() *types.Socket {
+	handler := c.closeSocket(types.ShellMessage)
+	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.ShellPort, types.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", c.id), handler)
+	c.client.Sockets.Shell = new_socket
+	c.client.Sockets.All[types.ShellMessage] = new_socket
+	return new_socket
+}
+
+// Recreate and return the kernel's stdin socket.
+// This reuses the handler on the existing/previous stdin socket.
+func (c *kernelReplicaClientImpl) reinitializeStdinSocket() *types.Socket {
+	handler := c.closeSocket(types.StdinMessage)
+	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.StdinPort, types.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", c.id), handler)
+	c.client.Sockets.Stdin = new_socket
+	c.client.Sockets.All[types.StdinMessage] = new_socket
+	return new_socket
+}
+
+// Recreate and return the kernel's heartbeat socket.
+// This reuses the handler on the existing/previous heartbeat socket.
+func (c *kernelReplicaClientImpl) reinitializeHeartbeatSocket() *types.Socket {
+	handler := c.closeSocket(types.HBMessage)
+	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", c.id), handler)
+	c.client.Sockets.HB = new_socket
+	c.client.Sockets.All[types.HBMessage] = new_socket
+	return new_socket
+}
+
+// Close the socket of the specified type, returning the handler set for that socket.
+func (c *kernelReplicaClientImpl) closeSocket(typ types.MessageType) types.MessageHandler {
+	var handler types.MessageHandler
+	if c.client != nil && c.client.Sockets.All[typ] != nil {
+		oldSocket := c.client.Sockets.All[typ]
+		handler = oldSocket.Handler
+
+		if atomic.LoadInt32(&oldSocket.Serving) == 1 {
+			c.log.Debug("Sending 'stop-serving' notification to %s socket.", typ.String())
+			oldSocket.StopServingChan <- struct{}{}
+			c.log.Debug("Sent 'stop-serving' notification to %s socket.", typ.String())
+		}
+
+		err := oldSocket.Close()
+		if err != nil {
+			// Print the error, but that's all. We're recreating the socket anyway.
+			c.log.Warn("Error while closing %s socket: %v", typ.String(), err)
+		}
+	}
+
+	return handler
 }
 
 // This is called when the replica ID is set/changed, so that the logger's prefix reflects the replica ID.
@@ -396,16 +461,62 @@ func (c *kernelReplicaClientImpl) BindSession(sess string) {
 	c.log.Info("Binded session %s to kernel client", sess)
 }
 
-// Validate validates the kernel connections. If IOPub has been initialized, it will also validate the IOPub connection and start the IOPub forwarder.
-func (c *kernelReplicaClientImpl) Validate(forceReconnect bool) error {
-	isConnected := c.status >= types.KernelStatusRunning
-	if isConnected && !forceReconnect { /* If we're already connected, then just return, unless `forceReconnect` is true */
-		return nil
-	} else if !isConnected {
-		c.log.Debug("Validating kernel connections for disconnected now.")
-	} else {
-		c.log.Debug("Forcibly revalidating kernel connections now.")
+// Recreate and redial a particular socket.
+func (c *kernelReplicaClientImpl) ReconnectSocket(typ types.MessageType) error {
+	var socket *types.Socket
+
+	c.log.Debug("Recreating %s socket.", typ.String())
+	switch typ {
+	case types.ControlMessage:
+		{
+			socket = c.reinitializeControlSocket()
+		}
+	case types.ShellMessage:
+		{
+			socket = c.reinitializeShellSocket()
+		}
+	case types.HBMessage:
+		{
+			socket = c.reinitializeStdinSocket()
+		}
+	case types.StdinMessage:
+		{
+			socket = c.reinitializeHeartbeatSocket()
+		}
 	}
+
+	timer := time.NewTimer(0)
+
+	for {
+		select {
+		case <-c.client.Ctx.Done():
+			c.log.Debug("Could not reconnect %s socket; kernel has exited.", typ.String())
+			c.status = types.KernelStatusExited
+			return types.ErrKernelClosed
+		case <-timer.C:
+			c.mu.Lock()
+
+			c.log.Debug("Attempting to reconnect on %s socket.", typ.String())
+			if err := c.dial(socket); err != nil {
+				c.client.Log.Error("Failed to reconnect %v socket: %v", typ, err)
+				c.Close()
+				c.status = types.KernelStatusExited
+				c.mu.Unlock()
+				return err
+			}
+
+			c.mu.Unlock()
+			return nil
+		}
+	}
+}
+
+// Validate validates the kernel connections. If IOPub has been initialized, it will also validate the IOPub connection and start the IOPub forwarder.
+func (c *kernelReplicaClientImpl) Validate() error {
+	if c.status >= types.KernelStatusRunning { /* If we're already connected, then just return, unless `forceReconnect` is true */
+		return nil
+	}
+
 	timer := time.NewTimer(0)
 
 	for {
@@ -444,13 +555,7 @@ func (c *kernelReplicaClientImpl) Validate(forceReconnect bool) error {
 func (c *kernelReplicaClientImpl) InitializeShellForwarder(handler core.KernelMessageHandler) (*types.Socket, error) {
 	c.log.Debug("Initializing shell forwarder for kernel client.")
 
-	shell := &types.Socket{
-		Socket: zmq4.NewRouter(c.client.Ctx),
-		Type:   types.ShellMessage,
-		Port:   c.shellListenPort,
-		Name:   fmt.Sprintf("K-Router-ShellForwrder[%s]", c.id),
-	}
-
+	shell := types.NewSocket(zmq4.NewRouter(c.client.Ctx), c.shellListenPort, types.ShellMessage, fmt.Sprintf("K-Router-ShellForwrder[%s]", c.id))
 	if err := c.client.Listen(shell); err != nil {
 		return nil, err
 	}
@@ -475,12 +580,7 @@ func (c *kernelReplicaClientImpl) InitializeShellForwarder(handler core.KernelMe
 // InitializeIOForwarder initializes the IOPub serving.
 // Returns Pub socket, Sub socket, error.
 func (c *kernelReplicaClientImpl) InitializeIOForwarder() (*types.Socket, error) {
-	iopub := &types.Socket{
-		Socket: zmq4.NewPub(c.client.Ctx),
-		Port:   c.iopubListenPort, // c.client.Meta.IOSubPort,
-		Type:   types.IOMessage,
-		Name:   fmt.Sprintf("K-Pub-IOForwrder[%s]", c.id),
-	}
+	iopub := types.NewSocket(zmq4.NewPub(c.client.Ctx), c.iopubListenPort /* c.client.Meta.IOSubPort */, types.IOMessage, fmt.Sprintf("K-Pub-IOForwrder[%s]", c.id))
 
 	c.log.Debug("Created ZeroMQ PUB socket with port %d.", iopub.Port)
 
@@ -548,10 +648,10 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 		if errors.Is(err, jupyter.ErrNoAck) {
 			c.log.Warn("Connectivity with remote kernel client may have been lost. Will attempt to reconnect and resubmit %v message.", typ)
 
-			if validationError := c.Validate(true); validationError != nil {
-				c.log.Error("Failed to reconnect to remote kernel client because: %v", validationError)
-				c.connectionRevalidationFailedCallback(c, msg, validationError)
-				return errors.Join(err, validationError)
+			if reconnectionError := c.ReconnectSocket(typ); reconnectionError != nil {
+				c.log.Error("Failed to reconnect to remote kernel client because: %v", reconnectionError)
+				c.connectionRevalidationFailedCallback(c, msg, reconnectionError)
+				return errors.Join(err, reconnectionError)
 			}
 
 			c.log.Debug("Successfully reconnected with remote kernel client. Will attempt to resubmit %v message now.", typ)
@@ -611,13 +711,7 @@ func (c *kernelReplicaClientImpl) InitializeIOSub(handler types.MessageHandler, 
 	}
 
 	// Handler is set, so server routing will be started on dialing.
-	c.client.Sockets.IO = &types.Socket{
-		Socket:  zmq4.NewSub(c.client.Ctx), // Sub socket for client.
-		Port:    c.client.Meta.IOPubPort,
-		Type:    types.IOMessage,
-		Handler: handler,
-		Name:    fmt.Sprintf("K-Sub-IOSub[%s]", c.id),
-	}
+	c.client.Sockets.IO = types.NewSocketWithHandler(zmq4.NewSub(c.client.Ctx), c.client.Meta.IOPubPort /* sub socket for client */, types.IOMessage, fmt.Sprintf("K-Sub-IOSub[%s]", c.id), handler)
 
 	c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
 	c.client.Sockets.All[types.IOMessage] = c.client.Sockets.IO

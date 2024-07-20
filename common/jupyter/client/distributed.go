@@ -73,7 +73,7 @@ type DistributedKernelClient interface {
 
 	// Validate validates the kernel connections.
 	// If IOPub has been initialized, it will also validate the IOPub connection and start the IOPub forwarder.
-	Validate(forceReconnect bool) error
+	Validate() error
 
 	// Return true if the replica with the specified ID is ready.
 	IsReplicaReady(replicaId int32) (bool, error)
@@ -203,8 +203,8 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 	kernel := &distributedKernelClientImpl{
 		id: spec.Id, persistentId: persistentId,
 		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, func(s *server.AbstractServer) {
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort, Name: fmt.Sprintf("DK-Router-Shell[%s]", spec.Id)}
-			s.Sockets.IO = &types.Socket{Socket: zmq4.NewPub(s.Ctx), Port: iopubListenPort, Name: fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)} // connectionInfo.IOSubPort}
+			s.Sockets.Shell = types.NewSocket(zmq4.NewRouter(s.Ctx), shellListenPort, types.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
+			s.Sockets.IO = types.NewSocket(zmq4.NewPub(s.Ctx), iopubListenPort, types.IOMessage, fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)) // connectionInfo.IOSubPort}
 			s.PrependId = true
 			s.ShouldAckMessages = false
 			s.ReconnectOnAckFailure = false
@@ -560,7 +560,7 @@ func (c *distributedKernelClientImpl) RemoveReplicaByID(id int32, remover Replic
 }
 
 // Validate validates the session.
-func (c *distributedKernelClientImpl) Validate(forceReconnect bool) error {
+func (c *distributedKernelClientImpl) Validate() error {
 	if c.status >= types.KernelStatusRunning {
 		return nil
 	}

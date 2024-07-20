@@ -657,7 +657,7 @@ func (mr *MockKernelReplicaClientMockRecorder) SupposedToYieldNextExecutionReque
 }
 
 // Validate mocks base method.
-func (m *MockKernelReplicaClient) Validate(forceReconnect bool) error {
+func (m *MockKernelReplicaClient) Validate() error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Validate")
 	ret0, _ := ret[0].(error)
@@ -665,7 +665,7 @@ func (m *MockKernelReplicaClient) Validate(forceReconnect bool) error {
 }
 
 // Validate indicates an expected call of Validate.
-func (mr *MockKernelReplicaClientMockRecorder) Validate(forceReconnect bool) *gomock.Call {
+func (mr *MockKernelReplicaClientMockRecorder) Validate() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Validate", reflect.TypeOf((*MockKernelReplicaClient)(nil).Validate))
 }

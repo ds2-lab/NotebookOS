@@ -903,7 +903,7 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 		messageType = "N/A"
 	}
 
-	errorMessage := fmt.Sprintf("Failed to forward %v \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v", msg.Type, messageType, kernel.ReplicaID(), kernel.ID(), resubmissionError)
+	errorMessage := fmt.Sprintf("Failed to forward \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v", messageType, kernel.ReplicaID(), kernel.ID(), resubmissionError)
 	d.log.Error(errorMessage)
 
 	err = d.notifyDashboardOfError("Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
@@ -1380,7 +1380,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 
 	// Initialize kernel client
 	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID(), in.HostId, host, true, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
-	err := replica.Validate(false /* this is a new client */)
+	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
 	}
@@ -1528,7 +1528,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 	// Initialize kernel client
 	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, host, true, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 	d.log.Debug("Validating new kernelReplicaClientImpl for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
-	err := replica.Validate(false /* this is a new client */)
+	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("kernelReplicaClientImpl::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}

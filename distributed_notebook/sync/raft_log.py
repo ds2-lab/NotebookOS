@@ -47,8 +47,8 @@ class OldRaftLog:
   _leader_term: int = 0   # Mar 2023: Term will updated after a lead() call. For now, we don't care if the jupyter's execution_count, which is equal to the term, is continuous or not.
   _leader_id: int = 0     # The id of the leader.
   _expected_term: int = 0 # The term that the leader is expecting.
-  _future_loop: asyncio.AbstractEventLoop = None
-  _leading: Optional[asyncio.Future[bool]] = None # A future that is set when _leader_id is decided.
+  _future_loop: Optional[asyncio.AbstractEventLoop] = None
+  _leading: Optional[asyncio.Future[int]] = None # A future that is set when _leader_id is decided.
   _decisionProposalFuture: Optional[asyncio.Future[SyncValue]] = None # A future that is set when we have a decision to propose.
   _start_loop: asyncio.AbstractEventLoop # The loop that start() is called.
   _async_loop: asyncio.AbstractEventLoop # The loop that the async functions are running on.
@@ -451,10 +451,10 @@ class OldRaftLog:
     self.sync_proposals_per_term[proposal.term] = proposal
 
     if self._leader_term < proposal.term:
+      assert proposal.proposed_node != None 
       self._log.debug("Our 'leader_term' (%d) < 'leader_term' of latest committed 'SYNC' (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value)." % (self._leader_term, proposal.term, proposal.term, proposal.proposed_node))
       self._leader_term = proposal.term
       self._leader_id = proposal.proposed_node
-
       self.winners_per_term[proposal.term] = proposal.proposed_node
       self._log.debug("Node %d has won in term %d as proposed by node %d." % (proposal.proposed_node, proposal.term, proposal.val))
     else:
@@ -464,7 +464,8 @@ class OldRaftLog:
     _leading = self._leading
     if _leading is not None and self._leader_term >= self._expected_term:
       self._log.debug("leader_term=%d, expected_term=%d. Scheduling the setting of result on '_leading' future to %d." % (self._leader_term, self._expected_term, self._leader_term))
-      self._future_loop.call_later(0, _leading.set_result, self._leader_term)
+      # self._future_loop.call_later(0, _leading.set_result, self._leader_term)
+      _leading.set_result(self._leader_term)
       self._leading = None # Ensure the future is set only once.
       self._log.debug("Scheduled setting of result on '_leading' future.")
     else:

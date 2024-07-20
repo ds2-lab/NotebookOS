@@ -44,7 +44,7 @@ type Kernel interface {
 	// Validate validates the kernel connections.
 	// Including simulator features:
 	// 	entity.Container.Start(), Start() will be implemented outside kernel abstraction. Validate() ensures the kernel is started.
-	Validate(forceReconnect bool) error
+	Validate() error
 
 	// InitializeShellForwarder initializes the shell forwarder.
 	InitializeShellForwarder(handler KernelMessageHandler) (*jupyter.Socket, error)

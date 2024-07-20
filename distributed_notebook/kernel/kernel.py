@@ -519,7 +519,7 @@ class DistributedKernel(IPythonKernel):
             msg_list = t.cast(t.List[bytes], msg_list)
             msg_list = msg_list_beginning + msg_list[minlen:]
             
-            self.log.error(f"Message: {msg_list}\n\n")
+            self.log.error(f"Invalid shell message: {msg_list}\n\n")
             
             message:dict = {}
             header = self.session.unpack(msg_list[1])
@@ -539,12 +539,12 @@ class DistributedKernel(IPythonKernel):
         # self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
         msg_id:str = msg_deserialized["header"]["msg_id"]
         msg_type:str = msg_deserialized["header"]["msg_type"]
-        self.log.debug(f"Received shell message \"{msg_type}\" (ID={msg_id})")
+        self.log.debug(f"Received SHELL message {msg_id} of type \"{msg_type}\"")
         self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg_deserialized) # Send an ACK.
         
         await super().dispatch_shell(msg)
         
-        self.log.debug(f"Finished processing shell message \"{msg_type}\" (ID={msg_id})")
+        self.log.debug(f"Finished processing shell message {msg_id} of type \"{msg_type}\"")
 
     def should_handle(self, stream, msg, idents):
         """Check whether a (shell-channel?) message should be handled"""
@@ -588,7 +588,7 @@ class DistributedKernel(IPythonKernel):
             msg_list = t.cast(t.List[bytes], msg_list)
             msg_list = msg_list_beginning + msg_list[minlen:]
             
-            self.log.error(f"Message: {msg_list}\n\n")
+            self.log.error(f"Invalid control message: {msg_list}\n\n")
             
             message:dict = {}
             header = self.session.unpack(msg_list[1])
@@ -608,15 +608,15 @@ class DistributedKernel(IPythonKernel):
             
             return
 
-        self.log.debug("Control received: %s", msg)
+        header:dict = msg["header"]
+        msg_type:str = header["msg_type"]
+        msg_id:str = header["msg_id"]
+        self.log.debug(f"Received control message {msg_id} of type \"{msg_type}\"")
 
         # Set the parent message for side effects.
         self.set_parent(idents, msg, channel="control")
         self._publish_status("busy", "control")
 
-        header:dict = msg["header"]
-        msg_type:str = header["msg_type"]
-        msg_id:str = header["msg_id"]
         self.send_ack(self.control_stream, msg_type, msg_id, idents, msg) # Send an ACK.
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
@@ -646,7 +646,7 @@ class DistributedKernel(IPythonKernel):
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
         
-        self.log.debug(f"Finished processing control message \"{msg_type}\" (ID={msg_id})")
+        self.log.debug(f"Finished processing control message {msg_id} of type \"{msg_type}\"")
 
     async def init_persistent_store(self, code):
         if await self.check_persistent_store():
@@ -811,6 +811,8 @@ class DistributedKernel(IPythonKernel):
             dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
+        assert self.shell != None 
+        
         reply_content: Dict[str, Any] = {}
         error_occurred: bool = False # Separate flag, since we raise an exception and generate an error response when we yield successfully.
         

@@ -574,8 +574,10 @@ class Election(object):
             if prev_attempt_number >= current_attempt_number and not overwrite:
                 raise ValueError(f"new proposal has attempt number {current_attempt_number}, whereas previous/existing proposal has attempt number {prev_attempt_number}")
 
-        if self._discard_after > 0 and received_at > self._discard_after: # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
+        # TODO: Modified this to only discard proposals if we've received at least one so far. If we haven't received any yet, then we still accept proposals after the delay.
+        if self._discard_after > 0 and received_at > self._discard_after and len(self._vote_proposals) >= 1: # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
             self._num_discarded_vote_proposals += 1
+            self.logger.debug(f"Discarding 'VOTE' proposal from node {vote.proposer_id}, as it was received after deadline. (Deadline: {datetime.datetime.fromtimestamp(self._discard_after).strftime('%Y-%m-%d %H:%M:%S.%f')}, Received at: {datetime.datetime.fromtimestamp(received_at).strftime('%Y-%m-%d %H:%M:%S.%f')})")
             return False   
 
         # Store the new proposal. 
@@ -602,7 +604,7 @@ class Election(object):
         latest_attempt_number:int = proposal.attempt_number
 
         if proposal.election_term != self.term_number:
-            raise ValueError(f"\"{proposal.key}\" proposal from node {proposal.proposer_id} (ts={datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%c')}) is from term {proposal.election_term}, whereas this election is for term {self.term_number}.")
+            raise ValueError(f"\"{proposal.key}\" proposal from node {proposal.proposer_id} (ts={datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')}) is from term {proposal.election_term}, whereas this election is for term {self.term_number}.")
 
         # Update the current attempt number if the newly-received proposal has a greater attempt number than any of the other proposals that we've seen so far. 
         if latest_attempt_number > self._current_attempt_number:

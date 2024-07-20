@@ -617,7 +617,7 @@ func (mr *MockDistributedKernelClientMockRecorder) UnbindSession(sess any) *gomo
 }
 
 // Validate mocks base method.
-func (m *MockDistributedKernelClient) Validate(forceReconnect bool) error {
+func (m *MockDistributedKernelClient) Validate() error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Validate")
 	ret0, _ := ret[0].(error)
@@ -625,7 +625,7 @@ func (m *MockDistributedKernelClient) Validate(forceReconnect bool) error {
 }
 
 // Validate indicates an expected call of Validate.
-func (mr *MockDistributedKernelClientMockRecorder) Validate(forceReconnect bool) *gomock.Call {
+func (mr *MockDistributedKernelClientMockRecorder) Validate() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Validate", reflect.TypeOf((*MockDistributedKernelClient)(nil).Validate))
 }

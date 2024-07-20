@@ -28,10 +28,10 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 		name: name,
 		server: server.New(ctx, opts, func(s *server.AbstractServer) {
 			// We do not set handlers of the sockets here. Server routine will be started using a shared handler.
-			s.Sockets.HB = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.HBPort, Name: fmt.Sprintf("Router-Router-HB[%s]", name)}
-			s.Sockets.Control = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ControlPort, Name: fmt.Sprintf("Router-Router-Ctrl[%s]", name)}
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.ShellPort, Name: fmt.Sprintf("Router-Router-Shell[%s]", name)}
-			s.Sockets.Stdin = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: opts.StdinPort, Name: fmt.Sprintf("Router-Router-Stdin[%s]", name)}
+			s.Sockets.HB = types.NewSocket(zmq4.NewRouter(s.Ctx), opts.HBPort, types.HBMessage, fmt.Sprintf("Router-Router-HB[%s]", name))
+			s.Sockets.Control = types.NewSocket(zmq4.NewRouter(s.Ctx), opts.ControlPort, types.ControlMessage, fmt.Sprintf("Router-Router-Ctrl[%s]", name))
+			s.Sockets.Shell = types.NewSocket(zmq4.NewRouter(s.Ctx), opts.ShellPort, types.ShellMessage, fmt.Sprintf("Router-Router-Shell[%s]", name))
+			s.Sockets.Stdin = types.NewSocket(zmq4.NewRouter(s.Ctx), opts.StdinPort, types.StdinMessage, fmt.Sprintf("Router-Router-Stdin[%s]", name))
 			s.PrependId = true
 			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages

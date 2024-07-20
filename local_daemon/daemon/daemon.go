@@ -922,7 +922,7 @@ func (d *SchedulerDaemonImpl) initializeKernelClient(id string, connInfo *jupyte
 		return nil, err
 	}
 
-	if err := kernel.Validate(false /* this is a new client */); err != nil {
+	if err := kernel.Validate(); err != nil {
 		d.log.Error("Failed to validate connection with new kernel %s because: %v", id, err)
 		d.closeKernel(kernel, "validation error")
 		return nil, status.Errorf(codes.Internal, err.Error())

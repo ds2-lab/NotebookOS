@@ -626,7 +626,7 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 		node.logger.Debug("No Python callback provided. Using default resolve callback.")
 		resolve = node.defaultResolveCallback
 	} else {
-		node.sugaredLogger.Infof("Provided Python resolve callback: %v", resolve)
+		node.sugaredLogger.Infof("Provided Python resolve callback. Message: %s", msg)
 	}
 
 	node.logger.Info("Proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
@@ -650,6 +650,8 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	if resolve != nil {
 		node.logger.Debug("Calling `resolve` callback.", zap.Any("resolve-callback", resolve), zap.String("msg", msg))
 		resolve(msg, toCError(nil))
+	} else {
+		node.logger.Debug("There is no `resolve` callback to invoke.", zap.String("msg", msg))
 	}
 }
 

@@ -324,6 +324,13 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 	for {
 		select {
+		case <-socket.StopServingChan:
+			s.Log.Debug("Received 'stop-serving' notification for %v socket. Will cease serving now.", socket.Type)
+			// TODO: Do we need to notify the `poll` goroutine, or is sending `false` to the `cond` channel sufficient?
+			if contd != nil {
+				contd <- false
+			}
+			return
 		case <-s.Ctx.Done():
 			if contd != nil {
 				contd <- false
