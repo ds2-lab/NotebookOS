@@ -2056,6 +2056,7 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
 			_gstate := C.PyGILState_Ensure()
 			if C.PyCallable_Check(_fun_arg) == 0 {
+				C.PyGILState_Release(_gstate)
 				return
 			}
 			_fcargs := C.PyTuple_New(2)
@@ -2070,6 +2071,7 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
 			_gstate := C.PyGILState_Ensure()
 			if C.PyCallable_Check(_fun_arg) == 0 {
+				C.PyGILState_Release(_gstate)
 				return
 			}
 			_fcargs := C.PyTuple_New(2)
@@ -2096,6 +2098,7 @@ func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).AddNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
 			_gstate := C.PyGILState_Ensure()
 			if C.PyCallable_Check(_fun_arg) == 0 {
+				C.PyGILState_Release(_gstate)
 				return
 			}
 			_fcargs := C.PyTuple_New(2)
@@ -2110,6 +2113,7 @@ func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).AddNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
 			_gstate := C.PyGILState_Ensure()
 			if C.PyCallable_Check(_fun_arg) == 0 {
+				C.PyGILState_Release(_gstate)
 				return
 			}
 			_fcargs := C.PyTuple_New(2)
@@ -2136,6 +2140,7 @@ func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObjec
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).RemoveNode(int(id), func(arg_0 interface{}, arg_1 string) {
 			_gstate := C.PyGILState_Ensure()
 			if C.PyCallable_Check(_fun_arg) == 0 {
+				C.PyGILState_Release(_gstate)
 				return
 			}
 			_fcargs := C.PyTuple_New(2)
@@ -2150,6 +2155,7 @@ func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObjec
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).RemoveNode(int(id), func(arg_0 interface{}, arg_1 string) {
 			_gstate := C.PyGILState_Ensure()
 			if C.PyCallable_Check(_fun_arg) == 0 {
+				C.PyGILState_Release(_gstate)
 				return
 			}
 			_fcargs := C.PyTuple_New(2)
@@ -2176,6 +2182,7 @@ func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, reso
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).UpdateNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
 			_gstate := C.PyGILState_Ensure()
 			if C.PyCallable_Check(_fun_arg) == 0 {
+				C.PyGILState_Release(_gstate)
 				return
 			}
 			_fcargs := C.PyTuple_New(2)
@@ -2190,6 +2197,7 @@ func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, reso
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).UpdateNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
 			_gstate := C.PyGILState_Ensure()
 			if C.PyCallable_Check(_fun_arg) == 0 {
+				C.PyGILState_Release(_gstate)
 				return
 			}
 			_fcargs := C.PyTuple_New(2)
@@ -2270,6 +2278,7 @@ func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state CG
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(deptrFromHandle_Slice_byte(serialized_state), func(arg_0 interface{}, arg_1 string) {
 			_gstate := C.PyGILState_Ensure()
 			if C.PyCallable_Check(_fun_arg) == 0 {
+				C.PyGILState_Release(_gstate)
 				return
 			}
 			_fcargs := C.PyTuple_New(2)
@@ -2284,6 +2293,7 @@ func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state CG
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(deptrFromHandle_Slice_byte(serialized_state), func(arg_0 interface{}, arg_1 string) {
 			_gstate := C.PyGILState_Ensure()
 			if C.PyCallable_Check(_fun_arg) == 0 {
+				C.PyGILState_Release(_gstate)
 				return
 			}
 			_fcargs := C.PyTuple_New(2)
@@ -2412,6 +2422,7 @@ func smr_LogNodeConfig_WithChangeCallback(_handle CGoHandle, cb *C.PyObject) CGo
 	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithChangeCallback(func(arg_0 smr.ReadCloser, arg_1 int, arg_2 string) string {
 		_gstate := C.PyGILState_Ensure()
 		if C.PyCallable_Check(_fun_arg) == 0 {
+			C.PyGILState_Release(_gstate)
 			return C.GoString(nil)
 		}
 		_fcargs := C.PyTuple_New(3)
@@ -2439,6 +2450,7 @@ func smr_LogNodeConfig_WithRestoreCallback(_handle CGoHandle, cb *C.PyObject) CG
 	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithRestoreCallback(func(arg_0 smr.ReadCloser, arg_1 int) string {
 		_gstate := C.PyGILState_Ensure()
 		if C.PyCallable_Check(_fun_arg) == 0 {
+			C.PyGILState_Release(_gstate)
 			return C.GoString(nil)
 		}
 		_fcargs := C.PyTuple_New(2)
@@ -2465,6 +2477,7 @@ func smr_LogNodeConfig_WithShouldSnapshotCallback(_handle CGoHandle, cb *C.PyObj
 	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithShouldSnapshotCallback(func(arg_0 *smr.LogNode) bool {
 		_gstate := C.PyGILState_Ensure()
 		if C.PyCallable_Check(_fun_arg) == 0 {
+			C.PyGILState_Release(_gstate)
 			return false
 		}
 		_fcargs := C.PyTuple_New(1)
@@ -2490,6 +2503,7 @@ func smr_LogNodeConfig_WithSnapshotCallback(_handle CGoHandle, cb *C.PyObject) C
 	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithSnapshotCallback(func(arg_0 smr.WriteCloser) string {
 		_gstate := C.PyGILState_Ensure()
 		if C.PyCallable_Check(_fun_arg) == 0 {
+			C.PyGILState_Release(_gstate)
 			return C.GoString(nil)
 		}
 		_fcargs := C.PyTuple_New(1)
