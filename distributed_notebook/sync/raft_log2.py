@@ -100,10 +100,18 @@ class RaftLog(object):
         self.logger.info("join: %s" % join)
         self.logger.info("debug_port: %d" % debug_port)
 
+        self.logger.info(">> CALLING INTO GO CODE (NewLogNode)")
         sys.stderr.flush()
         sys.stdout.flush()
 
         self._log_node = NewLogNode(self._persistent_store_path, id, hdfs_hostname, should_read_data_from_hdfs, Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
+        self.logger.info("<< RETURNED FROM GO CODE (NewLogNode)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.ConnectedToHDFS)")
+        sys.stderr.flush()
+        sys.stdout.flush()
         if self._log_node == None:
             self.logger.error("Failed to create LogNode.")
             sys.stderr.flush()
@@ -114,6 +122,9 @@ class RaftLog(object):
             sys.stderr.flush()
             sys.stdout.flush()
             raise RuntimeError("The LogNode failed to connect to HDFS")
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.ConnectedToHDFS)")
+        sys.stderr.flush()
+        sys.stdout.flush()
         
         self.logger.info(f"Successfully created LogNode {id}.")
 
@@ -182,6 +193,7 @@ class RaftLog(object):
         if self._needs_to_catch_up:
             self._catchup_value = SynchronizedValue(None, None, proposer_id = self._node_id, key = KEY_CATCHUP, election_term = self._leader_term_before_migration, should_end_execution = False, operation = KEY_CATCHUP)
             self._catchup_io_loop = asyncio.get_running_loop()
+            self._catchup_io_loop.set_debug(True)
             self._catchup_future = self._catchup_io_loop.create_future() 
             self.logger.debug(f"Created new 'catchup value' with ID={self._catchup_value.id}, timestamp={self._catchup_value._timestamp}, and election term={self._catchup_value.election_term}.")
 
@@ -229,7 +241,9 @@ class RaftLog(object):
         if _leading_future is not None and self._leader_term >= self._expected_term:
             self.logger.debug(f"Scheduling the setting of result on '_leading_future' future to {self._leader_term}.")
             #self._future_io_loop.call_later(0, _leading_future.set_result, self._leader_term) # type: ignore
-            _leading_future.set_result(self._leader_term)
+            assert self._future_io_loop != None
+            self._future_io_loop.call_soon_threadsafe(_leading_future.set_result, self._leader_term)
+            # leading_future.set_result(self._leader_term)
             self._leading_future = None # Ensure the future is set only once.
             self.logger.debug("Scheduled setting of result on '_leading_future' future.")
         else:
@@ -281,6 +295,7 @@ class RaftLog(object):
         if self._future_io_loop == None:
             try:
                 self._future_io_loop = asyncio.get_running_loop()
+                self._future_io_loop.set_debug(True)
             except RuntimeError:
                 raise ValueError("Future IO loop cannot be nil whilst handling a proposal; attempted to resolve _future_io_loop, but could not do so.")
 
@@ -295,17 +310,20 @@ class RaftLog(object):
 
             async def decideElection():
                 if self._current_election == None:
-                    self.logger.error(f"decideElection() called, but current election is None...")
-                    raise ValueError("Current election is None in `decideElection()` callback.")
-                else:
-                    self.logger.debug(f"decideElection() called for election {self._current_election.term_number}.")
+                    self.logger.error(f"decideElection called, but current election is None...")
+                    raise ValueError("Current election is None in `decideElection` callback.")
+                
+                current_term: int = self._current_election.term_number
+                self.logger.debug(f"decideElection called for election {current_term}.")
                     
                 sleep_duration: float = _discard_after - time.time() 
-                current_term: int = self._current_election.term_number
                 assert sleep_duration > 0 
+                self.logger.debug(f"Sleeping for {sleep_duration} seconds in decideElection coroutine for election {current_term}.")
                 await asyncio.sleep(sleep_duration)
+                self.logger.debug(f"Done sleeping in decideElection coroutine for election {current_term}.")
 
                 if _pick_and_propose_winner_future.done():
+                    self.logger.debug(f"Election {current_term} has already been decided; returning from decideElection coroutine now.")
                     return 
 
                 if self._current_election.term_number != current_term:
@@ -330,11 +348,11 @@ class RaftLog(object):
                 self.logger.error("Future IO loop is None. Cannot schedule `resolve()` future on loop.")
                 raise ValueError("self._future_io_loop is None when it shouldn't be")
 
-            # Schedule `resolve` to be called.
+            # Schedule `decideElection` to be called.
             # It will sleep until the discardAt time expires, at which point a decision needs to be made.
-            # If a decision was already made for that election, then the `resolve` function will simply return.
+            # If a decision was already made for that election, then the `decideElection` function will simply return.
             asyncio.run_coroutine_threadsafe(decideElection(), self._future_io_loop)
-            # self._future_io_loop.call_soon_threadsafe(resolve)
+            # self._future_io_loop.call_soon_threadsafe(decideElection)
         
         self.logger.debug(f"Received {self._current_election.num_proposals_received} proposal(s) so far during term {self._current_election.term_number}.")
 
@@ -357,6 +375,7 @@ class RaftLog(object):
         if self._future_io_loop == None:
             try:
                 self._future_io_loop = asyncio.get_running_loop()
+                self._future_io_loop.set_debug(True)
             except RuntimeError:
                 raise ValueError(f"cannot try to pick winner for election {term_number}; 'future IO loop' field is null, and there is no running IO loop right now.")
             
@@ -365,14 +384,14 @@ class RaftLog(object):
             if id > 0:
                 assert self._election_decision_future != None 
                 self.logger.debug(f"Will propose that node {id} win the election in term {self._current_election.term_number}.")
-                # self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = id, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
-                self._election_decision_future.set_result(LeaderElectionVote(proposed_node_id = id, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
+                self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = id, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
+                # self._election_decision_future.set_result(LeaderElectionVote(proposed_node_id = id, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
                 return True
             else:
                 assert self._election_decision_future != None 
                 self.logger.debug(f"Will propose 'FAILURE' for election in term {self._current_election.term_number}.")
-                # self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = -1, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
-                self._election_decision_future.set_result(LeaderElectionVote(proposed_node_id = -1, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
+                self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result, LeaderElectionVote(proposed_node_id = -1, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
+                # self._election_decision_future.set_result(LeaderElectionVote(proposed_node_id = -1, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
                 return True
         except ValueError as ex:
             self.logger.debug(f"No winner to propose yet for election in term {self._current_election.term_number} because: {ex}")
@@ -413,8 +432,8 @@ class RaftLog(object):
                 
                 self._needs_to_catch_up = False 
 
-                # self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, committedValue)
-                self._catchup_future.set_result(committedValue)
+                self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, committedValue)
+                # self._catchup_future.set_result(committedValue)
                 self._catchup_value = None 
                 
                 self.logger.debug("Scheduled setting of result of catch-up value on catchup future.")
@@ -631,10 +650,14 @@ class RaftLog(object):
             sys.stdout.flush()  
             raise ValueError("LogNode is None while trying to retrieve and apply serialized state")
 
-        val: Slice_byte = self._log_node.GetSerializedState()
-        self.logger.debug(f"Retrieved serialized state from LogNode: {val}")
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.GetSerializedState)")
         sys.stderr.flush()
         sys.stdout.flush()
+        val: Slice_byte = self._log_node.GetSerializedState()
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.GetSerializedState)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        self.logger.debug(f"Retrieved serialized state from LogNode: {val}")
 
         try:
             serialized_state_bytes:bytes = bytes(val) # Convert the Go bytes (Slice_byte) to Python bytes.
@@ -689,16 +712,18 @@ class RaftLog(object):
 
         try:
             self._future_io_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
+            self._future_io_loop.set_debug(True)
         except RuntimeError:
             self.logger.error("Failed to get running event loop from asyncio module.")
         
         return True 
 
-    def _get_callback(self)-> Tuple[asyncio.Future[Any], Callable[[str, Exception], Any]]:
+    def _get_callback(self, future_name:str = "")-> Tuple[Future, Callable[[str, Exception], Any]]:
         """Get the future object for the specified key."""
         # Prepare callback settings.
         # Callback can be called from a different thread. Schedule the result of the future object to the await thread.
         loop = asyncio.get_running_loop()
+        loop.set_debug(True)
 
         if loop == self._async_loop:
             self.logger.debug("Registering callback future on _async_loop. _async_loop.is_running: %s" % str(self._async_loop.is_running())) # type: ignore
@@ -707,24 +732,24 @@ class RaftLog(object):
         else:
             self.logger.debug("Registering callback future on unknown loop. loop.is_running: %s" % str(loop.is_running()))
 
-        future: asyncio.Future[Any] = loop.create_future()
+        # future: asyncio.Future[Any] = loop.create_future()
         self._async_loop = loop
         
-        def resolve(value, goerr):
-            err = FromGoError(goerr)
-            self.logger.debug(f"Resolve Callback called with value {value} and goerr {err}")
-            if err is None:
-                future.set_result(value)
-                self.logger.debug(f"Set result on future with callback: {value}")
-            else:
-                future.set_exception(err)
-                self.logger.debug(f"Set exception on future with callback: {err}")
+        # def resolve(value, goerr):
+        #     err = FromGoError(goerr)
+        #     self.logger.debug(f"Resolve Callback called with value {value} and goerr {err}")
+        #     if err is None:
+        #         future.set_result(value)
+        #         self.logger.debug(f"Set result on future with callback: {value}")
+        #     else:
+        #         future.set_exception(err)
+        #         self.logger.debug(f"Set exception on future with callback: {err}")
 
-        # future: Future = Future(loop=loop) # type: ignore
-        # self._async_loop = loop
-        # def resolve(key, err):
+        future: Future = Future(loop=loop, name = future_name) # type: ignore
+        self._async_loop = loop
+        def resolve(key, err):
             # must use local variable
-        #    asyncio.run_coroutine_threadsafe(future.resolve(key, err), loop) # type: ignore 
+            asyncio.run_coroutine_threadsafe(future.resolve(key, err), loop) # type: ignore 
 
         return future, resolve
 
@@ -857,14 +882,20 @@ class RaftLog(object):
         dumped = pickle.dumps(value)
 
         # Propose and wait the future.
-        future, resolve = self._get_callback()
+        future, resolve = self._get_callback(future_name = f"append_val[\"{value.key}\"]")
         assert future != None 
         assert resolve != None 
         self.logger.debug(f"Calling 'propose' now for SynchronizedValue: {value}")
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.Propose)")
+        sys.stderr.flush()
+        sys.stdout.flush()
         self._log_node.Propose(NewBytes(dumped), resolve, value.key)
         # await future.result()
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.Propose)")
+        sys.stderr.flush()
+        sys.stdout.flush()
         self.logger.debug(f"Called 'propose' now for SynchronizedValue: {value}")
-        await future 
+        await future.result()
         self.logger.debug(f"Successfully proposed and appended SynchronizedValue: {value}")
 
     async def _handle_election(
@@ -926,6 +957,7 @@ class RaftLog(object):
         # Define the `_leading` feature.
         # Save a reference to the currently-running IO loop so that we can resolve the `_leading` future on this same IO loop later.
         self._future_io_loop = asyncio.get_running_loop()
+        self._future_io_loop.set_debug(True)
         # This is the future we'll use to submit a formal vote for who should lead, based on the proposals that are committed to the etcd-raft log.
         self._election_decision_future = self._future_io_loop.create_future()
         # This is the future that we'll use to inform the local kernel replica if it has been selected to "lead" the election (and therefore execute the user-submitted code).
@@ -1061,36 +1093,57 @@ class RaftLog(object):
     async def add_node(self, node_id, address):
         """Add a node to the etcd-raft cluster."""
         self.logger.info("Adding node %d at addr %s to the SMR cluster." % (node_id, address))
-        future, resolve = self._get_callback()
+        future, resolve = self._get_callback(future_name = f"add_node[{node_id}]")
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.AddNode)")
+        sys.stderr.flush()
+        sys.stdout.flush()
         self._log_node.AddNode(node_id, address, resolve)
-        # await future.result()
-        await future 
-        res = future.result()
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.AddNode)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        res = await future.result()
+        # await future 
+        # res = future.result()
         self.logger.info("Result of AddNode: %s" % str(res))
 
     async def update_node(self, node_id, address):
         """Add a node to the etcd-raft  cluster."""
         self.logger.info("Updating node %d with new addr %s." % (node_id, address))
-        future, resolve = self._get_callback()
+        future, resolve = self._get_callback(future_name = f"update_node[{node_id}]")
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.UpdateNode)")
+        sys.stderr.flush()
+        sys.stdout.flush()
         self._log_node.UpdateNode(node_id, address, resolve)
-        # await future.result()
-        await future 
-        res = future.result()
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.UpdateNode)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        res = await future.result()
+        # await future 
+        # res = future.result()
         self.logger.info("Result of UpdateNode: %s" % str(res))
 
     async def remove_node(self, node_id):
         """Remove a node from the etcd-raft cluster."""
         self.logger.info("Removing node %d from the SMR cluster." % node_id)
-        future, resolve = self._get_callback()
+        future, resolve = self._get_callback(future_name = f"remove_node[{node_id}]")
 
         try:
+            self.logger.info(">> CALLING INTO GO CODE (_log_node.RemoveNode)")
+            sys.stderr.flush()
+            sys.stdout.flush()
             self._log_node.RemoveNode(node_id, resolve)
+            self.logger.info("<< RETURNED FROM GO CODE (_log_node.RemoveNode)")
+            sys.stderr.flush()
+            sys.stdout.flush()
         except Exception as ex:
+            self.logger.info("<< RETURNED FROM GO CODE (_log_node.RemoveNode)")
+            sys.stderr.flush()
+            sys.stdout.flush()
             self.logger.error("Error in LogNode while removing replica %d: %s" % (node_id, str(ex)))
 
-        # await future.result()
-        await future 
-        res = future.result()
+        res = await future.result()
+        # await future 
+        # res = future.result()
         self.logger.info("Result of RemoveNode: %s" % str(res))
     
     @property 
@@ -1127,7 +1180,15 @@ class RaftLog(object):
     @property
     def num_changes(self) -> int:
         """The number of incremental changes since first term or the latest checkpoint."""
-        return self._log_node.NumChanges() - self._ignore_changes
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.NumChanges)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        num_changes:int = self._log_node.NumChanges()
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.NumChanges)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
+        return num_changes - self._ignore_changes
 
     @property 
     def expected_term(self)->Optional[int]:
@@ -1153,7 +1214,7 @@ class RaftLog(object):
         """
         Register the change handler, restore internal states, and start monitoring for changes committed to the Raft log.
         """
-        faulthandler.dump_traceback_later(timeout = 5, repeat = True, file = sys.stderr, exit = False)
+        faulthandler.dump_traceback_later(timeout = 30, repeat = True, file = sys.stderr, exit = False)
         self._change_handler = handler 
 
         config = NewConfig() 
@@ -1170,9 +1231,19 @@ class RaftLog(object):
         self.logger.info(f"Starting LogNode {self._node_id} now.")
 
         self._async_loop = asyncio.get_running_loop()
+        self._async_loop.set_debug(True)
         self._start_loop = self._async_loop
 
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.Start)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
         startSuccessful: bool = self._log_node.Start(config)
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.Start)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
+        
         if not startSuccessful:
             self.logger.error("Failed to start LogNode.")
             raise RuntimeError("failed to start the Golang-level LogNode component")
@@ -1181,7 +1252,16 @@ class RaftLog(object):
 
     # Close the LogNode's HDFS client.
     def closeHdfsClient(self)->None:
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.CloseHdfsClient)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
         self._log_node.CloseHdfsClient()
+        
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.CloseHdfsClient)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
 
     # IMPORTANT: This does NOT close the HDFS client within the LogNode. 
     # This is because, when migrating a raft cluster member, we must first stop the raft
@@ -1193,7 +1273,17 @@ class RaftLog(object):
         Ensure all async coroutines have completed. Clean up resources. Stop the LogNode.
         """
         self.logger.warn(f"Closing LogNode {self._node_id} now.")
+        
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.Close)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
         self._log_node.Close()
+        
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.Close)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
         
         if self._closed is not None: 
             if self._start_loop is None:
@@ -1247,14 +1337,23 @@ class RaftLog(object):
         serialized_state:bytes = self._get_serialized_state()
         self.logger.info("Serialized important state to be written along with etcd-Raft data. Size: %d bytes." % len(serialized_state))
         
-        future, resolve = self._get_callback()
+        future, resolve = self._get_callback(future_name = "write_data_hdfs")
         
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.WriteDataDirectoryToHDFS)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
         # Convert the Python bytes (bytes) to Go bytes (Slice_byte).
         self._log_node.WriteDataDirectoryToHDFS(Slice_byte(serialized_state), resolve)
+        
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.WriteDataDirectoryToHDFS)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        
         # await future.result()
-        await future 
-        waldir_path:str = future.result()
-        # waldir_path:str = await future.result()
+        # await future 
+        # waldir_path:str = future.result()
+        waldir_path:str = await future.result()
         return waldir_path
 
     async def try_lead_execution(self, term_number: int) -> bool:

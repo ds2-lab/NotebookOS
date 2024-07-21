@@ -839,6 +839,7 @@ def NewLogNode(store_path, id, hdfsHostname, shouldLoadDataFromHdfs, peerAddress
 	hdfs_data_directory is (possibly) the path to the data directory within HDFS, meaning
 	we were migrated and our data directory was written to HDFS so that we could retrieve it.
 	"""
+	print("Testing, 123, Testing, 123", flush = True)
 	return LogNode(handle=_smr.smr_NewLogNode(store_path, id, hdfsHostname, shouldLoadDataFromHdfs, peerAddresses.handle, peerIDs.handle, join, httpDebugPort))
 def NewConfig():
 	"""NewConfig() object"""
