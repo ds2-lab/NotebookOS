@@ -344,6 +344,31 @@ def Set_ProposalDeadline(value):
 
 # ---- Interfaces ---
 
+# Python type for interface smr.LogSnapshotter
+class LogSnapshotter(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Load(self):
+		"""Load() object, str"""
+		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_Load(self.handle))
+	def LoadNewestAvailable(self, arg_0):
+		"""LoadNewestAvailable([]object) object, str"""
+		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_LoadNewestAvailable(self.handle, arg_0.handle))
+	def SaveSnap(self, arg_0):
+		"""SaveSnap(object) str"""
+		return _smr.smr_LogSnapshotter_SaveSnap(self.handle, arg_0.handle)
+
 # Python type for interface smr.LogStorage
 class LogStorage(go.GoClass):
 	""""""
@@ -416,214 +441,8 @@ class WriteCloser(go.GoClass):
 		"""Write(object p) object"""
 		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
 
-# Python type for interface smr.LogSnapshotter
-class LogSnapshotter(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Load(self):
-		"""Load() object, str"""
-		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_Load(self.handle))
-	def LoadNewestAvailable(self, arg_0):
-		"""LoadNewestAvailable([]object) object, str"""
-		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_LoadNewestAvailable(self.handle, arg_0.handle))
-	def SaveSnap(self, arg_0):
-		"""SaveSnap(object) str"""
-		return _smr.smr_LogSnapshotter_SaveSnap(self.handle, arg_0.handle)
-
 
 # ---- Structs ---
-
-# Python type for struct smr.IntRet
-class IntRet(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_IntRet_CTor()
-			_smr.IncRef(self.handle)
-			if  0 < len(args):
-				self.N = args[0]
-			if "N" in kwargs:
-				self.N = kwargs["N"]
-			if  1 < len(args):
-				self.Err = args[1]
-			if "Err" in kwargs:
-				self.Err = kwargs["Err"]
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.IntRet{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.IntRet ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	@property
-	def N(self):
-		return _smr.smr_IntRet_N_Get(self.handle)
-	@N.setter
-	def N(self, value):
-		if isinstance(value, go.GoClass):
-			_smr.smr_IntRet_N_Set(self.handle, value.handle)
-		else:
-			_smr.smr_IntRet_N_Set(self.handle, value)
-	@property
-	def Err(self):
-		return _smr.smr_IntRet_Err_Get(self.handle)
-	@Err.setter
-	def Err(self, value):
-		if isinstance(value, go.GoClass):
-			_smr.smr_IntRet_Err_Set(self.handle, value.handle)
-		else:
-			_smr.smr_IntRet_Err_Set(self.handle, value)
-
-# Python type for struct smr.LogNode
-class LogNode(go.GoClass):
-	"""A SyncLog backed by raft\n"""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_LogNode_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.LogNode{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.LogNode ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def ServeHttpDebug(self, goRun=False):
-		"""ServeHttpDebug() """
-		_smr.smr_LogNode_ServeHttpDebug(self.handle, goRun)
-	def ConnectedToHDFS(self):
-		"""ConnectedToHDFS() bool
-		
-		Return true if we successfully connected to HDFS.
-		"""
-		return _smr.smr_LogNode_ConnectedToHDFS(self.handle)
-	def NumChanges(self):
-		"""NumChanges() int"""
-		return _smr.smr_LogNode_NumChanges(self.handle)
-	def Start(self, config):
-		"""Start(object config) bool"""
-		return _smr.smr_LogNode_Start(self.handle, config.handle)
-	def StartAndWait(self, config, goRun=False):
-		"""StartAndWait(object config) """
-		_smr.smr_LogNode_StartAndWait(self.handle, config.handle, goRun)
-	def GetSerializedState(self):
-		"""GetSerializedState() []int
-		
-		Return the serialized_state_json field.
-		This field is populated by ReadDataDirectoryFromHDFS if there is a serialized state file to be read.
-		It is only required during migration/error recovery.
-		"""
-		return go.Slice_byte(handle=_smr.smr_LogNode_GetSerializedState(self.handle))
-	def Propose(self, val, resolve, msg, goRun=False):
-		"""Propose(object val, callable resolve, str msg) 
-		
-		Append the difference of the value of specified key to the synchronization queue.
-		"""
-		_smr.smr_LogNode_Propose(self.handle, val.handle, resolve, msg, goRun)
-	def AddNode(self, id, addr, resolve, goRun=False):
-		"""AddNode(int id, str addr, callable resolve) """
-		_smr.smr_LogNode_AddNode(self.handle, id, addr, resolve, goRun)
-	def RemoveNode(self, id, resolve, goRun=False):
-		"""RemoveNode(int id, callable resolve) """
-		_smr.smr_LogNode_RemoveNode(self.handle, id, resolve, goRun)
-	def UpdateNode(self, id, addr, resolve, goRun=False):
-		"""UpdateNode(int id, str addr, callable resolve) """
-		_smr.smr_LogNode_UpdateNode(self.handle, id, addr, resolve, goRun)
-	def WaitToClose(self):
-		"""WaitToClose() str lastErr"""
-		return _smr.smr_LogNode_WaitToClose(self.handle)
-	def Close(self):
-		"""Close() str
-		
-		IMPORTANT: This does NOT close the HDFS client.
-		This is because, when migrating a raft cluster member, we must first stop the raft
-		node before copying the contents of its data directory.
-		"""
-		return _smr.smr_LogNode_Close(self.handle)
-	def CloseHdfsClient(self):
-		"""CloseHdfsClient() str"""
-		return _smr.smr_LogNode_CloseHdfsClient(self.handle)
-	def WriteDataDirectoryToHDFS(self, serialized_state, resolve, goRun=False):
-		"""WriteDataDirectoryToHDFS([]int serialized_state, callable resolve) 
-		
-		Write the data directory for this Raft node from local storage to HDFS.
-		"""
-		_smr.smr_LogNode_WriteDataDirectoryToHDFS(self.handle, serialized_state.handle, resolve, goRun)
-	def Process(self, ctx, m):
-		"""Process(object ctx, object m) str"""
-		return _smr.smr_LogNode_Process(self.handle, ctx.handle, m.handle)
-	def IsIDRemoved(self, id):
-		"""IsIDRemoved(long id) bool"""
-		return _smr.smr_LogNode_IsIDRemoved(self.handle, id)
-	def ReportUnreachable(self, id, goRun=False):
-		"""ReportUnreachable(long id) """
-		_smr.smr_LogNode_ReportUnreachable(self.handle, id, goRun)
-	def ReportSnapshot(self, id, status, goRun=False):
-		"""ReportSnapshot(long id, int status) """
-		_smr.smr_LogNode_ReportSnapshot(self.handle, id, status, goRun)
 
 # Python type for struct smr.LogNodeConfig
 class LogNodeConfig(go.GoClass):
@@ -818,6 +637,187 @@ class Bytes(go.GoClass):
 		"""
 		return _smr.smr_Bytes_Len(self.handle)
 
+# Python type for struct smr.IntRet
+class IntRet(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_IntRet_CTor()
+			_smr.IncRef(self.handle)
+			if  0 < len(args):
+				self.N = args[0]
+			if "N" in kwargs:
+				self.N = kwargs["N"]
+			if  1 < len(args):
+				self.Err = args[1]
+			if "Err" in kwargs:
+				self.Err = kwargs["Err"]
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.IntRet{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.IntRet ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	@property
+	def N(self):
+		return _smr.smr_IntRet_N_Get(self.handle)
+	@N.setter
+	def N(self, value):
+		if isinstance(value, go.GoClass):
+			_smr.smr_IntRet_N_Set(self.handle, value.handle)
+		else:
+			_smr.smr_IntRet_N_Set(self.handle, value)
+	@property
+	def Err(self):
+		return _smr.smr_IntRet_Err_Get(self.handle)
+	@Err.setter
+	def Err(self, value):
+		if isinstance(value, go.GoClass):
+			_smr.smr_IntRet_Err_Set(self.handle, value.handle)
+		else:
+			_smr.smr_IntRet_Err_Set(self.handle, value)
+
+# Python type for struct smr.LogNode
+class LogNode(go.GoClass):
+	"""A SyncLog backed by raft\n"""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_LogNode_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.LogNode{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.LogNode ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def ServeHttpDebug(self, goRun=False):
+		"""ServeHttpDebug() """
+		_smr.smr_LogNode_ServeHttpDebug(self.handle, goRun)
+	def ConnectedToHDFS(self):
+		"""ConnectedToHDFS() bool
+		
+		Return true if we successfully connected to HDFS.
+		"""
+		return _smr.smr_LogNode_ConnectedToHDFS(self.handle)
+	def NumChanges(self):
+		"""NumChanges() int"""
+		return _smr.smr_LogNode_NumChanges(self.handle)
+	def Start(self, config):
+		"""Start(object config) bool"""
+		return _smr.smr_LogNode_Start(self.handle, config.handle)
+	def StartAndWait(self, config, goRun=False):
+		"""StartAndWait(object config) """
+		_smr.smr_LogNode_StartAndWait(self.handle, config.handle, goRun)
+	def GetSerializedState(self):
+		"""GetSerializedState() []int
+		
+		Return the serialized_state_json field.
+		This field is populated by ReadDataDirectoryFromHDFS if there is a serialized state file to be read.
+		It is only required during migration/error recovery.
+		"""
+		return go.Slice_byte(handle=_smr.smr_LogNode_GetSerializedState(self.handle))
+	def Propose(self, val, resolve, msg, goRun=False):
+		"""Propose(object val, callable resolve, str msg) 
+		
+		Append the difference of the value of specified key to the synchronization queue.
+		"""
+		_smr.smr_LogNode_Propose(self.handle, val.handle, resolve, msg, goRun)
+	def AddNode(self, id, addr, resolve, goRun=False):
+		"""AddNode(int id, str addr, callable resolve) """
+		_smr.smr_LogNode_AddNode(self.handle, id, addr, resolve, goRun)
+	def RemoveNode(self, id, resolve, goRun=False):
+		"""RemoveNode(int id, callable resolve) """
+		_smr.smr_LogNode_RemoveNode(self.handle, id, resolve, goRun)
+	def UpdateNode(self, id, addr, resolve, goRun=False):
+		"""UpdateNode(int id, str addr, callable resolve) """
+		_smr.smr_LogNode_UpdateNode(self.handle, id, addr, resolve, goRun)
+	def WaitToClose(self):
+		"""WaitToClose() str lastErr"""
+		return _smr.smr_LogNode_WaitToClose(self.handle)
+	def Close(self):
+		"""Close() str
+		
+		IMPORTANT: This does NOT close the HDFS client.
+		This is because, when migrating a raft cluster member, we must first stop the raft
+		node before copying the contents of its data directory.
+		"""
+		return _smr.smr_LogNode_Close(self.handle)
+	def CloseHdfsClient(self):
+		"""CloseHdfsClient() str"""
+		return _smr.smr_LogNode_CloseHdfsClient(self.handle)
+	def WriteDataDirectoryToHDFS(self, serialized_state, resolve, goRun=False):
+		"""WriteDataDirectoryToHDFS([]int serialized_state, callable resolve) 
+		
+		Write the data directory for this Raft node from local storage to HDFS.
+		"""
+		_smr.smr_LogNode_WriteDataDirectoryToHDFS(self.handle, serialized_state.handle, resolve, goRun)
+	def Process(self, ctx, m):
+		"""Process(object ctx, object m) str"""
+		return _smr.smr_LogNode_Process(self.handle, ctx.handle, m.handle)
+	def IsIDRemoved(self, id):
+		"""IsIDRemoved(long id) bool"""
+		return _smr.smr_LogNode_IsIDRemoved(self.handle, id)
+	def ReportUnreachable(self, id, goRun=False):
+		"""ReportUnreachable(long id) """
+		_smr.smr_LogNode_ReportUnreachable(self.handle, id, goRun)
+	def ReportSnapshot(self, id, status, goRun=False):
+		"""ReportSnapshot(long id, int status) """
+		_smr.smr_LogNode_ReportSnapshot(self.handle, id, status, goRun)
+
 
 # ---- Slices ---
 
@@ -826,6 +826,9 @@ class Bytes(go.GoClass):
 
 
 # ---- Constructors ---
+def NewConfig():
+	"""NewConfig() object"""
+	return LogNodeConfig(handle=_smr.smr_NewConfig())
 def NewLogNode(store_path, id, hdfsHostname, shouldLoadDataFromHdfs, peerAddresses, peerIDs, join, httpDebugPort):
 	"""NewLogNode(str store_path, int id, str hdfsHostname, bool shouldLoadDataFromHdfs, []str peerAddresses, []int peerIDs, bool join, int httpDebugPort) object
 	
@@ -840,9 +843,6 @@ def NewLogNode(store_path, id, hdfsHostname, shouldLoadDataFromHdfs, peerAddress
 	we were migrated and our data directory was written to HDFS so that we could retrieve it.
 	"""
 	return LogNode(handle=_smr.smr_NewLogNode(store_path, id, hdfsHostname, shouldLoadDataFromHdfs, peerAddresses.handle, peerIDs.handle, join, httpDebugPort))
-def NewConfig():
-	"""NewConfig() object"""
-	return LogNodeConfig(handle=_smr.smr_NewConfig())
 
 
 # ---- Functions ---
