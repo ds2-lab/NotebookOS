@@ -797,34 +797,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 
 		wg.Add(1)
 		go func(kernel core.Kernel) {
-			// kernelClient := kernel.(*kernelReplicaClientImpl)
 			kernel.(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
-			// err := kernelClient.requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
-
-			// if err != nil {
-			// 	c.log.Warn("Failed to send request to %v: %v", kernel, err)
-
-			// 	// If the error is that we didn't receive any ACKs, then we'll try to reconnect to the kernel.
-			// 	// If we reconnect successfully, then we'll try to send it again.
-			// 	// If we still fail to send the message at that point, then we'll just give up (for now).
-			// 	if errors.Is(err, jupyter.ErrNoAck) {
-			// 		c.log.Warn("Connectivity with client for replica %d of kernel %s on associated Local Daemon may have been lost. Will attempt to reconnect and resubmit request.", kernelClient.ReplicaID(), kernel.ID())
-
-			// 		if validationError := kernel.Validate(true); validationError != nil {
-			// 			c.log.Error("Failed to reconnect to client for replica %d of kernel %s (running on its associated local daemon) because: %v", kernelClient.ReplicaID(), kernel.ID(), validationError)
-			// 			c.connectionRevalidationFailedCallback(c, kernelClient, msg, validationError)
-			// 			return
-			// 		}
-
-			// 		secondAttemptErr := kernelClient.requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
-			// 		if secondAttemptErr != nil {
-			// 			c.log.Error("Failed to send request to %v after successfully revalidating: %v", kernel, secondAttemptErr)
-			// 			c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, kernelClient, msg, secondAttemptErr)
-			// 			return
-			// 		}
-			// 	}
-
-			// }
 		}(kernel)
 	}
 	if done != nil {
