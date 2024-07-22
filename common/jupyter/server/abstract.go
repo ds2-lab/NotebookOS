@@ -497,7 +497,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// dest.Unlock()
 	_, alreadyRegistered := s.RegisterAck(reqId)
 	if alreadyRegistered {
-		s.Log.Error(utils.RedStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.Header.MsgType)
+		s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.Header.MsgType)
 	}
 
 	// Track the pending request.

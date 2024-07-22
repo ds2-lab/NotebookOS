@@ -6,7 +6,8 @@ FROM quay.io/jupyter/base-notebook:latest
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
     JUPYTER_ALLOW_INSECURE_WRITES=1 \
-    GOTRACEBACK=crash 
+    GOTRACEBACK=crash \
+    PYTHONFAULTHANDLER=1
     # PYTHONDEVMODE=1
 
 # Install amd version of pytorch and torchvision
@@ -45,8 +46,13 @@ ADD install_kernel.sh /distributed_notebook/install_kernel.sh
 ADD Makefile /distributed_notebook/Makefile
 ADD dockfiles/cpu-python3-amd64/sample_notebooks/ /home/jovyan/sample_notebooks/
 
+ADD dockfiles/cpu-python3-amd64/apport-settings /home/jovyan/.config/apport/settings
+
 RUN chmod -R 777 /home/jovyan/sample_notebooks/*
 RUN chown jovyan /home/jovyan/sample_notebooks/*
+
+# RUN echo "kernel.core_pattern=/tmp/cores/core.%e.%p.%h.%t" | sudo tee -a /etc/sysctl.conf
+# RUN sudo bash -c 'echo "/tmp/cores/core.%e.%p.%h.%t" > /proc/sys/kernel/core_pattern'
 
 # Install kernel
 RUN cd /distributed_notebook \
@@ -56,6 +62,10 @@ RUN cd /distributed_notebook \
     common/gateway/gateway.proto \
     && sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
 RUN cd /distributed_notebook && ./install_kernel.sh
+
+RUN mkdir /cores
+RUN chmod -R 777 /cores 
+RUN chown jovyan /cores
 
 # Copy the modified config file.
 COPY dockfiles/cpu-python3-amd64/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py

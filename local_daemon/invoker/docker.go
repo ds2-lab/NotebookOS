@@ -22,14 +22,14 @@ import (
 )
 
 const (
+	DockerNetworkNameEnv     = "DOCKER_NETWORK_NAME"
+	DockerNetworkNameDefault = "distributed_cluster_default"
+
 	DockerTempBase        = "KERNEL_TEMP_BASE"
 	DockerTempBaseDefault = ""
 
 	DockerImageName        = "KERNEL_IMAGE"
 	DockerImageNameDefault = "scusemua/jupyter:latest"
-
-	DockerNetworkName        = "KERNEL_NETWORK"
-	DockerNetworkNameDefault = "distributed_cluster_default"
 
 	DockerStorageVolume        = "STORAGE"
 	DockerStorageVolumeDefault = "/kernel_storage"
@@ -42,7 +42,7 @@ const (
 	VarConnectionFile    = "{connection_file}"
 	VarContainerName     = "{container_name}"
 	VarContainerNewName  = "{container_new_name}"
-	VarContainerNetwork  = "{network}"
+	VarContainerNetwork  = "{network_name}"
 	VarStorageVolume     = "{storage}"
 	VarConfigFile        = "{config_file}"
 	VarKernelId          = "{kernel_id}"
@@ -62,7 +62,7 @@ var (
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
-	dockerInvokerCmd  = "docker run -d -t --name {container_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker --label kernel_id={kernel_id} --label app=distributed_cluster {image}"
+	dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker --label kernel_id={kernel_id} --label app=distributed_cluster {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
 
@@ -72,16 +72,16 @@ var (
 
 type DockerInvoker struct {
 	LocalInvoker
-	dockerOpts    *jupyter.ConnectionInfo
-	tempBase      string
-	invokerCmd    string
-	containerName string
-	smrPort       int
-	closing       int32
-	id            string // Uniquely identifies this Invoker instance.
-
-	kernelDebugPort      int
-	hdfsNameNodeEndpoint string
+	dockerOpts           *jupyter.ConnectionInfo
+	tempBase             string
+	invokerCmd           string // Command used to create the Docker container.
+	containerName        string // Name of the launched container; this is the empty string before the container is launched.
+	dockerNetworkName    string // The name of the Docker network that the Local Daemon container is running within.
+	smrPort              int    // Port used by the SMR cluster.
+	closing              int32  // Indicates whether the container is closing/shutting down.
+	id                   string // Uniquely identifies this Invoker instance.
+	kernelDebugPort      int    // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	hdfsNameNodeEndpoint string // Endpoint of the HDFS namenode.
 }
 
 func NewDockerInvoker(opts *jupyter.ConnectionInfo, hdfsNameNodeEndpoint string, kernelDebugPort int) *DockerInvoker {
@@ -94,6 +94,8 @@ func NewDockerInvoker(opts *jupyter.ConnectionInfo, hdfsNameNodeEndpoint string,
 		panic("HDFS NameNode endpoint is empty.")
 	}
 
+	var dockerNetworkName string = os.Getenv(DockerNetworkNameEnv)
+
 	invoker := &DockerInvoker{
 		dockerOpts:           opts,
 		tempBase:             utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
@@ -101,10 +103,11 @@ func NewDockerInvoker(opts *jupyter.ConnectionInfo, hdfsNameNodeEndpoint string,
 		hdfsNameNodeEndpoint: hdfsNameNodeEndpoint,
 		id:                   uuid.NewString(),
 		kernelDebugPort:      kernelDebugPort,
+		dockerNetworkName:    dockerNetworkName,
 	}
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
-	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkName, DockerNetworkNameDefault))
+	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkNameEnv, DockerNetworkNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarStorageVolume, utils.GetEnv(DockerStorageVolume, DockerStorageVolumeDefault))
 
 	config.InitLogger(&invoker.log, invoker)

@@ -19,8 +19,8 @@ services:
       - /etc/hosts:/tmp/hosts
 
   jupyter:
-    # environment:
-      # - NOTEBOOK_ARGS="--log-level=DEBUG"
+    environment:
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     build: 
       context: ../..
       dockerfile: dockfiles/cpu-python3-amd64/Dockerfile
@@ -42,6 +42,8 @@ services:
     #build: 
     #  context: ./gateway
     #  dockerfile: Dockerfile
+    environment:
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     image: scusemua/gateway
     labels:
       app: "distributed_cluster"
@@ -65,10 +67,10 @@ services:
     environment:
       - KERNEL_TEMP_BASE=/kernel_base
       - KERNEL_IMAGE=scusemua/jupyter:latest
-      - KERNEL_NETWORK=distributed_cluster_default
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=/home/$USER/kernel_storage
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     build:
       context: ./local_daemon
       dockerfile: Dockerfile
@@ -87,3 +89,4 @@ services:
   
 volumes:
   storage:
+  coredumps_volume:

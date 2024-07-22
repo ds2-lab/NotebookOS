@@ -1217,7 +1217,7 @@ class RaftLog(object):
         """
         Register the change handler, restore internal states, and start monitoring for changes committed to the Raft log.
         """
-        faulthandler.dump_traceback_later(timeout = 30, repeat = True, file = sys.stderr, exit = False)
+        # faulthandler.dump_traceback_later(timeout = 30, repeat = True, file = sys.stderr, exit = False)
         self._change_handler = handler 
 
         config = NewConfig() 

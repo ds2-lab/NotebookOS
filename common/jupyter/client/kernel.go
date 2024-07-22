@@ -671,7 +671,7 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 				return errors.Join(err, reconnectionError)
 			}
 
-			c.log.Debug("Successfully reconnected with remote kernel client. Will attempt to resubmit %v message now.", typ)
+			c.log.Debug("Successfully reconnected with remote kernel client on %v socket. Will attempt to resubmit %v message now.", typ.String(), typ.String())
 
 			secondAttemptErr := sendRequest()
 			if secondAttemptErr != nil {

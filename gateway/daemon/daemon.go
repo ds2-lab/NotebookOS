@@ -510,7 +510,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingIns
 		}, ErrFailedToVerifyMessage
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 
 	doneChan := make(chan struct{})
@@ -536,16 +536,18 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingIns
 		{
 			err := ctx.Err()
 			if err != nil {
-				d.log.Error("'ping-kernel' request for kernel %s failed after receiving %d/3 replies: %v", kernelId, numRepliesReceived.Load(), err)
+				errorMessage := fmt.Sprintf("'ping-kernel' %v request for kernel %s failed after receiving %d/3 replies: %v", socketType.String(), kernelId, numRepliesReceived.Load(), err)
+				d.log.Error(errorMessage)
 				return &gateway.Pong{
 					Id:      kernelId,
 					Success: false,
+					Msg:     errorMessage,
 				}, ErrRequestTimedOut
 			}
 		}
 	case <-doneChan:
 		{
-			d.log.Debug("Received all 3 'ping_reply' responses from replicas of kernel %s in %v.", kernelId, time.Since(startTime))
+			d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s in %v.", socketType.String(), kernelId, time.Since(startTime))
 		}
 	}
 

@@ -28,10 +28,6 @@ from threading import Lock
 
 from jupyter_client.jsonutil import extract_dates
 
-# import faulthandler
-
-# from ..smr.smr import PrintTestMessage
-
 from multiprocessing import Process, Queue
 
 def sigabrt_handler(sig, frame):
@@ -506,6 +502,8 @@ class DistributedKernel(IPythonKernel):
 
     async def dispatch_shell(self, msg):
         assert self.session != None 
+        
+        self.log.debug(f"Received SHELL message: {msg}")
 
         idents, msg_without_idents = self.session.feed_identities(msg, copy=False)
         try:
@@ -540,6 +538,8 @@ class DistributedKernel(IPythonKernel):
         msg_id:str = msg_deserialized["header"]["msg_id"]
         msg_type:str = msg_deserialized["header"]["msg_type"]
         self.log.debug(f"Received SHELL message {msg_id} of type \"{msg_type}\"")
+        sys.stderr.flush()
+        sys.stdout.flush()
         self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg_deserialized) # Send an ACK.
         
         await super().dispatch_shell(msg)
@@ -612,6 +612,8 @@ class DistributedKernel(IPythonKernel):
         msg_type:str = header["msg_type"]
         msg_id:str = header["msg_id"]
         self.log.debug(f"Received control message {msg_id} of type \"{msg_type}\"")
+        sys.stderr.flush()
+        sys.stdout.flush()
 
         # Set the parent message for side effects.
         self.set_parent(idents, msg, channel="control")
@@ -816,12 +818,11 @@ class DistributedKernel(IPythonKernel):
         reply_content: Dict[str, Any] = {}
         error_occurred: bool = False # Separate flag, since we raise an exception and generate an error response when we yield successfully.
         
-        self.log.info(
-            "DistributedKernel is preparing to yield the execution of some code to another replica.\n\n")
+        self.log.info("DistributedKernel is preparing to yield the execution of some code to another replica.\n\n")
         self.log.debug("Parent: %s" % str(parent))
-        parent_header = extract_header(parent)
+        parent_header: dict[str, Any] = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
-
+        
         if not self.session:
             return
         try:
@@ -871,14 +872,13 @@ class DistributedKernel(IPythonKernel):
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
-                reply_content = self.gen_error_response(err_failed_to_lead_execution)
+                reply_content: dict[str, Any] = self.gen_error_response(err_failed_to_lead_execution)
                 # reply_content['yield-reason'] = TODO(Ben): Add this once I figure out how to extract it from the message payloads.
             else:
                 self.log.error("I've been selected to lead this execution (%d), but I'm supposed to yield!" % self.shell.execution_count)
 
                 # Notify the client that we will lead the execution (which is bad, in this case, as we were supposed to yield.)
-                self.session.send(self.iopub_socket, "smr_lead_after_yield", {
-                                "term": self.synchronizer.execution_count+1}, ident=self._topic("smr_lead_task"))
+                self.session.send(self.iopub_socket, "smr_lead_after_yield", {"term": self.synchronizer.execution_count+1}, ident=self._topic("smr_lead_task"))
         except Exception as e:
             self.log.error("Error while yielding execution for term %d: %s" % (self.synchronizer.execution_count + 1, str(e)))
             reply_content = self.gen_error_response(e)

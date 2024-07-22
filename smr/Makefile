@@ -66,7 +66,7 @@ gen-python: clean
 
 build-python: clean
 	@echo "\nBuilding Python"
-	gopy build -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
+	gopy build -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr -symbols=true 
 
 build-common:
 	@echo "\nBuilding 'smr-common' now."

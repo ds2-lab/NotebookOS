@@ -29,30 +29,12 @@ endif
 # Generate os and arch specific smr.go
 	cp smr/bak/smr.go	smr/$*.go
 
-# prepare-smr-darwin: prepare-smr_darwin.go
-# 	sed -Ei '' 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_ESCAPED_PATH)\/include\/python$(PYTHON3_VERSION) -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_darwin.go
-# 	sed -Ei '' 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_ESCAPED_PATH)\/lib -lpython$(PYTHON3_VERSION) -ldl -framework CoreFoundation/' smr/smr_darwin.go
-
-# export CGO_CFLAGS="-I$(PYTHON3_INCLUDES_PATH) -fPIC -Ofast"
-# export CGO_LDFLAGS="-L$(PYTHON3_LIB_PATH) -lpython3.11 -lcrypt -lpthread -ldl -lutil -lm -lm"
-
-# prepare-smr-linux-arm64: prepare-smr_linux_arm64.go
-# # We don't use -i because it may cause permission problem with created temporary file.
-# 	sed -E 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I\/usr\/include\/python3. -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_arm64.go > smr/smr_linux_arm64.go.tmp
-# 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
-# 	sed -E 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L\/usr\/lib -lpython3.9 -lcrypt -lpthread -ldl  -lutil -lm -lm/' smr/smr_linux_arm64.go > smr/smr_linux_arm64.go.tmp
-# 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
-
 prepare-smr-linux-amd64: prepare-smr_linux_amd64.go
 	@echo "Preparing SMR Linux AMD64"
 # We don't use -i because it may cause permission problem with created temporary file.
-#	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I\/usr\/local\/include\/python3.11 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
-#	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L\/usr\/local\/lib -lpython3.11 -lcrypt -lpthread -ldl  -lutil -lm -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
-	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_INCLUDES_PATH_ESCAPED) -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
-#	sed -i -E 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_INCLUDES_PATH) -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
+	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_INCLUDES_PATH_ESCAPED) -g -ggdb -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
-	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_LIB_PATH_ESCAPED) -lpython3.11 -lcrypt -lpthread -ldl  -lutil -lm -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
-# sed -i -E 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_LIB_PATH) -lpython3.11 -lcrypt -lpthread -ldl  -lutil -lm -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
+	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_LIB_PATH_ESCAPED) -lpython3.11 -lcrypt -lpthread -ldl -lutil -lm -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
 
 build-init:

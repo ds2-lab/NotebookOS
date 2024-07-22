@@ -10,6 +10,9 @@ You can replace the `"4"` passed to the `"--scale daemon="` argument with anothe
 
 ## Development Recommendations
 
+### Core Dumps
+The system is configured with the expectation that core dumps will be written to a `/cores` directory: [related](https://stackoverflow.com/questions/28335614/how-to-generate-core-file-in-docker-container).
+
 ### Dozzle
 For debugging and development, we recommend deploying [Dozzle](https://github.com/amir20/dozzle) for easier monitoring of logs:
 ``` sh

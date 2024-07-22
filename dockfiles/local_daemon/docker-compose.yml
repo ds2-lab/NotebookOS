@@ -11,6 +11,7 @@ services:
   jupyter:
     environment:
       - NOTEBOOK_ARGS="--log-level=DEBUG"
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     build: 
       context: ../..
       dockerfile: dockfiles/cpu-python3-arm64/Dockerfile
@@ -27,6 +28,8 @@ services:
     restart: always
 
   gateway:
+    environment:
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     build: 
       context: ../gateway
       dockerfile: Dockerfile
@@ -45,13 +48,14 @@ services:
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=local_daemon_storage
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     build:
       context: ../..
       dockerfile: dockfiles/local-daemon/Dockerfile
     image: scusemua/daemon
     deploy:
       labels:
-        app: "distributed_cluster"
+        app: "distributed_cluster" # Note: if you change this, you must update the `DOCKER_NETWORK_NAME` environment variable passed to the local daemons, defined above.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base

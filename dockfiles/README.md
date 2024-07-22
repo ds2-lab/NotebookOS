@@ -1,6 +1,6 @@
 # Docker Files
 
-This directory contains (a bunch of sub-directories, each of which contains) docker image deinfitions (i.e., Dockerfiles) and docker-compose files for deploying the Distributed Notebook Cluster on Docker.
+This directory contains (a bunch of sub-directories, each of which contains) docker image definitions (i.e., Dockerfiles) and docker-compose files for deploying the Distributed Notebook Cluster on Docker.
 
 There are two provided scripts for starting and stopping all components: `start-components.sh` and `stop-components.sh`, respectively. These scripts should be executed from this directory.
 

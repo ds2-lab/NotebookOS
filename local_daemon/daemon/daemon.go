@@ -580,7 +580,7 @@ func (d *SchedulerDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(k
 		messageType = header.MsgType
 	}
 
-	errorMessage := fmt.Sprintf("Failed to forward %v \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v", msg.Type, messageType, kernel.ReplicaID(), kernel.ID(), resubmissionError)
+	errorMessage := fmt.Sprintf("Failed to forward \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v", messageType, kernel.ReplicaID(), kernel.ID(), resubmissionError)
 	d.log.Error(errorMessage)
 
 	go d.provisioner.Notify(context.TODO(), &gateway.Notification{
