@@ -242,8 +242,12 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 
 // Recreate and return the kernel's control socket.
 // This reuses the handler on the existing/previous control socket.
-func (c *kernelReplicaClientImpl) reinitializeControlSocket() *types.Socket {
-	handler := c.closeSocket(types.ControlMessage)
+func (c *kernelReplicaClientImpl) recreateControlSocket() *types.Socket {
+	handler, err := c.closeSocket(types.ControlMessage)
+	if err != nil {
+		c.log.Error("Could not find control socket on Client... Handler of new socket will be nil.")
+	}
+
 	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.ControlPort, types.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", c.id), handler)
 	c.client.Sockets.Control = new_socket
 	c.client.Sockets.All[types.ControlMessage] = new_socket
@@ -252,8 +256,12 @@ func (c *kernelReplicaClientImpl) reinitializeControlSocket() *types.Socket {
 
 // Recreate and return the kernel's shell socket.
 // This reuses the handler on the existing/previous shell socket.
-func (c *kernelReplicaClientImpl) reinitializeShellSocket() *types.Socket {
-	handler := c.closeSocket(types.ShellMessage)
+func (c *kernelReplicaClientImpl) recreateShellSocket() *types.Socket {
+	handler, err := c.closeSocket(types.ShellMessage)
+	if err != nil {
+		c.log.Error("Could not find shell socket on Client... Handler of new socket will be nil.")
+	}
+
 	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.ShellPort, types.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", c.id), handler)
 	c.client.Sockets.Shell = new_socket
 	c.client.Sockets.All[types.ShellMessage] = new_socket
@@ -262,8 +270,12 @@ func (c *kernelReplicaClientImpl) reinitializeShellSocket() *types.Socket {
 
 // Recreate and return the kernel's stdin socket.
 // This reuses the handler on the existing/previous stdin socket.
-func (c *kernelReplicaClientImpl) reinitializeStdinSocket() *types.Socket {
-	handler := c.closeSocket(types.StdinMessage)
+func (c *kernelReplicaClientImpl) recreateStdinSocket() *types.Socket {
+	handler, err := c.closeSocket(types.StdinMessage)
+	if err != nil {
+		c.log.Error("Could not find stdin socket on Client... Handler of new socket will be nil.")
+	}
+
 	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.StdinPort, types.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", c.id), handler)
 	c.client.Sockets.Stdin = new_socket
 	c.client.Sockets.All[types.StdinMessage] = new_socket
@@ -272,8 +284,12 @@ func (c *kernelReplicaClientImpl) reinitializeStdinSocket() *types.Socket {
 
 // Recreate and return the kernel's heartbeat socket.
 // This reuses the handler on the existing/previous heartbeat socket.
-func (c *kernelReplicaClientImpl) reinitializeHeartbeatSocket() *types.Socket {
-	handler := c.closeSocket(types.HBMessage)
+func (c *kernelReplicaClientImpl) recreateHeartbeatSocket() *types.Socket {
+	handler, err := c.closeSocket(types.HBMessage)
+	if err != nil {
+		c.log.Error("Could not find heartbeat socket on Client... Handler of new socket will be nil.")
+	}
+
 	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", c.id), handler)
 	c.client.Sockets.HB = new_socket
 	c.client.Sockets.All[types.HBMessage] = new_socket
@@ -281,11 +297,10 @@ func (c *kernelReplicaClientImpl) reinitializeHeartbeatSocket() *types.Socket {
 }
 
 // Close the socket of the specified type, returning the handler set for that socket.
-func (c *kernelReplicaClientImpl) closeSocket(typ types.MessageType) types.MessageHandler {
-	var handler types.MessageHandler
+func (c *kernelReplicaClientImpl) closeSocket(typ types.MessageType) (types.MessageHandler, error) {
 	if c.client != nil && c.client.Sockets.All[typ] != nil {
 		oldSocket := c.client.Sockets.All[typ]
-		handler = oldSocket.Handler
+		handler := oldSocket.Handler
 
 		if atomic.LoadInt32(&oldSocket.Serving) == 1 {
 			c.log.Debug("Sending 'stop-serving' notification to %s socket.", typ.String())
@@ -298,9 +313,11 @@ func (c *kernelReplicaClientImpl) closeSocket(typ types.MessageType) types.Messa
 			// Print the error, but that's all. We're recreating the socket anyway.
 			c.log.Warn("Error while closing %s socket: %v", typ.String(), err)
 		}
-	}
 
-	return handler
+		return handler, nil
+	} else {
+		return nil, types.ErrSocketNotAvailable
+	}
 }
 
 // This is called when the replica ID is set/changed, so that the logger's prefix reflects the replica ID.
@@ -469,19 +486,19 @@ func (c *kernelReplicaClientImpl) ReconnectSocket(typ types.MessageType) error {
 	switch typ {
 	case types.ControlMessage:
 		{
-			socket = c.reinitializeControlSocket()
+			socket = c.recreateControlSocket()
 		}
 	case types.ShellMessage:
 		{
-			socket = c.reinitializeShellSocket()
+			socket = c.recreateShellSocket()
 		}
 	case types.HBMessage:
 		{
-			socket = c.reinitializeStdinSocket()
+			socket = c.recreateStdinSocket()
 		}
 	case types.StdinMessage:
 		{
-			socket = c.reinitializeHeartbeatSocket()
+			socket = c.recreateHeartbeatSocket()
 		}
 	}
 
@@ -736,14 +753,15 @@ func (c *kernelReplicaClientImpl) dial(sockets ...*types.Socket) error {
 			continue
 		}
 
-		c.log.Debug("Dialing %s socket at %s now...", socket.Type.String(), fmt.Sprintf(address, socket.Port))
+		addressWithPort := fmt.Sprintf(address, socket.Port)
+		c.log.Debug("Dialing %s socket at %s now...", socket.Type.String(), addressWithPort)
 
-		err := socket.Socket.Dial(fmt.Sprintf(address, socket.Port))
+		err := socket.Socket.Dial(addressWithPort)
 		if err != nil {
-			return fmt.Errorf("could not connect to kernel socket(port:%d): %w", socket.Port, err)
+			return fmt.Errorf("could not connect to kernel %v socket at address %s: %w", socket.Type.String(), addressWithPort, err)
 		}
 
-		c.log.Debug("Successfully dialed %s socket at %s.", socket.Type.String(), fmt.Sprintf(address, socket.Port))
+		c.log.Debug("Successfully dialed %s socket at %s.", socket.Type.String(), addressWithPort)
 	}
 
 	// Using a second loop to start serving after all sockets are connected.
