@@ -80,13 +80,19 @@ func (op *addReplicaOperationImpl) ReplicaJoinedSmrChannel() chan struct{} {
 	return op.replicaJoinedSmrChannel
 }
 
-// Returns true if the operation has completed successfully,
-// which requires the following three criteria to be true:
+// Returns true if the operation has completed successfully, which requires the following three criteria to be true:
 // - The new Pod has started.
 // - The new replica has registered with its local daemon and the Gateway.
 // - The new replica has joined its SMR cluster.
+//
+// This is the inverse of `AddReplicaOperation::Active`.
 func (op *addReplicaOperationImpl) Completed() bool {
 	return op.podStarted && op.replicaRegistered && op.replicaJoinedSMR
+}
+
+// Returns true if the operation has not yet finished. This is the inverse of `AddReplicaOperation::Completed`.
+func (op *addReplicaOperationImpl) IsActive() bool {
+	return !op.Completed()
 }
 
 // Unique identifier of the add operation.

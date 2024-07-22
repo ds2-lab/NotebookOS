@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
 	"os"
@@ -827,12 +828,17 @@ func (d *ClusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification 
 	kernelId := smrReadyNotification.KernelId
 
 	// First, check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
-	addReplicaOp, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId)
+	addReplicaOp, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId, true)
 	if !ok {
+		d.log.Warn("No active add-replica operation found for replica %d, kernel %s.", smrReadyNotification.ReplicaId, kernelId)
 		return gateway.VOID, nil
 	}
 
-	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s.", smrReadyNotification.ReplicaId, kernelId)
+	if addReplicaOp.Completed() {
+		log.Fatalf("Retrieved AddReplicaOperation %v targeting replica %d of kernel %s -- this operation has already completed.\n", addReplicaOp.OperationID(), smrReadyNotification.ReplicaId, kernelId)
+	}
+
+	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s [AddOperation.OperationID=%v]", smrReadyNotification.ReplicaId, kernelId, addReplicaOp.OperationID())
 	addReplicaOp.ReplicaJoinedSmrChannel() <- struct{}{}
 
 	return gateway.VOID, nil
@@ -858,10 +864,15 @@ func (d *ClusterGatewayImpl) SmrNodeAdded(ctx context.Context, replicaInfo *gate
 	d.log.Debug("Received SMR Node-Added notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
 
 	// If there's no add-replica operation here, then we'll just return.
-	op, op_exists := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, replicaInfo.ReplicaId)
+	op, op_exists := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, replicaInfo.ReplicaId, true)
+
 	if !op_exists {
-		d.log.Debug("No add-replica operation for replica %d, kernel %s.", replicaInfo.ReplicaId, kernelId)
+		d.log.Warn("No active add-replica operation found for replica %d, kernel %s.", replicaInfo.ReplicaId, kernelId)
 		return gateway.VOID, nil
+	}
+
+	if op.Completed() {
+		log.Fatalf("Retrieved AddReplicaOperation %v targeting replica %d of kernel %s -- this operation has already completed.\n", op.OperationID(), replicaInfo.ReplicaId, kernelId)
 	}
 
 	op.SetReplicaJoinedSMR()
@@ -2105,7 +2116,10 @@ func (d *ClusterGatewayImpl) headerFromFrames(frames [][]byte) (*jupyter.Message
 }
 
 // Return the add-replica operation associated with the given Kernel ID and SMR Node ID of the new replica.
-func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (domain.AddReplicaOperation, bool) {
+//
+// This looks for the most-recently-added AddReplicaOperation associated with the specified replica of the specified kernel.
+// If `mustBeActive` is true, then we skip any AddReplicaOperation structs that have already been marked as completed.
+func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32, mustBeActive bool) (domain.AddReplicaOperation, bool) {
 	d.addReplicaMutex.Lock()
 	defer d.addReplicaMutex.Unlock()
 
@@ -2115,10 +2129,14 @@ func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 	}
 
 	var op domain.AddReplicaOperation
-	for el := activeOps.Front(); el != nil; el = el.Next() {
+	// Iterate from newest to oldest, which entails beginning at the back.
+	// We want to return the newest AddReplicaOperation that matches the replica ID for this kernel.
+	for el := activeOps.Back(); el != nil; el = el.Prev() {
 		op = el.Value
 
-		if op.ReplicaId() == smrNodeId {
+		// Check that the replica IDs match.
+		// If they do match, then we either must not be bothering to check if the operation is still active, or it must still be active.
+		if op.ReplicaId() == smrNodeId && (!mustBeActive || op.IsActive()) {
 			return op, true
 		}
 	}
@@ -2400,23 +2418,24 @@ func (d *ClusterGatewayImpl) addReplica(in *gateway.ReplicaInfo, opts domain.Add
 	d.Unlock()
 
 	if opts.WaitRegistered() {
-		d.log.Debug("Waiting for new replica %d of kernel %s to register.", addReplicaOp.ReplicaId(), kernelId)
+		d.log.Debug("Waiting for new replica %d of kernel %s to register...", addReplicaOp.ReplicaId(), kernelId)
 		<-addReplicaOp.ReplicaRegisteredChannel()
-		d.log.Debug("New replica %d for kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
+		d.log.Debug("New replica %d of kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
 	}
 
 	var smrWg sync.WaitGroup
 	smrWg.Add(1)
 	// Separate goroutine because this has to run everytime, even if we don't wait, as we call AddOperationCompleted when the new replica joins its SMR cluster.
 	go func() {
+		d.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster... [AddOperation.OperationID=%v]]", addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 		<-addReplicaOp.ReplicaJoinedSmrChannel()
-		d.log.Debug("New replica %d for kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
+		d.log.Debug("New replica %d of kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
 		kernel.AddOperationCompleted()
 		smrWg.Done()
 	}()
 
 	if opts.WaitSmrJoined() {
-		d.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
+		d.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster...", addReplicaOp.ReplicaId(), kernelId)
 		smrWg.Wait()
 	}
 
