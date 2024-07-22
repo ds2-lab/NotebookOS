@@ -1152,10 +1152,16 @@ func (node *LogNode) writeLocalDirectoryToHdfs(dir string) error {
 
 // Write the data directory for this Raft node from local storage to HDFS.
 func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state []byte, resolve ResolveCallback) {
-	node.sugaredLogger.Debugf("Data directory: \"%s\"", node.data_dir)
-	node.sugaredLogger.Debugf("WAL directory: \"%s\"", node.waldir)
-	node.sugaredLogger.Debugf("Snapshot directory: \"%s\"", node.snapdir)
-	// node.sugaredLogger.Debugf("HDFS directory: \"%s\"", node.hdfs_data_directory)
+	go node.writeDataDirectoryToHDFSImpl(serialized_state, resolve)
+}
+
+// Write the data directory for this Raft node from local storage to HDFS.
+// This is intended to be called by a separate goroutine in the `LogNode::WriteDataDirectoryToHDFS` function.
+// This enables the LogNode::WriteDataDirectoryToHDFS function to return immediately, so that Python can simply
+// call await on the associated future and not block the IO loop.
+func (node *LogNode) writeDataDirectoryToHDFSImpl(serialized_state []byte, resolve ResolveCallback) {
+	node.logger.Debug("Writing data directory to HDFS.", zap.String("data directory", node.data_dir), zap.String("WAL directory", node.waldir), zap.String("snapshot directory", node.snapdir))
+
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 	debug.SetPanicOnFault(true)
 	err := node.hdfsClient.MkdirAll(node.waldir, os.FileMode(int(0777)))
@@ -1349,6 +1355,7 @@ func (node *LogNode) replayWAL() *wal.WAL {
 			node.logFatalf("LogNode %d: failed to restore states (%v)", node.id, err)
 			return nil
 		}
+		node.logger.Debug("Successfully restored data from Raft snapshot.", zap.Int("snapshot-size-bytes", len(snapshot.Data)))
 	}
 
 	w := node.openWAL(snapshot)

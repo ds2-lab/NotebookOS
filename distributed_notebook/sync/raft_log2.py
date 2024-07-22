@@ -508,28 +508,30 @@ class RaftLog(object):
         self.logger.debug("Restored {}".format(restored))
         return GoNilError()
 
-    def _valueRestored(self, goObject, value_size: int) -> bytes:
-        self.logger.debug(f"Restoring state of size {value_size} now...")
+    # TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.
+    def _valueRestored(self, goObject, aggregate_size: int) -> bytes:
+        self.logger.debug(f"Restoring state(s) with combined/aggregate size of {aggregate_size} bytes now...")
 
         # Set of IDs of SynchronizedValues that have been restored.
         # We use this to monitor for duplicates.
         restored_sync_values: set[str] = set()
 
-        reader = readCloser(ReadCloser(handle=goObject), value_size)
+        reader = readCloser(ReadCloser(handle=goObject), size = aggregate_size)
         unpickler = pickle.Unpickler(reader)
 
         syncval = None
         try:
             syncval = unpickler.load()
         except Exception as ex:
-            self.logger.error(f"Could not load first synchronized value to restore (value_size = {value_size}) because: {ex}")
+            self.logger.error(f"Could not load first synchronized value to restore (aggregate_size = {aggregate_size}) because: {ex}")
 
         # Recount _ignore_changes
         self._ignore_changes = 0
         restored: int = 0
+        # TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.
         while syncval is not None:
             assert self._change_handler != None 
-            self.logger.debug("Loading next SynchronizedValue to restore.")
+            # self.logger.debug("Loading next SynchronizedValue to restore.")
             try:
                 loaded_value: Optional[SynchronizedValue] = self._load_value(syncval)
             except Exception as ex:
@@ -543,6 +545,7 @@ class RaftLog(object):
                     self.logger.error(val)
                 
                 # For now, just stop here. I'm not sure why this loops.
+                self.logger.debug(f"Restored state with aggregate size of {aggregate_size} bytes. Number of individual values restored: {restored}")
                 return GoNilError()
                 # return GoError(ValueError(f"Found duplicate SynchronizedValue during restoration process: {loaded_value}"))
             else:
@@ -562,16 +565,16 @@ class RaftLog(object):
 
             syncval = None
             loaded_value = None 
-            self.logger.debug(f"syncval before calling load: {syncval}")
+            # self.logger.debug(f"syncval before calling load: {syncval}")
             syncval = unpickler.load()
-            self.logger.debug(f"syncval after calling load: {syncval}")
+            # self.logger.debug(f"syncval after calling load: {syncval}")
 
             if syncval != None:
                 self.logger.debug(f"Read next Synchronized Value from recovery data: {syncval}")
             else:
                 self.logger.debug(f"Got 'None' from recovery data. We're done processing recovered state.")
 
-        self.logger.debug(f"Restored state of size {value_size} bytes. Number of individual values restored: {restored}")
+        self.logger.debug(f"Restored state with aggregate size of {aggregate_size} bytes. Number of individual values restored: {restored}")
         return GoNilError()
 
     def _load_value(self, val: SynchronizedValue) -> SynchronizedValue:
@@ -1343,16 +1346,14 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        # Convert the Python bytes (bytes) to Go bytes (Slice_byte).
+        # This will return immediately, as the actual work of the method is performed by a separate goroutine.
         self._log_node.WriteDataDirectoryToHDFS(Slice_byte(serialized_state), resolve)
         
         self.logger.info("<< RETURNED FROM GO CODE (_log_node.WriteDataDirectoryToHDFS)")
         sys.stderr.flush()
         sys.stdout.flush()
         
-        # await future.result()
-        # await future 
-        # waldir_path:str = future.result()
+        # Wait for the data to be written to HDFS without blocking the IO loop.
         waldir_path:str = await future.result()
         return waldir_path
 

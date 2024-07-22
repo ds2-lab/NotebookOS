@@ -4,6 +4,7 @@ import uuid
 
 from ..smr.smr import NewBytes, ReadCloser
 
+# TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.
 class readCloser(io.IOBase):
   def __init__(self, rc: ReadCloser, size = io.DEFAULT_BUFFER_SIZE):
     self.rd = rc
@@ -26,13 +27,13 @@ class readCloser(io.IOBase):
     if size == 0:
       size = len(self.buf)
     
-    self.logger.debug(f"Peeking with size={size}, self.r={self.r}, self.w={self.w}, and len(self.buf)={len(self.buf)}")
+    # self.logger.debug(f"Peeking with size={size}, self.r={self.r}, self.w={self.w}, and len(self.buf)={len(self.buf)}")
 
     self.require(size)
     return bytes(self.buf[self.r:])
 
   def readinto(self, b):
-    self.logger.debug(f"Reading into with arg b={str(b)[0:200]}, self.r={self.r}, self.w={self.w}, and len(self.buf)={len(self.buf)}")
+    # self.logger.debug(f"Reading into with arg b={str(b)[0:200]}, self.r={self.r}, self.w={self.w}, and len(self.buf)={len(self.buf)}")
     ret = self.rd.Read(NewBytes(b))
     return ret.N
 
@@ -75,25 +76,25 @@ class readCloser(io.IOBase):
 
     if n == 0:
       return b''
-
+    
     ret = bytes(self.buf[self.r:self.r+n])
     self.r += n
     return ret
 
   # require ensures that sz bytes are buffered
   def require(self, sz) -> int:
-    self.logger.debug(f"require called with sz={sz}, self.r={self.r}, self.w={self.w}, self.w - self.r = {self.w-self.r}, and len(self.buf)={len(self.buf)}")
+    self.logger.debug(f"require called with sz={sz}, self.r={self.r}, self.w={self.w}, self.w - self.r = {self.w-self.r}, len(self.buf)={len(self.buf)}, self.buffered = {self.buffered()}, and extra = {sz - self.buffered()}")
     extra = sz - self.buffered()
     if extra < 1:
       return sz
 
     # compact first
     self.compact()
-
-    # no grow allowed
-    self.logger.debug(f"Buffering {sz} bytes now. self.w={self.w}, self.r={self.r}.")
+    
+    self.logger.debug(f"Buffering {sz} bytes now self.w={self.w}, self.r={self.r}.")
  
     # read data into buffer
+    # this will modify self.buf 
     buf = self.buf[self.w:]
     ret = self.rd.Read(NewBytes(buf))
     self.w += ret.N
@@ -107,7 +108,7 @@ class readCloser(io.IOBase):
   # compact moves the unread chunk to the beginning of the buffer
   def compact(self):
     if self.r > 0:
-      self.logger.debug(f"Compacting buffer. Setting self.buf[:{self.buffered()}] to self.buf[{self.r}:{self.w}] now.")
+      self.logger.debug(f"Compacting buffer. Moving self.buf[{self.r}:{self.w}] to self.buf[:{self.buffered()}].")
       self.buf[:self.buffered()] = self.buf[self.r:self.w]
       self.w -= self.r
       self.r = 0

@@ -1067,6 +1067,15 @@ class DistributedKernel(IPythonKernel):
         else:
             self.log.info("Not stopping/removing node from etcd/raft cluster.")
 
+        # Disabling debug mode here, as there is apparently a bug/issue when we're shutting down where we 
+        # call self.kernel.loop.call_later, but we're presumably running in the control thread's IO loop,
+        # so this isn't safe...?
+        # TODO: Look into this.
+        if self.io_loop != None:
+            self.io_loop.asyncio_loop.set_debug(False) # type: ignore
+        if self.control_thread != None and self.control_thread.io_loop != None:
+            self.control_thread.io_loop.asyncio_loop.set_debug(False)
+
         # Give time for the "smr_node_removed" message to be sent.
         # time.sleep(2)
         return super().do_shutdown(restart)
