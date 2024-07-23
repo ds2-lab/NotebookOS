@@ -100,7 +100,19 @@ COPY dockfiles/cpu-python3-amd64-debug/jupyter_server_config.py /home/jovyan/.ju
 
 RUN apt-get install -y gdb 
 
+RUN /home/jovyan/Python-3.11.9/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch
+
+ENV PATH=/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+
 EXPOSE 5678
+
+ADD dockfiles/cpu-python3-amd64-debug/start-notebook.sh /usr/local/bin/start-notebook.sh 
+RUN chmod 777 /usr/local/bin/start-notebook.sh 
+RUN chown jovyan /usr/local/bin/start-notebook.sh 
+
+ADD dockfiles/cpu-python3-amd64-debug/start-notebook.py /usr/local/bin/start-notebook.py 
+RUN chmod 777 /usr/local/bin/start-notebook.py 
+RUN chown jovyan /usr/local/bin/start-notebook.py 
 
 # Switch back to jovyan
 USER jovyan:users
