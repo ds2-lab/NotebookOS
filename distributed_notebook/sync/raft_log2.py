@@ -9,6 +9,7 @@ import logging
 import time
 import datetime
 import sys
+import debugpy 
 
 from .errors import FromGoError
 from collections import OrderedDict
@@ -217,6 +218,8 @@ class RaftLog(object):
             sys.stdout.flush()
             return GoNilError() 
         
+        self.logger.debug(f"Received VOTE: {str(vote)}")
+        
         assert self._current_election != None 
 
         # The first 'VOTE' proposal received during the term automatically wins.
@@ -299,9 +302,7 @@ class RaftLog(object):
             except RuntimeError:
                 raise ValueError("Future IO loop cannot be nil whilst handling a proposal; attempted to resolve _future_io_loop, but could not do so.")
 
-        time_str = datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
-        term:int = proposal.election_term 
-        self.logger.debug("Received {} from node {}. Term {}, attempt {}, timestamp {} ({}), match {}...".format(proposal.key, proposal.proposer_id, term, proposal.attempt_number, proposal.timestamp, time_str, self._node_id == proposal.proposer_id))
+        self.logger.debug(f"Received proposal \"{proposal.key}\" from node {proposal.proposer_id}: {str(proposal)}. Match: {self._node_id == proposal.proposer_id}")
 
         val: Optional[tuple[asyncio.Future[Any], float]] = self._current_election.add_proposal(proposal, self._future_io_loop, received_at = received_at)
         if val != None:
@@ -453,6 +454,8 @@ class RaftLog(object):
             sys.stdout.flush()
             return GoNilError()
         
+        self.logger.debug(f"Received SynchronizedValue: {str(committedValue)}")
+        
         if committedValue.election_term < self._leader_term:
             self.logger.warn(f"Committed value has election term {committedValue.election_term} < our leader term of {self._leader_term}...")
             # raise ValueError(f"Leader term of committed value {committedValue.election_term} is less than our current leader term {self._leader_term}")
@@ -511,6 +514,8 @@ class RaftLog(object):
     # TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.
     def _valueRestored(self, goObject, aggregate_size: int) -> bytes:
         self.logger.debug(f"Restoring state(s) with combined/aggregate size of {aggregate_size} bytes now...")
+        
+        debugpy.breakpoint()
 
         # Set of IDs of SynchronizedValues that have been restored.
         # We use this to monitor for duplicates.

@@ -465,7 +465,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, shouldLoadDataFr
 
 		ticker.Stop()
 	} else {
-		node.logger.Info("Did not receive a valid HDFS data directory path. Not reading data directory from HDFS.", zap.String("data_directory", node.data_dir), zap.String("waldir", node.waldir))
+		node.logger.Info("We've not been instructed to retrieve any data directory from HDFS.", zap.String("data_directory", node.data_dir), zap.String("waldir", node.waldir))
 	}
 
 	debug.SetPanicOnFault(true)

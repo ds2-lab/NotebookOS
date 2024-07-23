@@ -34,8 +34,9 @@ prepare-smr-linux-amd64: prepare-smr_linux_amd64.go
 # We don't use -i because it may cause permission problem with created temporary file.
 	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_INCLUDES_PATH_ESCAPED) -g -ggdb -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
-	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_LIB_PATH_ESCAPED) -lpython3.11 -lcrypt -lpthread -ldl -lutil -lm -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
+	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_LIB_PATH_ESCAPED) -lpython3.11d -lcrypt -lpthread -ldl -lutil -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
+	sed -i -e 's/\(CFLAGS = "[^"]*\)"/\1 -g -ggdb"/' ../distributed_notebook/smr/Makefile
 
 build-init:
 	@mkdir -p smr/bak
@@ -70,7 +71,9 @@ build-smr-darwin: build-init prepare-smr-darwin
 	make reset
 
 reset:
+	@echo "Restoring Makefile -- copying smr/bak/Makefile to smr/Makefile"
 # Restore Makefile
 	cp smr/bak/Makefile smr/Makefile
+	@echo "Restoring original smr.go -- copying smr/bak/smr.go to smr/smr.go"
 # Restore original smr.go
 	cp smr/bak/smr.go	smr/smr.go

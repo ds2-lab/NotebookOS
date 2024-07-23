@@ -5,7 +5,6 @@ PYTHON3_INCLUDES_PATH:=$(shell python3.11 -c "from sysconfig import get_paths;im
 PYTHON3_LIB_PATH="/usr/lib/x86_64-linux-gnu/" # /home/bcarver2/miniconda3/lib/
 PYTHON3_INCLUDES_PATH_ESCAPED:=$(subst /,\/,$(PYTHON3_INCLUDES_PATH))
 PYTHON3_LIB_PATH_ESCAPED:=$(subst /,\/,$(PYTHON3_LIB_PATH))
-# PYTHON3_LIB_PATH:=$(shell python3 -c "from sysconfig import get_paths;import sys;info = get_paths();sys.stdout.write(info['stdlib'])")
 PYTHON3_ESCAPED_PATH:=$(subst /,\/,$(PYTHON3_PATH))
 
 # TODO: Test this.

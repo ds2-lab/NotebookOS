@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/rand"
 	"net"
 	"sync/atomic"
 	"time"
@@ -127,6 +129,15 @@ type AbstractServer struct {
 	// configure whether we should attempt to re-dial the remote or not.
 	ReconnectOnAckFailure bool
 
+	// The base interval for sleeping in between request resubmission attempts when a particular request is not ACK'd successfully.
+	RetrySleepInterval time.Duration
+
+	// The maximum for the sleep interval between non-ACK'd requests that are retried.
+	MaxSleepInterval time.Duration
+
+	// If true, use jitter when generating sleep intervals for retransmitted ACKs.
+	UseJitter bool
+
 	// Map from Request ID to a boolean indicating whether the ACK has been received.
 	// So, a value of false means that the request has not yet been received, whereas a value of true means that it has.
 	acksReceived hashmap.BaseHashMap[string, bool]
@@ -139,14 +150,17 @@ func New(ctx context.Context, info *types.ConnectionInfo, init func(server *Abst
 	ctx, cancelCtx = context.WithCancel(ctx)
 
 	server := &AbstractServer{
-		Meta:            info,
-		Ctx:             ctx,
-		CancelCtx:       cancelCtx,
-		Sockets:         &types.JupyterSocket{},
-		numAcksReceived: 0,
-		MaxNumRetries:   3,
-		acksReceived:    hashmap.NewSyncMap[string, bool](),
-		ackChannels:     hashmap.NewSyncMap[string, chan struct{}](),
+		Meta:               info,
+		Ctx:                ctx,
+		CancelCtx:          cancelCtx,
+		Sockets:            &types.JupyterSocket{},
+		numAcksReceived:    0,
+		MaxNumRetries:      3,
+		RetrySleepInterval: time.Millisecond * 500,
+		UseJitter:          true,
+		MaxSleepInterval:   time.Second * 5,
+		acksReceived:       hashmap.NewSyncMap[string, bool](),
+		ackChannels:        hashmap.NewSyncMap[string, chan struct{}](),
 		// Log:       logger.NilLogger, // To be overwritten by init.
 	}
 	init(server)
@@ -666,13 +680,17 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 				// }
 				return nil
 			} else {
-				s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d."), goroutineId, socket.Name, socket.Addr(), socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries)
 				// Just to avoid going through the process of sleeping and updating the header if that was our last try.
 				if (num_tries + 1) >= max_num_tries {
+					s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d. Giving up."), goroutineId, socket.Name, socket.Addr(), socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries)
 					break
 				}
 
-				time.Sleep(time.Millisecond * 325 * time.Duration(num_tries)) // Sleep for an amount of time proportional to the number of attempts.
+				// Sleep for an amount of time proportional to the number of attempts with some random jitter added.
+				next_sleep_interval := s.getSleepInterval(num_tries)
+				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d. Will sleep for %v before trying again."), goroutineId, socket.Name, socket.Addr(), socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), num_tries+1, max_num_tries, next_sleep_interval)
+
+				time.Sleep(next_sleep_interval)
 				num_tries += 1
 
 				err := s.updateMessageHeader(req, offset, sourceKernel)
@@ -690,6 +708,25 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 	}
 
 	return nil
+}
+
+// Get the next sleep interval for a request, optionally including jitter.
+//
+// In general, jitter should probably be used:
+// - https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
+func (s *AbstractServer) getSleepInterval(attempt int) time.Duration {
+	// Compute sleep interval as BaseSleep * 2^NumTries.
+	next_sleep_interval := s.RetrySleepInterval * time.Duration(math.Pow(2, float64(attempt)))
+
+	// Clamp the sleep interval.
+	next_sleep_interval = time.Duration(math.Min(float64(s.MaxSleepInterval), float64(next_sleep_interval)))
+
+	if s.UseJitter {
+		// Generating a random value between [0..next_sleep_interval)
+		next_sleep_interval = time.Duration(rand.Float64() * (float64(next_sleep_interval)))
+	}
+
+	return next_sleep_interval
 }
 
 // Given a jOffset, attempt to extract a DestFrame from the given set of frames.

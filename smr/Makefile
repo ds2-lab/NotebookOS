@@ -60,9 +60,18 @@ patch.darwin:
 	sed -Ei '' 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_ESCAPED_PATH)\/include\/python$(PYTHON3_VERSION) -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' ../distributed_notebook/smr/smr.go
 	sed -Ei '' 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_ESCAPED_PATH)\/lib -lpython$(PYTHON3_VERSION) -ldl -framework CoreFoundation/' ../distributed_notebook/smr/smr.go
 
+# Add debug symbols
+patch.debug:
+	@echo "Patching ../distributed_notebook/smr/Makefile"
+ifeq ($(shell uname -p), x86_64)
+	@sed -i -e 's/\(CFLAGS = "[^"]*\)"/\1 -g -ggdb"/' ../distributed_notebook/smr/Makefile
+else
+	sed i '' 's/\(CFLAGS = "[^"]*\)"/\1 -g -ggdb"/' ../distributed_notebook/smr/Makefile
+endif
+
 gen-python: clean
 	@echo "\nGenerating Go/Python bindings via gopy now"
-	gopy gen -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
+	gopy gen -build-tags='-gcflags=all="-N -l"' -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
 
 build-python: clean
 	@echo "\nBuilding Python"
@@ -80,7 +89,8 @@ gen-linux: gen-python patch
 
 gen-%: gen-python patch
 
-build-linux-amd64: gen-linux build-common patch.smr.c
+build-linux-amd64: gen-linux build-common patch.smr.c patch.debug
+	@echo "\nBuilding 'build-linux-amd64' now."
 	@echo "DIRECTORY: $(dir $(DEST))"
 	cd $(dir $(DEST)) && make build-smr-linux-amd64
 

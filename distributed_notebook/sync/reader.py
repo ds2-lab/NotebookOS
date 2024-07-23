@@ -6,7 +6,7 @@ from ..smr.smr import NewBytes, ReadCloser
 
 # TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.
 class readCloser(io.IOBase):
-  def __init__(self, rc: ReadCloser, size = io.DEFAULT_BUFFER_SIZE):
+  def __init__(self, rc: ReadCloser, size:int = io.DEFAULT_BUFFER_SIZE):
     self.rd = rc
     # The size is passed to prevent allocating a large buffer for fixed sized data.
     # No bigger than DEFAULT_BUFFER_SIZE buffer is allowed.
@@ -16,6 +16,8 @@ class readCloser(io.IOBase):
 
     self.r = 0
     self.w = 0
+    
+    self.data_size:int = size 
 
     self.logger: logging.Logger = logging.getLogger(__class__.__name__ + "-" + str(uuid.uuid4())[0:5])
 
@@ -87,6 +89,8 @@ class readCloser(io.IOBase):
     extra = sz - self.buffered()
     if extra < 1:
       return sz
+    #elif self.r == self.w == self.data_size:
+    #  return 0 # Will cause read1() to return b''.
 
     # compact first
     self.compact()
@@ -98,7 +102,7 @@ class readCloser(io.IOBase):
     buf = self.buf[self.w:]
     ret = self.rd.Read(NewBytes(buf))
     self.w += ret.N
-
+    
     self.logger.debug(f"Added {ret.N} to self.w; self.w is now = {self.w}, self.buffered()={self.buffered()}, sz={sz}")
 
     # print("before release sub buffer")

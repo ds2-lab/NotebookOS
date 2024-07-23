@@ -482,9 +482,14 @@ class DistributedKernel(IPythonKernel):
         debugpy.listen(("0.0.0.0", debugpy_port))
         
         if self.should_read_data_from_hdfs:
-            self.log.debug("Sleeping for 15 seconds to allow for attaching of a debugger.")
-            time.sleep(15)
-            self.log.debug("Done sleeping.")
+            # self.log.debug("Sleeping for 15 seconds to allow for attaching of a debugger.")
+            # time.sleep(15)
+            # self.log.debug("Done sleeping.")
+            self.log.debug("Waiting for debugpy client to connect before proceeding.")
+            debugpy.wait_for_client()
+            self.log.debug("Debugpy client has connected. We may now proceed.")
+            debugpy.breakpoint()
+            self.log.debug("Should have broken on the previous line!")
 
         if self.persistent_id != Undefined and self.persistent_id != "":
             assert isinstance(self.persistent_id, str)
