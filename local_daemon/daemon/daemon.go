@@ -712,21 +712,12 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 		return nil, err
 	}
 
-	// TODO: Add a timeout to this operation using context.WithTimeout.
 	requestWG.Wait()
-
-	// Because of how requests are handled under the covers, the value of `requestReceived` will necessarily be 1 at this point
-	// if we received a response. This is because the handler is called BEFORE Done() is called on the 'requestWG'.
-	// d.log.Debug("Prepare-to-migrate request to replica %d of kernel %s succeeded. Data directory: \"%s\"", replicaId, kernelId, dataDirectory)
 	d.log.Debug("Prepare-to-migrate request to replica %d of kernel %s succeeded.", replicaId, kernelId)
-	// if dataDirectory == "" {
-	// 	d.log.Error("Data directory is still the empty string despite the request completing successfully.")
-	// }
 
 	return &gateway.PrepareToMigrateResponse{
 		Id:       replicaId,
 		KernelId: kernelId,
-		// DataDir:  dataDirectory,
 	}, nil
 }
 
