@@ -14,6 +14,8 @@ else
     git clone https://Scusemua@github.com/zhangjyr/distributed-notebook
 fi 
 
+sudo apt-get --assume-yes install unzip
+
 popd 
 
 # Python 3
@@ -131,9 +133,10 @@ fi
 if ! command -v kubectl version &> /dev/null; then 
     printf "\n[WARNING] kubectl is not installed. Installing now.\n"
 
-    cd /tmp
+    pushd /tmp
     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
+    popd
 
     OUTPUT=$(echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check)
     if [ "$OUTPUT" != "kubectl: OK" ]; then
@@ -150,10 +153,11 @@ fi
 if ! command -v helm version &> /dev/null; then 
     printf "\n[WARNING] helm is not installed. Installing now.\n"
 
-    cd /tmp
+    pushd /tmp
     curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
     chmod 700 get_helm.sh
     /bin/bash ./get_helm.sh
+    popd
 
     if ! command -v helm version &> /dev/null; then 
         printf "\n[ERROR] Helm installation failed.\n"
@@ -222,7 +226,7 @@ go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 python3.11 -m pip install --user grpcio-tools
 python3 -m pip install --user grpcio-tools
 
-cd ~/go/pkg
+pushd $(go env GOPATH) # ~/go/pkg
 
 if ! command stat zmq4 &> /dev/null; then 
     git clone https://github.com/go-zeromq/zmq4.git
@@ -291,7 +295,7 @@ ssh -i ~/.ssh/hadoop.key hadoop@localhost 'env JAVA_HOME=/usr/lib/jvm/java-8-ope
 cd $GOPATH_ENV/pkg/gopy 
 python3.11 -m pip install pybindgen
 go install golang.org/x/tools/cmd/goimports@latest
-go install github.com/scusemua/gopy@v0.4.3
+go install github.com/scusemua/gopy@v0.4.11.3
 make 
 docker build -t scusemua/gopy .
 
