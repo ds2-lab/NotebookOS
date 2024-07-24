@@ -529,7 +529,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingIns
 		return nil
 	}
 
-	kernel.RequestWithHandler(ctx, "Forwarding", socketType, &msg, responseHandler, func() {})
+	kernel.RequestWithHandler(ctx, "Forwarding", socketType, &msg, responseHandler)
 
 	select {
 	case <-ctx.Done():
@@ -2236,7 +2236,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClien
 	}
 
 	// d.log.Debug("[gid=%d] Forwarding %v message of type %s to replicas of kernel %s.", goroutineId, typ, messageType, kernel.ID())
-	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
+	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder)
 }
 
 func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {

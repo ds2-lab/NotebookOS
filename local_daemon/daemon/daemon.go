@@ -706,7 +706,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 		}
 
 		return nil
-	}, requestWG.Done)
+	})
 	if err != nil {
 		d.log.Error("Error occurred while issuing prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
 		return nil, err
@@ -779,7 +779,7 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(ctx context.Context, req *gatewa
 			}
 
 			return nil
-		}, wg.Done)
+		})
 		if err != nil {
 			d.log.Error("Error occurred while issuing update-replica request to kernel %s: %v", kernelId, err)
 			return gateway.VOID, err
@@ -833,7 +833,7 @@ func (d *SchedulerDaemonImpl) AddReplica(ctx context.Context, req *gateway.Repli
 	msg := &zmq4.Msg{Frames: frames}
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, wg.Done)
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil)
 	if err != nil {
 		d.log.Error("Error occurred while issuing add-replica request to kernel %s: %v", kernelId, err)
 		return gateway.VOID, err
@@ -1086,7 +1086,7 @@ func (d *SchedulerDaemonImpl) stopKernel(ctx context.Context, kernel client.Kern
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, wg.Done)
+	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil)
 	if err != nil {
 		return err
 	}
@@ -1185,7 +1185,7 @@ func (d *SchedulerDaemonImpl) ControlHandler(info router.RouterInfo, msg *zmq4.M
 		return domain.ErrKernelNotFound
 	}
 
-	if err := d.forwardRequest(context.Background(), kernel, jupyter.ControlMessage, msg, nil); err != nil {
+	if err := d.forwardRequest(context.Background(), kernel, jupyter.ControlMessage, msg); err != nil {
 		return err
 	}
 
@@ -1405,11 +1405,11 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *zmq4.Msg, kernel client
 }
 
 func (d *SchedulerDaemonImpl) StdinHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	return d.forwardRequest(context.Background(), nil, jupyter.StdinMessage, msg, nil)
+	return d.forwardRequest(context.Background(), nil, jupyter.StdinMessage, msg)
 }
 
 func (d *SchedulerDaemonImpl) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	return d.forwardRequest(context.Background(), nil, jupyter.HBMessage, msg, nil)
+	return d.forwardRequest(context.Background(), nil, jupyter.HBMessage, msg)
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
@@ -1590,7 +1590,7 @@ func (d *SchedulerDaemonImpl) kernelFromMsg(msg *zmq4.Msg) (kernel client.Kernel
 	return kernel, nil
 }
 
-func (d *SchedulerDaemonImpl) forwardRequest(ctx context.Context, kernel client.KernelReplicaClient, typ jupyter.MessageType, msg *zmq4.Msg, done func()) (err error) {
+func (d *SchedulerDaemonImpl) forwardRequest(ctx context.Context, kernel client.KernelReplicaClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
 	// goroutineId := goid.Get()
 	if kernel == nil {
 		kernel, err = d.kernelFromMsg(msg)
@@ -1600,10 +1600,7 @@ func (d *SchedulerDaemonImpl) forwardRequest(ctx context.Context, kernel client.
 	}
 
 	// d.log.Debug("[gid=%d] Forwarding %v message to replica %d of kernel %s.", goroutineId, typ, kernel.ReplicaID(), kernel.ID())
-	if done == nil {
-		done = func() {}
-	}
-	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done)
+	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder)
 }
 
 func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {

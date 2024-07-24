@@ -920,14 +920,14 @@ class DistributedKernel(IPythonKernel):
         # Payloads should be retrieved regardless of outcome, so we can both
         # recover partial output (that could have been generated early in a
         # block, before an error) and always clear the payload system.
-        reply_content["payload"] = self.shell.payload_manager.read_payload()
+        reply_content["payload"] = self.shell.payload_manager.read_payload() # type: ignore
         
         # Be aggressive about clearing the payload because we don't want
         # it to sit in memory until the next execute_request comes in.
-        self.shell.payload_manager.clear_payload()
+        self.shell.payload_manager.clear_payload() # type: ignore
 
         # Send the reply.
-        reply_content = jsonutil.json_clean(reply_content)
+        reply_content = jsonutil.json_clean(reply_content) # type: ignore
         metadata = self.finish_metadata(parent, metadata, reply_content)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
@@ -943,7 +943,7 @@ class DistributedKernel(IPythonKernel):
         if not silent and error_occurred and stop_on_error: # reply_msg["content"]["status"] == "error"
             self._abort_queues()
 
-    async def do_execute(self, code: str, silent: bool, store_history: bool = True, user_expressions: dict = None, allow_stdin: bool = False):
+    async def do_execute(self, code: str, silent: bool, store_history: bool = True, user_expressions: dict = {}, allow_stdin: bool = False):
         """
         Execute user code. This is part of the official Jupyter kernel API.
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
@@ -1315,11 +1315,7 @@ class DistributedKernel(IPythonKernel):
         if 'id' not in params or 'addr' not in params:
             return self.gen_error_response(err_invalid_request)
 
-        val = self.do_update_replica(params['id'], params['addr'])
-        if inspect.isawaitable(val):
-            content, success = await val
-        else:
-            content, success = val
+        content, success = await self.do_update_replica(params['id'], params['addr'])
 
         if success:
             self.log.debug("Notifying session that SMR node was updated.")
@@ -1493,7 +1489,7 @@ class DistributedKernel(IPythonKernel):
             sys.stdout.disable = not enable  # type: ignore
             sys.stderr.disable = not enable  # type: ignore
 
-            if sys.stdout.disable:
+            if sys.stdout.disable: # type: ignore
                 self.log.debug("stdout and stderr DISABLED.")
             else:
                 self.log.debug("stdout and stderr ENABLED.")
@@ -1501,7 +1497,7 @@ class DistributedKernel(IPythonKernel):
             sys.stdout.disable = not sys.stdout.disable  # type: ignore
             sys.stderr.disable = not sys.stderr.disable  # type: ignore
 
-            if sys.stdout.disable:
+            if sys.stdout.disable: # type: ignore
                 self.log.debug("stdout and stderr DISABLED.")
             else:
                 self.log.debug("stdout and stderr ENABLED.")

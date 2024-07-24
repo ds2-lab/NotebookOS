@@ -626,12 +626,11 @@ func (c *kernelReplicaClientImpl) AddIOHandler(topic string, handler MessageBrok
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *kernelReplicaClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
-	// c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
-	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
+func (c *kernelReplicaClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler) error {
+	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption)
 }
 
-func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
+func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
 	}
@@ -650,7 +649,7 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 				err = handler(server.(*kernelReplicaClientImpl), typ, msg)
 			}
 			return err
-		}, done, getOption, requiresACK)
+		}, getOption, requiresACK)
 	}
 
 	// Add timeout if necessary.

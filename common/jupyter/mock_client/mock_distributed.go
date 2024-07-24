@@ -438,17 +438,17 @@ func (mr *MockDistributedKernelClientMockRecorder) RequestDestID() *gomock.Call 
 }
 
 // RequestWithHandler mocks base method.
-func (m *MockDistributedKernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
+func (m *MockDistributedKernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RequestWithHandler", ctx, prompt, typ, msg, handler, done)
+	ret := m.ctrl.Call(m, "RequestWithHandler", ctx, prompt, typ, msg, handler)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RequestWithHandler indicates an expected call of RequestWithHandler.
-func (mr *MockDistributedKernelClientMockRecorder) RequestWithHandler(ctx, prompt, typ, msg, handler, done any) *gomock.Call {
+func (mr *MockDistributedKernelClientMockRecorder) RequestWithHandler(ctx, prompt, typ, msg, handler) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestWithHandler", reflect.TypeOf((*MockDistributedKernelClient)(nil).RequestWithHandler), ctx, prompt, typ, msg, handler, done)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestWithHandler", reflect.TypeOf((*MockDistributedKernelClient)(nil).RequestWithHandler), ctx, prompt, typ, msg, handler)
 }
 
 // ResourceSpec mocks base method.
