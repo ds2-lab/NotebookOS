@@ -6,6 +6,7 @@ import (
 	"github.com/go-zeromq/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
@@ -59,7 +60,7 @@ type Kernel interface {
 	// 	entity.Container.StopTrain()
 	// 	entity.Container.Suspend()
 	// 	entity.Container.Resume()
-	RequestWithHandler(ctx context.Context, prompt string, typ jupyter.MessageType, msg *zmq4.Msg, handler KernelMessageHandler) error
+	RequestWithHandler(ctx context.Context, prompt string, typ jupyter.MessageType, msg *zmq4.Msg, handler KernelMessageHandler, optionsBuilder *server.RequestBuilder) error
 
 	// Close cleans up kernel resource.
 	// Including simulator features:

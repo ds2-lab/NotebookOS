@@ -84,7 +84,7 @@ func (g *Router) Start() error {
 		g.server.Log.Debug("Serving %v socket with shared handler (Router::handleMsg) now.", socket.Type.String())
 
 		// socket.Handler has not been set, use shared handler.
-		go g.server.Serve(g, socket, g, g.handleMsg, g.server.ShouldAckMessages)
+		go g.server.Serve(g, socket, g, g.handleMsg)
 	}
 
 	<-g.server.Ctx.Done()

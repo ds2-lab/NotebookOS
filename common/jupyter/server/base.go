@@ -25,9 +25,8 @@ type BaseServer struct {
 	server *AbstractServer
 }
 
-func (s *BaseServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
-	jMsg := types.NewJupyterMessage(req)
-	return s.server.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
+func (s *BaseServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, msg *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, opts RequestOptions) error {
+	return s.server.Request(context.Background(), server, socket, msg, dest, sourceKernel, handler, opts)
 }
 
 // Begin listening for an ACK for a message with the given ID.

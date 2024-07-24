@@ -35,7 +35,9 @@ type Sender interface {
 	RequestDest
 
 	// Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
-	SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error
+	// SendMessage(ctx context.Context, opts RequestOptions, socket *types.Socket, reqId string, msg *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int, doneChan chan struct{}) error
+
+	Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, msg *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, opts RequestOptions) error
 }
 
 // RequestDestination is an interface for describing the destination of a request.
@@ -80,6 +82,9 @@ type SourceKernel interface {
 }
 
 type Server interface {
+	Sender
+	types.JupyterServerInfo
+
 	ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int)
 
 	// GenerateKernelFrame appends a frame contains the kernel ID to the given ZMQ frames.
@@ -122,10 +127,10 @@ type AbstractServer struct {
 	// Maximum number of send attempts. Default: 5, when a message requires an ACK. Otherwise, 1.
 	// If we fail to receive an ACK after sending this many messages, then we'll attempt to reconnect
 	// to the remote entity if `reconnectOnAckFailure` is true.
-	MaxNumRetries int
+	MaxNumAttempts int
 
 	// If true, then we'll attempt to reconnect to the remote if we fail to receive an ACK from the remote
-	// after `MaxNumRetries` attempts. Some servers dial while others listen; hence, we have this flag to
+	// after `MaxNumAttempts` attempts. Some servers dial while others listen; hence, we have this flag to
 	// configure whether we should attempt to re-dial the remote or not.
 	ReconnectOnAckFailure bool
 
@@ -134,6 +139,9 @@ type AbstractServer struct {
 
 	// The maximum for the sleep interval between non-ACK'd requests that are retried.
 	MaxSleepInterval time.Duration
+
+	// How long to wait to receive an ACK before re-sending to get a new ACK
+	AckTimeout time.Duration
 
 	// If true, use jitter when generating sleep intervals for retransmitted ACKs.
 	UseJitter bool
@@ -155,10 +163,11 @@ func New(ctx context.Context, info *types.ConnectionInfo, init func(server *Abst
 		CancelCtx:          cancelCtx,
 		Sockets:            &types.JupyterSocket{},
 		numAcksReceived:    0,
-		MaxNumRetries:      3,
-		RetrySleepInterval: time.Millisecond * 500,
+		MaxNumAttempts:     3,
+		RetrySleepInterval: time.Millisecond * 625,
 		UseJitter:          true,
 		MaxSleepInterval:   time.Second * 5,
+		AckTimeout:         time.Second * 5,
 		acksReceived:       hashmap.NewSyncMap[string, bool](),
 		ackChannels:        hashmap.NewSyncMap[string, chan struct{}](),
 		// Log:       logger.NilLogger, // To be overwritten by init.
@@ -316,7 +325,7 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 
 // Serve starts serving the socket with the specified handler.
 // The handler is passed as an argument to allow multiple sockets sharing the same handler.
-func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, dest RequestDest, handler types.MessageHandler, sendAcks bool) {
+func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, dest RequestDest, handler types.MessageHandler) {
 	goroutineId := goid.Get()
 
 	if !atomic.CompareAndSwapInt32(&socket.Serving, 0, 1) {
@@ -367,7 +376,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				err = v
 			case *zmq4.Msg:
 				if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage {
-					// s.Log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message of type %d with %d frame(s) via %s: %v"), goroutineId, socket.Type, v.Type, len(v.Frames), socket.Name, v)
+					s.Log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message of type %d with %d frame(s) via %s: %v"), goroutineId, socket.Type, v.Type, len(v.Frames), socket.Name, v)
 				}
 
 				// TODO: Optimize this. Lots of redundancy here, and that we also do the same parsing again later.
@@ -378,7 +387,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 				_, rspId, _ := dest.ExtractDestFrame(v.Frames)
 				if is_ack {
-					// s.Log.Debug(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %v message %v via %s: %v"), goroutineId, socket.Type, rspId, socket.Name, msg)
+					s.Log.Debug(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %v message %v via %s: %v"), goroutineId, socket.Type, rspId, socket.Name, msg)
 					s.handleAck(v, socket, dest, rspId)
 					if contd != nil {
 						contd <- true
@@ -390,7 +399,9 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 				err = handler(server, socket.Type, v)
 
-				// s.Log.Debug("[gid=%d] Handler for %v message \"%v\" has returned. Error: %v.", goroutineId, socket.Type, rspId, err)
+				if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage {
+					s.Log.Debug("[gid=%d] Handler for %v message \"%v\" has returned. Error: %v.", goroutineId, socket.Type, rspId, err)
+				}
 			}
 
 			// Stop serving on error.
@@ -456,129 +467,6 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 // Begin listening for an ACK for a message with the given ID.
 func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
 	return s.ackChannels.LoadOrStore(reqId, make(chan struct{}, 1))
-}
-
-// Request sends the request and blocks until receiving the response corresponding to the given request or timeout.
-// If you want to invoke a non-blocking request, then call this method from a separate goroutine.
-//
-// On being called, the function
-//
-//  0. Sends the request.
-//  1. Queues the request.
-//  2. A serve routine is started to wait on the socket for response. The serve routing will quit after a response is received and
-//     the response matches the request. Specifically:
-//     2.1. If no request is pending, the response times out and is discarded. The serve routing will quit.
-//     2.2. If the response matches the pending request, the response is handled by "handler" and the serve routing will quit.
-//     2.3. If the response does not match the pending request, the response is discarded (because the corresponding request is timed out and replaced by a new request),
-//     and the serve routing will continue to wait for response corresponding to the pending request.
-//  3. Wait for timeout. If the context is not cancellable, a default timeout will be applied.
-//
-// Available options:
-//   - SROptionRemoveDestFrame bool Remove the destination frame from the response.
-//
-// Params:
-//   - server: The jupyter server instance that will be passed to the handler to get the socket for forwarding the response.
-//   - socket: The client socket to forward the request.
-//   - req: The request to be sent.
-//   - sourceKernel: Entity that implements the SourceKernel interface and thus can add the SourceKernel frame to the message.
-//   - dest: The info of request destination that the WaitResponse can use to track individual request.
-//   - handler: The handler to handle the response.
-//   - getOption: The function to get the options.
-//   - requiresACK: If true, then we should expect an ACK for this message, and we should resend it if no ACK is receive before a timeout.
-func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, msg *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, opts RequestOptions) error {
-	goroutineId := goid.Get()
-
-	requiresAck := opts.RequiresAck()
-	isBlocking := opts.IsBlocking()
-	requestTimeout := opts.Timeout()
-	maxNumRetries := opts.MaxNumRetries()
-
-	socket.InitPendingReq()
-
-	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
-	_, reqId, jOffset := dest.ExtractDestFrame(msg.Frames)
-	if reqId == "" {
-		msg.Frames, reqId = dest.AddDestFrame(msg.Frames, dest.RequestDestID(), jOffset)
-	}
-
-	jMsg := types.NewJupyterMessage(msg)
-	if jMsg == nil {
-		panic(fmt.Sprintf("Could not convert message to JupyterMessage: %v", msg))
-	}
-
-	_, alreadyRegistered := s.RegisterAck(reqId)
-	if alreadyRegistered {
-		s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.Header.MsgType)
-	}
-
-	// Track the pending request.
-	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(handler, func() {} /* TODO: Passing an empty function for `done` for now; will remove the parameter later */))
-
-	// Apply a default timeout
-	var cancel context.CancelFunc
-	if ctx.Done() == nil {
-		ctx, cancel = context.WithTimeout(ctx, requestTimeout)
-	}
-
-	// Use Serve to support timeout;
-	// Late response will be ignored and serve routing will be stopped if no request is pending.
-	if atomic.LoadInt32(&socket.Serving) == 0 {
-		go s.Serve(server, socket, dest, s.getOneTimeMessageHandler(socket, dest, getOption, nil), s.ShouldAckMessages) // Pass nil as handler to discard any response without dest frame.
-	}
-
-	// TODO: This is sort of incompatible with the ACK system. If we're waiting for ACKs -- and especially if we timeout, recreate socket, and retry,
-	// then this may end up cancelling the request too early, or it'll happen multiple times. (We'll call the done() method multiple times.)
-	// Wait for timeout.
-	go func() {
-		<-ctx.Done()
-		err := ctx.Err()
-		if cancel != nil {
-			cancel()
-		}
-
-		// Clear pending request.
-		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
-			pending.Release()
-
-			if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-				s.Log.Debug("Released pending request associated with %v request %s (%p), error: %v", socket.Type, reqId, jMsg, err)
-			}
-		}
-	}()
-
-	// If the request is non-blocking, then we'll simply ignore the error, if there is one.
-	// If the request is blocking, then we'll wait until we receive an error back from the 'send' goroutine (the error may well just be nil, indicating success).
-	var (
-		err       error
-		errorChan = make(chan error, 1)
-	)
-	go func() {
-		// Send the message.
-		err := s.SendMessage(requiresAck, socket, reqId, jMsg, dest, sourceKernel, jOffset)
-
-		if err != nil {
-			// If we received an error, then call cancel().
-			if cancel != nil {
-				cancel()
-			}
-
-			// Should we clear the pending request here? Should we call done() here?
-			// If we do, then the automatic reconnect code is sort of in the wrong place.
-			// We'd want it to be here, which could work, but this code here is more generic.
-			// We'd need a flag in AbstractServer indicating whether we should try to reconnect on failure.
-		}
-
-		// Send the error back over the channel.
-		errorChan <- err
-		// close(errorChan)
-	}()
-
-	// Wait until we receive an error back from the 'send' goroutine (the error may well just be nil, indicating success).
-	if isBlocking {
-		err = <-errorChan
-	}
-
-	return err /* Will be nil on success or if the request was non-blocking, in which case any error returned by Server::SendMessage was (or will be) ignored */
 }
 
 // Update the timestamp of the message's header so that it is signed with a different signature.
@@ -647,8 +535,216 @@ func (s *AbstractServer) waitForAck(ackChan chan struct{}, timeout time.Duration
 	}
 }
 
+// Request sends the request and blocks until receiving the response corresponding to the given request or timeout.
+// If you want to invoke a non-blocking request, then call this method from a separate goroutine.
+//
+// On being called, the function
+//
+//  0. Sends the request.
+//  1. Queues the request.
+//  2. A serve routine is started to wait on the socket for response. The serve routing will quit after a response is received and
+//     the response matches the request. Specifically:
+//     2.1. If no request is pending, the response times out and is discarded. The serve routing will quit.
+//     2.2. If the response matches the pending request, the response is handled by "handler" and the serve routing will quit.
+//     2.3. If the response does not match the pending request, the response is discarded (because the corresponding request is timed out and replaced by a new request),
+//     and the serve routing will continue to wait for response corresponding to the pending request.
+//  3. Wait for timeout. If the context is not cancellable, a default timeout will be applied.
+//
+// Available options:
+//   - SROptionRemoveDestFrame bool Remove the destination frame from the response.
+//
+// Params:
+//   - server: The jupyter server instance that will be passed to the handler to get the socket for forwarding the response.
+//   - socket: The client socket to forward the request.
+//   - req: The request to be sent.
+//   - sourceKernel: Entity that implements the SourceKernel interface and thus can add the SourceKernel frame to the message.
+//   - dest: The info of request destination that the WaitResponse can use to track individual request.
+//   - handler: The handler to handle the response.
+//   - getOption: The function to get the options.
+//   - requiresACK: If true, then we should expect an ACK for this message, and we should resend it if no ACK is receive before a timeout.
+func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, msg *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, opts RequestOptions) error {
+	goroutineId := goid.Get()
+
+	// This lock is guarding at least one sneaky race condition.
+	// PendingRequest cannot be changed unless this lock is held (as of right now).
+	// If we change this, then we may release a new pending request depending on how the code is synchronized.
+	// s.Log.Debug("Attempting to lock %v socket now.", socket.Type.String())
+	// socket.Lock()
+	// defer socket.Unlock()
+	// s.Log.Debug("Successfully locked %v socket.", socket.Type.String())
+
+	socket.InitPendingReq()
+
+	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
+	_, reqId, jOffset := dest.ExtractDestFrame(msg.Frames)
+	if reqId == "" {
+		msg.Frames, reqId = dest.AddDestFrame(msg.Frames, dest.RequestDestID(), jOffset)
+	}
+
+	jMsg := types.NewJupyterMessage(msg)
+	if jMsg == nil {
+		panic(fmt.Sprintf("Could not convert message to JupyterMessage: %v", msg))
+	}
+
+	_, alreadyRegistered := s.RegisterAck(reqId)
+	if alreadyRegistered {
+		s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.Header.MsgType)
+	}
+
+	doneChan := make(chan error, 1)
+
+	// Track the pending request.
+	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(handler, func(err error) {
+		doneChan <- err
+	}))
+
+	// Use Serve to support timeout;
+	// Late response will be ignored and serve routing will be stopped if no request is pending.
+	if atomic.LoadInt32(&socket.Serving) == 0 {
+		go s.Serve(server, socket, dest, s.getOneTimeMessageHandler(socket, dest, opts.RemoveDestFrame(), nil)) // Pass nil as handler to discard any response without dest frame.
+	}
+
+	return s.sendMessage(ctx, opts, socket, reqId, jMsg, dest, sourceKernel, jOffset, doneChan)
+}
+
+// High-level sending of a message. Will retry if ACK'd message times out.
+// ACKs are handled by a lower-level subroutine (namely AbstractServer::sendMessageImpl).
+func (s *AbstractServer) sendMessage(originalContext context.Context, opts RequestOptions, socket *types.Socket, reqId string, msg *types.JupyterMessage, dest RequestDest, sourceKernel SourceKernel, offset int, doneChan chan error) error {
+	goroutineId := goid.Get()
+
+	// Extract options.
+	requiresAck := opts.RequiresAck()
+	// isBlocking := opts.IsBlocking()
+	requestTimeout := opts.Timeout()
+	maxNumAttempts := opts.MaxNumAttempts()
+	responseExpected := opts.ResponseExpected()
+
+	var (
+		err            error
+		success        bool = false
+		currentAttempt int  = 0
+	)
+
+	// Function to be called when the request either completes successfully or fails entirely.
+	cleanUpAfterRequest := func(err error) {
+		// Clear pending request.
+		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
+			pending.Release(err)
+
+			if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
+				s.Log.Debug("Released pending request associated with %v request %s (%p), error: %v", socket.Type, reqId, msg, err)
+			}
+		}
+	}
+
+	// These retries are separate from the retries related to ACKs.
+	// That is, un-ACK'd messages will be resubmitted up to 3 times separate from this request-attempt counter.
+	for currentAttempt < maxNumAttempts && !success {
+		s.Log.Debug("Beginning (high-level) attempt %d/%d for request %s [timeout=%v]", currentAttempt+1, maxNumAttempts, reqId, requestTimeout)
+
+		// Recreate the context each time.
+		ctx, cancel := context.WithTimeout(originalContext, requestTimeout)
+		defer cancel()
+
+		// If the request is non-blocking, then we'll simply ignore the error, if there is one.
+		// If the request is blocking, then we'll wait until we receive an error back from the 'send' goroutine (the error may well just be nil, indicating success).
+		errorChan := make(chan error, 1)
+		go func() {
+			// Send the message and send the error (or nil if successful) back over the channel.
+			err := s.sendMessageImpl(requiresAck, socket, reqId, msg, dest, sourceKernel, offset)
+			if err != nil {
+				// Only send the error if it is nil.
+				errorChan <- err
+			} else if !responseExpected {
+				// If the error was nil and we're not expecting a response, then we're good to go.
+				// We successfully submitted the request. We call clean-up, as this calls PendingRequest::Release,
+				// which will send a struct{}{} to the doneChan.
+				cleanUpAfterRequest(nil)
+			}
+		}()
+
+		select {
+		// The request timed-out.
+		case <-ctx.Done():
+			{
+				err = ctx.Err()
+				if cancel != nil {
+					cancel()
+				}
+
+				s.Log.Warn("Request %s timed-out after %v during high-level attempt %d/%d.", reqId, requestTimeout, currentAttempt+1, maxNumAttempts)
+			}
+		// The request was not ACK'd, or there was an error actually sending the request.
+		case err = <-errorChan:
+			{
+				if err != nil {
+					s.Log.Warn("Error while sending request %s during high-level attempt %d/%d: %v", reqId, currentAttempt+1, maxNumAttempts, err)
+
+					if cancel != nil {
+						cancel()
+					}
+
+					if errors.Is(err, jupyter.ErrNoAck) {
+						cleanUpAfterRequest(err)
+						return err
+					}
+				}
+			}
+		// The request completed successfully.
+		case err = <-doneChan:
+			{
+				if err == nil {
+					success = true
+					s.Log.Debug("Successfully sent and delivered request %s on attempt %d.", reqId, currentAttempt+1)
+				} else {
+					s.Log.Warn("Failed to handle request %s (attempt %d/%d) because: %v", reqId, currentAttempt+1, maxNumAttempts, err)
+					if cancel != nil {
+						cancel()
+					}
+				}
+				// TODO: If we send a message that, for whatever reason, does not expect a response, then do we get stuck here?
+				// If there is such a case, then we need to add back the option for when we're sending a message and don't care
+				// for the response.
+				//
+				// What about IO messages or heartbeat messages or stdin messages? Are they going to get screwed up here?
+
+				// Mark the request as successful so that we break out of the for-loop and can return.
+			}
+		}
+
+		// Just to avoid going through the process of sleeping and updating the header if that was our last try.
+		if (currentAttempt + 1) >= maxNumAttempts {
+			s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d. Giving up."), goroutineId, socket.Name, socket.Addr(), socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), currentAttempt+1, maxNumAttempts)
+			break
+		}
+
+		// Sleep for an amount of time proportional to the number of attempts with some random jitter added.
+		next_sleep_interval := s.getSleepInterval(currentAttempt)
+		s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %v message %v (src: %v, dest: %v) during attempt %d/%d. Will sleep for %v before trying again."), goroutineId, socket.Name, socket.Addr(), socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), currentAttempt+1, maxNumAttempts, next_sleep_interval)
+
+		time.Sleep(next_sleep_interval)
+		currentAttempt += 1
+
+		err := s.updateMessageHeader(msg, offset, sourceKernel)
+		if err != nil {
+			s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to update message header for %v \"%s\" message %v: %v"), goroutineId, msg.Header.MsgType, socket.Type, reqId, err)
+			return err
+		}
+	}
+
+	// If we weren't expecting a response, then this will have been already called (if we were successful in sending the request).
+	// Calling it again won't hurt anything.
+	cleanUpAfterRequest(err)
+
+	if !success {
+		s.Log.Error("Failed to send request %s. Most recent error: %v", reqId, err)
+	}
+
+	return err /* Will be nil on success or if the request was non-blocking, in which case any error returned by Server::SendMessage was (or will be) ignored */
+}
+
 // Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
-func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *types.JupyterMessage, dest RequestDest, sourceKernel SourceKernel, offset int) error {
+func (s *AbstractServer) sendMessageImpl(requiresACK bool, socket *types.Socket, reqId string, req *types.JupyterMessage, dest RequestDest, sourceKernel SourceKernel, offset int) error {
 	goroutineId := goid.Get()
 
 	// These are SEPARATE from the "high-level" number of retries.
@@ -666,7 +762,7 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 	ackChan, _ := s.ackChannels.Load(reqId)
 	if requiresACK {
 		s.acksReceived.Store(reqId, false)
-		max_num_tries = s.MaxNumRetries
+		max_num_tries = s.MaxNumAttempts
 
 		if ackChan == nil {
 			panic(fmt.Sprintf("We need an ACK for %v message %s; however, the ACK channel is nil.", socket.Type, reqId))
@@ -688,7 +784,7 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 
 		// If an ACK is required, then we'll block until the ACK is received, or until timing out, at which point we'll try sending the message again.
 		if requiresACK {
-			success := s.waitForAck(ackChan, time.Second*5)
+			success := s.waitForAck(ackChan, s.AckTimeout)
 
 			if success {
 				// if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
@@ -992,7 +1088,7 @@ func (s *AbstractServer) IsMessageAnAck(msg *zmq4.Msg, typ types.MessageType) (b
 	return (header.MsgType == jupyter.MessageTypeACK), nil
 }
 
-func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest RequestDest, getOption WaitResponseOptionGetter, defaultHandler types.MessageHandler) types.MessageHandler {
+func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest RequestDest, removeDestFrame bool, defaultHandler types.MessageHandler) types.MessageHandler {
 	return func(info types.JupyterServerInfo, msgType types.MessageType, msg *zmq4.Msg) error {
 		// This handler returns errServeOnce if any to indicate that the server should stop serving.
 		retErr := errServeOnce
@@ -1008,11 +1104,11 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 				// Unexpected response without request ID, fallback to default handler.
 				handler = defaultHandler
 			} else {
-				// s.Log.Debug(utils.BlueStyle.Render("Received response with ID=%s on socket %s"), rspId, socket.Name)
+				s.Log.Debug(utils.BlueStyle.Render("Received response with ID=%s on socket %s"), rspId, socket.Name)
 				matchReqId = rspId
 
 				// Automatically remove destination kernel ID frame.
-				if remove, _ := getOption(jupyter.WROptionRemoveDestFrame).(bool); remove {
+				if removeDestFrame { // remove, _ := getOption(jupyter.WROptionRemoveDestFrame).(bool); remove {
 					msg.Frames = dest.RemoveDestFrame(msg.Frames, offset)
 				}
 				ackChan, _ := s.ackChannels.Load(matchReqId)

@@ -10,8 +10,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
@@ -661,10 +659,9 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 
 	d.log.Debug("Sending Jupyter 'prepare-to-migrate' request to replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
 	msg := &zmq4.Msg{Frames: frames}
-	var requestWG sync.WaitGroup
-	requestWG.Add(1)
-	// var dataDirectory string
 
+	// TODO: This needs to block until the response is received.
+	optionsBuilder := server.NewRequestBuilder().WithAckRequired().WithNumAttempts(3)
 	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
 		d.log.Debug("Received response from 'prepare-to-migrate' request.")
 
@@ -706,13 +703,12 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 		}
 
 		return nil
-	})
+	}, optionsBuilder)
 	if err != nil {
 		d.log.Error("Error occurred while issuing prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
 		return nil, err
 	}
 
-	requestWG.Wait()
 	d.log.Debug("Prepare-to-migrate request to replica %d of kernel %s succeeded.", replicaId, kernelId)
 
 	return &gateway.PrepareToMigrateResponse{
@@ -762,47 +758,15 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(ctx context.Context, req *gatewa
 
 	msg := &zmq4.Msg{Frames: frames}
 
-	var currentNumTries int = 0
-	var maxNumTries int = 3
-	var success bool = false
-	for currentNumTries < maxNumTries {
-		var wg sync.WaitGroup
-		var requestReceived int32 = 0
-		wg.Add(1)
-		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
-			d.log.Debug("Received response from 'update-replica' request.")
+	optionsBuilder := server.NewRequestBuilder().WithAckRequired().WithNumAttempts(3)
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+		d.log.Debug("Received response from 'update-replica' request.")
+		return nil
+	}, optionsBuilder)
 
-			// Record that we've received the response.
-			swapped := atomic.CompareAndSwapInt32(&requestReceived, 0, 1)
-			if !swapped {
-				d.log.Warn("Apparently we've already received a request for prepare-to-migrate request sent to replica %d of kernel %s: %v", replicaId, kernelId)
-			}
-
-			return nil
-		})
-		if err != nil {
-			d.log.Error("Error occurred while issuing update-replica request to kernel %s: %v", kernelId, err)
-			return gateway.VOID, err
-		}
-		wg.Wait()
-
-		// Because of how requests are handled under the covers, the value of `requestReceived` will necessarily be 1 at this point
-		// if we received a response. This is because the handler is called BEFORE Done() is called on the 'requestWG'.
-		if atomic.LoadInt32(&requestReceived) == 0 {
-			d.log.Error("TIMED-OUT: 'Update-replica' request to replica %d of kernel %s did not complete in time.", replicaId, kernelId)
-			currentNumTries++
-			sleepAmount := time.Millisecond * 1500 * time.Duration(currentNumTries)
-			d.log.Error("Sleeping for %d ms before trying again.", sleepAmount)
-			time.Sleep(sleepAmount)
-			wg.Add(1)
-		} else {
-			success = true
-			break
-		}
-	}
-
-	if !success {
-		return gateway.VOID, domain.ErrRequestFailed
+	if err != nil {
+		d.log.Error("Error occurred while issuing update-replica request to kernel %s: %v", kernelId, err)
+		return gateway.VOID, fmt.Errorf("domain.ErrRequestFailed : %w", err)
 	}
 
 	return gateway.VOID, nil
@@ -831,14 +795,13 @@ func (d *SchedulerDaemonImpl) AddReplica(ctx context.Context, req *gateway.Repli
 	}
 
 	msg := &zmq4.Msg{Frames: frames}
-	var wg sync.WaitGroup
-	wg.Add(1)
-	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil)
+
+	optionsBuilder := server.NewRequestBuilder().WithAckRequired().WithNumAttempts(3)
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, msg, nil, optionsBuilder)
 	if err != nil {
 		d.log.Error("Error occurred while issuing add-replica request to kernel %s: %v", kernelId, err)
 		return gateway.VOID, err
 	}
-	wg.Wait()
 
 	return gateway.VOID, nil
 }
@@ -1084,16 +1047,15 @@ func (d *SchedulerDaemonImpl) stopKernel(ctx context.Context, kernel client.Kern
 		return err
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil)
+	d.log.Debug("Sending \"%s\" message to replica %d of kernel %s.", jupyter.MessageTypeShutdownRequest, kernel.ReplicaID(), kernel.ID())
+
+	optionsBuilder := server.NewRequestBuilder().WithAckRequired().WithNumAttempts(3)
+	err = kernel.RequestWithHandler(ctx, "Stopping by", jupyter.ControlMessage, &msg, nil, optionsBuilder)
 	if err != nil {
 		return err
 	}
 
-	d.log.Debug("Sent \"%s\" message to replica %d of kernel %s.", jupyter.MessageTypeShutdownRequest, kernel.ReplicaID(), kernel.ID())
-
-	wg.Wait()
+	d.log.Debug("Successfully sent and delivered \"%s\" message to replica %d of kernel %s.", jupyter.MessageTypeShutdownRequest, kernel.ReplicaID(), kernel.ID())
 
 	if d.DockerMode() {
 		d.log.Debug("Stopping container for kernel %s-%d via its invoker now.", kernel.ID(), kernel.ReplicaID())
@@ -1251,8 +1213,8 @@ func (d *SchedulerDaemonImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg
 		d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	if err := kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, msg, d.kernelResponseForwarder, cancel); err != nil {
+	optionsBuilder := server.NewRequestBuilder().WithAckRequired().WithNumAttempts(3)
+	if err := kernel.RequestWithHandler(context.Background(), "Forwarding", jupyter.ShellMessage, msg, d.kernelResponseForwarder, optionsBuilder); err != nil {
 		return err
 	}
 
@@ -1600,11 +1562,12 @@ func (d *SchedulerDaemonImpl) forwardRequest(ctx context.Context, kernel client.
 	}
 
 	// d.log.Debug("[gid=%d] Forwarding %v message to replica %d of kernel %s.", goroutineId, typ, kernel.ReplicaID(), kernel.ID())
-	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder)
+	optionsBuilder := server.NewRequestBuilder().WithAckRequired().WithNumAttempts(3)
+	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, optionsBuilder)
 }
 
 func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
-	var sender server.Sender
+	var sender server.Server
 
 	socket := from.Socket(typ)
 	if socket == nil {
@@ -1637,7 +1600,9 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 
 	// d.log.Debug("Forwarding %v response from %v via %s: %v", typ, from, socket.Name, msg)
 	// We should only use the router here if that's where the socket came from...
-	err := sender.SendMessage(true, socket, "" /* will be auto-resolved */, msg, sender, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
+	// err := sender.SendMessage(true, socket, "" /* will be auto-resolved */, msg, sender, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
+	optionsBuilder := server.NewRequestBuilder().WithAckRequired().WithNumAttempts(3)
+	err := sender.Request(context.Background(), sender, socket, msg, sender, from.(client.KernelReplicaClient), func(jupyter.JupyterServerInfo, jupyter.MessageType, *zmq4.Msg) error { return nil }, optionsBuilder.BuildRequest())
 	// err := socket.Send(*msg)
 
 	if err != nil {

@@ -581,7 +581,7 @@ func (c *kernelReplicaClientImpl) InitializeShellForwarder(handler core.KernelMe
 	go c.client.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
 		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.id, jupyter.JOffsetAutoDetect)
 		return handler(c, typ, msg)
-	}, true /* Kernel clients should ACK messages that they're forwarding. */)
+	} /* Kernel clients should ACK messages that they're forwarding. */)
 
 	return shell, nil
 }
@@ -626,11 +626,11 @@ func (c *kernelReplicaClientImpl) AddIOHandler(topic string, handler MessageBrok
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *kernelReplicaClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler) error {
-	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption)
+func (c *kernelReplicaClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, optionsBuilder *server.RequestBuilder) error {
+	return c.requestWithHandler(ctx, typ, msg, handler, optionsBuilder)
 }
 
-func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter) error {
+func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, optionsBuilder *server.RequestBuilder) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
 	}
@@ -640,7 +640,18 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 		return types.ErrSocketNotAvailable
 	}
 
+	if c.shell != nil {
+		optionsBuilder = optionsBuilder.WithRemoveDestFrame()
+	} else {
+		optionsBuilder = optionsBuilder.WithoutRemoveDestFrame()
+	}
+
 	requiresACK := (typ == types.ShellMessage) || (typ == types.ControlMessage)
+	if requiresACK {
+		optionsBuilder = optionsBuilder.WithAckRequired()
+	} else {
+		optionsBuilder = optionsBuilder.NoAckRequired()
+	}
 
 	sendRequest := func() error {
 		return c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
@@ -649,7 +660,7 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 				err = handler(server.(*kernelReplicaClientImpl), typ, msg)
 			}
 			return err
-		}, getOption, requiresACK)
+		}, optionsBuilder.BuildRequest())
 	}
 
 	// Add timeout if necessary.
@@ -767,7 +778,7 @@ func (c *kernelReplicaClientImpl) dial(sockets ...*types.Socket) error {
 	for _, socket := range sockets {
 		if socket != nil && socket.Handler != nil {
 			c.log.Debug("Beginning to serve socket %v.", socket.Type.String())
-			go c.client.Serve(c, socket, c, socket.Handler, c.client.ShouldAckMessages)
+			go c.client.Serve(c, socket, c, socket.Handler)
 		} else if socket != nil {
 			c.log.Debug("Not serving socket %v.", socket.Type.String())
 		}

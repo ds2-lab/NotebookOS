@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/go-zeromq/zmq4"
+	"github.com/google/uuid"
+	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
@@ -20,10 +22,19 @@ type RequestOptions interface {
 	// Default: true
 	RequiresAck() bool
 
+	// Indicates whether we expect a response from the receiver after the receiver processes the request.
+	// This "response" is distinct from an ACK.
+	// Default: true
+	//
+	// Commented out:
+	// Covered by setting the maximum number of retries to 1 and not blocking.
+	//
+	ResponseExpected() bool
+
 	// Indicates whether the call to Server::Request block when issuing this request
 	// True indicates blocking; false indicates non-blocking (i.e., Server::Request will return immediately, rather than wait for a response for returning)
 	// Default: true
-	IsBlocking() bool
+	// IsBlocking() bool
 
 	// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
 	// Default: 120 seconds (i.e., 2 minutes)
@@ -31,19 +42,15 @@ type RequestOptions interface {
 
 	// The maximum number of attempts allowed before giving up on sending the request.
 	// Default: 3
-	MaxNumRetries() int
-
-	// Indicates whether we expect a response from the receiver after the receiver processes the request.
-	// This "response" is distinct from an ACK.
-	// Default: true
-	ResponseExpected() bool
-
-	// The request's context
-	Context() context.Context
+	MaxNumAttempts() int
 
 	// String that uniquely identifies this set of request options.
 	// This is not configurable; it is auto-generated when the request is built via RequestBuilder::BuildRequest.
 	InternalId() string
+
+	// Should the destination frame be automatically removed?
+	// Default: true
+	RemoveDestFrame() bool
 }
 
 // Used to build new Requests.
@@ -70,7 +77,7 @@ type RequestOptions interface {
 //
 // - Timeout:       120 seconds (i.e., 2 minutes)
 //
-// - MaxNumRetries: 3
+// - MaxNumAttempts: 3
 type RequestBuilder struct {
 	log logger.Logger
 
@@ -83,23 +90,25 @@ type RequestBuilder struct {
 	requiresAck bool
 	// Should the call to Server::Request block when issuing this request?
 	// Default: true
-	isBlocking bool
+	// isBlocking bool
 	// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
 	// Default: 120 seconds (i.e., 2 minutes)
 	timeout time.Duration
 	// The maximum number of attempts allowed before giving up on sending the request.
 	// Default: 3
-	maxNumRetries int
+	maxNumAttempts int
+	// Should the destination frame be automatically removed?
+	// Default: true
+	removeDestFrame bool
 	// Indicates whether we expect a response from the receiver after the receiver processes the request.
 	// This "response" is distinct from an ACK.
 	// Default: true
-	responseExpected
+	responseExpected bool
 
 	///////////////
 	/// REQUIRED //
 	///////////////
 
-	ctx context.Context
 	// The jupyter server instance that will be passed to the handler to get the socket for forwarding the response.
 	server types.JupyterServerInfo
 	// The client socket to forward the request.
@@ -116,18 +125,26 @@ type RequestBuilder struct {
 	getOption WaitResponseOptionGetter
 }
 
-func NewRequestBuilder(ctx context.Context) *RequestBuilder {
+func NewRequestBuilder() *RequestBuilder {
 	builder := &RequestBuilder{
-		ctx:           ctx,
-		requiresAck:   true,
-		isBlocking:    true,
-		timeout:       time.Second * 120,
-		maxNumRetries: 3,
+		requiresAck: true,
+		// isBlocking:      true,
+		timeout:          time.Second * 120,
+		maxNumAttempts:   3,
+		removeDestFrame:  true,
+		responseExpected: true,
 	}
 
 	config.InitLogger(&builder.log, builder)
 
 	return builder
+}
+
+// Configure the timeout of the request.
+// By default, requests timeout after 120 seconds.
+func (b *RequestBuilder) WithTimeout(timeout time.Duration) *RequestBuilder {
+	b.timeout = timeout
+	return b
 }
 
 // The request WILL require ACKs.
@@ -144,19 +161,33 @@ func (b *RequestBuilder) NoAckRequired() *RequestBuilder {
 	return b
 }
 
-// The request will be issued in a blocking manner.
-// By default, requests are blocking.
-func (b *RequestBuilder) Blocking() *RequestBuilder {
-	b.isBlocking = true
+// Configure the request to have the DEST frame automatically removed.
+// By default, the DEST frame is automatically removed.
+func (b *RequestBuilder) WithRemoveDestFrame() *RequestBuilder {
+	b.removeDestFrame = true
 	return b
 }
 
-// The request will be issued in a non-blocking manner.
-// By default, requests are blocking.
-func (b *RequestBuilder) NonBlocking() *RequestBuilder {
-	b.isBlocking = false
+// Configure the request to NOT remove the DEST frame.
+// By default, the DEST frame is automatically removed.
+func (b *RequestBuilder) WithoutRemoveDestFrame() *RequestBuilder {
+	b.removeDestFrame = false
 	return b
 }
+
+// The request will be issued in a blocking manner.
+// By default, requests are blocking.
+// func (b *RequestBuilder) Blocking() *RequestBuilder {
+// 	b.isBlocking = true
+// 	return b
+// }
+
+// // The request will be issued in a non-blocking manner.
+// // By default, requests are blocking.
+// func (b *RequestBuilder) NonBlocking() *RequestBuilder {
+// 	b.isBlocking = false
+// 	return b
+// }
 
 // Specify the number of "high-level" retries for this request.
 // These "high-level" retries are distinct from retries related to message ACKs.
@@ -165,8 +196,8 @@ func (b *RequestBuilder) NonBlocking() *RequestBuilder {
 // Note that this option is irrelevant if no response is expected for the request.
 //
 // By default, the request will be retried a total of 3 times.
-func (b *RequestBuilder) WithNumRetries(numRetries int) *RequestBuilder {
-	b.maxNumRetries = numRetries
+func (b *RequestBuilder) WithNumAttempts(numRetries int) *RequestBuilder {
+	b.maxNumAttempts = numRetries
 	return b
 }
 
@@ -187,18 +218,19 @@ func (b *RequestBuilder) WithNoResponseExpected() *RequestBuilder {
 // Build the request as configured.
 // This will panic if any required fields are missing.
 func (b *RequestBuilder) BuildRequest() RequestOptions {
-	if !b.requiresAck && b.responseExpected {
-		// This is a bit unexpected.
-		// Typically, if a request expects a result/reply after the receiver processes it, then the sender would like for the request to be ACK'd.
-		// This is because the ACK informs the sender that the request has been received and is being processed.
-		b.log.Warn("Configuring request which does not expect any ACKs but DOES expect a response after processing.")
-	}
+	// if !b.requiresAck && b.responseExpected {
+	// 	// This is a bit unexpected.
+	// 	// Typically, if a request expects a result/reply after the receiver processes it, then the sender would like for the request to be ACK'd.
+	// 	// This is because the ACK informs the sender that the request has been received and is being processed.
+	// 	b.log.Warn("Configuring request which does not expect any ACKs but DOES expect a response after processing.")
+	// }
 
 	return &requestOptionsImpl{
-		requiresAck:      b.requiresAck,
-		isBlocking:       b.isBlocking,
+		requiresAck: b.requiresAck,
+		// isBlocking:      b.isBlocking,
 		timeout:          b.timeout,
-		maxNumRetries:    b.maxNumRetries,
+		maxNumAttempts:   b.maxNumAttempts,
+		removeDestFrame:  b.removeDestFrame,
 		responseExpected: b.responseExpected,
 		internalId:       uuid.NewString(),
 	}
@@ -206,18 +238,14 @@ func (b *RequestBuilder) BuildRequest() RequestOptions {
 
 // Concrete implementation of the Request interface.
 type requestOptionsImpl struct {
-	ctx              context.Context
-	requiresAck      bool
-	isBlocking       bool
+	ctx         context.Context
+	requiresAck bool
+	// isBlocking    bool
 	timeout          time.Duration
-	maxNumRetries    int
+	maxNumAttempts   int
 	responseExpected bool
 	internalId       string
-}
-
-// The request's context
-func (r *requestOptionsImpl) Context() context.Context {
-	return r.ctx
+	removeDestFrame  bool
 }
 
 // Should the request require ACKs
@@ -226,8 +254,14 @@ func (r *requestOptionsImpl) RequiresAck() bool {
 }
 
 // Should the call to Server::Request block when issuing this request?
-func (r *requestOptionsImpl) IsBlocking() bool {
-	return r.isBlocking
+// func (r *requestOptionsImpl) IsBlocking() bool {
+// 	return r.isBlocking
+// }
+
+// Should the destination frame be automatically removed?
+// Default: true
+func (r *requestOptionsImpl) RemoveDestFrame() bool {
+	return r.removeDestFrame
 }
 
 // How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
@@ -236,8 +270,8 @@ func (r *requestOptionsImpl) Timeout() time.Duration {
 }
 
 // The maximum number of attempts allowed before giving up on sending the request.
-func (r *requestOptionsImpl) MaxNumRetries() int {
-	return r.maxNumRetries
+func (r *requestOptionsImpl) MaxNumAttempts() int {
+	return r.maxNumAttempts
 }
 
 // Indicates whether we expect a response from the receiver after the receiver processes the request.

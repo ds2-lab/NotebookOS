@@ -804,10 +804,10 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 	}
 
 	if oldWALExists || node.join {
-		node.sugaredLogger.Debugf("LogNode %d will be restarting, as the old WAL directory is available (%v), and/or we've been told to join (%v).", node.id, oldWALExists, node.join)
+		node.sugaredLogger.Debugf("LogNode %d will be restarting, as the old WAL directory is available (%v), and/or we've been told to join (%v).", node.id, oldWALExists)
 		node.node = raft.RestartNode(c)
 	} else {
-		node.sugaredLogger.Debugf("LogNode %d will be starting (as if for the first time), as the old WAL directory is not available (%v) and we've not been instructed to join.", node.id, oldWALExists, node.join)
+		node.sugaredLogger.Debugf("LogNode %d will be starting (as if for the first time), as the old WAL directory is not available (%v) and we've not been instructed to join.", node.id, oldWALExists)
 		node.node = raft.StartNode(c, rpeers)
 	}
 

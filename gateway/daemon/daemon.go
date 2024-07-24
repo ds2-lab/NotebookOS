@@ -83,7 +83,7 @@ var (
 	ErrKernelSpecNotFound        = errors.New("kernel spec not found")
 	ErrResourceSpecNotFound      = errors.New("the kernel does not have a resource spec included with its kernel spec")
 	ErrResourceSpecNotRegistered = errors.New("there is no resource spec registered with the kernel")
-	ErrInvalidJupyterMessage     = errors.New("invalid jupter message")
+	ErrInvalidJupyterMessage     = errors.New("invalid Jupyter message")
 	ErrKernelIDRequired          = errors.New("kernel id frame is required for kernel_info_request")
 	ErrDaemonNotFoundOnNode      = errors.New("could not find a local daemon on the specified kubernetes node")
 	ErrFailedToVerifyMessage     = errors.New("failed to verify ZMQ message after (re)encoding it with modified contents")
@@ -510,10 +510,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingIns
 		}, ErrFailedToVerifyMessage
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-
-	doneChan := make(chan struct{})
+	// doneChan := make(chan struct{})
 
 	startTime := time.Now()
 	var numRepliesReceived atomic.Int32
@@ -522,34 +519,47 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingIns
 		d.log.Debug("Received %v ping_reply from kernel %s. Received %d/3 replies. Time elapsed: %v.", typ, from.ID(), latestNumRepliesReceived, time.Since(startTime))
 
 		// Notify that all replies have been received.
-		if latestNumRepliesReceived == 3 {
-			doneChan <- struct{}{}
-		}
+		// if latestNumRepliesReceived == 3 {
+		// 	doneChan <- struct{}{}
+		// }
 
 		return nil
 	}
 
-	kernel.RequestWithHandler(ctx, "Forwarding", socketType, &msg, responseHandler)
+	optionsBuilder := server.NewRequestBuilder().WithAckRequired().WithNumAttempts(3).WithResponseExpected().WithTimeout(time.Second * 5)
+	err = kernel.RequestWithHandler(ctx, "Forwarding", socketType, &msg, responseHandler, optionsBuilder)
 
-	select {
-	case <-ctx.Done():
-		{
-			err := ctx.Err()
-			if err != nil {
-				errorMessage := fmt.Sprintf("'ping-kernel' %v request for kernel %s failed after receiving %d/3 replies: %v", socketType.String(), kernelId, numRepliesReceived.Load(), err)
-				d.log.Error(errorMessage)
-				return &gateway.Pong{
-					Id:      kernelId,
-					Success: false,
-					Msg:     errorMessage,
-				}, ErrRequestTimedOut
-			}
-		}
-	case <-doneChan:
-		{
-			d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s in %v.", socketType.String(), kernelId, time.Since(startTime))
-		}
+	if numRepliesReceived.Load() < 3 || err != nil {
+		errorMessage := fmt.Sprintf("'ping-kernel' %v request for kernel %s failed after receiving %d/3 replies: %v", socketType.String(), kernelId, numRepliesReceived.Load(), err)
+		d.log.Error(errorMessage)
+		return &gateway.Pong{
+			Id:      kernelId,
+			Success: false,
+			Msg:     errorMessage,
+		}, ErrRequestTimedOut
 	}
+
+	d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s in %v.", socketType.String(), kernelId, time.Since(startTime))
+
+	// select {
+	// case <-ctx.Done():
+	// 	{
+	// 		err := ctx.Err()
+	// 		if err != nil {
+	// 			errorMessage := fmt.Sprintf("'ping-kernel' %v request for kernel %s failed after receiving %d/3 replies: %v", socketType.String(), kernelId, numRepliesReceived.Load(), err)
+	// 			d.log.Error(errorMessage)
+	// 			return &gateway.Pong{
+	// 				Id:      kernelId,
+	// 				Success: false,
+	// 				Msg:     errorMessage,
+	// 			}, ErrRequestTimedOut
+	// 		}
+	// 	}
+	// case <-doneChan:
+	// 	{
+	// 		d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s in %v.", socketType.String(), kernelId, time.Since(startTime))
+	// 	}
+	// }
 
 	return &gateway.Pong{
 		Id:      kernelId,
@@ -1930,7 +1940,8 @@ func (d *ClusterGatewayImpl) Close() error {
 
 // RouterProvider implementations.
 func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	err := d.forwardRequest(nil, jupyter.ControlMessage, msg)
+	optionsBuilder := server.NewRequestBuilder().WithAckRequired().WithResponseExpected().WithNumAttempts(3)
+	err := d.forwardRequest(nil, jupyter.ControlMessage, msg, optionsBuilder)
 
 	// When a kernel is first created/being nudged, Jupyter Server will send both a Shell and Control request.
 	// The Control request will just have a Session, and the mapping between the Session and the Kernel will not
@@ -1940,7 +1951,7 @@ func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Ms
 		time.Sleep(time.Millisecond * 500)
 
 		// We won't re-try more than once.
-		err = d.forwardRequest(nil, jupyter.ControlMessage, msg)
+		err = d.forwardRequest(nil, jupyter.ControlMessage, msg, optionsBuilder)
 	}
 
 	return err
@@ -2007,7 +2018,8 @@ func (d *ClusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg)
 		d.log.Debug("Forwarding shell message to kernel %s: %s", kernelId, msg)
 	}
 
-	if err := d.forwardRequest(kernel, jupyter.ShellMessage, msg); err != nil {
+	optionsBuilder := server.NewRequestBuilder().WithAckRequired().WithResponseExpected().WithNumAttempts(3)
+	if err := d.forwardRequest(kernel, jupyter.ShellMessage, msg, optionsBuilder); err != nil {
 		return err
 	}
 
@@ -2038,11 +2050,13 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *zmq4.Msg, kernel client.
 }
 
 func (d *ClusterGatewayImpl) StdinHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	return d.forwardRequest(nil, jupyter.StdinMessage, msg)
+	optionsBuilder := server.NewRequestBuilder().NoAckRequired().WithResponseExpected().WithNumAttempts(3)
+	return d.forwardRequest(nil, jupyter.StdinMessage, msg, optionsBuilder)
 }
 
 func (d *ClusterGatewayImpl) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	return d.forwardRequest(nil, jupyter.HBMessage, msg)
+	optionsBuilder := server.NewRequestBuilder().NoAckRequired().WithResponseExpected().WithNumAttempts(1)
+	return d.forwardRequest(nil, jupyter.HBMessage, msg, optionsBuilder)
 }
 
 // Ensure that the next 'execute_request' for the specified kernel fails.
@@ -2219,7 +2233,7 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 // 	return kernel, nil
 // }
 
-func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
+func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg, optionsBuilder *server.RequestBuilder) (err error) {
 	goroutineId := goid.Get()
 	// var messageType string
 	if kernel == nil {
@@ -2236,7 +2250,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClien
 	}
 
 	// d.log.Debug("[gid=%d] Forwarding %v message of type %s to replicas of kernel %s.", goroutineId, typ, messageType, kernel.ID())
-	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder)
+	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, optionsBuilder)
 }
 
 func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {

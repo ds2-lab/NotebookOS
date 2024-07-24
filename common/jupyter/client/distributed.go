@@ -150,7 +150,7 @@ type DistributedKernelClient interface {
 	BindSession(sess string)
 
 	// RequestWithHandler sends a request and handles the response.
-	RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler) error
+	RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, opts *server.RequestBuilder) error
 
 	// Return a replica that has already joined its SMR cluster and everything.
 	// Returns nil if there are no ready replicas.
@@ -581,7 +581,7 @@ func (c *distributedKernelClientImpl) InitializeShellForwarder(handler core.Kern
 		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.KernelSpec().Id, jupyter.JOffsetAutoDetect)
 		// c.log.Debug("Received shell message via DistributedShellForwarder. Message: %v", msg)
 		return handler(srv.(*distributedKernelClientImpl), typ, msg)
-	}, false /* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be ACK'd. */)
+	} /* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be ACK'd. */)
 
 	return shell, nil
 }
@@ -638,8 +638,8 @@ func (c *distributedKernelClientImpl) IsReplicaReady(replicaId int32) (bool, err
 }
 
 // RequestWithHandler sends a request to all replicas and handles the response.
-func (c *distributedKernelClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler) error {
-	return c.RequestWithHandlerAndReplicas(ctx, typ, msg, handler)
+func (c *distributedKernelClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, optionsBuilder *server.RequestBuilder) error {
+	return c.RequestWithHandlerAndReplicas(ctx, typ, msg, handler, optionsBuilder /* omit the last argument, which is a variadic arguments / slice of kernels */)
 }
 
 // Process a response to a shell message. This is called before the handler that was passed when issuing the request.
@@ -715,8 +715,8 @@ func (c *distributedKernelClientImpl) executionFinished(replicaId int32) error {
 	}
 }
 
-// RequestWithHandlerAndReplicas sends a request to specified replicas and handles the response.
-func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, replicas ...core.KernelReplica) error {
+// Sends a request to specified replicas and handles the response.
+func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, optionsBuilder *server.RequestBuilder, replicas ...core.KernelReplica) error {
 	// Boardcast to all replicas if no replicas are specified.
 	if len(replicas) == 0 {
 		for _, replica := range c.replicas {
@@ -778,7 +778,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	defer cancel()
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
 	if len(replicas) == 1 {
-		return replicas[0].(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption)
+		return replicas[0].(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, optionsBuilder)
 	}
 
 	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
@@ -789,25 +789,40 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 		c.log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", c.RequestDestID(), jOffset, types.JupyterFrames(msg.Frames).String())
 	}
 
-	var wg sync.WaitGroup
+	// var wg sync.WaitGroup
+	errorChan := make(chan error, 3)
 	for _, kernel := range replicas {
 		if kernel == nil {
 			continue
 		}
 
-		wg.Add(1)
+		// wg.Add(1)
 		go func(kernel core.Kernel) {
 			// TODO: If the ACKs fail on this and we reconnect and retry, the wg.Done may be called too many times.
 			// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 			// to be cleared after the context ends; we just do it on ACK timeout.
-			kernel.(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption)
+			err := kernel.(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, optionsBuilder)
+			errorChan <- err
+			// wg.Done()
 		}(kernel)
 	}
-	if done != nil {
-		go func() {
-			wg.Wait()
-			done()
-		}()
+	// if done != nil {
+	// 	go func() {
+	// 		wg.Wait()
+	// 		done()
+	// 	}()
+	// }
+	// wg.Wait()
+	numResponses := 0
+	for numResponses < 3 {
+		err := <-errorChan
+
+		if err != nil {
+			c.log.Error("One or more requests forwarded to kernel replicas failed: %v", err)
+			return err
+		}
+
+		numResponses += 1
 	}
 	return nil
 }

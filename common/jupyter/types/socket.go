@@ -44,12 +44,12 @@ func (t MessageType) String() string {
 
 type MessageHandler func(JupyterServerInfo, MessageType, *zmq4.Msg) error
 
-type MessageDone func()
+type MessageDone func(err error)
 
 type MessageHandlerWrapper struct {
-	handle MessageHandler
-	done   MessageDone
-	once   int32
+	handle MessageHandler // The handler
+	done   MessageDone    // Called when the request is released (processed successfully or failed/timed-out)
+	once   int32          // Ensure we call `done` only a single time.
 }
 
 func GetMessageHandlerWrapper(h MessageHandler, done MessageDone) *MessageHandlerWrapper {
@@ -62,14 +62,14 @@ func GetMessageHandlerWrapper(h MessageHandler, done MessageDone) *MessageHandle
 
 func (m *MessageHandlerWrapper) Handle(info JupyterServerInfo, t MessageType, msg *zmq4.Msg) error {
 	err := m.handle(info, t, msg)
-	m.Release()
+	m.Release(nil)
 	return err
 }
 
-func (m *MessageHandlerWrapper) Release() {
+func (m *MessageHandlerWrapper) Release(err error) {
 	done := m.done
 	if done != nil && atomic.CompareAndSwapInt32(&m.once, 0, 1) {
-		done()
+		done(err)
 	}
 	m.handle = nil
 	m.done = nil
@@ -109,6 +109,18 @@ func NewSocketWithHandler(socket zmq4.Socket, port int, typ MessageType, name st
 		StopServingChan: make(chan struct{}, 1),
 		Handler:         handler,
 	}
+}
+
+func (s *Socket) Lock() {
+	s.mu.Lock()
+}
+
+func (s *Socket) Unlock() {
+	s.mu.Unlock()
+}
+
+func (s *Socket) TryLock() bool {
+	return s.mu.TryLock()
 }
 
 func (s *Socket) Send(msg zmq4.Msg) error {

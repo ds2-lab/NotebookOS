@@ -35,7 +35,8 @@ build-darwin:
 build-smr-linux-arm64:
 	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out scusemua/gopy /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-arm64"
 
-build-smr-linux-amd64:
+build-smr-linux-amd64:	
+	@echo "Running `build-smr-linux-amd64` -- using scusemua/gopy Docker image"
 	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out scusemua/gopy /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-amd64"
 
 build-gateway:

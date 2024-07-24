@@ -168,7 +168,7 @@ var _ = Describe("AbstractServer", func() {
 				return nil
 			}
 
-			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage, true)
+			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage)
 
 			headerMap := make(map[string]string)
 			headerMap["msg_id"] = uuid.NewString()
@@ -275,7 +275,7 @@ var _ = Describe("AbstractServer", func() {
 				return nil
 			}
 
-			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage, true)
+			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage)
 
 			headerMap := make(map[string]string)
 			headerMap["msg_id"] = uuid.NewString()
