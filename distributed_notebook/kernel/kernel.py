@@ -100,6 +100,15 @@ class CustomFormatter(logging.Formatter):
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
 
+def tracefunc(frame, event, arg, indent=[0]):
+      if event == "call":
+          indent[0] += 2
+          print("-" * indent[0] + "> call function", frame.f_code.co_name, flush = True)
+      elif event == "return":
+          print("<" + "-" * indent[0], "exit function", frame.f_code.co_name, flush = True)
+          indent[0] -= 2
+      return tracefunc
+
 class DistributedKernel(IPythonKernel):
     # Configurable properties
     storage_base: Union[str, Unicode] = Unicode(storage_base_default,  # type: ignore
@@ -197,6 +206,16 @@ class DistributedKernel(IPythonKernel):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(CustomFormatter())
         self.log.addHandler(ch)
+        
+        from ipykernel.debugger import _is_debugpy_available
+        if _is_debugpy_available:
+            self.log.info("The Debugger IS available/enabled.")
+            
+            assert self.debugger != None 
+        else:
+            self.log.warn("The Debugger is NOT available/enabled.")
+        
+        # sys.setprofile(tracefunc)
 
         # self.log.info("TEST -- INFO")
         # self.log.debug("TEST -- DEBUG")
@@ -275,12 +294,13 @@ class DistributedKernel(IPythonKernel):
         self.log.info("CPU: %s, Memory: %s, GPU: %s." %
                       (self.spec_cpu, self.spec_mem, self.spec_gpu))
 
+        # This should only be accessed from the control IO loop (rather than the main/shell IO loop).
         self.persistent_store_cv = asyncio.Condition()
-        # Initialize to this. If we're part of a migration operation, then it will be set when we register with the local daemon.
-        # self.hdfs_data_directory: str = ""
+        
+        # If we're part of a migration operation, then it will be set when we register with the local daemon.
         self.should_read_data_from_hdfs: bool = False 
 
-        connection_info:dict = {}
+        connection_info:dict[str, Any] = {}
         try:
             if len(connection_file_path) > 0:
                 with open(connection_file_path, 'r') as connection_file:
@@ -306,7 +326,7 @@ class DistributedKernel(IPythonKernel):
             self.smr_nodes_map = {1: str(self.hostname) + ":" + str(self.smr_port)}
             self.persistent_id
             self.debug_port = int(os.environ.get("debug_port", "31000"))
-            self.start()
+            # self.start()
         
         # TODO: Remove this after finish debugging the ACK stuff.
         # self.auth = None
@@ -347,26 +367,22 @@ class DistributedKernel(IPythonKernel):
     def register_with_local_daemon(self, connection_info: dict, session_id: str):
         self.log.info("Registering with local daemon now.")
 
-        local_daemon_service_name = os.environ.get(
-            "LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
+        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
         server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default=8075)
         try:
             server_port = int(server_port)
         except ValueError:
             server_port = 8075
 
-        self.log.info("Local Daemon network address: \"%s:%d\"" %
-                      (local_daemon_service_name, server_port))
+        self.log.info("Local Daemon network address: \"%s:%d\"" % (local_daemon_service_name, server_port))
 
         self.daemon_registration_socket = socket.socket(
             socket.AF_INET, socket.SOCK_STREAM)
 
         try:
-            self.daemon_registration_socket.connect(
-                (local_daemon_service_name, server_port))
+            self.daemon_registration_socket.connect((local_daemon_service_name, server_port))
         except Exception as ex:
-            self.log.error("Failed to connect to LocalDaemon at %s:%d" %
-                           (local_daemon_service_name, server_port))
+            self.log.error("Failed to connect to LocalDaemon at %s:%d" % (local_daemon_service_name, server_port))
             self.log.error("Reason: %s" % str(ex))
             raise ex 
 
@@ -388,23 +404,19 @@ class DistributedKernel(IPythonKernel):
             }
         }
 
-        self.log.info("Sending registration payload to local daemon: %s" %
-                      str(registration_payload))
+        self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
 
-        bytes_sent = self.daemon_registration_socket.send(
-            json.dumps(registration_payload).encode())
+        bytes_sent: int = self.daemon_registration_socket.send(json.dumps(registration_payload).encode())
 
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
 
-        response = self.daemon_registration_socket.recv(1024)
+        response: bytes = self.daemon_registration_socket.recv(1024)
 
         if len(response) == 0:
-            self.log.error(
-                "Received empty (i.e., 0 bytes in length) response from local daemon during registration...")
+            self.log.error("Received empty (i.e., 0 bytes in length) response from local daemon during registration...")
             raise ValueError("received empty response from local daemon during registration procedure")
 
-        self.log.info("Received %d byte(s) in response from LocalDaemon: %s", len(
-            response), str(response))
+        self.log.info("Received %d byte(s) in response from LocalDaemon: %s", len(response), str(response))
 
         response_dict = json.loads(response)
         self.smr_node_id: int = response_dict["smr_node_id"]
@@ -424,7 +436,7 @@ class DistributedKernel(IPythonKernel):
         # We convert the string keys, which are node IDs, back to integers.
         #
         # We also append ":<SMR_PORT>" to each address before storing it in the map.
-        replicas = response_dict["replicas"]
+        replicas: Optional[dict[int, str]] = response_dict["replicas"]
         if replicas == None or len(replicas) == 0:
             self.log.error("No replicas contained in registration response from local daemon.")
             self.log.error("Registration response:")
@@ -439,8 +451,7 @@ class DistributedKernel(IPythonKernel):
         # If we're part of a migration operation, then we should receive both a persistent ID AND an HDFS Data Directory.
         # If we're not part of a migration operation, then we'll JUST receive the persistent ID.
         if "persistent_id" in response_dict:
-            self.log.info("Received persistent ID from registration: \"%s\"" %
-                          response_dict["persistent_id"])
+            self.log.info("Received persistent ID from registration: \"%s\"" % response_dict["persistent_id"])
             self.persistent_id = response_dict["persistent_id"]
 
         self.should_read_data_from_hdfs = response_dict.get("should_read_data_from_hdfs", False)
@@ -472,10 +483,9 @@ class DistributedKernel(IPythonKernel):
         self.daemon_registration_socket.close()
 
     def start(self):
+        self.log.info("DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
+        
         super().start()
-
-        self.log.info(
-            "DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
         
         debugpy_port:int = self.debug_port + 1000
         self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
@@ -495,20 +505,23 @@ class DistributedKernel(IPythonKernel):
             assert isinstance(self.persistent_id, str)
 
             asyncio.run_coroutine_threadsafe(self.init_persistent_store_on_start(self.persistent_id), self.control_thread.io_loop.asyncio_loop)
-
+        else:
+            self.log.warn("Will NOT be initializing Persistent Store on start, as persistent ID is not yet available.")
+                
     async def init_persistent_store_on_start(self, persistent_id: str):
-        self.log.info(
-            "Initializing Persistent Store on start, as persistent ID is available: \"%s\"" % persistent_id)
+        self.log.info(f"Initializing Persistent Store on start, as persistent ID is available: \"{persistent_id}\"")
+        # Create future to avoid duplicate initialization
         future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
         self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
-        future.set_result(self.gen_simple_response())
-        self.log.info("Persistent store confirmed: " + self.store)
+        # future.set_result(self.gen_simple_response())
+        self.log.info(f"Persistent store confirmed: {self.store}")
 
     async def dispatch_shell(self, msg):
-        assert self.session != None 
-        
         self.log.debug(f"Received SHELL message: {msg}")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        assert self.session != None 
 
         idents, msg_without_idents = self.session.feed_identities(msg, copy=False)
         try:
@@ -550,6 +563,8 @@ class DistributedKernel(IPythonKernel):
         await super().dispatch_shell(msg)
         
         self.log.debug(f"Finished processing shell message {msg_id} of type \"{msg_type}\"")
+        sys.stderr.flush()
+        sys.stdout.flush()
 
     def should_handle(self, stream, msg, idents):
         """Check whether a (shell-channel?) message should be handled"""
@@ -580,7 +595,9 @@ class DistributedKernel(IPythonKernel):
         We overrode it so that we can send ACKs.
         """
         if not self.session:
+            self.log.error("We have no session. Cannot process control message...")
             return
+
         idents, msg = self.session.feed_identities(msg, copy=False)
         try:
             msg = self.session.deserialize(msg, content=True, copy=False)
@@ -654,6 +671,8 @@ class DistributedKernel(IPythonKernel):
             self.control_stream.flush(zmq.POLLOUT)
         
         self.log.debug(f"Finished processing control message {msg_id} of type \"{msg_type}\"")
+        sys.stderr.flush()
+        sys.stdout.flush()
 
     async def init_persistent_store(self, code):
         if await self.check_persistent_store():
@@ -1085,7 +1104,7 @@ class DistributedKernel(IPythonKernel):
         # time.sleep(2)
         return super().do_shutdown(restart)
 
-    async def prepare_to_migrate(self):
+    async def prepare_to_migrate(self) -> tuple[dict, bool]:
         self.log.info("Preparing for migration of replica %d of kernel %s.",
                       self.smr_node_id, self.kernel_id)
 
@@ -1096,7 +1115,7 @@ class DistributedKernel(IPythonKernel):
 
         if not self.synclog:
             self.log.warn("We do not have a SyncLog. Nothing to do in order to prepare to migrate...")
-            return
+            return {'status': 'ok', "id": self.smr_node_id, "kernel_id": self.kernel_id}, True # Didn't fail, we just have nothing to migrate.
         #
         # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
         #
@@ -1209,10 +1228,10 @@ class DistributedKernel(IPythonKernel):
         
         self.log.debug("Sent 'prepare_to_migrate_reply message: %s" % str(sent_message))
 
-    async def do_add_replica(self, id, addr) -> tuple:
+    async def do_add_replica(self, id, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""
         if not await self.check_persistent_store():
-            return self.gen_error_response(err_wait_persistent_store)
+            return self.gen_error_response(err_wait_persistent_store), False 
 
         self.log.info("Adding replica %d at addr %s now.", id, addr)
 
@@ -1241,13 +1260,11 @@ class DistributedKernel(IPythonKernel):
                 await self.persistent_store_cv.wait()
 
         if 'id' not in params or 'addr' not in params:
-            return self.gen_error_response(err_invalid_request)
+            err_content: dict = self.gen_error_response(err_invalid_request)
+            self.session.send(stream, "add_replica_reply", err_content, parent, ident=ident)  
+            return 
 
-        val = self.do_add_replica(params['id'], params['addr'])
-        if inspect.isawaitable(val):
-            content, success = await val
-        else:
-            content, success = val
+        content, success = await self.do_add_replica(params['id'], params['addr'])
 
         if success:
             self.log.debug("Notifying session that SMR node was added.")
@@ -1258,8 +1275,7 @@ class DistributedKernel(IPythonKernel):
             self.session.send(self.iopub_socket, "smr_node_added", {"success": False, "persistent_id": self.persistent_id, "id": params[
                               'id'], "addr": params['addr'], "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added"))  # type: ignore
 
-        self.session.send(stream, "add_replica_reply", content,
-                          parent, ident=ident)  # type: ignore
+        self.session.send(stream, "add_replica_reply", content, parent, ident=ident)  # type: ignore
 
     async def do_update_replica(self, id, addr) -> tuple:
         """
