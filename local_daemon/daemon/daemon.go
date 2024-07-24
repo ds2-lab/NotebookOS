@@ -1613,10 +1613,6 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 	if socket == nil {
 		socket = d.router.Socket(typ)
 
-		// TODO (Ben): If we're forwarding a response back to the Cluster Gateway here, then the Cluster Gateway will ACK the response.
-		// We need to:
-		// (a) Listen for the ACK.
-		// (b) Re-forward the kernel's response to the Cluster Gateway if we don't receive an ACK.
 		d.router.RegisterAck(msg)
 
 		// Use the router as the server to forward the kernel's response to the cluster gateway.
