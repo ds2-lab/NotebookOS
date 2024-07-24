@@ -168,13 +168,13 @@ if ! command -v go version &> /dev/null
 then 
     printf "\n[WARNING] Golang not installed. Attempting to install it now...\n"
 
-TARGET_GO_VERSION=1.21.5
-GO_URL=https://go.dev/dl/go$TARGET_GO_VERSION.linux-amd64.tar.gz
-echo "[DEBUG] Downloading Golang v$TARGET_GO_VERSION from $GO_URL"
-cd /tmp && wget $GO_URL
-echo "[DEBUG] Downloaded Golang v$TARGET_GO_VERSION from $GO_URL. Installing now..."
-sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go$TARGET_GO_VERSION.linux-amd64.tar.gz
-export PATH=$PATH:/usr/local/go/bin
+    TARGET_GO_VERSION=1.21.5
+    GO_URL=https://go.dev/dl/go$TARGET_GO_VERSION.linux-amd64.tar.gz
+    echo "[DEBUG] Downloading Golang v$TARGET_GO_VERSION from $GO_URL"
+    cd /tmp && wget $GO_URL
+    echo "[DEBUG] Downloaded Golang v$TARGET_GO_VERSION from $GO_URL. Installing now..."
+    sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go$TARGET_GO_VERSION.linux-amd64.tar.gz
+    export PATH=$PATH:/usr/local/go/bin
 
     echo export PATH=$PATH:/usr/local/go/bin >> $HOME/.profile
 
