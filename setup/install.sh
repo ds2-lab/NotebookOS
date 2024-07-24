@@ -23,11 +23,13 @@ if ! command python3.11 --version &> /dev/null; then
     sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
 
     cd /tmp/
-    wget https://www.python.org/ftp/python/3.11.0/Python-3.11.0.tgz
-    tar -xf Python-3.11.0.tgz
-    cd Python-3.11.0
-    ./configure --enable-optimizations
-    make -j$(nproc)
+    wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
+    tar -xf Python-3.11.9.tgz
+    cd Python-3.11.9
+    mkdir debug 
+    cd debug 
+    ../configure --enable-optimizations --with-pydebug --enable-shared 
+    make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG" 
     sudo make altinstall
 
     if ! command python3.11 --version &> /dev/null; then 
