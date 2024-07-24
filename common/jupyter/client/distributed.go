@@ -797,6 +797,9 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 
 		wg.Add(1)
 		go func(kernel core.Kernel) {
+			// TODO: If the ACKs fail on this and we reconnect and retry, the wg.Done may be called too many times.
+			// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
+			// to be cleared after the context ends; we just do it on ACK timeout.
 			kernel.(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
 		}(kernel)
 	}

@@ -529,6 +529,8 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		go s.Serve(server, socket, dest, s.getOneTimeMessageHandler(socket, dest, getOption, nil), s.ShouldAckMessages) // Pass nil as handler to discard any response without dest frame.
 	}
 
+	// TODO: This is sort of incompatible with the ACK system. If we're waiting for ACKs -- and especially if we timeout, recreate socket, and retry,
+	// then this may end up cancelling the request too early, or it'll happen multiple times. (We'll call the done() method multiple times.)
 	// Wait for timeout.
 	go func() {
 		<-ctx.Done()
@@ -561,6 +563,11 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		if cancel != nil {
 			cancel()
 		}
+
+		// Should we clear the pending request here? Should we call done() here?
+		// If we do, then the automatic reconnect code is sort of in the wrong place.
+		// We'd want it to be here, which could work, but this code here is more generic.
+		// We'd need a flag in AbstractServer indicating whether we should try to reconnect on failure.
 
 		return err
 	}
