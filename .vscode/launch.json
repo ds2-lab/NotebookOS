@@ -12,12 +12,8 @@
                 "host": "127.0.0.1",
                 "port": 33002
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ]
+            "justMyCode": false,
+            "showReturnValue": true
         },
         {
             "name": "Python Debugger: Remote Attach Jupyter Kernel 33003",
@@ -27,12 +23,8 @@
                 "host": "127.0.0.1",
                 "port": 33003
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ]
+            "justMyCode": false,
+            "showReturnValue": true
         },
         {
             "name": "Python Debugger: Remote Attach Jupyter Kernel 33004",
@@ -42,12 +34,8 @@
                 "host": "127.0.0.1",
                 "port": 33004
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ]
+            "justMyCode": false,
+            "showReturnValue": true
         },
         {
             "name": "Python Debugger: Remote Attach Jupyter Kernel 33005",
@@ -57,12 +45,8 @@
                 "host": "127.0.0.1",
                 "port": 33005
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ]
+            "justMyCode": false,
+            "showReturnValue": true
         },
         {
             "name": "Python Debugger: Remote Attach Jupyter Kernel 33006",
@@ -72,12 +56,8 @@
                 "host": "127.0.0.1",
                 "port": 33006
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ]
+            "justMyCode": false,
+            "showReturnValue": true
         },
         {
             "name": "Launch Cluster Gateway",
