@@ -520,7 +520,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// Apply a default timeout
 	var cancel context.CancelFunc
 	if ctx.Done() == nil {
-		ctx, cancel = context.WithTimeout(ctx, time.Minute)
+		ctx, cancel = context.WithTimeout(ctx, time.Second*120 /* 2 min */)
 	}
 
 	// Use Serve to support timeout;
