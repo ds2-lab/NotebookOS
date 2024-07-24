@@ -52,7 +52,7 @@ USER root:root
 RUN mkdir -p /storage && chown jovyan:users /storage
 
 # For debugging.
-RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vim -y
+RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vim gdb -y
 # RUN python3 -m pip install kubernetes 
 
 # Install frontend extension.
@@ -63,6 +63,8 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vi
 
 # RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
 # RUN chmod -R 777 /home/jovyan/datasets/*
+
+RUN /home/jovyan/Python-3.11.9/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch
 
 # Add files
 ADD common/gateway /distributed_notebook/common/gateway
@@ -75,6 +77,10 @@ ADD Makefile /distributed_notebook/Makefile
 ADD dockfiles/cpu-python3-amd64-debug/sample_notebooks/ /home/jovyan/sample_notebooks/
 
 ADD dockfiles/cpu-python3-amd64-debug/apport-settings /home/jovyan/.config/apport/settings
+
+RUN mkdir /cores
+RUN chmod -R 777 /cores 
+RUN chown jovyan /cores
 
 RUN chmod -R 777 /home/jovyan/sample_notebooks/*
 RUN chown jovyan /home/jovyan/sample_notebooks/*
@@ -91,21 +97,6 @@ RUN cd /distributed_notebook \
     && sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
 RUN cd /distributed_notebook && ./install_kernel_debug.sh
 
-RUN mkdir /cores
-RUN chmod -R 777 /cores 
-RUN chown jovyan /cores
-
-# Copy the modified config file.
-COPY dockfiles/cpu-python3-amd64-debug/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py
-
-RUN apt-get install -y gdb 
-
-RUN /home/jovyan/Python-3.11.9/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch
-
-ENV PATH=/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
-
-EXPOSE 5678
-
 ADD dockfiles/cpu-python3-amd64-debug/start-notebook.sh /usr/local/bin/start-notebook.sh 
 RUN chmod 777 /usr/local/bin/start-notebook.sh 
 RUN chown jovyan /usr/local/bin/start-notebook.sh 
@@ -113,6 +104,13 @@ RUN chown jovyan /usr/local/bin/start-notebook.sh
 ADD dockfiles/cpu-python3-amd64-debug/start-notebook.py /usr/local/bin/start-notebook.py 
 RUN chmod 777 /usr/local/bin/start-notebook.py 
 RUN chown jovyan /usr/local/bin/start-notebook.py 
+
+# Copy the modified config file.
+COPY dockfiles/cpu-python3-amd64-debug/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py
+
+ENV PATH=/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+
+EXPOSE 5678
 
 # Switch back to jovyan
 USER jovyan:users
