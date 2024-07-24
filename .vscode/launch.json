@@ -4,6 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+        
         {
             "name": "Python Debugger: Remote Attach Jupyter Kernel 33002",
             "type": "debugpy",
@@ -13,6 +14,13 @@
                 "port": 33002
             },
             "justMyCode": false,
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "/usr/local/lib/python3.11/site-packages/",
+                    "distributed_notebook": "/usr/local/lib/python3.11/site-packages/distributed_notebook"
+                }
+            ],
             "showReturnValue": true
         },
         {
@@ -24,7 +32,15 @@
                 "port": 33003
             },
             "justMyCode": false,
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "/usr/local/lib/python3.11/site-packages/",
+                    "distributed_notebook": "/usr/local/lib/python3.11/site-packages/distributed_notebook"
+                }
+            ],
             "showReturnValue": true
+            
         },
         {
             "name": "Python Debugger: Remote Attach Jupyter Kernel 33004",
@@ -35,6 +51,13 @@
                 "port": 33004
             },
             "justMyCode": false,
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "/usr/local/lib/python3.11/site-packages/",
+                    "distributed_notebook": "/usr/local/lib/python3.11/site-packages/distributed_notebook"
+                }
+            ],
             "showReturnValue": true
         },
         {
@@ -57,6 +80,13 @@
                 "port": 33006
             },
             "justMyCode": false,
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "/usr/local/lib/python3.11/site-packages/",
+                    "distributed_notebook": "/usr/local/lib/python3.11/site-packages/distributed_notebook"
+                }
+            ],
             "showReturnValue": true
         },
         {
