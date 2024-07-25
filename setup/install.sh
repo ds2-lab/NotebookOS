@@ -2,6 +2,8 @@
 
 # This is an installation script to prepare an Ubuntu virtual machine for development.
 
+ROOT_DIR=$(git rev-parse --show-toplevel)
+
 mkdir ~/go
 mkdir ~/go/pkg 
 
@@ -23,9 +25,9 @@ if ! command python3.11 --version &> /dev/null; then
     sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
 
     cd /tmp/
-    wget https://www.python.org/ftp/python/3.11.0/Python-3.11.0.tgz
-    tar -xf Python-3.11.0.tgz
-    cd Python-3.11.0
+    wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
+    tar -xf Python-3.11.9.tgz
+    cd Python-3.11.9
     ./configure --enable-optimizations
     make -j$(nproc)
     sudo make altinstall
@@ -271,6 +273,8 @@ popd
 # Download hadoop HDFS and set it up in the hadoop user's home directory.
 # NOTE: you may have to execute these commands manually, one at a time, if this doesn't work... 
 ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/hadoop.key hadoop@localhost "wget https://dlcdn.apache.org/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz ; tar -xvzf hadoop-3.3.6.tar.gz ; mv hadoop-3.3.6 hadoop ; mkdir -p ~/hadoopdata/hdfs/{namenode,datanode}"
+
+pushd $ROOT_DIR/setup
 
 # Set some environment variables in the hadoop user's .bashrc file as well as the hadoop-env.sh file (only the latter of which is more important/actually does something...)
 sudo bash -c 'cat hadoop-env >> /home/hadoop/.bashrc'
