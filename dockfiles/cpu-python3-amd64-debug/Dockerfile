@@ -122,3 +122,5 @@ WORKDIR /home/jovyan/
 
 # ENTRYPOINT ["tini", "-g", "-vvv", "--", "start.sh"]
 #CMD ["start-notebook.py"]
+
+# ENTRYPOINT ["/bin/bash", "/usr/local/bin/start-notebook.sh"]

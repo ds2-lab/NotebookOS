@@ -64,18 +64,18 @@ patch.darwin:
 patch.debug:
 	@echo "Patching ../distributed_notebook/smr/Makefile"
 ifeq ($(shell uname -p), x86_64)
-	@sed -i -e 's/\(CFLAGS = "[^"]*\)"/\1 -g -ggdb"/' ../distributed_notebook/smr/Makefile
+	@sed -i -e 's/\(CFLAGS = "[^"]*\)"/\1 -ggdb3 -Wall -O0"/' ../distributed_notebook/smr/Makefile
 else
-	sed i '' 's/\(CFLAGS = "[^"]*\)"/\1 -g -ggdb"/' ../distributed_notebook/smr/Makefile
+	sed i '' 's/\(CFLAGS = "[^"]*\)"/\1 -ggdb3 -Wall -O0"/' ../distributed_notebook/smr/Makefile
 endif
 
 gen-python: clean
 	@echo "\nGenerating Go/Python bindings via gopy now"
-	gopy gen -build-tags='-gcflags=all="-N -l"' -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr
+	gopy gen -build-tags='-gcflags=all="-N -l"' -output=../distributed_notebook/smr -vm=/home/ubuntu/Python-3.11.9/build-debug/python github.com/zhangjyr/distributed-notebook/smr
 
 build-python: clean
 	@echo "\nBuilding Python"
-	gopy build -output=../distributed_notebook/smr -vm=python3 github.com/zhangjyr/distributed-notebook/smr -symbols=true 
+	gopy build -output=../distributed_notebook/smr -build-tags='-gcflags=all="-N -l"' -vm=/home/ubuntu/Python-3.11.9/build-debug/python github.com/zhangjyr/distributed-notebook/smr -symbols=true 
 
 build-common:
 	@echo "\nBuilding 'smr-common' now."

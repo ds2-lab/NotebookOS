@@ -4,6 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
         
         {
             "name": "Python Debugger: Remote Attach Jupyter Kernel 33002",
@@ -69,6 +70,13 @@
                 "port": 33005
             },
             "justMyCode": false,
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "/usr/local/lib/python3.11/site-packages/",
+                    "distributed_notebook": "/usr/local/lib/python3.11/site-packages/distributed_notebook"
+                }
+            ],
             "showReturnValue": true
         },
         {

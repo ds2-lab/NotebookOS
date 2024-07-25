@@ -673,6 +673,12 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 
 			c.log.Debug("Successfully reconnected with remote kernel client on %v socket. Will attempt to resubmit %v message now.", typ.String(), typ.String())
 
+			// Need to update the message's header before resubmitting to avoid duplicate signature errors.
+			_, _, offset := c.client.ExtractDestFrame(msg.Frames)
+			jMsg := types.NewJupyterMessage(msg)
+			c.client.UpdateMessageHeader(jMsg, offset, c)
+			msg = jMsg.Msg
+
 			secondAttemptErr := sendRequest()
 			if secondAttemptErr != nil {
 				c.log.Error("Failed to resubmit %v message after successfully reconnecting: %v", typ, secondAttemptErr)

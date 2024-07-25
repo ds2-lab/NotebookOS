@@ -3,6 +3,7 @@ from . import DistributedKernel
 
 import faulthandler
 import sys 
+import trace 
 
 def tracefunc(frame, event, arg, indent=[0]):
       if event == "call":
@@ -20,4 +21,7 @@ def main():
     IPKernelApp.launch_instance(kernel_class=DistributedKernel)
 
 if __name__ == "__main__":
+    #tracer = trace.Trace(trace = 0, countfuncs = 1, count = 0)
+    #tracer.runfunc(main)
+    
     main()

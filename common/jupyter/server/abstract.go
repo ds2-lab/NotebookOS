@@ -577,7 +577,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 
 // Update the timestamp of the message's header so that it is signed with a different signature.
 // This is used when re-sending un-ACK'd (unacknowledged) messages.
-func (s *AbstractServer) updateMessageHeader(msg *types.JupyterMessage, offset int, sourceKernel SourceKernel) error {
+func (s *AbstractServer) UpdateMessageHeader(msg *types.JupyterMessage, offset int, sourceKernel SourceKernel) error {
 	// We need to modify the message slightly to avoid a "duplicate signature" error.
 	// To do this, we'll simply increment the timestamp of the message's header by a single microsecond.
 	// We must first extract the header. After doing so, we'll re-encode the header with the new timestamp, and then regenerate the message's signature.
@@ -700,7 +700,7 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 				time.Sleep(next_sleep_interval)
 				num_tries += 1
 
-				err := s.updateMessageHeader(req, offset, sourceKernel)
+				err := s.UpdateMessageHeader(req, offset, sourceKernel)
 				if err != nil {
 					s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to update message header for %v \"%s\" message %v: %v"), goroutineId, req.Header.MsgType, socket.Type, reqId, err)
 					return err

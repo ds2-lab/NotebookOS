@@ -14,6 +14,6 @@
     <property>
         <!-- So we don't have to worry about anything permission-related. -->
         <name>dfs.permissions</name>
-        <value>false</name>
+        <value>false</value>
     </property>
  </configuration>

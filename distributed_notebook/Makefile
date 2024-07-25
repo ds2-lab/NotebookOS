@@ -32,19 +32,21 @@ endif
 prepare-smr-linux-amd64: prepare-smr_linux_amd64.go
 	@echo "Preparing SMR Linux AMD64"
 # We don't use -i because it may cause permission problem with created temporary file.
-	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_INCLUDES_PATH_ESCAPED) -g -ggdb -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
+	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_INCLUDES_PATH_ESCAPED) -ggdb3 -Wall -O0 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
 	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_LIB_PATH_ESCAPED) -lpython3.11d -lcrypt -lpthread -ldl -lutil -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
 	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
-	sed -i -e 's/\(CFLAGS = "[^"]*\)"/\1 -g -ggdb"/' ../distributed_notebook/smr/Makefile
+	sed -i -e 's/\(CFLAGS = "[^"]*\)"/\1 -ggdb3 -Wall -O0"/' ../distributed_notebook/smr/Makefile
 
 build-init:
 	@mkdir -p smr/bak
+	@echo "Restoring Makefile (copying smr/bak/Makefile to smr/Makefile)"
 ifeq (smr/bak/Makefile,$(wildcard smr/bak/Makefile))
 # Restore Makefile if available. The backup must not exist initially bacause the folder is regenerated.
 	cp -f smr/bak/Makefile smr/Makefile
 else
 # Backup Makefile if not available.
+	@echo "Backing up Makefile (copying smr/Makefile to smr/bak/Makefile)"
 	cp -f smr/Makefile smr/bak/Makefile
 endif
 
@@ -62,6 +64,8 @@ build-smr-linux-arm64: build-init prepare-smr-linux-arm64
 build-smr-linux-amd64: build-init prepare-smr-linux-amd64
 	@echo "Building SMR for Linux AMD64"
 	cat Makefile_linux_amd64 >> smr/Makefile
+	@echo "Will be using the following Makefile ('smr/Makefile'):"
+	cat smr/Makefile
 	cd smr && make build-smr-linux-amd64
 	make reset
 

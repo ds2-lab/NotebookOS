@@ -802,6 +802,24 @@ class DistributedKernel(IPythonKernel):
             metadata={},
             ident=ident,
         )
+        faulthandler.dump_traceback(file = sys.stderr)
+        
+        cond: bool = asyncio.get_running_loop() == self.io_loop.asyncio_loop # type: ignore
+        cond2: bool = asyncio.get_running_loop() == self.control_thread.io_loop.asyncio_loop
+        
+        self.log.debug(f"Running event loop is self.io_loop: {cond}")
+        self.log.debug(f"Running event loop is self.control_thread.io_loop: {cond2}")
+        
+        def callback():
+            self.log.debug("Hello from self.ioloop!")
+            
+        def callback2():
+            self.log.debug("Hello from self.control_thread.ioloop!")
+        
+        if not cond and cond2:
+            self.io_loop.add_callback(callback)
+            self.control_thread.io_loop.add_callback(callback2)
+        
         self.log.debug(f"Sent ping_reply (control): {str(reply_msg)}")
 
     async def ping_kernel_shell_request(self, stream, ident, parent):

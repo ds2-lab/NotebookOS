@@ -27,13 +27,11 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"os"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/colinmarc/hdfs/v2"
@@ -52,6 +50,8 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	_ "github.com/ianlancetaylor/cgosymbolizer"
 )
 
 const (
@@ -60,6 +60,7 @@ const (
 	SerializedStateFileExtension   string = ".json"
 	NewSerializedStateBaseFileName string = "serialized_state_new"
 	DoneString                     string = "DONE"
+	VersionText                    string = "1.0.1"
 )
 
 var (
@@ -246,16 +247,16 @@ func CreateBytes(len byte) []byte {
 // we were migrated and our data directory was written to HDFS so that we could retrieve it.
 func NewLogNode(store_path string, id int, hdfsHostname string, shouldLoadDataFromHdfs bool, peerAddresses []string, peerIDs []int, join bool, httpDebugPort int) *LogNode {
 	defer finalize()
-	fmt.Fprintf(os.Stderr, "Creating a new LogNode.\n")
+	fmt.Fprintf(os.Stderr, "Creating a new LogNode [version %v].\n", VersionText)
 
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+	// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 
-	go func() {
-		s := <-sig
+	// go func() {
+	// 	s := <-sig
 
-		fmt.Printf("Received signal: %v\n", s)
-		fmt.Fprintf(os.Stderr, "Received signal: %v.\n", s)
-	}()
+	// 	fmt.Printf("Received signal: %v\n", s)
+	// 	fmt.Fprintf(os.Stderr, "Received signal: %v.\n", s)
+	// }()
 
 	if len(peerAddresses) != len(peerIDs) {
 		fmt.Fprintf(os.Stderr, "[ERROR] Received unequal number of peer addresses (%d) and peer node IDs (%d). They must be equal.\n", len(peerAddresses), len(peerIDs))
@@ -412,7 +413,7 @@ func NewLogNode(store_path string, id int, hdfsHostname string, shouldLoadDataFr
 		progress_chan := make(chan string, 8)
 		error_chan := make(chan error)
 		go func(ctx context.Context) {
-			signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+			// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 			defer finalize()
 
 			// TODO(Ben): Read the 'serialized state' file as well, and return that data back to the Python layer.
@@ -482,7 +483,7 @@ func (node *LogNode) ServeHttpDebug() {
 	}
 
 	go func() {
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+		// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 
 		log.Printf("Serving debug HTTP server on port %d.\n", node.httpDebugPort)
 
@@ -528,7 +529,7 @@ func (node *LogNode) Start(config *LogNodeConfig) bool {
 	startErrorChan := make(chan startError)
 
 	go func() {
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+		// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 		node.start(startErrorChan)
 	}()
 
@@ -559,7 +560,7 @@ func (node *LogNode) GetSerializedState() []byte {
 func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
 	_, ctx := node.generateProposal(val.Bytes(), ProposalDeadline)
 	go func() {
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+		// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 		node.propose(ctx, node.sendProposal, resolve, msg)
 	}()
 }
@@ -1162,7 +1163,7 @@ func (node *LogNode) WriteDataDirectoryToHDFS(serialized_state []byte, resolve R
 func (node *LogNode) writeDataDirectoryToHDFSImpl(serialized_state []byte, resolve ResolveCallback) {
 	node.logger.Debug("Writing data directory to HDFS.", zap.String("data directory", node.data_dir), zap.String("WAL directory", node.waldir), zap.String("snapshot directory", node.snapdir))
 
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+	// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 	debug.SetPanicOnFault(true)
 	err := node.hdfsClient.MkdirAll(node.waldir, os.FileMode(int(0777)))
 	if err != nil {

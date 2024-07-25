@@ -28,8 +28,10 @@ if ! command python3.11 --version &> /dev/null; then
     wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
     tar -xf Python-3.11.9.tgz
     cd Python-3.11.9
-    ./configure --enable-optimizations
-    make -j$(nproc)
+    mkdir debug 
+    cd debug 
+    ../configure --enable-optimizations --with-pydebug --enable-shared 
+    make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG" 
     sudo make altinstall
 
     if ! command python3.11 --version &> /dev/null; then 

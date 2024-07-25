@@ -16,6 +16,7 @@ require (
 	github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20180507213350-8e809c8a8645
 	github.com/hashicorp/consul/api v1.28.2
 	github.com/hashicorp/yamux v0.1.1
+	github.com/ianlancetaylor/cgosymbolizer v0.0.0-20240718183735-925f0b3ad234
 	github.com/mason-leap-lab/go-utils v1.3.3
 	github.com/onsi/ginkgo/v2 v2.15.0
 	github.com/onsi/gomega v1.32.0
