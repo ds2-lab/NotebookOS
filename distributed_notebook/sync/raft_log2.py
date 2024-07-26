@@ -1310,6 +1310,9 @@ class RaftLog(object):
             return
 
         def shouldSnapshotCallback(logNode):
+            self.logger.debug(f"shouldSnapshotCallback called with logNode = {logNode}")
+            sys.stderr.flush()
+            sys.stdout.flush() 
             # Initialize object using LogNode(handle=logNode) if neccessary.
             # print("in direct shouldSnapshotCallback")
             return callback(self)
@@ -1325,7 +1328,13 @@ class RaftLog(object):
 
         def snapshotCallback(wc) -> bytes:
             try:
+                self.logger.debug(f"SnapshotCallback called with wc = {wc}")
+                sys.stderr.flush()
+                sys.stdout.flush() 
                 checkpointer = Checkpoint(writeCloser(WriteCloser(handle=wc)))
+                self.logger.debug("Created Checkpoint object. Calling callback now.")
+                sys.stderr.flush()
+                sys.stdout.flush() 
                 callback(checkpointer)
                 # Reset _ignore_changes
                 self._ignore_changes = 0

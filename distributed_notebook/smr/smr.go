@@ -1719,6 +1719,54 @@ func smr_Set_ProposalDeadline(val C.longlong) {
 
 // ---- Interfaces ---
 
+//export smr_ReadCloser_Close
+func smr_ReadCloser_Close(_handle CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
+	if __err != nil {
+		return C.CString("")
+	}
+	return C.CString(vifc.(smr.ReadCloser).Close())
+
+}
+
+//export smr_ReadCloser_Read
+func smr_ReadCloser_Read(_handle CGoHandle, p CGoHandle) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_IntRet(nil)
+	}
+	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.ReadCloser).Read(*ptrFromHandle_smr_Bytes(p)))
+
+}
+
+//export smr_WriteCloser_Close
+func smr_WriteCloser_Close(_handle CGoHandle) *C.char {
+	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
+	if __err != nil {
+		return C.CString("")
+	}
+	return C.CString(vifc.(smr.WriteCloser).Close())
+
+}
+
+//export smr_WriteCloser_Write
+func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_IntRet(nil)
+	}
+	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.WriteCloser).Write(*ptrFromHandle_smr_Bytes(p)))
+
+}
+
 //export smr_LogSnapshotter_Load
 func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
@@ -1842,54 +1890,6 @@ func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.cha
 	} else {
 		vifc.(smr.LogStorage).SaveSnapshot(*ptrFromHandle_walpb_Snapshot(arg_0))
 	}
-}
-
-//export smr_ReadCloser_Close
-func smr_ReadCloser_Close(_handle CGoHandle) *C.char {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
-	if __err != nil {
-		return C.CString("")
-	}
-	return C.CString(vifc.(smr.ReadCloser).Close())
-
-}
-
-//export smr_ReadCloser_Read
-func smr_ReadCloser_Read(_handle CGoHandle, p CGoHandle) CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_IntRet(nil)
-	}
-	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.ReadCloser).Read(*ptrFromHandle_smr_Bytes(p)))
-
-}
-
-//export smr_WriteCloser_Close
-func smr_WriteCloser_Close(_handle CGoHandle) *C.char {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
-	if __err != nil {
-		return C.CString("")
-	}
-	return C.CString(vifc.(smr.WriteCloser).Close())
-
-}
-
-//export smr_WriteCloser_Write
-func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_IntRet(nil)
-	}
-	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.WriteCloser).Write(*ptrFromHandle_smr_Bytes(p)))
-
 }
 
 // ---- Structs ---
@@ -2079,6 +2079,7 @@ func smr_LogNode_GetSerializedState(_handle CGoHandle) CGoHandle {
 
 //export smr_LogNode_Propose
 func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, msg *C.char, goRun C.char) {
+	fmt.Printf("Calling: smr_LogNode_Propose\n")
 	_fun_arg := resolve
 	_saved_thread := C.PyEval_SaveThread()      // Release GIL
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
@@ -2503,6 +2504,7 @@ func smr_LogNodeConfig_WithRestoreCallback(_handle CGoHandle, cb *C.PyObject) CG
 
 //export smr_LogNodeConfig_WithShouldSnapshotCallback
 func smr_LogNodeConfig_WithShouldSnapshotCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
+	fmt.Printf("Calling: smr_LogNodeConfig_WithShouldSnapshotCallback\n")
 	_fun_arg := cb
 	_saved_thread := C.PyEval_SaveThread()      // Release GIL
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
@@ -2511,18 +2513,23 @@ func smr_LogNodeConfig_WithShouldSnapshotCallback(_handle CGoHandle, cb *C.PyObj
 		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
 	}
 	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithShouldSnapshotCallback(func(arg_0 *smr.LogNode) bool {
+		fmt.Printf("Calling: SnapshotCallback\n")
 		_gstate := C.PyGILState_Ensure() // Acquire GIL
+		fmt.Printf("Calling: Acquired GIL\n")
 		if C.PyCallable_Check(_fun_arg) == 0 {
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Calling: Released GIL\n")
 			return false
 		}
 		_fcargs := C.PyTuple_New(1)
 		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_Ptr_smr_LogNode(arg_0))))
+		fmt.Printf("Calling: PyObject_CallObject\n")
 		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
 		C.gopy_decref(_fcargs)
 		C.gopy_err_handle()
 		ret := boolPyToGo(C.char(C.PyLong_AsLongLong(_fcret)))
 		C.PyGILState_Release(_gstate) // Release GIL
+		fmt.Printf("Calling: Released GIL\n")
 		return ret
 	}))
 
@@ -2591,6 +2598,15 @@ func smr_NewConfig() CGoHandle {
 
 // ---- Functions ---
 
+//export smr_CreateBytes
+func smr_CreateBytes(len C.char) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	cret := smr.CreateBytes(byte(len))
+
+	return handleFromPtr_Slice_byte(&cret)
+}
+
 //export smr_PrintTestMessage
 func smr_PrintTestMessage(goRun C.char) {
 	_saved_thread := C.PyEval_SaveThread()      // Release GIL
@@ -2600,13 +2616,4 @@ func smr_PrintTestMessage(goRun C.char) {
 	} else {
 		smr.PrintTestMessage()
 	}
-}
-
-//export smr_CreateBytes
-func smr_CreateBytes(len C.char) CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	cret := smr.CreateBytes(byte(len))
-
-	return handleFromPtr_Slice_byte(&cret)
 }

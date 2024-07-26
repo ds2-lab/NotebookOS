@@ -336,7 +336,7 @@ class Synchronizer:
     return cp
 
   def checkpoint_callback(self, checkpointer: Checkpointer) -> None:
-    self._log.debug("checkpointing...")
+    self._log.debug("Checkpointing...")
     checkpointer.lead(self._ast.execution_count)
     # await self.sync(None, source="checkpoint", checkpointer=checkpointer)
     # checkpointer.close()

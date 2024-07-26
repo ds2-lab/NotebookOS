@@ -631,7 +631,7 @@ func (c *kernelReplicaClientImpl) RequestWithHandler(ctx context.Context, prompt
 	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
 
-func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
+func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
 	}
@@ -643,8 +643,14 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 
 	requiresACK := (typ == types.ShellMessage) || (typ == types.ControlMessage)
 
-	sendRequest := func() error {
-		return c.client.Request(ctx, c, socket, msg, c, c, func(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
+	// TODO: This is a hack to allow us to resubmit a request that failed due to ACKs not being received.
+	// The context is cancelled inside AbstractServer::Request, so we create a child context here to use.
+	// It can be cancelled, and if we go to resubmit, we'll create another child context to re-use.
+	childContext, _ := context.WithCancel(parentContext)
+	// defer cancel1()
+
+	sendRequest := func(ctx context.Context, message *zmq4.Msg) error {
+		return c.client.Request(ctx, c, socket, message, c, c, func(server types.JupyterServerInfo, typ types.MessageType, m *zmq4.Msg) (err error) {
 			// Kernel frame is automatically removed.
 			if handler != nil {
 				err = handler(server.(*kernelReplicaClientImpl), typ, msg)
@@ -654,7 +660,7 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 	}
 
 	// Add timeout if necessary.
-	err := sendRequest()
+	err := sendRequest(childContext, msg)
 
 	if err != nil {
 		c.log.Warn("Failed to send request because: %v", err)
@@ -679,7 +685,11 @@ func (c *kernelReplicaClientImpl) requestWithHandler(ctx context.Context, typ ty
 			c.client.UpdateMessageHeader(jMsg, offset, c)
 			msg = jMsg.Msg
 
-			secondAttemptErr := sendRequest()
+			// Create a new child context, as the previous child context will have been cancelled.
+			childContext, _ := context.WithCancel(parentContext)
+			// defer cancel2()
+
+			secondAttemptErr := sendRequest(childContext, msg)
 			if secondAttemptErr != nil {
 				c.log.Error("Failed to resubmit %v message after successfully reconnecting: %v", typ, secondAttemptErr)
 				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, msg, secondAttemptErr)

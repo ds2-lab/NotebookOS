@@ -732,6 +732,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	} else {
 		replicaCtx, cancel = context.WithTimeout(ctx, jupyter.DefaultRequestTimeout)
 	}
+	// defer cancel()
 	forwarder := func(replica core.KernelInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
 		c.log.Debug(utils.BlueStyle.Render("Received %v response from replica %v"), typ, replica)
 
@@ -774,8 +775,8 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	}
 
 	// Send the request to all replicas.
-	statusCtx, cancel := context.WithTimeout(context.Background(), jupyter.DefaultRequestTimeout)
-	defer cancel()
+	statusCtx, statusCancel := context.WithTimeout(context.Background(), jupyter.DefaultRequestTimeout)
+	defer statusCancel()
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
 	if len(replicas) == 1 {
 		return replicas[0].(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done)

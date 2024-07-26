@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	DefaultRequestTimeout  = 1 * time.Second
+	DefaultRequestTimeout  = 2 * time.Second
 	ZMQDestFrameFormatter  = "dest.%s.req.%s"                                              // dest.<kernel-id>.req.<req-id>
 	ZMQDestFrameRecognizer = regexp.MustCompile(`^dest\.([0-9a-z-]+)\.req\.([0-9a-z-]+)$`) // Changed from a-f to a-z, as IDs can now be arbitrary strings, not just UUIDs.
 

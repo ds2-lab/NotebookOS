@@ -6,7 +6,7 @@ FROM quay.io/jupyter/base-notebook:latest
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
     JUPYTER_ALLOW_INSECURE_WRITES=1 \
-    GOTRACEBACK=crash \
+    GOTRACEBACK=system  \
     PYTHONFAULTHANDLER=1 
     # PYTHONASYNCIODEBUG=1
 
@@ -104,6 +104,10 @@ RUN chown jovyan /usr/local/bin/start-notebook.sh
 ADD dockfiles/cpu-python3-amd64-debug/start-notebook.py /usr/local/bin/start-notebook.py 
 RUN chmod 777 /usr/local/bin/start-notebook.py 
 RUN chown jovyan /usr/local/bin/start-notebook.py 
+
+ADD dockfiles/cpu-python3-amd64-debug/start.sh /usr/local/bin/start.sh
+RUN chmod 777 /usr/local/bin/start.sh
+RUN chown jovyan /usr/local/bin/start.sh
 
 # Copy the modified config file.
 COPY dockfiles/cpu-python3-amd64-debug/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py

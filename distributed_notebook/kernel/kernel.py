@@ -768,7 +768,7 @@ class DistributedKernel(IPythonKernel):
 
     def send_ack(self, stream, msg_type:str, msg_id:str, ident, parent):
         # self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
-        self.session.send(  # type:ignore[assignment]
+        ack_msg = self.session.send(  # type:ignore[assignment]
             stream,
             "ACK",
             {
@@ -779,7 +779,7 @@ class DistributedKernel(IPythonKernel):
             parent,
             ident=ident,
         )
-        # self.log.debug(f"Sent 'ACK' for {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
+        self.log.debug(f"Sent 'ACK' for {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""

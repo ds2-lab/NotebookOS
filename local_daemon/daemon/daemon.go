@@ -1252,7 +1252,10 @@ func (d *SchedulerDaemonImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, msg, d.kernelResponseForwarder, cancel); err != nil {
+	if err := kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, msg, d.kernelResponseForwarder, func() {
+		cancel()
+		d.log.Debug("Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.", header.MsgType, kernel.ReplicaID(), kernel.ID())
+	}); err != nil {
 		return err
 	}
 

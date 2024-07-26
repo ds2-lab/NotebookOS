@@ -510,7 +510,8 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingIns
 		}, ErrFailedToVerifyMessage
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	// TODO: Really need to rework the request/server system so that timeouts are more centralized.
+	ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 	defer cancel()
 
 	doneChan := make(chan struct{})
@@ -2235,7 +2236,6 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClien
 		return err
 	}
 
-	// d.log.Debug("[gid=%d] Forwarding %v message of type %s to replicas of kernel %s.", goroutineId, typ, messageType, kernel.ID())
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 

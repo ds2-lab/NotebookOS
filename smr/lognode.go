@@ -1499,7 +1499,9 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	reader, writer := io.Pipe()
 	go func() {
 		defer finalize()
+		node.logger.Info("Beginning snapshot now.", zap.Uint64("applied index", node.appliedIndex), zap.Uint64("last index", node.snapshotIndex))
 		if err := fromCError(node.config.getSnapshot(&writerWrapper{writer: writer})); err != nil {
+			node.logger.Error("Failed to write snapshot data from Python.", zap.Error(err))
 			writer.CloseWithError(err)
 		}
 	}()
@@ -1507,15 +1509,18 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	node.logger.Info("start snapshot", zap.Uint64("applied index", node.appliedIndex), zap.Uint64("last index", node.snapshotIndex))
 	data, err := io.ReadAll(reader)
 	if err != nil {
+		node.logger.Error("Failed to read snapshot data from Python.", zap.Error(err))
 		node.panic(err)
 		return
 	}
 	snap, err := node.raftStorage.CreateSnapshot(node.appliedIndex, &node.confState, data)
 	if err != nil {
+		node.logger.Error("Failed to create snapshot.", zap.Uint64("applied index", node.appliedIndex), zap.Error(err))
 		node.panic(err)
 		return
 	}
 	if err := node.saveSnap(snap); err != nil {
+		node.logger.Error("Failed to save snapshot.", zap.Uint64("applied index", node.appliedIndex), zap.Error(err))
 		node.panic(err)
 		return
 	}
@@ -1525,6 +1530,7 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 		compactIndex = node.appliedIndex - snapshotCatchUpEntriesN
 	}
 	if err := node.raftStorage.Compact(compactIndex); err != nil {
+		node.logger.Error("Failed to compact raft storage.", zap.Uint64("compactIndex", compactIndex), zap.Error(err))
 		node.panic(err)
 		return
 	}
