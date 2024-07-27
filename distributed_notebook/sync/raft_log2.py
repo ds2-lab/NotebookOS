@@ -15,7 +15,7 @@ from .errors import FromGoError
 from collections import OrderedDict
 from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 
-from ..smr.smr import NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser, CreateBytes, PrintTestMessage
+from ..smr.smr import LogNode, NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser, CreateBytes, PrintTestMessage
 from ..smr.go import Slice_string, Slice_int, Slice_byte
 from .log import SyncLog, SynchronizedValue, LeaderElectionVote, LeaderElectionProposal, ElectionProposalKey, KEY_CATCHUP
 from .checkpoint import Checkpoint
@@ -400,6 +400,8 @@ class RaftLog(object):
         return False 
     
     def _valueCommitted(self, goObject, value_size: int, value_id: str) -> bytes:
+        sys.stderr.flush()
+        sys.stdout.flush()
         received_at:float = time.time()
 
         if value_id != "":
@@ -480,6 +482,8 @@ class RaftLog(object):
         return GoNilError()
 
     def _valueRestored_Old(self, rc, sz) -> bytes:
+        sys.stderr.flush()
+        sys.stdout.flush()
         self.logger.debug(f"Restoring: {rc} {sz}")
 
         reader = readCloser(ReadCloser(handle=rc), sz)
@@ -1310,6 +1314,9 @@ class RaftLog(object):
             return
 
         def shouldSnapshotCallback(logNode):
+            sys.stderr.flush()
+            sys.stdout.flush()
+            logNode = LogNode(handle = logNode)
             self.logger.debug(f"shouldSnapshotCallback called with logNode = {logNode}")
             sys.stderr.flush()
             sys.stdout.flush() 
@@ -1327,6 +1334,8 @@ class RaftLog(object):
             return
 
         def snapshotCallback(wc) -> bytes:
+            sys.stderr.flush()
+            sys.stdout.flush()
             try:
                 self.logger.debug(f"SnapshotCallback called with wc = {wc}")
                 sys.stderr.flush()

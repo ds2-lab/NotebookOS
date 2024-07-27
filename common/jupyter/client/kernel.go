@@ -479,7 +479,7 @@ func (c *kernelReplicaClientImpl) BindSession(sess string) {
 }
 
 // Recreate and redial a particular socket.
-func (c *kernelReplicaClientImpl) ReconnectSocket(typ types.MessageType) error {
+func (c *kernelReplicaClientImpl) ReconnectSocket(typ types.MessageType) (*types.Socket, error) {
 	var socket *types.Socket
 
 	c.log.Debug("Recreating %s socket.", typ.String())
@@ -509,7 +509,7 @@ func (c *kernelReplicaClientImpl) ReconnectSocket(typ types.MessageType) error {
 		case <-c.client.Ctx.Done():
 			c.log.Debug("Could not reconnect %s socket; kernel has exited.", typ.String())
 			c.status = types.KernelStatusExited
-			return types.ErrKernelClosed
+			return nil, types.ErrKernelClosed
 		case <-timer.C:
 			c.mu.Lock()
 
@@ -519,11 +519,11 @@ func (c *kernelReplicaClientImpl) ReconnectSocket(typ types.MessageType) error {
 				c.Close()
 				c.status = types.KernelStatusExited
 				c.mu.Unlock()
-				return err
+				return nil, err
 			}
 
 			c.mu.Unlock()
-			return nil
+			return socket, nil
 		}
 	}
 }
@@ -649,8 +649,8 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 	childContext, _ := context.WithCancel(parentContext)
 	// defer cancel1()
 
-	sendRequest := func(ctx context.Context, message *zmq4.Msg) error {
-		return c.client.Request(ctx, c, socket, message, c, c, func(server types.JupyterServerInfo, typ types.MessageType, m *zmq4.Msg) (err error) {
+	sendRequest := func(ctx context.Context, message *zmq4.Msg, sock *types.Socket) error {
+		return c.client.Request(ctx, c, sock, message, c, c, func(server types.JupyterServerInfo, typ types.MessageType, m *zmq4.Msg) (err error) {
 			// Kernel frame is automatically removed.
 			if handler != nil {
 				err = handler(server.(*kernelReplicaClientImpl), typ, msg)
@@ -660,7 +660,7 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 	}
 
 	// Add timeout if necessary.
-	err := sendRequest(childContext, msg)
+	err := sendRequest(childContext, msg, socket)
 
 	if err != nil {
 		c.log.Warn("Failed to send request because: %v", err)
@@ -671,7 +671,7 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 		if errors.Is(err, jupyter.ErrNoAck) {
 			c.log.Warn("Connectivity with remote kernel client may have been lost. Will attempt to reconnect and resubmit %v message.", typ)
 
-			if reconnectionError := c.ReconnectSocket(typ); reconnectionError != nil {
+			if _, reconnectionError := c.ReconnectSocket(typ); reconnectionError != nil {
 				c.log.Error("Failed to reconnect to remote kernel client because: %v", reconnectionError)
 				c.connectionRevalidationFailedCallback(c, msg, reconnectionError)
 				return errors.Join(err, reconnectionError)
@@ -685,11 +685,18 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 			c.client.UpdateMessageHeader(jMsg, offset, c)
 			msg = jMsg.Msg
 
+			recreatedSocket := c.client.Sockets.All[typ]
+			if recreatedSocket == nil {
+				return types.ErrSocketNotAvailable
+			} else if recreatedSocket == socket {
+				panic(fmt.Sprintf("Recreated %v socket is equal to original %v socket for replica %d of kernel %s.", typ.String(), typ.String(), c.replicaId, c.id))
+			}
+
 			// Create a new child context, as the previous child context will have been cancelled.
 			childContext, _ := context.WithCancel(parentContext)
 			// defer cancel2()
 
-			secondAttemptErr := sendRequest(childContext, msg)
+			secondAttemptErr := sendRequest(childContext, msg, recreatedSocket)
 			if secondAttemptErr != nil {
 				c.log.Error("Failed to resubmit %v message after successfully reconnecting: %v", typ, secondAttemptErr)
 				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, msg, secondAttemptErr)

@@ -9,7 +9,7 @@ package main
 /*
 
 #cgo CFLAGS: -I/usr/include/python3.11d -ggdb3 -Wall -O0 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion
-#cgo LDFLAGS: -L"/usr/lib/x86_64-linux-gnu/"  -lpython3.11d -lcrypt -lpthread -ldl -lutil -lm
+#cgo LDFLAGS: -L"/usr/lib/x86_64-linux-gnu/"  -ggdb3 -lpython3.11d -lcrypt -lpthread -ldl -lutil -lm
 
 // #define Py_LIMITED_API // need full API for PyRun*
 #include <Python.h>
@@ -1719,57 +1719,12 @@ func smr_Set_ProposalDeadline(val C.longlong) {
 
 // ---- Interfaces ---
 
-//export smr_ReadCloser_Close
-func smr_ReadCloser_Close(_handle CGoHandle) *C.char {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
-	if __err != nil {
-		return C.CString("")
-	}
-	return C.CString(vifc.(smr.ReadCloser).Close())
-
-}
-
-//export smr_ReadCloser_Read
-func smr_ReadCloser_Read(_handle CGoHandle, p CGoHandle) CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_IntRet(nil)
-	}
-	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.ReadCloser).Read(*ptrFromHandle_smr_Bytes(p)))
-
-}
-
-//export smr_WriteCloser_Close
-func smr_WriteCloser_Close(_handle CGoHandle) *C.char {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
-	if __err != nil {
-		return C.CString("")
-	}
-	return C.CString(vifc.(smr.WriteCloser).Close())
-
-}
-
-//export smr_WriteCloser_Write
-func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_IntRet(nil)
-	}
-	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.WriteCloser).Write(*ptrFromHandle_smr_Bytes(p)))
-
-}
-
 //export smr_LogSnapshotter_Load
 func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
+	go_src_func_name := "smr_LogSnapshotter_Load"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Load'\n")
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
 	if __err != nil {
 		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
@@ -1788,7 +1743,10 @@ func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
 
 //export smr_LogSnapshotter_LoadNewestAvailable
 func smr_LogSnapshotter_LoadNewestAvailable(_handle CGoHandle, arg_0 CGoHandle) CGoHandle {
+	go_src_func_name := "smr_LogSnapshotter_LoadNewestAvailable"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'LoadNewestAvailable'\n")
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
 	if __err != nil {
 		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
@@ -1807,7 +1765,10 @@ func smr_LogSnapshotter_LoadNewestAvailable(_handle CGoHandle, arg_0 CGoHandle) 
 
 //export smr_LogSnapshotter_SaveSnap
 func smr_LogSnapshotter_SaveSnap(_handle CGoHandle, arg_0 CGoHandle) *C.char {
+	go_src_func_name := "smr_LogSnapshotter_SaveSnap"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'SaveSnap'\n")
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
 	if __err != nil {
 		return errorGoToPy(nil)
@@ -1825,7 +1786,10 @@ func smr_LogSnapshotter_SaveSnap(_handle CGoHandle, arg_0 CGoHandle) *C.char {
 
 //export smr_LogStorage_Close
 func smr_LogStorage_Close(_handle CGoHandle) *C.char {
+	go_src_func_name := "smr_LogStorage_Close"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Close'\n")
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
 	if __err != nil {
 		return errorGoToPy(nil)
@@ -1843,7 +1807,10 @@ func smr_LogStorage_Close(_handle CGoHandle) *C.char {
 
 //export smr_LogStorage_ReleaseLockTo
 func smr_LogStorage_ReleaseLockTo(_handle CGoHandle, arg_0 C.ulonglong) *C.char {
+	go_src_func_name := "smr_LogStorage_ReleaseLockTo"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'ReleaseLockTo'\n")
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
 	if __err != nil {
 		return errorGoToPy(nil)
@@ -1861,7 +1828,10 @@ func smr_LogStorage_ReleaseLockTo(_handle CGoHandle, arg_0 C.ulonglong) *C.char 
 
 //export smr_LogStorage_Save
 func smr_LogStorage_Save(_handle CGoHandle, arg_0 CGoHandle, arg_1 CGoHandle) *C.char {
+	go_src_func_name := "smr_LogStorage_Save"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Save'\n")
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
 	if __err != nil {
 		return errorGoToPy(nil)
@@ -1879,7 +1849,10 @@ func smr_LogStorage_Save(_handle CGoHandle, arg_0 CGoHandle, arg_1 CGoHandle) *C
 
 //export smr_LogStorage_SaveSnapshot
 func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.char) {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogStorage_SaveSnapshot"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'SaveSnapshot'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
 	if __err != nil {
@@ -1892,7 +1865,280 @@ func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.cha
 	}
 }
 
+//export smr_ReadCloser_Close
+func smr_ReadCloser_Close(_handle CGoHandle) *C.char {
+	go_src_func_name := "smr_ReadCloser_Close"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Close'\n")
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
+	if __err != nil {
+		return C.CString("")
+	}
+	return C.CString(vifc.(smr.ReadCloser).Close())
+
+}
+
+//export smr_ReadCloser_Read
+func smr_ReadCloser_Read(_handle CGoHandle, p CGoHandle) CGoHandle {
+	go_src_func_name := "smr_ReadCloser_Read"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Read'\n")
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.ReadCloser")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_IntRet(nil)
+	}
+	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.ReadCloser).Read(*ptrFromHandle_smr_Bytes(p)))
+
+}
+
+//export smr_WriteCloser_Close
+func smr_WriteCloser_Close(_handle CGoHandle) *C.char {
+	go_src_func_name := "smr_WriteCloser_Close"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Close'\n")
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
+	if __err != nil {
+		return C.CString("")
+	}
+	return C.CString(vifc.(smr.WriteCloser).Close())
+
+}
+
+//export smr_WriteCloser_Write
+func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
+	go_src_func_name := "smr_WriteCloser_Write"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Write'\n")
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.WriteCloser")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_IntRet(nil)
+	}
+	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.WriteCloser).Write(*ptrFromHandle_smr_Bytes(p)))
+
+}
+
 // ---- Structs ---
+
+// --- wrapping struct: smr.LogNodeConfig ---
+//
+//export smr_LogNodeConfig_CTor
+func smr_LogNodeConfig_CTor() CGoHandle {
+	return CGoHandle(handleFromPtr_smr_LogNodeConfig(&smr.LogNodeConfig{}))
+}
+
+//export smr_LogNodeConfig_ElectionTick_Get
+func smr_LogNodeConfig_ElectionTick_Get(handle CGoHandle) C.longlong {
+	op := ptrFromHandle_smr_LogNodeConfig(handle)
+	return C.longlong(op.ElectionTick)
+}
+
+//export smr_LogNodeConfig_ElectionTick_Set
+func smr_LogNodeConfig_ElectionTick_Set(handle CGoHandle, val C.longlong) {
+	op := ptrFromHandle_smr_LogNodeConfig(handle)
+	op.ElectionTick = int(val)
+}
+
+//export smr_LogNodeConfig_HeartbeatTick_Get
+func smr_LogNodeConfig_HeartbeatTick_Get(handle CGoHandle) C.longlong {
+	op := ptrFromHandle_smr_LogNodeConfig(handle)
+	return C.longlong(op.HeartbeatTick)
+}
+
+//export smr_LogNodeConfig_HeartbeatTick_Set
+func smr_LogNodeConfig_HeartbeatTick_Set(handle CGoHandle, val C.longlong) {
+	op := ptrFromHandle_smr_LogNodeConfig(handle)
+	op.HeartbeatTick = int(val)
+}
+
+//export smr_LogNodeConfig_Debug_Get
+func smr_LogNodeConfig_Debug_Get(handle CGoHandle) C.char {
+	op := ptrFromHandle_smr_LogNodeConfig(handle)
+	return boolGoToPy(op.Debug)
+}
+
+//export smr_LogNodeConfig_Debug_Set
+func smr_LogNodeConfig_Debug_Set(handle CGoHandle, val C.char) {
+	op := ptrFromHandle_smr_LogNodeConfig(handle)
+	op.Debug = boolPyToGo(val)
+}
+
+//export smr_LogNodeConfig_WithChangeCallback
+func smr_LogNodeConfig_WithChangeCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
+	_fun_arg := cb
+	go_src_func_name := "smr_LogNodeConfig_WithChangeCallback"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'WithChangeCallback'\n")
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
+	}
+	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithChangeCallback(func(arg_0 smr.ReadCloser, arg_1 int, arg_2 string) string {
+		fmt.Printf("Preparing to call into Python callback of type smr.StateValueCallback [%s] \n", go_src_func_name)
+		_gstate := C.PyGILState_Ensure() // Acquire GIL
+		fmt.Printf("Acquired GIL in Python callback of type smr.StateValueCallback [%s] \n", go_src_func_name)
+		if C.PyCallable_Check(_fun_arg) == 0 {
+			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.StateValueCallback (no call to Python callback) [%s] \n", go_src_func_name)
+			return C.GoString(nil)
+		}
+		fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.StateValueCallback now [%s] \n", go_src_func_name)
+		_fcargs := C.PyTuple_New(3)
+		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_smr_ReadCloser(arg_0))))
+		C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_int64(C.int64_t(arg_1)))
+		C.PyTuple_SetItem(_fcargs, 2, C.gopy_build_string(C.CString(arg_2)))
+		fmt.Printf("Setup Python arguments tuple for Python callback of type smr.StateValueCallback now [%s] \n", go_src_func_name)
+		fmt.Printf("Calling into Python callback of type smr.StateValueCallback now [%s] \n", go_src_func_name)
+		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
+		fmt.Printf("Returned from Python callback of type smr.StateValueCallback [%s] \n", go_src_func_name)
+		C.gopy_decref(_fcargs)
+		C.gopy_err_handle()
+		ret := C.GoString(C.PyBytes_AsString(_fcret))
+		C.PyGILState_Release(_gstate) // Release GIL
+		fmt.Printf("Released GIL in Python callback of type smr.StateValueCallback [%s] \n", go_src_func_name)
+		return ret
+	}))
+
+}
+
+//export smr_LogNodeConfig_WithRestoreCallback
+func smr_LogNodeConfig_WithRestoreCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
+	_fun_arg := cb
+	go_src_func_name := "smr_LogNodeConfig_WithRestoreCallback"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'WithRestoreCallback'\n")
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
+	}
+	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithRestoreCallback(func(arg_0 smr.ReadCloser, arg_1 int) string {
+		fmt.Printf("Preparing to call into Python callback of type smr.StatesValueCallback [%s] \n", go_src_func_name)
+		_gstate := C.PyGILState_Ensure() // Acquire GIL
+		fmt.Printf("Acquired GIL in Python callback of type smr.StatesValueCallback [%s] \n", go_src_func_name)
+		if C.PyCallable_Check(_fun_arg) == 0 {
+			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.StatesValueCallback (no call to Python callback) [%s] \n", go_src_func_name)
+			return C.GoString(nil)
+		}
+		fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.StatesValueCallback now [%s] \n", go_src_func_name)
+		_fcargs := C.PyTuple_New(2)
+		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_smr_ReadCloser(arg_0))))
+		C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_int64(C.int64_t(arg_1)))
+		fmt.Printf("Setup Python arguments tuple for Python callback of type smr.StatesValueCallback now [%s] \n", go_src_func_name)
+		fmt.Printf("Calling into Python callback of type smr.StatesValueCallback now [%s] \n", go_src_func_name)
+		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
+		fmt.Printf("Returned from Python callback of type smr.StatesValueCallback [%s] \n", go_src_func_name)
+		C.gopy_decref(_fcargs)
+		C.gopy_err_handle()
+		ret := C.GoString(C.PyBytes_AsString(_fcret))
+		C.PyGILState_Release(_gstate) // Release GIL
+		fmt.Printf("Released GIL in Python callback of type smr.StatesValueCallback [%s] \n", go_src_func_name)
+		return ret
+	}))
+
+}
+
+//export smr_LogNodeConfig_WithShouldSnapshotCallback
+func smr_LogNodeConfig_WithShouldSnapshotCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
+	_fun_arg := cb
+	go_src_func_name := "smr_LogNodeConfig_WithShouldSnapshotCallback"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'WithShouldSnapshotCallback'\n")
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
+	}
+	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithShouldSnapshotCallback(func(arg_0 *smr.LogNode) bool {
+		fmt.Printf("Preparing to call into Python callback of type smr.ShouldLogNodeCallback [%s] \n", go_src_func_name)
+		_gstate := C.PyGILState_Ensure() // Acquire GIL
+		fmt.Printf("Acquired GIL in Python callback of type smr.ShouldLogNodeCallback [%s] \n", go_src_func_name)
+		if C.PyCallable_Check(_fun_arg) == 0 {
+			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ShouldLogNodeCallback (no call to Python callback) [%s] \n", go_src_func_name)
+			return false
+		}
+		fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ShouldLogNodeCallback now [%s] \n", go_src_func_name)
+		_fcargs := C.PyTuple_New(1)
+		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_Ptr_smr_LogNode(arg_0))))
+		fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ShouldLogNodeCallback now [%s] \n", go_src_func_name)
+		fmt.Printf("Calling into Python callback of type smr.ShouldLogNodeCallback now [%s] \n", go_src_func_name)
+		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
+		fmt.Printf("Returned from Python callback of type smr.ShouldLogNodeCallback [%s] \n", go_src_func_name)
+		C.gopy_decref(_fcargs)
+		C.gopy_err_handle()
+		ret := boolPyToGo(C.char(C.PyLong_AsLongLong(_fcret)))
+		C.PyGILState_Release(_gstate) // Release GIL
+		fmt.Printf("Released GIL in Python callback of type smr.ShouldLogNodeCallback [%s] \n", go_src_func_name)
+		return ret
+	}))
+
+}
+
+//export smr_LogNodeConfig_WithSnapshotCallback
+func smr_LogNodeConfig_WithSnapshotCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
+	_fun_arg := cb
+	go_src_func_name := "smr_LogNodeConfig_WithSnapshotCallback"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'WithSnapshotCallback'\n")
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
+	if __err != nil {
+		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
+	}
+	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithSnapshotCallback(func(arg_0 smr.WriteCloser) string {
+		fmt.Printf("Preparing to call into Python callback of type smr.WriteCallback [%s] \n", go_src_func_name)
+		_gstate := C.PyGILState_Ensure() // Acquire GIL
+		fmt.Printf("Acquired GIL in Python callback of type smr.WriteCallback [%s] \n", go_src_func_name)
+		if C.PyCallable_Check(_fun_arg) == 0 {
+			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.WriteCallback (no call to Python callback) [%s] \n", go_src_func_name)
+			return C.GoString(nil)
+		}
+		fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.WriteCallback now [%s] \n", go_src_func_name)
+		_fcargs := C.PyTuple_New(1)
+		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_smr_WriteCloser(arg_0))))
+		fmt.Printf("Setup Python arguments tuple for Python callback of type smr.WriteCallback now [%s] \n", go_src_func_name)
+		fmt.Printf("Calling into Python callback of type smr.WriteCallback now [%s] \n", go_src_func_name)
+		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
+		fmt.Printf("Returned from Python callback of type smr.WriteCallback [%s] \n", go_src_func_name)
+		C.gopy_decref(_fcargs)
+		C.gopy_err_handle()
+		ret := C.GoString(C.PyBytes_AsString(_fcret))
+		C.PyGILState_Release(_gstate) // Release GIL
+		fmt.Printf("Released GIL in Python callback of type smr.WriteCallback [%s] \n", go_src_func_name)
+		return ret
+	}))
+
+}
+
+//export smr_LogNodeConfig_String
+func smr_LogNodeConfig_String(_handle CGoHandle) *C.char {
+	go_src_func_name := "smr_LogNodeConfig_String"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'String'\n")
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
+	if __err != nil {
+		return C.CString("")
+	}
+	return C.CString(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).String())
+
+}
 
 // --- wrapping struct: smr.SMRContext ---
 //
@@ -1903,7 +2149,10 @@ func smr_SMRContext_CTor() CGoHandle {
 
 //export smr_SMRContext_ID
 func smr_SMRContext_ID(_handle CGoHandle) *C.char {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_SMRContext_ID"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'ID'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.SMRContext")
 	if __err != nil {
@@ -1915,7 +2164,10 @@ func smr_SMRContext_ID(_handle CGoHandle) *C.char {
 
 //export smr_SMRContext_Cancel
 func smr_SMRContext_Cancel(_handle CGoHandle, goRun C.char) {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_SMRContext_Cancel"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Cancel'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.SMRContext")
 	if __err != nil {
@@ -1937,7 +2189,10 @@ func smr_Bytes_CTor() CGoHandle {
 
 //export smr_Bytes_Bytes
 func smr_Bytes_Bytes(_handle CGoHandle) CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_Bytes_Bytes"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Bytes'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
 	if __err != nil {
@@ -1950,7 +2205,10 @@ func smr_Bytes_Bytes(_handle CGoHandle) CGoHandle {
 
 //export smr_Bytes_Len
 func smr_Bytes_Len(_handle CGoHandle) C.longlong {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_Bytes_Len"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Len'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.Bytes")
 	if __err != nil {
@@ -2000,7 +2258,10 @@ func smr_LogNode_CTor() CGoHandle {
 
 //export smr_LogNode_ServeHttpDebug
 func smr_LogNode_ServeHttpDebug(_handle CGoHandle, goRun C.char) {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_ServeHttpDebug"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'ServeHttpDebug'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2015,7 +2276,10 @@ func smr_LogNode_ServeHttpDebug(_handle CGoHandle, goRun C.char) {
 
 //export smr_LogNode_ConnectedToHDFS
 func smr_LogNode_ConnectedToHDFS(_handle CGoHandle) C.char {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_ConnectedToHDFS"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'ConnectedToHDFS'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2027,7 +2291,10 @@ func smr_LogNode_ConnectedToHDFS(_handle CGoHandle) C.char {
 
 //export smr_LogNode_NumChanges
 func smr_LogNode_NumChanges(_handle CGoHandle) C.longlong {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_NumChanges"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'NumChanges'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2039,7 +2306,10 @@ func smr_LogNode_NumChanges(_handle CGoHandle) C.longlong {
 
 //export smr_LogNode_Start
 func smr_LogNode_Start(_handle CGoHandle, config CGoHandle) C.char {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_Start"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Start'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2051,7 +2321,10 @@ func smr_LogNode_Start(_handle CGoHandle, config CGoHandle) C.char {
 
 //export smr_LogNode_StartAndWait
 func smr_LogNode_StartAndWait(_handle CGoHandle, config CGoHandle, goRun C.char) {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_StartAndWait"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'StartAndWait'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2066,7 +2339,10 @@ func smr_LogNode_StartAndWait(_handle CGoHandle, config CGoHandle, goRun C.char)
 
 //export smr_LogNode_GetSerializedState
 func smr_LogNode_GetSerializedState(_handle CGoHandle) CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_GetSerializedState"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'GetSerializedState'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2079,9 +2355,11 @@ func smr_LogNode_GetSerializedState(_handle CGoHandle) CGoHandle {
 
 //export smr_LogNode_Propose
 func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, msg *C.char, goRun C.char) {
-	fmt.Printf("Calling: smr_LogNode_Propose\n")
 	_fun_arg := resolve
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_Propose"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Propose'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2089,33 +2367,49 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 	}
 	if boolPyToGo(goRun) {
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
+			fmt.Printf("Preparing to call into Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
+			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				C.PyGILState_Release(_gstate) // Release GIL
+				fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 				return
 			}
+			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
+			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
+			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 		}, C.GoString(msg))
 	} else {
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
+			fmt.Printf("Preparing to call into Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
+			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				C.PyGILState_Release(_gstate) // Release GIL
+				fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 				return
 			}
+			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
+			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
+			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 		}, C.GoString(msg))
 	}
 }
@@ -2123,7 +2417,10 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 //export smr_LogNode_AddNode
 func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve *C.PyObject, goRun C.char) {
 	_fun_arg := resolve
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_AddNode"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'AddNode'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2131,33 +2428,49 @@ func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve
 	}
 	if boolPyToGo(goRun) {
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).AddNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
+			fmt.Printf("Preparing to call into Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
+			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				C.PyGILState_Release(_gstate) // Release GIL
+				fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 				return
 			}
+			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
+			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
+			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 		})
 	} else {
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).AddNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
+			fmt.Printf("Preparing to call into Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
+			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				C.PyGILState_Release(_gstate) // Release GIL
+				fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 				return
 			}
+			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
+			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
+			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 		})
 	}
 }
@@ -2165,7 +2478,10 @@ func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve
 //export smr_LogNode_RemoveNode
 func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObject, goRun C.char) {
 	_fun_arg := resolve
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_RemoveNode"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'RemoveNode'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2173,33 +2489,49 @@ func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObjec
 	}
 	if boolPyToGo(goRun) {
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).RemoveNode(int(id), func(arg_0 interface{}, arg_1 string) {
+			fmt.Printf("Preparing to call into Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
+			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				C.PyGILState_Release(_gstate) // Release GIL
+				fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 				return
 			}
+			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
+			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
+			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 		})
 	} else {
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).RemoveNode(int(id), func(arg_0 interface{}, arg_1 string) {
+			fmt.Printf("Preparing to call into Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
+			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				C.PyGILState_Release(_gstate) // Release GIL
+				fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 				return
 			}
+			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
+			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
+			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 		})
 	}
 }
@@ -2207,7 +2539,10 @@ func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObjec
 //export smr_LogNode_UpdateNode
 func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve *C.PyObject, goRun C.char) {
 	_fun_arg := resolve
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_UpdateNode"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'UpdateNode'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2215,40 +2550,59 @@ func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, reso
 	}
 	if boolPyToGo(goRun) {
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).UpdateNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
+			fmt.Printf("Preparing to call into Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
+			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				C.PyGILState_Release(_gstate) // Release GIL
+				fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 				return
 			}
+			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
+			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
+			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 		})
 	} else {
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).UpdateNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
+			fmt.Printf("Preparing to call into Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
+			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				C.PyGILState_Release(_gstate) // Release GIL
+				fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 				return
 			}
+			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
+			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
+			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 		})
 	}
 }
 
 //export smr_LogNode_WaitToClose
 func smr_LogNode_WaitToClose(_handle CGoHandle) *C.char {
+	go_src_func_name := "smr_LogNode_WaitToClose"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'WaitToClose'\n")
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return errorGoToPy(nil)
@@ -2266,7 +2620,10 @@ func smr_LogNode_WaitToClose(_handle CGoHandle) *C.char {
 
 //export smr_LogNode_Close
 func smr_LogNode_Close(_handle CGoHandle) *C.char {
+	go_src_func_name := "smr_LogNode_Close"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Close'\n")
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return errorGoToPy(nil)
@@ -2284,7 +2641,10 @@ func smr_LogNode_Close(_handle CGoHandle) *C.char {
 
 //export smr_LogNode_CloseHdfsClient
 func smr_LogNode_CloseHdfsClient(_handle CGoHandle) *C.char {
+	go_src_func_name := "smr_LogNode_CloseHdfsClient"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'CloseHdfsClient'\n")
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return errorGoToPy(nil)
@@ -2303,7 +2663,10 @@ func smr_LogNode_CloseHdfsClient(_handle CGoHandle) *C.char {
 //export smr_LogNode_WriteDataDirectoryToHDFS
 func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state CGoHandle, resolve *C.PyObject, goRun C.char) {
 	_fun_arg := resolve
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_WriteDataDirectoryToHDFS"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'WriteDataDirectoryToHDFS'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2311,40 +2674,59 @@ func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state CG
 	}
 	if boolPyToGo(goRun) {
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(deptrFromHandle_Slice_byte(serialized_state), func(arg_0 interface{}, arg_1 string) {
+			fmt.Printf("Preparing to call into Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
+			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				C.PyGILState_Release(_gstate) // Release GIL
+				fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 				return
 			}
+			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
+			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
+			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 		})
 	} else {
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToHDFS(deptrFromHandle_Slice_byte(serialized_state), func(arg_0 interface{}, arg_1 string) {
+			fmt.Printf("Preparing to call into Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
+			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if C.PyCallable_Check(_fun_arg) == 0 {
 				C.PyGILState_Release(_gstate) // Release GIL
+				fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 				return
 			}
+			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
 			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
+			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
+			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
+			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			C.gopy_decref(_fcargs)
 			C.gopy_err_handle()
 			C.PyGILState_Release(_gstate) // Release GIL
+			fmt.Printf("Released GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 		})
 	}
 }
 
 //export smr_LogNode_Process
 func smr_LogNode_Process(_handle CGoHandle, ctx CGoHandle, m CGoHandle) *C.char {
+	go_src_func_name := "smr_LogNode_Process"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
 	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'Process'\n")
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
 		return errorGoToPy(nil)
@@ -2362,7 +2744,10 @@ func smr_LogNode_Process(_handle CGoHandle, ctx CGoHandle, m CGoHandle) *C.char 
 
 //export smr_LogNode_IsIDRemoved
 func smr_LogNode_IsIDRemoved(_handle CGoHandle, id C.ulonglong) C.char {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_IsIDRemoved"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'IsIDRemoved'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2374,7 +2759,10 @@ func smr_LogNode_IsIDRemoved(_handle CGoHandle, id C.ulonglong) C.char {
 
 //export smr_LogNode_ReportUnreachable
 func smr_LogNode_ReportUnreachable(_handle CGoHandle, id C.ulonglong, goRun C.char) {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_ReportUnreachable"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'ReportUnreachable'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2389,7 +2777,10 @@ func smr_LogNode_ReportUnreachable(_handle CGoHandle, id C.ulonglong, goRun C.ch
 
 //export smr_LogNode_ReportSnapshot
 func smr_LogNode_ReportSnapshot(_handle CGoHandle, id C.ulonglong, status C.longlong, goRun C.char) {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "smr_LogNode_ReportSnapshot"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'ReportSnapshot'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNode")
 	if __err != nil {
@@ -2402,218 +2793,58 @@ func smr_LogNode_ReportSnapshot(_handle CGoHandle, id C.ulonglong, status C.long
 	}
 }
 
-// --- wrapping struct: smr.LogNodeConfig ---
-//
-//export smr_LogNodeConfig_CTor
-func smr_LogNodeConfig_CTor() CGoHandle {
-	return CGoHandle(handleFromPtr_smr_LogNodeConfig(&smr.LogNodeConfig{}))
-}
-
-//export smr_LogNodeConfig_ElectionTick_Get
-func smr_LogNodeConfig_ElectionTick_Get(handle CGoHandle) C.longlong {
-	op := ptrFromHandle_smr_LogNodeConfig(handle)
-	return C.longlong(op.ElectionTick)
-}
-
-//export smr_LogNodeConfig_ElectionTick_Set
-func smr_LogNodeConfig_ElectionTick_Set(handle CGoHandle, val C.longlong) {
-	op := ptrFromHandle_smr_LogNodeConfig(handle)
-	op.ElectionTick = int(val)
-}
-
-//export smr_LogNodeConfig_HeartbeatTick_Get
-func smr_LogNodeConfig_HeartbeatTick_Get(handle CGoHandle) C.longlong {
-	op := ptrFromHandle_smr_LogNodeConfig(handle)
-	return C.longlong(op.HeartbeatTick)
-}
-
-//export smr_LogNodeConfig_HeartbeatTick_Set
-func smr_LogNodeConfig_HeartbeatTick_Set(handle CGoHandle, val C.longlong) {
-	op := ptrFromHandle_smr_LogNodeConfig(handle)
-	op.HeartbeatTick = int(val)
-}
-
-//export smr_LogNodeConfig_Debug_Get
-func smr_LogNodeConfig_Debug_Get(handle CGoHandle) C.char {
-	op := ptrFromHandle_smr_LogNodeConfig(handle)
-	return boolGoToPy(op.Debug)
-}
-
-//export smr_LogNodeConfig_Debug_Set
-func smr_LogNodeConfig_Debug_Set(handle CGoHandle, val C.char) {
-	op := ptrFromHandle_smr_LogNodeConfig(handle)
-	op.Debug = boolPyToGo(val)
-}
-
-//export smr_LogNodeConfig_WithChangeCallback
-func smr_LogNodeConfig_WithChangeCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
-	_fun_arg := cb
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
-	}
-	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithChangeCallback(func(arg_0 smr.ReadCloser, arg_1 int, arg_2 string) string {
-		_gstate := C.PyGILState_Ensure() // Acquire GIL
-		if C.PyCallable_Check(_fun_arg) == 0 {
-			C.PyGILState_Release(_gstate) // Release GIL
-			return C.GoString(nil)
-		}
-		_fcargs := C.PyTuple_New(3)
-		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_smr_ReadCloser(arg_0))))
-		C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_int64(C.int64_t(arg_1)))
-		C.PyTuple_SetItem(_fcargs, 2, C.gopy_build_string(C.CString(arg_2)))
-		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
-		C.gopy_decref(_fcargs)
-		C.gopy_err_handle()
-		ret := C.GoString(C.PyBytes_AsString(_fcret))
-		C.PyGILState_Release(_gstate) // Release GIL
-		return ret
-	}))
-
-}
-
-//export smr_LogNodeConfig_WithRestoreCallback
-func smr_LogNodeConfig_WithRestoreCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
-	_fun_arg := cb
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
-	}
-	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithRestoreCallback(func(arg_0 smr.ReadCloser, arg_1 int) string {
-		_gstate := C.PyGILState_Ensure() // Acquire GIL
-		if C.PyCallable_Check(_fun_arg) == 0 {
-			C.PyGILState_Release(_gstate) // Release GIL
-			return C.GoString(nil)
-		}
-		_fcargs := C.PyTuple_New(2)
-		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_smr_ReadCloser(arg_0))))
-		C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_int64(C.int64_t(arg_1)))
-		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
-		C.gopy_decref(_fcargs)
-		C.gopy_err_handle()
-		ret := C.GoString(C.PyBytes_AsString(_fcret))
-		C.PyGILState_Release(_gstate) // Release GIL
-		return ret
-	}))
-
-}
-
-//export smr_LogNodeConfig_WithShouldSnapshotCallback
-func smr_LogNodeConfig_WithShouldSnapshotCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
-	fmt.Printf("Calling: smr_LogNodeConfig_WithShouldSnapshotCallback\n")
-	_fun_arg := cb
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
-	}
-	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithShouldSnapshotCallback(func(arg_0 *smr.LogNode) bool {
-		fmt.Printf("Calling: SnapshotCallback\n")
-		_gstate := C.PyGILState_Ensure() // Acquire GIL
-		fmt.Printf("Calling: Acquired GIL\n")
-		if C.PyCallable_Check(_fun_arg) == 0 {
-			C.PyGILState_Release(_gstate) // Release GIL
-			fmt.Printf("Calling: Released GIL\n")
-			return false
-		}
-		_fcargs := C.PyTuple_New(1)
-		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_Ptr_smr_LogNode(arg_0))))
-		fmt.Printf("Calling: PyObject_CallObject\n")
-		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
-		C.gopy_decref(_fcargs)
-		C.gopy_err_handle()
-		ret := boolPyToGo(C.char(C.PyLong_AsLongLong(_fcret)))
-		C.PyGILState_Release(_gstate) // Release GIL
-		fmt.Printf("Calling: Released GIL\n")
-		return ret
-	}))
-
-}
-
-//export smr_LogNodeConfig_WithSnapshotCallback
-func smr_LogNodeConfig_WithSnapshotCallback(_handle CGoHandle, cb *C.PyObject) CGoHandle {
-	_fun_arg := cb
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
-	if __err != nil {
-		return handleFromPtr_Ptr_smr_LogNodeConfig(nil)
-	}
-	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithSnapshotCallback(func(arg_0 smr.WriteCloser) string {
-		_gstate := C.PyGILState_Ensure() // Acquire GIL
-		if C.PyCallable_Check(_fun_arg) == 0 {
-			C.PyGILState_Release(_gstate) // Release GIL
-			return C.GoString(nil)
-		}
-		_fcargs := C.PyTuple_New(1)
-		C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_int64(C.int64_t(handleFromPtr_smr_WriteCloser(arg_0))))
-		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
-		C.gopy_decref(_fcargs)
-		C.gopy_err_handle()
-		ret := C.GoString(C.PyBytes_AsString(_fcret))
-		C.PyGILState_Release(_gstate) // Release GIL
-		return ret
-	}))
-
-}
-
-//export smr_LogNodeConfig_String
-func smr_LogNodeConfig_String(_handle CGoHandle) *C.char {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "*smr.LogNodeConfig")
-	if __err != nil {
-		return C.CString("")
-	}
-	return C.CString(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).String())
-
-}
-
 // ---- Slices ---
 
 // ---- Maps ---
 
 // ---- Constructors ---
 
-//export smr_NewLogNode
-func smr_NewLogNode(store_path *C.char, id C.longlong, hdfsHostname *C.char, shouldLoadDataFromHdfs C.char, peerAddresses CGoHandle, peerIDs CGoHandle, join C.char, httpDebugPort C.longlong) CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	return handleFromPtr_Ptr_smr_LogNode(smr.NewLogNode(C.GoString(store_path), int(id), C.GoString(hdfsHostname), boolPyToGo(shouldLoadDataFromHdfs), deptrFromHandle_Slice_string(peerAddresses), deptrFromHandle_Slice_int(peerIDs), boolPyToGo(join), int(httpDebugPort)))
-
-}
-
 //export smr_NewConfig
 func smr_NewConfig() CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "_NewConfig"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'NewConfig'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	return handleFromPtr_Ptr_smr_LogNodeConfig(smr.NewConfig())
 
 }
 
-// ---- Functions ---
-
-//export smr_CreateBytes
-func smr_CreateBytes(len C.char) CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+//export smr_NewLogNode
+func smr_NewLogNode(store_path *C.char, id C.longlong, hdfsHostname *C.char, shouldLoadDataFromHdfs C.char, peerAddresses CGoHandle, peerIDs CGoHandle, join C.char, httpDebugPort C.longlong) CGoHandle {
+	go_src_func_name := "_NewLogNode"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'NewLogNode'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	cret := smr.CreateBytes(byte(len))
+	return handleFromPtr_Ptr_smr_LogNode(smr.NewLogNode(C.GoString(store_path), int(id), C.GoString(hdfsHostname), boolPyToGo(shouldLoadDataFromHdfs), deptrFromHandle_Slice_string(peerAddresses), deptrFromHandle_Slice_int(peerIDs), boolPyToGo(join), int(httpDebugPort)))
 
-	return handleFromPtr_Slice_byte(&cret)
 }
+
+// ---- Functions ---
 
 //export smr_PrintTestMessage
 func smr_PrintTestMessage(goRun C.char) {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	go_src_func_name := "_PrintTestMessage"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'PrintTestMessage'\n")
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	if boolPyToGo(goRun) {
 		go smr.PrintTestMessage()
 	} else {
 		smr.PrintTestMessage()
 	}
+}
+
+//export smr_CreateBytes
+func smr_CreateBytes(len C.char) CGoHandle {
+	go_src_func_name := "_CreateBytes"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	fmt.Printf("Released GIL at beginning of 'CreateBytes'\n")
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	cret := smr.CreateBytes(byte(len))
+
+	return handleFromPtr_Slice_byte(&cret)
 }

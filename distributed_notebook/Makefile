@@ -1,6 +1,6 @@
 include ./env.mk
 
-all: build-smr-linux-arm64
+all: build-smr-linux-amd64
 
 # Verify the value of PYTHON3_PATH and PYTHON3_VERSION.
 test-env:
@@ -23,19 +23,21 @@ test-env-amd64:
 # Generate os and arch specific smr.go. Call make in project root directory to generate smr.go.
 prepare-%.go:
 ifneq ($(wildcard smr/smr.go),)
+	@echo "Moving smr/smr.go to smr/bak/smr.go"
 # Remove smr.go by backing up it.
 	mv smr/smr.go smr/bak/smr.go
 endif
 # Generate os and arch specific smr.go
+	@echo "Copying smr/bak/smr.go to smr/$*.go"
 	cp smr/bak/smr.go	smr/$*.go
 
 prepare-smr-linux-amd64: prepare-smr_linux_amd64.go
 	@echo "Preparing SMR Linux AMD64"
+	@echo "PYTHON3_INCLUDES_PATH_ESCAPED: $(PYTHON3_INCLUDES_PATH_ESCAPED)"
+	@echo "PYTHON3_LIB_PATH_ESCAPED: $(PYTHON3_LIB_PATH_ESCAPED)"
 # We don't use -i because it may cause permission problem with created temporary file.
-	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_INCLUDES_PATH_ESCAPED) -ggdb3 -Wall -O0 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
-	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
-	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_LIB_PATH_ESCAPED) -lpython3.11d -lcrypt -lpthread -ldl -lutil -lm/' smr/smr_linux_amd64.go > smr/smr_linux_arm64.go.tmp
-	mv smr/smr_linux_arm64.go.tmp smr/smr_linux_arm64.go
+	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_INCLUDES_PATH_ESCAPED) -ggdb3 -Wall -O0 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go
+	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_LIB_PATH_ESCAPED) -ggdb3 -lpython3.11d -lcrypt -lpthread -ldl -lutil -lm/' smr/smr_linux_amd64.go
 	sed -i -e 's/\(CFLAGS = "[^"]*\)"/\1 -ggdb3 -Wall -O0"/' ../distributed_notebook/smr/Makefile
 
 build-init:
