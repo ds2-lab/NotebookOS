@@ -295,7 +295,7 @@ ssh -i ~/.ssh/hadoop.key hadoop@localhost 'env JAVA_HOME=/usr/lib/jvm/java-8-ope
 cd $GOPATH_ENV/pkg/gopy 
 python3.11 -m pip install pybindgen
 go install golang.org/x/tools/cmd/goimports@latest
-go install github.com/scusemua/gopy@v0.4.3
+go install github.com/scusemua/gopy@v0.4.11.5
 make 
 docker build -t scusemua/gopy .
 

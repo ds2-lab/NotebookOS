@@ -1,3 +1,6 @@
+set confirm off
+set pagination off
+
 # Setup some auto-load stuff.
 add-auto-load-safe-path /home/jovyan/Python-3.11.9/debug/python-gdb.py
 add-auto-load-safe-path /usr/local/go/src/runtime/runtime-gdb.py

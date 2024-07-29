@@ -168,7 +168,8 @@ if [ "$(id -u)" == 0 ]; then
             LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
             PATH="${PATH}" \
             PYTHONPATH="${PYTHONPATH:-}" \
-            gdb -batch -ex "run" -ex "bt" -ex "generate-core-file" --args ${cmd[@]} 2>&1 | grep -v ^"No stack."$ || true
+            RAND_STR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 13; echo)
+            gdb -batch -ex "run" -ex "bt" -ex "generate-core-file core-$RAND_STR" --args ${cmd[@]} 2>&1 | grep -v ^"No stack."$ || true
     fi
         # Notes on how we ensure that the environment that this container is started
         # with is preserved (except vars listed in JUPYTER_ENV_VARS_TO_UNSET) when
@@ -263,11 +264,15 @@ else
 
     _log "Executing the specified command:" "${cmd[@]}"
     if [[ "${cmd[0]}" == *.sh ]]; then
-        echo "Running bash script in GDB: ${cmd[@]}"
-        gdb -batch -ex "run" -ex "call fflush(0)" -ex "generate-core-file /cores/core.pid" -ex "bt" -ex "py-bt" --args bash ${cmd[@]} 2>&1 | grep -v ^"No stack."$ || true
+        # echo "Running bash script in GDB: ${cmd[@]}"
+        # screen -d -m -S gdb-kernel gdb -batch -ex "run" -ex "call fflush(0)" -ex "generate-core-file /cores/core.pid" -ex "bt" -ex "py-bt" --args bash ${cmd[@]} 2>&1 | grep -v ^"No stack."$ || true
+        ${cmd[@]} 2>&1
     else
         echo "Running executable in GDB: ${cmd[@]}"
-        gdb -batch -ex "run" -ex "call fflush(0)" -ex "generate-core-file /cores/core.pid" -ex "bt" -ex "py-bt" --args ${cmd[@]} 2>&1 | grep -v ^"No stack."$ || true
+        RAND_STR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 13; echo)
+        HST=$(hostname -i)
+        TS=$(date +"%Y-%m-%d_%H-%M-%S")
+        screen -S gdb-kernel gdb -ex "run" -ex "generate-core-file /cores/core-$HST-$TS" -ex "bt" -ex "py-bt" --args ${cmd[@]} 2>&1
     fi
 
     _log "Notebook exited with code $?"

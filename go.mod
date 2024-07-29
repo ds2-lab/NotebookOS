@@ -25,10 +25,9 @@ require (
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/petermattis/goid v0.0.0-20240607163614-bb94eb51e7a7
 	github.com/pkg/errors v0.9.1
-	github.com/scusemua/gopy v0.4.3
+	github.com/scusemua/gopy v0.4.12-0.20240729180310-0351d57ab6b0
 	github.com/shopspring/decimal v1.3.1
 	github.com/uber/jaeger-client-go v2.30.0+incompatible
-	github.com/zhangjyr/gopy v0.4.2
 	github.com/zhangjyr/hashmap v1.0.2
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2
 	go.etcd.io/etcd/raft/v3 v3.5.2

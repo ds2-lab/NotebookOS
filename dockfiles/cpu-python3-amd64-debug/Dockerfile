@@ -52,7 +52,7 @@ USER root:root
 RUN mkdir -p /storage && chown jovyan:users /storage
 
 # For debugging.
-RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vim gdb -y
+RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vim gdb screen -y
 # RUN python3 -m pip install kubernetes 
 
 # Install frontend extension.
@@ -99,6 +99,9 @@ RUN cd /distributed_notebook \
     common/gateway/gateway.proto \
     && sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
 RUN cd /distributed_notebook && ./install_kernel_debug.sh
+
+# Add .screenrc config file for screen.
+ADD dockfiles/cpu-python3-amd64-debug/.screenrc /home/jovyan/.screenrc 
 
 # Add gdbinit configuration file.
 ADD dockfiles/cpu-python3-amd64-debug/gdbinit /home/jovyan/.config/gdb/gdbinit
