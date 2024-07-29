@@ -6,7 +6,7 @@ FROM quay.io/jupyter/base-notebook:latest
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
     JUPYTER_ALLOW_INSECURE_WRITES=1 \
-    GOTRACEBACK=system  \
+    GOTRACEBACK=CRASH  \
     PYTHONFAULTHANDLER=1 
     # PYTHONASYNCIODEBUG=1
 
@@ -66,6 +66,9 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vi
 
 RUN /home/jovyan/Python-3.11.9/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch
 
+# Install Golang for debugging.
+RUN cd /tmp && wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+
 # Add files
 ADD common/gateway /distributed_notebook/common/gateway
 ADD distributed_notebook /distributed_notebook/distributed_notebook
@@ -97,14 +100,20 @@ RUN cd /distributed_notebook \
     && sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
 RUN cd /distributed_notebook && ./install_kernel_debug.sh
 
+# Add gdbinit configuration file.
+ADD dockfiles/cpu-python3-amd64-debug/gdbinit /home/jovyan/.config/gdb/gdbinit
+
+# Add modified start-notebook.sh script.
 ADD dockfiles/cpu-python3-amd64-debug/start-notebook.sh /usr/local/bin/start-notebook.sh 
 RUN chmod 777 /usr/local/bin/start-notebook.sh 
 RUN chown jovyan /usr/local/bin/start-notebook.sh 
 
+# Add modified start-notebook.py file.
 ADD dockfiles/cpu-python3-amd64-debug/start-notebook.py /usr/local/bin/start-notebook.py 
 RUN chmod 777 /usr/local/bin/start-notebook.py 
 RUN chown jovyan /usr/local/bin/start-notebook.py 
 
+# Add modified start.sh script.
 ADD dockfiles/cpu-python3-amd64-debug/start.sh /usr/local/bin/start.sh
 RUN chmod 777 /usr/local/bin/start.sh
 RUN chown jovyan /usr/local/bin/start.sh
@@ -112,7 +121,8 @@ RUN chown jovyan /usr/local/bin/start.sh
 # Copy the modified config file.
 COPY dockfiles/cpu-python3-amd64-debug/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py
 
-ENV PATH=/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+# Update path.
+ENV PATH=/usr/local/go/bin:/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
 
 EXPOSE 5678
 
