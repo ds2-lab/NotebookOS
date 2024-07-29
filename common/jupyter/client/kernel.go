@@ -680,10 +680,14 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 			c.log.Debug("Successfully reconnected with remote kernel client on %v socket. Will attempt to resubmit %v message now.", typ.String(), typ.String())
 
 			// Need to update the message's header before resubmitting to avoid duplicate signature errors.
-			_, _, offset := c.client.ExtractDestFrame(msg.Frames)
+			_, reqId, offset := c.client.ExtractDestFrame(msg.Frames)
 			jMsg := types.NewJupyterMessage(msg)
-			c.client.UpdateMessageHeader(jMsg, offset, c)
-			msg = jMsg.Msg
+			updateHeaderError := c.client.UpdateMessageHeader(jMsg, offset, c)
+			if updateHeaderError != nil {
+				c.log.Error("Failed to update the header for %s \"%s\" message %s (JupyterID=%s): %v", typ.String(), jMsg.Header.MsgType, reqId, jMsg.Header.MsgID, updateHeaderError)
+				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, jMsg.Msg, updateHeaderError)
+				return errors.Join(err, updateHeaderError)
+			}
 
 			recreatedSocket := c.client.Sockets.All[typ]
 			if recreatedSocket == nil {
@@ -696,10 +700,10 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 			childContext, _ := context.WithCancel(parentContext)
 			// defer cancel2()
 
-			secondAttemptErr := sendRequest(childContext, msg, recreatedSocket)
+			secondAttemptErr := sendRequest(childContext, jMsg.Msg, recreatedSocket)
 			if secondAttemptErr != nil {
 				c.log.Error("Failed to resubmit %v message after successfully reconnecting: %v", typ, secondAttemptErr)
-				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, msg, secondAttemptErr)
+				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, jMsg.Msg, secondAttemptErr)
 				return errors.Join(err, secondAttemptErr)
 			}
 		}

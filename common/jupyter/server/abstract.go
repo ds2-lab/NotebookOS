@@ -370,20 +370,28 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			case error:
 				err = v
 			case *zmq4.Msg:
+				jMsg := types.NewJupyterMessage(v)
+
 				// TODO: Optimize this. Lots of redundancy here, and that we also do the same parsing again later.
 				is_ack, err = s.IsMessageAnAck(v, socket.Type)
 				if err != nil {
 					panic(fmt.Sprintf("[gid=%d] Could not determine if message is an 'ACK'. Message: %v. Error: %v.", goroutineId, msg, err))
 				}
 
-				_, rspId, _ := dest.ExtractDestFrame(v.Frames)
+				// _, rspId, _ := dest.ExtractDestFrame(v.Frames)
 				if (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && !is_ack {
-					s.Log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message via %s: %v"), goroutineId, socket.Type, socket.Name, v)
+					firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Received %s \"%s\" message"), goroutineId, socket.Type, jMsg.Header.MsgType)
+					secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.Header.MsgID))
+					thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via %s: %v"), socket.Name, jMsg)
+					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 				}
 
 				if is_ack {
-					s.Log.Debug(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %v message %v via %s: %v"), goroutineId, socket.Type, rspId, socket.Name, msg)
-					s.handleAck(v, dest, rspId, socket)
+					firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %s \"%s\" message"), goroutineId, socket.Type, jMsg.Header.MsgType)
+					secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.Header.MsgID))
+					thirdPart := fmt.Sprintf(utils.GreenStyle.Render("via %s: %v"), socket.Name, jMsg)
+					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+					s.handleAck(v, dest, jMsg.RequestId, socket)
 					if contd != nil {
 						contd <- true
 					}
@@ -712,7 +720,10 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 
 			if success {
 				if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-					s.Log.Debug(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message %v has successfully been ACK'd on attempt %d/%d."), goroutineId, socket.Type, req.Header.MsgType, reqId, num_tries+1, max_num_tries)
+					firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message "), goroutineId, socket.Type, req.Header.MsgType)
+					secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(req.Header.MsgID))
+					thirdPart := fmt.Sprintf(utils.GreenStyle.Render("has successfully been ACK'd on attempt %d/%d."), num_tries+1, max_num_tries)
+					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 				}
 				return nil
 			} else {

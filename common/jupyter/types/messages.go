@@ -74,8 +74,31 @@ type ZmqMessage interface {
 // We encode the message ID and message type for convenience.
 type JupyterMessage struct {
 	*zmq4.Msg
-	Header   *MessageHeader
-	KernelId string
+	Header        *MessageHeader
+	RequestId     string
+	DestinationId string
+	Offset        int
+	KernelId      string
+}
+
+func extractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int) {
+	jOffset = 0
+	if len(frames) >= 1 {
+		// Jupyter messages start from "<IDS|MSG>" frame.
+		for jOffset < len(frames) && string(frames[jOffset]) != "<IDS|MSG>" {
+			jOffset++
+		}
+	}
+
+	if jOffset > 0 {
+		matches := jupyter.ZMQDestFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
+
+		if len(matches) > 0 {
+			destID = matches[1]
+			reqID = matches[2]
+		}
+	}
+	return
 }
 
 func (m *JupyterMessage) GetMsg() *zmq4.Msg {
@@ -89,11 +112,13 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 		return nil
 	}
 
-	offset := 0
-	// Jupyter messages start from "<IDS|MSG>" frame.
-	for offset < len(frames) && string(frames[offset]) != "<IDS|MSG>" {
-		offset++
-	}
+	// offset := 0
+	// // Jupyter messages start from "<IDS|MSG>" frame.
+	// for offset < len(frames) && string(frames[offset]) != "<IDS|MSG>" {
+	// 	offset++
+	// }
+
+	destId, reqId, offset := extractDestFrame(msg.Frames)
 
 	var (
 		kernelId string
@@ -116,8 +141,11 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 	}
 
 	return &JupyterMessage{
-		Msg:      msg,
-		Header:   &header,
-		KernelId: kernelId,
+		Msg:           msg,
+		Header:        &header,
+		KernelId:      kernelId,
+		DestinationId: destId,
+		Offset:        offset,
+		RequestId:     reqId,
 	}
 }

@@ -10,7 +10,9 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/muesli/termenv"
 
 	"github.com/zhangjyr/distributed-notebook/gateway/daemon"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
@@ -23,6 +25,8 @@ var (
 )
 
 func init() {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 	// Set default options.
 	options.Port = 8080
