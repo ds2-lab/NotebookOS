@@ -650,10 +650,10 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 	// defer cancel1()
 
 	sendRequest := func(ctx context.Context, message *zmq4.Msg, sock *types.Socket) error {
-		return c.client.Request(ctx, c, sock, message, c, c, func(server types.JupyterServerInfo, typ types.MessageType, m *zmq4.Msg) (err error) {
+		return c.client.Request(ctx, c, sock, message, c, c, func(server types.JupyterServerInfo, respType types.MessageType, respMsg *zmq4.Msg) (err error) {
 			// Kernel frame is automatically removed.
 			if handler != nil {
-				err = handler(server.(*kernelReplicaClientImpl), typ, msg)
+				err = handler(server.(*kernelReplicaClientImpl), respType, respMsg)
 			}
 			return err
 		}, done, getOption, requiresACK)
