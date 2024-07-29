@@ -171,7 +171,7 @@ class RaftLog(object):
         self._election_tick:int = election_tick
 
         # Called by Go (into Python) when a value is committed.
-        self._valueCommittedCallback: Callable[[Any, int, str], Any] = self._valueCommitted
+        self._valueCommittedCallback: Callable[[Any, int, str], Any] = self._valueCommittedWrapper
         # Called by Go (into Python) when a value is restored (from a checkpoint/backup).
         # Note: this must not be an awaitable/it must not run on an IO loop.
         # Because the Go LogNode::Start function is called by Python from within the asyncio IO loop,
@@ -398,6 +398,32 @@ class RaftLog(object):
             self.logger.debug(f"No winner to propose yet for election in term {self._current_election.term_number} because: {ex}")
         
         return False 
+    
+    def _valueCommittedWrapper(self, goObject, value_size: int, value_id: str) -> bytes:
+        """
+        Wrapper around RaftLog::_valueCommitted so I can print the return value, as apparently we're sometimes returning nil? 
+        """
+        self.logger.debug(f"Calling self._valueCommitted with value {value_id} of size {value_size}: {goObject}")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        ret = None 
+        try:
+            ret = self._valueCommitted(goObject, value_size, value_id)
+        except Exception as ex:
+            self.logger.error(f"Exception encountered in self._valueCommitted: {ex}")
+            print_trace(limit = 10)
+            sys.stderr.flush()
+            sys.stdout.flush()
+        finally:     
+            self.logger.debug(f"Returning from self._valueCommitted with value: {ret}")
+            sys.stderr.flush()
+            sys.stdout.flush()
+        
+            if ret == None:
+                self.logger.error(f"We were about to return None from the value-changed handler...")
+                ret = b'' 
+        
+        return ret 
     
     def _valueCommitted(self, goObject, value_size: int, value_id: str) -> bytes:
         sys.stderr.flush()

@@ -307,7 +307,10 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 			[]byte(fmt.Sprintf("%s (%s)", time.Now().Format(time.RFC3339Nano), s.Name)))
 	}
 
-	// s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sending ACK for %v \"%v\" (MsgId=%v, ReqId=%v) message via %s: %v"), goroutineId, socket.Type, parentHeader.MsgType, parentHeader.MsgID, rspId, socket.Name, ack_msg)
+	firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sending ACK for %v \"%v\""), goroutineId, socket.Type, parentHeader.MsgType)
+	secondPart := fmt.Sprintf("(MsgId=%v, ReqId=%v)", utils.PurpleStyle.Render(rspId), utils.LightPurpleStyle.Render(parentHeader.MsgID))
+	thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("message via %s: %v"), socket.Name, ack_msg)
+	s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 
 	err = socket.Send(ack_msg)
 	if err != nil {
