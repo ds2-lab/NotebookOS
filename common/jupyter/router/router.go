@@ -3,12 +3,18 @@ package router
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+)
+
+const (
+	ClusterGatewayRouter    string = "ClusterGatewayRouter"
+	LocalDaemonRouterPrefix string = "LocalDaemon_"
 )
 
 type Router struct {
@@ -27,11 +33,20 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 	router := &Router{
 		name: name,
 		server: server.New(ctx, opts, func(s *server.AbstractServer) {
+			var remoteComponentName string
+			if name == ClusterGatewayRouter {
+				remoteComponentName = "JupyterServer"
+			} else if strings.HasPrefix(name, LocalDaemonRouterPrefix) {
+				remoteComponentName = "CGKC" // ClusterGatewayKernelClient
+			} else {
+				panic(fmt.Sprintf("Unrecognized name for router sockets: \"%s\"", name))
+			}
+
 			// We do not set handlers of the sockets here. Server routine will be started using a shared handler.
-			s.Sockets.HB = types.NewSocket(zmq4.NewRouter(s.Ctx), opts.HBPort, types.HBMessage, fmt.Sprintf("Router-Router-HB[%s]", name))
-			s.Sockets.Control = types.NewSocket(zmq4.NewRouter(s.Ctx), opts.ControlPort, types.ControlMessage, fmt.Sprintf("Router-Router-Ctrl[%s]", name))
-			s.Sockets.Shell = types.NewSocket(zmq4.NewRouter(s.Ctx), opts.ShellPort, types.ShellMessage, fmt.Sprintf("Router-Router-Shell[%s]", name))
-			s.Sockets.Stdin = types.NewSocket(zmq4.NewRouter(s.Ctx), opts.StdinPort, types.StdinMessage, fmt.Sprintf("Router-Router-Stdin[%s]", name))
+			s.Sockets.HB = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.HBPort, types.HBMessage, fmt.Sprintf("Router-Router-HB[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
+			s.Sockets.Control = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ControlPort, types.ControlMessage, fmt.Sprintf("Router-Router-Ctrl[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
+			s.Sockets.Shell = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ShellPort, types.ShellMessage, fmt.Sprintf("Router-Router-Shell[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
+			s.Sockets.Stdin = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.StdinPort, types.StdinMessage, fmt.Sprintf("Router-Router-Stdin[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
 			s.PrependId = true
 			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages

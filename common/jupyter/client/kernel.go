@@ -184,7 +184,13 @@ type kernelReplicaClientImpl struct {
 
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback
 	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback
-	// smrNodeRemovedCallback SMRNodeUpdatedNotificationCallback
+
+	// If true, then this client exists on the Cluster Gateway.
+	// If false, then this client exists on the Local Daemon.
+	//
+	// To be clear, this indicates whether this client struct exists within the memory of the Cluster Gateway.
+	// This is NOT referring to whether the remote client (i.e., the client that this KernelClient is connected to) is on the cluster gateway or local daemon.
+	isGatewayClient bool
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -192,7 +198,7 @@ type kernelReplicaClientImpl struct {
 
 // NewKernelClient creates a new kernelReplicaClientImpl.
 // The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, host core.Host, shouldAckMessages bool, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback, resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) KernelReplicaClient {
+func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, host core.Host, shouldAckMessages bool, isGatewayClient bool, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback, resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) KernelReplicaClient {
 	client := &kernelReplicaClientImpl{
 		id:                                   spec.Kernel.Id,
 		persistentId:                         persistentId,
@@ -209,14 +215,22 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		host:                                 host,
 		hostId:                               hostId,
 		connectionInfo:                       info,
+		isGatewayClient:                      isGatewayClient,
 		connectionRevalidationFailedCallback: connectionRevalidationFailedCallback,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
 		client: server.New(ctx, info, func(s *server.AbstractServer) {
+			var remoteComponentName string
+			if isGatewayClient {
+				remoteComponentName = "LD"
+			} else {
+				remoteComponentName = "Kernel"
+			}
+
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
-			s.Sockets.Control = types.NewSocket(zmq4.NewDealer(s.Ctx), info.ControlPort, types.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", spec.Kernel.Id))
-			s.Sockets.Shell = types.NewSocket(zmq4.NewDealer(s.Ctx), info.ShellPort, types.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", spec.Kernel.Id))
-			s.Sockets.Stdin = types.NewSocket(zmq4.NewDealer(s.Ctx), info.StdinPort, types.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id))
-			s.Sockets.HB = types.NewSocket(zmq4.NewDealer(s.Ctx), info.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id))
+			s.Sockets.Control = types.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx), info.ControlPort, types.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-Ctrl[%s]", remoteComponentName, spec.Kernel.Id))
+			s.Sockets.Shell = types.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx), info.ShellPort, types.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-Shell[%s]", remoteComponentName, spec.Kernel.Id))
+			s.Sockets.Stdin = types.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx), info.StdinPort, types.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-Stdin[%s]", remoteComponentName, spec.Kernel.Id))
+			s.Sockets.HB = types.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx), info.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-HB[%s]", remoteComponentName, spec.Kernel.Id))
 			s.ReconnectOnAckFailure = true
 			s.PrependId = false
 			s.Name = fmt.Sprintf("kernelReplicaClientImpl-%s", spec.Kernel.Id)
@@ -248,7 +262,16 @@ func (c *kernelReplicaClientImpl) recreateControlSocket() *types.Socket {
 		c.log.Error("Could not find control socket on Client... Handler of new socket will be nil.")
 	}
 
-	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.ControlPort, types.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", c.id), handler)
+	var remoteName string = types.RemoteNameUnspecified
+	if c.isGatewayClient {
+		// The remote client is the kernel client on one of the Local Daemons.
+		remoteName = fmt.Sprintf("K-LD-Ctrl[%s]", c.id)
+	} else {
+		// The remote client is the Jupyter kernel replica itself.
+		remoteName = fmt.Sprintf("K-Kernel-Ctrl[%s]", c.id)
+	}
+
+	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.ControlPort, types.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", c.id), remoteName, handler)
 	c.client.Sockets.Control = new_socket
 	c.client.Sockets.All[types.ControlMessage] = new_socket
 	return new_socket
@@ -262,7 +285,16 @@ func (c *kernelReplicaClientImpl) recreateShellSocket() *types.Socket {
 		c.log.Error("Could not find shell socket on Client... Handler of new socket will be nil.")
 	}
 
-	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.ShellPort, types.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", c.id), handler)
+	var remoteName string = types.RemoteNameUnspecified
+	if c.isGatewayClient {
+		// The remote client is the kernel client on one of the Local Daemons.
+		remoteName = fmt.Sprintf("K-LD-Shell[%s]", c.id)
+	} else {
+		// The remote client is the Jupyter kernel replica itself.
+		remoteName = fmt.Sprintf("K-Kernel-Shell[%s]", c.id)
+	}
+
+	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.ShellPort, types.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", c.id), remoteName, handler)
 	c.client.Sockets.Shell = new_socket
 	c.client.Sockets.All[types.ShellMessage] = new_socket
 	return new_socket
@@ -276,7 +308,16 @@ func (c *kernelReplicaClientImpl) recreateStdinSocket() *types.Socket {
 		c.log.Error("Could not find stdin socket on Client... Handler of new socket will be nil.")
 	}
 
-	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.StdinPort, types.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", c.id), handler)
+	var remoteName string = types.RemoteNameUnspecified
+	if c.isGatewayClient {
+		// The remote client is the kernel client on one of the Local Daemons.
+		remoteName = fmt.Sprintf("K-LD-Stdin[%s]", c.id)
+	} else {
+		// The remote client is the Jupyter kernel replica itself.
+		remoteName = fmt.Sprintf("K-Kernel-Stdin[%s]", c.id)
+	}
+
+	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.StdinPort, types.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", c.id), remoteName, handler)
 	c.client.Sockets.Stdin = new_socket
 	c.client.Sockets.All[types.StdinMessage] = new_socket
 	return new_socket
@@ -290,7 +331,16 @@ func (c *kernelReplicaClientImpl) recreateHeartbeatSocket() *types.Socket {
 		c.log.Error("Could not find heartbeat socket on Client... Handler of new socket will be nil.")
 	}
 
-	new_socket := types.NewSocketWithHandler(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", c.id), handler)
+	var remoteName string = types.RemoteNameUnspecified
+	if c.isGatewayClient {
+		// The remote client is the kernel client on one of the Local Daemons.
+		remoteName = fmt.Sprintf("K-LD-HB[%s]", c.id)
+	} else {
+		// The remote client is the Jupyter kernel replica itself.
+		remoteName = fmt.Sprintf("K-Kernel-HB[%s]", c.id)
+	}
+
+	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", c.id), remoteName, handler)
 	c.client.Sockets.HB = new_socket
 	c.client.Sockets.All[types.HBMessage] = new_socket
 	return new_socket

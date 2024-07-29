@@ -14,6 +14,9 @@ import (
 const (
 	IOTopicStatus   = "status"
 	IOTopicShutdown = "shutdown"
+
+	// Default value for Socket::RemoteName.
+	RemoteNameUnspecified = "unspecified_remote"
 )
 
 var (
@@ -78,14 +81,15 @@ func (m *MessageHandlerWrapper) Release() {
 
 type Socket struct {
 	zmq4.Socket
-	Port            int
-	Type            MessageType
-	Handler         MessageHandler
-	PendingReq      hashmap.HashMap[string, *MessageHandlerWrapper]
-	Serving         int32
-	Name            string        // Mostly used for debugging.
-	StopServingChan chan struct{} // Used to tell a goroutine serving this socket to stop (such as if we're recreating+reconnecting due to no ACKs)
-	mu              sync.Mutex
+	Port            int                                             // The port that the socket is bound to/listening on.
+	Type            MessageType                                     // The type of Socket that this is (e.g., shell, stdin, control, heartbeat, or io pub/sub).
+	Handler         MessageHandler                                  // The handler for responses. TODO: Is this actually used?
+	PendingReq      hashmap.HashMap[string, *MessageHandlerWrapper] // Requests that have been sent on this socket, for which we're waiting for responses.
+	Serving         int32                                           // Indicates whether we have a goroutine monitoring for messages + handling those messages. Must be read/updated atomically.
+	Name            string                                          // Mostly used for debugging.
+	RemoteName      string                                          // Mostly used for debugging.
+	StopServingChan chan struct{}                                   // Used to tell a goroutine serving this socket to stop (such as if we're recreating+reconnecting due to no ACKs)
+	mu              sync.Mutex                                      // Synchronizes access to the underlying ZMQ socket, only for sends.
 }
 
 // Create a new Socket, without specifying the message handler.
@@ -96,6 +100,19 @@ func NewSocket(socket zmq4.Socket, port int, typ MessageType, name string) *Sock
 		Type:            typ,
 		Name:            name,
 		StopServingChan: make(chan struct{}, 1),
+		RemoteName:      RemoteNameUnspecified,
+	}
+}
+
+// Create a new Socket, without specifying the message handler.
+func NewSocketWithRemoteName(socket zmq4.Socket, port int, typ MessageType, name string, remoteName string) *Socket {
+	return &Socket{
+		Socket:          socket,
+		Port:            port,
+		Type:            typ,
+		Name:            name,
+		StopServingChan: make(chan struct{}, 1),
+		RemoteName:      remoteName,
 	}
 }
 
@@ -108,6 +125,20 @@ func NewSocketWithHandler(socket zmq4.Socket, port int, typ MessageType, name st
 		Name:            name,
 		StopServingChan: make(chan struct{}, 1),
 		Handler:         handler,
+		RemoteName:      RemoteNameUnspecified,
+	}
+}
+
+// Create a new Socket with a message handler specified at creation time.
+func NewSocketWithHandlerAndRemoteName(socket zmq4.Socket, port int, typ MessageType, name string, remoteName string, handler MessageHandler) *Socket {
+	return &Socket{
+		Socket:          socket,
+		Port:            port,
+		Type:            typ,
+		Name:            name,
+		StopServingChan: make(chan struct{}, 1),
+		Handler:         handler,
+		RemoteName:      remoteName,
 	}
 }
 

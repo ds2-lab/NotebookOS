@@ -354,7 +354,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint, -1)
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
-		kernel = client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		kernel = client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 		kernelConnectionInfo, err = d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
 		if err != nil {
@@ -998,7 +998,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 		return nil, err
 	}
 
-	kernel := client.NewKernelClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+	kernel := client.NewKernelClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
