@@ -3,6 +3,9 @@ package types
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
@@ -39,6 +42,32 @@ const (
 
 var (
 	ErrValidationFailed = errors.New("failed to validate message frames")
+
+	ErrIllegalTransition = errors.New("illegal transition")
+
+	// Map from "destination" or "to" state to a slice of illegal "source" or "from" states.
+	// For example, RequestStateTimedOut is a key that is mapped to a slice of the states from which it is illegal to transition to the RequestStateTimedOut state.
+	IllegalSourceStates map[RequestState][]RequestState = map[RequestState][]RequestState{
+		RequestStateInit:                {RequestStateSubmitted, RequestStateProcessing, RequestStateProcessing, RequestStateTimedOut, RequestStateComplete, RequestStateExplicitlyCancelled, RequestStateErred},
+		RequestStateSubmitted:           {RequestStateComplete},
+		RequestStateProcessing:          {RequestStateComplete},
+		RequestStateTimedOut:            {RequestStateComplete},
+		RequestStateComplete:            {RequestStateComplete},
+		RequestStateExplicitlyCancelled: {RequestStateComplete},
+		RequestStateErred:               {RequestStateComplete},
+	}
+
+	// Map from "source" or "from" state to a slice of illegal "destination" or "to" states.
+	// For example, RequestStateInit is a key that is mapped to a slice of the states to which it is illegal to transition from the RequestStateInit state.
+	IllegalDestinationStates map[RequestState][]RequestState = map[RequestState][]RequestState{
+		RequestStateInit:                {RequestStateInit},
+		RequestStateSubmitted:           {RequestStateInit},
+		RequestStateProcessing:          {RequestStateInit},
+		RequestStateTimedOut:            {RequestStateInit},
+		RequestStateComplete:            {RequestStateInit},
+		RequestStateExplicitlyCancelled: {RequestStateInit},
+		RequestStateErred:               {RequestStateInit},
+	}
 )
 
 // Helper function. Only shell and control messages should require ACKs.
@@ -86,6 +115,9 @@ type Request interface {
 	// This is not configurable.
 	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
 	RequestId() string
+
+	// The MessageType of the request.
+	MessageType() MessageType
 
 	// Should the destination frame be automatically removed?
 	// Default: true
@@ -144,7 +176,20 @@ type Request interface {
 	IsTimedOut() bool
 
 	// Return true if the request was explicitly cancelled by the user.
+	//
+	// This will return true if the request was explicitly cancelled at any point.
+	// If the request was explicitly cancelled and then successfully resubmitted, then this will still return true.
+	//
+	// If you want to know if the request is currently in the RequestStateExplicitlyCancelled state, then use the Request::IsExplicitlyCancelled function.
 	WasExplicitlyCancelled() bool
+
+	// Return true if the request was explicitly cancelled by the user AND is presently in the RequestStateExplicitlyCancelled state.
+	//
+	// This will return true only if the request is currently in the explicitly cancelled state.
+	// If the request was explicitly cancelled and then was later successfully resubmitted, then this will return false.
+	//
+	// If you want to know if the request was ever explicitly cancelled by the user, regardless of its present state, then use the Request::WasExplicitlyCancelled function.
+	IsExplicitlyCancelled() bool
 
 	// Update the timestamp of the message'r header so that it is signed with a different signature.
 	// This is used when re-sending un-ACK'd (unacknowledged) messages.
@@ -152,6 +197,42 @@ type Request interface {
 
 	// Return the entity responsible for providing access to sockets in the request handler.
 	SocketProvider() JupyterServerInfo
+
+	// Transition to the `RequestStateSubmitted` state.
+	// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateSubmitted' is invalid), then this will return an error.
+	//
+	// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+	SetSubmitted() (bool, error)
+
+	// Transition to the `RequestStateProcessing` state.
+	// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateProcessing' is invalid), then this will return an error.
+	//
+	// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+	SetProcessing() (bool, error)
+
+	// Transition to the `RequestStateTimedOut` state.
+	// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateTimedOut' is invalid), then this will return an error.
+	//
+	// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+	SetTimedOut() (bool, error)
+
+	// Transition to the `RequestStateComplete` state.
+	// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateComplete' is invalid), then this will return an error.
+	//
+	// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+	SetComplete() (bool, error)
+
+	// Transition to the `RequestStateExplicitlyCancelled` state.
+	// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateExplicitlyCancelled' is invalid), then this will return an error.
+	//
+	// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+	SetExplicitlyCancelled() (bool, error)
+
+	// Transition to the `RequestStateErred` state.
+	// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateErred' is invalid), then this will return an error.
+	//
+	// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+	SetErred() (bool, error)
 }
 
 // Encapsulates the state of a live, active request.
@@ -187,6 +268,9 @@ type basicRequest struct {
 	ctx           context.Context
 
 	cancel context.CancelFunc
+
+	// The MessageType of the request.
+	messageType MessageType
 
 	// True indicates that the request must be ACK'd by the recipient.
 	requiresAck bool
@@ -237,6 +321,9 @@ type basicRequest struct {
 
 	// The entity responsible for providing access to sockets in the request handler.
 	socketProvider JupyterServerInfo
+
+	// Synchronizes access to the request's state.
+	stateMutex sync.Mutex
 }
 
 // Should the call to Server::Request block when issuing this request?
@@ -271,6 +358,12 @@ func (r *basicRequest) ShouldDestFrameBeRemoved() bool {
 
 // Should the request require ACKs
 func (r *basicRequest) RequiresAck() bool {
+	// Sanity check. If we're set to require ACKs, then just validate that we're either a Control or a Shell message.
+	// If we're not, then that indicates a bug.
+	if r.requiresAck && !ShouldMessageRequireAck(r.messageType) {
+		panic(fmt.Sprintf("Illegal request. Type is %s, yet ACKs are required: %v", r.messageType, r.payload.Msg))
+	}
+
 	return r.requiresAck
 }
 
@@ -339,6 +432,9 @@ func (r *basicRequest) Offset() (jOffset int) {
 
 // Return the current state of the request.
 func (r *basicRequest) RequestState() RequestState {
+	r.stateMutex.Lock()
+	defer r.stateMutex.Unlock()
+
 	return r.requestState
 }
 
@@ -349,23 +445,53 @@ func (r *basicRequest) HasBeenAcknowledged() bool {
 
 // Return true if the request was completed successfully.
 func (r *basicRequest) HasCompleted() bool {
+	r.stateMutex.Lock()
+	defer r.stateMutex.Unlock()
+
 	return r.requestState == RequestStateComplete
 }
 
 // Return true if the request ever timed-out.
 // If it timed-out and was later submitted successfully, then this will be true.
 func (r *basicRequest) TimedOut() bool {
+	r.stateMutex.Lock()
+	defer r.stateMutex.Unlock()
+
 	return r.liveRequestState.timedOut
 }
 
 // Return true if the request is currently in the timed-out state.
 func (r *basicRequest) IsTimedOut() bool {
+	r.stateMutex.Lock()
+	defer r.stateMutex.Unlock()
+
 	return r.requestState == RequestStateTimedOut
 }
 
 // Return true if the request was explicitly cancelled by the user.
+//
+// This will return true if the request was explicitly cancelled at any point.
+// If the request was explicitly cancelled and then successfully resubmitted, then this will still return true.
+//
+// If you want to know if the request is currently in the RequestStateExplicitlyCancelled state, then use the Request::IsExplicitlyCancelled function.
 func (r *basicRequest) WasExplicitlyCancelled() bool {
+	r.stateMutex.Lock()
+	defer r.stateMutex.Unlock()
+
 	return r.liveRequestState.wasExplicitlyCancelled
+}
+
+// Return true if the request was explicitly cancelled by the user AND is presently in the RequestStateExplicitlyCancelled state.
+//
+// This will return true only if the request is currently in the explicitly cancelled state.
+// If the request was explicitly cancelled and then was later successfully resubmitted, then this will return false.
+//
+// If you want to know if the request was ever explicitly cancelled by the user, regardless of its present state, then use the Request::WasExplicitlyCancelled function.
+func (r *basicRequest) IsExplicitlyCancelled() bool {
+	r.stateMutex.Lock()
+	defer r.stateMutex.Unlock()
+
+	return r.requestState == RequestStateExplicitlyCancelled
 }
 
 // Return t message ID taken from the Jupyter header of the message.
@@ -444,4 +570,103 @@ func (r *basicRequest) PrepareForResubmission() error {
 	}
 
 	return nil
+}
+
+// The MessageType of the request.
+func (r *basicRequest) MessageType() MessageType {
+	return r.messageType
+}
+
+// Transition the request to the specified state.
+// If the proposed transition is illegal (i.e., transitioning from the current state to the specified state is invalid), then this will return an error.
+// If the specified destination state does not exist or is otherwise unrecognized, then this will panic.
+//
+// If the request is currently in any of the states specified in the `abortStates` parameter, then the transition is aborted without an error.
+//
+// If the transition completes successfully, then true is returned with a nil error.
+// If the transition is not completed for any reason, then false will be returned, along with an error if an error occurred.
+func (r *basicRequest) transitionTo(to RequestState, abortStates []RequestState) (bool, error) {
+	r.stateMutex.Lock()
+	defer r.stateMutex.Unlock()
+
+	from := r.requestState
+
+	if abortStates != nil && slices.Contains(abortStates, from) {
+		// We're in one of the 'abort' states.
+		// We abort the transition, so we return false.
+		// But since there was no error, we return `nil` for the error.
+		return false, nil
+	}
+
+	// Ensure that the state transition is valid.
+	illegalSourceStates, ok := IllegalSourceStates[to]
+	if !ok {
+		panic(fmt.Sprintf("Unexpected destination state for request transition: \"%s\"", to))
+	}
+
+	// If our current state is contained within the slice of illegal source states (with respect to the specified state), then we'll return an error.
+	if slices.Contains(illegalSourceStates, from) {
+		return false, fmt.Errorf("%w: [%v] --> %v", ErrIllegalTransition, from, to)
+	}
+
+	// If the "to" state is contained within the slice of illegal destination states (with respect to our current state), then we'll return an error.
+	illegalDestinationStates := IllegalDestinationStates[from]
+	if slices.Contains(illegalDestinationStates, to) {
+		return false, fmt.Errorf("%w: %v --> [%v]", ErrIllegalTransition, from, to)
+	}
+
+	// Transition the state.
+	r.requestState = to
+	return true, nil
+}
+
+// Transition to the `RequestStateSubmitted` state.
+// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateSubmitted' is invalid), then this will return an error.
+//
+// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+func (r *basicRequest) SetSubmitted() (bool, error) {
+	return r.transitionTo(RequestStateSubmitted, []RequestState{RequestStateComplete})
+}
+
+// Transition to the `RequestStateProcessing` state.
+// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateProcessing' is invalid), then this will return an error.
+//
+// This transition will be cancelled if the request is in the RequestComplete state when the transition is attempted.
+// This is to account for race conditions between when we elect to set the state to processing, and when a notification that the request has been completed is received.
+//
+// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+func (r *basicRequest) SetProcessing() (bool, error) {
+	return r.transitionTo(RequestStateProcessing, []RequestState{RequestStateComplete})
+}
+
+// Transition to the `RequestStateTimedOut` state.
+// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateTimedOut' is invalid), then this will return an error.
+//
+// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+func (r *basicRequest) SetTimedOut() (bool, error) {
+	return r.transitionTo(RequestStateTimedOut, nil)
+}
+
+// Transition to the `RequestStateComplete` state.
+// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateComplete' is invalid), then this will return an error.
+//
+// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+func (r *basicRequest) SetComplete() (bool, error) {
+	return r.transitionTo(RequestStateComplete, nil)
+}
+
+// Transition to the `RequestStateExplicitlyCancelled` state.
+// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateExplicitlyCancelled' is invalid), then this will return an error.
+//
+// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+func (r *basicRequest) SetExplicitlyCancelled() (bool, error) {
+	return r.transitionTo(RequestStateExplicitlyCancelled, nil)
+}
+
+// Transition to the `RequestStateErred` state.
+// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateErred' is invalid), then this will return an error.
+//
+// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
+func (r *basicRequest) SetErred() (bool, error) {
+	return r.transitionTo(RequestStateErred, nil)
 }
