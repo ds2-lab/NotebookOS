@@ -35,7 +35,8 @@ type Sender interface {
 	types.RequestDest
 
 	// Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
-	SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest types.RequestDest, sourceKernel types.SourceKernel, offset int) error
+	SendMessage(request types.Request, socket *types.Socket)
+	// SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest types.RequestDest, sourceKernel types.SourceKernel, offset int) error
 }
 
 // AbstractServer implements the basic socket serving useful for a Jupyter server. Embed this struct in your server implementation.
@@ -273,7 +274,7 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket) error {
 
 // Serve starts serving the socket with the specified handler.
 // The handler is passed as an argument to allow multiple sockets sharing the same handler.
-func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, handler types.MessageHandler, sendAcks bool) {
+func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, handler types.MessageHandler) {
 	goroutineId := goid.Get()
 
 	if !atomic.CompareAndSwapInt32(&socket.Serving, 0, 1) {
@@ -422,7 +423,7 @@ func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
 	return s.ackChannels.LoadOrStore(reqId, make(chan struct{}, 1))
 }
 
-func (s *AbstractServer) RequestNew(request types.Request, socket *types.Socket) error {
+func (s *AbstractServer) Request(request types.Request, socket *types.Socket) error {
 	goroutineId := goid.Get()
 
 	socket.InitPendingReq()
@@ -440,7 +441,7 @@ func (s *AbstractServer) RequestNew(request types.Request, socket *types.Socket)
 
 	jMsg := request.Payload()
 	reqId := request.RequestId()
-	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message from %s to %s [remoteSocket=%s].", goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.Header.MsgType, request.KernelId(), request.DestinationId(), socket.RemoteName)
+	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message from %s to %s [remoteSocket=%s].", goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.Header.MsgType, request.SourceID(), request.DestinationId(), socket.RemoteName)
 
 	// dest.Unlock()
 	_, alreadyRegistered := s.RegisterAck(request.RequestId())
@@ -461,7 +462,7 @@ func (s *AbstractServer) RequestNew(request types.Request, socket *types.Socket)
 	// Use Serve to support timeout;
 	// Late response will be ignored and serve routing will be stopped if no request is pending.
 	if atomic.LoadInt32(&socket.Serving) == 0 {
-		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, getOption, nil), s.ShouldAckMessages) // Pass nil as handler to discard any response without dest frame.
+		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, request.ShouldDestFrameBeRemoved(), nil)) // Pass nil as handler to discard any response without dest frame.
 	}
 
 	// TODO: This is sort of incompatible with the ACK system. If we're waiting for ACKs -- and especially if we timeout, recreate socket, and retry,
@@ -485,7 +486,7 @@ func (s *AbstractServer) RequestNew(request types.Request, socket *types.Socket)
 		}
 	}()
 
-	if err := s.SendMessage(request.RequiresAck(), socket, reqId, jMsg, sourceKernel, request.Offset()); err != nil {
+	if err := s.SendMessage(request, socket); err != nil {
 		s.Log.Debug("Error while sending %s \"%s\" message %s (Jupyter ID: %s): %v", socket.Type.String(), jMsg.Header.MsgType, reqId, jMsg.Header.MsgID, err)
 		// 	if cancel != nil {
 		// 		cancel()
@@ -527,133 +528,133 @@ func (s *AbstractServer) RequestNew(request types.Request, socket *types.Socket)
 //   - handler: The handler to handle the response.
 //   - getOption: The function to get the options.
 //   - requiresACK: If true, then we should expect an ACK for this message, and we should resend it if no ACK is receive before a timeout.
-func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, msg *zmq4.Msg, dest types.RequestDest, sourceKernel types.SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter, requiresACK bool) error {
-	goroutineId := goid.Get()
+// func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, msg *zmq4.Msg, dest types.RequestDest, sourceKernel types.SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter, requiresACK bool) error {
+// 	goroutineId := goid.Get()
 
-	socket.InitPendingReq()
+// 	socket.InitPendingReq()
 
-	// Normalize the request, we do not assume that the types.RequestDest implements the auto-detect feature.
-	_, reqId, jOffset := types.ExtractDestFrame(msg.Frames)
-	if reqId == "" {
-		msg.Frames, reqId = types.AddDestFrame(msg.Frames, dest.RequestDestID(), jOffset)
-	}
+// 	// Normalize the request, we do not assume that the types.RequestDest implements the auto-detect feature.
+// 	_, reqId, jOffset := types.ExtractDestFrame(msg.Frames)
+// 	if reqId == "" {
+// 		msg.Frames, reqId = types.AddDestFrame(msg.Frames, dest.RequestDestID(), jOffset)
+// 	}
 
-	jMsg := types.NewJupyterMessage(msg)
-	if jMsg == nil {
-		panic(fmt.Sprintf("Could not convert message to JupyterMessage: %v", msg))
-	}
-	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message from %s to %s [remoteSocket=%s].", goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.Header.MsgType, sourceKernel.SourceKernelID(), dest.RequestDestID(), socket.RemoteName)
+// 	jMsg := types.NewJupyterMessage(msg)
+// 	if jMsg == nil {
+// 		panic(fmt.Sprintf("Could not convert message to JupyterMessage: %v", msg))
+// 	}
+// 	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message from %s to %s [remoteSocket=%s].", goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.Header.MsgType, sourceKernel.SourceKernelID(), dest.RequestDestID(), socket.RemoteName)
 
-	// dest.Unlock()
-	_, alreadyRegistered := s.RegisterAck(reqId)
-	if alreadyRegistered {
-		s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.Header.MsgType)
-	}
+// 	// dest.Unlock()
+// 	_, alreadyRegistered := s.RegisterAck(reqId)
+// 	if alreadyRegistered {
+// 		s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.Header.MsgType)
+// 	}
 
-	// Track the pending request.
-	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(handler, done))
+// 	// Track the pending request.
+// 	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(handler, done))
 
-	// Apply a default timeout
-	var cancel context.CancelFunc
-	if ctx.Done() == nil {
-		ctx, cancel = context.WithTimeout(ctx, s.RequestTimeout)
-	}
+// 	// Apply a default timeout
+// 	var cancel context.CancelFunc
+// 	if ctx.Done() == nil {
+// 		ctx, cancel = context.WithTimeout(ctx, s.RequestTimeout)
+// 	}
 
-	// Use Serve to support timeout;
-	// Late response will be ignored and serve routing will be stopped if no request is pending.
-	if atomic.LoadInt32(&socket.Serving) == 0 {
-		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, getOption, nil), s.ShouldAckMessages) // Pass nil as handler to discard any response without dest frame.
-	}
+// 	// Use Serve to support timeout;
+// 	// Late response will be ignored and serve routing will be stopped if no request is pending.
+// 	if atomic.LoadInt32(&socket.Serving) == 0 {
+// 		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, getOption, nil), s.ShouldAckMessages) // Pass nil as handler to discard any response without dest frame.
+// 	}
 
-	// TODO: This is sort of incompatible with the ACK system. If we're waiting for ACKs -- and especially if we timeout, recreate socket, and retry,
-	// then this may end up cancelling the request too early, or it'll happen multiple times. (We'll call the done() method multiple times.)
-	//
-	// Wait for timeout. Release the pending request, if it exists.
-	go func() {
-		<-ctx.Done()
-		err := ctx.Err()
-		if cancel != nil {
-			cancel()
-		}
+// 	// TODO: This is sort of incompatible with the ACK system. If we're waiting for ACKs -- and especially if we timeout, recreate socket, and retry,
+// 	// then this may end up cancelling the request too early, or it'll happen multiple times. (We'll call the done() method multiple times.)
+// 	//
+// 	// Wait for timeout. Release the pending request, if it exists.
+// 	go func() {
+// 		<-ctx.Done()
+// 		err := ctx.Err()
+// 		if cancel != nil {
+// 			cancel()
+// 		}
 
-		// Clear pending request.
-		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
-			pending.Release()
+// 		// Clear pending request.
+// 		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
+// 			pending.Release()
 
-			if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-				s.Log.Debug("Released pending request associated with %v request %s (%p), error: %v", socket.Type, reqId, jMsg, err)
-			}
-		}
-	}()
+// 			if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
+// 				s.Log.Debug("Released pending request associated with %v request %s (%p), error: %v", socket.Type, reqId, jMsg, err)
+// 			}
+// 		}
+// 	}()
 
-	if err := s.SendMessage(requiresACK, socket, reqId, jMsg, sourceKernel, jOffset); err != nil {
-		s.Log.Debug("Error while sending %s \"%s\" message %s (Jupyter ID: %s): %v", socket.Type.String(), jMsg.Header.MsgType, reqId, jMsg.Header.MsgID, err)
-		// 	if cancel != nil {
-		// 		cancel()
-		// 	}
+// 	if err := s.SendMessage(requiresACK, socket, reqId, jMsg, sourceKernel, jOffset); err != nil {
+// 		s.Log.Debug("Error while sending %s \"%s\" message %s (Jupyter ID: %s): %v", socket.Type.String(), jMsg.Header.MsgType, reqId, jMsg.Header.MsgID, err)
+// 		// 	if cancel != nil {
+// 		// 		cancel()
+// 		// 	}
 
-		// Should we clear the pending request here? Should we call done() here?
-		// If we do, then the automatic reconnect code is sort of in the wrong place.
-		// We'd want it to be here, which could work, but this code here is more generic.
-		// We'd need a flag in AbstractServer indicating whether we should try to reconnect on failure.
+// 		// Should we clear the pending request here? Should we call done() here?
+// 		// If we do, then the automatic reconnect code is sort of in the wrong place.
+// 		// We'd want it to be here, which could work, but this code here is more generic.
+// 		// We'd need a flag in AbstractServer indicating whether we should try to reconnect on failure.
 
-		return err
-	}
+// 		return err
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 // Update the timestamp of the message's header so that it is signed with a different signature.
 // This is used when re-sending un-ACK'd (unacknowledged) messages.
-func (s *AbstractServer) UpdateMessageHeader(msg *types.JupyterMessage, offset int, sourceKernel types.SourceKernel) error {
-	// We need to modify the message slightly to avoid a "duplicate signature" error.
-	// To do this, we'll simply increment the timestamp of the message's header by a single microsecond.
-	// We must first extract the header. After doing so, we'll re-encode the header with the new timestamp, and then regenerate the message's signature.
-	header, err := s.headerFromMessage(msg.Msg, offset)
-	if err != nil {
-		s.Log.Error("Could not extract header from message while waiting for ACK timeout because: %v", err)
-		s.Log.Error("offset: %d. Message: %v", offset, msg)
-		return err
-	}
+// func (s *AbstractServer) UpdateMessageHeader(msg *types.JupyterMessage, offset int, sourceKernel types.SourceKernel) error {
+// 	// We need to modify the message slightly to avoid a "duplicate signature" error.
+// 	// To do this, we'll simply increment the timestamp of the message's header by a single microsecond.
+// 	// We must first extract the header. After doing so, we'll re-encode the header with the new timestamp, and then regenerate the message's signature.
+// 	header, err := s.headerFromMessage(msg.Msg, offset)
+// 	if err != nil {
+// 		s.Log.Error("Could not extract header from message while waiting for ACK timeout because: %v", err)
+// 		s.Log.Error("offset: %d. Message: %v", offset, msg)
+// 		return err
+// 	}
 
-	// Parse the date.
-	date, err := time.Parse(time.RFC3339Nano, header.Date)
-	if err != nil {
-		s.Log.Error("Could not parse date \"%s\" from header of message after ACK timeout because: %v", header.Date, err)
-		return err
-	}
+// 	// Parse the date.
+// 	date, err := time.Parse(time.RFC3339Nano, header.Date)
+// 	if err != nil {
+// 		s.Log.Error("Could not parse date \"%s\" from header of message after ACK timeout because: %v", header.Date, err)
+// 		return err
+// 	}
 
-	// Add a single microsecond to the date.
-	modifiedDate := date.Add(time.Microsecond)
+// 	// Add a single microsecond to the date.
+// 	modifiedDate := date.Add(time.Microsecond)
 
-	// Change the date in the header.
-	header.Date = modifiedDate.Format(time.RFC3339Nano)
+// 	// Change the date in the header.
+// 	header.Date = modifiedDate.Format(time.RFC3339Nano)
 
-	if modifiedDate.Equal(date) {
-		panic("Modified date is not different.")
-	}
+// 	if modifiedDate.Equal(date) {
+// 		panic("Modified date is not different.")
+// 	}
 
-	// Re-encode the header.
-	frames := types.JupyterFrames(msg.Frames)
-	msg.Header = header
+// 	// Re-encode the header.
+// 	frames := types.JupyterFrames(msg.Frames)
+// 	msg.Header = header
 
-	err = frames[offset:].EncodeHeader(header)
-	if err != nil {
-		s.Log.Error("Failed to re-encode header of message after ACK timeout because: %v", err)
-		return err
-	}
+// 	err = frames[offset:].EncodeHeader(header)
+// 	if err != nil {
+// 		s.Log.Error("Failed to re-encode header of message after ACK timeout because: %v", err)
+// 		return err
+// 	}
 
-	// Regenerate the signature.
-	framesWithoutIdentities, _ := types.SkipIdentitiesFrame(frames)
-	framesWithoutIdentities, err = framesWithoutIdentities.Sign(sourceKernel.ConnectionInfo().SignatureScheme, []byte(sourceKernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
-	if err != nil {
-		s.Log.Error("Failed to re-sign frames of message after updating date during ACK timeout because: %v", offset, err)
-		return err
-	}
+// 	// Regenerate the signature.
+// 	framesWithoutIdentities, _ := types.SkipIdentitiesFrame(frames)
+// 	framesWithoutIdentities, err = framesWithoutIdentities.Sign(sourceKernel.ConnectionInfo().SignatureScheme, []byte(sourceKernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+// 	if err != nil {
+// 		s.Log.Error("Failed to re-sign frames of message after updating date during ACK timeout because: %v", offset, err)
+// 		return err
+// 	}
 
-	msg.Frames = frames
-	return nil
-}
+// 	msg.Frames = frames
+// 	return nil
+// }
 
 // Wait for an ACK on the given channel, or time-out after the specified timeout.
 func (s *AbstractServer) waitForAck(ackChan chan struct{}, timeout time.Duration) bool {
@@ -670,15 +671,16 @@ func (s *AbstractServer) waitForAck(ackChan chan struct{}, timeout time.Duration
 }
 
 // Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
-func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *types.JupyterMessage, sourceKernel types.SourceKernel, offset int) error {
+func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket) error {
 	goroutineId := goid.Get()
-
+	reqId := request.RequestId()
+	max_num_tries := request.MaxNumAttempts()
 	num_tries := 0
-	var max_num_tries int
+	requiresACK := request.RequiresAck()
 
-	if reqId == "" || offset <= 0 {
-		_, reqId, offset = types.ExtractDestFrame(req.Frames)
-	}
+	// if reqId == "" || offset <= 0 {
+	// 	_, reqId, offset = types.ExtractDestFrame(req.Frames)
+	// }
 
 	// If the message requires an ACK, then we'll try sending it multiple times.
 	// Otherwise, we'll just send it the one time.
@@ -696,13 +698,13 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 
 	for num_tries < max_num_tries {
 		// Send request.
-		if err := socket.Send(*req.Msg); err != nil {
-			s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to send %v \"%s\" message on attempt %d/%d via %s because: %v"), goroutineId, socket.Type, req.Header.MsgType, num_tries+1, max_num_tries, socket.Name, err.Error())
+		if err := socket.Send(*request.Payload().Msg); err != nil {
+			s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to send %v \"%s\" message on attempt %d/%d via %s because: %v"), goroutineId, socket.Type, request.JupyterMessageType(), num_tries+1, max_num_tries, socket.Name, err.Error())
 			return err
 		}
 
 		// if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-		// 	s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sent %v \"%s\" message with reqID=%v via %s. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d. Message: %v"), goroutineId, socket.Type, req.Header.MsgType, reqId, socket.Name, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries, req)
+		// 	s.Log.Debug(utils.LightBlueStyle.Render("[gid=%d] Sent %v \"%s\" message with reqID=%v via %s. Src: %v. Dest: %v. Requires ACK: %v. Attempt %d/%d. Message: %v"), goroutineId, socket.Type, request.JupyterMessageType(), reqId, socket.Name, sourceKernel.SourceKernelID(), dest.RequestDestID(), requiresACK, num_tries+1, max_num_tries, req)
 		// }
 
 		// If an ACK is required, then we'll block until the ACK is received, or until timing out, at which point we'll try sending the message again.
@@ -711,8 +713,8 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 
 			if success {
 				if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-					firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message "), goroutineId, socket.Type, req.Header.MsgType)
-					secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(req.Header.MsgID))
+					firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message "), goroutineId, socket.Type, request.JupyterMessageType())
+					secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
 					thirdPart := fmt.Sprintf(utils.GreenStyle.Render("has successfully been ACK'd on attempt %d/%d."), num_tries+1, max_num_tries)
 					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 				}
@@ -720,20 +722,21 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 			} else {
 				// Just to avoid going through the process of sleeping and updating the header if that was our last try.
 				if (num_tries + 1) >= max_num_tries {
-					s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Giving up."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), req.Header.MsgType, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), req.Header.MsgID, socket.RemoteName, num_tries+1, max_num_tries)
+					s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Giving up."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, num_tries+1, max_num_tries)
 					break
 				}
 
 				// Sleep for an amount of time proportional to the number of attempts with some random jitter added.
 				next_sleep_interval := s.getSleepInterval(num_tries)
-				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Will sleep for %v before trying again."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), req.Header.MsgType, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), req.Header.MsgID, socket.RemoteName, num_tries+1, max_num_tries, next_sleep_interval)
+				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Will sleep for %v before trying again."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, num_tries+1, max_num_tries, next_sleep_interval)
 
 				time.Sleep(next_sleep_interval)
 				num_tries += 1
 
-				err := s.UpdateMessageHeader(req, offset, sourceKernel)
+				// err := s.UpdateMessageHeader(req, offset, sourceKernel)
+				err := request.PrepareForResubmission()
 				if err != nil {
-					s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to update message header for %v \"%s\" message %v: %v"), goroutineId, req.Header.MsgType, socket.Type, reqId, err)
+					s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to update message header for %v \"%s\" message %v: %v"), goroutineId, request.JupyterMessageType(), socket.Type, reqId, err)
 					return err
 				}
 			}
@@ -741,7 +744,7 @@ func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, req
 	}
 
 	if requiresACK {
-		s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to receive ACK for %v \"%s\" message %v (src: %v, dest: %v) from remote socket %s after %d attempt(s)."), goroutineId, req.Header.MsgType, socket.Type, reqId, sourceKernel.SourceKernelID(), dest.RequestDestID(), socket.RemoteName, max_num_tries)
+		s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to receive ACK for %v \"%s\" message %v (src: %v, dest: %v) from remote socket %s after %d attempt(s)."), goroutineId, request.JupyterMessageType(), socket.Type, reqId, request.SourceID(), request.DestinationId(), socket.RemoteName, max_num_tries)
 		return jupyter.ErrNoAck
 	}
 
@@ -854,7 +857,7 @@ func (s *AbstractServer) IsMessageAnAck(msg *zmq4.Msg, typ types.MessageType) (b
 	return (header.MsgType == jupyter.MessageTypeACK), nil
 }
 
-func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, getOption WaitResponseOptionGetter, defaultHandler types.MessageHandler) types.MessageHandler {
+func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDestFrameBeRemoved bool, defaultHandler types.MessageHandler) types.MessageHandler {
 	return func(info types.JupyterServerInfo, msgType types.MessageType, msg *zmq4.Msg) error {
 		// This handler returns errServeOnce if any to indicate that the server should stop serving.
 		retErr := errServeOnce
@@ -874,7 +877,8 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, getOptio
 				matchReqId = rspId
 
 				// Automatically remove destination kernel ID frame.
-				if remove, _ := getOption(jupyter.WROptionRemoveDestFrame).(bool); remove {
+				// if remove, _ := getOption(jupyter.WROptionRemoveDestFrame).(bool); remove {
+				if shouldDestFrameBeRemoved {
 					msg.Frames = types.RemoveDestFrame(msg.Frames, offset)
 				}
 

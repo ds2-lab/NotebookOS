@@ -16,6 +16,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 
 var (
@@ -30,8 +31,7 @@ type SMRNodeUpdatedNotificationCallback func(*types.MessageSMRNodeUpdated) // Fo
 // KernelReplicaClient offers a simple interface to communicate with a kernel replica.
 type KernelReplicaClient interface {
 	core.Kernel
-	server.Server
-	server.SourceKernel
+	types.SourceKernel
 	server.Sender
 
 	// InitializeIOForwarder initializes the IOPub serving.
@@ -140,6 +140,11 @@ type ConnectionRevalidationFailedCallback func(replica KernelReplicaClient, msg 
 // then this method is called.
 type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica KernelReplicaClient, msg *zmq4.Msg, err error)
 
+// Helper function. Only shell and control messages should require ACKs.
+func shouldMessageRequireAck(typ types.MessageType) bool {
+	return typ == types.ShellMessage || typ == types.ControlMessage
+}
+
 // Implementation of the KernelReplicaClient interface.
 //
 // All sockets except IOPub are connected on dialing.
@@ -163,18 +168,17 @@ type kernelReplicaClientImpl struct {
 	busyStatus                string
 	lastBStatusMsg            *zmq4.Msg
 	iobroker                  *MessageBroker[core.Kernel, *zmq4.Msg, types.JupyterFrames]
-	shell                     *types.Socket         // Listener.
-	iopub                     *types.Socket         // Listener.
-	addSourceKernelFrames     bool                  // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the kernelReplicaClientImpl's kernel ID.
-	shellListenPort           int                   // Port that the kernelReplicaClientImpl::shell socket listens on.
-	iopubListenPort           int                   // Port that the kernelReplicaClientImpl::iopub socket listens on.
-	kernelPodName             string                // Name of the Pod housing the associated distributed kernel replica container.
-	kubernetesNodeName        string                // Name of the node that the Pod is running on.
-	ready                     bool                  // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
-	yieldNextExecutionRequest bool                  // If true, then we will yield the next 'execute_request'.
-	hostId                    string                // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
-	host                      core.Host             // The host that the kernel replica is running on.
-	connectionInfo            *types.ConnectionInfo // Connection information of the remote kernel (or kernel client) whom we're connecting to.
+	shell                     *types.Socket // Listener.
+	iopub                     *types.Socket // Listener.
+	addSourceKernelFrames     bool          // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the kernelReplicaClientImpl's kernel ID.
+	shellListenPort           int           // Port that the kernelReplicaClientImpl::shell socket listens on.
+	iopubListenPort           int           // Port that the kernelReplicaClientImpl::iopub socket listens on.
+	kernelPodName             string        // Name of the Pod housing the associated distributed kernel replica container.
+	kubernetesNodeName        string        // Name of the node that the Pod is running on.
+	ready                     bool          // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
+	yieldNextExecutionRequest bool          // If true, then we will yield the next 'execute_request'.
+	hostId                    string        // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
+	host                      core.Host     // The host that the kernel replica is running on.
 
 	// Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
 	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback
@@ -214,7 +218,6 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 		yieldNextExecutionRequest:            false,
 		host:                                 host,
 		hostId:                               hostId,
-		connectionInfo:                       info,
 		isGatewayClient:                      isGatewayClient,
 		connectionRevalidationFailedCallback: connectionRevalidationFailedCallback,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
@@ -234,6 +237,8 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 			s.ReconnectOnAckFailure = true
 			s.PrependId = false
 			s.Name = fmt.Sprintf("kernelReplicaClientImpl-%s", spec.Kernel.Id)
+
+			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */
 			s.ShouldAckMessages = shouldAckMessages
 			// s.Sockets.Ack = types.NewSocket(Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
 			// IOPub is lazily initialized for different subclasses.
@@ -271,7 +276,7 @@ func (c *kernelReplicaClientImpl) recreateControlSocket() *types.Socket {
 		remoteName = fmt.Sprintf("K-Kernel-Ctrl[%s]", c.id)
 	}
 
-	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.ControlPort, types.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", c.id), remoteName, handler)
+	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.client.Meta.ControlPort, types.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", c.id), remoteName, handler)
 	c.client.Sockets.Control = new_socket
 	c.client.Sockets.All[types.ControlMessage] = new_socket
 	return new_socket
@@ -294,7 +299,7 @@ func (c *kernelReplicaClientImpl) recreateShellSocket() *types.Socket {
 		remoteName = fmt.Sprintf("K-Kernel-Shell[%s]", c.id)
 	}
 
-	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.ShellPort, types.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", c.id), remoteName, handler)
+	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.client.Meta.ShellPort, types.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", c.id), remoteName, handler)
 	c.client.Sockets.Shell = new_socket
 	c.client.Sockets.All[types.ShellMessage] = new_socket
 	return new_socket
@@ -317,7 +322,7 @@ func (c *kernelReplicaClientImpl) recreateStdinSocket() *types.Socket {
 		remoteName = fmt.Sprintf("K-Kernel-Stdin[%s]", c.id)
 	}
 
-	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.StdinPort, types.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", c.id), remoteName, handler)
+	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.client.Meta.StdinPort, types.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", c.id), remoteName, handler)
 	c.client.Sockets.Stdin = new_socket
 	c.client.Sockets.All[types.StdinMessage] = new_socket
 	return new_socket
@@ -340,7 +345,7 @@ func (c *kernelReplicaClientImpl) recreateHeartbeatSocket() *types.Socket {
 		remoteName = fmt.Sprintf("K-Kernel-HB[%s]", c.id)
 	}
 
-	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.connectionInfo.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", c.id), remoteName, handler)
+	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.client.Meta.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", c.id), remoteName, handler)
 	c.client.Sockets.HB = new_socket
 	c.client.Sockets.All[types.HBMessage] = new_socket
 	return new_socket
@@ -628,10 +633,10 @@ func (c *kernelReplicaClientImpl) InitializeShellForwarder(handler core.KernelMe
 	}
 
 	c.shell = shell
-	go c.client.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.id, jupyter.JOffsetAutoDetect)
+	go c.client.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+		msg.Frames, _ = types.AddDestFrame(msg.Frames, c.id, jupyter.JOffsetAutoDetect)
 		return handler(c, typ, msg)
-	}, true /* Kernel clients should ACK messages that they're forwarding. */)
+	})
 
 	return shell, nil
 }
@@ -691,26 +696,46 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 		return types.ErrSocketNotAvailable
 	}
 
-	requiresACK := (typ == types.ShellMessage) || (typ == types.ControlMessage)
-
 	// TODO: This is a hack to allow us to resubmit a request that failed due to ACKs not being received.
 	// The context is cancelled inside AbstractServer::Request, so we create a child context here to use.
 	// It can be cancelled, and if we go to resubmit, we'll create another child context to re-use.
-	childContext, _ := context.WithCancel(parentContext)
-	// defer cancel1()
+	// childContext, _ := context.WithCancel(parentContext)
 
-	sendRequest := func(ctx context.Context, message *zmq4.Msg, sock *types.Socket) error {
-		return c.client.Request(ctx, c, sock, message, c, c, func(server types.JupyterServerInfo, respType types.MessageType, respMsg *zmq4.Msg) (err error) {
-			// Kernel frame is automatically removed.
-			if handler != nil {
-				err = handler(server.(*kernelReplicaClientImpl), respType, respMsg)
-			}
-			return err
-		}, done, getOption, requiresACK)
+	wrappedHandler := func(server types.JupyterServerInfo, respType types.MessageType, respMsg *zmq4.Msg) (err error) {
+		// Kernel frame is automatically removed.
+		if handler != nil {
+			err = handler(server.(*kernelReplicaClientImpl), respType, respMsg)
+		}
+		return err
+	}
+
+	builder := types.NewRequestBuilder(parentContext, c.id, c.id, c.client.Meta).
+		WithAckRequired(shouldMessageRequireAck(typ)).
+		WithBlocking(true).
+		WithDoneCallback(done).
+		WithMessageHandler(wrappedHandler).
+		WithNumAttempts(3).
+		WithPayload(msg).
+		WithRemoveDestFrame(getOption(jupyter.WROptionRemoveDestFrame).(bool))
+	request, err := builder.BuildRequest()
+	if err != nil {
+		c.log.Error(utils.RedStyle.Render("Error while building request: %v"), err)
+		return err
+	}
+
+	sendRequest := func(req types.Request, sock *types.Socket) error {
+		// return c.client.Request(ctx, c, sock, message, c, c, func(server types.JupyterServerInfo, respType types.MessageType, respMsg *zmq4.Msg) (err error) {
+		// 	// Kernel frame is automatically removed.
+		// 	if handler != nil {
+		// 		err = handler(server.(*kernelReplicaClientImpl), respType, respMsg)
+		// 	}
+		// 	return err
+		// }, done, getOption, requiresACK)
+		return c.client.Request(req, sock)
 	}
 
 	// Add timeout if necessary.
-	err := sendRequest(childContext, msg, socket)
+	err = sendRequest(request, socket)
 
 	if err != nil {
 		c.log.Warn("Failed to send request because: %v", err)
@@ -730,12 +755,10 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 			c.log.Debug("Successfully reconnected with remote kernel client on %v socket. Will attempt to resubmit %v message now.", typ.String(), typ.String())
 
 			// Need to update the message's header before resubmitting to avoid duplicate signature errors.
-			_, reqId, offset := c.client.ExtractDestFrame(msg.Frames)
-			jMsg := types.NewJupyterMessage(msg)
-			updateHeaderError := c.client.UpdateMessageHeader(jMsg, offset, c)
+			updateHeaderError := request.PrepareForResubmission()
 			if updateHeaderError != nil {
-				c.log.Error("Failed to update the header for %s \"%s\" message %s (JupyterID=%s): %v", typ.String(), jMsg.Header.MsgType, reqId, jMsg.Header.MsgID, updateHeaderError)
-				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, jMsg.Msg, updateHeaderError)
+				c.log.Error("Failed to update the header for %s \"%s\" message %s (JupyterID=%s): %v", typ.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), updateHeaderError)
+				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, request.Payload().Msg, updateHeaderError)
 				return errors.Join(err, updateHeaderError)
 			}
 
@@ -747,13 +770,13 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 			}
 
 			// Create a new child context, as the previous child context will have been cancelled.
-			childContext, _ := context.WithCancel(parentContext)
+			// childContext, _ := context.WithCancel(parentContext)
 			// defer cancel2()
 
-			secondAttemptErr := sendRequest(childContext, jMsg.Msg, recreatedSocket)
+			secondAttemptErr := sendRequest(request, recreatedSocket)
 			if secondAttemptErr != nil {
 				c.log.Error("Failed to resubmit %v message after successfully reconnecting: %v", typ, secondAttemptErr)
-				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, jMsg.Msg, secondAttemptErr)
+				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, request.Payload().Msg, secondAttemptErr)
 				return errors.Join(err, secondAttemptErr)
 			}
 		}
@@ -845,7 +868,7 @@ func (c *kernelReplicaClientImpl) dial(sockets ...*types.Socket) error {
 	for _, socket := range sockets {
 		if socket != nil && socket.Handler != nil {
 			c.log.Debug("Beginning to serve socket %v.", socket.Type.String())
-			go c.client.Serve(c, socket, c, socket.Handler, c.client.ShouldAckMessages)
+			go c.client.Serve(c, socket, socket.Handler)
 		} else if socket != nil {
 			c.log.Debug("Not serving socket %v.", socket.Type.String())
 		}

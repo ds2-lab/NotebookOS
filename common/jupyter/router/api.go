@@ -21,6 +21,4 @@ type RouterProvider interface {
 	StdinHandler(RouterInfo, *zmq4.Msg) error
 
 	HBHandler(RouterInfo, *zmq4.Msg) error
-
-	AckHandler(RouterInfo, *zmq4.Msg) error
 }

@@ -51,7 +51,6 @@ func (r *ReplicaKernelInfo) String() string {
 
 type DistributedKernelClient interface {
 	SessionManager
-	server.Server
 
 	// InitializeIOForwarder initializes the IOPub serving.
 	InitializeShellForwarder(handler core.KernelMessageHandler) (*types.Socket, error)
@@ -206,6 +205,7 @@ func NewDistributedKernel(ctx context.Context, spec *gateway.KernelSpec, numRepl
 			s.Sockets.Shell = types.NewSocket(zmq4.NewRouter(s.Ctx), shellListenPort, types.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
 			s.Sockets.IO = types.NewSocket(zmq4.NewPub(s.Ctx), iopubListenPort, types.IOMessage, fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)) // connectionInfo.IOSubPort}
 			s.PrependId = true
+			/* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be ACK'd. */
 			s.ShouldAckMessages = false
 			s.ReconnectOnAckFailure = false
 			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
@@ -259,14 +259,6 @@ func (c *distributedKernelClientImpl) headerFromFrames(frames [][]byte) (*types.
 
 func (c *distributedKernelClientImpl) ExecutionFailedCallback() ExecutionFailedCallback {
 	return c.executionFailedCallback
-}
-
-func (c *distributedKernelClientImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *types.MessageHeader, err error) {
-	kernelId, _, offset := c.ExtractDestFrame(msg.Frames)
-
-	header, err = c.headerFromFrames(msg.Frames[offset:])
-
-	return kernelId, header, err
 }
 
 func (c *distributedKernelClientImpl) SetActiveExecution(activeExecution *ActiveExecution) {
@@ -577,11 +569,11 @@ func (c *distributedKernelClientImpl) InitializeShellForwarder(handler core.Kern
 		return nil, err
 	}
 
-	go c.server.Serve(c, shell, c, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-		msg.Frames, _ = c.BaseServer.AddDestFrame(msg.Frames, c.KernelSpec().Id, jupyter.JOffsetAutoDetect)
+	go c.server.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+		msg.Frames, _ = types.AddDestFrame(msg.Frames, c.KernelSpec().Id, jupyter.JOffsetAutoDetect)
 		// c.log.Debug("Received shell message via DistributedShellForwarder. Message: %v", msg)
 		return handler(srv.(*distributedKernelClientImpl), typ, msg)
-	}, false /* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be ACK'd. */)
+	})
 
 	return shell, nil
 }
@@ -653,7 +645,7 @@ func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.Kerne
 	replicaClient := replica.(*kernelReplicaClientImpl)
 	replicaId := replicaClient.replicaId
 
-	_, header, err = c.headerFromMsg(msg)
+	_, header, _, err = types.HeaderFromMsg(msg)
 	if err != nil {
 		c.log.Error("Failed to extract header from ZMQ message sent by replica %d of kernel %s: %v", replicaId, c.id, err)
 		return err, false
@@ -747,7 +739,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 		// TODO: Remove this eventually once all bugs are fixed.
 		// These next two if-statements are used to ensure that the handler for 'ping_reply' responses is always called.
 		// They're used to test connectivity with kernels, so we always want them to be called.
-		_, header, err := c.headerFromMsg(msg)
+		_, header, _, err := types.HeaderFromMsg(msg)
 		if err != nil {
 			panic(err)
 		}
@@ -783,10 +775,10 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	}
 
 	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
-	_, reqId, jOffset := c.ExtractDestFrame(msg.Frames)
+	_, reqId, jOffset := types.ExtractDestFrame(msg.Frames)
 	if reqId == "" {
 		c.log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %v.", c.RequestDestID(), jOffset, types.JupyterFrames(msg.Frames).String())
-		msg.Frames, _ = c.AddDestFrame(msg.Frames, c.RequestDestID(), jOffset)
+		msg.Frames, _ = types.AddDestFrame(msg.Frames, c.RequestDestID(), jOffset)
 		c.log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", c.RequestDestID(), jOffset, types.JupyterFrames(msg.Frames).String())
 	}
 

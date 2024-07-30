@@ -78,7 +78,6 @@ type JupyterMessage struct {
 	RequestId     string
 	DestinationId string
 	Offset        int
-	KernelId      string
 }
 
 func extractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int) {
@@ -114,14 +113,6 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 
 	destId, reqId, offset := extractDestFrame(msg.Frames)
 
-	var (
-		kernelId string
-	)
-	matches := jupyter.ZMQDestFrameRecognizer.FindStringSubmatch(string(frames[offset-1]))
-	if len(matches) > 0 {
-		kernelId = matches[1]
-	}
-
 	jFrames := JupyterFrames(frames[offset:])
 	if err := jFrames.Validate(); err != nil {
 		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to validate message frames while extracting header: %v\n"), err)
@@ -137,7 +128,6 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 	return &JupyterMessage{
 		Msg:           msg,
 		Header:        &header,
-		KernelId:      kernelId,
 		DestinationId: destId,
 		Offset:        offset,
 		RequestId:     reqId,

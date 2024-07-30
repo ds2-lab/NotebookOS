@@ -61,7 +61,6 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 		router.AddHandler(types.ShellMessage, provider.ShellHandler)
 		router.AddHandler(types.StdinMessage, provider.StdinHandler)
 		router.AddHandler(types.HBMessage, provider.HBHandler)
-		// router.AddHandler(types.AckMessage, provider.AckHandler)
 	}
 	return router
 }
@@ -99,7 +98,7 @@ func (g *Router) Start() error {
 		g.server.Log.Debug("Serving %v socket with shared handler (Router::handleMsg) now.", socket.Type.String())
 
 		// socket.Handler has not been set, use shared handler.
-		go g.server.Serve(g, socket, g, g.handleMsg, g.server.ShouldAckMessages)
+		go g.server.Serve(g, socket, g.handleMsg)
 	}
 
 	<-g.server.Ctx.Done()

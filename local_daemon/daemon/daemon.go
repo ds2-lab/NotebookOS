@@ -546,7 +546,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 // If we do not reconnect successfully, then this method is called.
 func (d *SchedulerDaemonImpl) kernelReconnectionFailed(kernel client.KernelReplicaClient, msg *zmq4.Msg, reconnectionError error) { /* client client.DistributedKernelClient,  */
 	var messageType string = "N/A"
-	_, header, _, err := d.headerFromMsg(msg)
+	_, header, _, err := jupyter.HeaderFromMsg(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
 		d.log.Error("ZMQ message in question: %v", msg)
@@ -572,7 +572,7 @@ func (d *SchedulerDaemonImpl) kernelReconnectionFailed(kernel client.KernelRepli
 // then this method is called.
 func (d *SchedulerDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(kernel client.KernelReplicaClient, msg *zmq4.Msg, resubmissionError error) { /* client client.DistributedKernelClient, */
 	var messageType string = "N/A"
-	_, header, _, err := d.headerFromMsg(msg)
+	_, header, _, err := jupyter.HeaderFromMsg(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
 		d.log.Error("ZMQ message in question: %v", msg)
@@ -589,17 +589,6 @@ func (d *SchedulerDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(k
 		NotificationType: 0,
 		Panicked:         false,
 	})
-}
-
-func (d *SchedulerDaemonImpl) AckHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	ack, err := server.ExtractMessageAcknowledgement(msg)
-	if err != nil {
-		d.log.Error("Failed to extract message acknowledgement from ACK message because: %s", err.Error())
-		return err
-	}
-
-	d.log.Debug("Received ACK: %v", ack.String())
-	return nil
 }
 
 func (d *SchedulerDaemonImpl) smrReadyCallback(kernelClient client.KernelReplicaClient) {
@@ -1174,7 +1163,7 @@ func (d *SchedulerDaemonImpl) Close() error {
 // RouterProvider implementations.
 func (d *SchedulerDaemonImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) error {
 	// Kernel ID is not available in the control message.
-	_, header, _, err := d.headerFromMsg(msg)
+	_, header, _, err := jupyter.HeaderFromMsg(msg)
 	if err != nil {
 		return err
 	}
@@ -1417,7 +1406,7 @@ func (d *SchedulerDaemonImpl) HBHandler(info router.RouterInfo, msg *zmq4.Msg) e
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
 func (d *SchedulerDaemonImpl) kernelIdFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
-	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
+	kernelId, _, offset := jupyter.ExtractDestFrame(msg.Frames)
 	if kernelId != "" {
 		return kernelId, false, nil
 	}
@@ -1558,16 +1547,8 @@ func (d *SchedulerDaemonImpl) headerFromFrames(frames [][]byte) (*jupyter.Messag
 	return &header, nil
 }
 
-func (d *SchedulerDaemonImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, offset int, err error) {
-	kernelId, _, offset = d.router.ExtractDestFrame(msg.Frames)
-
-	header, err = d.headerFromFrames(msg.Frames[offset:])
-
-	return kernelId, header, offset, err
-}
-
 func (d *SchedulerDaemonImpl) headerAndOffsetFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, offset int, err error) {
-	kernelId, _, offset = d.router.ExtractDestFrame(msg.Frames)
+	kernelId, _, offset = jupyter.ExtractDestFrame(msg.Frames)
 
 	header, err = d.headerFromFrames(msg.Frames[offset:])
 
@@ -1637,7 +1618,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 	}
 
 	if typ == jupyter.ShellMessage {
-		_, header, offset, err := d.headerFromMsg(msg)
+		_, header, offset, err := jupyter.HeaderFromMsg(msg)
 		if err != nil {
 			d.log.Error("Failed to extract header from %v message for kernel %s because: %v", typ, from.ID(), err)
 		} else if header.MsgType == domain.ShellExecuteReply {

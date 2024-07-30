@@ -32,7 +32,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
@@ -1022,7 +1021,7 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	}
 
 	msg := activeExecution.Msg()
-	_, header, err := d.headerFromMsg(msg)
+	_, header, _, err := jupyter.HeaderFromMsg(msg)
 
 	// TODO(Ben): How to handle this more elegantly?
 	if err != nil {
@@ -1064,7 +1063,7 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	nextExecutionAttempt := client.NewActiveExecution(c.ID(), header.Session, activeExecution.AttemptId()+1, c.Size(), msg)
 
 	// Next, let's update the message so that we target the new replica.
-	_, _, offset := d.router.ExtractDestFrame(msg.Frames)
+	_, _, offset := jupyter.ExtractDestFrame(msg.Frames)
 	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
 	var metadataFrame *jupyter.JupyterFrame = frames[offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
@@ -1951,19 +1950,8 @@ func (d *ClusterGatewayImpl) kernelShellHandler(kernel core.KernelInfo, typ jupy
 	return d.ShellHandler(kernel, msg)
 }
 
-func (d *ClusterGatewayImpl) AckHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	ack, err := server.ExtractMessageAcknowledgement(msg)
-	if err != nil {
-		d.log.Error("Failed to extract message acknowledgement from ACK message because: %s", err.Error())
-		return err
-	}
-
-	d.log.Debug("Received ACK: %v", ack.String())
-	return nil
-}
-
 func (d *ClusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	kernelId, header, err := d.headerFromMsg(msg)
+	kernelId, header, _, err := jupyter.HeaderFromMsg(msg)
 	if err != nil {
 		d.log.Error("Could not parse Shell message from %s because: %v", info.String(), err)
 		d.log.Error("Message in question: %s", msg.String())
@@ -2147,23 +2135,9 @@ func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 	return nil, false
 }
 
-func (d *ClusterGatewayImpl) headerFromMsg(msg *zmq4.Msg) (kernelId string, header *jupyter.MessageHeader, err error) {
-	// d.log.Debug("Extracting kernel ID from ZMQ %v message: %v", msg.Type, msg)
-	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
-
-	// if len(kernelId) == 0 {
-	// 	d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Type, msg)
-	// 	debug.PrintStack()
-	// }
-
-	header, err = d.headerFromFrames(msg.Frames[offset:])
-
-	return kernelId, header, err
-}
-
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
 func (d *ClusterGatewayImpl) kernelIdAndTypeFromMsg(msg *zmq4.Msg) (id string, messageType string, sessId bool, err error) {
-	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
+	kernelId, _, offset := jupyter.ExtractDestFrame(msg.Frames)
 	header, err := d.headerFromFrames(msg.Frames[offset:])
 	if err != nil {
 		return "", "", false, err
@@ -2251,7 +2225,7 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 	}
 
 	if typ == jupyter.ShellMessage {
-		_, header, err := d.headerFromMsg(msg)
+		_, header, _, err := jupyter.HeaderFromMsg(msg)
 
 		if err != nil {
 			// d.log.Error("[gid=%d] Failed to extract header from %v message.", goroutineId, typ)

@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
 const (
@@ -35,19 +36,13 @@ func printFrames(frames [][]byte) {
 }
 
 var _ = Describe("BaseServer", func() {
-	var srv *BaseServer
-
 	Context("DestFrames", func() {
-		BeforeEach(func() {
-			srv = &BaseServer{}
-		})
-
 		It("should AddDestFrame to add a kernel frame just before <IDS|MSG>.", func() {
 			frames := [][]byte{
 				[]byte("<IDS|MSG>"),
 			}
 
-			added, _ := srv.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
+			added, _ := types.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
 			Expect(len(added)).To(Equal(2))
 			match := jupyter.ZMQDestFrameRecognizer.FindStringSubmatch(string(added[0]))
 			printFrames(added)
@@ -61,7 +56,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 				[]byte("body"),
 			}
-			added, _ = srv.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
+			added, _ = types.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
 			Expect(len(added)).To(Equal(4))
 			Expect(added[0]).To(Equal(frames[0]))
 			match = jupyter.ZMQDestFrameRecognizer.FindStringSubmatch(string(added[1]))
@@ -78,7 +73,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 				[]byte("body"),
 			}
-			added, _ = srv.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
+			added, _ = types.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
 			Expect(len(added)).To(Equal(5))
 			Expect(added[0]).To(Equal(frames[0]))
 			Expect(added[1]).To(Equal(frames[1]))
@@ -98,7 +93,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 			}
 
-			kernelId, reqId, offset := srv.ExtractDestFrame(frames)
+			kernelId, reqId, offset := types.ExtractDestFrame(frames)
 			Expect(kernelId).To(Equal(DEST_KERNEL_ID))
 			Expect(reqId).To(Equal("a98c"))
 			Expect(offset).To(Equal(2))
@@ -107,14 +102,14 @@ var _ = Describe("BaseServer", func() {
 				[]byte("some identities"),
 				[]byte("<IDS|MSG>"),
 			}
-			kernelId, _, offset = srv.ExtractDestFrame(frames)
+			kernelId, _, offset = types.ExtractDestFrame(frames)
 			Expect(kernelId).To(Equal(""))
 			Expect(offset).To(Equal(1))
 
 			frames = [][]byte{
 				[]byte("<IDS|MSG>"),
 			}
-			kernelId, _, offset = srv.ExtractDestFrame(frames)
+			kernelId, _, offset = types.ExtractDestFrame(frames)
 			Expect(kernelId).To(Equal(""))
 			Expect(offset).To(Equal(0))
 		})
@@ -124,7 +119,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 			}
 
-			frames_after_removal := srv.RemoveDestFrame(frames, jupyter.JOffsetAutoDetect)
+			frames_after_removal := types.RemoveDestFrame(frames, jupyter.JOffsetAutoDetect)
 			Expect(len(frames_after_removal)).To(Equal(1))
 			Expect(string(frames_after_removal[0])).To(Equal("<IDS|MSG>"))
 
@@ -132,7 +127,7 @@ var _ = Describe("BaseServer", func() {
 				getDestFrame(DEST_KERNEL_ID, "a98c"),
 				[]byte("<IDS|MSG>"),
 			}
-			frames_after_removal = srv.RemoveDestFrame(frames, jupyter.JOffsetAutoDetect)
+			frames_after_removal = types.RemoveDestFrame(frames, jupyter.JOffsetAutoDetect)
 			Expect(len(frames_after_removal)).To(Equal(1))
 			Expect(string(frames_after_removal[0])).To(Equal("<IDS|MSG>"))
 
@@ -142,7 +137,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 				[]byte("body"),
 			}
-			frames_after_removal = srv.RemoveDestFrame(frames, jupyter.JOffsetAutoDetect)
+			frames_after_removal = types.RemoveDestFrame(frames, jupyter.JOffsetAutoDetect)
 			Expect(len(frames_after_removal)).To(Equal(3))
 			Expect(string(frames_after_removal[0])).To(Equal("some identities"))
 			Expect(string(frames_after_removal[1])).To(Equal("<IDS|MSG>"))
@@ -152,7 +147,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("some identities"),
 				[]byte("<IDS|MSG>"),
 			}
-			frames_after_removal = srv.RemoveDestFrame(frames, jupyter.JOffsetAutoDetect)
+			frames_after_removal = types.RemoveDestFrame(frames, jupyter.JOffsetAutoDetect)
 			Expect(len(frames_after_removal)).To(Equal(2))
 			Expect(string(frames_after_removal[0])).To(Equal("some identities"))
 			Expect(string(frames_after_removal[1])).To(Equal("<IDS|MSG>"))
@@ -163,7 +158,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 				[]byte("adc6e220ddc8d4184576e72f8ca96bca363ecdeab43b136a7917e93afc6bc5e0"),
 			}
-			frames_after_removal = srv.RemoveDestFrame(frames, jupyter.JOffsetAutoDetect)
+			frames_after_removal = types.RemoveDestFrame(frames, jupyter.JOffsetAutoDetect)
 			Expect(len(frames_after_removal)).To(Equal(3))
 			Expect(string(frames_after_removal[0])).To(Equal(EXTRA_KERNEL_ID))
 			Expect(string(frames_after_removal[1])).To(Equal("<IDS|MSG>"))

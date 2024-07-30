@@ -25,14 +25,18 @@ type BaseServer struct {
 	server *AbstractServer
 }
 
-func (s *BaseServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
-	jMsg := types.NewJupyterMessage(req)
-	return s.server.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
+func (s *BaseServer) SendMessage(request types.Request, socket *types.Socket) error {
+	return s.server.SendMessage(request, socket)
 }
+
+// func (s *BaseServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
+// 	jMsg := types.NewJupyterMessage(req)
+// 	return s.server.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
+// }
 
 // Begin listening for an ACK for a message with the given ID.
 func (s *BaseServer) RegisterAck(msg *zmq4.Msg) (chan struct{}, bool) {
-	_, reqId, _ := s.ExtractDestFrame(msg.Frames)
+	_, reqId, _ := types.ExtractDestFrame(msg.Frames)
 	return s.server.RegisterAck(reqId)
 }
 

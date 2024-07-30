@@ -32,7 +32,7 @@ type RequestBuilder struct {
 	requiresAck bool
 
 	// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
-	// Default: 120 seconds (i.e., 2 minutes)
+	// Default: infinite.
 	timeout time.Duration
 
 	// Should the call to Server::Request block when issuing this request?
@@ -74,7 +74,7 @@ type RequestBuilder struct {
 	dest RequestDest
 
 	// The function to get the options.
-	getOption WaitResponseOptionGetter
+	// getOption WaitResponseOptionGetter
 
 	/////////////////////////////////////////////////////////////////////////////////////////
 	// AUTOMATIC                                                                           //
@@ -90,21 +90,33 @@ type RequestBuilder struct {
 	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
 	destinationId string
 
+	// The ID associated with the source of the message.
+	// This will typically be a kernel ID.
+	sourceId string
+
 	// Offset/index of start of Jupyter frames within message frames.
 	jOffset int
 
 	// This is flipped to true when a timeout is explicitly configured.
+	// We use this to determine if we should create the context for the request via Context::WithTimeout or Context::WithCancel.
 	hasTimeout bool
+
+	// The connection info of the remote target of the request.
+	connectionInfo *ConnectionInfo
 }
 
-// Create a new RequestBuilder, passing in an optional parent context.
-func NewRequestBuilder(parentContext context.Context) *RequestBuilder {
+// Create a new RequestBuilder, passing in an optional parent context and the ID of the source of the message, which will usually be a kernel.
+func NewRequestBuilder(parentContext context.Context, sourceId string, destId string, connectionInfo *ConnectionInfo) *RequestBuilder {
 	builder := &RequestBuilder{
 		requiresAck:              true,
 		isBlocking:               true,
-		timeout:                  time.Second * 120,
+		timeout:                  time.Second * 120, // Default value
+		hasTimeout:               false,
 		maxNumAttempts:           3,
 		shouldDestFrameBeRemoved: true,
+		sourceId:                 sourceId,
+		destinationId:            destId,
+		connectionInfo:           connectionInfo,
 	}
 
 	if parentContext != nil {
@@ -132,7 +144,7 @@ func (b *RequestBuilder) WithAckRequired(required bool) *RequestBuilder {
 
 // Configure the timeout of the request.
 //
-// Configuring this option is OPTIONAL. By default, requests timeout after 120 seconds.
+// Configuring this option is OPTIONAL. By default, requests do not timeout.
 func (b *RequestBuilder) WithTimeout(timeout time.Duration) *RequestBuilder {
 	b.timeout = timeout
 	b.hasTimeout = true
@@ -174,13 +186,12 @@ func (b *RequestBuilder) WithRemoveDestFrame(shouldDestFrameBeRemoved bool) *Req
 // Set the payload of the messasge.
 //
 // Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
-func (b *RequestBuilder) WithPayload(destId string, msg *zmq4.Msg) *RequestBuilder {
-	msg, reqId, jOffset := b.extractDestFrame(destId, msg)
+func (b *RequestBuilder) WithPayload(msg *zmq4.Msg) *RequestBuilder {
+	msg, reqId, jOffset := b.extractDestFrame(b.destinationId, msg)
 
 	b.payload = NewJupyterMessage(msg)
 	b.requestId = reqId
 	b.jOffset = jOffset
-	b.destinationId = destId
 
 	return b
 }
@@ -275,7 +286,9 @@ func (b *RequestBuilder) BuildRequest() (Request, error) {
 		doneCallback:             b.doneCallback,
 		messageHandler:           b.handler,
 		destinationId:            b.payload.DestinationId,
-		kernelId:                 b.payload.KernelId,
+		sourceId:                 b.sourceId,
+		connectionInfo:           b.connectionInfo,
+		parentContext:            b.parentContext,
 	}
 
 	var (

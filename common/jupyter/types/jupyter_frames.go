@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
@@ -356,4 +357,26 @@ func RemoveSourceKernelFrame(frames [][]byte, jOffset int) (removed [][]byte) {
 	}
 
 	return frames
+}
+
+func HeaderFromFrames(frames [][]byte) (*MessageHeader, error) {
+	jFrames := JupyterFrames(frames)
+	if err := jFrames.Validate(); err != nil {
+		return nil, err
+	}
+
+	var header MessageHeader
+	if err := jFrames.DecodeHeader(&header); err != nil {
+		return nil, err
+	}
+
+	return &header, nil
+}
+
+func HeaderFromMsg(msg *zmq4.Msg) (kernelId string, header *MessageHeader, offset int, err error) {
+	kernelId, _, offset = ExtractDestFrame(msg.Frames)
+
+	header, err = HeaderFromFrames(msg.Frames[offset:])
+
+	return kernelId, header, offset, err
 }

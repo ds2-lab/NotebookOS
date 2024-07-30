@@ -50,8 +50,11 @@ type Request interface {
 	IsBlocking() bool
 
 	// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
-	// Default: 120 seconds (i.e., 2 minutes)
-	Timeout() time.Duration
+	// Default: infinite.
+	//
+	// If the returned bool is true, then the timeout is valid.
+	// If it is false, then the timeout is invalid, meaning the request does not timeout.
+	Timeout() (time.Duration, bool)
 
 	// The maximum number of attempts allowed before giving up on sending the request.
 	// Default: 3
@@ -71,6 +74,15 @@ type Request interface {
 	// The message itself.
 	Payload() *JupyterMessage
 
+	// Return the message ID taken from the Jupyter header of the message.
+	JupyterMessageId() string
+
+	// Return the message type taken from the Jupyter header of the message.
+	JupyterMessageType() string
+
+	// Return the timestamp taken from the Jupyter header of the message.
+	JupyterTimestamp() (ts time.Time, err error)
+
 	// Return the "done" callback for this request.
 	// This callback is executed when the response is received and the request is handled.
 	DoneCallback() MessageDone
@@ -78,9 +90,9 @@ type Request interface {
 	// Return the handler that is called to process the response to this request.
 	MessageHandler() MessageHandler
 
-	// KernelID extracted from the request payload.
-	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
-	KernelId() string
+	// The ID associated with the source of the message.
+	// This will typically be a kernel ID.
+	SourceID() string
 
 	// DestID extracted from the request payload.
 	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
@@ -110,6 +122,10 @@ type Request interface {
 
 	// Return true if the request was explicitly cancelled by the user.
 	WasExplicitlyCancelled() bool
+
+	// Update the timestamp of the message'r header so that it is signed with a different signature.
+	// This is used when re-sending un-ACK'd (unacknowledged) messages.
+	PrepareForResubmission() error
 }
 
 // Encapsulates the state of a live, active request.
@@ -137,7 +153,10 @@ type liveRequestState struct {
 type basicRequest struct {
 	*liveRequestState
 
-	ctx context.Context
+	// We keep a reference to the parent context that was passed to the RequestBuilder
+	// so that we can create a new child context if we're resubmitted.
+	parentContext context.Context
+	ctx           context.Context
 
 	cancel context.CancelFunc
 
@@ -147,6 +166,10 @@ type basicRequest struct {
 	// How long to wait for the request to complete successfully.
 	// Completion is a stronger requirement than simply being ACK'd.
 	timeout time.Duration
+
+	// This is flipped to true when a timeout is explicitly configured within the RequestBuilder.
+	// We use this to determine if we should recreate a context during resubmission via Context::WithTimeout or Context::WithCancel.
+	hasTimeout bool
 
 	// Should the call to Server::Request block when issuing this request?
 	// True if yes; otherwise, false.
@@ -173,9 +196,9 @@ type basicRequest struct {
 	// The handler that is called to process the response to this request.
 	messageHandler MessageHandler
 
-	// KernelID extracted from the request payload.
-	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
-	kernelId string
+	// The ID associated with the source of the message.
+	// This will typically be a kernel ID.
+	sourceId string
 
 	// DestID extracted from the request payload.
 	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
@@ -183,6 +206,9 @@ type basicRequest struct {
 
 	// Offset/index of start of Jupyter frames within message frames.
 	jOffset int
+
+	// The connection info of the remote target of the request.
+	connectionInfo *ConnectionInfo
 }
 
 // Should the call to Server::Request block when issuing this request?
@@ -191,8 +217,12 @@ func (r *basicRequest) IsBlocking() bool {
 }
 
 // How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
-func (r *basicRequest) Timeout() time.Duration {
-	return r.timeout
+// Default: infinite.
+//
+// If the returned bool is true, then the timeout is valid.
+// If it is false, then the timeout is invalid, meaning the request does not timeout.
+func (r *basicRequest) Timeout() (time.Duration, bool) {
+	return r.timeout, r.hasTimeout
 }
 
 // The maximum number of attempts allowed before giving up on sending the request.
@@ -232,10 +262,10 @@ func (r *basicRequest) MessageHandler() MessageHandler {
 	return r.messageHandler
 }
 
-// KernelID extracted from the request payload.
-// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
-func (r *basicRequest) KernelId() string {
-	return r.kernelId
+// The ID associated with the source of the message.
+// This will typically be a kernel ID.
+func (r *basicRequest) SourceID() string {
+	return r.sourceId
 }
 
 // DestID extracted from the request payload.
@@ -307,4 +337,70 @@ func (r *basicRequest) IsTimedOut() bool {
 // Return true if the request was explicitly cancelled by the user.
 func (r *basicRequest) WasExplicitlyCancelled() bool {
 	return r.liveRequestState.wasExplicitlyCancelled
+}
+
+// Return t message ID taken from the Jupyter header of the message.
+func (r *basicRequest) JupyterMessageId() string {
+	return r.payload.Header.MsgID
+}
+
+// Return t message type taken from the Jupyter header of the message.
+func (r *basicRequest) JupyterMessageType() string {
+	return r.payload.Header.MsgType
+}
+
+// Return the timestamp taken from the Jupyter header of the message.
+func (r *basicRequest) JupyterTimestamp() (ts time.Time, err error) {
+	ts, err = time.Parse(time.RFC3339Nano, r.payload.Header.Date)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return ts, err
+}
+
+// Update the timestamp of the message'r header so that it is signed with a different signature.
+// This is used when re-sending un-ACK'd (unacknowledged) messages.
+func (r *basicRequest) PrepareForResubmission() error {
+	// Get the date.
+	date, err := r.JupyterTimestamp()
+
+	// Add a single microsecond to the date.
+	modifiedDate := date.Add(time.Microsecond)
+
+	// Change the date in the header.
+	r.payload.Header.Date = modifiedDate.Format(time.RFC3339Nano)
+
+	// Re-encode the header.
+	jFrames := JupyterFrames(r.payload.Frames)
+
+	err = jFrames[r.jOffset:].EncodeHeader(r.payload.Header)
+	if err != nil {
+		return err
+	}
+
+	// Regenerate the signature.
+	framesWithoutIdentities, _ := SkipIdentitiesFrame(jFrames)
+	framesWithoutIdentities, err = framesWithoutIdentities.Sign(r.connectionInfo.SignatureScheme, []byte(r.connectionInfo.Key))
+	if err != nil {
+		return err
+	}
+
+	r.payload.Frames = jFrames
+
+	// We're going to recreate the context.
+	if r.cancel != nil {
+		r.cancel()
+	}
+
+	// Recreate the context using the parent context that was provided to us when we were first created.
+	// If we're meant to have a finite timeout, then we'll create the context using Context::WithTimeout.
+	// Alternatively, we'll create the context via Context::WithCancel.
+	if r.hasTimeout {
+		r.ctx, r.cancel = context.WithTimeout(r.parentContext, r.timeout)
+	} else {
+		r.ctx, r.cancel = context.WithCancel(r.parentContext)
+	}
+
+	return nil
 }

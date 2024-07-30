@@ -37,7 +37,7 @@ func (s *wrappedServer) SourceKernelID() string {
 // AddSourceKernelFrame implements SourceKernel.
 // Subtle: this method shadows the method (*AbstractServer).AddSourceKernelFrame of wrappedServer.AbstractServer.
 func (s *wrappedServer) AddSourceKernelFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]byte) {
-	return s.AbstractServer.AddSourceKernelFrame(frames, destID, jOffset)
+	return types.AddSourceKernelFrame(frames, destID, jOffset)
 }
 
 // ConnectionInfo implements SourceKernel.
@@ -54,13 +54,13 @@ func (s *wrappedServer) ConnectionInfo() *types.ConnectionInfo {
 // ExtractSourceKernelFrame implements SourceKernel.
 // Subtle: this method shadows the method (*AbstractServer).ExtractSourceKernelFrame of wrappedServer.AbstractServer.
 func (s *wrappedServer) ExtractSourceKernelFrame(frames [][]byte) (destID string, jOffset int) {
-	return s.AbstractServer.ExtractSourceKernelFrame(frames)
+	return types.ExtractSourceKernelFrame(frames)
 }
 
 // RemoveSourceKernelFrame implements SourceKernel.
 // Subtle: this method shadows the method (*AbstractServer).RemoveSourceKernelFrame of wrappedServer.AbstractServer.
 func (s *wrappedServer) RemoveSourceKernelFrame(frames [][]byte, jOffset int) (oldFrams [][]byte) {
-	return s.AbstractServer.RemoveSourceKernelFrame(frames, jOffset)
+	return types.RemoveSourceKernelFrame(frames, jOffset)
 }
 
 func (s *wrappedServer) RequestDestID() string {
@@ -168,7 +168,7 @@ var _ = Describe("AbstractServer", func() {
 				return nil
 			}
 
-			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage, true)
+			go server.Serve(server, server.Sockets.Shell, handleServerMessage)
 
 			headerMap := make(map[string]string)
 			headerMap["msg_id"] = uuid.NewString()
@@ -275,7 +275,7 @@ var _ = Describe("AbstractServer", func() {
 				return nil
 			}
 
-			go server.Serve(server, server.Sockets.Shell, server, handleServerMessage, true)
+			go server.Serve(server, server.Sockets.Shell, handleServerMessage)
 
 			headerMap := make(map[string]string)
 			headerMap["msg_id"] = uuid.NewString()
