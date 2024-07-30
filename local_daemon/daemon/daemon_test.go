@@ -88,9 +88,9 @@ var _ = Describe("Local Daemon Tests", func() {
 				Version:  "5.2",
 			}
 
-			kernel.EXPECT().SkipIdentities(gomock.Any()).DoAndReturn(func(arg [][]byte) (types.JupyterFrames, int) {
-				return arg, 0
-			}).AnyTimes()
+			// kernel.EXPECT().SkipIdentities(gomock.Any()).DoAndReturn(func(arg [][]byte) (types.JupyterFrames, int) {
+			// 	return arg, 0
+			// }).AnyTimes()
 		})
 
 		It("Should convert the 'execute_request' message to a 'yeild_request' message if there is a different replica specified as the target", func() {

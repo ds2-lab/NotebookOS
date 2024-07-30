@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -15,6 +16,9 @@ import (
 const (
 	ClusterGatewayRouter    string = "ClusterGatewayRouter"
 	LocalDaemonRouterPrefix string = "LocalDaemon_"
+
+	GatewayRetrySleepInterval     time.Duration = time.Millisecond * 675
+	LocalDaemonRetrySleepInterval time.Duration = time.Millisecond * 550
 )
 
 type Router struct {
@@ -36,8 +40,10 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			var remoteComponentName string
 			if name == ClusterGatewayRouter {
 				remoteComponentName = "JupyterServer"
+				s.RetrySleepInterval = GatewayRetrySleepInterval
 			} else if strings.HasPrefix(name, LocalDaemonRouterPrefix) {
 				remoteComponentName = "CGKC" // ClusterGatewayKernelClient
+				s.RetrySleepInterval = LocalDaemonRetrySleepInterval
 			} else {
 				panic(fmt.Sprintf("Unrecognized name for router sockets: \"%s\"", name))
 			}
@@ -63,6 +69,14 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 		router.AddHandler(types.HBMessage, provider.HBHandler)
 	}
 	return router
+}
+
+func (g *Router) ShouldAckMessages() bool {
+	return g.server.ShouldAckMessages
+}
+
+func (g *Router) ConnectionInfo() *types.ConnectionInfo {
+	return g.server.Meta
 }
 
 // String returns the information for logging.
@@ -106,10 +120,6 @@ func (g *Router) Start() error {
 }
 
 func (g *Router) Name() string {
-	return g.name
-}
-
-func (g *Router) RequestDestID() string {
 	return g.name
 }
 

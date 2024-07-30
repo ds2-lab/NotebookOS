@@ -81,9 +81,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Version:  "5.2",
 			}
 
-			kernel.EXPECT().SkipIdentities(gomock.Any()).DoAndReturn(func(arg [][]byte) (types.JupyterFrames, int) {
-				return arg, 0
-			}).AnyTimes()
+			// kernel.EXPECT().SkipIdentities(gomock.Any()).DoAndReturn(func(arg [][]byte) (types.JupyterFrames, int) {
+			// 	return arg, 0
+			// }).AnyTimes()
 			kernel.EXPECT().Size().Return(3).AnyTimes()
 
 			setActiveCall := kernel.EXPECT().SetActiveExecution(gomock.Any())

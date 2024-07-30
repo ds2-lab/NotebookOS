@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/hmac"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1252,7 +1250,7 @@ func (d *SchedulerDaemonImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg
 }
 
 // Deallocate the GPU resources associated with the kernel.
-func (d *SchedulerDaemonImpl) processExecuteReply(msg *zmq4.Msg, kernel core.KernelInfo, header *jupyter.MessageHeader, offset int) error {
+func (d *SchedulerDaemonImpl) processExecuteReply(msg *zmq4.Msg, kernel core.KernelInfo, offset int) error {
 	// Check if we need to release allocated GPUs.
 	// We only release allocated GPUs if this kernel replica executed the code.
 	// If this replica yielded, then there will be no GPUs to release.
@@ -1388,7 +1386,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *zmq4.Msg, kernel client
 	framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(msg.Frames)
 	framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 
-	if verified := d.verifyFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
+	if verified := jupyter.ValidateFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
 	}
@@ -1513,24 +1511,6 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *zmq4.Msg,
 	return &newMessage, nil
 }
 
-func (d *SchedulerDaemonImpl) verifyFrames(signkey []byte, signatureScheme string, offset int, frames jupyter.JupyterFrames) bool {
-	expect, err := frames.CreateSignature(signatureScheme, signkey, offset)
-	if err != nil {
-		d.log.Error("Error when creating signature to verify JFrames: %v", err)
-		return false
-	}
-
-	signature := make([]byte, hex.DecodedLen(len(frames[offset+jupyter.JupyterFrameSignature])))
-	hex.Decode(signature, frames[offset+jupyter.JupyterFrameSignature])
-	verified := hmac.Equal(expect, signature)
-
-	if !verified {
-		d.log.Error("Failed to verify JFrames.\nExpect: '%v'\nSignature: '%v'", expect, signature)
-	}
-
-	return verified
-}
-
 func (d *SchedulerDaemonImpl) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
 	jFrames := jupyter.JupyterFrames(frames)
 	if err := jFrames.Validate(); err != nil {
@@ -1583,18 +1563,21 @@ func (d *SchedulerDaemonImpl) forwardRequest(ctx context.Context, kernel client.
 		}
 	}
 
-	// d.log.Debug("[gid=%d] Forwarding %v message to replica %d of kernel %s.", goroutineId, typ, kernel.ReplicaID(), kernel.ID())
-	if done == nil {
-		done = func() {}
-	}
 	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done)
 }
 
 func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
-	var sender server.Sender
+	var (
+		sender         server.Sender
+		connectionInfo *jupyter.ConnectionInfo
+		requiresAck    bool
+	)
 
 	socket := from.Socket(typ)
 	if socket == nil {
+		connectionInfo = d.router.ConnectionInfo()
+		requiresAck = d.router.ShouldAckMessages()
+
 		socket = d.router.Socket(typ)
 
 		// TODO (Ben): If we're forwarding a response back to the Cluster Gateway here, then the Cluster Gateway will ACK the response.
@@ -1607,9 +1590,13 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 		// The socket belongs to the router, hence we use that server.
 		sender = d.router
 	} else {
+		kernelClient := from.(client.KernelReplicaClient)
+
 		// Use the kernel client as the server to forward the kernel's response to the cluster gateway.
 		// The socket belongs to the kernel client's server, hence we use that server.
-		sender = from.(client.KernelReplicaClient)
+		sender = kernelClient
+		connectionInfo = kernelClient.ConnectionInfo()
+		requiresAck = kernelClient.ShouldAckMessages()
 	}
 
 	if socket == nil {
@@ -1622,19 +1609,31 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 		if err != nil {
 			d.log.Error("Failed to extract header from %v message for kernel %s because: %v", typ, from.ID(), err)
 		} else if header.MsgType == domain.ShellExecuteReply {
-			d.processExecuteReply(msg, from, header, offset)
+			d.processExecuteReply(msg, from, offset)
 		}
+	}
+
+	builder := jupyter.NewRequestBuilder(context.Background(), from.ID(), from.ID(), connectionInfo).
+		WithAckRequired(jupyter.ShouldMessageRequireAck(typ) && requiresAck).
+		WithBlocking(true).
+		WithDoneCallback(jupyter.DefaultDoneHandler).
+		WithMessageHandler(jupyter.DefaultMessageHandler).
+		WithNumAttempts(3).
+		WithSocketProvider(from).
+		WithPayload(msg)
+	request, err := builder.BuildRequest()
+	if err != nil {
+		d.log.Error(utils.RedStyle.Render("Error while building request: %v"), err)
+		return err
 	}
 
 	// d.log.Debug("Forwarding %v response from %v via %s: %v", typ, from, socket.Name, msg)
 	// We should only use the router here if that's where the socket came from...
-	err := sender.SendMessage(true, socket, "" /* will be auto-resolved */, msg, sender, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
+	// err := sender.SendMessage(true, socket, "" /* will be auto-resolved */, msg, sender, from.(client.KernelReplicaClient), -1 /* will be auto-resolved */)
 	// err := socket.Send(*msg)
-
+	err = sender.SendMessage(request, socket)
 	if err != nil {
 		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
-	} else {
-		// d.log.Debug("Successfully forwarded %v response from kernel %s.", typ, from.ID())
 	}
 
 	return nil // Will be nil on success.

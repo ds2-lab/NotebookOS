@@ -63,10 +63,6 @@ func (s *wrappedServer) RemoveSourceKernelFrame(frames [][]byte, jOffset int) (o
 	return types.RemoveSourceKernelFrame(frames, jOffset)
 }
 
-func (s *wrappedServer) RequestDestID() string {
-	return s.id
-}
-
 var _ = Describe("AbstractServer", func() {
 	var server *wrappedServer
 	var client *wrappedServer
@@ -190,7 +186,21 @@ var _ = Describe("AbstractServer", func() {
 				wg.Done()
 				return nil
 			}
-			err = client.Request(context.Background(), client, client.Sockets.Shell, &msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
+
+			builder := types.NewRequestBuilder(context.Background(), client.id, client.id, client.ConnectionInfo()).
+				WithAckRequired(true).
+				WithBlocking(true).
+				WithDoneCallback(types.DefaultDoneHandler).
+				WithMessageHandler(clientHandleMessage).
+				WithNumAttempts(3).
+				WithRemoveDestFrame(true).
+				WithSocketProvider(client).
+				WithPayload(&msg)
+			request, err := builder.BuildRequest()
+			Expect(err).To(BeNil())
+
+			err = client.Request(request, client.Sockets.Shell)
+			// err = client.Request(context.Background(), client, client.Sockets.Shell, &msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
 			Expect(err).To(BeNil())
 
 			// When no ACK is received, the server waits 5 seconds, then sleeps for a bit, then retries.
@@ -297,7 +307,21 @@ var _ = Describe("AbstractServer", func() {
 				wg.Done()
 				return nil
 			}
-			err = client.Request(context.Background(), client, client.Sockets.Shell, &msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
+
+			builder := types.NewRequestBuilder(context.Background(), client.id, client.id, client.ConnectionInfo()).
+				WithAckRequired(true).
+				WithBlocking(true).
+				WithDoneCallback(types.DefaultDoneHandler).
+				WithMessageHandler(clientHandleMessage).
+				WithNumAttempts(3).
+				WithRemoveDestFrame(true).
+				WithSocketProvider(client).
+				WithPayload(&msg)
+			request, err := builder.BuildRequest()
+			Expect(err).To(BeNil())
+
+			err = client.Request(request, client.Sockets.Shell)
+			// err = client.Request(context.Background(), client, client.Sockets.Shell, &msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
 			Expect(err).To(BeNil())
 
 			wg.Wait()

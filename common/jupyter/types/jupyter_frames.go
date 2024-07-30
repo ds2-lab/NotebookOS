@@ -380,3 +380,14 @@ func HeaderFromMsg(msg *zmq4.Msg) (kernelId string, header *MessageHeader, offse
 
 	return kernelId, header, offset, err
 }
+
+func ValidateFrames(signkey []byte, signatureScheme string, offset int, frames JupyterFrames) bool {
+	expect, err := frames.CreateSignature(signatureScheme, signkey, offset)
+	if err != nil {
+		return false
+	}
+
+	signature := make([]byte, hex.DecodedLen(len(frames[offset+JupyterFrameSignature])))
+	hex.Decode(signature, frames[offset+JupyterFrameSignature])
+	return hmac.Equal(expect, signature)
+}

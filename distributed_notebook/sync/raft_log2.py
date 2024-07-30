@@ -220,7 +220,11 @@ class RaftLog(object):
         
         self.logger.debug(f"Received VOTE: {str(vote)}")
         
-        assert self._current_election != None 
+        if self._current_election == None:
+            self.logger.error(f"Current election is None, even though we just received a vote!")
+            sys.stderr.flush()
+            sys.stdout.flush()
+            raise ValueError("received 'VOTE' proposal with null current election")
 
         # The first 'VOTE' proposal received during the term automatically wins.
         was_first_vote_proposal:bool = self._current_election.add_vote_proposal(vote, overwrite = True, received_at = received_at)
@@ -244,7 +248,13 @@ class RaftLog(object):
         if _leading_future is not None and self._leader_term >= self._expected_term:
             self.logger.debug(f"Scheduling the setting of result on '_leading_future' future to {self._leader_term}.")
             #self._future_io_loop.call_later(0, _leading_future.set_result, self._leader_term) # type: ignore
-            assert self._future_io_loop != None
+            
+            if self._future_io_loop == None:
+                self.logger.error(f"Our 'future' IO loop is None; we cannot schedule result of '_leading_future' for term {self._leader_term}...")
+                sys.stderr.flush()
+                sys.stdout.flush()
+                raise ValueError(f"'future' IO loop is None while trying to schedule result of '_leading_future' durng term {self._leader_term}")
+            
             self._future_io_loop.call_soon_threadsafe(_leading_future.set_result, self._leader_term)
             # leading_future.set_result(self._leader_term)
             self._leading_future = None # Ensure the future is set only once.
@@ -403,14 +413,14 @@ class RaftLog(object):
         """
         Wrapper around RaftLog::_valueCommitted so I can print the return value, as apparently we're sometimes returning nil? 
         """
-        self.logger.debug(f"Calling self._valueCommitted with value {value_id} of size {value_size}: {goObject}")
+        self.logger.debug(f"Calling self._valueCommitted with value ID=\"{value_id}\" of size {value_size}.")
         sys.stderr.flush()
         sys.stdout.flush()
         ret = None 
         try:
             ret = self._valueCommitted(goObject, value_size, value_id)
         except Exception as ex:
-            self.logger.error(f"Exception encountered in self._valueCommitted: {ex}")
+            self.logger.error(f"Exception encountered in self._valueCommitted while handling value with ID=\"{value_id}\" of size {value_size} bytes: {str(ex)}")
             print_trace(limit = 10)
             sys.stderr.flush()
             sys.stdout.flush()

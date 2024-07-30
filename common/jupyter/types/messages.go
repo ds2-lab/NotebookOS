@@ -75,6 +75,7 @@ type ZmqMessage interface {
 type JupyterMessage struct {
 	*zmq4.Msg
 	Header        *MessageHeader
+	ParentHeader  *MessageHeader
 	RequestId     string
 	DestinationId string
 	Offset        int
@@ -122,12 +123,20 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 	var header MessageHeader
 	if err := jFrames.DecodeHeader(&header); err != nil {
 		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to decode header \"%v\" from message frames: %v", string(jFrames[JupyterFrameHeader])), err)
+		fmt.Printf(utils.RedStyle.Render("[ERROR] Message frames (for which we failed to decode header): %v"), msg)
 		return nil
+	}
+
+	var parentHeader MessageHeader
+	if err := jFrames.DecodeParentHeader(&parentHeader); err != nil {
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header \"%v\" from message frames: %v", string(jFrames[JupyterFrameHeader])), err)
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Message frames (for which we failed to decode parent header): %v"), msg)
 	}
 
 	return &JupyterMessage{
 		Msg:           msg,
 		Header:        &header,
+		ParentHeader:  &parentHeader,
 		DestinationId: destId,
 		Offset:        offset,
 		RequestId:     reqId,

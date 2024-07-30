@@ -2,7 +2,11 @@ package types
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/go-zeromq/zmq4"
+	"github.com/mason-leap-lab/go-utils/logger"
 )
 
 const (
@@ -32,6 +36,25 @@ const (
 	// The request encountered some irrecoverable error while being sent (other than timing out).
 	RequestStateErred RequestState = "RequestErred"
 )
+
+var (
+	ErrValidationFailed = errors.New("failed to validate message frames")
+)
+
+// Helper function. Only shell and control messages should require ACKs.
+func ShouldMessageRequireAck(typ MessageType) bool {
+	return typ == ShellMessage || typ == ControlMessage
+}
+
+// Default 'done' handler for requests.
+// Does nothing.
+func DefaultDoneHandler() {}
+
+// Default message/response handler for requests.
+// Simply returns nil.
+func DefaultMessageHandler(server JupyterServerInfo, typ MessageType, msg *zmq4.Msg) error {
+	return nil
+}
 
 type RequestState string
 
@@ -99,7 +122,7 @@ type Request interface {
 	DestinationId() string
 
 	// Offset/index of start of Jupyter frames within message frames.
-	Offset() int
+	Offset() (jOffset int)
 
 	// Return the associated Context and the associated cancel function, if one exists.
 	ContextAndCancel() (context.Context, context.CancelFunc)
@@ -126,6 +149,9 @@ type Request interface {
 	// Update the timestamp of the message'r header so that it is signed with a different signature.
 	// This is used when re-sending un-ACK'd (unacknowledged) messages.
 	PrepareForResubmission() error
+
+	// Return the entity responsible for providing access to sockets in the request handler.
+	SocketProvider() JupyterServerInfo
 }
 
 // Encapsulates the state of a live, active request.
@@ -152,6 +178,8 @@ type liveRequestState struct {
 
 type basicRequest struct {
 	*liveRequestState
+
+	log logger.Logger
 
 	// We keep a reference to the parent context that was passed to the RequestBuilder
 	// so that we can create a new child context if we're resubmitted.
@@ -204,11 +232,11 @@ type basicRequest struct {
 	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
 	destinationId string
 
-	// Offset/index of start of Jupyter frames within message frames.
-	jOffset int
-
 	// The connection info of the remote target of the request.
 	connectionInfo *ConnectionInfo
+
+	// The entity responsible for providing access to sockets in the request handler.
+	socketProvider JupyterServerInfo
 }
 
 // Should the call to Server::Request block when issuing this request?
@@ -304,8 +332,9 @@ func (r *basicRequest) ContextAndCancel() (context.Context, context.CancelFunc) 
 }
 
 // Offset/index of start of Jupyter frames within message frames.
-func (r *basicRequest) Offset() int {
-	return r.jOffset
+func (r *basicRequest) Offset() (jOffset int) {
+	_, _, jOffset = ExtractDestFrame(r.payload.Frames)
+	return
 }
 
 // Return the current state of the request.
@@ -359,11 +388,16 @@ func (r *basicRequest) JupyterTimestamp() (ts time.Time, err error) {
 	return ts, err
 }
 
+// Return the entity responsible for providing access to sockets in the request handler.
+func (r *basicRequest) SocketProvider() JupyterServerInfo {
+	return r.socketProvider
+}
+
 // Update the timestamp of the message'r header so that it is signed with a different signature.
 // This is used when re-sending un-ACK'd (unacknowledged) messages.
 func (r *basicRequest) PrepareForResubmission() error {
 	// Get the date.
-	date, err := r.JupyterTimestamp()
+	date, _ := r.JupyterTimestamp()
 
 	// Add a single microsecond to the date.
 	modifiedDate := date.Add(time.Microsecond)
@@ -373,15 +407,15 @@ func (r *basicRequest) PrepareForResubmission() error {
 
 	// Re-encode the header.
 	jFrames := JupyterFrames(r.payload.Frames)
+	jOffset := r.Offset()
 
-	err = jFrames[r.jOffset:].EncodeHeader(r.payload.Header)
+	err := jFrames[jOffset:].EncodeHeader(r.payload.Header)
 	if err != nil {
 		return err
 	}
 
 	// Regenerate the signature.
-	framesWithoutIdentities, _ := SkipIdentitiesFrame(jFrames)
-	framesWithoutIdentities, err = framesWithoutIdentities.Sign(r.connectionInfo.SignatureScheme, []byte(r.connectionInfo.Key))
+	_, err = jFrames[jOffset:].Sign(r.connectionInfo.SignatureScheme, []byte(r.connectionInfo.Key))
 	if err != nil {
 		return err
 	}
@@ -400,6 +434,13 @@ func (r *basicRequest) PrepareForResubmission() error {
 		r.ctx, r.cancel = context.WithTimeout(r.parentContext, r.timeout)
 	} else {
 		r.ctx, r.cancel = context.WithCancel(r.parentContext)
+	}
+
+	if verified := ValidateFrames([]byte(r.connectionInfo.Key), r.connectionInfo.SignatureScheme, jOffset, jFrames); !verified {
+		r.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", r.connectionInfo.SignatureScheme, r.connectionInfo.Key)
+		r.log.Error("This message will be rejected by the kernel unless the kernel has been configured to skip validating/verifying the messages:\n%v", jFrames)
+
+		return ErrValidationFailed
 	}
 
 	return nil

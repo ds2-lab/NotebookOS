@@ -686,15 +686,15 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 		return types.ErrKernelNotReady
 	}
 
+	// Use a default "done" handler.
+	if done == nil {
+		done = types.DefaultDoneHandler
+	}
+
 	socket := c.client.Sockets.All[typ]
 	if socket == nil {
 		return types.ErrSocketNotAvailable
 	}
-
-	// TODO: This is a hack to allow us to resubmit a request that failed due to ACKs not being received.
-	// The context is cancelled inside AbstractServer::Request, so we create a child context here to use.
-	// It can be cancelled, and if we go to resubmit, we'll create another child context to re-use.
-	// childContext, _ := context.WithCancel(parentContext)
 
 	wrappedHandler := func(server types.JupyterServerInfo, respType types.MessageType, respMsg *zmq4.Msg) (err error) {
 		// Kernel frame is automatically removed.
@@ -720,13 +720,6 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 	}
 
 	sendRequest := func(req types.Request, sock *types.Socket) error {
-		// return c.client.Request(ctx, c, sock, message, c, c, func(server types.JupyterServerInfo, respType types.MessageType, respMsg *zmq4.Msg) (err error) {
-		// 	// Kernel frame is automatically removed.
-		// 	if handler != nil {
-		// 		err = handler(server.(*kernelReplicaClientImpl), respType, respMsg)
-		// 	}
-		// 	return err
-		// }, done, getOption, requiresACK)
 		return c.client.Request(req, sock)
 	}
 

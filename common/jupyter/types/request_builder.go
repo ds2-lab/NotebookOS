@@ -16,6 +16,10 @@ var (
 	errPayloadMissing        = errors.New("request payload")
 	errDoneCallbackMissing   = errors.New("done callback")
 	errMessageHandlerMissing = errors.New("message handler")
+	errSocketProviderMissing = errors.New("socket provider")
+	errConnectionInfoMissing = errors.New("connection info")
+
+	errInvalidParameter = errors.New("invalid value for configuration parameter")
 )
 
 type RequestBuilder struct {
@@ -40,6 +44,8 @@ type RequestBuilder struct {
 	isBlocking bool
 
 	// The maximum number of attempts allowed before giving up on sending the request.
+	// This must be strictly greater than 0.
+	//
 	// Default: 3
 	maxNumAttempts int
 
@@ -61,17 +67,17 @@ type RequestBuilder struct {
 	// The handler that is called to process the response to this request.
 	handler MessageHandler
 
-	// The jupyter server instance that will be passed to the handler to get the socket for forwarding the response.
-	server JupyterServerInfo
-
 	// The client socket to forward the request.
-	socket *Socket
+	// socket *Socket
 
 	// Entity that implements the SourceKernel interface and thus can add the SourceKernel frame to the message.
-	sourceKernel SourceKernel
+	// sourceKernel SourceKernel
 
 	// The info of request destination that the WaitResponse can use to track individual request.
-	dest RequestDest
+	// dest RequestDest
+
+	// The entity responsible for providing access to sockets in the request handler.
+	socketProvider JupyterServerInfo
 
 	// The function to get the options.
 	// getOption WaitResponseOptionGetter
@@ -93,9 +99,6 @@ type RequestBuilder struct {
 	// The ID associated with the source of the message.
 	// This will typically be a kernel ID.
 	sourceId string
-
-	// Offset/index of start of Jupyter frames within message frames.
-	jOffset int
 
 	// This is flipped to true when a timeout is explicitly configured.
 	// We use this to determine if we should create the context for the request via Context::WithTimeout or Context::WithCancel.
@@ -187,11 +190,16 @@ func (b *RequestBuilder) WithRemoveDestFrame(shouldDestFrameBeRemoved bool) *Req
 //
 // Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
 func (b *RequestBuilder) WithPayload(msg *zmq4.Msg) *RequestBuilder {
-	msg, reqId, jOffset := b.extractDestFrame(b.destinationId, msg)
+	msg, reqId, _ := b.extractAndAddDestFrame(b.destinationId, msg)
 
 	b.payload = NewJupyterMessage(msg)
 	b.requestId = reqId
-	b.jOffset = jOffset
+
+	return b
+}
+
+func (b *RequestBuilder) WithSocketProvider(socketProvider JupyterServerInfo) *RequestBuilder {
+	b.socketProvider = socketProvider
 
 	return b
 }
@@ -214,7 +222,8 @@ func (b *RequestBuilder) WithMessageHandler(handler MessageHandler) *RequestBuil
 }
 
 // Extract the DEST frame from the request's frames.
-func (b *RequestBuilder) extractDestFrame(destId string, msg *zmq4.Msg) (*zmq4.Msg, string, int) {
+// If there is no DEST frame already contained within the message, then add the DEST frame.
+func (b *RequestBuilder) extractAndAddDestFrame(destId string, msg *zmq4.Msg) (*zmq4.Msg, string, int) {
 	// Normalize the request, we do not assume that the types.RequestDest implements the auto-detect feature.
 	_, reqId, jOffset := ExtractDestFrame(msg.Frames)
 	if reqId == "" {
@@ -246,6 +255,14 @@ func (b *RequestBuilder) BuildRequest() (Request, error) {
 		missingConfigurationParameters = append(missingConfigurationParameters, errMessageHandlerMissing)
 	}
 
+	if b.socketProvider == nil {
+		missingConfigurationParameters = append(missingConfigurationParameters, errSocketProviderMissing)
+	}
+
+	if b.connectionInfo == nil {
+		missingConfigurationParameters = append(missingConfigurationParameters, errConnectionInfoMissing)
+	}
+
 	if len(missingConfigurationParameters) > 0 {
 		var errorMsgBuilder strings.Builder
 		errorMsgBuilder.WriteString("one or more required configuration parameters are missing: ")
@@ -266,6 +283,13 @@ func (b *RequestBuilder) BuildRequest() (Request, error) {
 
 		b.log.Error("Missing %d required configuration parameter(s): %v", len(missingConfigsAsStrings), strings.Join(missingConfigsAsStrings, ", "))
 		return nil, fmt.Errorf(errorMsgBuilder.String(), missingConfigurationParameters...)
+	}
+
+	// Validate the maxNumAttempts configuration parameter.
+	// It must be strictly greater than 0.
+	if b.maxNumAttempts <= 0 {
+		b.log.Error("Invalid value for MaxNumAttempts: %d. Value must be > 0.", b.maxNumAttempts)
+		return nil, fmt.Errorf("%w: MaxNumAttempts is equal to %d; value must be > 0", errInvalidParameter, b.maxNumAttempts)
 	}
 
 	req := &basicRequest{
@@ -289,6 +313,7 @@ func (b *RequestBuilder) BuildRequest() (Request, error) {
 		sourceId:                 b.sourceId,
 		connectionInfo:           b.connectionInfo,
 		parentContext:            b.parentContext,
+		socketProvider:           b.socketProvider,
 	}
 
 	var (
@@ -304,6 +329,8 @@ func (b *RequestBuilder) BuildRequest() (Request, error) {
 
 	req.ctx = ctx
 	req.cancel = cancel
+
+	config.InitLogger(&req.log, fmt.Sprintf("Request-%s", req.requestId))
 
 	return req, nil
 }
