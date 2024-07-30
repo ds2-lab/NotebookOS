@@ -714,13 +714,10 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 			c.log.Error("The deadline of %v for parent context of %v request has already been exceeded (current time = %v): %v", deadline, typ.String(), time.Now(), msg)
 			return ErrDeadlineExceeded
 		}
-	} else if parentContext.Done() == nil {
-		// If the done channel of the parent context is nil, then that means there's no timeout associated with the context.
-		// In that case, we'll use the default request timeout.
-		timeout = types.DefaultRequestTimeout
 	} else {
-		c.log.Error("Unexpected case for %s message: %v", typ.String(), msg)
-		panic("Unexpected case")
+		// If the context is merely cancellable (without a specific deadline/timeout),
+		// then we'll just use the default request timeout here.
+		timeout = types.DefaultRequestTimeout
 	}
 
 	builder := types.NewRequestBuilder(parentContext, c.id, c.id, c.client.Meta).

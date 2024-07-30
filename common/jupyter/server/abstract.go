@@ -476,7 +476,7 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 	}
 
 	var cleaned int32 = 0
-	cleanUpRequest := func() {
+	cleanUpRequest := func(err error) {
 		// Claim the responsibility of cleaning up the request.
 		//
 		// The first goroutine to get here will clean the request, and this necessarily avoids the potential
@@ -521,7 +521,7 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 
 		// Clear pending request.
 		// TODO(Ben): There is conceivably a race here in which we call the code below AFTER we begin resubmitting the request, which causes it to be prematurely released.
-		cleanUpRequest()
+		cleanUpRequest(err)
 	}()
 
 	if err := s.SendMessage(request, socket); err != nil {
@@ -530,7 +530,7 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 			cancel()
 		}
 
-		cleanUpRequest()
+		cleanUpRequest(err)
 
 		// Should we clear the pending request here? Should we call done() here?
 		// If we do, then the automatic reconnect code is sort of in the wrong place.

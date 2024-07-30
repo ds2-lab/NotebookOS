@@ -50,9 +50,9 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 
 			// We do not set handlers of the sockets here. Server routine will be started using a shared handler.
 			s.Sockets.HB = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.HBPort, types.HBMessage, fmt.Sprintf("Router-Router-HB[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
-			s.Sockets.Control = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ControlPort, types.ControlMessage, fmt.Sprintf("Router-Router-Ctrl[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
-			s.Sockets.Shell = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ShellPort, types.ShellMessage, fmt.Sprintf("Router-Router-Shell[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
-			s.Sockets.Stdin = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.StdinPort, types.StdinMessage, fmt.Sprintf("Router-Router-Stdin[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
+			s.Sockets.Control = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ControlPort, types.ControlMessage, fmt.Sprintf("Router-Router-Ctrl[%s]", name), fmt.Sprintf("Remote-%s-Ctrl", remoteComponentName))
+			s.Sockets.Shell = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ShellPort, types.ShellMessage, fmt.Sprintf("Router-Router-Shell[%s]", name), fmt.Sprintf("Remote-%s-Shell", remoteComponentName))
+			s.Sockets.Stdin = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.StdinPort, types.StdinMessage, fmt.Sprintf("Router-Router-Stdin[%s]", name), fmt.Sprintf("Remote-%s-Stdin", remoteComponentName))
 			s.PrependId = true
 			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages
