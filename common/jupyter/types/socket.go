@@ -50,17 +50,27 @@ type MessageHandler func(JupyterServerInfo, MessageType, *zmq4.Msg) error
 type MessageDone func()
 
 type MessageHandlerWrapper struct {
-	handle MessageHandler
-	done   MessageDone
-	once   int32
+	handle  MessageHandler
+	done    MessageDone
+	once    int32
+	request Request
 }
 
-func GetMessageHandlerWrapper(h MessageHandler, done MessageDone) *MessageHandlerWrapper {
+func GetMessageHandlerWrapper(request Request) *MessageHandlerWrapper {
+	var (
+		h    MessageHandler = request.MessageHandler()
+		done MessageDone    = request.DoneCallback()
+	)
+
 	m := mhwPool.Get().(*MessageHandlerWrapper)
 	m.handle = h
 	m.done = done
 	m.once = 0
+	m.request = request
 	return m
+}
+func (m *MessageHandlerWrapper) Request() Request {
+	return m.request
 }
 
 func (m *MessageHandlerWrapper) Handle(info JupyterServerInfo, t MessageType, msg *zmq4.Msg) error {
@@ -76,6 +86,7 @@ func (m *MessageHandlerWrapper) Release() {
 	}
 	m.handle = nil
 	m.done = nil
+	m.request = nil
 	mhwPool.Put(m)
 }
 

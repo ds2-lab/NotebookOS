@@ -1614,7 +1614,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 	}
 
 	builder := jupyter.NewRequestBuilder(context.Background(), from.ID(), from.ID(), connectionInfo).
-		// WithAckRequired(jupyter.ShouldMessageRequireAck(typ) && requiresAck).
+		WithAckRequired(jupyter.ShouldMessageRequireAck(typ) && requiresAck).
 		WithMessageType(typ).
 		WithBlocking(true).
 		WithTimeout(jupyter.DefaultRequestTimeout).

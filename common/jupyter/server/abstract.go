@@ -460,7 +460,7 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 	}
 
 	// Track the pending request.
-	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(request.MessageHandler(), request.DoneCallback()))
+	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(request))
 
 	// Apply a default timeout
 	// var cancel context.CancelFunc
@@ -502,9 +502,9 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 
 	if err := s.SendMessage(request, socket); err != nil {
 		s.Log.Debug("Error while sending %s \"%s\" message %s (Jupyter ID: %s): %v", socket.Type.String(), jMsg.Header.MsgType, reqId, jMsg.Header.MsgID, err)
-		// 	if cancel != nil {
-		// 		cancel()
-		// 	}
+		if cancel != nil {
+			cancel()
+		}
 
 		// Should we clear the pending request here? Should we call done() here?
 		// If we do, then the automatic reconnect code is sort of in the wrong place.
@@ -554,7 +554,13 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 		// Send request.
 		if err := socket.Send(*request.Payload().Msg); err != nil {
 			s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to send %v \"%s\" message on attempt %d/%d via %s because: %v"), goroutineId, socket.Type, request.JupyterMessageType(), num_tries+1, max_num_tries, socket.Name, err.Error())
+			request.SetErred(err)
 			return err
+		}
+
+		_, err := request.SetSubmitted()
+		if err != nil {
+			panic(fmt.Sprintf("Request transition to 'submitted' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
 		}
 
 		if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
@@ -568,11 +574,6 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 		if requiresACK {
 			success := s.waitForAck(ackChan, time.Second*5)
 
-			_, err := request.SetProcessing()
-			if err != nil {
-				panic(fmt.Sprintf("Request transition failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
-			}
-
 			if success {
 				if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
 					firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message"), goroutineId, socket.Type, request.JupyterMessageType())
@@ -580,11 +581,23 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 					thirdPart := fmt.Sprintf(utils.GreenStyle.Render("has successfully been ACK'd on attempt %d/%d."), num_tries+1, max_num_tries)
 					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 				}
+
+				_, err = request.SetProcessing()
+				if err != nil {
+					panic(fmt.Sprintf("Request transition to 'processing' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
+				}
+
 				return nil
 			} else {
 				// Just to avoid going through the process of sleeping and updating the header if that was our last try.
 				if (num_tries + 1) >= max_num_tries {
 					s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Giving up."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, num_tries+1, max_num_tries)
+
+					_, err := request.SetTimedOut()
+					if err != nil {
+						panic(fmt.Sprintf("Request transition to 'timed-out' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
+					}
+
 					break
 				}
 
@@ -599,6 +612,7 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 				err := request.PrepareForResubmission()
 				if err != nil {
 					s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to update message header for %v \"%s\" message %v: %v"), goroutineId, request.JupyterMessageType(), socket.Type, reqId, err)
+					request.SetErred(err)
 					return err
 				}
 			}
@@ -713,6 +727,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDe
 		pendings := socket.PendingReq
 		var matchReqId string
 		var handler types.MessageHandler
+		var request types.Request
 
 		if pendings != nil {
 			// We do not assume that the types.RequestDest implements the auto-detect feature.
@@ -757,6 +772,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDe
 				// Remove pending request and return registered handler. If timeout, the handler will be nil.
 				if pending, exist := pendings.LoadAndDelete(rspId); exist {
 					handler = pending.Handle // Handle will release the pending request once called.
+					request = pending.Request()
 				}
 				// Continue serving if there are pending requests.
 				if pendings.Len() > 0 {
@@ -771,7 +787,12 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDe
 		if handler != nil {
 			err := handler(info, msgType, msg)
 			if err != nil {
-				s.Log.Warn(utils.RedStyle.Render("Error on handle %v response: %v. Message: %v."), msgType, err, msg)
+				s.Log.Error(utils.RedStyle.Render("Error on handle %v response: %v. Message: %v."), msgType, err, msg)
+			}
+
+			_, err = request.SetComplete()
+			if err != nil {
+				panic(fmt.Sprintf("Request transition to 'completed' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
 			}
 		}
 

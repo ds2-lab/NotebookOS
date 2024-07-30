@@ -231,8 +231,10 @@ type Request interface {
 	// Transition to the `RequestStateErred` state.
 	// If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateErred' is invalid), then this will return an error.
 	//
+	// Updates the `err` field of the live request state.
+	//
 	// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
-	SetErred() (bool, error)
+	SetErred(err error) (bool, error)
 }
 
 // Encapsulates the state of a live, active request.
@@ -625,7 +627,8 @@ func (r *basicRequest) transitionTo(to RequestState, abortStates []RequestState)
 //
 // Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
 func (r *basicRequest) SetSubmitted() (bool, error) {
-	return r.transitionTo(RequestStateSubmitted, []RequestState{RequestStateComplete})
+	// We'll abort the transition if we're already in the 'completed' state or the 'processing' state, meaning we received an ACK or the response before we were able to transition to 'submitted'.
+	return r.transitionTo(RequestStateSubmitted, []RequestState{RequestStateComplete, RequestStateProcessing})
 }
 
 // Transition to the `RequestStateProcessing` state.
@@ -636,6 +639,7 @@ func (r *basicRequest) SetSubmitted() (bool, error) {
 //
 // Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
 func (r *basicRequest) SetProcessing() (bool, error) {
+	// We'll abort the transition if we're already in the 'completed' state, meaning we received a response before we were able to transition to 'processing'.
 	return r.transitionTo(RequestStateProcessing, []RequestState{RequestStateComplete})
 }
 
@@ -666,7 +670,10 @@ func (r *basicRequest) SetExplicitlyCancelled() (bool, error) {
 // Transition to the `RequestStateErred` state.
 // If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateErred' is invalid), then this will return an error.
 //
+// Updates the `err` field of the live request state.
+//
 // Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
-func (r *basicRequest) SetErred() (bool, error) {
+func (r *basicRequest) SetErred(err error) (bool, error) {
+	r.liveRequestState.err = err
 	return r.transitionTo(RequestStateErred, nil)
 }
