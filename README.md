@@ -21,9 +21,9 @@ $ make
 
 Gopy compatibility:
 
-- `Mac Intel`: **OK**
-- `Mac ARM`: **OK**
-- `Linux AMD`: **MOSTLY OK**
+- `Mac Intel`: **PREVIOUSLY OK, NOW UNKNOWN**
+- `Mac ARM`: **PREVIOUSLY OK, NOW UNKNOWN**
+- `Linux AMD`: **OK**
 - `Windows 10`: **BUILD ISSUES**
 - `Other`: **UNKNOWN**
 
