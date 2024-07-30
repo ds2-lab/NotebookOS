@@ -1093,7 +1093,7 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	}
 
 	// Regenerate the signature.
-	framesWithoutIdentities, _ := c.SkipIdentities(msg.Frames)
+	framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(msg.Frames)
 	framesWithoutIdentities.Sign(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 
 	// Ensure that the frames are now correct.

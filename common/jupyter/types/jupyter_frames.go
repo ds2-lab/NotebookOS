@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 
@@ -254,4 +255,105 @@ func (frames JupyterFrames) sign(signkey []byte) []byte {
 		mac.Write(msgpart)
 	}
 	return mac.Sum(nil)
+}
+
+func SkipIdentitiesFrame(frames [][]byte) (JupyterFrames, int) {
+	if len(frames) == 0 {
+		return frames, 0
+	}
+
+	i := 0
+	// Jupyter messages start from "<IDS|MSG>" frame.
+	for i < len(frames) && string(frames[i]) != "<IDS|MSG>" {
+		i++
+	}
+	return frames[i:], i
+}
+
+// Given a jOffset, attempt to extract a DestFrame from the given set of frames.
+func ExtractDestFrameWithOffset(frames [][]byte, jOffset int) (destID string, reqID string) {
+	matches := jupyter.ZMQDestFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
+	if len(matches) > 0 {
+		destID = matches[1]
+		reqID = matches[2]
+	}
+
+	return
+}
+
+// First, determine the offset.
+// Next, attempt to extract a DestFrame from the given set of frames.
+func ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int) {
+	_, jOffset = SkipIdentitiesFrame(frames)
+	if jOffset > 0 {
+		destID, reqID = ExtractDestFrameWithOffset(frames, jOffset)
+	}
+	return
+}
+
+// GenerateKernelFrame appends a frame contains the kernel ID to the given ZMQ frames.
+func AddDestFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]byte, reqID string) {
+	// Automatically detect the dest frame.
+	if jOffset == jupyter.JOffsetAutoDetect {
+		_, reqID, jOffset = ExtractDestFrame(frames)
+		// If the dest frame is already there, we are done.
+		if reqID != "" {
+			// s.Log.Debug("Destination frame found. ReqID: %s", reqID)
+			return frames, reqID
+		}
+	}
+
+	// Add dest frame just before "<IDS|MSG>" frame.
+	newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
+	copy(newFrames[jOffset+1:], frames[jOffset:])
+	reqID = uuid.New().String()
+	newFrames[jOffset] = []byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, destID, reqID))
+
+	return
+}
+
+func RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {
+	// Automatically detect the dest frame.
+	if jOffset == jupyter.JOffsetAutoDetect {
+		var reqID string
+		_, reqID, jOffset = ExtractDestFrame(frames)
+		// If the dest frame is not available, we are done.
+		if reqID == "" {
+			return frames
+		}
+	}
+
+	// Remove dest frame.
+	if jOffset > 0 {
+		copy(frames[jOffset-1:], frames[jOffset:])
+		frames[len(frames)-1] = nil
+		frames = frames[:len(frames)-1]
+	}
+	return frames
+}
+
+func ExtractSourceKernelFrame(frames [][]byte) (kernelID string, jOffset int) {
+	matches := jupyter.ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[0]))
+	if len(matches) > 0 {
+		kernelID = matches[1]
+	}
+
+	return
+}
+
+func AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte) {
+	// Add "source kernel" frame to the very beginning.
+	newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
+	copy(newFrames[1:], frames[0:])
+	newFrames[0] = []byte(fmt.Sprintf(jupyter.ZMQSourceKernelFrameFormatter, kernelID))
+	return
+}
+
+func RemoveSourceKernelFrame(frames [][]byte, jOffset int) (removed [][]byte) {
+	existingKernelID, _ := ExtractSourceKernelFrame(frames)
+	if existingKernelID != "" {
+		return frames[1:]
+	}
+
+	return frames
 }

@@ -666,7 +666,7 @@ func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.Kerne
 	// 	c.log.Debug("Received shell '%v' response from kernel %s.", jupyterMessageType, c.id)
 	// }
 
-	jFrames, _ := c.SkipIdentities(msg.Frames)
+	jFrames, _ := types.SkipIdentitiesFrame(msg.Frames)
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
 	if len(jFrames) < 5 {
 		c.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)", replicaId, c.id)

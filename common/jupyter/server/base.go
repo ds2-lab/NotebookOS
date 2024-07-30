@@ -65,33 +65,29 @@ func (s *BaseServer) SetContext(ctx context.Context) {
 }
 
 // Expose abstract server methods.
-func (s *BaseServer) ExtractDestFrame(frames [][]byte) (kernelID string, reqID string, jOffset int) {
-	return s.server.ExtractDestFrame(frames)
-}
+// func (s *BaseServer) ExtractDestFrame(frames [][]byte) (kernelID string, reqID string, jOffset int) {
+// 	return s.server.ExtractDestFrame(frames)
+// }
 
-func (s *BaseServer) AddDestFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte, reqID string) {
-	return s.server.AddDestFrame(frames, kernelID, jOffset)
-}
+// func (s *BaseServer) AddDestFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte, reqID string) {
+// 	return s.server.AddDestFrame(frames, kernelID, jOffset)
+// }
 
-func (s *BaseServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {
-	return s.server.RemoveDestFrame(frames, jOffset)
-}
+// func (s *BaseServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {
+// 	return s.server.RemoveDestFrame(frames, jOffset)
+// }
 
-func (s *BaseServer) ExtractSourceKernelFrame(frames [][]byte) (kernelID string, jOffset int) {
-	return s.server.ExtractSourceKernelFrame(frames)
-}
+// func (s *BaseServer) ExtractSourceKernelFrame(frames [][]byte) (kernelID string, jOffset int) {
+// 	return s.server.ExtractSourceKernelFrame(frames)
+// }
 
-func (s *BaseServer) AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte) {
-	return s.server.AddSourceKernelFrame(frames, kernelID, jOffset)
-}
+// func (s *BaseServer) AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte) {
+// 	return s.server.AddSourceKernelFrame(frames, kernelID, jOffset)
+// }
 
-func (s *BaseServer) RemoveSourceKernelFrame(frames [][]byte, jOffset int) (removed [][]byte) {
-	return s.server.RemoveSourceKernelFrame(frames, jOffset)
-}
-
-func (s *BaseServer) SkipIdentities(frames [][]byte) (types.JupyterFrames, int) {
-	return s.server.SkipIdentities(frames)
-}
+// func (s *BaseServer) RemoveSourceKernelFrame(frames [][]byte, jOffset int) (removed [][]byte) {
+// 	return s.server.RemoveSourceKernelFrame(frames, jOffset)
+// }
 
 func (s *BaseServer) Close() {
 	s.server.CancelCtx()

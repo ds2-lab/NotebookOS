@@ -1396,7 +1396,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *zmq4.Msg, kernel client
 	}
 
 	// Regenerate the signature.
-	framesWithoutIdentities, _ := kernel.SkipIdentities(msg.Frames)
+	framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(msg.Frames)
 	framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 
 	if verified := d.verifyFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {

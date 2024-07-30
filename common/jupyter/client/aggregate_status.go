@@ -165,7 +165,7 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 		publish(statusMsg.Msg, statusMsg.Status, statusMsg.How)
 	} else if s.sampleMsg != nil {
 		// TODO: Not working here, need to regenerate the signature.
-		jFrames, _ := s.kernel.SkipIdentities(s.sampleMsg.Frames)
+		jFrames, _ := types.SkipIdentitiesFrame(s.sampleMsg.Frames)
 		jFrames.ContentFrame().Set([]byte(fmt.Sprintf(KernelStatusFrameTemplate, status)))
 		jFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 		// s.kernel.log.Debug("Publishing sample status \"%v\" for kernel %s; how \"%v\"", status, s.kernel.id, s.sampleMsg)

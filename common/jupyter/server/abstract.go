@@ -32,60 +32,10 @@ var (
 type WaitResponseOptionGetter func(key string) interface{}
 
 type Sender interface {
-	RequestDest
+	types.RequestDest
 
 	// Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
-	SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error
-}
-
-// RequestDestination is an interface for describing the destination of a request.
-type RequestDest interface {
-	// ID returns the ID of the destination.
-	RequestDestID() string
-
-	// ExtractDestFrame extracts the destination info from the specified zmq4 frames.
-	// Returns the destination ID, request ID and the offset to the jupyter frames.
-	ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int)
-
-	// AddDestFrame adds the destination frame to the specified zmq4 frames,
-	// which should generate a unique request ID that can be extracted by ExtractDestFrame.
-	// Pass JOffsetAutoDetect to jOffset to let the function automatically detect the jupyter frames.
-	AddDestFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]byte, reqID string)
-
-	// RemoveDestFrame removes the destination frame from the specified zmq4 frames.
-	// Pass JOffsetAutoDetect to jOffset to let the function automatically detect the jupyter frames.
-	RemoveDestFrame(frames [][]byte, jOffset int) (oldFrams [][]byte)
-}
-
-// SourceKernel is an interface for describing the kernel from which a particular IO message originated.
-// This interface is designed similarly to the RequestDest interface.
-type SourceKernel interface {
-	// ID returns the ID of the destination.
-	SourceKernelID() string
-
-	// ExtractSourceKernelFrame extracts the source kernel info from the specified zmq4 frames.
-	// Returns the destination ID, request ID and the offset to the jupyter frames.
-	ExtractSourceKernelFrame(frames [][]byte) (destID string, jOffset int)
-
-	// AddSourceKernelFrame adds the source kernel to the specified zmq4 frames,
-	// which should generate a unique request ID that can be extracted by ExtractSourceKernelFrame.
-	// Pass JOffsetAutoDetect to jOffset to let the function automatically detect the jupyter frames.
-	AddSourceKernelFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]byte)
-
-	// RemoveSourceKernelFrame removes the source kernel frame from the specified zmq4 frames.
-	// Pass JOffsetAutoDetect to jOffset to let the function automatically detect the jupyter frames.
-	RemoveSourceKernelFrame(frames [][]byte, jOffset int) (oldFrams [][]byte)
-
-	ConnectionInfo() *types.ConnectionInfo
-}
-
-type Server interface {
-	ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int)
-
-	// GenerateKernelFrame appends a frame contains the kernel ID to the given ZMQ frames.
-	AddDestFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]byte, reqID string)
-
-	SkipIdentities(frames [][]byte) (types.JupyterFrames, int)
+	SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest types.RequestDest, sourceKernel types.SourceKernel, offset int) error
 }
 
 // AbstractServer implements the basic socket serving useful for a Jupyter server. Embed this struct in your server implementation.
@@ -225,13 +175,13 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 	return nil
 }
 
-func (s *AbstractServer) handleAck(msg *zmq4.Msg, dest RequestDest, rspId string, socket *types.Socket) {
+func (s *AbstractServer) handleAck(msg *zmq4.Msg, rspId string, socket *types.Socket) {
 	goroutineId := goid.Get()
 
 	s.numAcksReceived += 1
 
 	if len(rspId) == 0 {
-		_, rspId, _ = dest.ExtractDestFrame(msg.Frames) // Redundant, will optimize later.
+		_, rspId, _ = types.ExtractDestFrame(msg.Frames) // Redundant, will optimize later.
 	}
 
 	ackChan, _ := s.ackChannels.Load(rspId)
@@ -257,7 +207,7 @@ func (s *AbstractServer) handleAck(msg *zmq4.Msg, dest RequestDest, rspId string
 	}
 }
 
-func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest RequestDest) error {
+func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket) error {
 	goroutineId := goid.Get()
 
 	// If we should ACK the message, then we'll ACK it.
@@ -268,7 +218,7 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 
 	// s.Log.Debug("Message is of type %v and is NOT an ACK. Will send an ACK.", socket.Type)
 
-	dstId, rspId, jOffset := dest.ExtractDestFrame(msg.Frames)
+	dstId, rspId, jOffset := types.ExtractDestFrame(msg.Frames)
 	parentHeader, err := s.headerFromMessage(msg, jOffset)
 	if err != nil {
 		panic(err)
@@ -323,7 +273,7 @@ func (s *AbstractServer) sendAck(msg *zmq4.Msg, socket *types.Socket, dest Reque
 
 // Serve starts serving the socket with the specified handler.
 // The handler is passed as an argument to allow multiple sockets sharing the same handler.
-func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, dest RequestDest, handler types.MessageHandler, sendAcks bool) {
+func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, handler types.MessageHandler, sendAcks bool) {
 	goroutineId := goid.Get()
 
 	if !atomic.CompareAndSwapInt32(&socket.Serving, 0, 1) {
@@ -381,7 +331,6 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					panic(fmt.Sprintf("[gid=%d] Could not determine if message is an 'ACK'. Message: %v. Error: %v.", goroutineId, msg, err))
 				}
 
-				// _, rspId, _ := dest.ExtractDestFrame(v.Frames)
 				if (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && !is_ack {
 					firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Received %s \"%s\" message"), goroutineId, socket.Type, jMsg.Header.MsgType)
 					secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.Header.MsgID))
@@ -394,13 +343,13 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.Header.MsgID))
 					thirdPart := fmt.Sprintf(utils.GreenStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
 					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
-					s.handleAck(v, dest, jMsg.RequestId, socket)
+					s.handleAck(v, jMsg.RequestId, socket)
 					if contd != nil {
 						contd <- true
 					}
 					continue
 				} else if !is_ack && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
-					s.sendAck(v, socket, dest)
+					s.sendAck(v, socket)
 				}
 
 				err = handler(server, socket.Type, v)
@@ -473,6 +422,86 @@ func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
 	return s.ackChannels.LoadOrStore(reqId, make(chan struct{}, 1))
 }
 
+func (s *AbstractServer) RequestNew(request types.Request, socket *types.Socket) error {
+	goroutineId := goid.Get()
+
+	socket.InitPendingReq()
+
+	// Normalize the request, we do not assume that the types.RequestDest implements the auto-detect feature.
+	// _, reqId, jOffset := types.ExtractDestFrame(msg.Frames)
+	// if reqId == "" {
+	// 	msg.Frames, reqId = types.AddDestFrame(msg.Frames, dest.RequestDestID(), jOffset)
+	// }
+
+	// jMsg := types.NewJupyterMessage(msg)
+	// if jMsg == nil {
+	// 	panic(fmt.Sprintf("Could not convert message to JupyterMessage: %v", msg))
+	// }
+
+	jMsg := request.Payload()
+	reqId := request.RequestId()
+	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message from %s to %s [remoteSocket=%s].", goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.Header.MsgType, request.KernelId(), request.DestinationId(), socket.RemoteName)
+
+	// dest.Unlock()
+	_, alreadyRegistered := s.RegisterAck(request.RequestId())
+	if alreadyRegistered {
+		s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.Header.MsgType)
+	}
+
+	// Track the pending request.
+	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(request.MessageHandler(), request.DoneCallback()))
+
+	// Apply a default timeout
+	// var cancel context.CancelFunc
+	// if ctx.Done() == nil {
+	// 	ctx, cancel = context.WithTimeout(ctx, s.RequestTimeout)
+	// }
+	ctx, cancel := request.ContextAndCancel()
+
+	// Use Serve to support timeout;
+	// Late response will be ignored and serve routing will be stopped if no request is pending.
+	if atomic.LoadInt32(&socket.Serving) == 0 {
+		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, getOption, nil), s.ShouldAckMessages) // Pass nil as handler to discard any response without dest frame.
+	}
+
+	// TODO: This is sort of incompatible with the ACK system. If we're waiting for ACKs -- and especially if we timeout, recreate socket, and retry,
+	// then this may end up cancelling the request too early, or it'll happen multiple times. (We'll call the done() method multiple times.)
+	//
+	// Wait for timeout. Release the pending request, if it exists.
+	go func() {
+		<-ctx.Done()
+		err := ctx.Err()
+		if cancel != nil {
+			cancel()
+		}
+
+		// Clear pending request.
+		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
+			pending.Release()
+
+			if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
+				s.Log.Debug("Released pending request associated with %v request %s (%p), error: %v", socket.Type, reqId, jMsg, err)
+			}
+		}
+	}()
+
+	if err := s.SendMessage(request.RequiresAck(), socket, reqId, jMsg, sourceKernel, request.Offset()); err != nil {
+		s.Log.Debug("Error while sending %s \"%s\" message %s (Jupyter ID: %s): %v", socket.Type.String(), jMsg.Header.MsgType, reqId, jMsg.Header.MsgID, err)
+		// 	if cancel != nil {
+		// 		cancel()
+		// 	}
+
+		// Should we clear the pending request here? Should we call done() here?
+		// If we do, then the automatic reconnect code is sort of in the wrong place.
+		// We'd want it to be here, which could work, but this code here is more generic.
+		// We'd need a flag in AbstractServer indicating whether we should try to reconnect on failure.
+
+		return err
+	}
+
+	return nil
+}
+
 // Request sends the request and wait until receiving the response corresponding to the given request or timeout.
 // On being called, the function
 //
@@ -493,20 +522,20 @@ func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
 //   - server: The jupyter server instance that will be passed to the handler to get the socket for forwarding the response.
 //   - socket: The client socket to forward the request.
 //   - req: The request to be sent.
-//   - sourceKernel: Entity that implements the SourceKernel interface and thus can add the SourceKernel frame to the message.
+//   - sourceKernel: Entity that implements the types.SourceKernel interface and thus can add the types.SourceKernel frame to the message.
 //   - dest: The info of request destination that the WaitResponse can use to track individual request.
 //   - handler: The handler to handle the response.
 //   - getOption: The function to get the options.
 //   - requiresACK: If true, then we should expect an ACK for this message, and we should resend it if no ACK is receive before a timeout.
-func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, msg *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter, requiresACK bool) error {
+func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServerInfo, socket *types.Socket, msg *zmq4.Msg, dest types.RequestDest, sourceKernel types.SourceKernel, handler types.MessageHandler, done types.MessageDone, getOption WaitResponseOptionGetter, requiresACK bool) error {
 	goroutineId := goid.Get()
 
 	socket.InitPendingReq()
 
-	// Normalize the request, we do not assume that the RequestDest implements the auto-detect feature.
-	_, reqId, jOffset := dest.ExtractDestFrame(msg.Frames)
+	// Normalize the request, we do not assume that the types.RequestDest implements the auto-detect feature.
+	_, reqId, jOffset := types.ExtractDestFrame(msg.Frames)
 	if reqId == "" {
-		msg.Frames, reqId = dest.AddDestFrame(msg.Frames, dest.RequestDestID(), jOffset)
+		msg.Frames, reqId = types.AddDestFrame(msg.Frames, dest.RequestDestID(), jOffset)
 	}
 
 	jMsg := types.NewJupyterMessage(msg)
@@ -533,7 +562,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 	// Use Serve to support timeout;
 	// Late response will be ignored and serve routing will be stopped if no request is pending.
 	if atomic.LoadInt32(&socket.Serving) == 0 {
-		go s.Serve(server, socket, dest, s.getOneTimeMessageHandler(socket, dest, getOption, nil), s.ShouldAckMessages) // Pass nil as handler to discard any response without dest frame.
+		go s.Serve(server, socket, s.getOneTimeMessageHandler(socket, getOption, nil), s.ShouldAckMessages) // Pass nil as handler to discard any response without dest frame.
 	}
 
 	// TODO: This is sort of incompatible with the ACK system. If we're waiting for ACKs -- and especially if we timeout, recreate socket, and retry,
@@ -557,48 +586,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 		}
 	}()
 
-	// errorChan := make(chan error, 1)
-
-	// go func() {
-	// 	if sendError := s.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, jOffset); err != nil {
-	// 		s.Log.Debug("Error while sending %v message %s: %v", socket.Type, reqId, err)
-	// 		errorChan <- sendError
-	// 	} else {
-	// 		errorChan <- nil
-	// 	}
-	// }()
-
-	// select {
-	// case <-ctx.Done():
-	// 	{
-	// 		err = ctx.Err()
-	// 		s.Log.Error("Request %s has timed out.")
-
-	// 		if cancel != nil {
-	// 			cancel()
-	// 		}
-
-	// 		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
-	// 			pending.Release()
-
-	// 			if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-	// 				s.Log.Debug("Released pending request associated with %v request %s (%p), error: %v", socket.Type, reqId, jMsg, err)
-	// 			}
-	// 		}
-
-	// 		return err
-	// 	}
-	// case err = <-errorChan:
-	// 	{
-	// 		if err == nil {
-	// 			return nil
-	// 		}
-
-	// 		return err
-	// 	}
-	// }
-
-	if err := s.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, jOffset); err != nil {
+	if err := s.SendMessage(requiresACK, socket, reqId, jMsg, sourceKernel, jOffset); err != nil {
 		s.Log.Debug("Error while sending %s \"%s\" message %s (Jupyter ID: %s): %v", socket.Type.String(), jMsg.Header.MsgType, reqId, jMsg.Header.MsgID, err)
 		// 	if cancel != nil {
 		// 		cancel()
@@ -617,7 +605,7 @@ func (s *AbstractServer) Request(ctx context.Context, server types.JupyterServer
 
 // Update the timestamp of the message's header so that it is signed with a different signature.
 // This is used when re-sending un-ACK'd (unacknowledged) messages.
-func (s *AbstractServer) UpdateMessageHeader(msg *types.JupyterMessage, offset int, sourceKernel SourceKernel) error {
+func (s *AbstractServer) UpdateMessageHeader(msg *types.JupyterMessage, offset int, sourceKernel types.SourceKernel) error {
 	// We need to modify the message slightly to avoid a "duplicate signature" error.
 	// To do this, we'll simply increment the timestamp of the message's header by a single microsecond.
 	// We must first extract the header. After doing so, we'll re-encode the header with the new timestamp, and then regenerate the message's signature.
@@ -656,7 +644,7 @@ func (s *AbstractServer) UpdateMessageHeader(msg *types.JupyterMessage, offset i
 	}
 
 	// Regenerate the signature.
-	framesWithoutIdentities, _ := s.SkipIdentities(frames)
+	framesWithoutIdentities, _ := types.SkipIdentitiesFrame(frames)
 	framesWithoutIdentities, err = framesWithoutIdentities.Sign(sourceKernel.ConnectionInfo().SignatureScheme, []byte(sourceKernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 	if err != nil {
 		s.Log.Error("Failed to re-sign frames of message after updating date during ACK timeout because: %v", offset, err)
@@ -682,14 +670,14 @@ func (s *AbstractServer) waitForAck(ackChan chan struct{}, timeout time.Duration
 }
 
 // Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
-func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *types.JupyterMessage, dest RequestDest, sourceKernel SourceKernel, offset int) error {
+func (s *AbstractServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *types.JupyterMessage, sourceKernel types.SourceKernel, offset int) error {
 	goroutineId := goid.Get()
 
 	num_tries := 0
 	var max_num_tries int
 
 	if reqId == "" || offset <= 0 {
-		_, reqId, offset = s.ExtractDestFrame(req.Frames)
+		_, reqId, offset = types.ExtractDestFrame(req.Frames)
 	}
 
 	// If the message requires an ACK, then we'll try sending it multiple times.
@@ -779,46 +767,6 @@ func (s *AbstractServer) getSleepInterval(attempt int) time.Duration {
 	return next_sleep_interval
 }
 
-// Given a jOffset, attempt to extract a DestFrame from the given set of frames.
-func (s *AbstractServer) extractDestFrame(frames [][]byte, jOffset int) (destID string, reqID string) {
-	matches := jupyter.ZMQDestFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
-	if len(matches) > 0 {
-		destID = matches[1]
-		reqID = matches[2]
-	}
-
-	return
-}
-
-func (s *AbstractServer) ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int) {
-	_, jOffset = s.SkipIdentities(frames)
-	if jOffset > 0 {
-		destID, reqID = s.extractDestFrame(frames, jOffset)
-	}
-	return
-}
-
-// GenerateKernelFrame appends a frame contains the kernel ID to the given ZMQ frames.
-func (s *AbstractServer) AddDestFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]byte, reqID string) {
-	// Automatically detect the dest frame.
-	if jOffset == jupyter.JOffsetAutoDetect {
-		_, reqID, jOffset = s.ExtractDestFrame(frames)
-		// If the dest frame is already there, we are done.
-		if reqID != "" {
-			// s.Log.Debug("Destination frame found. ReqID: %s", reqID)
-			return frames, reqID
-		}
-	}
-
-	// Add dest frame just before "<IDS|MSG>" frame.
-	newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
-	copy(newFrames[jOffset+1:], frames[jOffset:])
-	reqID = uuid.New().String()
-	newFrames[jOffset] = []byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, destID, reqID))
-
-	return
-}
-
 func (s *AbstractServer) framesToString(frames [][]byte) string {
 	buf := new(bytes.Buffer)
 	buf.WriteString("Msg{Frames:{")
@@ -830,128 +778,6 @@ func (s *AbstractServer) framesToString(frames [][]byte) string {
 	}
 	buf.WriteString("}}")
 	return buf.String()
-}
-
-func (s *AbstractServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {
-	// Automatically detect the dest frame.
-	if jOffset == jupyter.JOffsetAutoDetect {
-		var reqID string
-		_, reqID, jOffset = s.ExtractDestFrame(frames)
-		// If the dest frame is not available, we are done.
-		if reqID == "" {
-			return frames
-		}
-	}
-
-	// Remove dest frame.
-	if jOffset > 0 {
-		copy(frames[jOffset-1:], frames[jOffset:])
-		frames[len(frames)-1] = nil
-		frames = frames[:len(frames)-1]
-	}
-	return frames
-}
-
-func (s *AbstractServer) ExtractSourceKernelFrame(frames [][]byte) (kernelID string, jOffset int) {
-	// _, jOffset = s.SkipIdentities(frames)
-	// if jOffset > 0 {
-	// 	// If there's no DEST frame, then the frame immediately preceeding the identities will be the "Source Kernel" frame.
-	// 	matches := ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
-	// 	if len(matches) > 0 {
-	// 		kernelID = matches[1]
-	// 		return
-	// 	}
-	// 	// Alternatively, there may be a DEST frame immediately preceeding the identities,
-	// 	// in which case we need to check the frame before the DEST frame.
-	// 	destID, reqID := s.extractDestFrame(frames, jOffset)
-
-	// 	// If these are non-empty strings, then there was indeed a Dest frame. So, we need to check the frame before that.
-	// 	if destID != "" && reqID != "" {
-	// 		jOffset = jOffset - 1 // Update this since we have to return it along with the kernel ID.
-
-	// 		// If the offset is now 0, then there's no preceeding frames, so we can just return.
-	// 		if jOffset == 0 {
-	// 			return
-	// 		}
-
-	// 		matches := ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
-	// 		if len(matches) > 0 {
-	// 			kernelID = matches[1]
-	// 			return
-	// 		}
-	// 	}
-	// }
-	// return
-
-	matches := jupyter.ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[0]))
-	if len(matches) > 0 {
-		kernelID = matches[1]
-	}
-
-	return
-}
-
-func (s *AbstractServer) AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte) {
-	// // Automatically detect the "source kernel" frame.
-	// if jOffset == JOffsetAutoDetect {
-	// 	var existingKernelID string
-	// 	existingKernelID, jOffset = s.ExtractSourceKernelFrame(frames)
-	// 	// If the "source kernel" frame is already there, we are done.
-	// 	if existingKernelID != "" {
-	// 		return
-	// 	}
-	// }
-
-	// // Add "source kernel" frame just before "<IDS|MSG>" frame.
-	// newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
-	// copy(newFrames[jOffset+1:], frames[jOffset:])
-	// newFrames[jOffset] = []byte(fmt.Sprintf(ZMQSourceKernelFrameFormatter, kernelID))
-	// return
-
-	// Add "source kernel" frame to the very beginning.
-	newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
-	copy(newFrames[1:], frames[0:])
-	newFrames[0] = []byte(fmt.Sprintf(jupyter.ZMQSourceKernelFrameFormatter, kernelID))
-	return
-}
-
-func (s *AbstractServer) RemoveSourceKernelFrame(frames [][]byte, jOffset int) (removed [][]byte) {
-	// Automatically detect the "source kernel" frame.
-	// if jOffset == JOffsetAutoDetect {
-	// 	var existingKernelID string
-	// 	existingKernelID, jOffset = s.ExtractSourceKernelFrame(frames)
-	// 	// If the "source kernel" frame is not available, we are done.
-	// 	if existingKernelID == "" {
-	// 		return frames
-	// 	}
-	// }
-
-	// // Remove "source kernel" frame.
-	// if jOffset > 0 {
-	// 	copy(frames[jOffset-1:], frames[jOffset:])
-	// 	frames[len(frames)-1] = nil
-	// 	frames = frames[:len(frames)-1]
-	// }
-
-	existingKernelID, _ := s.ExtractSourceKernelFrame(frames)
-	if existingKernelID != "" {
-		return frames[1:]
-	}
-
-	return frames
-}
-
-func (s *AbstractServer) SkipIdentities(frames [][]byte) (types.JupyterFrames, int) {
-	if len(frames) == 0 {
-		return frames, 0
-	}
-
-	i := 0
-	// Jupyter messages start from "<IDS|MSG>" frame.
-	for i < len(frames) && string(frames[i]) != "<IDS|MSG>" {
-		i++
-	}
-	return frames[i:], i
 }
 
 func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, contd <-chan bool) {
@@ -1019,7 +845,7 @@ func (s *AbstractServer) IsMessageAnAck(msg *zmq4.Msg, typ types.MessageType) (b
 		return false, nil
 	}
 
-	_, offset := s.SkipIdentities(msg.Frames)
+	_, offset := types.SkipIdentitiesFrame(msg.Frames)
 	header, err := s.headerFromMessage(msg, offset)
 	if err != nil {
 		return false, err
@@ -1028,7 +854,7 @@ func (s *AbstractServer) IsMessageAnAck(msg *zmq4.Msg, typ types.MessageType) (b
 	return (header.MsgType == jupyter.MessageTypeACK), nil
 }
 
-func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest RequestDest, getOption WaitResponseOptionGetter, defaultHandler types.MessageHandler) types.MessageHandler {
+func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, getOption WaitResponseOptionGetter, defaultHandler types.MessageHandler) types.MessageHandler {
 	return func(info types.JupyterServerInfo, msgType types.MessageType, msg *zmq4.Msg) error {
 		// This handler returns errServeOnce if any to indicate that the server should stop serving.
 		retErr := errServeOnce
@@ -1037,8 +863,8 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 		var handler types.MessageHandler
 
 		if pendings != nil {
-			// We do not assume that the RequestDest implements the auto-detect feature.
-			_, rspId, offset := dest.ExtractDestFrame(msg.Frames)
+			// We do not assume that the types.RequestDest implements the auto-detect feature.
+			_, rspId, offset := types.ExtractDestFrame(msg.Frames)
 			if rspId == "" {
 				s.Log.Warn("Unexpected response without request ID, fallback to default handler.")
 				// Unexpected response without request ID, fallback to default handler.
@@ -1049,7 +875,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 
 				// Automatically remove destination kernel ID frame.
 				if remove, _ := getOption(jupyter.WROptionRemoveDestFrame).(bool); remove {
-					msg.Frames = dest.RemoveDestFrame(msg.Frames, offset)
+					msg.Frames = types.RemoveDestFrame(msg.Frames, offset)
 				}
 
 				is_ack, err := s.IsMessageAnAck(msg, socket.Type)
@@ -1063,7 +889,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, dest Req
 				if is_ack {
 					s.Log.Debug(utils.GreenStyle.Render("[2] Received ACK for %v message %v via local socket %s [remoteSocket=%s]: %v"), socket.Type, rspId, socket.Name, socket.RemoteName, msg)
 					// s.Log.Debug("[2] Received ACK via %s: %v (%v): %v", socket.Name, rspId, socket.Type, msg)
-					s.handleAck(msg, dest, matchReqId, socket)
+					s.handleAck(msg, matchReqId, socket)
 					return nil
 				}
 

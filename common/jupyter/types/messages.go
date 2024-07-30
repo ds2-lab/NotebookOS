@@ -112,12 +112,6 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 		return nil
 	}
 
-	// offset := 0
-	// // Jupyter messages start from "<IDS|MSG>" frame.
-	// for offset < len(frames) && string(frames[offset]) != "<IDS|MSG>" {
-	// 	offset++
-	// }
-
 	destId, reqId, offset := extractDestFrame(msg.Frames)
 
 	var (

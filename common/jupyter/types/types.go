@@ -7,6 +7,8 @@ import (
 
 var (
 	ErrNotSupported                = fmt.Errorf("not supported")
+	ErrNoCancelConfigured          = fmt.Errorf("this request was not configured with a context that supported cancellation")
+	ErrRequestAlreadyCompleted     = fmt.Errorf("the request cannot be cancelled as it has already been completed")
 	ErrKernelNotLaunched           = fmt.Errorf("kernel not launched")
 	ErrKernelNotReady              = fmt.Errorf("kernel not ready")
 	ErrKernelClosed                = fmt.Errorf("kernel closed")

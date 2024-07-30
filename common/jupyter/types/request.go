@@ -1,0 +1,310 @@
+package types
+
+import (
+	"context"
+	"time"
+)
+
+const (
+	// The request has been created, but it has not yet been submitted.
+	RequestStateInit RequestState = "RequestInitializing"
+
+	// The request has been created and submitted, but we've not yet received an ACK.
+	RequestStateSubmitted RequestState = "RequestSubmitted"
+
+	// The request has been created, submitted, and ACK'd.
+	// We've not yet received a response for the request.
+	RequestStateProcessing RequestState = "RequestProcessing"
+
+	// An error state.
+	// The request timed-out, either because no ACK was received in time, or because
+	// no result was received in time (despite the request being ACK'd).
+	RequestStateTimedOut RequestState = "RequestTimedOut"
+
+	// The request was created, submitted, ACK'd (if ACKs are required), and the result was received.
+	// If no result is required, then a request enters the RequestStateComplete state after receiving an ACK.
+	// If no result is required AND no ACK is required, then a request enters the RequestStateComplete state after being sent without an error.
+	RequestStateComplete RequestState = "RequestComplete"
+
+	// The request was explicitly cancelled by the client.
+	RequestStateExplicitlyCancelled RequestState = "RequestExplicitlyCancelled"
+
+	// The request encountered some irrecoverable error while being sent (other than timing out).
+	RequestStateErred RequestState = "RequestErred"
+)
+
+type RequestState string
+
+// Interface representing a Request to be passed to Server::Request.
+// This interface is designed to encapsulate a number of options that may be passed to the Server::Request method.
+type Request interface {
+	// Return the associated Context.
+	Context() context.Context
+
+	// Return the associated cancel function, if one exists. Otherwise, return nil.
+	GetCancelFunc() context.CancelFunc
+
+	// Indicates whether the call to Server::Request block when issuing this request
+	// True indicates blocking; false indicates non-blocking (i.e., Server::Request will return immediately, rather than wait for a response for returning)
+	// Default: true
+	IsBlocking() bool
+
+	// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
+	// Default: 120 seconds (i.e., 2 minutes)
+	Timeout() time.Duration
+
+	// The maximum number of attempts allowed before giving up on sending the request.
+	// Default: 3
+	MaxNumAttempts() int
+
+	// This is not configurable.
+	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
+	RequestId() string
+
+	// Should the destination frame be automatically removed?
+	// Default: true
+	ShouldDestFrameBeRemoved() bool
+
+	// Should the request require ACKs
+	RequiresAck() bool
+
+	// The message itself.
+	Payload() *JupyterMessage
+
+	// Return the "done" callback for this request.
+	// This callback is executed when the response is received and the request is handled.
+	DoneCallback() MessageDone
+
+	// Return the handler that is called to process the response to this request.
+	MessageHandler() MessageHandler
+
+	// KernelID extracted from the request payload.
+	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
+	KernelId() string
+
+	// DestID extracted from the request payload.
+	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
+	DestinationId() string
+
+	// Offset/index of start of Jupyter frames within message frames.
+	Offset() int
+
+	// Return the associated Context and the associated cancel function, if one exists.
+	ContextAndCancel() (context.Context, context.CancelFunc)
+
+	// Return the current state of the request.
+	RequestState() RequestState
+
+	// Return true if the request has been ACK'd.
+	HasBeenAcknowledged() bool
+
+	// Return true if the request was completed successfully.
+	HasCompleted() bool
+
+	// Return true if the request timed-out.
+	// If it timed-out and was later submitted successfully, then this will be true.
+	TimedOut() bool
+
+	// Return true if the request is currently in the timed-out state.
+	IsTimedOut() bool
+
+	// Return true if the request was explicitly cancelled by the user.
+	WasExplicitlyCancelled() bool
+}
+
+// Encapsulates the state of a live, active request.
+type liveRequestState struct {
+	requestState RequestState
+
+	// Flag indicating whether the request was ever ACK'd.
+	// This allows us to recover this information if the request enters the RequestTimedOut state.
+	hasBeenAcknowledged bool
+
+	// Flag indicating whether the request timed out at least once.
+	timedOut bool
+
+	// Flag indicating whether the request encountered some irrecoverable error while being sent (other than timing out).
+	// If the request only timed out, then erred will be false.
+	erred bool
+
+	// The irrecoverable error encountered by the request. This will be nil if no such error was encountered.
+	err error
+
+	// Flag indicating whether the request was explicitly cancelled by the client.
+	wasExplicitlyCancelled bool
+}
+
+type basicRequest struct {
+	*liveRequestState
+
+	ctx context.Context
+
+	cancel context.CancelFunc
+
+	// True indicates that the request must be ACK'd by the recipient.
+	requiresAck bool
+
+	// How long to wait for the request to complete successfully.
+	// Completion is a stronger requirement than simply being ACK'd.
+	timeout time.Duration
+
+	// Should the call to Server::Request block when issuing this request?
+	// True if yes; otherwise, false.
+	isBlocking bool
+
+	// The maximum number of attempts allowed before giving up on sending the request.
+	maxNumAttempts int
+
+	// String that uniquely identifies this set of request options.
+	// This is not configurable; it is auto-generated when the request is built via RequestBuilder::BuildRequest.
+	requestId string
+
+	// Should the destination frame be automatically removed?
+	// If yes, then this should be true.
+	shouldDestFrameBeRemoved bool
+
+	// The actual payload.
+	payload *JupyterMessage
+
+	// This callback is executed when the response is received and the request is handled.
+	// TODO: Might be better to turn this into more of a "clean-up"? Or something?
+	doneCallback MessageDone
+
+	// The handler that is called to process the response to this request.
+	messageHandler MessageHandler
+
+	// KernelID extracted from the request payload.
+	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
+	kernelId string
+
+	// DestID extracted from the request payload.
+	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
+	destinationId string
+
+	// Offset/index of start of Jupyter frames within message frames.
+	jOffset int
+}
+
+// Should the call to Server::Request block when issuing this request?
+func (r *basicRequest) IsBlocking() bool {
+	return r.isBlocking
+}
+
+// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
+func (r *basicRequest) Timeout() time.Duration {
+	return r.timeout
+}
+
+// The maximum number of attempts allowed before giving up on sending the request.
+func (r *basicRequest) MaxNumAttempts() int {
+	return r.maxNumAttempts
+}
+
+// String that uniquely identifies this set of request options.
+// This is not configurable; it is auto-generated when the request is built via RequestBuilder::BuildRequest.
+func (r *basicRequest) RequestId() string {
+	return r.requestId
+}
+
+// Should the destination frame be automatically removed?
+func (r *basicRequest) ShouldDestFrameBeRemoved() bool {
+	return r.shouldDestFrameBeRemoved
+}
+
+// Should the request require ACKs
+func (r *basicRequest) RequiresAck() bool {
+	return r.requiresAck
+}
+
+// The message itself.
+func (r *basicRequest) Payload() *JupyterMessage {
+	return r.payload
+}
+
+// Return the "done" callback for this request.
+// This callback is executed when the response is received and the request is handled.
+func (r *basicRequest) DoneCallback() MessageDone {
+	return r.doneCallback
+}
+
+// Return the handler that is called to process the response to this request.
+func (r *basicRequest) MessageHandler() MessageHandler {
+	return r.messageHandler
+}
+
+// KernelID extracted from the request payload.
+// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
+func (r *basicRequest) KernelId() string {
+	return r.kernelId
+}
+
+// DestID extracted from the request payload.
+// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
+func (r *basicRequest) DestinationId() string {
+	return r.destinationId
+}
+
+// Return the associated Context.
+func (r *basicRequest) Context() context.Context {
+	return r.ctx
+}
+
+// Return the associated cancel function.
+func (r *basicRequest) GetCancelFunc() context.CancelFunc {
+	return r.cancel
+}
+
+// Cancel the request and return nil.
+// If the request is not cancellable, then return ErrNoCancelConfigured.
+// If the request has already been completed, then return ErrRequestAlreadyCompleted.
+func (r *basicRequest) Cancel() error {
+	if r.cancel != nil {
+		r.cancel()
+		r.liveRequestState.wasExplicitlyCancelled = true
+		return nil
+	}
+
+	// This probably shouldn't happen.
+	return ErrNoCancelConfigured
+}
+
+// Return the associated Context and the associated cancel function, if one exists.
+func (r *basicRequest) ContextAndCancel() (context.Context, context.CancelFunc) {
+	return r.ctx, r.cancel
+}
+
+// Offset/index of start of Jupyter frames within message frames.
+func (r *basicRequest) Offset() int {
+	return r.jOffset
+}
+
+// Return the current state of the request.
+func (r *basicRequest) RequestState() RequestState {
+	return r.requestState
+}
+
+// Return true if the request has been ACK'd.
+func (r *basicRequest) HasBeenAcknowledged() bool {
+	return r.liveRequestState.hasBeenAcknowledged
+}
+
+// Return true if the request was completed successfully.
+func (r *basicRequest) HasCompleted() bool {
+	return r.requestState == RequestStateComplete
+}
+
+// Return true if the request ever timed-out.
+// If it timed-out and was later submitted successfully, then this will be true.
+func (r *basicRequest) TimedOut() bool {
+	return r.liveRequestState.timedOut
+}
+
+// Return true if the request is currently in the timed-out state.
+func (r *basicRequest) IsTimedOut() bool {
+	return r.requestState == RequestStateTimedOut
+}
+
+// Return true if the request was explicitly cancelled by the user.
+func (r *basicRequest) WasExplicitlyCancelled() bool {
+	return r.liveRequestState.wasExplicitlyCancelled
+}

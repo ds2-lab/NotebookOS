@@ -880,7 +880,7 @@ func (c *kernelReplicaClientImpl) getWaitResponseOption(key string) interface{} 
 }
 
 func (c *kernelReplicaClientImpl) extractIOTopicFrame(msg *zmq4.Msg) (topic string, jFrames types.JupyterFrames) {
-	_, jOffset := c.SkipIdentities(msg.Frames)
+	_, jOffset := types.SkipIdentitiesFrame(msg.Frames)
 	jFrames = msg.Frames[jOffset:]
 	if jOffset == 0 {
 		return "", jFrames
