@@ -23,6 +23,7 @@ var (
 	heartbeatInterval = time.Second
 
 	ErrResourceSpecAlreadySet = errors.New("kernel already has a resource spec set")
+	ErrDeadlineExceeded       = errors.New("deadline for parent context has already been exceeded")
 )
 
 type SMRNodeReadyNotificationCallback func(KernelReplicaClient)
@@ -704,9 +705,29 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 		return err
 	}
 
+	var timeout time.Duration
+	if deadline, ok := parentContext.Deadline(); ok {
+		// If there's a deadline associated with the parent context, then we'll use that to compute a timeout for this request (that matches the deadline of the parent).
+		timeout = time.Until(deadline)
+
+		if timeout < 0 {
+			c.log.Error("The deadline of %v for parent context of %v request has already been exceeded (current time = %v): %v", deadline, typ.String(), time.Now(), msg)
+			return ErrDeadlineExceeded
+		}
+	} else if parentContext.Done() == nil {
+		// If the done channel of the parent context is nil, then that means there's no timeout associated with the context.
+		// In that case, we'll use the default request timeout.
+		timeout = types.DefaultRequestTimeout
+	} else {
+		c.log.Error("Unexpected case for %s message: %v", typ.String(), msg)
+		panic("Unexpected case")
+	}
+
 	builder := types.NewRequestBuilder(parentContext, c.id, c.id, c.client.Meta).
 		WithAckRequired(types.ShouldMessageRequireAck(typ)).
+		WithMessageType(typ).
 		WithBlocking(true).
+		WithTimeout(timeout).
 		WithDoneCallback(done).
 		WithMessageHandler(wrappedHandler).
 		WithNumAttempts(3).

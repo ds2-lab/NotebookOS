@@ -486,6 +486,10 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 			cancel()
 		}
 
+		if errors.Is(err, context.DeadlineExceeded) {
+			request.SetTimedOut()
+		}
+
 		// Clear pending request.
 		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
 			pending.Release()
@@ -554,7 +558,7 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 		}
 
 		if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-			firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sent %v \"%s\" message with"), goroutineId, socket.Type, request.JupyterMessageType())
+			firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sent %s \"%s\" message with"), goroutineId, socket.Type.String(), request.JupyterMessageType())
 			secondPart := fmt.Sprintf("reqID=%v (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
 			thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("via %s. Attempt %d/%d. Message: %v"), socket.Name, num_tries+1, max_num_tries, request.Payload().Msg)
 			s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
@@ -563,6 +567,11 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 		// If an ACK is required, then we'll block until the ACK is received, or until timing out, at which point we'll try sending the message again.
 		if requiresACK {
 			success := s.waitForAck(ackChan, time.Second*5)
+
+			_, err := request.SetProcessing()
+			if err != nil {
+				panic(fmt.Sprintf("Request transition failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
+			}
 
 			if success {
 				if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {

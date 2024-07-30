@@ -188,8 +188,10 @@ var _ = Describe("AbstractServer", func() {
 			}
 
 			builder := types.NewRequestBuilder(context.Background(), client.id, client.id, client.ConnectionInfo()).
-				WithAckRequired(true).
+				// WithAckRequired(true).
+				WithMessageType(types.ShellMessage).
 				WithBlocking(true).
+				WithTimeout(types.DefaultRequestTimeout).
 				WithDoneCallback(types.DefaultDoneHandler).
 				WithMessageHandler(clientHandleMessage).
 				WithNumAttempts(3).
@@ -309,8 +311,10 @@ var _ = Describe("AbstractServer", func() {
 			}
 
 			builder := types.NewRequestBuilder(context.Background(), client.id, client.id, client.ConnectionInfo()).
-				WithAckRequired(true).
+				// WithAckRequired(true).
+				WithMessageType(types.ShellMessage).
 				WithBlocking(true).
+				WithTimeout(types.DefaultRequestTimeout).
 				WithDoneCallback(types.DefaultDoneHandler).
 				WithMessageHandler(clientHandleMessage).
 				WithNumAttempts(3).

@@ -1573,9 +1573,9 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 		requiresAck    bool
 	)
 
+	kernelClient := from.(client.KernelReplicaClient)
 	socket := from.Socket(typ)
 	if socket == nil {
-		connectionInfo = d.router.ConnectionInfo()
 		requiresAck = d.router.ShouldAckMessages()
 
 		socket = d.router.Socket(typ)
@@ -1590,14 +1590,14 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 		// The socket belongs to the router, hence we use that server.
 		sender = d.router
 	} else {
-		kernelClient := from.(client.KernelReplicaClient)
-
 		// Use the kernel client as the server to forward the kernel's response to the cluster gateway.
 		// The socket belongs to the kernel client's server, hence we use that server.
 		sender = kernelClient
-		connectionInfo = kernelClient.ConnectionInfo()
 		requiresAck = kernelClient.ShouldAckMessages()
 	}
+
+	// We always want to use the connection information from the kernel client.
+	connectionInfo = kernelClient.ConnectionInfo()
 
 	if socket == nil {
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
@@ -1614,8 +1614,10 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 	}
 
 	builder := jupyter.NewRequestBuilder(context.Background(), from.ID(), from.ID(), connectionInfo).
-		WithAckRequired(jupyter.ShouldMessageRequireAck(typ) && requiresAck).
+		// WithAckRequired(jupyter.ShouldMessageRequireAck(typ) && requiresAck).
+		WithMessageType(typ).
 		WithBlocking(true).
+		WithTimeout(jupyter.DefaultRequestTimeout).
 		WithDoneCallback(jupyter.DefaultDoneHandler).
 		WithMessageHandler(jupyter.DefaultMessageHandler).
 		WithNumAttempts(3).

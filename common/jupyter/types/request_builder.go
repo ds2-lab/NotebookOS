@@ -12,6 +12,10 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 )
 
+const (
+	DefaultRequestTimeout time.Duration = time.Second * 120
+)
+
 var (
 	errPayloadMissing        = errors.New("request payload")
 	errDoneCallbackMissing   = errors.New("done callback")
@@ -79,6 +83,9 @@ type RequestBuilder struct {
 	// The entity responsible for providing access to sockets in the request handler.
 	socketProvider JupyterServerInfo
 
+	// The MessageType of the request.
+	messageType MessageType
+
 	// The function to get the options.
 	// getOption WaitResponseOptionGetter
 
@@ -111,9 +118,9 @@ type RequestBuilder struct {
 // Create a new RequestBuilder, passing in an optional parent context and the ID of the source of the message, which will usually be a kernel.
 func NewRequestBuilder(parentContext context.Context, sourceId string, destId string, connectionInfo *ConnectionInfo) *RequestBuilder {
 	builder := &RequestBuilder{
-		requiresAck:              true,
+		// requiresAck:              true,
 		isBlocking:               true,
-		timeout:                  time.Second * 120, // Default value
+		timeout:                  DefaultRequestTimeout, // Default value
 		hasTimeout:               false,
 		maxNumAttempts:           3,
 		shouldDestFrameBeRemoved: true,
@@ -195,6 +202,12 @@ func (b *RequestBuilder) WithPayload(msg *zmq4.Msg) *RequestBuilder {
 	b.payload = NewJupyterMessage(msg)
 	b.requestId = reqId
 
+	return b
+}
+
+// Configure the message type of the request.
+func (b *RequestBuilder) WithMessageType(messageType MessageType) *RequestBuilder {
+	b.messageType = messageType
 	return b
 }
 
@@ -292,6 +305,13 @@ func (b *RequestBuilder) BuildRequest() (Request, error) {
 		return nil, fmt.Errorf("%w: MaxNumAttempts is equal to %d; value must be > 0", errInvalidParameter, b.maxNumAttempts)
 	}
 
+	// Although this is a little complicated, this IS a possibility.
+	// Depending on where this request is originating, we may or may not want to require ACKs for this message.
+	if (b.messageType == ShellMessage || b.messageType == ControlMessage) && !b.requiresAck {
+		b.log.Error("Request is of type %v; however, requiresACK is false.", b.messageType)
+		return nil, fmt.Errorf("%w: Request is of type %v; however, requiresACK is false", errInvalidParameter, b.messageType)
+	}
+
 	req := &basicRequest{
 		liveRequestState: &liveRequestState{
 			requestState:        RequestStateInit,
@@ -301,7 +321,6 @@ func (b *RequestBuilder) BuildRequest() (Request, error) {
 			err:                 nil,
 		},
 		requestId:                b.payload.RequestId,
-		requiresAck:              b.requiresAck,
 		timeout:                  b.timeout,
 		isBlocking:               b.isBlocking,
 		maxNumAttempts:           b.maxNumAttempts,
@@ -314,6 +333,8 @@ func (b *RequestBuilder) BuildRequest() (Request, error) {
 		connectionInfo:           b.connectionInfo,
 		parentContext:            b.parentContext,
 		socketProvider:           b.socketProvider,
+		messageType:              b.messageType,
+		requiresAck:              b.requiresAck,
 	}
 
 	var (
