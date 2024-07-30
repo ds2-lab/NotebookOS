@@ -99,8 +99,6 @@ type DistributedKernelClient interface {
 
 	IOPubListenPort() int
 
-	RequestDestID() string
-
 	// Return the name of the Kubernetes Pod hosting the replica.
 	PodName(id int32) (string, error)
 
@@ -285,10 +283,6 @@ func (c *distributedKernelClientImpl) String() string {
 
 // MetaSession implementations.
 func (c *distributedKernelClientImpl) ID() string {
-	return c.id
-}
-
-func (c *distributedKernelClientImpl) RequestDestID() string {
 	return c.id
 }
 
@@ -777,9 +771,9 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
 	_, reqId, jOffset := types.ExtractDestFrame(msg.Frames)
 	if reqId == "" {
-		c.log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %v.", c.RequestDestID(), jOffset, types.JupyterFrames(msg.Frames).String())
-		msg.Frames, _ = types.AddDestFrame(msg.Frames, c.RequestDestID(), jOffset)
-		c.log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", c.RequestDestID(), jOffset, types.JupyterFrames(msg.Frames).String())
+		c.log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %v.", c.id, jOffset, types.JupyterFrames(msg.Frames).String())
+		msg.Frames, _ = types.AddDestFrame(msg.Frames, c.id, jOffset)
+		c.log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", c.id, jOffset, types.JupyterFrames(msg.Frames).String())
 	}
 
 	var wg sync.WaitGroup

@@ -31,7 +31,6 @@ type SMRNodeUpdatedNotificationCallback func(*types.MessageSMRNodeUpdated) // Fo
 // KernelReplicaClient offers a simple interface to communicate with a kernel replica.
 type KernelReplicaClient interface {
 	core.Kernel
-	types.SourceKernel
 	server.Sender
 
 	// InitializeIOForwarder initializes the IOPub serving.
@@ -40,6 +39,9 @@ type KernelReplicaClient interface {
 	// InitializeIOForwarder initializes the IOPub serving.
 	// Returns Pub socket, Sub socket, error.
 	InitializeIOForwarder() (*types.Socket, error)
+
+	// Return true if this kernel replica client is configured to ACK messages.
+	ShouldAckMessages() bool
 
 	// Initialize the ZMQ SUB socket for handling IO messages from the Jupyter kernel.
 	// If the provided types.MessageHandler parameter is nil, then we will use the default handler. (The default handler is kernelReplicaClientImpl::InitializeIOSub.)
@@ -55,8 +57,6 @@ type KernelReplicaClient interface {
 
 	// Set the Host of the kernel.
 	SetHost(core.Host)
-
-	RequestDestID() string
 
 	// Return the name of the Kubernetes Pod hosting the replica.
 	PodName() string
@@ -139,11 +139,6 @@ type ConnectionRevalidationFailedCallback func(replica KernelReplicaClient, msg 
 // If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
 // then this method is called.
 type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica KernelReplicaClient, msg *zmq4.Msg, err error)
-
-// Helper function. Only shell and control messages should require ACKs.
-func shouldMessageRequireAck(typ types.MessageType) bool {
-	return typ == types.ShellMessage || typ == types.ControlMessage
-}
 
 // Implementation of the KernelReplicaClient interface.
 //
@@ -305,6 +300,10 @@ func (c *kernelReplicaClientImpl) recreateShellSocket() *types.Socket {
 	return new_socket
 }
 
+func (c *kernelReplicaClientImpl) ShouldAckMessages() bool {
+	return c.client.ShouldAckMessages
+}
+
 // Recreate and return the kernel's stdin socket.
 // This reuses the handler on the existing/previous stdin socket.
 func (c *kernelReplicaClientImpl) recreateStdinSocket() *types.Socket {
@@ -418,10 +417,6 @@ func (c *kernelReplicaClientImpl) SupposedToYieldNextExecutionRequest() bool {
 
 // ID returns the kernel ID.
 func (c *kernelReplicaClientImpl) ID() string {
-	return c.id
-}
-
-func (c *kernelReplicaClientImpl) RequestDestID() string {
 	return c.id
 }
 
@@ -710,12 +705,13 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 	}
 
 	builder := types.NewRequestBuilder(parentContext, c.id, c.id, c.client.Meta).
-		WithAckRequired(shouldMessageRequireAck(typ)).
+		WithAckRequired(types.ShouldMessageRequireAck(typ)).
 		WithBlocking(true).
 		WithDoneCallback(done).
 		WithMessageHandler(wrappedHandler).
 		WithNumAttempts(3).
 		WithPayload(msg).
+		WithSocketProvider(c).
 		WithRemoveDestFrame(getOption(jupyter.WROptionRemoveDestFrame).(bool))
 	request, err := builder.BuildRequest()
 	if err != nil {
