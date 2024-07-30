@@ -475,6 +475,35 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 		go s.Serve(request.SocketProvider(), socket, s.getOneTimeMessageHandler(socket, request.ShouldDestFrameBeRemoved(), nil)) // Pass nil as handler to discard any response without dest frame.
 	}
 
+	var cleaned int32 = 0
+	cleanUpRequest := func() {
+		// Claim the responsibility of cleaning up the request.
+		//
+		// The first goroutine to get here will clean the request, and this necessarily avoids the potential
+		// race in which we clean up the pending request after we've already started resubmitting it.
+		//
+		// If the goroutine waiting on <-ctx.Done() gets here first, then it's fine.
+		// If the goroutine executing the AbstractServer::SendMessage method gets here first,
+		// then the pending request will be claimed and cleaned-up, and we can safely begin
+		// to resubmit the pending request without fear that the <-ctx.Done() thread will
+		// attempt to clean up while we're resubmitting.
+		//
+		// This assumes that I know how closures in Golang work.
+		if atomic.CompareAndSwapInt32(&cleaned, 0, 1) {
+			return
+		}
+
+		// Clear pending request.
+		// TODO(Ben): There is conceivably a race here in which we call the code below AFTER we begin resubmitting the request, which causes it to be prematurely released.
+		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
+			pending.Release()
+
+			if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
+				s.Log.Debug("Released pending request associated with %v request %s (%p), error: %v", socket.Type, reqId, jMsg, err)
+			}
+		}
+	}
+
 	// TODO: This is sort of incompatible with the ACK system. If we're waiting for ACKs -- and especially if we timeout, recreate socket, and retry,
 	// then this may end up cancelling the request too early, or it'll happen multiple times. (We'll call the done() method multiple times.)
 	//
@@ -491,13 +520,8 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 		}
 
 		// Clear pending request.
-		if pending, exist := socket.PendingReq.LoadAndDelete(reqId); exist {
-			pending.Release()
-
-			if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-				s.Log.Debug("Released pending request associated with %v request %s (%p), error: %v", socket.Type, reqId, jMsg, err)
-			}
-		}
+		// TODO(Ben): There is conceivably a race here in which we call the code below AFTER we begin resubmitting the request, which causes it to be prematurely released.
+		cleanUpRequest()
 	}()
 
 	if err := s.SendMessage(request, socket); err != nil {
@@ -505,6 +529,8 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 		if cancel != nil {
 			cancel()
 		}
+
+		cleanUpRequest()
 
 		// Should we clear the pending request here? Should we call done() here?
 		// If we do, then the automatic reconnect code is sort of in the wrong place.
