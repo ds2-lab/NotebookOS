@@ -43,3 +43,4 @@ gpus-per-host: 8
 local_mode: false
 deployment_mode: "docker"
 debug_port: 9996
+docker-storage-base: "/storage"

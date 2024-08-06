@@ -44,7 +44,7 @@ services:
     #  dockerfile: Dockerfile
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
-    image: scusemua/gateway
+    image: scusemua/gateway:latest
     labels:
       app: "distributed_cluster"
     volumes:
@@ -71,10 +71,10 @@ services:
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=/home/$USER/kernel_storage
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
-    build:
-      context: ./local_daemon
-      dockerfile: Dockerfile
-    image: scusemua/daemon
+    # build:
+    #   context: ./local_daemon
+    #   dockerfile: Dockerfile
+    image: scusemua/daemon:latest
     labels:
       app: "distributed_cluster"
     volumes:

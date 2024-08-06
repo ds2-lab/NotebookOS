@@ -97,6 +97,9 @@ type SchedulerDaemonImpl struct {
 	// Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
 	hdfsNameNodeEndpoint string
 
+	// Base directory in which the persistent store data is stored when running in docker mode.
+	dockerStorageBase string
+
 	// Kubernetes or Docker.
 	deploymentMode types.DeploymentMode
 
@@ -148,6 +151,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		virtualGpuPluginServer:       virtualGpuPluginServer,
 		deploymentMode:               types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
 		hdfsNameNodeEndpoint:         schedulerDaemonOptions.HDFSNameNodeEndpoint,
+		dockerStorageBase:            schedulerDaemonOptions.DockerStorageBase,
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -349,7 +353,13 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		kernelConnectionInfo        *gateway.KernelConnectionInfo
 	)
 	if d.deploymentMode == types.KubernetesMode {
-		invoker := invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint, -1)
+		invokerOpts := &invoker.DockerInvokerOptions{
+			HdfsNameNodeEndpoint: d.hdfsNameNodeEndpoint,
+			KernelDebugPort:      -1,
+			DockerStorageBase:    d.dockerStorageBase,
+		}
+
+		invoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts)
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
 		kernel = client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
@@ -957,7 +967,12 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 
 	var kernelInvoker invoker.KernelInvoker
 	if d.DockerMode() {
-		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, d.hdfsNameNodeEndpoint, int(in.DockerModeKernelDebugPort))
+		invokerOpts := &invoker.DockerInvokerOptions{
+			HdfsNameNodeEndpoint: d.hdfsNameNodeEndpoint,
+			KernelDebugPort:      int(in.DockerModeKernelDebugPort),
+			DockerStorageBase:    d.dockerStorageBase,
+		}
+		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts)
 
 		d.kernelDebugPorts.Store(kernelId, int(in.DockerModeKernelDebugPort))
 	} else if d.LocalMode() {

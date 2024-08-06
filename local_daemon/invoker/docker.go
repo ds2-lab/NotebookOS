@@ -57,7 +57,6 @@ const (
 )
 
 var (
-	dockerStorageBase = "/storage"
 	// dockerInvokerCmd  = "docker run -d --rm --name {container_name} -v {connection_file}:{connection_file} -v {storage}:/storage -v {config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
@@ -72,7 +71,8 @@ var (
 
 type DockerInvoker struct {
 	LocalInvoker
-	dockerOpts           *jupyter.ConnectionInfo
+	connInfo             *jupyter.ConnectionInfo
+	opts                 *DockerInvokerOptions
 	tempBase             string
 	invokerCmd           string // Command used to create the Docker container.
 	containerName        string // Name of the launched container; this is the empty string before the container is launched.
@@ -82,28 +82,37 @@ type DockerInvoker struct {
 	id                   string // Uniquely identifies this Invoker instance.
 	kernelDebugPort      int    // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
 	hdfsNameNodeEndpoint string // Endpoint of the HDFS namenode.
+	dockerStorageBase    string // Base directory in which the persistent store data is stored.
 }
 
-func NewDockerInvoker(opts *jupyter.ConnectionInfo, hdfsNameNodeEndpoint string, kernelDebugPort int) *DockerInvoker {
+type DockerInvokerOptions struct {
+	HdfsNameNodeEndpoint string // Endpoint of the HDFS namenode.
+	KernelDebugPort      int    // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	DockerStorageBase    string // Base directory in which the persistent store data is stored when running in docker mode.
+}
+
+func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions) *DockerInvoker {
 	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
 	if smrPort == 0 {
 		smrPort = KernelSMRPortDefault
 	}
 
-	if len(hdfsNameNodeEndpoint) == 0 {
+	if len(opts.HdfsNameNodeEndpoint) == 0 {
 		panic("HDFS NameNode endpoint is empty.")
 	}
 
 	var dockerNetworkName string = os.Getenv(DockerNetworkNameEnv)
 
 	invoker := &DockerInvoker{
-		dockerOpts:           opts,
+		connInfo:             connInfo,
+		opts:                 opts,
 		tempBase:             utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
 		smrPort:              smrPort,
-		hdfsNameNodeEndpoint: hdfsNameNodeEndpoint,
+		hdfsNameNodeEndpoint: opts.HdfsNameNodeEndpoint,
 		id:                   uuid.NewString(),
-		kernelDebugPort:      kernelDebugPort,
+		kernelDebugPort:      opts.KernelDebugPort,
 		dockerNetworkName:    dockerNetworkName,
+		dockerStorageBase:    opts.DockerStorageBase,
 	}
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
@@ -372,12 +381,12 @@ func (ivk *DockerInvoker) prepareConnectionInfo(spec *gateway.KernelSpec) (*jupy
 	connectionInfo := &jupyter.ConnectionInfo{
 		IP:              "0.0.0.0",
 		Transport:       "tcp",
-		ControlPort:     ivk.dockerOpts.ControlPort,
-		ShellPort:       ivk.dockerOpts.ShellPort,
-		StdinPort:       ivk.dockerOpts.StdinPort,
-		HBPort:          ivk.dockerOpts.HBPort,
-		IOSubPort:       ivk.dockerOpts.IOSubPort,
-		IOPubPort:       ivk.dockerOpts.IOPubPort,
+		ControlPort:     ivk.connInfo.ControlPort,
+		ShellPort:       ivk.connInfo.ShellPort,
+		StdinPort:       ivk.connInfo.StdinPort,
+		HBPort:          ivk.connInfo.HBPort,
+		IOSubPort:       ivk.connInfo.IOSubPort,
+		IOPubPort:       ivk.connInfo.IOPubPort,
 		SignatureScheme: spec.SignatureScheme,
 		Key:             spec.Key,
 	}
@@ -394,7 +403,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *gateway.KernelReplicaSpec) (*j
 
 	file := &jupyter.ConfigFile{
 		DistributedKernelConfig: jupyter.DistributedKernelConfig{
-			StorageBase:             dockerStorageBase,
+			StorageBase:             ivk.dockerStorageBase,
 			SMRNodeID:               int(spec.ReplicaId),
 			SMRNodes:                spec.Replicas,
 			SMRJoin:                 spec.Join,

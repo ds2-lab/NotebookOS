@@ -1,6 +1,12 @@
 # FROM debian:bullseye:latest
 FROM debian:bookworm
 
+ARG USER_ID
+ARG GROUP_ID
+
+RUN addgroup --gid $GROUP_ID hostuser
+RUN adduser --disabled-password --gecos '' --uid $USER_ID --gid $GROUP_ID hostuser
+
 RUN apt-get update && apt-get -y install ca-certificates openssh-client wget
 
 # ensure that nsswitch.conf is set up for Go's "netgo" implementation (which Docker explicitly uses)
@@ -9,7 +15,7 @@ RUN apt-get update && apt-get -y install ca-certificates openssh-client wget
 # - docker run --rm debian:stretch grep '^hosts:' /etc/nsswitch.conf
 # RUN [ -e /etc/nsswitch.conf ] && grep '^hosts: files dns' /etc/nsswitch.conf
 
-ENV DOCKER_VERSION 24.0.7
+ENV DOCKER_VERSION=24.0.7
 
 RUN set -eux; \
 	\
@@ -43,7 +49,7 @@ RUN set -eux; \
 	\
 	docker --version
 
-ENV DOCKER_BUILDX_VERSION 0.12.0
+ENV DOCKER_BUILDX_VERSION=0.12.0
 RUN set -eux; \
 	\
 	dpkgArch="$(dpkg --print-architecture)"; \
@@ -89,7 +95,7 @@ RUN set -eux; \
 	\
 	docker buildx version
 
-ENV DOCKER_COMPOSE_VERSION 2.23.3
+ENV DOCKER_COMPOSE_VERSION=2.23.3
 RUN set -eux; \
 	\
 	dpkgArch="$(dpkg --print-architecture)"; \
@@ -159,6 +165,7 @@ RUN set -eux; \
 	iptables \
 	openssl \
 	# shadow \
+	make \
 	uidmap \
 	xfsprogs \
 	xz-utils \
@@ -219,7 +226,7 @@ RUN set -eux; \
 	runc --version
 
 # https://github.com/docker/docker/tree/master/hack/dind
-ENV DIND_COMMIT 65cfcc28ab37cb75e1560e4b4738719c07c6618e
+ENV DIND_COMMIT=65cfcc28ab37cb75e1560e4b4738719c07c6618e
 
 RUN set -eux; \
 	wget -O /usr/local/bin/dind "https://raw.githubusercontent.com/docker/docker/${DIND_COMMIT}/hack/dind"; \
@@ -227,8 +234,13 @@ RUN set -eux; \
 
 COPY dockerd-entrypoint.sh /usr/local/bin/
 
+RUN cd /tmp && wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+ENV PATH=$PATH:/usr/local/go/bin
+
 VOLUME /var/lib/docker
 EXPOSE 2375 2376
+
+USER hostuser
 
 ENTRYPOINT ["dockerd-entrypoint.sh"]
 CMD []

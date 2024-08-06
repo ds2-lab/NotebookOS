@@ -224,7 +224,7 @@ go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 python3.11 -m pip install --user grpcio-tools
 python3 -m pip install --user grpcio-tools
 
-cd ~/go/pkg
+pushd ~/go/pkg
 
 if ! command stat zmq4 &> /dev/null; then 
     git clone https://github.com/go-zeromq/zmq4.git
@@ -237,6 +237,8 @@ fi
 if ! command stat distributed-notebook &> /dev/null; then 
     git clone https://github.com/zhangjyr/distributed-notebook.git
 fi 
+
+popd
 
 ###############
 # Hadoop HDFS #

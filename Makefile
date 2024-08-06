@@ -1,5 +1,8 @@
 PYTHON=python3
 PIP=$(PYTHON) -m pip
+DOCKER_USER = scusemua/
+
+_GOPATH=$(shell go env GOPATH)
 
 all: build
 
@@ -39,7 +42,17 @@ build-smr-linux-amd64:
 	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out scusemua/gopy /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-amd64"
 
 build-gateway:
-	docker run -it --rm -v `pwd`:/go/src/in -v `pwd`:/out scusemua/dist-notebook-base /bin/bash -c "cd /go/src/in/distributed_notebook && make build-smr-linux-amd64"
+	@echo "Building 'gateway' component within base docker image '$(DOCKER_USER)dist-notebook-base:latest'"
+	docker run -it --rm -v $(_GOPATH)/pkg/zmq4:/go/pkg/zmq4 -v `pwd`:/go/pkg/distributed_notebook -v `pwd`:/out $(DOCKER_USER)dist-notebook-base:latest /bin/bash -c "cd /go/pkg/distributed_notebook/dockfiles/gateway && make build-gateway-linux"
+
+gateway: build-gateway 
+
+build-local_daemon:
+	@echo "Building 'local daemon' component within base docker image '$(DOCKER_USER)dist-notebook-base:latest'"
+	docker run -it --rm -v $(_GOPATH)/pkg/zmq4:/go/pkg/zmq4 -v `pwd`:/go/pkg/distributed_notebook -v `pwd`:/out $(DOCKER_USER)dist-notebook-base:latest /bin/bash -c "cd /go/pkg/distributed_notebook/dockfiles/local_daemon && make build-local-daemon-linux"
+
+local-daemon: build-local_daemon 
+local_daemon: build-local_daemon 
 
 install-kernel:
 	./install_kernel.sh
@@ -77,23 +90,23 @@ endif
 
 build-grpc: build-grpc-go build-grpc-python
 
-build-gateway:
-	go build -o bin/gateway ./gateway
+# build-gateway:
+# 	go build -o bin/gateway ./gateway
 
-build-local-daemon:
-	go build -o bin/local_daemon ./local_daemon
+# build-local-daemon:
+# 	go build -o bin/local_daemon ./local_daemon
 
 build-scheduler-extender:
 	go build -o bin/scheduler_extender ./scheduler_extender
 
-gateway: build-gateway
-	bin/gateway
+# gateway: build-gateway
+# 	bin/gateway
 
-local_daemon: build-local-daemon
-	bin/local_daemon
+# local_daemon: build-local-daemon
+# 	bin/local_daemon
 	
-scheduler-extender: build-scheduler-extender
-	bin/scheduler_extender
+# scheduler-extender: build-scheduler-extender
+# 	bin/scheduler_extender
 
 test:
 	cd distributed_notebook && pytest
