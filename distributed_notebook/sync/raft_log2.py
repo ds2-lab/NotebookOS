@@ -825,8 +825,10 @@ class RaftLog(object):
     def _get_or_create_election(self, term_number:int = -1, latest_attempt_number:int = -1):
         """
         First, try to create and register a new election with the given term number.
-        If the current election has the same term number and is in the failed state, then we'll just re-use that election.
-        In particular, we'll end up restarting it.
+        If the current election has the same term number and is in the failed state, then we'll just restart and re-use that election.
+        If the current election has the same term number and is in the active state, then we'll verify that it has already received at least one proposal.
+            Specifically, it should have already received at least one proposal, which would've prompted either the creation of the election, or the restart of the election.
+            If it does not have any proposals already, then that indicates that there is a bug/error.
 
         This modifies the following fields:
             - self._elections
