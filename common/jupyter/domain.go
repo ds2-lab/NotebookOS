@@ -8,11 +8,11 @@ import (
 
 var (
 	DefaultRequestTimeout  = 2 * time.Second
-	ZMQDestFrameFormatter  = "dest.%s.req.%s"                                              // dest.<kernel-id>.req.<req-id>
-	ZMQDestFrameRecognizer = regexp.MustCompile(`^dest\.([0-9a-z-]+)\.req\.([0-9a-z-]+)$`) // Changed from a-f to a-z, as IDs can now be arbitrary strings, not just UUIDs.
+	ZMQDestFrameFormatter  = "dest.%s.req.%s"                                               // dest.<kernel-id>.req.<req-id>
+	ZMQDestFrameRecognizer = regexp.MustCompile(`^dest\.([0-9a-z-_]+)\.req\.([0-9a-z-]+)$`) // Changed from a-f to a-z, as IDs can now be arbitrary strings, not just UUIDs.
 
-	ZMQSourceKernelFrameFormatter  = "src.%s"                                  // src.<kernel-id>
-	ZMQSourceKernelFrameRecognizer = regexp.MustCompile(`^src\.([0-9a-z-]+)$`) // Changed from a-f to a-z, as IDs can now be arbitrary strings, not just UUIDs.
+	ZMQSourceKernelFrameFormatter  = "src.%s"                                   // src.<kernel-id>
+	ZMQSourceKernelFrameRecognizer = regexp.MustCompile(`^src\.([0-9a-z-_]+)$`) // Changed from a-f to a-z, as IDs can now be arbitrary strings, not just UUIDs.
 
 	WROptionRemoveDestFrame         = "RemoveDestFrame"
 	WROptionRemoveSourceKernelFrame = "RemoveSourceKernelFrame"
