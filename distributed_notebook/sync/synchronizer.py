@@ -115,8 +115,17 @@ class Synchronizer:
         assert isinstance(existed, SyncAST)
         self._ast = existed
         # Redeclare modules, classes, and functions.
-        compiled = compile(diff, "sync", "exec")
-        exec(compiled, self.global_ns, self.global_ns)
+        try:
+          compiled = compile(diff, "sync", "exec")
+        except Exception as ex:
+          self._log.error(f"Failed to compile. Diff ({type(diff)}): {diff}. Error: {ex}")
+          raise ex # Re-raise.
+        
+        try:
+          exec(compiled, self.global_ns, self.global_ns)
+        except Exception as ex:
+          self._log.error(f"Failed to exec. Compiled ({type(compiled)}): {compiled}. Error: {ex}")
+          raise ex # Re-raise. 
       else:
         assert isinstance(existed, SyncObjectWrapper)
         assert val.key != None
