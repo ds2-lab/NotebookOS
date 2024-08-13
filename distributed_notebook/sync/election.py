@@ -2,6 +2,7 @@ import asyncio
 import datetime 
 import logging 
 import time 
+import threading
 
 from typing import Dict, Optional, List, Type, MutableMapping, Any
 from enum import Enum
@@ -112,6 +113,8 @@ class Election(object):
 
         # Future created when the first 'LEAD' proposal for the current election is received.
         self._pick_and_propose_winner_future: Optional[asyncio.Future[Any]] = None 
+
+        # self._lock: threading.Lock = threading.Lock()
 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(term_number))
 
@@ -307,6 +310,8 @@ class Election(object):
 
         If we discard the first-received 'LEAD' proposal from this term, then we'll also cancel and clear the `_pick_and_propose_winner_future` Future.
         """
+        # We just have the option to not discard proposals for a particular node if we specify it via the `proposer_id` field.
+        # As of right now, I don't think we ever do this. We always discard ALL proposals.
         if proposer_id >= 1:
             self.logger.debug(f"Discarding proposals with attempt number < {latest_attempt_number}, excluding proposals from node {proposer_id}.")
         else:
@@ -350,12 +355,12 @@ class Election(object):
 
             num_discarded += 1
 
-        self.logger.debug(f"Discarded {num_discarded} proposal(s) with term number < {latest_attempt_number}.")
+        self.logger.debug(f"Discarded {num_discarded} proposal(s) with term number < {latest_attempt_number} from the following nodes: {', '.join([str(prop_id) for prop_id in to_remove])}")
         num_votes_discarded:int = 0
         
         # Iterate over all of the proposals, checking which (if any) need to be discarded.
         # We do this even if the proposal we just received did not overwrite an existing proposal (in case a proposal was lost).
-        to_remove: List[int] = [] 
+        to_remove = [] 
         for prop_id, prop in self._vote_proposals.items():
             # Skip/ignore the proposal for the node whose proposal we're adding.
             if prop_id == proposer_id:
@@ -378,7 +383,7 @@ class Election(object):
             del self._vote_proposals[prop_id]
             num_votes_discarded += 1
             
-        self.logger.debug(f"Discarded {num_discarded} vote proposal(s) with term number < {latest_attempt_number}.")
+        self.logger.debug(f"Discarded {num_discarded} vote proposal(s) with term number < {latest_attempt_number} from nodes: {', '.join([str(prop_id) for prop_id in to_remove])}")
 
     def set_pick_and_propose_winner_future(self, future: asyncio.Future[Any])->None:
         self._pick_and_propose_winner_future = future
@@ -442,7 +447,6 @@ class Election(object):
         self._discard_old_proposals(proposer_id = -1, latest_attempt_number = latest_attempt_number)
 
         self._proposals.clear() 
-
         self._vote_proposals.clear() 
 
     def election_failed(self):
@@ -507,6 +511,8 @@ class Election(object):
 
         # If `self._discard_after` hasn't even been set yet, then we should keep waiting for more proposals before making a decision.
         # Likewise, if `self._discard_after` has been set already, but there's still time to receive more proposals, then we should wait before making a decision.
+        #
+        # Note that `self._discard_after` is reset when an election is reset.
         should_wait:bool = self._discard_after == -1 or (self._discard_after > 0 and self._discard_after > current_time)
 
         # If we've not yet received all proposals AND we should keep waiting, then we'll raise a ValueError, indicating that we should not yet select a node to propose as winner.
@@ -598,7 +604,14 @@ class Election(object):
 
         That is, when overwriting an existing proposal with a new proposal, any other proposals (from other nodes) whose attempt numbers are lower than the new proposal will be discarded.
 
-        Return a tuple containing a Future and a timeout. The future should be resolved after the timeout.
+        Returns:
+            tuple:
+                When the proposal being added is the first proposal to be received, then this method will return a tuple containing a Future and a timeout. 
+                Note that if the election is restarted, then the 'first lead proposal' is reset to None, so the next lead proposal received will trigger this case.
+                The future that is returned should be resolved after the timeout.
+                
+                When the proposal being added is NOT the first proposal to be received, then this method will return None.
+            
         """
         proposer_id:int = proposal.proposer_id
         latest_attempt_number:int = proposal.attempt_number

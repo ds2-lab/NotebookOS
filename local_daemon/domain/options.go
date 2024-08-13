@@ -39,6 +39,7 @@ type SchedulerDaemonOptions struct {
 	DeploymentMode       string `name:"deployment_mode" description:"Options are 'docker' and 'kubernetes'."`
 	HDFSNameNodeEndpoint string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
 	DockerStorageBase    string `name:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
+	UsingWSL             bool   `name:"using-wsl" description:"Flag indicating whether we're running within WSL2 (Windows Subsystem for Linux). Requires additional networking configuring for the Docker containers."`
 }
 
 func (o SchedulerDaemonOptions) IsKubernetesMode() bool {

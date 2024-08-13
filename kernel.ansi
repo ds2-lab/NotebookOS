@@ -1,0 +1,583 @@
+Entered start.sh with args: /home/jovyan/Python-3.11.9/debug/python -m distributed_notebook.kernel -f /kernel_base/connection-kernel-558199ca-7141-4465-86b0-0fe3eed1e6d0-2-1124388459.json --debug --IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream 2>&1
+Running hooks in: /usr/local/bin/start-notebook.d as uid: 1000 gid: 100
+Done running hooks in: /usr/local/bin/start-notebook.d
+Running hooks in: /usr/local/bin/before-notebook.d as uid: 1000 gid: 100
+Sourcing shell script: /usr/local/bin/before-notebook.d/10activate-conda-env.sh
+Done running hooks in: /usr/local/bin/before-notebook.d
+Executing the specified command: /home/jovyan/Python-3.11.9/debug/python -m distributed_notebook.kernel -f /kernel_base/connection-kernel-558199ca-7141-4465-86b0-0fe3eed1e6d0-2-1124388459.json --debug --IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream 2>&1
+Running executable in GDB: /home/jovyan/Python-3.11.9/debug/python -m distributed_notebook.kernel -f /kernel_base/connection-kernel-558199ca-7141-4465-86b0-0fe3eed1e6d0-2-1124388459.json --debug --IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream 2>&1
+[r[m[2J[H[?7h[?1;4;6l[?1049h[22;0;0t[4l[?1h=[0m(B[1;24r[H[2J[H[2J[1m[35mGNU gdb (Ubuntu 12.1-0ubuntu1~22.04.2) 12.1[0m
+Copyright (C) 2022 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+add symbol table from file "/home/jovyan/Python-3.11.9/debug/python"
+add symbol table from file "/home/jovyan/Python-3.11.9/debug/libpython3.11d.so"
+add symbol table from file "/home/jovyan/Python-3.11.9/debug/libpython3.11d.so.1.0"
+add symbol table from file "/usr/local/lib/python3.11/site-packages/distributed_notebook/smr/_smr.cpython-311-x86_64-linux-gnu.so"
+Loading Go Runtime support.
+Reading symbols from [32m/home/jovyan/Python-3.11.9/debug/python[39m...
+Loading Go Runtime support.
+Starting program: [32m/home/jovyan/Python-3.11.9/debug/python[39m -m distributed_notebook.kernel -f /kernel_base/connection-kernel-558199ca-7141-4465-86b0-0fe3eed1e6d0-2-1124388459.json --debug --IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream 2\>\&1
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "[32m/lib/x86_64-linux-gnu/libthread_db.so.1[39m".
+/usr/local/lib/python3.11/site-packages/jupyter_client/connect.py:22: DeprecationWarning: Jupyter is migrating its paths to use standard platformdirs
+given by the platformdirs library.  To remove this warning and
+see the appropriate new directories, set the environment variable
+`JUPYTER_PLATFORM_DIRS=1` and then run `jupyter --paths`.
+The use of platformdirs will be the default in `jupyter_core` v6
+  from jupyter_core.paths import jupyter_data_dir, jupyter_runtime_dir, secure_write
+[New Thread 0x7ffff2e2d640 (LWP 48)]
+[New Thread 0x7ffff1b9b640 (LWP 49)]
+[New Thread 0x7ffff139a640 (LWP 50)]
+[New Thread 0x7ffff0b99640 (LWP 51)]
+[New Thread 0x7fffa5fff640 (LWP 52)]
+[New Thread 0x7fffa57fe640 (LWP 53)]
+[New Thread 0x7fffa4ffd640 (LWP 54)]
+Driver process has started running.
+[IPKernelApp] Using existing profile dir: '/home/jovyan/.ipython/profile_default'
+[IPKernelApp] Searching path ['/home/jovyan/.ipython/profile_default', '/usr/local/etc/ipython', '/etc/ipython'] for config files
+[IPKernelApp] Attempting to load config file: ipython_config.py
+[IPKernelApp] Looking for ipython_config in /etc/ipython
+[IPKernelApp] Looking for ipython_config in /usr/local/etc/ipython
+[IPKernelApp] Looking for ipython_config in /home/jovyan/.ipython/profile_default
+[IPKernelApp] Loaded config file: /home/jovyan/.ipython/profile_default/ipython_config.json
+[IPKernelApp] Attempting to load config file: ipython_kernel_config.py
+[IPKernelApp] Looking for ipython_kernel_config in /etc/ipython
+[IPKernelApp] Looking for ipython_kernel_config in /usr/local/etc/ipython
+[IPKernelApp] Looking for ipython_kernel_config in /home/jovyan/.ipython/profile_default
+[IPKernelApp] Loading connection file /kernel_base/connection-kernel-558199ca-7141-4465-86b0-0fe3eed1e6d0-2-1124388459.json
+[Detaching after vfork from child process 55]
+[Detaching after vfork from child process 56]
+[Detaching after vfork from child process 57]
+[IPKernelApp] Starting the kernel at pid: 45
+[New Thread 0x7fff8ffff640 (LWP 58)]
+[New Thread 0x7fff8f7fe640 (LWP 59)]
+[IPKernelApp] shell ROUTER Channel on port: 9002
+[IPKernelApp] stdin ROUTER Channel on port: 9003
+[IPKernelApp] control ROUTER Channel on port: 9001
+2024-08-07 19:04:21,846 [DEBUG] asyncio: Using selector: EpollSelector [MainThread (140737343412032)] 
+[IPKernelApp] iopub PUB Channel on port: 9004
+2024-08-07 19:04:21,847 [DEBUG] asyncio: Using selector: EpollSelector [MainThread (140737343412032)] 
+[New Thread 0x7fff8effd640 (LWP 60)]
+[IPKernelApp] Heartbeat REP Channel on port: 9000
+[New Thread 0x7fff8e7fc640 (LWP 61)]
+[New Thread 0x7fff8dffb640 (LWP 62)]
+[New Thread 0x7fff8d7fa640 (LWP 63)]
+[IPKernelApp] Connection file /kernel_base/connection-kernel-558199ca-7141-4465-86b0-0fe3eed1e6d0-2-1124388459.json with current information already exists
+[IPKernelApp] To connect another client to this kernel, use:
+[IPKernelApp]     --existing /kernel_base/connection-kernel-558199ca-7141-4465-86b0-0fe3eed1e6d0-2-1124388459.json
+NOTE: When using the `ipython kernel` entry point, Ctrl-C will not work.
+
+To exit, you will have to explicitly quit this process, by either sending
+"quit" from a client, or using Ctrl-\ in UNIX-like environments.
+
+To read more about this, see https://github.com/ipython/ipython/issues/2049
+
+
+To connect another client to this kernel, use:
+    --existing /kernel_base/connection-kernel-558199ca-7141-4465-86b0-0fe3eed1e6d0-2-1124388459.json
+[New Thread 0x7fff8cff9640 (LWP 64)]
+[New Thread 0x7fff73fff640 (LWP 65)]
+[New Thread 0x7fff737fe640 (LWP 66)]
+[IPKernelApp] Seeing logger to stderr, rerouting to raw filedescriptor.
+2024-08-07 19:04:21,856 [DEBUG] asyncio: Using selector: EpollSelector [MainThread (140737343412032)] 
+[Detaching after vfork from child process 67]
+[New Thread 0x7fff72ffd640 (LWP 68)]
+2024-08-07 19:04:22,252 [INFO] DistributedKernel: The Debugger IS available/enabled. [MainThread (140737343412032)] 
+2024-08-07 19:04:22,254 [INFO] DistributedKernel: Kwargs: {'parent': <ipykernel.kernelapp.IPKernelApp object at 0x7ffff7276f90>, 'session': <jupyter_client.session.Session object at 0x7ffff026f800>, 'control_stream': <zmq.eventloop.zmqstream.ZMQStream object at 0x7ffff02c4330>, 'debugpy_stream': <zmq.eventloop.zmqstream.ZMQStream object at 0x7ffff02c4560>, 'debug_shell_socket': <zmq.Socket(zmq.DEALER) at 0x7ffff0274de0>, 'shell_stream': <zmq.eventloop.zmqstream.ZMQStream object at 0x7ffff026e720>, 'control_thread': <ControlThread(Control, started daemon 140735131149888)>, 'iopub_thread': <ipykernel.iostream.IOPubThread object at 0x7ffff026d870>, 'iopub_socket': <ipykernel.iostream.BackgroundSocket object at 0x7ffff026d910>, 'stdin_socket': <zmq.Socket(zmq.ROUTER) at 0x7ffff40c35e0>, 'log': <Logger IPKernelApp (DEBUG)>, 'profile_dir': <IPython.core.profiledir.ProfileDir object at 0x7ffff02c7760>, 'user_ns': None} [MainThread (140737343412032)] 
+2024-08-07 19:04:22,255 [DEBUG] DistributedKernel: Deployment mode: docker [MainThread (140737343412032)] 
+2024-08-07 19:04:22,257 [INFO] DistributedKernel: Connection file path: "/kernel_base/connection-kernel-558199ca-7141-4465-86b0-0fe3eed1e6d0-2-1124388459.json" [MainThread (140737343412032)] 
+2024-08-07 19:04:22,259 [INFO] DistributedKernel: IPython config file path: "/home/jovyan/.ipython/profile_default/ipython_config.json" [MainThread (140737343412032)] 
+2024-08-07 19:04:22,261 [INFO] DistributedKernel: Session ID: "f4f87ab0-d9b504880ab57b77c31e5ecd" [MainThread (140737343412032)] 
+2024-08-07 19:04:22,262 [INFO] DistributedKernel: Kernel ID: "558199ca-7141-4465-86b0-0fe3eed1e6d0" [MainThread (140737343412032)] 
+2024-08-07 19:04:22,266 [INFO] DistributedKernel: Pod name: "2559d7910911" [MainThread (140737343412032)] 
+2024-08-07 19:04:22,267 [INFO] DistributedKernel: HDFS NameNode hostname: "172.18.0.1:10000" [MainThread (140737343412032)] 
+2024-08-07 19:04:22,272 [INFO] DistributedKernel: CPU: 100, Memory: 1250, GPU: 1. [MainThread (140737343412032)] 
+2024-08-07 19:04:22,275 [INFO] DistributedKernel: Connection info: {'ip': '0.0.0.0', 'control_port': 9001, 'shell_port': 9002, 'stdin_port': 9003, 'hb_port': 9000, 'iopub_port': 9004, 'iosub_port': 9005, 'ack_port': 0, 'transport': 'tcp', 'signature_scheme': 'hmac-sha256', 'key': '54a38caf-f2b1d188a1f1543e5b0f51e3', 'starting_resource_port': 0, 'num_resource_ports': 0} [MainThread (140737343412032)] 
+2024-08-07 19:04:22,276 [INFO] DistributedKernel: Registering with local daemon now. [MainThread (140737343412032)] 
+2024-08-07 19:04:22,278 [INFO] DistributedKernel: Local Daemon network address: "eb0f21f021eb:8075" [MainThread (140737343412032)] 
+2024-08-07 19:04:22,281 [INFO] DistributedKernel: Sending registration payload to local daemon: {'op': 'register', 'signature_scheme': 'hmac-sha256', 'key': '54a38caf-f2b1d188a1f1543e5b0f51e3', 'replicaId': 2, 'numReplicas': 3, 'join': False, 'podName': '2559d7910911', 'nodeName': 'DockerNode', 'connection-info': {'ip': '0.0.0.0', 'control_port': 9001, 'shell_port': 9002, 'stdin_port': 9003, 'hb_port': 9000, 'iopub_port': 9004, 'iosub_port': 9005, 'ack_port': 0, 'transport': 'tcp', 'signature_scheme': 'hmac-sha256', 'key': '54a38caf-f2b1d188a1f1543e5b0f51e3', 'starting_resource_port': 0, 'num_resource_ports': 0}, 'kernel': {'id': '558199ca-7141-4465-86b0-0fe3eed1e6d0', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'signature_scheme': 'hmac-sha256', 'key': '54a38caf-f2b1d188a1f1543e5b0f51e3'}} [MainThread (140737343412032)] 
+2024-08-07 19:04:22,285 [INFO] DistributedKernel: Sent 709 byte(s) to local daemon. [MainThread (140737343412032)] 
+2024-08-07 19:04:22,315 [INFO] DistributedKernel: Received 216 byte(s) in response from LocalDaemon: b'{"debug_port":32003,"hostname":"172.18.0.9","persistent_id":"fd3faca2-6872-4881-97dc-43f982bba80b","replicas":{"1":"172.18.0.10","2":"172.18.0.9","3":"172.18.0.11"},"should_read_data_from_hdfs":false,"smr_node_id":2}' [MainThread (140737343412032)] 
+2024-08-07 19:04:22,317 [INFO] DistributedKernel: Received persistent ID from registration: "fd3faca2-6872-4881-97dc-43f982bba80b" [MainThread (140737343412032)] 
+2024-08-07 19:04:22,318 [DEBUG] DistributedKernel: We should NOT read data from HDFS. [MainThread (140737343412032)] 
+2024-08-07 19:04:22,321 [INFO] DistributedKernel: Assigned debug port to 32003 [MainThread (140737343412032)] 
+2024-08-07 19:04:22,332 [INFO] DistributedKernel: [SMR-NODE-ID-ASSIGNED]2 [MainThread (140737343412032)] 
+2024-08-07 19:04:22,338 [INFO] DistributedKernel: Received SMR Node ID after registering with local daemon: 2 [MainThread (140737343412032)] 
+2024-08-07 19:04:22,339 [INFO] DistributedKernel: Replica hostnames: {1: '172.18.0.10:8080', 2: '172.18.0.9:8080', 3: '172.18.0.11:8080'} [MainThread (140737343412032)] 
+[Detaching after fork from child process 69]
+[IPKernelApp] Loading IPython extensions...
+[IPKernelApp] Loading IPython extension: storemagic
+2024-08-07 19:04:22,437 [INFO] DistributedKernel: Local TCP server process has PID=69 [MainThread (140737343412032)] 
+2024-08-07 19:04:22,440 [INFO] DistributedKernel: [Local TCP Server] Starting. Port: 5555 [MainThread (140737343412032)] 
+2024-08-07 19:04:22,451 [INFO] DistributedKernel: [Local TCP Server] Started. Port: 5555 [MainThread (140737343412032)] 
+2024-08-07 19:04:22,461 [INFO] DistributedKernel: DistributedKernel is starting. Persistent ID = "fd3faca2-6872-4881-97dc-43f982bba80b" [MainThread (140737343412032)] 
+2024-08-07 19:04:22,465 [DEBUG] DistributedKernel: Starting debugpy server on 0.0.0.0:33003 [MainThread (140737343412032)] 
+[Detaching after vfork from child process 74]
+[New Thread 0x7fff727fc640 (LWP 88)]
+[New Thread 0x7fff71ffb640 (LWP 89)]
+[New Thread 0x7fff717fa640 (LWP 91)]
+[New Thread 0x7fff70ff9640 (LWP 92)]
+[New Thread 0x7fff53fff640 (LWP 93)]
+[Thread 0x7fff53fff640 (LWP 93) exited]
+[New Thread 0x7fff53fff640 (LWP 94)]
+[New Thread 0x7fff537fe640 (LWP 95)]
+[Thread 0x7fff53fff640 (LWP 94) exited]
+[Thread 0x7fff537fe640 (LWP 95) exited]
+[New Thread 0x7fff537fe640 (LWP 96)]
+[New Thread 0x7fff537fe640 (LWP 97)]
+[Thread 0x7fff537fe640 (LWP 96) exited]
+[Thread 0x7fff537fe640 (LWP 97) exited]
+[New Thread 0x7fff537fe640 (LWP 98)]
+[Thread 0x7fff537fe640 (LWP 98) exited]
+[New Thread 0x7fff537fe640 (LWP 99)]
+[Thread 0x7fff537fe640 (LWP 99) exited]
+[New Thread 0x7fff537fe640 (LWP 100)]
+[New Thread 0x7fff537fe640 (LWP 101)]
+[Thread 0x7fff537fe640 (LWP 100) exited]
+[Thread 0x7fff537fe640 (LWP 101) exited]
+[New Thread 0x7fff537fe640 (LWP 102)]
+[Thread 0x7fff537fe640 (LWP 102) exited]
+[New Thread 0x7fff537fe640 (LWP 103)]
+[Thread 0x7fff537fe640 (LWP 103) exited]
+[New Thread 0x7fff537fe640 (LWP 104)]
+[Thread 0x7fff537fe640 (LWP 104) exited]
+[New Thread 0x7fff537fe640 (LWP 105)]
+[Thread 0x7fff537fe640 (LWP 105) exited]
+[New Thread 0x7fff537fe640 (LWP 106)]
+[Thread 0x7fff537fe640 (LWP 106) exited]
+[New Thread 0x7fff537fe640 (LWP 107)]
+[Thread 0x7fff537fe640 (LWP 107) exited]
+2024-08-07 19:04:23,574 [INFO] DistributedKernel: Initializing Persistent Store on start, as persistent ID is available: "fd3faca2-6872-4881-97dc-43f982bba80b" [Control (140735131149888)] 
+2024-08-07 19:04:23,579 [INFO] DistributedKernel: Initializing the Persistent Store with Persistent ID: "fd3faca2-6872-4881-97dc-43f982bba80b" [Control (140735131149888)] 
+2024-08-07 19:04:23,587 [INFO] DistributedKernel: Full path of Persistent Store: "/storage/store/fd3faca2-6872-4881-97dc-43f982bba80b" [Control (140735131149888)] 
+2024-08-07 19:04:23,597 [INFO] DistributedKernel: Disabling `outstream` now. [Control (140735131149888)] 
+2024-08-07 19:04:23,621 [DEBUG] DistributedKernel: stdout and stderr DISABLED. [Control (140735131149888)] 
+2024-08-07 19:04:23,623 [INFO] DistributedKernel: Disabled `outstream`. [Control (140735131149888)] 
+2024-08-07 19:04:23,624 [INFO] DistributedKernel: Overriding shell hooks now. [Control (140735131149888)] 
+2024-08-07 19:04:23,625 [INFO] DistributedKernel: Confirmed node 172.18.0.9:8080 [Control (140735131149888)] 
+2024-08-07 19:04:23,634 [DEBUG] DistributedKernel: Received SHELL message: [<zmq.Frame(b'4021a0e2-e34'...36B)>, <zmq.Frame(b'f7be4a31-2a6'...36B)>, <zmq.Frame(b'ddc6eaf2-22b'...36B)>, <zmq.Frame(b'dest.558199c'...82B)>, <zmq.Frame(b'<IDS|MSG>')>, <zmq.Frame(b'857d16d87134'...64B)>, <zmq.Frame(b'{"msg_id": "'...222B)>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>] [MainThread (140737343412032)] 
+2024-08-07 19:04:23,635 [DEBUG] DistributedKernel: Passing the following addresses to RaftLog: ['http://172.18.0.10:8080', 'http://172.18.0.9:8080', 'http://172.18.0.11:8080'] [Control (140735131149888)] 
+2024-08-07 19:04:23,647 [DEBUG] DistributedKernel: Creating RaftLog now. [Control (140735131149888)] 
+2024-08-07 19:04:23,649 [INFO] RaftLog2: Creating RaftNode 2 now. [Control (140735131149888)] 
+2024-08-07 19:04:23,649 [INFO] RaftLog2: persistent store path: /storage/store/fd3faca2-6872-4881-97dc-43f982bba80b [Control (140735131149888)] 
+2024-08-07 19:04:23,649 [INFO] RaftLog2: hdfs_hostname: "172.18.0.1:10000" [Control (140735131149888)] 
+2024-08-07 19:04:23,650 [INFO] RaftLog2: should read data from HDFS: "False" [Control (140735131149888)] 
+2024-08-07 19:04:23,650 [INFO] RaftLog2: peer_addrs: ['http://172.18.0.10:8080', 'http://172.18.0.9:8080', 'http://172.18.0.11:8080'] [Control (140735131149888)] 
+2024-08-07 19:04:23,650 [INFO] RaftLog2: peer_ids: [1, 2, 3] [Control (140735131149888)] 
+2024-08-07 19:04:23,650 [INFO] RaftLog2: join: False [Control (140735131149888)] 
+2024-08-07 19:04:23,650 [INFO] RaftLog2: debug_port: 32003 [Control (140735131149888)] 
+2024-08-07 19:04:23,650 [INFO] RaftLog2: >> CALLING INTO GO CODE (NewLogNode) [Control (140735131149888)] 
+Creating a new LogNode [version 1.0.1].
+Checking validity of hdfs hostname.
+Creating LogNode struct now.
+2024-08-07T19:04:23.654Z[8CINFO[4Csmr/lognode.go:321[6CLogNode 2 WAL directory: '/storage/store/fd3faca2-6872-4881-97dc-43f982bba80b/dnlog-2'
+2024/08/07 19:04:23 Serving debug HTTP server on port 32003.
+2024-08-07T19:04:23.654Z[8CINFO[4Csmr/lognode.go:322[6CLogNode 2 Snapshot directory: '/storage/store/fd3faca2-6872-4881-97dc-43f982bba80b/dnlog-2-snap'
+2024-08-07 19:04:23,653 [DEBUG] DistributedKernel: Received SHELL message 6719fe4a-7d9c-464b-becc-4103fe768759_23_0 of type "kernel_info_request": {'header': {'msg_id': '6719fe4a-7d9c-464b-becc-4103fe768759_23_0', 'msg_type': 'kernel_info_request', 'username': 'username', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'date': datetime.datetime(2024, 8, 7, 19, 4, 22, 525379, tzinfo=tzutc()), 'version': '5.3'}, 'msg_id': '6719fe4a-7d9c-464b-becc-4103fe768759_23_0', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': b'{}', 'buffers': []} [MainThread (140737343412032)] 
+LogNode 2 WAL directory: '/storage/store/fd3faca2-6872-4881-97dc-43f982bba80b/dnlog-2'LogNode 2 Snapshot directory: '/storage/store/fd3faca2-6872-4881-97dc-43f982bba80b/dnlog-2-snap'
+Discovered peer 1: http://172.18.0.10:8080.
+Discovered peer 2: http://172.18.0.9:8080.
+Discovered peer 3: http://172.18.0.11:8080.
+Connecting to HDFS at '172.18.0.1:10000'
+2024-08-07T19:04:23.656Z[8CINFO[4Csmr/lognode.go:338[6CDiscovered peer.
+[8C{"peer_address": "http://172.18.0.10:8080", "peer_id": 1}
+2024-08-07T19:04:23.656Z[8CINFO[4Csmr/lognode.go:338[6CDiscovered peer.
+[8C{"peer_address": "http://172.18.0.9:8080", "peer_id": 2}
+2024-08-07T19:04:23.656Z[8CINFO[4Csmr/lognode.go:338[6CDiscovered peer.
+[8C{"peer_address": "http://172.18.0.11:8080", "peer_id": 3}
+2024-08-07T19:04:23.657Z[8CINFO[4Csmr/lognode.go:343[6CConnecting to HDFS at '172.18.0.1:10000'
+2024-08-07T19:04:23.657Z[8CERROR   smr/lognode.go:356[6CFailed to dial HDFS DataNode at address '172.18.0.1:10000' because: dial tcp 172.18.0.1:10000: connect: connection refused
+github.com/zhangjyr/distributed-notebook/smr.NewLogNode.func1
+[8C/go/src/in/smr/lognode.go:356
+github.com/colinmarc/hdfs/v2/internal/rpc.(*NamenodeConnection).resolveConnection
+[8C/go/pkg/mod/github.com/colinmarc/hdfs/v2@v2.4.0/internal/rpc/namenode.go:155
+github.com/colinmarc/hdfs/v2/internal/rpc.NewNamenodeConnection
+[8C/go/pkg/mod/github.com/colinmarc/hdfs/v2@v2.4.0/internal/rpc/namenode.go:124
+github.com/colinmarc/hdfs/v2.NewClient
+[8C/go/pkg/mod/github.com/colinmarc/hdfs/v2@v2.4.0/client.go:192
+github.com/zhangjyr/distributed-notebook/smr.NewLogNode
+[8C/go/src/in/smr/lognode.go:346
+main.smr_NewLogNode
+[8C/go/src/in/distributed_notebook/smr/smr_linux_amd64.go:2576
+_cgoexp_8273b577d056_smr_NewLogNode
+[8C_cgo_gotypes.go:2554
+runtime.cgocallbackg1
+[8C/usr/local/go/src/runtime/cgocall.go:420
+runtime.cgocallbackg
+[8C/usr/local/go/src/runtime/cgocall.go:339
+runtime.cgocallback
+[8C/usr/local/go/src/runtime/asm_amd64.s:1079
+2024-08-07T19:04:23.657Z[8CERROR   smr/lognode.go:396[6CFailed to create HDFS client.   {"hdfsHostname": "172.18.0.1:10000", "error": "no available namenodes: dial tcp 172.18.0.1:10000: connect: connection refused"}
+github.com/zhangjyr/distributed-notebook/smr.NewLogNode
+[8C/go/src/in/smr/lognode.go:396
+main.smr_NewLogNode
+[8C/go/src/in/distributed_notebook/smr/smr_linux_amd64.go:2576
+_cgoexp_8273b577d056_smr_NewLogNode
+[8C_cgo_gotypes.go:2554
+runtime.cgocallbackg1
+[8C/usr/local/go/src/runtime/cgocall.go:420
+runtime.cgocallbackg
+[8C/usr/local/go/src/runtime/cgocall.go:339
+runtime.cgocallback
+[8C/usr/local/go/src/runtime/asm_amd64.s:1079
+2024-08-07 19:04:23,662 [INFO] RaftLog2: << RETURNED FROM GO CODE (NewLogNode) [Control (140735131149888)] 
+2024-08-07 19:04:23,660 [DEBUG] DistributedKernel: Sent 'ACK' for kernel_info_request message "6719fe4a-7d9c-464b-becc-4103fe768759_23_0": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_37', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 658807, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_37', 'msg_type': 'ACK', 'parent_header': {'msg_id': '6719fe4a-7d9c-464b-becc-4103fe768759_23_0', 'msg_type': 'kernel_info_request', 'username': 'username', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'date': datetime.datetime(2024, 8, 7, 19, 4, 22, 525379, tzinfo=tzutc()), 'version': '5.3'}, 'content': {'type': 'kernel_info_request', 'msg_id': '6719fe4a-7d9c-464b-becc-4103fe768759_23_0', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'4021a0e2-e340-4bd1-a9e9-0318be182b17', b'f7be4a31-2a6f-4c5b-8298-ffe65511613e', b'ddc6eaf2-22be-4297-9625-1c340297db2c', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.8d06bfd7-cd60-4d16-ac6a-a5d358ec3cf3'] [MainThread (140737343412032)] 
+2024-08-07 19:04:23,664 [INFO] RaftLog2: >> CALLING INTO GO CODE (_log_node.ConnectedToHDFS) [Control (140735131149888)] 
+2024-08-07 19:04:23,670 [DEBUG] DistributedKernel: 
+*** MESSAGE TYPE:kernel_info_request*** [MainThread (140737343412032)] 
+2024-08-07 19:04:23,672 [ERROR] RaftLog2: The LogNode failed to connect to HDFS. [Control (140735131149888)] 
+2024-08-07 19:04:23,672 [DEBUG] DistributedKernel:    Content: {}
+   --->
+    [MainThread (140737343412032)] 
+2024-08-07 19:04:23,675 [DEBUG] DistributedKernel: kernel_info_request: {'header': {'msg_id': '6719fe4a-7d9c-464b-becc-4103fe768759_23_0', 'msg_type': 'kernel_info_request', 'username': 'username', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'date': datetime.datetime(2024, 8, 7, 19, 4, 22, 525379, tzinfo=tzutc()), 'version': '5.3'}, 'msg_id': '6719fe4a-7d9c-464b-becc-4103fe768759_23_0', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': {}, 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:04:23,681 [ERROR] DistributedKernel: Error while creating RaftLog: The LogNode failed to connect to HDFS [Control (140735131149888)] 
+2024-08-07 19:04:23,686 [DEBUG] DistributedKernel: {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_39', 'msg_type': 'kernel_info_reply', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 684814, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_39', 'msg_type': 'kernel_info_reply', 'parent_header': {'msg_id': '6719fe4a-7d9c-464b-becc-4103fe768759_23_0', 'msg_type': 'kernel_info_request', 'username': 'username', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'date': datetime.datetime(2024, 8, 7, 19, 4, 22, 525379, tzinfo=tzutc()), 'version': '5.3'}, 'content': {'status': 'ok', 'protocol_version': '5.3', 'implementation': 'Distributed Python 3', 'implementation_version': '0.2', 'language_info': {'name': 'Any text', 'mimetype': 'text/plain', 'file_extension': '.txt'}, 'banner': "Python 3.11.9 (main, Aug  5 2024, 20:10:37) [GCC 11.4.0]\nType 'copyright', 'credits' or 'license' for more information\nIPython 8.26.0 -- An enhanced Interactive Python. Type '?' for help.\n", 'help_links': [{'text': 'Python Reference', 'url': 'https://docs.python.org/3.11'}, {'text': 'IPython Reference', 'url': 'https://ipython.org/documentation.html'}, {'text': 'NumPy Reference', 'url': 'https://docs.scipy.org/doc/numpy/reference/'}, {'text': 'SciPy Reference', 'url': 'https://docs.scipy.org/doc/scipy/reference/'}, {'text': 'Matplotlib Reference', 'url': 'https://matplotlib.org/contents.html'}, {'text': 'SymPy Reference', 'url': 'http://docs.sympy.org/latest/index.html'}, {'text': 'pandas Reference', 'url': 'https://pandas.pydata.org/pandas-docs/stable/'}]}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>} [MainThread (140737343412032)] 
+2024-08-07 19:04:23,699 [ERROR] DistributedKernel: Traceback (most recent call last):
+ [Control (140735131149888)] 
+2024-08-07 19:04:23,702 [DEBUG] DistributedKernel: Finished processing shell message 6719fe4a-7d9c-464b-becc-4103fe768759_23_0 of type "kernel_info_request" [MainThread (140737343412032)] 
+2024-08-07 19:04:23,703 [ERROR] DistributedKernel:   File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/kernel.py", line 1458, in get_synclog
+    self.synclog = RaftLog(self.smr_node_id,
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+ [Control (140735131149888)] 
+2024-08-07 19:04:23,709 [ERROR] DistributedKernel:   File "/usr/local/lib/python3.11/site-packages/distributed_notebook/sync/raft_log2.py", line 125, in __init__
+    raise RuntimeError("The LogNode failed to connect to HDFS")
+ [Control (140735131149888)] 
+2024-08-07 19:04:23,710 [ERROR] DistributedKernel: RuntimeError: The LogNode failed to connect to HDFS
+ [Control (140735131149888)] 
+2024-08-07 19:04:23,715 [DEBUG] DistributedKernel: Sending 'error_report' message for error "Failed to Create RaftLog" now... [Control (140735131149888)] 
+2024-08-07 19:04:23,716 [DEBUG] DistributedKernel: Sent 'error_report' message: {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_41', 'msg_type': 'error_report', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 715789, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_41', 'msg_type': 'error_report', 'parent_header': {}, 'content': {'error': 'Failed to Create RaftLog', 'message': 'The LogNode failed to connect to HDFS', 'kernel_id': '558199ca-7141-4465-86b0-0fe3eed1e6d0'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>} [Control (140735131149888)] 
+2024-08-07 19:04:23,714 [DEBUG] DistributedKernel: Received SHELL message: [<zmq.Frame(b'4021a0e2-e34'...36B)>, <zmq.Frame(b'f7be4a31-2a6'...36B)>, <zmq.Frame(b'6719fe4a-7d9'...36B)>, <zmq.Frame(b'dest.558199c'...82B)>, <zmq.Frame(b'<IDS|MSG>')>, <zmq.Frame(b'e3a9f7d8bab7'...64B)>, <zmq.Frame(b'{"date":"202'...231B)>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>] [MainThread (140737343412032)] 
+2024-08-07 19:04:23,731 [DEBUG] DistributedKernel: Received SHELL message 45075562-0e01-48d7-94b0-b4dcd9d5cee8 of type "kernel_info_request": {'header': {'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 683000, tzinfo=tzutc()), 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'msg_type': 'kernel_info_request', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'username': '6719fe4a-7d9c-464b-becc-4103fe768759', 'version': '5.2'}, 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': b'{}', 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:04:23,736 [DEBUG] DistributedKernel: Sent 'ACK' for kernel_info_request message "45075562-0e01-48d7-94b0-b4dcd9d5cee8": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_42', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 735208, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_42', 'msg_type': 'ACK', 'parent_header': {'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 683000, tzinfo=tzutc()), 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'msg_type': 'kernel_info_request', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'username': '6719fe4a-7d9c-464b-becc-4103fe768759', 'version': '5.2'}, 'content': {'type': 'kernel_info_request', 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'4021a0e2-e340-4bd1-a9e9-0318be182b17', b'f7be4a31-2a6f-4c5b-8298-ffe65511613e', b'6719fe4a-7d9c-464b-becc-4103fe768759', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.01587eba-1779-4152-9c7f-32c2e844c663'] [MainThread (140737343412032)] 
+2024-08-07 19:04:23,748 [DEBUG] DistributedKernel: 
+*** MESSAGE TYPE:kernel_info_request*** [MainThread (140737343412032)] 
+2024-08-07 19:04:23,750 [DEBUG] DistributedKernel:    Content: {}
+   --->
+    [MainThread (140737343412032)] 
+2024-08-07 19:04:23,753 [DEBUG] DistributedKernel: kernel_info_request: {'header': {'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 683000, tzinfo=tzutc()), 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'msg_type': 'kernel_info_request', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'username': '6719fe4a-7d9c-464b-becc-4103fe768759', 'version': '5.2'}, 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': {}, 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:04:23,756 [DEBUG] DistributedKernel: {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_44', 'msg_type': 'kernel_info_reply', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 755778, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_44', 'msg_type': 'kernel_info_reply', 'parent_header': {'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 683000, tzinfo=tzutc()), 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'msg_type': 'kernel_info_request', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'username': '6719fe4a-7d9c-464b-becc-4103fe768759', 'version': '5.2'}, 'content': {'status': 'ok', 'protocol_version': '5.3', 'implementation': 'Distributed Python 3', 'implementation_version': '0.2', 'language_info': {'name': 'Any text', 'mimetype': 'text/plain', 'file_extension': '.txt'}, 'banner': "Python 3.11.9 (main, Aug  5 2024, 20:10:37) [GCC 11.4.0]\nType 'copyright', 'credits' or 'license' for more information\nIPython 8.26.0 -- An enhanced Interactive Python. Type '?' for help.\n", 'help_links': [{'text': 'Python Reference', 'url': 'https://docs.python.org/3.11'}, {'text': 'IPython Reference', 'url': 'https://ipython.org/documentation.html'}, {'text': 'NumPy Reference', 'url': 'https://docs.scipy.org/doc/numpy/reference/'}, {'text': 'SciPy Reference', 'url': 'https://docs.scipy.org/doc/scipy/reference/'}, {'text': 'Matplotlib Reference', 'url': 'https://matplotlib.org/contents.html'}, {'text': 'SymPy Reference', 'url': 'http://docs.sympy.org/latest/index.html'}, {'text': 'pandas Reference', 'url': 'https://pandas.pydata.org/pandas-docs/stable/'}]}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>} [MainThread (140737343412032)] 
+2024-08-07 19:04:23,762 [DEBUG] DistributedKernel: Finished processing shell message 45075562-0e01-48d7-94b0-b4dcd9d5cee8 of type "kernel_info_request" [MainThread (140737343412032)] 
+2024-08-07 19:04:28,708 [DEBUG] DistributedKernel: Received SHELL message: [<zmq.Frame(b'4021a0e2-e34'...36B)>, <zmq.Frame(b'f7be4a31-2a6'...36B)>, <zmq.Frame(b'6719fe4a-7d9'...36B)>, <zmq.Frame(b'dest.558199c'...82B)>, <zmq.Frame(b'<IDS|MSG>')>, <zmq.Frame(b'46fc9996fa42'...64B)>, <zmq.Frame(b'{"msg_id":"4'...234B)>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>] [MainThread (140737343412032)] 
+2024-08-07 19:04:28,712 [DEBUG] DistributedKernel: Received SHELL message 45075562-0e01-48d7-94b0-b4dcd9d5cee8 of type "kernel_info_request": {'header': {'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'username': '6719fe4a-7d9c-464b-becc-4103fe768759', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 683001, tzinfo=tzutc()), 'msg_type': 'kernel_info_request', 'version': '5.2'}, 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': b'{}', 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:04:28,716 [DEBUG] DistributedKernel: Sent 'ACK' for kernel_info_request message "45075562-0e01-48d7-94b0-b4dcd9d5cee8": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_46', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 4, 28, 715427, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_46', 'msg_type': 'ACK', 'parent_header': {'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'username': '6719fe4a-7d9c-464b-becc-4103fe768759', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 683001, tzinfo=tzutc()), 'msg_type': 'kernel_info_request', 'version': '5.2'}, 'content': {'type': 'kernel_info_request', 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'4021a0e2-e340-4bd1-a9e9-0318be182b17', b'f7be4a31-2a6f-4c5b-8298-ffe65511613e', b'6719fe4a-7d9c-464b-becc-4103fe768759', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.01587eba-1779-4152-9c7f-32c2e844c663'] [MainThread (140737343412032)] 
+2024-08-07 19:04:28,719 [DEBUG] DistributedKernel: 
+*** MESSAGE TYPE:kernel_info_request*** [MainThread (140737343412032)] 
+2024-08-07 19:04:28,721 [DEBUG] DistributedKernel:    Content: {}
+   --->
+    [MainThread (140737343412032)] 
+2024-08-07 19:04:28,722 [WARNING] DistributedKernel: Received duplicate "45075562-0e01-48d7-94b0-b4dcd9d5cee8" message with ID=kernel_info_request. [MainThread (140737343412032)] 
+2024-08-07 19:04:28,723 [DEBUG] DistributedKernel: Finished processing shell message 45075562-0e01-48d7-94b0-b4dcd9d5cee8 of type "kernel_info_request" [MainThread (140737343412032)] 
+2024-08-07 19:04:33,710 [DEBUG] DistributedKernel: Received SHELL message: [<zmq.Frame(b'4021a0e2-e34'...36B)>, <zmq.Frame(b'f7be4a31-2a6'...36B)>, <zmq.Frame(b'6719fe4a-7d9'...36B)>, <zmq.Frame(b'dest.558199c'...82B)>, <zmq.Frame(b'<IDS|MSG>')>, <zmq.Frame(b'524205a1a1db'...64B)>, <zmq.Frame(b'{"msg_id":"4'...234B)>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>] [MainThread (140737343412032)] 
+2024-08-07 19:04:33,714 [DEBUG] DistributedKernel: Received SHELL message 45075562-0e01-48d7-94b0-b4dcd9d5cee8 of type "kernel_info_request": {'header': {'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'username': '6719fe4a-7d9c-464b-becc-4103fe768759', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 683002, tzinfo=tzutc()), 'msg_type': 'kernel_info_request', 'version': '5.2'}, 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': b'{}', 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:04:33,719 [DEBUG] DistributedKernel: Sent 'ACK' for kernel_info_request message "45075562-0e01-48d7-94b0-b4dcd9d5cee8": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_48', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 4, 33, 717875, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_48', 'msg_type': 'ACK', 'parent_header': {'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'username': '6719fe4a-7d9c-464b-becc-4103fe768759', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 683002, tzinfo=tzutc()), 'msg_type': 'kernel_info_request', 'version': '5.2'}, 'content': {'type': 'kernel_info_request', 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'4021a0e2-e340-4bd1-a9e9-0318be182b17', b'f7be4a31-2a6f-4c5b-8298-ffe65511613e', b'6719fe4a-7d9c-464b-becc-4103fe768759', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.01587eba-1779-4152-9c7f-32c2e844c663'] [MainThread (140737343412032)] 
+2024-08-07 19:04:33,723 [INFO] DistributedKernel: Replica 2 of kernel 558199ca-7141-4465-86b0-0fe3eed1e6d0 is shutting down. [Control (140735131149888)] 
+2024-08-07 19:04:33,723 [DEBUG] DistributedKernel: 
+*** MESSAGE TYPE:kernel_info_request*** [MainThread (140737343412032)] 
+2024-08-07 19:04:33,726 [DEBUG] DistributedKernel:    Content: {}
+   --->
+    [MainThread (140737343412032)] 
+2024-08-07 19:04:33,727 [WARNING] DistributedKernel: Received duplicate "45075562-0e01-48d7-94b0-b4dcd9d5cee8" message with ID=kernel_info_request. [MainThread (140737343412032)] 
+2024-08-07 19:04:33,728 [DEBUG] DistributedKernel: Finished processing shell message 45075562-0e01-48d7-94b0-b4dcd9d5cee8 of type "kernel_info_request" [MainThread (140737343412032)] 
+2024-08-07 19:04:38,713 [DEBUG] DistributedKernel: Received SHELL message: [<zmq.Frame(b'c354d481-3c3'...36B)>, <zmq.Frame(b'f7be4a31-2a6'...36B)>, <zmq.Frame(b'6719fe4a-7d9'...36B)>, <zmq.Frame(b'dest.558199c'...82B)>, <zmq.Frame(b'<IDS|MSG>')>, <zmq.Frame(b'7554188e194f'...64B)>, <zmq.Frame(b'{"msg_id":"4'...234B)>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>] [MainThread (140737343412032)] 
+2024-08-07 19:04:38,717 [DEBUG] DistributedKernel: Received SHELL message 45075562-0e01-48d7-94b0-b4dcd9d5cee8 of type "kernel_info_request": {'header': {'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'username': '6719fe4a-7d9c-464b-becc-4103fe768759', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 683003, tzinfo=tzutc()), 'msg_type': 'kernel_info_request', 'version': '5.2'}, 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': b'{}', 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:04:38,720 [DEBUG] DistributedKernel: Sent 'ACK' for kernel_info_request message "45075562-0e01-48d7-94b0-b4dcd9d5cee8": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_50', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 4, 38, 719924, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_50', 'msg_type': 'ACK', 'parent_header': {'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'username': '6719fe4a-7d9c-464b-becc-4103fe768759', 'session': '6719fe4a-7d9c-464b-becc-4103fe768759', 'date': datetime.datetime(2024, 8, 7, 19, 4, 23, 683003, tzinfo=tzutc()), 'msg_type': 'kernel_info_request', 'version': '5.2'}, 'content': {'type': 'kernel_info_request', 'msg_id': '45075562-0e01-48d7-94b0-b4dcd9d5cee8', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'c354d481-3c34-4b7a-8b34-336800dcf664', b'f7be4a31-2a6f-4c5b-8298-ffe65511613e', b'6719fe4a-7d9c-464b-becc-4103fe768759', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.01587eba-1779-4152-9c7f-32c2e844c663'] [MainThread (140737343412032)] 
+2024-08-07 19:04:38,725 [DEBUG] DistributedKernel: 
+*** MESSAGE TYPE:kernel_info_request*** [MainThread (140737343412032)] 
+2024-08-07 19:04:38,726 [DEBUG] DistributedKernel:    Content: {}
+   --->
+    [MainThread (140737343412032)] 
+2024-08-07 19:04:38,727 [WARNING] DistributedKernel: Received duplicate "45075562-0e01-48d7-94b0-b4dcd9d5cee8" message with ID=kernel_info_request. [MainThread (140737343412032)] 
+2024-08-07 19:04:38,728 [DEBUG] DistributedKernel: Finished processing shell message 45075562-0e01-48d7-94b0-b4dcd9d5cee8 of type "kernel_info_request" [MainThread (140737343412032)] 
+2024-08-07 19:05:18,366 [DEBUG] DistributedKernel: Received control message 728e28ce-3726-4294-9af3-fa1068eace1f of type "ping_kernel_ctrl_request" [Control (140735131149888)] 
+2024-08-07 19:05:18,369 [DEBUG] DistributedKernel: Sent 'ACK' for ping_kernel_ctrl_request message "728e28ce-3726-4294-9af3-fa1068eace1f": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_53', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 5, 18, 369161, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_53', 'msg_type': 'ACK', 'parent_header': {'msg_id': '728e28ce-3726-4294-9af3-fa1068eace1f', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:05:18.3640421Z', 'msg_type': 'ping_kernel_ctrl_request', 'version': '1.0'}, 'content': {'type': 'ping_kernel_ctrl_request', 'msg_id': '728e28ce-3726-4294-9af3-fa1068eace1f', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'364016a4-8039-49bb-9559-ea47bc37e126', b'705a084f-5459-43ae-9a82-4d4b140407a3', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.13f5bd11-a989-411c-94cd-6893ad5ef00f'] [Control (140735131149888)] 
+2024-08-07 19:05:18,371 [DEBUG] DistributedKernel: Ping-Kernel (CONTROL) received. [Control (140735131149888)] 
+Thread 0x00007fff70ff9640 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 331 in wait
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 629 in wait
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/pydevd.py", line 261 in _on_run
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_daemon_thread.py", line 49 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff717fa640 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 331 in wait
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 629 in wait
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/pydevd.py", line 215 in _on_run
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_daemon_thread.py", line 49 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff71ffb640 (most recent call first):
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_comm.py", line 204 in _read_line
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_comm.py", line 222 in _on_run
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_daemon_thread.py", line 49 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff727fc640 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 331 in wait
+  File "/home/jovyan/Python-3.11.9/Lib/queue.py", line 180 in get
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_comm.py", line 368 in _on_run
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_daemon_thread.py", line 49 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff72ffd640 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 327 in wait
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 629 in wait
+  File "/usr/local/lib/python3.11/site-packages/IPython/core/history.py", line 903 in run
+  File "/usr/local/lib/python3.11/site-packages/IPython/core/history.py", line 61 in only_when_enabled
+  File "/usr/local/lib/python3.11/site-packages/decorator.py", line 232 in fun
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Current thread 0x00007fff737fe640 (most recent call first):
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/kernel.py", line 805 in ping_kernel_ctrl_request
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/kernel.py", line 661 in process_control
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/kernelbase.py", line 309 in poll_control_queue
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/events.py", line 84 in _run
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 1936 in _run_once
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 608 in run_forever
+  File "/usr/local/lib/python3.11/site-packages/tornado/platform/asyncio.py", line 205 in start
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/control.py", line 23 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff73fff640 (most recent call first):
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/iostream.py", line 391 in _watch_pipe_fd
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 982 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff8cff9640 (most recent call first):
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/iostream.py", line 391 in _watch_pipe_fd
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 982 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff8e7fc640 (most recent call first):
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/heartbeat.py", line 106 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff8effd640 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/selectors.py", line 468 in select
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 1898 in _run_once
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 608 in run_forever
+  File "/usr/local/lib/python3.11/site-packages/tornado/platform/asyncio.py", line 205 in start
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/iostream.py", line 92 in _thread_main
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 982 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007ffff75c5740 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/selectors.py", line 468 in select
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 1898 in _run_once
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 608 in run_forever
+  File "/usr/local/lib/python3.11/site-packages/tornado/platform/asyncio.py", line 205 in start
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/kernelapp.py", line 739 in start
+  File "/usr/local/lib/python3.11/site-packages/traitlets/config/application.py", line 1075 in launch_instance
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/__main__.py", line 21 in main
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/__main__.py", line 27 in <module>
+  File "/home/jovyan/Python-3.11.9/Lib/runpy.py", line 88 in _run_code
+  File "/home/jovyan/Python-3.11.9/Lib/runpy.py", line 198 in _run_module_as_main
+2024-08-07 19:05:18,374 [DEBUG] DistributedKernel: Running event loop is self.io_loop: False [Control (140735131149888)] 
+2024-08-07 19:05:18,374 [DEBUG] DistributedKernel: Running event loop is self.control_thread.io_loop: True [Control (140735131149888)] 
+2024-08-07 19:05:18,376 [DEBUG] DistributedKernel: Sent ping_reply (control): {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_54', 'msg_type': 'ping_reply', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 5, 18, 371864, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_54', 'msg_type': 'ping_reply', 'parent_header': {'msg_id': '728e28ce-3726-4294-9af3-fa1068eace1f', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:05:18.3640421Z', 'msg_type': 'ping_kernel_ctrl_request', 'version': '1.0'}, 'content': {'timestamp': 1723057518.3718426}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>} [Control (140735131149888)] 
+2024-08-07 19:05:18,376 [DEBUG] DistributedKernel: Hello from self.ioloop! [MainThread (140737343412032)] 
+2024-08-07 19:05:18,383 [DEBUG] DistributedKernel: Finished processing control message 728e28ce-3726-4294-9af3-fa1068eace1f of type "ping_kernel_ctrl_request" [Control (140735131149888)] 
+2024-08-07 19:05:18,395 [DEBUG] DistributedKernel: Hello from self.control_thread.ioloop! [Control (140735131149888)] 
+2024-08-07 19:05:19,597 [DEBUG] DistributedKernel: Received SHELL message: [<zmq.Frame(b'c354d481-3c3'...36B)>, <zmq.Frame(b'f7be4a31-2a6'...36B)>, <zmq.Frame(b'dest.558199c'...82B)>, <zmq.Frame(b'<IDS|MSG>')>, <zmq.Frame(b'1a8efc08b6ed'...64B)>, <zmq.Frame(b'{"msg_id":"b'...212B)>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>] [MainThread (140737343412032)] 
+2024-08-07 19:05:19,600 [DEBUG] DistributedKernel: Received SHELL message bd42d730-de32-46fe-a16e-a1e5eb159899 of type "ping_kernel_shell_request": {'header': {'msg_id': 'bd42d730-de32-46fe-a16e-a1e5eb159899', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:05:19.594083125Z', 'msg_type': 'ping_kernel_shell_request', 'version': '1.0'}, 'msg_id': 'bd42d730-de32-46fe-a16e-a1e5eb159899', 'msg_type': 'ping_kernel_shell_request', 'parent_header': {}, 'metadata': {}, 'content': b'{}', 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:05:19,604 [DEBUG] DistributedKernel: Sent 'ACK' for ping_kernel_shell_request message "bd42d730-de32-46fe-a16e-a1e5eb159899": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_56', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 5, 19, 603625, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_56', 'msg_type': 'ACK', 'parent_header': {'msg_id': 'bd42d730-de32-46fe-a16e-a1e5eb159899', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:05:19.594083125Z', 'msg_type': 'ping_kernel_shell_request', 'version': '1.0'}, 'content': {'type': 'ping_kernel_shell_request', 'msg_id': 'bd42d730-de32-46fe-a16e-a1e5eb159899', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'c354d481-3c34-4b7a-8b34-336800dcf664', b'f7be4a31-2a6f-4c5b-8298-ffe65511613e', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.f33d992b-e4c5-4308-97f1-954c1cea074b'] [MainThread (140737343412032)] 
+2024-08-07 19:05:19,608 [DEBUG] DistributedKernel: 
+*** MESSAGE TYPE:ping_kernel_shell_request*** [MainThread (140737343412032)] 
+2024-08-07 19:05:19,609 [DEBUG] DistributedKernel:    Content: {}
+   --->
+    [MainThread (140737343412032)] 
+2024-08-07 19:05:19,610 [DEBUG] DistributedKernel: ping_kernel_shell_request: {'header': {'msg_id': 'bd42d730-de32-46fe-a16e-a1e5eb159899', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:05:19.594083125Z', 'msg_type': 'ping_kernel_shell_request', 'version': '1.0'}, 'msg_id': 'bd42d730-de32-46fe-a16e-a1e5eb159899', 'msg_type': 'ping_kernel_shell_request', 'parent_header': {}, 'metadata': {}, 'content': {}, 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:05:19,611 [DEBUG] DistributedKernel: Ping-Kernel (SHELL) received. [MainThread (140737343412032)] 
+2024-08-07 19:05:19,613 [DEBUG] DistributedKernel: Sent ping_reply (shell): {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_58', 'msg_type': 'ping_reply', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 5, 19, 613149, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_58', 'msg_type': 'ping_reply', 'parent_header': {'msg_id': 'bd42d730-de32-46fe-a16e-a1e5eb159899', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:05:19.594083125Z', 'msg_type': 'ping_kernel_shell_request', 'version': '1.0'}, 'content': {'timestamp': 1723057519.6130683}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>} [MainThread (140737343412032)] 
+2024-08-07 19:05:19,619 [DEBUG] DistributedKernel: Finished processing shell message bd42d730-de32-46fe-a16e-a1e5eb159899 of type "ping_kernel_shell_request" [MainThread (140737343412032)] 
+2024-08-07 19:15:52,083 [DEBUG] DistributedKernel: Received SHELL message: [<zmq.Frame(b'c354d481-3c3'...36B)>, <zmq.Frame(b'f7be4a31-2a6'...36B)>, <zmq.Frame(b'dest.558199c'...82B)>, <zmq.Frame(b'<IDS|MSG>')>, <zmq.Frame(b'7bb1cb6c7a08'...64B)>, <zmq.Frame(b'{"msg_id":"9'...211B)>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>] [MainThread (140737343412032)] 
+2024-08-07 19:15:52,087 [DEBUG] DistributedKernel: Received SHELL message 93894e58-8667-4399-83d1-a82e946fa462 of type "ping_kernel_shell_request": {'header': {'msg_id': '93894e58-8667-4399-83d1-a82e946fa462', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:15:52.08034714Z', 'msg_type': 'ping_kernel_shell_request', 'version': '1.0'}, 'msg_id': '93894e58-8667-4399-83d1-a82e946fa462', 'msg_type': 'ping_kernel_shell_request', 'parent_header': {}, 'metadata': {}, 'content': b'{}', 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:15:52,093 [DEBUG] DistributedKernel: Sent 'ACK' for ping_kernel_shell_request message "93894e58-8667-4399-83d1-a82e946fa462": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_60', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 15, 52, 90492, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_60', 'msg_type': 'ACK', 'parent_header': {'msg_id': '93894e58-8667-4399-83d1-a82e946fa462', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:15:52.08034714Z', 'msg_type': 'ping_kernel_shell_request', 'version': '1.0'}, 'content': {'type': 'ping_kernel_shell_request', 'msg_id': '93894e58-8667-4399-83d1-a82e946fa462', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'c354d481-3c34-4b7a-8b34-336800dcf664', b'f7be4a31-2a6f-4c5b-8298-ffe65511613e', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.e57752c5-679e-43a8-8413-734a18f05dce'] [MainThread (140737343412032)] 
+2024-08-07 19:15:52,098 [DEBUG] DistributedKernel: 
+*** MESSAGE TYPE:ping_kernel_shell_request*** [MainThread (140737343412032)] 
+2024-08-07 19:15:52,107 [DEBUG] DistributedKernel:    Content: {}
+   --->
+    [MainThread (140737343412032)] 
+2024-08-07 19:15:52,118 [DEBUG] DistributedKernel: ping_kernel_shell_request: {'header': {'msg_id': '93894e58-8667-4399-83d1-a82e946fa462', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:15:52.08034714Z', 'msg_type': 'ping_kernel_shell_request', 'version': '1.0'}, 'msg_id': '93894e58-8667-4399-83d1-a82e946fa462', 'msg_type': 'ping_kernel_shell_request', 'parent_header': {}, 'metadata': {}, 'content': {}, 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:15:52,120 [DEBUG] DistributedKernel: Ping-Kernel (SHELL) received. [MainThread (140737343412032)] 
+2024-08-07 19:15:52,122 [DEBUG] DistributedKernel: Sent ping_reply (shell): {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_62', 'msg_type': 'ping_reply', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 15, 52, 121419, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_62', 'msg_type': 'ping_reply', 'parent_header': {'msg_id': '93894e58-8667-4399-83d1-a82e946fa462', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:15:52.08034714Z', 'msg_type': 'ping_kernel_shell_request', 'version': '1.0'}, 'content': {'timestamp': 1723058152.1213264}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>} [MainThread (140737343412032)] 
+2024-08-07 19:15:52,131 [DEBUG] DistributedKernel: Finished processing shell message 93894e58-8667-4399-83d1-a82e946fa462 of type "ping_kernel_shell_request" [MainThread (140737343412032)] 
+2024-08-07 19:15:53,222 [DEBUG] DistributedKernel: Received control message 5c2821b2-1c26-49ad-967e-c14ef932a754 of type "ping_kernel_ctrl_request" [Control (140735131149888)] 
+2024-08-07 19:15:53,225 [DEBUG] DistributedKernel: Sent 'ACK' for ping_kernel_ctrl_request message "5c2821b2-1c26-49ad-967e-c14ef932a754": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_65', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 15, 53, 225547, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_65', 'msg_type': 'ACK', 'parent_header': {'msg_id': '5c2821b2-1c26-49ad-967e-c14ef932a754', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:15:53.220472272Z', 'msg_type': 'ping_kernel_ctrl_request', 'version': '1.0'}, 'content': {'type': 'ping_kernel_ctrl_request', 'msg_id': '5c2821b2-1c26-49ad-967e-c14ef932a754', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'364016a4-8039-49bb-9559-ea47bc37e126', b'705a084f-5459-43ae-9a82-4d4b140407a3', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.cccef9fd-0dd8-4b28-b780-efb5df2ea79d'] [Control (140735131149888)] 
+2024-08-07 19:15:53,227 [DEBUG] DistributedKernel: Ping-Kernel (CONTROL) received. [Control (140735131149888)] 
+Thread 0x00007fff70ff9640 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 331 in wait
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 629 in wait
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/pydevd.py", line 261 in _on_run
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_daemon_thread.py", line 49 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff717fa640 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 331 in wait
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 629 in wait
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/pydevd.py", line 215 in _on_run
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_daemon_thread.py", line 49 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff71ffb640 (most recent call first):
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_comm.py", line 204 in _read_line
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_comm.py", line 222 in _on_run
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_daemon_thread.py", line 49 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff727fc640 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 331 in wait
+  File "/home/jovyan/Python-3.11.9/Lib/queue.py", line 180 in get
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_comm.py", line 368 in _on_run
+  File "/usr/local/lib/python3.11/site-packages/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_daemon_thread.py", line 49 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff72ffd640 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 327 in wait
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 629 in wait
+  File "/usr/local/lib/python3.11/site-packages/IPython/core/history.py", line 903 in run
+  File "/usr/local/lib/python3.11/site-packages/IPython/core/history.py", line 61 in only_when_enabled
+  File "/usr/local/lib/python3.11/site-packages/decorator.py", line 232 in fun
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Current thread 0x00007fff737fe640 (most recent call first):
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/kernel.py", line 805 in ping_kernel_ctrl_request
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/kernel.py", line 661 in process_control
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/kernelbase.py", line 309 in poll_control_queue
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/events.py", line 84 in _run
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 1936 in _run_once
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 608 in run_forever
+  File "/usr/local/lib/python3.11/site-packages/tornado/platform/asyncio.py", line 205 in start
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/control.py", line 23 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff73fff640 (most recent call first):
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/iostream.py", line 391 in _watch_pipe_fd
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 982 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff8cff9640 (most recent call first):
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/iostream.py", line 391 in _watch_pipe_fd
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 982 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff8e7fc640 (most recent call first):
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/heartbeat.py", line 106 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007fff8effd640 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/selectors.py", line 468 in select
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 1898 in _run_once
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 608 in run_forever
+  File "/usr/local/lib/python3.11/site-packages/tornado/platform/asyncio.py", line 205 in start
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/iostream.py", line 92 in _thread_main
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 982 in run
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1045 in _bootstrap_inner
+  File "/home/jovyan/Python-3.11.9/Lib/threading.py", line 1002 in _bootstrap
+
+Thread 0x00007ffff75c5740 (most recent call first):
+  File "/home/jovyan/Python-3.11.9/Lib/selectors.py", line 468 in select
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 1898 in _run_once
+  File "/home/jovyan/Python-3.11.9/Lib/asyncio/base_events.py", line 608 in run_forever
+  File "/usr/local/lib/python3.11/site-packages/tornado/platform/asyncio.py", line 205 in start
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/kernelapp.py", line 739 in start
+  File "/usr/local/lib/python3.11/site-packages/traitlets/config/application.py", line 1075 in launch_instance
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/__main__.py", line 21 in main
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/__main__.py", line 27 in <module>
+  File "/home/jovyan/Python-3.11.9/Lib/runpy.py", line 88 in _run_code
+  File "/home/jovyan/Python-3.11.9/Lib/runpy.py", line 198 in _run_module_as_main
+2024-08-07 19:15:53,231 [DEBUG] DistributedKernel: Running event loop is self.io_loop: False [Control (140735131149888)] 
+2024-08-07 19:15:53,232 [DEBUG] DistributedKernel: Running event loop is self.control_thread.io_loop: True [Control (140735131149888)] 
+2024-08-07 19:15:53,233 [DEBUG] DistributedKernel: Sent ping_reply (control): {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_66', 'msg_type': 'ping_reply', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 15, 53, 228601, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_66', 'msg_type': 'ping_reply', 'parent_header': {'msg_id': '5c2821b2-1c26-49ad-967e-c14ef932a754', 'username': 'username', 'session': 'f4f87ab0-d9b504880ab57b77c31e5ecd', 'date': '2024-08-07T19:15:53.220472272Z', 'msg_type': 'ping_kernel_ctrl_request', 'version': '1.0'}, 'content': {'timestamp': 1723058153.2285404}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>} [Control (140735131149888)] 
+2024-08-07 19:15:53,233 [DEBUG] DistributedKernel: Hello from self.ioloop! [MainThread (140737343412032)] 
+2024-08-07 19:15:53,237 [DEBUG] DistributedKernel: Finished processing control message 5c2821b2-1c26-49ad-967e-c14ef932a754 of type "ping_kernel_ctrl_request" [Control (140735131149888)] 
+2024-08-07 19:15:53,240 [DEBUG] DistributedKernel: Hello from self.control_thread.ioloop! [Control (140735131149888)] 
+2024-08-07 19:15:56,489 [DEBUG] DistributedKernel: Received SHELL message: [<zmq.Frame(b'c354d481-3c3'...36B)>, <zmq.Frame(b'f7be4a31-2a6'...36B)>, <zmq.Frame(b'4ddda97a-c0c'...36B)>, <zmq.Frame(b'dest.558199c'...82B)>, <zmq.Frame(b'<IDS|MSG>')>, <zmq.Frame(b'1eedef1b3dc5'...64B)>, <zmq.Frame(b'{"msg_id": "'...222B)>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>] [MainThread (140737343412032)] 
+2024-08-07 19:15:56,490 [DEBUG] DistributedKernel: Received control message c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_1 of type "kernel_info_request" [Control (140735131149888)] 
+2024-08-07 19:15:56,495 [DEBUG] DistributedKernel: Received SHELL message c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_0 of type "kernel_info_request": {'header': {'msg_id': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_0', 'msg_type': 'kernel_info_request', 'username': 'username', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 483082, tzinfo=tzutc()), 'version': '5.3'}, 'msg_id': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_0', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': b'{}', 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:15:56,497 [DEBUG] DistributedKernel: Sent 'ACK' for kernel_info_request message "c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_1": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_69', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 497554, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_69', 'msg_type': 'ACK', 'parent_header': {'msg_id': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_1', 'msg_type': 'kernel_info_request', 'username': 'username', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 483649, tzinfo=tzutc()), 'version': '5.3'}, 'content': {'type': 'kernel_info_request', 'msg_id': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_1', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'364016a4-8039-49bb-9559-ea47bc37e126', b'705a084f-5459-43ae-9a82-4d4b140407a3', b'e457c825-9675-4d6f-a59f-07f6f46cd6b6', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.580c677e-af10-4a0e-adfa-0d3d5743823d'] [Control (140735131149888)] 
+2024-08-07 19:15:56,501 [DEBUG] DistributedKernel: Sent 'ACK' for kernel_info_request message "c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_0": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_70', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 500577, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_70', 'msg_type': 'ACK', 'parent_header': {'msg_id': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_0', 'msg_type': 'kernel_info_request', 'username': 'username', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 483082, tzinfo=tzutc()), 'version': '5.3'}, 'content': {'type': 'kernel_info_request', 'msg_id': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_0', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'c354d481-3c34-4b7a-8b34-336800dcf664', b'f7be4a31-2a6f-4c5b-8298-ffe65511613e', b'4ddda97a-c0cb-4ed0-aa97-072bf71e4d58', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.5fd9d873-be29-4654-85c3-4a6154b32686'] [MainThread (140737343412032)] 
+2024-08-07 19:15:56,503 [DEBUG] DistributedKernel: {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_71', 'msg_type': 'kernel_info_reply', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 503150, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_71', 'msg_type': 'kernel_info_reply', 'parent_header': {'msg_id': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_1', 'msg_type': 'kernel_info_request', 'username': 'username', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 483649, tzinfo=tzutc()), 'version': '5.3'}, 'content': {'status': 'ok', 'protocol_version': '5.3', 'implementation': 'Distributed Python 3', 'implementation_version': '0.2', 'language_info': {'name': 'Any text', 'mimetype': 'text/plain', 'file_extension': '.txt'}, 'banner': "Python 3.11.9 (main, Aug  5 2024, 20:10:37) [GCC 11.4.0]\nType 'copyright', 'credits' or 'license' for more information\nIPython 8.26.0 -- An enhanced Interactive Python. Type '?' for help.\n", 'help_links': [{'text': 'Python Reference', 'url': 'https://docs.python.org/3.11'}, {'text': 'IPython Reference', 'url': 'https://ipython.org/documentation.html'}, {'text': 'NumPy Reference', 'url': 'https://docs.scipy.org/doc/numpy/reference/'}, {'text': 'SciPy Reference', 'url': 'https://docs.scipy.org/doc/scipy/reference/'}, {'text': 'Matplotlib Reference', 'url': 'https://matplotlib.org/contents.html'}, {'text': 'SymPy Reference', 'url': 'http://docs.sympy.org/latest/index.html'}, {'text': 'pandas Reference', 'url': 'https://pandas.pydata.org/pandas-docs/stable/'}]}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>} [Control (140735131149888)] 
+2024-08-07 19:15:56,507 [DEBUG] DistributedKernel: 
+*** MESSAGE TYPE:kernel_info_request*** [MainThread (140737343412032)] 
+2024-08-07 19:15:56,510 [DEBUG] DistributedKernel:    Content: {}
+   --->
+    [MainThread (140737343412032)] 
+2024-08-07 19:15:56,512 [DEBUG] DistributedKernel: kernel_info_request: {'header': {'msg_id': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_0', 'msg_type': 'kernel_info_request', 'username': 'username', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 483082, tzinfo=tzutc()), 'version': '5.3'}, 'msg_id': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_0', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': {}, 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:15:56,514 [DEBUG] DistributedKernel: Finished processing control message c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_1 of type "kernel_info_request" [Control (140735131149888)] 
+2024-08-07 19:15:56,517 [DEBUG] DistributedKernel: {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_74', 'msg_type': 'kernel_info_reply', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 516280, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_74', 'msg_type': 'kernel_info_reply', 'parent_header': {'msg_id': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_0', 'msg_type': 'kernel_info_request', 'username': 'username', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 483082, tzinfo=tzutc()), 'version': '5.3'}, 'content': {'status': 'ok', 'protocol_version': '5.3', 'implementation': 'Distributed Python 3', 'implementation_version': '0.2', 'language_info': {'name': 'Any text', 'mimetype': 'text/plain', 'file_extension': '.txt'}, 'banner': "Python 3.11.9 (main, Aug  5 2024, 20:10:37) [GCC 11.4.0]\nType 'copyright', 'credits' or 'license' for more information\nIPython 8.26.0 -- An enhanced Interactive Python. Type '?' for help.\n", 'help_links': [{'text': 'Python Reference', 'url': 'https://docs.python.org/3.11'}, {'text': 'IPython Reference', 'url': 'https://ipython.org/documentation.html'}, {'text': 'NumPy Reference', 'url': 'https://docs.scipy.org/doc/numpy/reference/'}, {'text': 'SciPy Reference', 'url': 'https://docs.scipy.org/doc/scipy/reference/'}, {'text': 'Matplotlib Reference', 'url': 'https://matplotlib.org/contents.html'}, {'text': 'SymPy Reference', 'url': 'http://docs.sympy.org/latest/index.html'}, {'text': 'pandas Reference', 'url': 'https://pandas.pydata.org/pandas-docs/stable/'}]}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>} [MainThread (140737343412032)] 
+2024-08-07 19:15:56,534 [DEBUG] DistributedKernel: Finished processing shell message c1cb5302-f3b6-4482-9622-3a82d1c050ed_23_0 of type "kernel_info_request" [MainThread (140737343412032)] 
+2024-08-07 19:15:56,582 [DEBUG] DistributedKernel: Received SHELL message: [<zmq.Frame(b'c354d481-3c3'...36B)>, <zmq.Frame(b'f7be4a31-2a6'...36B)>, <zmq.Frame(b'c1cb5302-f3b'...36B)>, <zmq.Frame(b'dest.558199c'...82B)>, <zmq.Frame(b'<IDS|MSG>')>, <zmq.Frame(b'336a5b53b345'...64B)>, <zmq.Frame(b'{"date":"202'...195B)>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{}')>] [MainThread (140737343412032)] 
+2024-08-07 19:15:56,587 [DEBUG] DistributedKernel: Received SHELL message 3f8fa564-c397-4a0b-b85b-8ecebac17284 of type "kernel_info_request": {'header': {'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 574000, tzinfo=tzutc()), 'msg_id': '3f8fa564-c397-4a0b-b85b-8ecebac17284', 'msg_type': 'kernel_info_request', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'username': '', 'version': '5.2'}, 'msg_id': '3f8fa564-c397-4a0b-b85b-8ecebac17284', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': b'{}', 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:15:56,590 [DEBUG] DistributedKernel: Sent 'ACK' for kernel_info_request message "3f8fa564-c397-4a0b-b85b-8ecebac17284": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_76', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 589930, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_76', 'msg_type': 'ACK', 'parent_header': {'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 574000, tzinfo=tzutc()), 'msg_id': '3f8fa564-c397-4a0b-b85b-8ecebac17284', 'msg_type': 'kernel_info_request', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'username': '', 'version': '5.2'}, 'content': {'type': 'kernel_info_request', 'msg_id': '3f8fa564-c397-4a0b-b85b-8ecebac17284', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'c354d481-3c34-4b7a-8b34-336800dcf664', b'f7be4a31-2a6f-4c5b-8298-ffe65511613e', b'c1cb5302-f3b6-4482-9622-3a82d1c050ed', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.3af6f33b-83ab-4560-bc10-dd13932931d5'] [MainThread (140737343412032)] 
+2024-08-07 19:15:56,595 [DEBUG] DistributedKernel: 
+*** MESSAGE TYPE:kernel_info_request*** [MainThread (140737343412032)] 
+2024-08-07 19:15:56,597 [DEBUG] DistributedKernel:    Content: {}
+   --->
+    [MainThread (140737343412032)] 
+2024-08-07 19:15:56,598 [DEBUG] DistributedKernel: kernel_info_request: {'header': {'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 574000, tzinfo=tzutc()), 'msg_id': '3f8fa564-c397-4a0b-b85b-8ecebac17284', 'msg_type': 'kernel_info_request', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'username': '', 'version': '5.2'}, 'msg_id': '3f8fa564-c397-4a0b-b85b-8ecebac17284', 'msg_type': 'kernel_info_request', 'parent_header': {}, 'metadata': {}, 'content': {}, 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:15:56,600 [DEBUG] DistributedKernel: {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_78', 'msg_type': 'kernel_info_reply', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 599856, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_78', 'msg_type': 'kernel_info_reply', 'parent_header': {'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 574000, tzinfo=tzutc()), 'msg_id': '3f8fa564-c397-4a0b-b85b-8ecebac17284', 'msg_type': 'kernel_info_request', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'username': '', 'version': '5.2'}, 'content': {'status': 'ok', 'protocol_version': '5.3', 'implementation': 'Distributed Python 3', 'implementation_version': '0.2', 'language_info': {'name': 'Any text', 'mimetype': 'text/plain', 'file_extension': '.txt'}, 'banner': "Python 3.11.9 (main, Aug  5 2024, 20:10:37) [GCC 11.4.0]\nType 'copyright', 'credits' or 'license' for more information\nIPython 8.26.0 -- An enhanced Interactive Python. Type '?' for help.\n", 'help_links': [{'text': 'Python Reference', 'url': 'https://docs.python.org/3.11'}, {'text': 'IPython Reference', 'url': 'https://ipython.org/documentation.html'}, {'text': 'NumPy Reference', 'url': 'https://docs.scipy.org/doc/numpy/reference/'}, {'text': 'SciPy Reference', 'url': 'https://docs.scipy.org/doc/scipy/reference/'}, {'text': 'Matplotlib Reference', 'url': 'https://matplotlib.org/contents.html'}, {'text': 'SymPy Reference', 'url': 'http://docs.sympy.org/latest/index.html'}, {'text': 'pandas Reference', 'url': 'https://pandas.pydata.org/pandas-docs/stable/'}]}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>} [MainThread (140737343412032)] 
+2024-08-07 19:15:56,606 [DEBUG] DistributedKernel: Finished processing shell message 3f8fa564-c397-4a0b-b85b-8ecebac17284 of type "kernel_info_request" [MainThread (140737343412032)] 
+2024-08-07 19:16:00,426 [DEBUG] DistributedKernel: Received SHELL message: [<zmq.Frame(b'c354d481-3c3'...36B)>, <zmq.Frame(b'f7be4a31-2a6'...36B)>, <zmq.Frame(b'c1cb5302-f3b'...36B)>, <zmq.Frame(b'dest.558199c'...82B)>, <zmq.Frame(b'<IDS|MSG>')>, <zmq.Frame(b'2bc8656f866c'...64B)>, <zmq.Frame(b'{"date":"202'...191B)>, <zmq.Frame(b'{}')>, <zmq.Frame(b'{"idle-gpus"'...37B)>, <zmq.Frame(b'{"silent":fa'...138B)>] [MainThread (140737343412032)] 
+2024-08-07 19:16:00,430 [DEBUG] DistributedKernel: Received SHELL message 7c1efe40-7cf7-4d81-b7b3-49c16f234b7a of type "execute_request": {'header': {'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 466000, tzinfo=tzutc()), 'msg_id': '7c1efe40-7cf7-4d81-b7b3-49c16f234b7a', 'msg_type': 'execute_request', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'username': '', 'version': '5.2'}, 'msg_id': '7c1efe40-7cf7-4d81-b7b3-49c16f234b7a', 'msg_type': 'execute_request', 'parent_header': {}, 'metadata': {'idle-gpus': '7', 'target_replica': -1}, 'content': b'{"silent":false,"store_history":true,"user_expressions":{},"allow_stdin":true,"stop_on_error":false,"code":"a = 1\\nprint(\\"a = %d\\" % a)"}', 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:16:00,433 [DEBUG] DistributedKernel: Sent 'ACK' for execute_request message "7c1efe40-7cf7-4d81-b7b3-49c16f234b7a": {'header': {'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_80', 'msg_type': 'ACK', 'username': 'username', 'session': '975a6aa9-464396e869e5f48472a0e7bc', 'date': datetime.datetime(2024, 8, 7, 19, 16, 0, 433132, tzinfo=datetime.timezone.utc), 'version': '5.3'}, 'msg_id': '975a6aa9-464396e869e5f48472a0e7bc_45_80', 'msg_type': 'ACK', 'parent_header': {'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 466000, tzinfo=tzutc()), 'msg_id': '7c1efe40-7cf7-4d81-b7b3-49c16f234b7a', 'msg_type': 'execute_request', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'username': '', 'version': '5.2'}, 'content': {'type': 'execute_request', 'msg_id': '7c1efe40-7cf7-4d81-b7b3-49c16f234b7a', 'source': 'PYTHON KERNEL'}, 'metadata': {}, 'tracker': <zmq.sugar.tracker.MessageTracker object at 0x7ffff5de19b0>}. Idents: [b'c354d481-3c34-4b7a-8b34-336800dcf664', b'f7be4a31-2a6f-4c5b-8298-ffe65511613e', b'c1cb5302-f3b6-4482-9622-3a82d1c050ed', b'dest.558199ca-7141-4465-86b0-0fe3eed1e6d0.req.05012c19-ffdf-4da0-bc9d-5bda7a5e8d60'] [MainThread (140737343412032)] 
+2024-08-07 19:16:00,438 [DEBUG] DistributedKernel: 
+*** MESSAGE TYPE:execute_request*** [MainThread (140737343412032)] 
+2024-08-07 19:16:00,439 [DEBUG] DistributedKernel:    Content: {'silent': False, 'store_history': True, 'user_expressions': {}, 'allow_stdin': True, 'stop_on_error': False, 'code': 'a = 1\nprint("a = %d" % a)'}
+   --->
+    [MainThread (140737343412032)] 
+2024-08-07 19:16:00,441 [DEBUG] DistributedKernel: execute_request: {'header': {'date': datetime.datetime(2024, 8, 7, 19, 15, 56, 466000, tzinfo=tzutc()), 'msg_id': '7c1efe40-7cf7-4d81-b7b3-49c16f234b7a', 'msg_type': 'execute_request', 'session': 'c1cb5302-f3b6-4482-9622-3a82d1c050ed', 'username': '', 'version': '5.2'}, 'msg_id': '7c1efe40-7cf7-4d81-b7b3-49c16f234b7a', 'msg_type': 'execute_request', 'parent_header': {}, 'metadata': {'idle-gpus': '7', 'target_replica': -1}, 'content': {'silent': False, 'store_history': True, 'user_expressions': {}, 'allow_stdin': True, 'stop_on_error': False, 'code': 'a = 1\nprint("a = %d" % a)'}, 'buffers': []} [MainThread (140737343412032)] 
+2024-08-07 19:16:00,442 [DEBUG] DistributedKernel: execute_request called within the Distributed Python Kernel. [MainThread (140737343412032)] 
+2024-08-07 19:16:00,445 [INFO] DistributedKernel: DistributedKernel is preparing to execute some code: a = 1
+print("a = %d" % a)
+
+ [MainThread (140737343412032)] 
+2024-08-07 19:16:00,462 [ERROR] DistributedKernel: Exception in message handler: [MainThread (140737343412032)] 
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/kernelbase.py", line 437, in dispatch_shell
+    await result
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/kernel.py", line 792, in execute_request
+    await super().execute_request(stream, ident, parent)
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/ipkernel.py", line 362, in execute_request
+    await super().execute_request(stream, ident, parent)
+  File "/usr/local/lib/python3.11/site-packages/ipykernel/kernelbase.py", line 778, in execute_request
+    reply_content = await reply_content
+                    ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/kernel.py", line 995, in do_execute
+    if not await self.check_persistent_store():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/distributed_notebook/kernel/kernel.py", line 764, in check_persistent_store
+    response = await store
+               ^^^^^^^^^^^
+RuntimeError: Task <Task pending name='Task-5' coro=<Kernel.dispatch_queue() running at /usr/local/lib/python3.11/site-packages/ipykernel/kernelbase.py:545> cb=[_wrap_awaitable.<locals>.<lambda>() at /usr/local/lib/python3.11/site-packages/tornado/gen.py:851, IOLoop.add_future.<locals>.<lambda>() at /usr/local/lib/python3.11/site-packages/tornado/ioloop.py:699]> got Future <Future pending> attached to a different loop
+2024-08-07 19:16:00,479 [DEBUG] DistributedKernel: Finished processing shell message 7c1efe40-7cf7-4d81-b7b3-49c16f234b7a of type "execute_request" [MainThread (140737343412032)] 

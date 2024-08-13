@@ -157,6 +157,14 @@ type ClusterGatewayImpl struct {
 	// iopub *jupyter.Socket
 	smrPort int
 
+	// Map of kernels that are starting for the first time.
+	//
+	// We add an entry to this map at the beginning of ClusterDaemon::StartKernel.
+	//
+	// We remove an entry from this map when all replicas of that kernel have joined their SMR cluster.
+	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
+	kernelsStarting *hashmap.CornelkMap[string, chan struct{}]
+
 	// Mapping from AddReplicaOperation ID to AddReplicaOperation.
 	addReplicaOperations *hashmap.CornelkMap[string, domain.AddReplicaOperation]
 
@@ -215,6 +223,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		addReplicaOperations:             hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
 		activeAddReplicaOpsPerKernel:     hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, domain.AddReplicaOperation]](64),
 		addReplicaOperationsByNewPodName: hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
+		kernelsStarting:                  hashmap.NewCornelkMap[string, chan struct{}](64),
 		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan domain.AddReplicaOperation](64),
 		activeExecutions:                 hashmap.NewCornelkMap[string, *client.ActiveExecution](64),
 		hdfsNameNodeEndpoint:             clusterDaemonOptions.HDFSNameNodeEndpoint,
@@ -829,7 +838,16 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 func (d *ClusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification *gateway.SmrReadyNotification) (*gateway.Void, error) {
 	kernelId := smrReadyNotification.KernelId
 
-	// First, check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
+	// First, check if this notification is from a replica of a kernel that is starting up for the very first time.
+	// If so, we'll send a notification in the associated channel, and then we'll return.
+	kernelStartingChan, ok := d.kernelsStarting.LoadAndDelete(smrReadyNotification.KernelId)
+	if ok {
+		d.log.Debug("Received 'SMR-READY' notification for newly-starting kernel %s.", smrReadyNotification.KernelId)
+		kernelStartingChan <- struct{}{}
+		return gateway.VOID, nil
+	}
+
+	// Check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
 	addReplicaOp, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId, true)
 	if !ok {
 		d.log.Warn("No active add-replica operation found for replica %d, kernel %s.", smrReadyNotification.ReplicaId, kernelId)
@@ -1255,6 +1273,9 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 		kernel.BindSession(in.Session)
 	}
 
+	// Record that this kernel is starting.
+	kernelStartedChan := make(chan struct{})
+	d.kernelsStarting.Store(in.Id, kernelStartedChan)
 	created := NewRegistrationWaitGroups(d.ClusterOptions.NumReplicas)
 
 	d.kernelIdToKernel.Store(in.Id, kernel)
@@ -1305,9 +1326,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 	}
 
 	d.log.Debug("Waiting for replicas of new kernel %s to register.", in.Id)
-	// Wait for all replicas to be created.
-	created.Wait()
-	d.log.Debug("All replicas of new kernel %s have registered.", in.Id)
+	created.Wait() // Wait for all replicas to be created.
+	d.log.Debug("All replicas of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster now.", in.Id)
+	<-kernelStartedChan // Wait for all replicas to join their SMR cluster.
+	d.log.Debug("All replicas of new kernel %s have registered and joined their SMR cluster.", in.Id)
 
 	if kernel.Size() == 0 {
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")

@@ -16,8 +16,13 @@ build-in-container:
 
 docker: build-in-container
 	docker build ${PARAMS} -t $(DOCKER_USER)gateway .
-	rm gateway
+#	rm gateway
 # ../clean.sh
+
+# Don't rebuild the Gateway executable.
+# If there is no `gateway` (executable) file in this directory, then this recipe will fail.
+docker-no-rebuild:
+	docker build ${PARAMS} -t $(DOCKER_USER)gateway .
 
 clean:
 	docker builder prune

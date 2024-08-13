@@ -86,9 +86,19 @@ type DockerInvoker struct {
 }
 
 type DockerInvokerOptions struct {
-	HdfsNameNodeEndpoint string // Endpoint of the HDFS namenode.
-	KernelDebugPort      int    // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
-	DockerStorageBase    string // Base directory in which the persistent store data is stored when running in docker mode.
+	// Endpoint of the HDFS namenode.
+	HdfsNameNodeEndpoint string
+
+	// Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	KernelDebugPort int
+
+	// Base directory in which the persistent store data is stored when running in docker mode.
+	DockerStorageBase string
+
+	// Indicates whether we're running within WSL (Windows Subsystem for Linux).
+	// If we are, then there is some additional configuration required for the kernel containers in order for
+	// them to be able to connect to HDFS running in the host (WSL).
+	UsingWSL bool
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions) *DockerInvoker {

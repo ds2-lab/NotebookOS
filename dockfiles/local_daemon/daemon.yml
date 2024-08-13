@@ -9,7 +9,7 @@ stdin-port: 29003
 iopub-port: 29004
 iosub-port: 29005
 ack-port: 29006
-hdfs-namenode-endpoint: 127.0.0.1:9000
+hdfs-namenode-endpoint: host.docker.internal:10000
 debug: true
 direct: false
 node_name: 0

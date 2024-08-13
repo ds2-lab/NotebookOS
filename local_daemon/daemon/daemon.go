@@ -106,6 +106,11 @@ type SchedulerDaemonImpl struct {
 	// When using Docker mode, we assign "debug ports" to kernels so that they can serve a Go HTTP server for debugging.
 	kernelDebugPorts hashmap.HashMap[string, int]
 
+	// Indicates whether we're running within WSL (Windows Subsystem for Linux).
+	// If we are, then there is some additional configuration required for the kernel containers in order for
+	// them to be able to connect to HDFS running in the host (WSL).
+	usingWSL bool
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -152,6 +157,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		deploymentMode:               types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
 		hdfsNameNodeEndpoint:         schedulerDaemonOptions.HDFSNameNodeEndpoint,
 		dockerStorageBase:            schedulerDaemonOptions.DockerStorageBase,
+		usingWSL:                     schedulerDaemonOptions.UsingWSL,
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -357,6 +363,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			HdfsNameNodeEndpoint: d.hdfsNameNodeEndpoint,
 			KernelDebugPort:      -1,
 			DockerStorageBase:    d.dockerStorageBase,
+			UsingWSL:             d.usingWSL,
 		}
 
 		invoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts)
@@ -971,6 +978,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 			HdfsNameNodeEndpoint: d.hdfsNameNodeEndpoint,
 			KernelDebugPort:      int(in.DockerModeKernelDebugPort),
 			DockerStorageBase:    d.dockerStorageBase,
+			UsingWSL:             d.usingWSL,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts)
 

@@ -9,6 +9,8 @@ import (
 	"math"
 	"math/rand"
 	"net"
+	"os"
+	"runtime/pprof"
 	"sync/atomic"
 	"time"
 
@@ -629,7 +631,10 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 
 				// Sleep for an amount of time proportional to the number of attempts with some random jitter added.
 				next_sleep_interval := s.getSleepInterval(num_tries)
-				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Will sleep for %v before trying again."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, num_tries+1, max_num_tries, next_sleep_interval)
+				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Serving: %d. Will sleep for %v before trying again."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, num_tries+1, max_num_tries, next_sleep_interval, atomic.LoadInt32(&socket.Serving))
+
+				pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
+				panic("Failed to receive ACK (after just one try).")
 
 				time.Sleep(next_sleep_interval)
 				num_tries += 1

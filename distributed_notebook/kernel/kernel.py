@@ -549,7 +549,7 @@ class DistributedKernel(IPythonKernel):
             message["metadata"] = self.session.unpack(msg_list[3])
             
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
-            self.send_ack(self.shell_stream, msg_type, msg_id, idents, message) # Send an ACK.
+            self.send_ack(self.shell_stream, msg_type, msg_id, idents, message, stream_name = "shell") # Send an ACK.
             return
         
         # self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
@@ -558,7 +558,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(f"Received SHELL message {msg_id} of type \"{msg_type}\": {msg_deserialized}")
         sys.stderr.flush()
         sys.stdout.flush()
-        self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg_deserialized) # Send an ACK.
+        self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg_deserialized, stream_name = "shell") # Send an ACK.
         
         await super().dispatch_shell(msg)
         
@@ -624,7 +624,7 @@ class DistributedKernel(IPythonKernel):
             message["metadata"] = self.session.unpack(msg_list[3])
             
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
-            self.send_ack(self.control_stream, msg_type, msg_id, idents, message) # Send an ACK.
+            self.send_ack(self.control_stream, msg_type, msg_id, idents, message, stream_name = "control") # Send an ACK.
             if self.control_stream:
                 self.control_stream.flush(zmq.POLLOUT)
             
@@ -641,7 +641,7 @@ class DistributedKernel(IPythonKernel):
         self.set_parent(idents, msg, channel="control")
         self._publish_status("busy", "control")
 
-        self.send_ack(self.control_stream, msg_type, msg_id, idents, msg) # Send an ACK.
+        self.send_ack(self.control_stream, msg_type, msg_id, idents, msg, stream_name = "control") # Send an ACK.
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
             
@@ -766,7 +766,7 @@ class DistributedKernel(IPythonKernel):
         else:
             return True
 
-    def send_ack(self, stream, msg_type:str, msg_id:str, ident, parent):
+    def send_ack(self, stream, msg_type:str, msg_id:str, ident, parent, stream_name:str = ""):
         # self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
         ack_msg = self.session.send(  # type:ignore[assignment]
             stream,
@@ -779,7 +779,7 @@ class DistributedKernel(IPythonKernel):
             parent,
             ident=ident,
         )
-        self.log.debug(f"Sent 'ACK' for {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
+        self.log.debug(f"Sent 'ACK' for {stream_name} {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""

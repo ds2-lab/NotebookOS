@@ -10,6 +10,7 @@ import time
 import datetime
 import sys
 import debugpy 
+import threading 
 
 from .errors import FromGoError
 from collections import OrderedDict
@@ -135,6 +136,8 @@ class RaftLog(object):
         self._current_election: Optional[Election] = None 
         # The most recent election to have been completed successfully.
         self._last_completed_election: Optional[Election] = None 
+        # Control access to key parts of the election.
+        self._election_lock: threading.Lock = threading.Lock()
         
         # TBD
         self._change_handler: Optional[Callable[[SynchronizedValue], None]] = None 
@@ -227,7 +230,8 @@ class RaftLog(object):
             raise ValueError("received 'VOTE' proposal with null current election")
 
         # The first 'VOTE' proposal received during the term automatically wins.
-        was_first_vote_proposal:bool = self._current_election.add_vote_proposal(vote, overwrite = True, received_at = received_at)
+        with self._election_lock:
+            was_first_vote_proposal:bool = self._current_election.add_vote_proposal(vote, overwrite = True, received_at = received_at)
         if not was_first_vote_proposal:
             self.logger.debug(f"We've already received at least 1 other 'VOTE' proposal during term {self._current_election.term_number}. Ignoring 'VOTE' proposal from node {vote.proposer_id}.")
             return GoNilError() 
@@ -237,7 +241,10 @@ class RaftLog(object):
             self._leader_term = vote.election_term
             self._leader_id = vote.proposed_node_id
             self.logger.debug("Node %d has won in term %d as proposed by node %d." % (vote.proposed_node_id, vote.election_term, vote.proposer_id))
-            self._current_election.complete_election(vote.proposed_node_id)
+            
+            with self._election_lock:
+                self._current_election.complete_election(vote.proposed_node_id)
+            
             self._last_winner_id = vote.proposed_node_id
             self._last_completed_election = self._current_election
         else:
@@ -314,7 +321,9 @@ class RaftLog(object):
 
         self.logger.debug(f"Received proposal \"{proposal.key}\" from node {proposal.proposer_id}: {str(proposal)}. Match: {self._node_id == proposal.proposer_id}")
 
-        val: Optional[tuple[asyncio.Future[Any], float]] = self._current_election.add_proposal(proposal, self._future_io_loop, received_at = received_at)
+        with self._election_lock:
+            val: Optional[tuple[asyncio.Future[Any], float]] = self._current_election.add_proposal(proposal, self._future_io_loop, received_at = received_at)
+        
         if val != None:
             # Future to decide the result of the election by a certain time limit. 
             _pick_and_propose_winner_future, _discard_after = val
@@ -365,7 +374,7 @@ class RaftLog(object):
             asyncio.run_coroutine_threadsafe(decideElection(), self._future_io_loop)
             # self._future_io_loop.call_soon_threadsafe(decideElection)
         
-        self.logger.debug(f"Received {self._current_election.num_proposals_received} proposal(s) so far during term {self._current_election.term_number}.")
+        self.logger.debug(f"Received {self._current_election.num_proposals_received} proposal(s) and discarded {self._current_election.num_discarded_proposals} proposal(s) so far during term {self._current_election.term_number}.")
 
         self._tryPickWinnerToPropose(proposal.election_term) 
 
@@ -391,7 +400,10 @@ class RaftLog(object):
                 raise ValueError(f"cannot try to pick winner for election {term_number}; 'future IO loop' field is null, and there is no running IO loop right now.")
             
         try:
-            id: int = self._current_election.pick_winner_to_propose(last_winner_id = self._last_winner_id)
+            # Select a winner.
+            with self._election_lock:
+                id: int = self._current_election.pick_winner_to_propose(last_winner_id = self._last_winner_id)
+            
             if id > 0:
                 assert self._election_decision_future != None 
                 self.logger.debug(f"Will propose that node {id} win the election in term {self._current_election.term_number}.")
@@ -810,9 +822,11 @@ class RaftLog(object):
         else:
             return True, False
 
-    def _create_new_election(self, term_number:int = -1)->Election:
+    def _get_or_create_election(self, term_number:int = -1, latest_attempt_number:int = -1):
         """
-        Create and register a new election with the given term number.
+        First, try to create and register a new election with the given term number.
+        If the current election has the same term number and is in the failed state, then we'll just re-use that election.
+        In particular, we'll end up restarting it.
 
         This modifies the following fields:
             - self._elections
@@ -824,41 +838,44 @@ class RaftLog(object):
             - we already have an active election 
             - term_number < the previous election's term number  
             - the current election is not in the state ElectionState.COMPLETE (i.e., the current election needs to have completed successfully)
+            
+        Returns:
+            Election:
+                A new election with the specified term number, or the current election if it has the same term number and was in a FAILED state.
         """
-        if term_number < 0:
-            raise ValueError(f"illegal term number specified for new election: {term_number}")
-        
-        # TODO: We may want to "relax" these conditions, or rather the consequences of these conditions, and attempt to proceed even if there's an error.
-        if self.has_active_or_failed_election():
-            assert self._current_election != None 
+        with self._election_lock:
+            if term_number < 0:
+                raise ValueError(f"illegal term number specified for new election: {term_number}")
+            
+            # TODO: We may want to "relax" these conditions, or rather the consequences of these conditions, and attempt to proceed even if there's an error.
+            if self.has_active_or_failed_election():
+                assert self._current_election != None 
 
-            # If we already have an election with a different term number, then that's problematic.
-            if self._current_election.term_number != term_number:
-                self.logger.error(f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
-                raise ValueError(f"attempted to create new election while already having an active election")
+                # If we already have an election with a different term number, then that's problematic.
+                if self._current_election.term_number != term_number:
+                    self.logger.error(f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
+                    raise ValueError(f"attempted to create new election while already having an active election")
+                else:
+                    # However, if we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_execute') ZMQ message.
+                    # During this delay, we may have received a committed proposal from another replica for this election, which prompted us to create the election at that point.
+                    # So, we'll just return the election that we already have, since the term numbers match. 
+                    self._current_election.restart(latest_attempt_number = latest_attempt_number)
+            elif self._current_election != None and self._current_election.term_number > term_number:
+                self.logger.error(f"Creating new election with term number {term_number} despite already previous election having a larger term number of {self._current_election.term_number}") 
+                raise ValueError(f"attempted to create new election with term number smaller than previous election's term number ({term_number} < {self._current_election.term_number})") 
+            elif self._current_election != None and not self._current_election.completed_successfully:
+                self.logger.error(f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet completed successfully.")
+                raise ValueError(f"current election (term number: {self._current_election.term_number}) has not yet completed successfully (current state: {self._current_election._election_state})")
             else:
-                # However, if we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_execute') ZMQ message.
-                # During this delay, we may have received a committed proposal from another replica for this election, which prompted us to create the election at that point.
-                # So, we'll just return the election that we already have, since the term numbers match. 
-                return self._current_election
-        elif self._current_election != None and self._current_election.term_number > term_number:
-            self.logger.error(f"Creating new election with term number {term_number} despite already previous election having a larger term number of {self._current_election.term_number}") 
-            raise ValueError(f"attempted to create new election with term number smaller than previous election's term number ({term_number} < {self._current_election.term_number})") 
-        elif self._current_election != None and not self._current_election.completed_successfully:
-            self.logger.error(f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet completed successfully.")
-            raise ValueError(f"current election (term number: {self._current_election.term_number}) has not yet completed successfully (current state: {self._current_election._election_state})")
+                election: Election = Election(term_number, self._num_replicas)
+                self._elections[term_number] = election
+                self._last_completed_election = self._current_election
+                self._current_election = election
 
-        new_election: Election = Election(term_number, self._num_replicas)
-        self._elections[term_number] = new_election
-        self._last_completed_election = self._current_election
-        self._current_election = new_election
+                if self._last_completed_election != None:
+                    assert self._last_completed_election.completed_successfully
 
-        if self._last_completed_election != None:
-            assert self._last_completed_election.completed_successfully
-
-        self.logger.info(f"Created new election with term number {term_number}")
-
-        return new_election
+                self.logger.info(f"Created new election with term number {term_number}")
 
     def _create_election_proposal(self, key: ElectionProposalKey, term_number: int) -> LeaderElectionProposal:
         """
@@ -963,33 +980,28 @@ class RaftLog(object):
         # TODO: Implement functionality of specifying term 0 to guarantee winning of election.
         if target_term_number == 0:
             raise ValueError("specifiying target term of 0 is not yet supported")
-
-        # The current election field must be non-null.
-        if self._current_election == None:
-            raise ValueError("current election field is None")
-        # Commented out:
-        # This condition is not necessarily true. For example, if we've restarted following a migration, 
-        # then it won't be true, as we'll have an active election already when we re-propose something.
-        #
-        # elif self._current_election.state == ElectionState.ACTIVE or self._current_election.state == ElectionState.COMPLETE:
-        #     raise ValueError(f"current election is in state {self._current_election.state}; should be in 'INACTIVE' or 'FAILED' state when `_handle_election()` is called.")
-
-        if self._current_election.is_inactive:
-            # Start the election.
-            self._current_election.start()
-        elif self._current_election.is_in_failed_state:
-            # Restart the election.
-            self._current_election.restart(latest_attempt_number = proposal.attempt_number)
+        
+        # Try to create a new election with the given term number.
+        # If the current election has the same term number and is in the failed state, then we'll just restart and re-use that election.
+        try:
+            self._get_or_create_election(term_number = target_term_number, latest_attempt_number = proposal.attempt_number)
+        except Exception as ex:
+            self.logger.error(f"Call to `_get_or_create_election` with term number {target_term_number} failed: {ex}")
+            raise ex 
+        
+        assert self._current_election != None # The current election field must be non-null.
+    
+        try:
+            if self._current_election.is_inactive:
+                # Start the election.
+                self._current_election.start()
+        except Exception as ex:
+            self.logger.error(f"Exception while starting or restarting election {target_term_number}: {ex}")
+            raise ex # Just re-raise the exception.
         
         if self._last_completed_election != None and target_term_number <= self._leader_term:
             self.logger.error(f"Current leader term {self._leader_term} > specified target term {target_term_number}...")
             return False 
-        
-        self._expected_term = target_term_number
-        
-        # The current election field's term number must match the specified target term number.
-        if self._current_election.term_number != target_term_number:
-            raise ValueError(f"current election is targeting term {self._current_election.term_number}, whereas the target term number was specified to be {target_term_number}")
         
         # The proposal's term number must match the specified target term number.
         if proposal.election_term != target_term_number:
@@ -1033,7 +1045,8 @@ class RaftLog(object):
         if voteProposal.election_failed:
             self.logger.debug("RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'." % self._node_id)
 
-            self._current_election.election_failed()
+            with self._election_lock:
+                self._current_election.election_failed()
             
             # None of the replicas proposed 'LEAD'
             # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
@@ -1424,10 +1437,7 @@ class RaftLog(object):
         """
         self.logger.debug("RaftLog %d is proposing to lead term %d." % (self._node_id, term_number))
 
-        # Create the new election.
-        self._create_new_election(term_number = term_number)
-
-        # Create a proposal.
+        # Create a 'LEAD' proposal.
         proposal: LeaderElectionProposal = self._create_election_proposal(ElectionProposalKey.LEAD, term_number)
 
         # Orchestrate/carry out the election.
@@ -1441,10 +1451,7 @@ class RaftLog(object):
         """
         self.logger.debug("RaftLog %d: proposing to yield term %d." % (self._node_id, term_number))
 
-        # Create the new election.
-        self._create_new_election(term_number = term_number)
-
-        # Create a proposal.
+        # Create a 'YIELD' proposal.
         proposal: LeaderElectionProposal = self._create_election_proposal(ElectionProposalKey.YIELD, term_number)
 
         # Orchestrate/carry out the election.

@@ -17,6 +17,7 @@ require (
 	github.com/hashicorp/consul/api v1.28.2
 	github.com/hashicorp/yamux v0.1.1
 	github.com/ianlancetaylor/cgosymbolizer v0.0.0-20240718183735-925f0b3ad234
+	github.com/jackpal/gateway v1.0.15
 	github.com/mason-leap-lab/go-utils v1.3.3
 	github.com/onsi/ginkgo/v2 v2.15.0
 	github.com/onsi/gomega v1.32.0
@@ -56,7 +57,10 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/muesli/termenv v0.15.2 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/stretchr/testify v1.9.0 // indirect
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 )

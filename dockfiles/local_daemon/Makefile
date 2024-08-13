@@ -16,7 +16,7 @@ build-in-container:
 
 docker: build-in-container
 	docker build ${PARAMS} -t $(DOCKER_USER)daemon .
-	rm local_daemon
+# rm local_daemon
 # ../clean.sh
 
 clean:
