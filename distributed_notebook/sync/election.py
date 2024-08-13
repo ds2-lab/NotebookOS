@@ -416,6 +416,8 @@ class Election(object):
         FAILED --> ACTIVE
         """
         if not self.is_in_failed_state:
+            # TODO: Is it necessarily the case that we will only ever want to restart 'FAILED' elections?
+            # That's definitely the common/usual case. Perhaps with everything being locked (externally; the locking occurs in the raft log, not in here), we'll only want to restart failed elections...
             raise ValueError(f"election for term {self.term_number} is not in 'FAILED' state; instead, it is in state '{self._election_state}'. Cannot restart the election.")
 
         if latest_attempt_number <= 0:
@@ -650,10 +652,10 @@ class Election(object):
 
         if proposal.is_lead:
             self._num_lead_proposals_received += 1
-            self.logger.debug(f"Accepted \"LEAD\" proposal from node {proposal.proposer_id}. NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
+            self.logger.debug(f"Accepted \"LEAD\" proposal from node {proposal.proposer_id} with attempt number {proposal.attempt_number}. NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
         else:
             self._num_yield_proposals_received += 1
-            self.logger.debug(f"Accepted \"YIELD\" proposal from node {proposal.proposer_id}. NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
+            self.logger.debug(f"Accepted \"YIELD\" proposal from node {proposal.proposer_id} with attempt number {proposal.attempt_number}. NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
         
             if self._num_yield_proposals_received >= 3:
                 self._expecting_failure = True 

@@ -855,10 +855,22 @@ class RaftLog(object):
                 if self._current_election.term_number != term_number:
                     self.logger.error(f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
                     raise ValueError(f"attempted to create new election while already having an active election")
+                
+                # If we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_execute') ZMQ message.
+                # During this delay, we may have received a committed proposal from another replica for this election, which prompted us to either create or restart the election at that point.
+                # So, if we have a current election already, and that election is in a non-active state, then we restart it.
+                # If we have a current election that is already active, then we should have at least one proposal already (otherwise, why would the election be active already?)
+                if self._current_election.is_active:
+                    self.logger.debug(f"Reusing existing, already-active election {self._current_election.term_number}. Number of proposals received (not counting ours): {self._current_election.num_proposals_received}.")
+                    
+                    # Sanity check.
+                    # If the current election is already active, then we necessarily should have received a proposal from a peer, 
+                    # which triggered either the creation of this election, or the restarting of the election if it had already 
+                    # existed and was in the failed state.
+                    if self._current_election.num_proposals_received == 0:
+                        raise ValueError(f"existing election for term {term_number} is already active; however, it has no registered proposals, so it should not be active already")
                 else:
-                    # However, if we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_execute') ZMQ message.
-                    # During this delay, we may have received a committed proposal from another replica for this election, which prompted us to create the election at that point.
-                    # So, we'll just return the election that we already have, since the term numbers match. 
+                    self.logger.debug(f"Restarting existing election {self._current_election.term_number}. Current state: {self._current_election.election_state}.")
                     self._current_election.restart(latest_attempt_number = latest_attempt_number)
             elif self._current_election != None and self._current_election.term_number > term_number:
                 self.logger.error(f"Creating new election with term number {term_number} despite already previous election having a larger term number of {self._current_election.term_number}") 
@@ -867,11 +879,14 @@ class RaftLog(object):
                 self.logger.error(f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet completed successfully.")
                 raise ValueError(f"current election (term number: {self._current_election.term_number}) has not yet completed successfully (current state: {self._current_election._election_state})")
             else:
+                # Create a new election. We don't have an existing election to restart/use.
                 election: Election = Election(term_number, self._num_replicas)
                 self._elections[term_number] = election
+                # Elections contain a sort of (singly-)linked list between themselves. We're performing an append-to-end-of-linked-list operation here.
                 self._last_completed_election = self._current_election
                 self._current_election = election
 
+                # If we're bumping the election term to a new number, ensure that the last election we know about did in fact complete successfully.
                 if self._last_completed_election != None:
                     assert self._last_completed_election.completed_successfully
 
