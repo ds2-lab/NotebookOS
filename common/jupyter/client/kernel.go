@@ -926,14 +926,6 @@ func (c *kernelReplicaClientImpl) extractIOTopicFrame(msg *zmq4.Msg) (topic stri
 }
 
 func (c *kernelReplicaClientImpl) forwardIOMessage(kernel core.Kernel, _ types.JupyterFrames, msg *zmq4.Msg) error {
-	// c.client.Log.Debug("Forwarding %v message for Kernel \"%s\".", types.IOMessage, c.id)
-	// if c.addSourceKernelFrames {
-	// 	c.client.Log.Debug("Adding \"Source Kernel\" frame to %v message that we're forwarding.", types.IOMessage)
-	// 	msg.Frames = c.AddSourceKernelFrame(msg.Frames, c.SourceKernelID(), server.JOffsetAutoDetect)
-	// }
-
-	// c.client.Log.Debug("%v message to be forwarded (for kernel \"%s\"): %v", types.IOMessage, c.id, msg)
-
 	return kernel.Socket(types.IOMessage).Send(*msg)
 }
 

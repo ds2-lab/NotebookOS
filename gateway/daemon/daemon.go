@@ -606,7 +606,7 @@ func (d *ClusterGatewayImpl) initializeDockerKernelDebugPort() {
 		// Look for 5 free ports in a row.
 		port := startingPort
 		for ; port < startingPort+5; port++ {
-			ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+			ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
 
 			// If there was an error, then the port is already in-use.
 			if err != nil {
@@ -616,6 +616,8 @@ func (d *ClusterGatewayImpl) initializeDockerKernelDebugPort() {
 				break
 			}
 
+			d.log.Debug("Port %d appears to be available...", port)
+
 			// Close the listener.
 			ln.Close()
 		}
@@ -624,7 +626,7 @@ func (d *ClusterGatewayImpl) initializeDockerKernelDebugPort() {
 		if success {
 			d.log.Debug("Assigning 'docker kernel debug port' an initial value of %d.", startingPort)
 			d.dockerModeKernelDebugPort.Store(startingPort)
-			break
+			return
 		}
 
 		// We'll try again (to find 5 free ports in a row), beginning with the next port we've not yet tested.
@@ -2251,7 +2253,7 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 
 		if err != nil {
 			// d.log.Error("[gid=%d] Failed to extract header from %v message.", goroutineId, typ)
-			// d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
+			d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
 			sendErr := socket.Send(*msg)
 
 			if sendErr != nil {
@@ -2268,13 +2270,11 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 		}
 	}
 
-	// d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
+	d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
 	err := socket.Send(*msg)
 
 	if err != nil {
 		d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())
-	} else {
-		// d.log.Debug("[gid=%d] Successfully forwarded %v response from kernel %s via %s.", goroutineId, typ, from.ID(), socket.Name)
 	}
 
 	return err // Will be nil on success.

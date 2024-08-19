@@ -1,0 +1,103 @@
+# Important: this value should not be changed. 
+# If you have to change it, then you need to update the code.
+# Specifically, you need to change the value of the 'DockerProjectName' variable/const that is defined in "gateway/domain/types.go".
+name: distributed_cluster 
+
+services:
+
+  docker-hoster:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/hoster/Dockerfile
+    image: scusemua/docker-hoster:latest
+    labels:
+      app: "distributed_cluster"
+    container_name: 'docker-hoster'
+    restart: always 
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock
+      - /etc/hosts:/tmp/hosts
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  jupyter:
+    environment:
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - USING_WSL2=1
+    # build: 
+    #   context: ../..
+    #   dockerfile: dockfiles/cpu-python3-amd64-debug/Dockerfile
+    image: scusemua/jupyter-debug:latest
+    labels:
+      app: "distributed_cluster"
+    container_name: 'jupyter'
+    command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
+    expose:
+      - 8888
+    ports:
+      - "8888:8888"
+    depends_on:
+      - gateway
+      - docker-hoster
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+        
+  gateway:
+    #build: 
+    #  context: ./gateway
+    #  dockerfile: Dockerfile
+    environment:
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - USING_WSL2=1
+    image: scusemua/gateway:latest
+    labels:
+      app: "distributed_cluster"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./gateway/gateway.yml:/gateway.yml
+    container_name: 'gateway'
+    restart: always
+    expose:
+      - 8079
+      - 9996
+      - 8081
+    ports:
+      - "8079:8079"
+      - "9996:9996"
+      - "8081:8081"
+    depends_on:
+      - docker-hoster
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  daemon:
+    environment:
+      - KERNEL_TEMP_BASE=/kernel_base
+      - KERNEL_IMAGE=scusemua/jupyter-debug:latest
+      - HOST_MOUNT_DIR=/home/$USER/kernel_base
+      - TARGET_MOUNT_DIR=/kernel_base
+      - STORAGE=/home/$USER/kernel_storage
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - USING_WSL2=1
+    # build:
+    #   context: ./local_daemon
+    #   dockerfile: Dockerfile
+    image: scusemua/daemon:latest
+    labels:
+      app: "distributed_cluster"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/$USER/kernel_base:/kernel_base
+      - storage:/home/$USER/kernel_storage
+      - ./local_daemon/daemon.yml:/daemon.yml
+    depends_on:
+      - gateway
+      - docker-hoster
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  
+volumes:
+  storage:
+  coredumps_volume:

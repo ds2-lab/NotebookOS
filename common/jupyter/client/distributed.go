@@ -720,7 +720,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	}
 	// defer cancel()
 	forwarder := func(replica core.KernelInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
-		c.log.Debug(utils.BlueStyle.Render("Received %v response from replica %v"), typ, replica)
+		c.log.Debug(utils.BlueStyle.Render("Received %v response from %v"), typ, replica)
 
 		if typ == types.ShellMessage {
 			// "Preprocess" the response, which involves checking if it a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.
@@ -981,7 +981,6 @@ func (c *distributedKernelClientImpl) handleMsg(replica types.JupyterServerInfo,
 		case types.IOTopicStatus:
 			return c.handleIOKernelStatus(replica.(*kernelReplicaClientImpl), jFrames, msg)
 		default:
-			// c.log.Debug("Forwarding %v message from replica %d: %v", typ, replica.(*kernelReplicaClientImpl).ReplicaID(), msg)
 			return c.server.Sockets.IO.Send(*msg)
 		}
 	}
