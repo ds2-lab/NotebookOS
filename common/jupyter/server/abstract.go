@@ -180,7 +180,14 @@ func (s *AbstractServer) handleAck(msg *zmq4.Msg, rspId string, socket *types.So
 	}
 
 	if len(rspId) == 0 {
-		panic(fmt.Sprintf("Received %s message on socket %s [remoteName=%s] with no response ID: %v", socket.Type.String(), socket.Name, socket.RemoteName, msg))
+		if !socket.IsGolangFrontend { // Golang frontend sockets do not send messages the same way. So, if it is a frontend socket, then this is OK. If not, then we panic.
+			panic(fmt.Sprintf("Received %s message on socket %s [remoteName=%s] with no response ID: %v", socket.Type.String(), socket.Name, socket.RemoteName, msg))
+		} else {
+			// TODO: How to get rspId in this case...? Maybe we can add it as metadata to the replies sent to Golang Frontends?
+			// Should we fallback to using the Jupyter request ID or something?
+			s.Log.Warn("Received ACK from Golang Frontend %s; however, we have no way to recover the response ID at this point...", socket.RemoteName)
+			return
+		}
 	}
 
 	ackChan, _ := s.ackChannels.Load(rspId)
@@ -288,7 +295,10 @@ func (s *AbstractServer) tryHandleSpecial(jMsg *types.JupyterMessage, socket *ty
 	}
 
 	if s.isGolangFrontendRegistration(jMsg, socket.Type) {
-		jFrames := types.JupyterFrames(jMsg.Frames)
+		jFrames := jMsg.ToJFrames()
+
+		s.Log.Debug("Golang frontend registration JFrames: %v", jFrames)
+
 		var messageContent map[string]interface{}
 		err := jFrames.DecodeContent(&messageContent)
 		if err != nil {
@@ -296,10 +306,15 @@ func (s *AbstractServer) tryHandleSpecial(jMsg *types.JupyterMessage, socket *ty
 			return false, err
 		}
 
+		s.Log.Debug("Decoded Golang registration content: %v", messageContent)
+
 		senderId := messageContent["sender-id"].(string)
 		socket.RemoteName = senderId
+		socket.IsGolangFrontend = true
 
 		s.Log.Debug(utils.LightBlueStyle.Render("Registered Golang Frontend: %s."), senderId)
+
+		return false, nil
 	}
 
 	return true, nil
@@ -374,6 +389,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					panic(fmt.Sprintf("[gid=%d] Fatal error while attempting to handle message as special. Message: %v. Error: %v.", goroutineId, msg, err))
 				}
 
+				// If it was a special message, like an ACK, then we don't process it any further.
 				if !keep_processing {
 					if contd != nil {
 						contd <- true
@@ -412,6 +428,9 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				}
 
 				err = handler(server, socket.Type, v)
+				if err != nil {
+					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Handler for %v message \"%v\" has returned with an error: %v."), goroutineId, socket.Type, jMsg.RequestId, err)
+				}
 
 				// s.Log.Debug("[gid=%d] Handler for %v message \"%v\" has returned. Error: %v.", goroutineId, socket.Type, rspId, err)
 			}

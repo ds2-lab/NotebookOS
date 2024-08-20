@@ -1,9 +1,6 @@
-from jupyter_server.services.sessions.sessionmanager import SessionManager, KernelSessionRecord
+from jupyter_server.services.sessions.sessionmanager import SessionManager, KernelSessionRecord, ModelName, KernelName
 from jupyter_core.utils import ensure_async
 from typing import Any, Dict, NewType, Optional, cast
-
-KernelName = NewType("KernelName", str)
-ModelName = NewType("ModelName", str)
 
 class DistributedSessionManager(SessionManager):
     # kernel_manager = Instance("distributed_notebook.manager.distributed_kernel_manager.DistributedKernelManager")

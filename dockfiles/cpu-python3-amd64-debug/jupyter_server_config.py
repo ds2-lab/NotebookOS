@@ -370,6 +370,7 @@ c.ServerApp.kernel_manager_class = 'distributed_notebook.manager.distributed_ker
 # The kernel websocket connection class to use.
 #  Default: 'jupyter_server.services.kernels.connection.base.BaseKernelWebsocketConnection'
 # c.ServerApp.kernel_websocket_connection_class = 'jupyter_server.services.kernels.connection.base.BaseKernelWebsocketConnection'
+c.ServerApp.kernel_websocket_connection_class = 'distributed_notebook.connection.channels.ZMQChannelsWebsocketConnectionV2'
 
 # DEPRECATED. Use ZMQChannelsWebsocketConnection.kernel_ws_protocol
 #  Default: ''

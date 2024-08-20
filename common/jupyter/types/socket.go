@@ -92,15 +92,16 @@ func (m *MessageHandlerWrapper) Release() {
 
 type Socket struct {
 	zmq4.Socket
-	Port            int                                             // The port that the socket is bound to/listening on.
-	Type            MessageType                                     // The type of Socket that this is (e.g., shell, stdin, control, heartbeat, or io pub/sub).
-	Handler         MessageHandler                                  // The handler for responses. TODO: Is this actually used?
-	PendingReq      hashmap.HashMap[string, *MessageHandlerWrapper] // Requests that have been sent on this socket, for which we're waiting for responses.
-	Serving         int32                                           // Indicates whether we have a goroutine monitoring for messages + handling those messages. Must be read/updated atomically.
-	Name            string                                          // Mostly used for debugging.
-	RemoteName      string                                          // Mostly used for debugging.
-	StopServingChan chan struct{}                                   // Used to tell a goroutine serving this socket to stop (such as if we're recreating+reconnecting due to no ACKs)
-	mu              sync.Mutex                                      // Synchronizes access to the underlying ZMQ socket, only for sends.
+	Port             int                                             // The port that the socket is bound to/listening on.
+	Type             MessageType                                     // The type of Socket that this is (e.g., shell, stdin, control, heartbeat, or io pub/sub).
+	Handler          MessageHandler                                  // The handler for responses. TODO: Is this actually used?
+	PendingReq       hashmap.HashMap[string, *MessageHandlerWrapper] // Requests that have been sent on this socket, for which we're waiting for responses.
+	Serving          int32                                           // Indicates whether we have a goroutine monitoring for messages + handling those messages. Must be read/updated atomically.
+	Name             string                                          // Mostly used for debugging.
+	RemoteName       string                                          // Mostly used for debugging.
+	StopServingChan  chan struct{}                                   // Used to tell a goroutine serving this socket to stop (such as if we're recreating+reconnecting due to no ACKs)
+	IsGolangFrontend bool                                            // If true, then this Socket is connected to a Golang Jupyter frontend.
+	mu               sync.Mutex                                      // Synchronizes access to the underlying ZMQ socket, only for sends.
 }
 
 // Create a new Socket, without specifying the message handler.

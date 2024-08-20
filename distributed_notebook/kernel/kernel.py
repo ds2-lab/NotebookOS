@@ -1492,6 +1492,7 @@ class DistributedKernel(IPythonKernel):
         self.toggle_outstream(override=True, enable=True)
         result = self.old_run_cell(raw_cell, store_history=store_history,
                                    silent=silent, shell_futures=shell_futures, cell_id=cell_id)
+        self.toggle_outstream(override=True, enable=False)
         self.log.debug("Ran cell %s: %s" % (str(raw_cell), str(result)))
         return result
 

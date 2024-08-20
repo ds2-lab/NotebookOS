@@ -24,7 +24,7 @@ class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
 
     async def _async_start_kernel(  # type:ignore[override]
             self, *, kernel_id: str | None = None, path: ApiPath | None = None, **kwargs: str
-        ) -> str:
+        ):
         self.log.info("_async_start_kernel() called. kernel_id = %s, path = %s" % (kernel_id, str(path)))
         returned_kernel_id:str = await super()._async_start_kernel(kernel_id = kernel_id, path = path, **kwargs)
         

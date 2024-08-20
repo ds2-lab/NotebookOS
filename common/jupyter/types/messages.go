@@ -101,6 +101,10 @@ func extractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int
 	return
 }
 
+func (m *JupyterMessage) ToJFrames() JupyterFrames {
+	return JupyterFrames(m.Frames[m.Offset:])
+}
+
 func (m *JupyterMessage) GetMsg() *zmq4.Msg {
 	return m.Msg
 }
