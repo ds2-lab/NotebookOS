@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 
+	dockerClient "github.com/docker/docker/client"
 	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
@@ -195,6 +196,7 @@ type ClusterGatewayImpl struct {
 	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
 	containerWatcher domain.ContainerWatcher
 
+	// Called by Kubernetes to involve the Cluster Gateway in scheduling decisions.
 	clusterScheduler domain.ClusterScheduler
 
 	// gRPC connection to the Dashboard.
@@ -205,6 +207,12 @@ type ClusterGatewayImpl struct {
 
 	// Used in Docker mode. Assigned to individual kernel replicas, incremented after each assignment.
 	dockerModeKernelDebugPort atomic.Int32
+
+	// Docker client.
+	dockerApiClient *dockerClient.Client
+
+	// The name of the Docker network that the container is running within. Only used in Docker mode.
+	dockerNetworkName string
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
@@ -227,6 +235,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan domain.AddReplicaOperation](64),
 		activeExecutions:                 hashmap.NewCornelkMap[string, *client.ActiveExecution](64),
 		hdfsNameNodeEndpoint:             clusterDaemonOptions.HDFSNameNodeEndpoint,
+		dockerNetworkName:                clusterDaemonOptions.DockerNetworkName,
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -296,7 +305,15 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			daemon.log.Info("Running in DOCKER mode.")
 			daemon.deploymentMode = types.DockerMode
 
-			daemon.initializeDockerKernelDebugPort()
+			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
+			if err != nil {
+				panic(err)
+			}
+
+			daemon.dockerApiClient = apiClient
+
+			daemon.dockerModeKernelDebugPort.Store(DockerKernelDebugPortDefault)
+			// daemon.initializeDockerKernelDebugPort()
 		}
 	case "kubernetes":
 		{
@@ -526,9 +543,9 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingIns
 
 	startTime := time.Now()
 	var numRepliesReceived atomic.Int32
-	responseHandler := func(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+	responseHandler := func(from core.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 		latestNumRepliesReceived := numRepliesReceived.Add(1)
-		d.log.Debug("Received %v ping_reply from kernel %s. Received %d/3 replies. Time elapsed: %v.", typ, from.ID(), latestNumRepliesReceived, time.Since(startTime))
+		d.log.Debug("Received %s ping_reply from kernel %s. Received %d/3 replies. Time elapsed: %v.", typ.String(), from.ID(), latestNumRepliesReceived, time.Since(startTime))
 
 		// Notify that all replies have been received.
 		if latestNumRepliesReceived == 3 {
@@ -538,7 +555,8 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingIns
 		return nil
 	}
 
-	kernel.RequestWithHandler(ctx, "Forwarding", socketType, &msg, responseHandler, func() {})
+	jMsg := jupyter.NewJupyterMessage(&msg)
+	kernel.RequestWithHandler(ctx, "Forwarding", socketType, jMsg, responseHandler, func() {})
 
 	select {
 	case <-ctx.Done():
@@ -596,43 +614,73 @@ func (d *ClusterGatewayImpl) Listen(transport string, addr string) (net.Listener
 	return d, nil
 }
 
-func (d *ClusterGatewayImpl) initializeDockerKernelDebugPort() {
-	// Need to find a series of at least 5 available ports.
-	startingPort := DockerKernelDebugPortDefault
-	for startingPort < 64000 {
-		// If we get through the check without this being flipped to false, then we'll know we succeeded in finding 5 free ports available.
-		success := true
+// func (d *ClusterGatewayImpl) initializeDockerKernelDebugPort() {
+// Need to find a series of at least 5 available ports.
+// startingPort := DockerKernelDebugPortDefault
 
-		// Look for 5 free ports in a row.
-		port := startingPort
-		for ; port < startingPort+5; port++ {
-			ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+// var listOptions container.ListOptions
+// if len(d.dockerNetworkName) > 0 {
+// 	listOptions = container.ListOptions{
+// 		Filters: filters.NewArgs(filters.KeyValuePair{
+// 			Key:   "network",
+// 			Value: d.dockerNetworkName,
+// 		}),
+// 	}
+// }
 
-			// If there was an error, then the port is already in-use.
-			if err != nil {
-				d.log.Warn("Port %d was unavailable; cannot use for docker kernel debug port.", port)
-				// Indicate that we failed.
-				success = false
-				break
-			}
+// containers, err := d.dockerApiClient.ContainerList(context.Background(), listOptions)
+// if err != nil {
+// 	d.log.Error("Failed to list Docker containers because: %v", err)
+// 	panic(err)
+// }
 
-			d.log.Debug("Port %d appears to be available...", port)
+// // Iterate over all containers...
+// for _, container := range containers {
+// 	container_names := container.Names
 
-			// Close the listener.
-			ln.Close()
-		}
+// 	// Inspect the name(s) of the container...
+// 	for _, container_name := range container_names {
+// 		// If it is a kernel replica container...
+// 		if strings.HasPrefix(container_name, "kernel") {
+// 			// Check the ports.
+// 		}
+// 	}
+// }
 
-		// If we found 5 free ports in a row, then we'll start here.
-		if success {
-			d.log.Debug("Assigning 'docker kernel debug port' an initial value of %d.", startingPort)
-			d.dockerModeKernelDebugPort.Store(startingPort)
-			return
-		}
+// for startingPort < 64000 {
+// 	// If we get through the check without this being flipped to false, then we'll know we succeeded in finding 5 free ports available.
+// 	success := true
 
-		// We'll try again (to find 5 free ports in a row), beginning with the next port we've not yet tested.
-		startingPort = port + 1
-	}
-}
+// 	// Look for 5 free ports in a row.
+// 	port := startingPort
+// 	for ; port < startingPort+5; port++ {
+// 		ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+
+// 		// If there was an error, then the port is already in-use.
+// 		if err != nil {
+// 			d.log.Warn("Port %d was unavailable; cannot use for docker kernel debug port.", port)
+// 			// Indicate that we failed.
+// 			success = false
+// 			break
+// 		}
+
+// 		d.log.Debug("Port %d appears to be available...", port)
+
+// 		// Close the listener.
+// 		ln.Close()
+// 	}
+
+// 	// If we found 5 free ports in a row, then we'll start here.
+// 	if success {
+// 		d.log.Debug("Assigning 'docker kernel debug port' an initial value of %d.", startingPort)
+// 		d.dockerModeKernelDebugPort.Store(startingPort)
+// 		return
+// 	}
+
+// 	// We'll try again (to find 5 free ports in a row), beginning with the next port we've not yet tested.
+// 	startingPort = port + 1
+// }
+// }
 
 // net.Listener implementation
 func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
@@ -842,7 +890,7 @@ func (d *ClusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification 
 
 	// First, check if this notification is from a replica of a kernel that is starting up for the very first time.
 	// If so, we'll send a notification in the associated channel, and then we'll return.
-	kernelStartingChan, ok := d.kernelsStarting.LoadAndDelete(smrReadyNotification.KernelId)
+	kernelStartingChan, ok := d.kernelsStarting.Load(smrReadyNotification.KernelId)
 	if ok {
 		d.log.Debug("Received 'SMR-READY' notification for newly-starting kernel %s.", smrReadyNotification.KernelId)
 		kernelStartingChan <- struct{}{}
@@ -852,7 +900,7 @@ func (d *ClusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification 
 	// Check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
 	addReplicaOp, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId, true)
 	if !ok {
-		d.log.Warn("No active add-replica operation found for replica %d, kernel %s.", smrReadyNotification.ReplicaId, kernelId)
+		d.log.Warn("Received 'SMR-READY' notification replica %d, kernel %s; however, no add-replica operation found for specified kernel replica...", smrReadyNotification.ReplicaId, smrReadyNotification.KernelId)
 		return gateway.VOID, nil
 	}
 
@@ -906,7 +954,7 @@ func (d *ClusterGatewayImpl) SmrNodeAdded(ctx context.Context, replicaInfo *gate
 // we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
 //
 // If we do not reconnect successfully, then this method is called.
-func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel client.KernelReplicaClient, msg *zmq4.Msg, reconnectionError error) { /* client client.DistributedKernelClient,  */
+func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel client.KernelReplicaClient, msg *jupyter.JupyterMessage, reconnectionError error) { /* client client.DistributedKernelClient,  */
 	_, messageType, err := d.kernelAndTypeFromMsg(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
@@ -928,7 +976,7 @@ func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel client.KernelReplic
 //
 // If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
 // then this method is called.
-func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(kernel client.KernelReplicaClient, msg *zmq4.Msg, resubmissionError error) { /* client client.DistributedKernelClient, */
+func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(kernel client.KernelReplicaClient, msg *jupyter.JupyterMessage, resubmissionError error) { /* client client.DistributedKernelClient, */
 	_, messageType, err := d.kernelAndTypeFromMsg(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
@@ -1041,13 +1089,13 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	}
 
 	msg := activeExecution.Msg()
-	_, header, _, err := jupyter.HeaderFromMsg(msg)
+	// _, header, _, err := jupyter.HeaderFromMsg(msg)
 
 	// TODO(Ben): How to handle this more elegantly?
-	if err != nil {
-		d.log.Error("Failed to extract header from execution request because: %v", err)
-		return err
-	}
+	// if err != nil {
+	// 	d.log.Error("Failed to extract header from execution request because: %v", err)
+	// 	return err
+	// }
 
 	// TODO(Ben): Pre-reserve resources on the host that we're migrating the replica to.
 	// For now, we'll just let the standard scheduling logic handle things, which will prioritize the least-loaded host.
@@ -1080,7 +1128,7 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	}()
 
 	// We'll need this if the migration operation completes successfully.
-	nextExecutionAttempt := client.NewActiveExecution(c.ID(), header.Session, activeExecution.AttemptId()+1, c.Size(), msg)
+	nextExecutionAttempt := client.NewActiveExecution(c.ID(), msg.JupyterSession(), activeExecution.AttemptId()+1, c.Size(), msg)
 
 	// Next, let's update the message so that we target the new replica.
 	_, _, offset := jupyter.ExtractDestFrame(msg.Frames)
@@ -1104,7 +1152,7 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	// Specify the target replica.
 	metadataDict[TargetReplicaArg] = targetReplica
 	metadataDict[ForceReprocessArg] = true
-	err = frames[offset:].EncodeMetadata(metadataDict)
+	err := frames[offset:].EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("Failed to encode metadata frame because: %v", err)
 		// TODO(Ben): What do we do here?
@@ -1139,7 +1187,7 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 
 	// Since the migration operation completed successfully, we can store the new ActiveExecution struct
 	// corresponding to this next execution attempt in the 'activeExecutions' map and on the kernel client.
-	d.activeExecutions.Store(header.MsgID, activeExecution)
+	d.activeExecutions.Store(msg.JupyterMessageId(), activeExecution)
 	c.SetActiveExecution(activeExecution)
 	nextExecutionAttempt.LinkPreviousAttempt(activeExecution)
 	activeExecution.LinkNextAttempt(nextExecutionAttempt)
@@ -1329,9 +1377,12 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 
 	d.log.Debug("Waiting for replicas of new kernel %s to register.", in.Id)
 	created.Wait() // Wait for all replicas to be created.
-	d.log.Debug("All replicas of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster now.", in.Id)
-	<-kernelStartedChan // Wait for all replicas to join their SMR cluster.
-	d.log.Debug("All replicas of new kernel %s have registered and joined their SMR cluster.", in.Id)
+	d.log.Debug("All %d replicas of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster now.", d.ClusterOptions.NumReplicas, in.Id)
+	for i := 0; i < d.ClusterOptions.NumReplicas; i++ {
+		<-kernelStartedChan // Wait for all replicas to join their SMR cluster.
+	}
+	d.kernelsStarting.Delete(in.Id)
+	d.log.Debug("All %d replicas of new kernel %s have registered and joined their SMR cluster.", d.ClusterOptions.NumReplicas, in.Id)
 
 	if kernel.Size() == 0 {
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
@@ -1615,19 +1666,25 @@ func (d *ClusterGatewayImpl) StartKernelReplica(ctx context.Context, in *gateway
 func (d *ClusterGatewayImpl) GetKernelStatus(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
+		// d.log.Debug("Returning kernel status directly: %v", jupyter.KernelStatusExited)
 		return d.statusErrorf(jupyter.KernelStatusExited, nil)
 	}
 
-	return d.statusErrorf(kernel.Status(), nil)
+	status := kernel.Status()
+	// d.log.Debug("Returning kernel status: %v", status)
+
+	return d.statusErrorf(status, nil)
 }
 
 // KillKernel kills a kernel.
 func (d *ClusterGatewayImpl) KillKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
-	return d.StopKernel(ctx, in)
+	d.log.Debug("KillKernel RPC called for kernel %s.", in.Id)
+
+	// Call the impl rather than the RPC stub.
+	return d.stopKernelImpl(in)
 }
 
-// StopKernel stops a kernel.
-func (d *ClusterGatewayImpl) StopKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
+func (d *ClusterGatewayImpl) stopKernelImpl(in *gateway.KernelId) (ret *gateway.Void, err error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find Kernel %s; cannot stop kernel.", in.GetId())
@@ -1699,6 +1756,13 @@ func (d *ClusterGatewayImpl) StopKernel(ctx context.Context, in *gateway.KernelI
 	return
 }
 
+// StopKernel stops a kernel.
+func (d *ClusterGatewayImpl) StopKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
+	d.log.Debug("StopKernel RPC called for kernel %s.", in.Id)
+
+	return d.stopKernelImpl(in)
+}
+
 // WaitKernel waits for a kernel to exit.
 func (d *ClusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
@@ -1710,7 +1774,7 @@ func (d *ClusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelI
 }
 
 func (d *ClusterGatewayImpl) Notify(ctx context.Context, in *gateway.Notification) (*gateway.Void, error) {
-	d.log.Debug(utils.NotificationStyles[in.NotificationType].Render("Received %v notification \"%s\": %s"), NotificationTypeNames[in.NotificationType], in.Title, in.Message)
+	d.log.Debug(utils.NotificationStyles[in.NotificationType].Render("Received %s notification \"%s\": %s"), NotificationTypeNames[in.NotificationType], in.Title, in.Message)
 
 	go func() {
 		err := d.notifyDashboard(in.Title, in.Message, jupyter.NotificationType(in.NotificationType))
@@ -1891,7 +1955,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *gatew
 		associatedKernel, loaded := d.kernels.Load(replicaInfo.KernelId)
 
 		if !loaded {
-			panic(fmt.Sprintf("Could not find kernel with ID %s during migration of that kernel's replica %d.", replicaInfo.KernelId, replicaInfo.ReplicaId))
+			panic(fmt.Sprintf("Could not find kernel with ID \"%s\" during migration of that kernel's replica %d.", replicaInfo.KernelId, replicaInfo.ReplicaId))
 		}
 
 		replicaInfo.PersistentId = associatedKernel.PersistentID()
@@ -1953,7 +2017,9 @@ func (d *ClusterGatewayImpl) Close() error {
 }
 
 // RouterProvider implementations.
-func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
+	// If this is a shutdown request, then use the RPC pathway instead.
+
 	err := d.forwardRequest(nil, jupyter.ControlMessage, msg)
 
 	// When a kernel is first created/being nudged, Jupyter Server will send both a Shell and Control request.
@@ -1961,7 +2027,7 @@ func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Ms
 	// be established until the Shell message is processed. So, if we see a ErrKernelNotFound error here, we will
 	// simply retry it after some time has passed, as the requests are often received very close together.
 	if errors.Is(err, ErrKernelNotFound) {
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Millisecond * 750)
 
 		// We won't re-try more than once.
 		err = d.forwardRequest(nil, jupyter.ControlMessage, msg)
@@ -1970,38 +2036,38 @@ func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *zmq4.Ms
 	return err
 }
 
-func (d *ClusterGatewayImpl) kernelShellHandler(kernel core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) kernelShellHandler(kernel core.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	return d.ShellHandler(kernel, msg)
 }
 
-func (d *ClusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg) error {
-	kernelId, header, _, err := jupyter.HeaderFromMsg(msg)
-	if err != nil {
-		d.log.Error("Could not parse Shell message from %s because: %v", info.String(), err)
-		d.log.Error("Message in question: %s", msg.String())
-		return err
-	}
+func (d *ClusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
+	// kernelId, header, _, err := jupyter.HeaderFromMsg(msg)
+	// if err != nil {
+	// 	d.log.Error("Could not parse Shell message from %s because: %v", info.String(), err)
+	// 	d.log.Error("Message in question: %s", msg.String())
+	// 	return err
+	// }
 
-	kernel, ok := d.kernels.Load(header.Session)
-	if !ok && (header.MsgType == ShellKernelInfoRequest || header.MsgType == ShellExecuteRequest) {
+	kernel, ok := d.kernels.Load(msg.JupyterSession())
+	if !ok && (msg.JupyterMessageType() == ShellKernelInfoRequest || msg.JupyterMessageType() == ShellExecuteRequest) {
 		// Register kernel on ShellKernelInfoRequest
-		if kernelId == "" {
+		if msg.DestinationId == "" {
 			return ErrKernelIDRequired
 		}
 
-		kernel, ok = d.kernels.Load(kernelId)
+		kernel, ok = d.kernels.Load(msg.DestinationId)
 		if !ok {
-			d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", kernelId, header.MsgID, header.MsgType, header.Session)
+			d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 			return ErrKernelNotFound
 		}
 
-		kernel.BindSession(header.Session)
-		d.kernels.Store(header.Session, kernel)
+		kernel.BindSession(msg.JupyterSession())
+		d.kernels.Store(msg.JupyterSession(), kernel)
 	}
 	if kernel == nil {
-		d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", kernelId, header.MsgID, header.MsgType, header.Session)
+		d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
-		if len(kernelId) == 0 {
+		if len(msg.DestinationId) == 0 {
 			d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Type, msg)
 			debug.PrintStack()
 		}
@@ -2014,10 +2080,10 @@ func (d *ClusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *zmq4.Msg)
 		return ErrKernelNotReady
 	}
 
-	if header.MsgType == ShellExecuteRequest {
-		d.processExecuteRequest(msg, kernel, header)
+	if msg.JupyterMessageType() == ShellExecuteRequest {
+		d.processExecuteRequest(msg, kernel) // , header)
 	} else {
-		d.log.Debug("Forwarding shell message to kernel %s: %s", kernelId, msg)
+		d.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg)
 	}
 
 	if err := d.forwardRequest(kernel, jupyter.ShellMessage, msg); err != nil {
@@ -2040,21 +2106,31 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) {
 	d.activeExecutions.Delete(kernelId)
 }
 
-func (d *ClusterGatewayImpl) processExecuteRequest(msg *zmq4.Msg, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
+func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel client.DistributedKernelClient) {
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernel.ID(), msg)
 
-	activeExecution := client.NewActiveExecution(kernel.ID(), header.Session, 1, kernel.Size(), msg)
+	activeExecution := client.NewActiveExecution(kernel.ID(), msg.JupyterSession(), 1, kernel.Size(), msg)
 	d.activeExecutions.Store(kernel.ID(), activeExecution)
 	kernel.SetActiveExecution(activeExecution)
 
 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernel.ID(), activeExecution)
 }
 
-func (d *ClusterGatewayImpl) StdinHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+// func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
+// 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernel.ID(), msg)
+
+// 	activeExecution := client.NewActiveExecution(kernel.ID(), header.Session, 1, kernel.Size(), msg)
+// 	d.activeExecutions.Store(kernel.ID(), activeExecution)
+// 	kernel.SetActiveExecution(activeExecution)
+
+// 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernel.ID(), activeExecution)
+// }
+
+func (d *ClusterGatewayImpl) StdinHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	return d.forwardRequest(nil, jupyter.StdinMessage, msg)
 }
 
-func (d *ClusterGatewayImpl) HBHandler(info router.RouterInfo, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) HBHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	return d.forwardRequest(nil, jupyter.HBMessage, msg)
 }
 
@@ -2101,7 +2177,7 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
-// func (d *ClusterGatewayImpl) idFromMsg(msg *zmq4.Msg) (id string, sessId bool, err error) {
+// func (d *ClusterGatewayImpl) idFromMsg(msg *jupyter.JupyterMessage) (id string, sessId bool, err error) {
 // 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
 // 	if kernelId != "" {
 // 		return kernelId, false, nil
@@ -2160,7 +2236,7 @@ func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 }
 
 // idFromMsg extracts the kernel id or session id from the ZMQ message.
-func (d *ClusterGatewayImpl) kernelIdAndTypeFromMsg(msg *zmq4.Msg) (id string, messageType string, sessId bool, err error) {
+func (d *ClusterGatewayImpl) kernelIdAndTypeFromMsg(msg *jupyter.JupyterMessage) (id string, messageType string, sessId bool, err error) {
 	kernelId, _, offset := jupyter.ExtractDestFrame(msg.Frames)
 	header, err := d.headerFromFrames(msg.Frames[offset:])
 	if err != nil {
@@ -2176,19 +2252,19 @@ func (d *ClusterGatewayImpl) kernelIdAndTypeFromMsg(msg *zmq4.Msg) (id string, m
 }
 
 // Extract the Kernel ID and the message type from the given ZMQ message.
-func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.DistributedKernelClient, messageType string, err error) {
-	var (
-		kernelId string
-	)
+func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *jupyter.JupyterMessage) (kernel client.DistributedKernelClient, messageType string, err error) {
+	// var (
+	// 	kernelId string
+	// )
 
-	kernelId, messageType, _, err = d.kernelIdAndTypeFromMsg(msg)
-	if err != nil {
-		return nil, messageType, err
-	}
+	// kernelId, messageType, _, err = d.kernelIdAndTypeFromMsg(msg)
+	// if err != nil {
+	// 	return nil, messageType, err
+	// }
 
-	kernel, ok := d.kernels.Load(kernelId)
+	kernel, ok := d.kernels.Load(msg.DestinationId) // kernelId)
 	if !ok {
-		d.log.Error("Could not find kernel with ID %s", kernelId)
+		d.log.Error("Could not find kernel with ID \"%s\"", msg.DestinationId)
 		return nil, messageType, ErrKernelNotFound
 	}
 
@@ -2199,7 +2275,7 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 	return kernel, messageType, nil
 }
 
-// func (d *ClusterGatewayImpl) kernelFromMsg(msg *zmq4.Msg) (client.DistributedKernelClient, error) {
+// func (d *ClusterGatewayImpl) kernelFromMsg(msg *jupyter.JupyterMessage) (client.DistributedKernelClient, error) {
 // 	kernelId, header, err := d.headerFromMsg(msg)
 // 	if err != nil {
 // 		return nil, err
@@ -2218,15 +2294,15 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *zmq4.Msg) (kernel client.
 // 	return kernel, nil
 // }
 
-func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *zmq4.Msg) (err error) {
+func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClient, typ jupyter.MessageType, msg *jupyter.JupyterMessage) (err error) {
 	goroutineId := goid.Get()
 	// var messageType string
 	if kernel == nil {
-		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message targeting unknown kernel/session. Inspecting now..."), goroutineId, typ)
+		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting unknown kernel/session. Inspecting now: %v"), goroutineId, typ.String(), msg.Msg.String())
 		kernel, _ /* messageType */, err = d.kernelAndTypeFromMsg(msg)
 	} else {
-		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %v message targeting kernel %s. Inspecting now..."), goroutineId, typ, kernel.ID())
-		_, _ /* messageType */, err = d.kernelAndTypeFromMsg(msg)
+		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting kernel %s. Inspecting now..."), goroutineId, typ.String(), kernel.ID())
+		// _, _ /* messageType */, err = d.kernelAndTypeFromMsg(msg)
 	}
 
 	if err != nil {
@@ -2237,7 +2313,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel client.DistributedKernelClien
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 
-func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *zmq4.Msg) error {
+func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	goroutineId := goid.Get()
 	socket := from.Socket(typ)
 	if socket == nil {
@@ -2249,29 +2325,29 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from core.KernelInfo, typ j
 	}
 
 	if typ == jupyter.ShellMessage {
-		_, header, _, err := jupyter.HeaderFromMsg(msg)
+		// _, header, _, err := jupyter.HeaderFromMsg(msg)
 
-		if err != nil {
-			// d.log.Error("[gid=%d] Failed to extract header from %v message.", goroutineId, typ)
-			d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
-			sendErr := socket.Send(*msg)
+		// if err != nil {
+		// 	// d.log.Error("[gid=%d] Failed to extract header from %v message.", goroutineId, typ)
+		// 	d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
+		// 	sendErr := socket.Send(*msg)
 
-			if sendErr != nil {
-				d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())
-			} else {
-				// d.log.Debug("[gid=%d] Successfully forwarded %v response from kernel %s via %s.", goroutineId, typ, from.ID(), socket.Name)
-			}
+		// 	if sendErr != nil {
+		// 		d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())
+		// 	} else {
+		// 		// d.log.Debug("[gid=%d] Successfully forwarded %v response from kernel %s via %s.", goroutineId, typ, from.ID(), socket.Name)
+		// 	}
 
-			return sendErr
-		}
+		// 	return sendErr
+		// }
 
-		if header.MsgType == ShellExecuteReply {
+		if msg.JupyterMessageType() == ShellExecuteReply {
 			d.processExecutionReply(from.ID())
 		}
 	}
 
 	d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
-	err := socket.Send(*msg)
+	err := socket.Send(*msg.Msg)
 
 	if err != nil {
 		d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())

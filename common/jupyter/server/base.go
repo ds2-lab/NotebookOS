@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
@@ -35,9 +34,9 @@ func (s *BaseServer) SendMessage(request types.Request, socket *types.Socket) er
 // }
 
 // Begin listening for an ACK for a message with the given ID.
-func (s *BaseServer) RegisterAck(msg *zmq4.Msg) (chan struct{}, bool) {
-	_, reqId, _ := types.ExtractDestFrame(msg.Frames)
-	return s.server.RegisterAck(reqId)
+func (s *BaseServer) RegisterAck(msg *types.JupyterMessage) (chan struct{}, bool) {
+	// _, reqId, _ := types.ExtractDestFrame(msg.Frames)
+	return s.server.RegisterAck(msg.RequestId)
 }
 
 // Socket returns the zmq socket of the given type.

@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
@@ -11,7 +10,7 @@ import (
 )
 
 // API defines the interface of messages that a JupyterRouter can intercept and handle.
-type KernelMessageHandler func(KernelInfo, jupyter.MessageType, *zmq4.Msg) error
+type KernelMessageHandler func(KernelInfo, jupyter.MessageType, *jupyter.JupyterMessage) error
 
 type KernelInfo interface {
 	// Provides kernel specific routing information.
@@ -59,7 +58,7 @@ type Kernel interface {
 	// 	entity.Container.StopTrain()
 	// 	entity.Container.Suspend()
 	// 	entity.Container.Resume()
-	RequestWithHandler(ctx context.Context, prompt string, typ jupyter.MessageType, msg *zmq4.Msg, handler KernelMessageHandler, done func()) error
+	RequestWithHandler(ctx context.Context, prompt string, typ jupyter.MessageType, msg *jupyter.JupyterMessage, handler KernelMessageHandler, done func()) error
 
 	// Close cleans up kernel resource.
 	// Including simulator features:

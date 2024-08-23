@@ -9,5 +9,6 @@
     "gopls": {
         "ui.semanticTokens": true
     },
-    "python.analysis.typeCheckingMode": "basic"
+    "python.analysis.typeCheckingMode": "basic",
+    "makefile.configureOnOpen": false
 }

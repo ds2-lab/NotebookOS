@@ -110,7 +110,7 @@ type KernelReplicaClient interface {
 	Status() types.KernelStatus
 
 	// BusyStatus returns the kernel busy status.
-	BusyStatus() (string, *zmq4.Msg)
+	BusyStatus() (string, *types.JupyterMessage)
 
 	// BindSession binds a session ID to the client.
 	BindSession(sess string)
@@ -132,14 +132,14 @@ type KernelReplicaClient interface {
 // we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
 //
 // If we do not reconnect successfully, then this method is called.
-type ConnectionRevalidationFailedCallback func(replica KernelReplicaClient, msg *zmq4.Msg, err error)
+type ConnectionRevalidationFailedCallback func(replica KernelReplicaClient, msg *types.JupyterMessage, err error)
 
 // When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
 // we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
 //
 // If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
 // then this method is called.
-type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica KernelReplicaClient, msg *zmq4.Msg, err error)
+type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica KernelReplicaClient, msg *types.JupyterMessage, err error)
 
 // Implementation of the KernelReplicaClient interface.
 //
@@ -162,8 +162,8 @@ type kernelReplicaClientImpl struct {
 	spec                      *gateway.KernelSpec
 	status                    types.KernelStatus
 	busyStatus                string
-	lastBStatusMsg            *zmq4.Msg
-	iobroker                  *MessageBroker[core.Kernel, *zmq4.Msg, types.JupyterFrames]
+	lastBStatusMsg            *types.JupyterMessage
+	iobroker                  *MessageBroker[core.Kernel, *types.JupyterMessage, types.JupyterFrames]
 	shell                     *types.Socket // Listener.
 	iopub                     *types.Socket // Listener.
 	addSourceKernelFrames     bool          // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the kernelReplicaClientImpl's kernel ID.
@@ -519,7 +519,7 @@ func (c *kernelReplicaClientImpl) Status() types.KernelStatus {
 }
 
 // BusyStatus returns the kernel busy status.
-func (c *kernelReplicaClientImpl) BusyStatus() (string, *zmq4.Msg) {
+func (c *kernelReplicaClientImpl) BusyStatus() (string, *types.JupyterMessage) {
 	return c.busyStatus, c.lastBStatusMsg
 }
 
@@ -629,8 +629,9 @@ func (c *kernelReplicaClientImpl) InitializeShellForwarder(handler core.KernelMe
 	}
 
 	c.shell = shell
-	go c.client.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-		msg.Frames, _ = types.AddDestFrame(msg.Frames, c.id, jupyter.JOffsetAutoDetect)
+	go c.client.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
+		// msg.Frames, _ = types.AddDestFrame(msg.Frames, c.id, jupyter.JOffsetAutoDetect)
+		msg.AddDestinationId(c.id)
 		return handler(c, typ, msg)
 	})
 
@@ -668,7 +669,7 @@ func (c *kernelReplicaClientImpl) InitializeIOForwarder() (*types.Socket, error)
 
 // AddIOHandler adds a handler for a specific IOPub topic.
 // The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
-func (c *kernelReplicaClientImpl) AddIOHandler(topic string, handler MessageBrokerHandler[core.Kernel, types.JupyterFrames, *zmq4.Msg]) error {
+func (c *kernelReplicaClientImpl) AddIOHandler(topic string, handler MessageBrokerHandler[core.Kernel, types.JupyterFrames, *types.JupyterMessage]) error {
 	if c.iobroker == nil {
 		return ErrIOPubNotStarted
 	}
@@ -677,12 +678,12 @@ func (c *kernelReplicaClientImpl) AddIOHandler(topic string, handler MessageBrok
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *kernelReplicaClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
+func (c *kernelReplicaClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *types.JupyterMessage, handler core.KernelMessageHandler, done func()) error {
 	// c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
 	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
 
-func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
+func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Context, typ types.MessageType, msg *types.JupyterMessage, handler core.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
 	}
@@ -697,7 +698,7 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 		return types.ErrSocketNotAvailable
 	}
 
-	wrappedHandler := func(server types.JupyterServerInfo, respType types.MessageType, respMsg *zmq4.Msg) (err error) {
+	wrappedHandler := func(server types.JupyterServerInfo, respType types.MessageType, respMsg *types.JupyterMessage) (err error) {
 		// Kernel frame is automatically removed.
 		if handler != nil {
 			err = handler(server.(*kernelReplicaClientImpl), respType, respMsg)
@@ -728,7 +729,7 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 		WithDoneCallback(done).
 		WithMessageHandler(wrappedHandler).
 		WithNumAttempts(3).
-		WithPayload(msg).
+		WithJMsgPayload(msg).
 		WithSocketProvider(c).
 		WithRemoveDestFrame(getOption(jupyter.WROptionRemoveDestFrame).(bool))
 	request, err := builder.BuildRequest()
@@ -738,6 +739,14 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 	}
 
 	sendRequest := func(req types.Request, sock *types.Socket) error {
+		if req == nil {
+			panic("Cannot send nil request.")
+		}
+
+		if sock == nil {
+			panic(fmt.Sprintf("Cannot send request on nil socket. Request: %v", sock))
+		}
+
 		return c.client.Request(req, sock)
 	}
 
@@ -765,7 +774,7 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 			updateHeaderError := request.PrepareForResubmission()
 			if updateHeaderError != nil {
 				c.log.Error("Failed to update the header for %s \"%s\" message %s (JupyterID=%s): %v", typ.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), updateHeaderError)
-				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, request.Payload().Msg, updateHeaderError)
+				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, request.Payload(), updateHeaderError)
 				return errors.Join(err, updateHeaderError)
 			}
 
@@ -783,7 +792,7 @@ func (c *kernelReplicaClientImpl) requestWithHandler(parentContext context.Conte
 			secondAttemptErr := sendRequest(request, recreatedSocket)
 			if secondAttemptErr != nil {
 				c.log.Error("Failed to resubmit %v message after successfully reconnecting: %v", typ, secondAttemptErr)
-				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, request.Payload().Msg, secondAttemptErr)
+				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, request.Payload(), secondAttemptErr)
 				return errors.Join(err, secondAttemptErr)
 			}
 		}
@@ -884,7 +893,7 @@ func (c *kernelReplicaClientImpl) dial(sockets ...*types.Socket) error {
 	return nil
 }
 
-func (c *kernelReplicaClientImpl) handleMsg(server types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+func (c *kernelReplicaClientImpl) handleMsg(server types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 	// c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
@@ -909,14 +918,19 @@ func (c *kernelReplicaClientImpl) getWaitResponseOption(key string) interface{} 
 	return nil
 }
 
-func (c *kernelReplicaClientImpl) extractIOTopicFrame(msg *zmq4.Msg) (topic string, jFrames types.JupyterFrames) {
-	_, jOffset := types.SkipIdentitiesFrame(msg.Frames)
-	jFrames = msg.Frames[jOffset:]
-	if jOffset == 0 {
+func (c *kernelReplicaClientImpl) extractIOTopicFrame(msg *types.JupyterMessage) (topic string, jFrames types.JupyterFrames) {
+	// _, jOffset := types.SkipIdentitiesFrame(msg.Frames)
+	// jFrames = msg.Frames[jOffset:]
+	// if jOffset == 0 {
+	// 	return "", jFrames
+	// }
+
+	jFrames = msg.ToJFrames()
+	if msg.Offset == 0 {
 		return "", jFrames
 	}
 
-	rawTopic := msg.Frames[jOffset-1]
+	rawTopic := msg.Frames[ /*jOffset*/ msg.Offset-1]
 	matches := types.IOTopicStatusRecognizer.FindSubmatch(rawTopic)
 	if len(matches) > 0 {
 		return string(matches[2]), jFrames
@@ -925,11 +939,11 @@ func (c *kernelReplicaClientImpl) extractIOTopicFrame(msg *zmq4.Msg) (topic stri
 	return string(rawTopic), jFrames
 }
 
-func (c *kernelReplicaClientImpl) forwardIOMessage(kernel core.Kernel, _ types.JupyterFrames, msg *zmq4.Msg) error {
-	return kernel.Socket(types.IOMessage).Send(*msg)
+func (c *kernelReplicaClientImpl) forwardIOMessage(kernel core.Kernel, _ types.JupyterFrames, msg *types.JupyterMessage) error {
+	return kernel.Socket(types.IOMessage).Send(*msg.Msg)
 }
 
-func (c *kernelReplicaClientImpl) handleIOKernelStatus(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
+func (c *kernelReplicaClientImpl) handleIOKernelStatus(kernel core.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
 	var status types.MessageKernelStatus
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling IO kernel status: %v", err)
@@ -948,7 +962,7 @@ func (c *kernelReplicaClientImpl) handleIOKernelStatus(kernel core.Kernel, frame
 	return nil
 }
 
-// func (c *kernelReplicaClientImpl) handleIOKernelSMRNodeRemoved(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
+// func (c *kernelReplicaClientImpl) handleIOKernelSMRNodeRemoved(kernel core.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
 // 	c.log.Debug("Handling IO Kernel SMR Node-Removed message...")
 // 	var node_removed_message types.MessageSMRNodeUpdated
 // 	if err := frames.Validate(); err != nil {
@@ -968,7 +982,7 @@ func (c *kernelReplicaClientImpl) handleIOKernelStatus(kernel core.Kernel, frame
 // 	return types.ErrStopPropagation
 // }
 
-func (c *kernelReplicaClientImpl) handleIOKernelSMRNodeAdded(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
+func (c *kernelReplicaClientImpl) handleIOKernelSMRNodeAdded(kernel core.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
 	var node_added_message types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR node added: %v", err)
@@ -988,7 +1002,7 @@ func (c *kernelReplicaClientImpl) handleIOKernelSMRNodeAdded(kernel core.Kernel,
 	return types.ErrStopPropagation
 }
 
-func (c *kernelReplicaClientImpl) handleIOKernelSMRReady(kernel core.Kernel, frames types.JupyterFrames, msg *zmq4.Msg) error {
+func (c *kernelReplicaClientImpl) handleIOKernelSMRReady(kernel core.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
 	var node_ready_message types.MessageSMRReady
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR ready: %v", err)

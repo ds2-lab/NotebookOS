@@ -2,7 +2,7 @@ import pprint
 import signal
 
 from lib2to3.pgen2.token import OP
-from jupyter_client.provisioning import KernelProvisionerBase
+from jupyter_client.provisioning.provisioner_base import KernelProvisionerBase
 from jupyter_client.connect import KernelConnectionInfo
 
 from typing import Any, Dict, List, Optional, Union
@@ -25,6 +25,9 @@ class GatewayProvisioner(KernelProvisionerBase):
 
     # Our version of kernel_id
     _kernel_id: Union[str, Unicode] = Unicode(None, allow_none=True)
+    
+    # Allow up to 5 minutes for the kernel to shutdown gracefully, as it may be offloading lots of data before exiting.
+    _kernel_shutdown_wait_time: float = 300.0 
 
     @property
     def has_process(self) -> bool:
@@ -38,6 +41,7 @@ class GatewayProvisioner(KernelProvisionerBase):
     async def poll(self) -> Optional[int]:
         """
         Checks if kernel process is still running.
+
         If running, None is returned, otherwise the process's integer-valued exit code is returned.
         This method is called from :meth:`KernelManager.is_alive`.
         """
@@ -53,7 +57,7 @@ class GatewayProvisioner(KernelProvisionerBase):
 
                 self.launched = False
                 self.log.info(
-                    f"Kernel stopped on polling kernel {self._kernel_id}")
+                    f"Kernel stopped on polling kernel {self._kernel_id}. Kernel status: {status.status}.")
                 return status.status
             else:
                 return 0
@@ -122,6 +126,8 @@ class GatewayProvisioner(KernelProvisionerBase):
                 self._get_stub().KillKernel(kernelId)
                 self.launched = False
                 self.log.info(f"Killed kernel {self._kernel_id}")
+            else:
+                self.log.debug(f"Cannot kill kernel {self._kernel_id} as it has not yet been launched.")
         except grpc.RpcError as e:
             self._try_close()
             raise RuntimeError(f"Failed to kill kernel: {e}")
@@ -142,9 +148,11 @@ class GatewayProvisioner(KernelProvisionerBase):
                 kernelId = gateway_pb2.KernelId(
                     id=self._kernel_id, restart=restart)
                 self._get_stub().StopKernel(kernelId)
+            else:
+                self.log.debug(f"Cannot terminate kernel {self._kernel_id} as it has not yet been launched.")
         except grpc.RpcError as e:
             self._try_close()
-            raise RuntimeError(f"Failed to kill kernel: {e}")
+            raise RuntimeError(f"Failed to terminate kernel: {e}")
 
     async def launch_kernel(self, cmd: List[str], **kwargs: Any) -> KernelConnectionInfo:
         """
@@ -152,6 +160,7 @@ class GatewayProvisioner(KernelProvisionerBase):
         This method is called from `KernelManager.launch_kernel()` during the
         kernel manager's start kernel sequence.
         """
+        assert self.parent != None
         self.log.info("launch_kernel[self.parent.session.session: %s]" % str(self.parent.session.session))
         
         if "resource_spec" in kwargs:
@@ -218,7 +227,21 @@ class GatewayProvisioner(KernelProvisionerBase):
         This method is optional and is primarily used in scenarios where the provisioner
         may need to perform other operations in preparation for a kernel's shutdown.
         """
-        await self.terminate(restart=restart)
+        # Commented out.
+        #
+        # I don't think we should initiate the shutdown here?
+        #
+        # The KernelProvisionerBase::shutdown_requested method is called by the KernelManager
+        # when it sends the 'shutdown_request' ZMQ message. As a result, there can be cases
+        # where two 'shutdown_requests' are sent -- one directly to the kernel, and another
+        # through the RPC chain from provisioner --> cluster gateway --> local daemon --> "shutdown_request" 
+        # message to the kernel.
+        #
+        # Previously, this was OK. But now that we ACK messages, it results in the second "shutdown_request"
+        # never being ACK'd, which is just adding unnecessary overhead, and complicating debugging.
+        #
+        # await self.terminate(restart=restart)
+        self.log.debug("shutdown_requested called. Kernel will be shutting down.")
         return
 
     async def pre_launch(self, **kwargs: Any) -> Dict[str, Any]:
@@ -280,6 +303,22 @@ class GatewayProvisioner(KernelProvisionerBase):
         """
         self.log.debug("Loading provisioner info: %s" % str(provisioner_info))
         self.gateway = provisioner_info['gateway']
+
+    def get_shutdown_wait_time(self, recommended: Optional[float] = 5.0) -> float:
+        """
+        Returns the time allowed for a complete shutdown. 
+
+        This method is called from `KernelManager.finish_shutdown()` during the graceful
+        phase of its kernel shutdown sequence.
+
+        The recommended value will typically be what is configured in the kernel manager.
+        """
+        if recommended == None or recommended < self._kernel_shutdown_wait_time:
+            recommended = self._kernel_shutdown_wait_time
+            
+            self.log.debug(f"{type(self).__name__} shutdown wait time adjusted to {recommended} seconds.")
+            
+        return recommended
 
     def _get_stub(self) -> LocalGatewayStub:
         if self.gatewayChannel == None:

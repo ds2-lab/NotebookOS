@@ -1,4 +1,5 @@
 import jupyter_server.services.kernels.handlers as jupyter_kernel_handlers
+from jupyter_server.services.kernels.websocket import KernelWebsocketHandler
 from jupyter_server.utils import ensure_async
 from tornado import web
 from jupyter_server.auth.decorator import authorized
@@ -19,6 +20,16 @@ class DistributedKernelHandler(jupyter_kernel_handlers.KernelHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.log.info("Created a new instance of DistributedKernelHandler.")
+        
+    @web.authenticated
+    @authorized
+    async def delete(self, kernel_id):
+        """Remove a kernel."""
+        self.log.info(f"Received 'DELETE' operation targeting kernel \"{kernel_id}\"")
+        km = self.kernel_manager
+        await ensure_async(km.shutdown_kernel(kernel_id))
+        self.set_status(204)
+        self.finish()
         
     @web.authenticated
     @authorized
@@ -81,7 +92,7 @@ jupyter_kernel_handlers.default_handlers.extend([
         rf"/api/kernels/{_kernel_id_regex}/{_kernel_action_regex}",
         jupyter_kernel_handlers.KernelActionHandler,
     ),
-    (r"/api/kernels/%s/channels" % _kernel_id_regex, jupyter_kernel_handlers.KernelWebsocketHandler),
+    (r"/api/kernels/%s/channels" % _kernel_id_regex, KernelWebsocketHandler),
 ])
 
 _kernel_id_regex = r"(?P<kernel_id>^[a-zA-Z0-9_-]{1,36}$)"

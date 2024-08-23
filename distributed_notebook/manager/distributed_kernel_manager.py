@@ -6,7 +6,7 @@ from jupyter_server._tz import isoformat
 import uuid
 
 class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
-    """Subclass of MultiKernelManager exposing more control over certain aspects of the kernels, such as their IDs.
+    """Subclass of MappingKernelManager exposing more control over certain aspects of the kernels, such as their IDs.
     """
     def __init__(self, **kwargs):
         """Initialize a kernel manager."""

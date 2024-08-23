@@ -187,7 +187,7 @@ class DistributedKernel(IPythonKernel):
             "add_replica_request",
             "update_replica_request",
             "prepare_to_migrate_request",
-            "stop_running_training_code",
+            "stop_running_training_code_request",
             "ping_kernel_ctrl_request",
         ]
 
@@ -1069,6 +1069,8 @@ class DistributedKernel(IPythonKernel):
             return self.gen_error_response(e)
 
     async def do_shutdown(self, restart):
+        self.send_ack
+        
         self.log.info("Replica %d of kernel %s is shutting down.",
                       self.smr_node_id, self.kernel_id)
 
@@ -1197,7 +1199,7 @@ class DistributedKernel(IPythonKernel):
         
         return {'status': 'ok', "id": self.smr_node_id, "kernel_id": self.kernel_id}, True # "data_directory": waldir_path, 
 
-    async def stop_running_training_code(self, stream, ident, parent):
+    async def stop_running_training_code_request(self, stream, ident, parent):
         """
         Set the global `run_training_code` flag to False.
         """

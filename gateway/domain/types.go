@@ -40,6 +40,7 @@ type ClusterDaemonOptions struct {
 	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
 	DeploymentMode                string `name:"deployment_mode" description:"Options are 'docker' and 'kubernetes'."`
 	UsingWSL                      bool   `name:"using-wsl" description:"Flag indicating whether we're running within WSL2 (Windows Subsystem for Linux). Requires additional networking configuring for the Docker containers."`
+	DockerNetworkName             string `name:"docker_network_name" description:"The name of the Docker network that the container is running within. Only used in Docker mode."`
 }
 
 func (o ClusterDaemonOptions) IsLocalMode() bool {

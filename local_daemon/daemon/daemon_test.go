@@ -74,7 +74,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 	Context("Processing 'execute_request' messages", func() {
 		var (
-			offset int = 0
+			// offset int = 0
 			header *types.MessageHeader
 		)
 
@@ -111,7 +111,9 @@ var _ = Describe("Local Daemon Tests", func() {
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-			processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
+			jMsg := types.NewJupyterMessage(msg)
+			// processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
+			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
 
@@ -144,11 +146,11 @@ var _ = Describe("Local Daemon Tests", func() {
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-
+			jMsg := types.NewJupyterMessage(msg)
 			// Make it so that there are no idle GPUs available.
 			gpuManager.idleGPUs = ZeroDecimal.Copy()
 
-			processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
+			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
 
@@ -180,11 +182,11 @@ var _ = Describe("Local Daemon Tests", func() {
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-
+			jMsg := types.NewJupyterMessage(msg)
 			// Make it so that there are no idle GPUs available.
 			gpuManager.idleGPUs = ZeroDecimal.Copy()
 
-			processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
+			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
 
@@ -256,8 +258,8 @@ var _ = Describe("Local Daemon Tests", func() {
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-
-			processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
+			jMsg := types.NewJupyterMessage(msg)
+			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
 

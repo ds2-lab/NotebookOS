@@ -45,3 +45,4 @@ deployment_mode: "docker"
 debug_mode: true
 debug_port: 9996
 using-wsl: true 
+docker_network_name: distributed_cluster_default

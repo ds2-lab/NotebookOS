@@ -4,8 +4,6 @@ from tornado import web
 from jupyter_client.kernelspec import NoSuchKernel
 from jupyter_server.auth.decorator import authorized
 from jupyter_server.utils import url_path_join
-import jsonpatch
-import sys 
 import traceback
 import json
 

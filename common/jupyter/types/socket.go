@@ -45,7 +45,7 @@ func (t MessageType) String() string {
 	return [...]string{"heartbeat", "control", "shell", "stdin", "io", "ack"}[t]
 }
 
-type MessageHandler func(JupyterServerInfo, MessageType, *zmq4.Msg) error
+type MessageHandler func(JupyterServerInfo, MessageType, *JupyterMessage) error
 
 type MessageDone func()
 
@@ -73,7 +73,7 @@ func (m *MessageHandlerWrapper) Request() Request {
 	return m.request
 }
 
-func (m *MessageHandlerWrapper) Handle(info JupyterServerInfo, t MessageType, msg *zmq4.Msg) error {
+func (m *MessageHandlerWrapper) Handle(info JupyterServerInfo, t MessageType, msg *JupyterMessage) error {
 	err := m.handle(info, t, msg)
 	m.Release()
 	return err

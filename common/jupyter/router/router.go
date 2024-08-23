@@ -126,7 +126,7 @@ func (g *Router) Name() string {
 func (g *Router) AddHandler(typ types.MessageType, handler RouterMessageHandler) {
 	if g.handlers[typ] != nil {
 		handler = func(oldHandler RouterMessageHandler, newHandler RouterMessageHandler) RouterMessageHandler {
-			return func(sockets RouterInfo, msg *zmq4.Msg) error {
+			return func(sockets RouterInfo, msg *types.JupyterMessage) error {
 				err := newHandler(sockets, msg)
 				if err == nil {
 					return oldHandler(sockets, msg)
@@ -147,7 +147,7 @@ func (g *Router) Close() error {
 	return nil
 }
 
-func (g *Router) handleMsg(_ types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+func (g *Router) handleMsg(_ types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 	handler := g.handlers[typ]
 	if handler != nil {
 		return handler(g, msg)

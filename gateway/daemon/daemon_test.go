@@ -107,9 +107,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
+			jMsg := types.NewJupyterMessage(msg)
 
 			Expect(kernel.NumActiveAddOperations()).To(Equal(0))
-			clusterGateway.processExecuteRequest(msg, kernel, header)
+			// clusterGateway.processExecuteRequest(jMsg, kernel, header)
+			clusterGateway.processExecuteRequest(jMsg, kernel)
 			Expect(kernel.NumActiveAddOperations()).To(Equal(1))
 			Expect(clusterGateway.activeExecutions.Len()).To(Equal(1))
 		})

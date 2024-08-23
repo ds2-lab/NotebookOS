@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/logger"
 )
 
@@ -81,7 +80,7 @@ func DefaultDoneHandler() {}
 
 // Default message/response handler for requests.
 // Simply returns nil.
-func DefaultMessageHandler(server JupyterServerInfo, typ MessageType, msg *zmq4.Msg) error {
+func DefaultMessageHandler(server JupyterServerInfo, typ MessageType, msg *JupyterMessage) error {
 	return nil
 }
 
@@ -498,17 +497,17 @@ func (r *basicRequest) IsExplicitlyCancelled() bool {
 
 // Return t message ID taken from the Jupyter header of the message.
 func (r *basicRequest) JupyterMessageId() string {
-	return r.payload.Header.MsgID
+	return r.payload.JupyterMessageId()
 }
 
 // Return t message type taken from the Jupyter header of the message.
 func (r *basicRequest) JupyterMessageType() string {
-	return r.payload.Header.MsgType
+	return r.payload.JupyterMessageType()
 }
 
 // Return the timestamp taken from the Jupyter header of the message.
 func (r *basicRequest) JupyterTimestamp() (ts time.Time, err error) {
-	ts, err = time.Parse(time.RFC3339Nano, r.payload.Header.Date)
+	ts, err = time.Parse(time.RFC3339Nano, r.payload.JupyterMessageDate())
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -531,13 +530,13 @@ func (r *basicRequest) PrepareForResubmission() error {
 	modifiedDate := date.Add(time.Microsecond)
 
 	// Change the date in the header.
-	r.payload.Header.Date = modifiedDate.Format(time.RFC3339Nano)
+	r.payload.SetDate(modifiedDate.Format(time.RFC3339Nano))
 
 	// Re-encode the header.
 	jFrames := JupyterFrames(r.payload.Frames)
 	jOffset := r.Offset()
 
-	err := jFrames[jOffset:].EncodeHeader(r.payload.Header)
+	err := jFrames[jOffset:].EncodeHeader(r.payload.GetHeader())
 	if err != nil {
 		return err
 	}

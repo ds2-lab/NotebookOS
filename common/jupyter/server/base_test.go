@@ -42,7 +42,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 			}
 
-			added, _ := types.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
+			added, _, _ := types.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
 			Expect(len(added)).To(Equal(2))
 			match := jupyter.ZMQDestFrameRecognizer.FindStringSubmatch(string(added[0]))
 			printFrames(added)
@@ -56,7 +56,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 				[]byte("body"),
 			}
-			added, _ = types.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
+			added, _, _ = types.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
 			Expect(len(added)).To(Equal(4))
 			Expect(added[0]).To(Equal(frames[0]))
 			match = jupyter.ZMQDestFrameRecognizer.FindStringSubmatch(string(added[1]))
@@ -73,7 +73,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 				[]byte("body"),
 			}
-			added, _ = types.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
+			added, _, _ = types.AddDestFrame(frames, DEST_KERNEL_ID, jupyter.JOffsetAutoDetect)
 			Expect(len(added)).To(Equal(5))
 			Expect(added[0]).To(Equal(frames[0]))
 			Expect(added[1]).To(Equal(frames[1]))

@@ -99,7 +99,7 @@ var _ = Describe("AbstractServer", func() {
 
 			serverMessagesReceived := 0
 			respondAfterNMessages := 3
-			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 				server.Log.Info("Server received message: %v\n", msg)
 				serverMessagesReceived += 1
 
@@ -181,7 +181,7 @@ var _ = Describe("AbstractServer", func() {
 				[]byte(""),
 				[]byte(""))
 
-			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 				client.Log.Info("Client received %v message: %v", typ, msg)
 				wg.Done()
 				return nil
@@ -228,7 +228,7 @@ var _ = Describe("AbstractServer", func() {
 			client.Log.Debug("Dialed server socket @ %v", address1)
 
 			serverMessagesReceived := 0
-			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 				server.Log.Info("Server received message: %v\n", msg)
 				serverMessagesReceived += 1
 
@@ -304,7 +304,7 @@ var _ = Describe("AbstractServer", func() {
 				[]byte(""),
 				[]byte(""))
 
-			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 				client.Log.Info("Client received %v message: %v", typ, msg)
 				wg.Done()
 				return nil

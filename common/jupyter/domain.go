@@ -21,7 +21,7 @@ var (
 
 	// Message type sent by our custom Golang Jupyter frontend clients.
 	// These inform us that we should expect the frontend to send ACKs, which does not happen for "regular" Jupyter frontends.
-	GolangFrontendRegistration = "golang_frontend_registration"
+	GolangFrontendRegistrationRequest = "golang_frontend_registration_request"
 
 	JOffsetAutoDetect = -1
 

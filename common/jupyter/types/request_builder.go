@@ -197,10 +197,32 @@ func (b *RequestBuilder) WithRemoveDestFrame(shouldDestFrameBeRemoved bool) *Req
 //
 // Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
 func (b *RequestBuilder) WithPayload(msg *zmq4.Msg) *RequestBuilder {
+	if msg == nil {
+		panic(fmt.Sprintf("Cannot assign nil payload for request. SourceID: %s. DestID: %s. ConnectionInfo: %v.", b.sourceId, b.destinationId, b.connectionInfo))
+	}
+
 	msg, reqId, _ := b.extractAndAddDestFrame(b.destinationId, msg)
 
 	b.payload = NewJupyterMessage(msg)
 	b.requestId = reqId
+
+	return b
+}
+
+// Set the payload of the messasge.
+//
+// Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
+func (b *RequestBuilder) WithJMsgPayload(msg *JupyterMessage) *RequestBuilder {
+	if msg == nil {
+		panic(fmt.Sprintf("Cannot assign nil JMsg payload for request. SourceID: %s. DestID: %s. ConnectionInfo: %v.", b.sourceId, b.destinationId, b.connectionInfo))
+	}
+
+	if len(msg.DestinationId) == 0 {
+		msg.AddDestinationId(b.destinationId)
+	}
+
+	b.payload = msg
+	b.requestId = msg.RequestId
 
 	return b
 }
@@ -240,7 +262,7 @@ func (b *RequestBuilder) extractAndAddDestFrame(destId string, msg *zmq4.Msg) (*
 	// Normalize the request, we do not assume that the types.RequestDest implements the auto-detect feature.
 	_, reqId, jOffset := ExtractDestFrame(msg.Frames)
 	if reqId == "" {
-		msg.Frames, reqId = AddDestFrame(msg.Frames, destId, jOffset)
+		msg.Frames, reqId, _ = AddDestFrame(msg.Frames, destId, jOffset)
 	}
 
 	return msg, reqId, jOffset

@@ -293,15 +293,18 @@ func ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int
 }
 
 // GenerateKernelFrame appends a frame contains the kernel ID to the given ZMQ frames.
-func AddDestFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]byte, reqID string) {
+func AddDestFrame(frames [][]byte, destID string, offsetArg int) (newFrames [][]byte, reqID string, jOffset int) {
 	// Automatically detect the dest frame.
-	if jOffset == jupyter.JOffsetAutoDetect {
+	if offsetArg == jupyter.JOffsetAutoDetect {
 		_, reqID, jOffset = ExtractDestFrame(frames)
 		// If the dest frame is already there, we are done.
 		if reqID != "" {
 			// s.Log.Debug("Destination frame found. ReqID: %s", reqID)
-			return frames, reqID
+			return frames, reqID, jOffset
 		}
+	} else {
+		// Don't auto-detect the dest frame.
+		jOffset = offsetArg
 	}
 
 	// Add dest frame just before "<IDS|MSG>" frame.
@@ -310,7 +313,7 @@ func AddDestFrame(frames [][]byte, destID string, jOffset int) (newFrames [][]by
 	reqID = uuid.New().String()
 	newFrames[jOffset] = []byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, destID, reqID))
 
-	return
+	return newFrames, reqID, jOffset
 }
 
 func RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {

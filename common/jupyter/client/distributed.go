@@ -147,7 +147,7 @@ type DistributedKernelClient interface {
 	BindSession(sess string)
 
 	// RequestWithHandler sends a request and handles the response.
-	RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error
+	RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *types.JupyterMessage, handler core.KernelMessageHandler, done func()) error
 
 	// Return a replica that has already joined its SMR cluster and everything.
 	// Returns nil if there are no ready replicas.
@@ -168,7 +168,7 @@ type distributedKernelClientImpl struct {
 	id             string
 	status         types.KernelStatus
 	busyStatus     *AggregateKernelStatus
-	lastBStatusMsg *zmq4.Msg
+	lastBStatusMsg *types.JupyterMessage
 
 	spec *gateway.KernelSpec
 	// replicas []core.KernelReplica
@@ -248,7 +248,7 @@ func (c *distributedKernelClientImpl) headerFromFrames(frames [][]byte) (*types.
 
 	var header types.MessageHeader
 	if err := jFrames.DecodeHeader(&header); err != nil {
-		c.log.Error("Failed to decode header \"%v\" from message frames: %v", string(jFrames[types.JupyterFrameHeader]), err)
+		c.log.Error("Failed to decode message header \"%v\" from message frames: %v", string(jFrames[types.JupyterFrameHeader]), err)
 		return nil, err
 	}
 
@@ -317,13 +317,29 @@ func (c *distributedKernelClientImpl) BindSession(sess string) {
 	c.SessionManager.BindSession(sess)
 	var restarted bool
 	if c.status == types.KernelStatusExited {
-		restarted = atomic.CompareAndSwapInt32((*int32)(&c.status), int32(types.KernelStatusExited), int32(types.KernelStatusInitializing))
+		// restarted = atomic.CompareAndSwapInt32((*int32)(&c.status), int32(types.KernelStatusExited), int32(types.KernelStatusInitializing))
+		restarted = c.setStatus(types.KernelStatusExited, types.KernelStatusInitializing)
 	}
 	if restarted {
 		c.log.Info("Restarted for binding kernel session %s", sess)
 	} else {
 		c.log.Info("Binded session %s to distributed kernel client.", sess)
 	}
+}
+
+// Atomically swap the kernel's status from a particular old status value to a particular new status value.
+//
+// If the status is swapped, then returns true. Otherwise, returns false.
+func (c *distributedKernelClientImpl) setStatus(oldStatus types.KernelStatus, newStatus types.KernelStatus) (swapped bool) {
+	swapped = atomic.CompareAndSwapInt32((*int32)(&c.status), int32(oldStatus), int32(newStatus))
+
+	if swapped {
+		c.log.Debug("Swapped kernel status from %s to %s.", oldStatus.String(), newStatus.String())
+	} else {
+		c.log.Debug("Attempt to swap kernel status from %s to %s rejected.", oldStatus.String(), newStatus.String())
+	}
+
+	return
 }
 
 // Size returns the number of replicas in the kernel.
@@ -464,10 +480,12 @@ func (c *distributedKernelClientImpl) AddReplica(r core.KernelReplica, host core
 	// }
 	// c.replicas[r.ReplicaID()-1] = r
 	// Once a replica is available, the kernel is ready.
-	if atomic.CompareAndSwapInt32((*int32)(&c.status), int32(types.KernelStatusInitializing), int32(types.KernelStatusRunning)) {
+	if statusChanged := c.setStatus(types.KernelStatusInitializing, types.KernelStatusRunning); statusChanged {
+		// if atomic.CompareAndSwapInt32((*int32)(&c.status), int32(types.KernelStatusInitializing), int32(types.KernelStatusRunning)) {
 		// Update signature scheme and key.
 		c.server.Meta.SignatureScheme = r.ConnectionInfo().SignatureScheme
 		c.server.Meta.Key = r.ConnectionInfo().Key
+
 		// Collect the status of all replicas.
 		c.busyStatus.Collect(context.Background(), 1, len(c.replicas), types.MessageKernelStatusStarting, c.pubIOMessage)
 	}
@@ -563,9 +581,10 @@ func (c *distributedKernelClientImpl) InitializeShellForwarder(handler core.Kern
 		return nil, err
 	}
 
-	go c.server.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
-		msg.Frames, _ = types.AddDestFrame(msg.Frames, c.KernelSpec().Id, jupyter.JOffsetAutoDetect)
-		// c.log.Debug("Received shell message via DistributedShellForwarder. Message: %v", msg)
+	go c.server.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
+		msg.AddDestinationId(c.KernelSpec().Id)
+		// msg.Frames, _ = types.AddDestFrame(msg.Frames, c.KernelSpec().Id, jupyter.JOffsetAutoDetect)
+		c.log.Debug("Received shell message via DistributedShellForwarder. Message: %v", msg)
 		return handler(srv.(*distributedKernelClientImpl), typ, msg)
 	})
 
@@ -624,28 +643,28 @@ func (c *distributedKernelClientImpl) IsReplicaReady(replicaId int32) (bool, err
 }
 
 // RequestWithHandler sends a request to all replicas and handles the response.
-func (c *distributedKernelClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func()) error {
+func (c *distributedKernelClientImpl) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *types.JupyterMessage, handler core.KernelMessageHandler, done func()) error {
 	return c.RequestWithHandlerAndReplicas(ctx, typ, msg, handler, done)
 }
 
 // Process a response to a shell message. This is called before the handler that was passed when issuing the request.
 // Return true if the message is a 'yield' message (indicating that the replica yielded an execution).
-func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.KernelInfo, msg *zmq4.Msg) (err error, yielded bool) {
-	var (
-		header             *types.MessageHeader
-		jupyterMessageType string
-	)
+func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.KernelInfo, msg *types.JupyterMessage) (err error, yielded bool) {
+	// var (
+	// 	header             *types.MessageHeader
+	// 	jupyterMessageType string
+	// )
 
 	replicaClient := replica.(*kernelReplicaClientImpl)
 	replicaId := replicaClient.replicaId
 
-	_, header, _, err = types.HeaderFromMsg(msg)
-	if err != nil {
-		c.log.Error("Failed to extract header from ZMQ message sent by replica %d of kernel %s: %v", replicaId, c.id, err)
-		return err, false
-	}
+	// _, header, _, err = types.HeaderFromMsg(msg)
+	// if err != nil {
+	// 	c.log.Error("Failed to extract header from ZMQ message sent by replica %d of kernel %s: %v", replicaId, c.id, err)
+	// 	return err, false
+	// }
 
-	jupyterMessageType = header.MsgType
+	// jupyterMessageType = header.MsgType
 	// if jupyterMessageType != KernelInfoReply {
 	// 	c.log.Debug("Received shell '%v' response from kernel %s: %v", jupyterMessageType, c.id, msg)
 	// } else { // We don't print the message if it is just a KernelInfoReply.
@@ -660,7 +679,7 @@ func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.Kerne
 	}
 
 	if len(jFrames[types.JupyterFrameContent]) == 0 {
-		c.log.Warn("Received shell '%v' response with empty content.", jupyterMessageType)
+		c.log.Warn("Received shell '%v' response with empty content.", msg.JupyterMessageType())
 		return nil, false
 	}
 
@@ -672,7 +691,7 @@ func (c *distributedKernelClientImpl) preprocessShellResponse(replica core.Kerne
 	}
 
 	if msgErr.Status == types.MessageStatusOK {
-		if jupyterMessageType == "execute_reply" {
+		if msg.JupyterMessageType() == "execute_reply" {
 			return c.executionFinished(replicaId), false
 		}
 		return nil, false
@@ -702,7 +721,7 @@ func (c *distributedKernelClientImpl) executionFinished(replicaId int32) error {
 }
 
 // RequestWithHandlerAndReplicas sends a request to specified replicas and handles the response.
-func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.Context, typ types.MessageType, msg *zmq4.Msg, handler core.KernelMessageHandler, done func(), replicas ...core.KernelReplica) error {
+func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.Context, typ types.MessageType, jMsg *types.JupyterMessage, handler core.KernelMessageHandler, done func(), replicas ...core.KernelReplica) error {
 	// Boardcast to all replicas if no replicas are specified.
 	if len(replicas) == 0 {
 		for _, replica := range c.replicas {
@@ -719,8 +738,8 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 		replicaCtx, cancel = context.WithTimeout(ctx, jupyter.DefaultRequestTimeout)
 	}
 	// defer cancel()
-	forwarder := func(replica core.KernelInfo, typ types.MessageType, msg *zmq4.Msg) (err error) {
-		c.log.Debug(utils.BlueStyle.Render("Received %v response from %v"), typ, replica)
+	forwarder := func(replica core.KernelInfo, typ types.MessageType, msg *types.JupyterMessage) (err error) {
+		c.log.Debug(utils.BlueStyle.Render("Received %s response from %v"), typ.String(), replica)
 
 		if typ == types.ShellMessage {
 			// "Preprocess" the response, which involves checking if it a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.
@@ -733,11 +752,12 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 		// TODO: Remove this eventually once all bugs are fixed.
 		// These next two if-statements are used to ensure that the handler for 'ping_reply' responses is always called.
 		// They're used to test connectivity with kernels, so we always want them to be called.
-		_, header, _, err := types.HeaderFromMsg(msg)
-		if err != nil {
-			panic(err)
-		}
-		if header.MsgType == "ping_reply" {
+		// _, header, _, err := types.HeaderFromMsg(msg)
+		// if err != nil {
+		// 	panic(err)
+		// }
+		// if header.MsgType == "ping_reply" {
+		if msg.JupyterMessageType() == "ping_reply" {
 			if handler == nil {
 				panic("Handler is nil")
 			}
@@ -755,7 +775,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 			forwarded = true
 		})
 		if !forwarded {
-			c.log.Debug("Discard %v \"%s\" response from %v", typ, header.MsgType, replica)
+			c.log.Debug("Discard %v \"%s\" response from %v", typ, msg.JupyterMessageType() /* header.MsgType */, replica)
 		}
 		return err
 	}
@@ -765,15 +785,16 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 	defer statusCancel()
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), types.MessageKernelStatusBusy, c.pubIOMessage)
 	if len(replicas) == 1 {
-		return replicas[0].(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, done)
+		return replicas[0].(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, jMsg, forwarder, c.getWaitResponseOption, done)
 	}
 
 	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
-	_, reqId, jOffset := types.ExtractDestFrame(msg.Frames)
+	_, reqId, jOffset := types.ExtractDestFrame(jMsg.Frames)
 	if reqId == "" {
-		c.log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %v.", c.id, jOffset, types.JupyterFrames(msg.Frames).String())
-		msg.Frames, _ = types.AddDestFrame(msg.Frames, c.id, jOffset)
-		c.log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", c.id, jOffset, types.JupyterFrames(msg.Frames).String())
+		c.log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %v.", c.id, jOffset, types.JupyterFrames(jMsg.Frames).String())
+		// jMsg.Frames, _ = types.AddDestFrame(jMsg.Frames, c.id, jOffset)
+		jMsg.AddDestinationId(c.id)
+		c.log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", c.id, jOffset, types.JupyterFrames(jMsg.Frames).String())
 	}
 
 	var wg sync.WaitGroup
@@ -787,7 +808,7 @@ func (c *distributedKernelClientImpl) RequestWithHandlerAndReplicas(ctx context.
 			// TODO: If the ACKs fail on this and we reconnect and retry, the wg.Done may be called too many times.
 			// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 			// to be cleared after the context ends; we just do it on ACK timeout.
-			kernel.(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, msg, forwarder, c.getWaitResponseOption, wg.Done)
+			kernel.(*kernelReplicaClientImpl).requestWithHandler(replicaCtx, typ, jMsg, forwarder, c.getWaitResponseOption, wg.Done)
 		}(kernel)
 	}
 	if done != nil {
@@ -969,7 +990,7 @@ func (c *distributedKernelClientImpl) getWaitResponseOption(key string) interfac
 	return nil
 }
 
-func (c *distributedKernelClientImpl) handleMsg(replica types.JupyterServerInfo, typ types.MessageType, msg *zmq4.Msg) error {
+func (c *distributedKernelClientImpl) handleMsg(replica types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 	// c.log.Debug("DistrKernClient %v handling %v message: %v", c.id, typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
@@ -981,14 +1002,14 @@ func (c *distributedKernelClientImpl) handleMsg(replica types.JupyterServerInfo,
 		case types.IOTopicStatus:
 			return c.handleIOKernelStatus(replica.(*kernelReplicaClientImpl), jFrames, msg)
 		default:
-			return c.server.Sockets.IO.Send(*msg)
+			return c.server.Sockets.IO.Send(*msg.Msg)
 		}
 	}
 
 	return ErrHandlerNotImplemented
 }
 
-func (c *distributedKernelClientImpl) handleIOKernelStatus(replica *kernelReplicaClientImpl, frames types.JupyterFrames, msg *zmq4.Msg) error {
+func (c *distributedKernelClientImpl) handleIOKernelStatus(replica *kernelReplicaClientImpl, frames types.JupyterFrames, msg *types.JupyterMessage) error {
 	err := replica.handleIOKernelStatus(replica, frames, msg)
 	if err != nil {
 		return err
@@ -1027,10 +1048,10 @@ func (c *distributedKernelClientImpl) handleFailedExecutionAllYielded() error {
 	return c.executionFailedCallback(c)
 }
 
-func (c *distributedKernelClientImpl) pubIOMessage(msg *zmq4.Msg, status string, how string) error {
+func (c *distributedKernelClientImpl) pubIOMessage(msg *types.JupyterMessage, status string, how string) error {
 	// c.log.Debug("Publishing %v status(%s:%s): %v", types.IOMessage, status, how, msg)
 	c.lastBStatusMsg = msg
-	err := c.server.Sockets.IO.Send(*msg)
+	err := c.server.Sockets.IO.Send(*msg.Msg)
 
 	// Initiate idle status collection.
 	if status == types.MessageKernelStatusBusy {

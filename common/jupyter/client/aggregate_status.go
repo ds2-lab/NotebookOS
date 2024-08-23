@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
@@ -42,10 +41,10 @@ func resetEmptyCollectedMap(size int) {
 	}
 }
 
-type KernelStatusPublisher func(msg *zmq4.Msg, status string, how string) error
+type KernelStatusPublisher func(msg *types.JupyterMessage, status string, how string) error
 
 type StatusMsg struct {
-	*zmq4.Msg
+	*types.JupyterMessage
 	Status string
 	How    string
 }
@@ -65,7 +64,7 @@ type AggregateKernelStatus struct {
 	numCollected     int32                        // Number of statuses we've collected.
 	matches          int32                        // The number of collected status that matches the expected status.
 	status           string                       // The last resolved status.
-	sampleMsg        *zmq4.Msg
+	sampleMsg        *types.JupyterMessage
 	lastErr          error
 
 	// collected        []int32                  // A map that tracks the progress of the status collection. The first element is the number of collected status.
@@ -123,7 +122,7 @@ func (s *AggregateKernelStatus) Collect(ctx context.Context, num_replicas int, r
 }
 
 // Reduce reduces the received status against the expected status and called the handler if last collect has timed out.
-func (s *AggregateKernelStatus) Reduce(replicaId int32, status string, msg *zmq4.Msg, publish KernelStatusPublisher) {
+func (s *AggregateKernelStatus) Reduce(replicaId int32, status string, msg *types.JupyterMessage, publish KernelStatusPublisher) {
 	// s.kernel.log.Debug("Reducing status \"%s\" for replica %d of kernel %s.", status, replicaId, s.kernel.id)
 
 	if s.IsResolved() && s.lastErr == nil {
@@ -162,7 +161,7 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 		statusMsg := ret.(*StatusMsg)
 		s.status = statusMsg.Status
 		// s.kernel.log.Debug("Publishing status \"%v\" for kernel %s; how \"%v\"", statusMsg.Status, s.kernel.id, statusMsg.How)
-		publish(statusMsg.Msg, statusMsg.Status, statusMsg.How)
+		publish(statusMsg.JupyterMessage, statusMsg.Status, statusMsg.How)
 	} else if s.sampleMsg != nil {
 		// TODO: Not working here, need to regenerate the signature.
 		jFrames, _ := types.SkipIdentitiesFrame(s.sampleMsg.Frames)
@@ -179,7 +178,7 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 // replicaID starts from 1. status update from duplicated replica will be ignored.
 // New match call after the resolution of the promise will still be proceeded.
 // The function is thread-safe and can be called concurrently.
-func (s *AggregateKernelStatus) match(replicaId int32, status string, msg *zmq4.Msg) (how string, retStatus string, resolved bool) {
+func (s *AggregateKernelStatus) match(replicaId int32, status string, msg *types.JupyterMessage) (how string, retStatus string, resolved bool) {
 	// Check if the status has been collected.
 	// ReplicaID should not exceed the size of the collected map, ignore if it does.
 	// if replicaId >= int32(len(s.collected)) || !atomic.CompareAndSwapInt32(&s.collected[replicaId], 0, 1) {
@@ -204,20 +203,20 @@ func (s *AggregateKernelStatus) match(replicaId int32, status string, msg *zmq4.
 		if !s.allowViolation {
 			how = fmt.Sprintf("violated %s status", s.expectingStatus)
 			retStatus = status
-			s.Resolve(&StatusMsg{Status: retStatus, Msg: msg, How: how})
+			s.Resolve(&StatusMsg{Status: retStatus, JupyterMessage: msg, How: how})
 			return how, retStatus, true
 		} else if collected >= s.collecting {
 			// We've collected all status without violation or reaching expected number of matches. Stop without changing status.
 			how = fmt.Sprintf("not collected sufficient(%d/%d) %s status", atomic.LoadInt32(&s.matches), s.expectingMatches, s.expectingStatus)
 			retStatus = s.status
-			s.Resolve(&StatusMsg{Status: retStatus, Msg: msg, How: how})
+			s.Resolve(&StatusMsg{Status: retStatus, JupyterMessage: msg, How: how})
 			return how, retStatus, true
 		}
 	} else if atomic.AddInt32(&s.matches, 1) >= s.expectingMatches {
 		// We've reached expected number of matches, update status and stop.
 		how = fmt.Sprintf("collected sufficient(%d/%d) %s status", atomic.LoadInt32(&s.matches), s.expectingMatches, s.expectingStatus)
 		retStatus = s.expectingStatus
-		s.Resolve(&StatusMsg{Status: retStatus, Msg: msg, How: how})
+		s.Resolve(&StatusMsg{Status: retStatus, JupyterMessage: msg, How: how})
 		return how, retStatus, true
 	}
 
