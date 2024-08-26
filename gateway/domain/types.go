@@ -33,7 +33,7 @@ type ClusterDaemonOptions struct {
 	SMRPort                       int    `name:"smr-port" description:"Port used by the state machine replication (SMR) protocol."`
 	KubeNamespace                 string `name:"kube-namespace" description:"Kubernetes namespace that all of these components reside in."`
 	UseStatefulSet                bool   `name:"use-stateful-set" description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
-	HDFSNameNodeEndpoint          string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
+	HdfsNameNodeEndpoint          string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
 	SchedulingPolicy              string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
 	NotebookImageName             string `name:"notebook-image-name" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
 	NotebookImageTag              string `name:"notebook-image-tag" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`   // Tag to use for the jupyter notebook/kernel image
@@ -70,7 +70,7 @@ type ClusterSchedulerOptions struct {
 }
 
 func (o ClusterDaemonOptions) String() string {
-	return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HDFSNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HDFSNameNodeEndpoint)
+	return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HdfsNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HdfsNameNodeEndpoint)
 }
 
 type ClusterGatewayOptions struct {

@@ -119,6 +119,8 @@ type KernelReplicaClient interface {
 	YieldNextExecutionRequest()
 
 	// Call after successfully yielding the next execution request.
+	// This flips the kernelReplicaClientImpl::yieldNextExecutionRequest
+	// flag to false so that the kernel replica isn't forced to yield future requests.
 	YieldedNextExecutionRequest()
 
 	// Return true if we're supposed to yield the next execution request.
@@ -408,6 +410,8 @@ func (c *kernelReplicaClientImpl) YieldNextExecutionRequest() {
 }
 
 // Call after successfully yielding the next execution request.
+// This flips the kernelReplicaClientImpl::yieldNextExecutionRequest
+// flag to false so that the kernel replica isn't forced to yield future requests.
 func (c *kernelReplicaClientImpl) YieldedNextExecutionRequest() {
 	c.yieldNextExecutionRequest = false
 }

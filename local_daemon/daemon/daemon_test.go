@@ -167,6 +167,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 		It("Should correctly return a 'yield_execute' message if the kernel is set to yield the next execute request.", func() {
 			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(true).AnyTimes()
+			kernel.EXPECT().YieldedNextExecutionRequest().Times(1)
 			unsignedFrames := [][]byte{
 				[]byte("<IDS|MSG>"), /* Frame start */
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"), /* Signature */

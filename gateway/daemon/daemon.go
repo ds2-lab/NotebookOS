@@ -234,7 +234,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		kernelsStarting:                  hashmap.NewCornelkMap[string, chan struct{}](64),
 		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan domain.AddReplicaOperation](64),
 		activeExecutions:                 hashmap.NewCornelkMap[string, *client.ActiveExecution](64),
-		hdfsNameNodeEndpoint:             clusterDaemonOptions.HDFSNameNodeEndpoint,
+		hdfsNameNodeEndpoint:             clusterDaemonOptions.HdfsNameNodeEndpoint,
 		dockerNetworkName:                clusterDaemonOptions.DockerNetworkName,
 	}
 	for _, config := range configs {
@@ -254,7 +254,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
-	if len(clusterDaemonOptions.HDFSNameNodeEndpoint) == 0 {
+	if len(clusterDaemonOptions.HdfsNameNodeEndpoint) == 0 {
 		panic("HDFS NameNode endpoint is empty.")
 	}
 

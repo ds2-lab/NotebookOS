@@ -101,7 +101,7 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 		scaleUpChannels:        &scaleUpChannels,
 		scaleDownChannels:      &scaleDownChannels,
 		podWatcherStopChan:     make(chan struct{}),
-		hdfsNameNodeEndpoint:   clusterDaemonOptions.HDFSNameNodeEndpoint,
+		hdfsNameNodeEndpoint:   clusterDaemonOptions.HdfsNameNodeEndpoint,
 		notebookImageName:      clusterDaemonOptions.NotebookImageName,
 		notebookImageTag:       clusterDaemonOptions.NotebookImageTag,
 	}
@@ -1498,7 +1498,7 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *gateway.KernelReplicaS
 			SMRNodes:                replicas,
 			SMRJoin:                 spec.Join,
 			SMRPort:                 c.smrPort,
-			HDFSNameNodeEndpoint:    c.hdfsNameNodeEndpoint,
+			HdfsNameNodeEndpoint:    c.hdfsNameNodeEndpoint,
 			RegisterWithLocalDaemon: true,
 			LocalDaemonAddr:         "", // This is only used in Docker mode.
 		},

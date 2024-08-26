@@ -155,7 +155,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		gpuManager:                   NewGpuManager(schedulerDaemonOptions.NumGPUs),
 		virtualGpuPluginServer:       virtualGpuPluginServer,
 		deploymentMode:               types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
-		hdfsNameNodeEndpoint:         schedulerDaemonOptions.HDFSNameNodeEndpoint,
+		hdfsNameNodeEndpoint:         schedulerDaemonOptions.HdfsNameNodeEndpoint,
 		dockerStorageBase:            schedulerDaemonOptions.DockerStorageBase,
 		usingWSL:                     schedulerDaemonOptions.UsingWSL,
 	}
@@ -175,7 +175,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		}
 	}
 
-	if len(schedulerDaemonOptions.HDFSNameNodeEndpoint) == 0 {
+	if len(schedulerDaemonOptions.HdfsNameNodeEndpoint) == 0 {
 		panic("HDFS NameNode endpoint is empty.")
 	}
 

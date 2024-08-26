@@ -2,8 +2,8 @@ package daemon
 
 import (
 	"fmt"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -154,7 +154,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				SMRPort:                       11080,
 				KubeNamespace:                 "default",
 				UseStatefulSet:                false,
-				HDFSNameNodeEndpoint:          "172.17.0.1:9000",
+				HdfsNameNodeEndpoint:          "172.17.0.1:9000",
 				SchedulingPolicy:              "static",
 				NotebookImageName:             "scusemua/jupyter",
 				NotebookImageTag:              "latest",
@@ -176,24 +176,30 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				StartingResourcePort: 10007,
 				NumResourcePorts:     64,
 			}, &localdaemondomain.SchedulerDaemonOptions{
-				DirectServer:     false,
-				SMRPort:          11080,
-				NumGPUs:          8,
-				SchedulingPolicy: "static",
-				DeploymentMode:   "kubernetes",
-			}, 8079, nil, "TestNode")
+				DirectServer:         false,
+				SMRPort:              11080,
+				NumGPUs:              8,
+				SchedulingPolicy:     "static",
+				DeploymentMode:       "kubernetes",
+				HdfsNameNodeEndpoint: "127.0.0.1:9000",
+			}, 18079, nil, "TestNode")
+
+			var wg sync.WaitGroup
+			wg.Add(2)
 
 			go func() {
 				err := cluster_gateway.Start()
 				Expect(err).To(BeNil())
+				wg.Done()
 			}()
 
 			go func() {
 				err := local_daemon.Start()
 				Expect(err).To(BeNil())
+				wg.Done()
 			}()
 
-			time.Sleep(time.Millisecond * 5000)
+			wg.Wait()
 		})
 	})
 })

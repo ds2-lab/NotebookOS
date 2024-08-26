@@ -419,7 +419,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *gateway.KernelReplicaSpec) (*j
 			SMRJoin:                 spec.Join,
 			RegisterWithLocalDaemon: true,
 			LocalDaemonAddr:         hostname,
-			HDFSNameNodeEndpoint:    ivk.hdfsNameNodeEndpoint,
+			HdfsNameNodeEndpoint:    ivk.hdfsNameNodeEndpoint,
 		},
 	}
 	if spec.PersistentId != nil {
