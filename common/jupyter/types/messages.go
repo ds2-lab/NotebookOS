@@ -13,6 +13,7 @@ const (
 	MessageHeaderDefaultUsername = "username"
 
 	MessageTypeShutdownRequest = "shutdown_request"
+	MessageTypeShutdownReply   = "shutdown_reply"
 
 	ErrorNotification   NotificationType = 0
 	WarningNotification NotificationType = 1
@@ -101,13 +102,13 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 
 	destId, reqId, offset := extractDestFrame(msg.Frames)
 
-	if len(destId) == 0 {
-		log.Printf("[WARNING] Destination ID is empty when creating JupyterMessage: %v\n", msg.String())
-	}
+	// if len(destId) == 0 {
+	// 	log.Printf("[WARNING] Destination ID is empty when creating JupyterMessage: %v\n", msg.String())
+	// }
 
-	if len(reqId) == 0 {
-		log.Printf("[WARNING] Request ID is empty when creating JupyterMessage: %v\n", msg.String())
-	}
+	// if len(reqId) == 0 {
+	// 	log.Printf("[WARNING] Request ID is empty when creating JupyterMessage: %v\n", msg.String())
+	// }
 
 	// jFrames := JupyterFrames(frames[offset:])
 	// if err := jFrames.Validate(); err != nil {
@@ -306,5 +307,5 @@ func (m *JupyterMessage) JupyterMessageId() string {
 }
 
 func (m *JupyterMessage) String() string {
-	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d,Msg=%s]", m.RequestId, m.DestinationId, m.Offset, JupyterFrames(m.Frames).String())
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's Frames=%s", m.RequestId, m.DestinationId, m.Offset, JupyterFrames(m.Frames).String())
 }

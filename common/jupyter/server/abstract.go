@@ -448,7 +448,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 				err = handler(server, socket.Type, jMsg)
 				if err != nil {
-					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Handler for %s message \"%v\" has returned with an error: %v."), goroutineId, socket.Type.String(), jMsg.RequestId, err)
+					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Handler for %s message \"%v\" has returned with an error: %v."), goroutineId, socket.Type.String(), jMsg.JupyterMessageId(), err)
 				}
 
 				// s.Log.Debug("[gid=%d] Handler for %v message \"%v\" has returned. Error: %v.", goroutineId, socket.Type, rspId, err)

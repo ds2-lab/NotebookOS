@@ -917,6 +917,7 @@ func (c *distributedKernelClientImpl) stopReplicaLocked(r core.KernelReplica, re
 }
 
 func (c *distributedKernelClientImpl) clearReplicasLocked() {
+	c.log.Debug("Clearing replicas now.", c.id)
 	toRemove := make([]int32, len(c.replicas))
 	for id, kernel := range c.replicas {
 		if kernel != nil {

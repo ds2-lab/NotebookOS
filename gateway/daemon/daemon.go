@@ -1667,6 +1667,7 @@ func (d *ClusterGatewayImpl) GetKernelStatus(ctx context.Context, in *gateway.Ke
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		// d.log.Debug("Returning kernel status directly: %v", jupyter.KernelStatusExited)
+		d.log.Warn("Attempted to retrieve kernel status for unknown kernel \"%s\". Returning KernelStatusExited (%v).", in.Id, jupyter.KernelStatusExited)
 		return d.statusErrorf(jupyter.KernelStatusExited, nil)
 	}
 
@@ -2019,6 +2020,65 @@ func (d *ClusterGatewayImpl) Close() error {
 // RouterProvider implementations.
 func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	// If this is a shutdown request, then use the RPC pathway instead.
+	if msg.JupyterMessageType() == jupyter.MessageTypeShutdownRequest {
+		sessionId := msg.JupyterSession()
+		d.log.Debug("Intercepting \"%v\" message targeting session \"%s\" and using RPC pathway instead...", jupyter.MessageTypeShutdownRequest, sessionId)
+
+		// Stop the kernel. If we get an error, print it here, and then we'll return it.
+		var err error
+		if _, err = d.stopKernelImpl(&gateway.KernelId{Id: sessionId}); err != nil {
+			d.log.Error("Failed to (cleanly) terminate session/kernel \"%s\" because: %v", sessionId, err)
+
+			// Spawn a separate goroutine to send an error notification to the dashboard.
+			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Session %s", sessionId), err.Error())
+
+			// No kernel associated with the session...
+			// For now, just log the error message.
+			// if errors.Is(err, ErrKernelNotFound) {
+			// 	d.log.Error("Cannot write error back to Jupyter client/server/frontend, as the kernel associated with session \"%s\" either no longer exists or never existed in the first place...", sessionId)
+			// 	// Spawn a separate goroutine to send an error notification to the dashboard.
+			// 	go d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Session %s", sessionId), err.Error())
+			// 	return err
+			// }
+
+			// // Try to load the kernel that was supposed to be terminated.
+			// kernel, ok := d.kernels.Load(sessionId)
+			// if !ok {
+			// 	d.log.Error("Cannot write error back to Jupyter client/server/frontend, as the kernel associated with session \"%s\" either no longer exists or never existed in the first place...", sessionId)
+
+			// 	// Spawn a separate goroutine to send some error notifications to the dashboard.
+			// 	go func() {
+			// 		// First, notify the dashboard/frontend that we failed to cleanly terminate this session.
+			// 		d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Session %s", sessionId), err.Error())
+
+			// 		// Next, tell the dashboard that our attempt to notify the Jupyter client/server of this failed termination also failed.
+			// 		d.notifyDashboardOfError("Could Not Notify Jupyter Client/Server of Failed Termination", fmt.Sprintf("Cannot write error back to Jupyter client/server/frontend, as the kernel associated with session \"%s\" either no longer exists or never existed in the first place...", sessionId))
+			// 	}()
+
+			// 	return err
+			// }
+
+			// // Try to send an error message to the Jupyter client/server so that it knows something went wrong.
+			// sendRespErr := d.kernelResponseForwarder(kernel, jupyter.ControlMessage, jupyter.NewJupyterMessage(zmq4.NewMsgFrom()))
+			// if sendRespErr != nil {
+			// 	// Spawn a separate goroutine to send some error notifications to the dashboard.
+			// 	go func() {
+			// 		// First, notify the dashboard/frontend that we failed to cleanly terminate this session.
+			// 		d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Session %s", sessionId), err.Error())
+
+			// 		// Next, tell the dashboard that our attempt to notify the Jupyter client/server of this failed termination also failed.
+			// 		d.notifyDashboardOfError("Could Not Notify Jupyter Client/Server of Failed Termination", sendRespErr.Error())
+			// 	}()
+
+			// 	return err // Return the original error, not the send-related error.
+			// }
+		}
+
+		// TODO: This doesn't actually send an error response back to the client/Jupyter server.
+		// This just returns to our underlying server's request handler code.
+		// To send a response to Jupyter, we'd need to use the ClusterGatewayImpl::kernelResponseForwarder method.
+		return err // Will be nil if we successfully shutdown the kernel.
+	}
 
 	err := d.forwardRequest(nil, jupyter.ControlMessage, msg)
 
@@ -2262,9 +2322,32 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *jupyter.JupyterMessage) (
 	// 	return nil, messageType, err
 	// }
 
-	kernel, ok := d.kernels.Load(msg.DestinationId) // kernelId)
+	// This is initially the kernel's ID, which is the DestID field of the message.
+	// But we may not have set a destination ID field within the message yet.
+	// In this case, we'll fall back to the session ID within the message's Jupyter header.
+	// This may not work either, though, if that session has not been bound to the kernel yet.
+	//
+	// When Jupyter clients connect for the first time, they send both a shell and a control "kernel_info_request" message.
+	// This message is used to bind the session to the kernel (specifically the shell message).
+	var kernelKey string = msg.DestinationId
+
+	// If there is no destination ID, then we'll try to use the session ID in the message's header instead.
+	if len(kernelKey) == 0 {
+		kernelKey = msg.JupyterSession()
+		d.log.Debug("Message does not have Destination ID. Using session ID \"%s\" from Jupyter header instead.", kernelKey)
+
+		// Sanity check.
+		// Make sure we got a valid session ID out of the Jupyter message header.
+		// If we didn't, then we'll return an error.
+		if len(kernelKey) == 0 {
+			d.log.Error("Jupyter Session ID is invalid for message: %s", msg.String())
+			return nil, msg.JupyterMessageType(), fmt.Errorf("%w: message did not contain a destination ID, and session ID was invalid (i.e., the empty string)", ErrKernelNotFound)
+		}
+	}
+
+	kernel, ok := d.kernels.Load(kernelKey) // kernelId)
 	if !ok {
-		d.log.Error("Could not find kernel with ID \"%s\"", msg.DestinationId)
+		d.log.Error("Could not find kernel with ID \"%s\"", kernelKey)
 		return nil, messageType, ErrKernelNotFound
 	}
 
