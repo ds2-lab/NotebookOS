@@ -240,6 +240,9 @@ ENV PATH=$PATH:/usr/local/go/bin
 VOLUME /var/lib/docker
 EXPOSE 2375 2376
 
+# For debugging.
+RUN apt-get update && apt-get install iputils-ping dnsutils vim -y 
+
 USER hostuser
 
 ENTRYPOINT ["dockerd-entrypoint.sh"]
