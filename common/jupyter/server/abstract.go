@@ -236,7 +236,12 @@ func (s *AbstractServer) sendAck(messageWeAreAcking *types.JupyterMessage, socke
 	// }
 
 	// The parent header of the ACK will be the header of the message we're ACK-ing.
-	parentHeaderEncoded, err := json.Marshal(messageWeAreAcking.GetHeader())
+	messageHeader, err := messageWeAreAcking.GetHeader()
+	if err != nil {
+		panic(err)
+	}
+
+	parentHeaderEncoded, err := json.Marshal(messageHeader)
 	if err != nil {
 		panic(err)
 	}
@@ -269,8 +274,13 @@ func (s *AbstractServer) sendAck(messageWeAreAcking *types.JupyterMessage, socke
 			[]byte(fmt.Sprintf("%s (%s)", time.Now().Format(time.RFC3339Nano), s.Name)))
 	}
 
-	firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sending ACK for %v \"%v\""), goroutineId, socket.Type, messageWeAreAcking.GetHeader().MsgType)
-	secondPart := fmt.Sprintf("(MsgId=%v, ReqId=%v)", utils.PurpleStyle.Render(messageWeAreAcking.RequestId), utils.LightPurpleStyle.Render(messageWeAreAcking.GetHeader().MsgID))
+	messageHeader, err = messageWeAreAcking.GetHeader()
+	if err != nil {
+		panic(err)
+	}
+
+	firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sending ACK for %v \"%v\""), goroutineId, socket.Type, messageHeader.MsgType)
+	secondPart := fmt.Sprintf("(MsgId=%v, ReqId=%v)", utils.PurpleStyle.Render(messageWeAreAcking.RequestId), utils.LightPurpleStyle.Render(messageHeader.MsgID))
 	thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("message via %s: %v"), socket.Name, ack_msg)
 	s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 
@@ -537,9 +547,19 @@ func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
 func (s *AbstractServer) Request(request types.Request, socket *types.Socket) error {
 	goroutineId := goid.Get()
 
-	// Validate that the request is non-nil.
+	// Validate that the request is non-nil...
 	if request == nil {
 		panic(fmt.Sprintf("[gid=%d] %s request is nil.", goroutineId, socket.Type.String()))
+	}
+
+	// ... and that the request's Payload is non-nil...
+	if request.Payload() == nil {
+		panic(fmt.Sprintf("[gid=%d] %s request payload is nil: %s", goroutineId, socket.Type.String(), request.String()))
+	}
+
+	// ... and that the payload's underlying ZMQ message is non-nil.
+	if request.Payload().Msg == nil {
+		panic(fmt.Sprintf("[gid=%d] Underlying ZMQ message of %s request payload is nil: %s.", goroutineId, socket.Type.String(), request.String()))
 	}
 
 	// Validate that the request has a non-nil payload.

@@ -10,6 +10,7 @@ import (
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 )
 
 const (
@@ -217,12 +218,26 @@ func (b *RequestBuilder) WithJMsgPayload(msg *JupyterMessage) *RequestBuilder {
 		panic(fmt.Sprintf("Cannot assign nil JMsg payload for request. SourceID: %s. DestID: %s. ConnectionInfo: %v.", b.sourceId, b.destinationId, b.connectionInfo))
 	}
 
+	var (
+		requestId string
+		jOffset   int = -1
+	)
 	if len(msg.DestinationId) == 0 {
-		msg.AddDestinationId(b.destinationId)
+		requestId, jOffset = msg.AddDestinationId(b.destinationId)
 	}
 
 	b.payload = msg
 	b.requestId = msg.RequestId
+
+	// Sanity checks.
+	if len(requestId) > 0 && requestId != msg.RequestId {
+		panic(fmt.Sprintf("Request ID field of JupyterMessage does not match return value of JupyterMessage::AddDestinationId. Field: \"%s\". Return value: \"%s\".", msg.RequestId, requestId))
+	}
+
+	// Sanity checks.
+	if jOffset != -1 && jOffset != msg.Offset {
+		panic(fmt.Sprintf("Offset field of JupyterMessage does not match return value of JupyterMessage::AddDestinationId. Field: \"%d\". Return value: \"%d\".", msg.Offset, jOffset))
+	}
 
 	return b
 }
@@ -262,7 +277,7 @@ func (b *RequestBuilder) extractAndAddDestFrame(destId string, msg *zmq4.Msg) (*
 	// Normalize the request, we do not assume that the types.RequestDest implements the auto-detect feature.
 	_, reqId, jOffset := ExtractDestFrame(msg.Frames)
 	if reqId == "" {
-		msg.Frames, reqId, _ = AddDestFrame(msg.Frames, destId, jOffset)
+		msg.Frames, reqId, jOffset = AddDestFrame(msg.Frames, destId, jupyter.JOffsetAutoDetect)
 	}
 
 	return msg, reqId, jOffset

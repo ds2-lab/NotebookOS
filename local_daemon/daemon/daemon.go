@@ -1536,7 +1536,12 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 	}
 
 	// Replace the header with the new header (that has the 'yield_execute' MsgType).
-	if jFrames[jupyter.JupyterFrameHeader+jMsg.Offset], err = json.Marshal(jMsg.GetHeader()); err != nil {
+	header, err := jMsg.GetHeader()
+	if err != nil {
+		panic(err)
+	}
+
+	if jFrames[jupyter.JupyterFrameHeader+jMsg.Offset], err = json.Marshal(header); err != nil {
 		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while encoding the new message header: %v", err)
 		panic(err) // TODO(Ben): Handle this error more gracefully.
 		// return nil, err

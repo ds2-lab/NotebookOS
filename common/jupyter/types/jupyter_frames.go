@@ -313,7 +313,8 @@ func AddDestFrame(frames [][]byte, destID string, offsetArg int) (newFrames [][]
 	reqID = uuid.New().String()
 	newFrames[jOffset] = []byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, destID, reqID))
 
-	return newFrames, reqID, jOffset
+	// Add 1 to the offset before returning, as we just inserted a new frame at the beginning, so the offset should be shifted by one.
+	return newFrames, reqID, jOffset + 1
 }
 
 func RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {

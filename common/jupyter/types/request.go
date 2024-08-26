@@ -234,6 +234,9 @@ type Request interface {
 	//
 	// Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
 	SetErred(err error) (bool, error)
+
+	// Return a string representation of the request.
+	String() string
 }
 
 // Encapsulates the state of a live, active request.
@@ -325,6 +328,11 @@ type basicRequest struct {
 
 	// Synchronizes access to the request's state.
 	stateMutex sync.Mutex
+}
+
+// Return a string representation of the request.
+func (r *basicRequest) String() string {
+	return fmt.Sprintf("Request[ID=%s, DestID=%s, State=%s, RequiresAck=%v, Timeout=%v, MaxNumAttempts=%d]", r.requestId, r.destinationId, r.requestState, r.requiresAck, r.timeout, r.maxNumAttempts)
 }
 
 // Should the call to Server::Request block when issuing this request?
@@ -536,7 +544,12 @@ func (r *basicRequest) PrepareForResubmission() error {
 	jFrames := JupyterFrames(r.payload.Frames)
 	jOffset := r.Offset()
 
-	err := jFrames[jOffset:].EncodeHeader(r.payload.GetHeader())
+	header, err := r.payload.GetHeader()
+	if err != nil {
+		return err
+	}
+
+	err = jFrames[jOffset:].EncodeHeader(header)
 	if err != nil {
 		return err
 	}

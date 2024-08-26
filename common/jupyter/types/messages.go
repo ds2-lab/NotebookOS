@@ -164,16 +164,18 @@ func (m *JupyterMessage) AddDestinationId(destID string) (reqID string, jOffset 
 	m.Frames, reqID, jOffset = AddDestFrame(m.Frames, destID, jupyter.JOffsetAutoDetect)
 
 	if len(m.RequestId) > 0 && m.RequestId != reqID {
-		log.Printf(utils.OrangeStyle.Render("[WARNING] Overwriting existing RequestId \"%s\" of JupyterMessage with value \"%s\""), m.RequestId, reqID)
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Overwriting existing RequestId \"%s\" of JupyterMessage with value \"%s\"\n"), m.RequestId, reqID)
 	}
 
 	if len(m.DestinationId) > 0 && m.DestinationId != destID {
-		log.Printf(utils.OrangeStyle.Render("[WARNING] Overwriting existing DestinationId \"%s\" of JupyterMessage with value \"%s\""), m.DestinationId, destID)
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Overwriting existing DestinationId \"%s\" of JupyterMessage with value \"%s\"\n"), m.DestinationId, destID)
 	}
 
 	m.RequestId = reqID
 	m.DestinationId = destID
 	m.Offset = jOffset
+
+	log.Printf("Added destination ID \"%s\" to JupyterMessage. Request ID: \"%s\". Offset: %d.\n", destID, reqID, jOffset)
 
 	return reqID, jOffset
 }
@@ -185,8 +187,11 @@ func (m *JupyterMessage) GetParentHeader() *MessageHeader {
 		return m.parentHeader
 	}
 
-	var parentHeader MessageHeader
+	if m.Msg == nil {
+		panic("Cannot decode parent header of JupyterMessage because the underlying ZMQ message is nil...")
+	}
 
+	var parentHeader MessageHeader
 	jFrames := JupyterFrames(m.Frames[m.Offset:])
 	if err := jFrames.Validate(); err != nil {
 		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to validate message frames while extracting header: %v\n"), err)
@@ -194,8 +199,8 @@ func (m *JupyterMessage) GetParentHeader() *MessageHeader {
 	}
 
 	if err := jFrames.DecodeParentHeader(&parentHeader); err != nil {
-		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header \"%v\" from message frames: %v", string(jFrames[JupyterFrameHeader])), err)
-		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Message frames (for which we failed to decode parent header): %s"), m.Msg.String())
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header from frame \"%v\" because: %v\n"), string(jFrames[JupyterFrameHeader]), err)
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Message frames (for which we failed to decode parent header): %s\n"), m.Msg.String())
 	}
 
 	m.parentHeader = &parentHeader
@@ -210,29 +215,32 @@ func (m *JupyterMessage) ParentHeaderFrame() JupyterFrame {
 
 // The header is lazily decoded/deserialized.
 // This decodes/deserializes it.
-func (m *JupyterMessage) GetHeader() *MessageHeader {
+func (m *JupyterMessage) GetHeader() (*MessageHeader, error) {
 	if m.headerDecoded {
-		return m.header
+		return m.header, nil
+	}
+
+	if m.Msg == nil {
+		panic("Cannot decode header of JupyterMessage because the underlying ZMQ message is nil...")
 	}
 
 	var header MessageHeader
-
 	jFrames := JupyterFrames(m.Frames[m.Offset:])
 	if err := jFrames.Validate(); err != nil {
 		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to validate message frames while extracting header: %v\n"), err)
-		return nil
+		return nil, err
 	}
 
 	if err := jFrames.DecodeHeader(&header); err != nil {
-		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to decode header \"%v\" from message frames: %v", string(jFrames[JupyterFrameHeader])), err)
-		fmt.Printf(utils.RedStyle.Render("[ERROR] Message frames (for which we failed to decode header): %s"), m.Msg.String())
-		return nil
+		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to decode header from frame \"%v\" because: %v\n"), string(jFrames[JupyterFrameHeader]), err)
+		fmt.Printf(utils.RedStyle.Render("[ERROR] Erroneous message: %s\n"), m.String())
+		return nil, err
 	}
 
 	m.header = &header
 	m.headerDecoded = true
 
-	return m.header
+	return m.header, nil
 }
 
 func (m *JupyterMessage) ToJFrames() JupyterFrames {
@@ -240,18 +248,18 @@ func (m *JupyterMessage) ToJFrames() JupyterFrames {
 }
 
 func (m *JupyterMessage) SetMessageType(typ string) {
-	header := m.GetHeader() // Instantiate the header in case it isn't already.
-	if header == nil {
-		panic(fmt.Sprintf("Failed to decode message header. Message: %s\n", m.Msg.String()))
+	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
+	if header == nil || err != nil {
+		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.Msg.String(), err))
 	}
 	header.MsgType = typ
 	m.header = header
 }
 
 func (m *JupyterMessage) SetDate(date string) {
-	header := m.GetHeader() // Instantiate the header in case it isn't already.
-	if header == nil {
-		panic(fmt.Sprintf("Failed to decode message header. Message: %s\n", m.Msg.String()))
+	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
+	if header == nil || err != nil {
+		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.Msg.String(), err))
 	}
 	header.Date = date
 	m.header = header
@@ -263,36 +271,40 @@ func (m *JupyterMessage) GetMsg() *zmq4.Msg {
 
 // Convenience/utility method for retrieving the Jupyter message type from the Jupyter message header.
 func (m *JupyterMessage) JupyterMessageType() string {
-	header := m.GetHeader() // Instantiate the header in case it isn't already.
-	if header == nil {
-		panic(fmt.Sprintf("Failed to decode message header. Message: %s\n", m.Msg.String()))
+	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
+	if header == nil || err != nil {
+		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.Msg.String(), err))
 	}
 	return header.MsgType
 }
 
 // Convenience/utility method for retrieving the Jupyter date type from the Jupyter message header.
 func (m *JupyterMessage) JupyterMessageDate() string {
-	header := m.GetHeader() // Instantiate the header in case it isn't already.
-	if header == nil {
-		panic(fmt.Sprintf("Failed to decode message header. Message: %s\n", m.Msg.String()))
+	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
+	if header == nil || err != nil {
+		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.Msg.String(), err))
 	}
 	return header.Date
 }
 
 // Convenience/utility method for retrieving the Jupyter session from the Jupyter message header.2
 func (m *JupyterMessage) JupyterSession() string {
-	header := m.GetHeader() // Instantiate the header in case it isn't already.
-	if header == nil {
-		panic(fmt.Sprintf("Failed to decode message header. Message: %s\n", m.Msg.String()))
+	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
+	if header == nil || err != nil {
+		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.Msg.String(), err))
 	}
 	return header.Session
 }
 
 // Convenience/utility method for retrieving the Jupyter message ID from the Jupyter message header.
 func (m *JupyterMessage) JupyterMessageId() string {
-	header := m.GetHeader() // Instantiate the header in case it isn't already.
-	if header == nil {
-		panic(fmt.Sprintf("Failed to decode message header. Message: %s\n", m.Msg.String()))
+	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
+	if header == nil || err != nil {
+		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.Msg.String(), err))
 	}
 	return header.MsgID
+}
+
+func (m *JupyterMessage) String() string {
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d,Msg=%s]", m.RequestId, m.DestinationId, m.Offset, JupyterFrames(m.Frames).String())
 }
