@@ -7,6 +7,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/hashmap"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
@@ -28,7 +29,7 @@ type PreemptionInfo interface {
 
 type HostMetaKey string
 
-type HostStats interface {
+type HostStatistics interface {
 	// Priority returns the host's "priority", which is the benefit gained or lost in terms of GPU time per migration.
 	Priority() float64
 
@@ -44,6 +45,16 @@ type HostStats interface {
 	// SchedulingInPriority returns the host's "scheduling-in priority", or SIP, which is defined as a * the interactive
 	// priority of a given task + b * the sum of the preemption priorities of the preemptible tasks
 	SchedulingInPriority() float64
+
+	// IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
+	IdleGPUs() float64
+
+	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
+	CommittedGPUs() float64
+
+	// PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
+	// Pending GPUs are NOT actively bound to any
+	PendingGPUs() float64
 }
 
 type HostMeta interface {
@@ -70,7 +81,7 @@ type Host interface {
 	Restore(Host) error
 
 	// Stats returns the statistics of the host.
-	Stats() HostStats
+	Stats() HostStatistics
 
 	// SetMeta sets the metadata of the host.
 	SetMeta(key HostMetaKey, value interface{})
@@ -108,6 +119,19 @@ type BaseHost struct {
 	trainingContainers []Container      // Actively-training kernel replicas.
 	seenSessions       []string         // Sessions that have been scheduled onto this host at least once.
 	spec               *ResourceSpec    // The resources available on the Host.
+
+	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
+
+	// IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
+	idleGPUs StatFloat64
+
+	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
+	pendingGPUs StatFloat64
+
+	// PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
+	committedGPUs StatFloat64
+
+	pendingContainers StatInt32
 
 	// Cached penalties
 	sip             cache.InlineCache
@@ -158,7 +182,7 @@ func (h *BaseHost) getPenalty(cached *cachedPenalty, gpus int) (*cachedPenalty, 
 
 func (h *BaseHost) Penalty(gpus float64) (float64, PreemptionInfo, error) {
 	// Find number of GPUs required to preempt trainings.
-	bucket := int(math.Ceil(gpus) - h.idleGPUs.Load())
+	bucket := int(math.Ceil(gpus) - h.IdleGPUs())
 	if bucket <= 0 {
 		return 0, nil, nil
 	}
@@ -180,7 +204,70 @@ func (h *BaseHost) getSIP(sess Session) float64 {
 	}
 	h.sip.Validator(time.Now())
 
-	rb := h.getRB(sess.Stats().IP(), numGPUs)
-	h.log.Debug("Cached sip for session %v: %.2f(%.2f-%.2f). IP: %.4f (%s).", sess, rb-penalty, rb, penalty, sess.Stats().IP(), sess.Stats().Explain(ExplainIP))
+	rb := h.getRB(sess.SessionStatistics().InteractivePriority(), numGPUs)
+	h.log.Debug("Cached sip for session %v: %.2f(%.2f-%.2f). IP: %.4f (%s).", sess, rb-penalty, rb, penalty, sess.SessionStatistics().InteractivePriority(), sess.SessionStatistics().Explain(ExplainInteractivePriority))
 	return rb - penalty
+}
+
+func (h *BaseHost) getRB(sessRB float64, required float64) float64 {
+	idleGPUs := h.idleGPUs.Load()
+	extras := 0.0
+	if idleGPUs > required {
+		extras = idleGPUs / h.pendingGPUs.Load()
+	}
+	rb := sessRB * (extras + 1) / float64(h.pendingContainers.Load())
+	h.log.Debug("Calculated RB: %.4f\n", h.id, rb)
+	return rb
+}
+
+func (h *BaseHost) validatePenaltyList(_ interface{}) bool {
+	return h.penaltyValidity
+}
+
+func (h *BaseHost) updatePenaltyList(cached *PenaltyContainers) *PenaltyContainers {
+	h.penaltyValidity = true
+	if cached == nil {
+		cached = &PenaltyContainers{ContainerList: ContainerList(h.trainingContainers)}
+	} else {
+		cached.ContainerList = h.trainingContainers
+	}
+	sort.Sort(cached)
+	return cached
+}
+
+func (h *BaseHost) Priority() float64 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (h *BaseHost) InteractivePriority() float64 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (h *BaseHost) PreemptionPriority() float64 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (h *BaseHost) SchedulingOutPriority() float64 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (h *BaseHost) SchedulingInPriority() float64 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (h *BaseHost) IdleGPUs() float64 {
+	return h.idleGPUs.Load()
+}
+
+func (h *BaseHost) CommittedGPUs() float64 {
+	return h.committedGPUs.Load()
+}
+
+func (h *BaseHost) PendingGPUs() float64 {
+	return h.pendingGPUs.Load()
 }

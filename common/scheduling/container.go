@@ -108,12 +108,12 @@ func (c *BasicContainer) Host() Host {
 func (c *BasicContainer) getIP() float64 {
 	c.ip.Validator(time.Now())
 	required := c.session.ResourceUtilization().NumGpusAsFloat() // float64(c.Session().Meta().GPU.GPUs)
-	idleGPUs := c.host.Stats().IdleGPUs().Load()
+	idleGPUs := c.host.Stats().IdleGPUs()
 	extras := 0.0
 	extraExplain := "0.0"
 	if idleGPUs > required {
-		extras = idleGPUs / c.host.Stats().PendingGPUs().Load()
-		extraExplain = fmt.Sprintf("%f / %f", idleGPUs, c.host.Stats().PendingGPUs().Load())
+		extras = idleGPUs / c.host.Stats().PendingGPUs()
+		extraExplain = fmt.Sprintf("%f / %f", idleGPUs, c.host.Stats().PendingGPUs())
 	}
 	// ip := float64(c.executions) * c.session.Stats().IP() * idleGPUs / c.host.Stats().PendingGPUs().Load()
 	stats := c.session.SessionStatistics()
