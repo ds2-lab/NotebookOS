@@ -112,12 +112,13 @@ type Session interface {
 type UserSession struct {
 	client.DistributedKernelClient
 
-	instance      Session
-	ctx           context.Context // The Session's context.
-	id            string          // Session/kernel ID.
-	sessionState  SessionState    // The current state of the Session.
-	trainingStart time.Time       // Time at which the current training began.
-	containers    []Container     // The kernel replicas belonging to this Session.
+	instance       Session
+	ctx            context.Context // The Session's context.
+	id             string          // Session/kernel ID.
+	sessionState   SessionState    // The current state of the Session.
+	trainingStart  time.Time       // Time at which the current training began.
+	migrationStart time.Time       // Time at which the migration began.
+	containers     []Container     // The kernel replicas belonging to this Session.
 
 	////////////////////////
 	// Session Statistics //
@@ -218,6 +219,7 @@ func (s *UserSession) MigrationStarted() promise.Promise {
 		return promise.Resolved(s.instance, err)
 	}
 
+	s.migrationStart = time.Now()
 	return promise.Resolved(s.instance)
 }
 
@@ -229,6 +231,10 @@ func (s *UserSession) MigrationComplete() promise.Promise {
 		return promise.Resolved(s.instance, err)
 	}
 
+	migrationDuration := time.Now().Sub(s.migrationStart)
+	s.migrationTimeHistory.AddValue(migrationDuration)
+	s.migrationTime.Add(float64(migrationDuration) / float64(time.Second))
+	s.log.Debug("Migration completed in %v.", migrationDuration)
 	return promise.Resolved(s.instance)
 }
 

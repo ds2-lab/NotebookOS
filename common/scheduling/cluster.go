@@ -117,7 +117,7 @@ func (c *cluster) AddIndex(index ClusterIndexProvider) error {
 	return nil
 }
 
-// onUpdate is called when a host is in the cluster of added to the cluster.
+// onUpdate is called when a host is added to the cluster.
 func (c *cluster) onUpdate(host Host) {
 	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
 		if _, status := index.IsQualified(host); status == ClusterIndexNewQualified {
@@ -142,6 +142,8 @@ func (c *cluster) onDelete(host Host) {
 }
 
 // Hashmap implementation
+
+// Len returns the number of Host instances in the Cluster.
 func (c *cluster) Len() int {
 	return c.hosts.Len()
 }

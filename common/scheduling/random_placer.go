@@ -3,6 +3,7 @@ package scheduling
 import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	"sync"
 )
 
 // RandomPlacer is a simple placer that places sessions randomly.
@@ -12,6 +13,8 @@ type RandomPlacer struct {
 	cluster Cluster
 	index   *RandomClusterIndex
 	opts    *CoreOptions
+
+	mu sync.Mutex
 }
 
 // NewRandomPlacer creates a new RandomPlacer.
@@ -30,25 +33,48 @@ func NewRandomPlacer(cluster Cluster, opts *CoreOptions) (*RandomPlacer, error) 
 	return placer, nil
 }
 
-// FindHosts returns a single host that can satisfy the spec.
+// FindHosts returns a slice of Host instances that can satisfy the spec.
 func (placer *RandomPlacer) FindHosts(spec types.Spec) []Host {
+	placer.mu.Lock()
+	defer placer.mu.Unlock()
+
 	numReplicas := placer.opts.NumReplicas
 	if placer.index.Len() < numReplicas {
 		numReplicas = placer.index.Len()
 	}
+
 	if numReplicas == 0 {
 		return nil
 	}
-	var pos interface{}
-	hosts := make([]Host, numReplicas)
+
+	var (
+		pos   interface{}
+		host  Host
+		hosts = make([]Host, numReplicas)
+	)
 	for i := 0; i < len(hosts); i++ {
-		hosts[i], pos = placer.index.SeekFrom(pos)
+		host, pos = placer.index.SeekFrom(pos)
+
+		// If the Host can satisfy the spec, then add it to the slice of Host instances being returned.
+		if host.ResourceSpec().Validate(spec) {
+			hosts = append(hosts, host)
+		}
 	}
 	return hosts
 }
 
-// FindHost returns a single host that can satisfy the spec.
+// FindHost returns a single Host instance that can satisfy the spec.
 func (placer *RandomPlacer) FindHost(blacklist []interface{}, spec types.Spec) Host {
+	placer.mu.Lock()
+	defer placer.mu.Unlock()
+	
 	host, _ := placer.index.Seek(blacklist)
-	return host
+
+	if host.ResourceSpec().Validate(spec) {
+		// The Host can satisfy the spec, so return it.
+		return host
+	} else {
+		// The Host could not satisfy the spec, so return nil.
+		return nil
+	}
 }

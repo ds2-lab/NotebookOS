@@ -5,6 +5,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/cache"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/hashmap"
 	"math"
 	"sort"
@@ -88,6 +89,18 @@ type Host interface {
 
 	// GetMeta return the metadata of the host.
 	GetMeta(key HostMetaKey) interface{}
+
+	// ResourceSpec the types.Spec defining the resources available on the Host.
+	ResourceSpec() types.Spec
+
+	// IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
+	IdleGPUs() float64
+
+	// PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
+	PendingGPUs() float64
+
+	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
+	CommittedGPUs() float64
 }
 
 type cachedPenalty struct {
@@ -118,7 +131,7 @@ type BaseHost struct {
 	containers         *hashmap.HashMap // All kernel replicas scheduled onto this host.
 	trainingContainers []Container      // Actively-training kernel replicas.
 	seenSessions       []string         // Sessions that have been scheduled onto this host at least once.
-	spec               *ResourceSpec    // The resources available on the Host.
+	spec               types.Spec       // The resources available on the Host.
 
 	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
 
@@ -141,15 +154,15 @@ type BaseHost struct {
 	penaltyValidity bool
 }
 
-func NewBasicHost(id string, spec *ResourceSpec, cluster Cluster) *BaseHost {
+func NewBasicHost(id string, spec types.Spec, cluster Cluster) *BaseHost {
 	host := &BaseHost{
 		id:                 id,
 		cluster:            cluster,
 		log:                config.GetLogger(fmt.Sprintf("Host %s", id)),
 		containers:         hashmap.New(10),
-		trainingContainers: make([]Container, 0, int(spec.GPUs)),
-		penalties:          make([]cachedPenalty, int(spec.GPUs)),
-		seenSessions:       make([]string, int(spec.GPUs)),
+		trainingContainers: make([]Container, 0, int(spec.GPU())),
+		penalties:          make([]cachedPenalty, int(spec.GPU())),
+		seenSessions:       make([]string, int(spec.GPU())),
 	}
 
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
@@ -260,14 +273,22 @@ func (h *BaseHost) SchedulingInPriority() float64 {
 	panic("implement me")
 }
 
+// IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
 func (h *BaseHost) IdleGPUs() float64 {
 	return h.idleGPUs.Load()
 }
 
+// PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
+func (h *BaseHost) PendingGPUs() float64 {
+	return h.pendingGPUs.Load()
+}
+
+// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
 func (h *BaseHost) CommittedGPUs() float64 {
 	return h.committedGPUs.Load()
 }
 
-func (h *BaseHost) PendingGPUs() float64 {
-	return h.pendingGPUs.Load()
+// ResourceSpec the types.Spec defining the resources available on the Host.
+func (h *BaseHost) ResourceSpec() types.Spec {
+	return h.spec
 }
