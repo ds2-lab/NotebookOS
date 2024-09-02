@@ -2,9 +2,29 @@ package scheduling
 
 import (
 	"fmt"
+	"github.com/mason-leap-lab/go-utils/cache"
+	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/zhangjyr/hashmap"
+	"math"
+	"time"
 
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 )
+
+// ResourceSpec defines the resources available on a particular Host.
+type ResourceSpec struct {
+	CPUs     float64 `json:"cpus"`
+	MemoryGB float64 `json:"memory_gb"`
+	GPUs     float64 `json:"gpus"`
+}
+
+type PreemptionInfo interface {
+	fmt.Stringer
+
+	Penalty() float64
+	Candidates() ContainerList
+}
 
 type HostMetaKey string
 
@@ -57,4 +77,110 @@ type Host interface {
 
 	// GetMeta return the metadata of the host.
 	GetMeta(key HostMetaKey) interface{}
+}
+
+type cachedPenalty struct {
+	penalty     float64
+	explain     string
+	preemptions ContainerList
+	valid       bool
+}
+
+func (p *cachedPenalty) Penalty() float64 {
+	return p.penalty
+}
+
+func (p *cachedPenalty) String() string {
+	return p.explain
+}
+
+func (p *cachedPenalty) Candidates() ContainerList {
+	return p.preemptions[:]
+}
+
+type BaseHost struct {
+	gateway.LocalGatewayClient
+	log logger.Logger
+
+	cluster            Cluster          // Reference to the Cluster interface that manages this Host.
+	id                 string           // Unique ID of this host.
+	containers         *hashmap.HashMap // All kernel replicas scheduled onto this host.
+	trainingContainers []Container      // Actively-training kernel replicas.
+	seenSessions       []string         // Sessions that have been scheduled onto this host at least once.
+	spec               *ResourceSpec    // The resources available on the Host.
+
+	// Cached penalties
+	sip             cache.InlineCache
+	sipSession      Session
+	penaltyList     cache.InlineCache
+	penalties       []cachedPenalty
+	penaltyValidity bool
+}
+
+func NewBasicHost(id string, spec *ResourceSpec, cluster Cluster) *BaseHost {
+	host := &BaseHost{
+		id:                 id,
+		cluster:            cluster,
+		log:                config.GetLogger(fmt.Sprintf("Host %s", id)),
+		containers:         hashmap.New(10),
+		trainingContainers: make([]Container, 0, int(spec.GPUs)),
+		penalties:          make([]cachedPenalty, int(spec.GPUs)),
+		seenSessions:       make([]string, int(spec.GPUs)),
+	}
+
+	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
+	host.sip.Validator = GetClockTimeCacheValidator()
+	host.penaltyList.Producer = cache.FormalizeChainedICProducer(host.updatePenaltyList)
+	host.penaltyList.Validator = host.validatePenaltyList
+
+	return host
+}
+
+func (h *BaseHost) getPenalty(cached *cachedPenalty, gpus int) (*cachedPenalty, error) {
+	if cached.valid {
+		return cached, nil
+	}
+
+	list := h.penaltyList.Value().(*PenaltyContainers)
+	penalty, preempted, err := list.Penalty(float64(gpus))
+	// Cache valid result only
+	cached.penalty = penalty
+	cached.preemptions = list.ContainerList[:preempted]
+	cached.valid = err == nil
+	cached.explain = fmt.Sprintf("candidates: %s", list.ContainerList[0].ContainerStatistics().Explain(ExplainPreemptionPriority))
+	for i := 1; i < preempted; i++ {
+		cached.explain += fmt.Sprintf(", %s", list.ContainerList[i].ContainerStatistics().Explain(ExplainPreemptionPriority))
+	}
+
+	h.log.Trace("Cached penalty for %du: %.2f", gpus, cached.penalty)
+	return cached, err
+}
+
+func (h *BaseHost) Penalty(gpus float64) (float64, PreemptionInfo, error) {
+	// Find number of GPUs required to preempt trainings.
+	bucket := int(math.Ceil(gpus) - h.idleGPUs.Load())
+	if bucket <= 0 {
+		return 0, nil, nil
+	}
+
+	penalty, err := h.getPenalty(&h.penalties[bucket-1], bucket)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return penalty.penalty, penalty, nil
+}
+
+func (h *BaseHost) getSIP(sess Session) float64 {
+	numGPUs := sess.ResourceUtilization().NumGpusAsFloat()
+
+	penalty, _, err := h.Penalty(numGPUs)
+	if err != nil {
+		h.log.Error("Unexpected err on calculating AB: %v", err)
+	}
+	h.sip.Validator(time.Now())
+
+	rb := h.getRB(sess.Stats().IP(), numGPUs)
+	h.log.Debug("Cached sip for session %v: %.2f(%.2f-%.2f). IP: %.4f (%s).", sess, rb-penalty, rb, penalty, sess.Stats().IP(), sess.Stats().Explain(ExplainIP))
+	return rb - penalty
 }

@@ -15,13 +15,14 @@ import (
 
 const (
 	SessionStateInit      SessionState = "SESSION_INIT"      // Indicates that the Session has just been created, but its replicas have not yet been scheduled onto Hosts.
-	SessionStateTraining  SessionState = "SESSION_TRAINING"  // Indicates that the Session is actively-running AND is actively performing a task locally.
+	SessionStateTraining  SessionState = "SESSION_TRAINING"  // Indicates that the Session is actively running AND one of its replicas is actively training.
 	SessionStateStopped   SessionState = "SESSION_STOPPED"   // Indicates that the Session is permanently stopped.
-	SessionStateIdle      SessionState = "SESSION_IDLE"      // Indicates that the Session is actively-running on a Host and is NOT actively performing a task.
+	SessionStateIdle      SessionState = "SESSION_IDLE"      // Indicates that the Session is actively running on a Host and is NOT actively performing a task.
 	SessionStateMigrating SessionState = "SESSION_MIGRATING" // Indicates that one or more replicas are currently migrating to new Hosts.
 
 	ExplainInteractivePriority ExplainerEntry = "explain_ip"
 	ExplainPreemptionPriority  ExplainerEntry = "explain_pp"
+	ExplainScaleOutPriority    ExplainerEntry = "explain_sop"
 )
 
 var (
@@ -103,6 +104,9 @@ type Session interface {
 
 	// GetState returns the current state of the Session in the form of a SessionState.
 	GetState() SessionState
+
+	// ResourceUtilization returns the current ResourceUtilization of the Session.
+	ResourceUtilization() *ResourceUtilization
 }
 
 type UserSession struct {
@@ -113,6 +117,7 @@ type UserSession struct {
 	id            string          // Session/kernel ID.
 	sessionState  SessionState    // The current state of the Session.
 	trainingStart time.Time       // Time at which the current training began.
+	containers    []Container     // The kernel replicas belonging to this Session.
 
 	////////////////////////
 	// Session Statistics //
@@ -158,9 +163,11 @@ func NewUserSession(ctx context.Context, kernel client.DistributedKernelClient, 
 		ppHistory:               NewValueHistory[float64]("Preemption Priority", "float64"),
 		trainingTimeHistory:     NewValueHistory[time.Duration]("Training Time", "time.Duration"),
 		migrationTimeHistory:    NewValueHistory[time.Duration]("Migration Time", "time.Duration"),
+		containers:              make([]Container, 0, opts.NumReplicas),
 	}
 
-	session.updateInteractivePriority("session started")
+	initialInteractivePriority := session.updateInteractivePriority("session started")
+	session.ipHistory.AddValue(initialInteractivePriority)
 
 	session.preemptionPriority.Producer = cache.FormalizeICProducer(session.calculatePreemptionPriority)
 	session.preemptionPriority.Validator = GetClockTimeCacheValidator()
@@ -168,10 +175,9 @@ func NewUserSession(ctx context.Context, kernel client.DistributedKernelClient, 
 	return session
 }
 
-// IsTraining returns true if the Session is actively training.
-// Otherwise, IsTraining returns false.
-func (s *UserSession) IsTraining() bool {
-	return s.sessionState == SessionStateIdle
+// ResourceUtilization returns the current ResourceUtilization of the Session.
+func (s *UserSession) ResourceUtilization() *ResourceUtilization {
+	return s.resourceUtilization
 }
 
 // TrainingStarted should be called when one of the Session's Kernel replicas begins training.
@@ -194,12 +200,13 @@ func (s *UserSession) TrainingStopped() promise.Promise {
 	}
 
 	trainingDuration := time.Now().Sub(s.trainingStart)
+	s.trainingTimeHistory.AddValue(trainingDuration)
 	s.trainingTime.Add(float64(trainingDuration) / float64(time.Second))
 
+	latestInteractivePriority := s.updateInteractivePriority("training stopped")
+	s.ipHistory.AddValue(latestInteractivePriority)
+
 	s.log.Debug("Session %s stopped training after %v.", s.id, trainingDuration)
-
-	s.trainingTimeHistory.AddValue(trainingDuration)
-
 	return promise.Resolved(s.instance)
 }
 
@@ -260,6 +267,12 @@ func (s *UserSession) IsMigrating() bool {
 	return s.sessionState == SessionStateMigrating
 }
 
+// IsTraining returns true if the Session is actively training.
+// Otherwise, IsTraining returns false.
+func (s *UserSession) IsTraining() bool {
+	return s.sessionState == SessionStateIdle
+}
+
 func (s *UserSession) transition(targetState SessionState) error {
 	if s.IsStopped() {
 		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, s.sessionState, targetState)
@@ -297,8 +310,7 @@ func (s *UserSession) InteractivePriority() float64 {
 	return s.interactivePriority
 }
 
-// updateInteractivePriority recalculates and subsequently returns the UserSession's InteractivePriority
-// statistic/metric.
+// updateInteractivePriority recalculates and subsequently returns the UserSession's InteractivePriority statistic/metric.
 //
 // This should be called when the UserSession stops training.
 func (s *UserSession) updateInteractivePriority(reason string) float64 {
@@ -321,17 +333,20 @@ func (s *UserSession) PreemptionPriority() float64 {
 
 // calculatePreemptionPriority manually calculates and returns the preemption priority of the Session.
 // This is also used by the cache.InlineCache that "automatically" maintains the PreemptionPriority of the Session.
-func (s *UserSession) calculatePreemptionPriority() float64 {
+func (s *UserSession) calculatePreemptionPriority() (preemptionPriority float64) {
 	s.preemptionPriority.Validator(time.Now())
 
 	if !s.IsTraining() {
 		s.preemptionPriorityExplanation = "is not training"
-		return 0.0
+		preemptionPriority = 0.0
 	} else {
 		s.preemptionPriorityExplanation = "is training"
 
-		return float64(s.resourceUtilization.NumGpus) * s.MigrationTime()
+		preemptionPriority = float64(s.resourceUtilization.NumGpus) * s.MigrationTime()
 	}
+
+	s.ppHistory.AddValue(preemptionPriority)
+	return
 }
 
 func (s *UserSession) StartedAt() time.Time {

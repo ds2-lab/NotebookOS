@@ -38,6 +38,10 @@ func NewResourceUtilization(cpuUtil float64, memUsageMb float64, gpuUtils []floa
 	return util
 }
 
+func (u *ResourceUtilization) NumGpusAsFloat() float64 {
+	return float64(u.NumGpus)
+}
+
 func NewEmptyResourceUtilization() *ResourceUtilization {
 	return &ResourceUtilization{}
 }
