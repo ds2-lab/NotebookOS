@@ -53,7 +53,7 @@ const (
 
 	ErrorHostname = "ERROR" // We return this from certain gRPC calls when there's an error.
 
-	// Passed within the metadata dict of an 'execute_request' ZMQ message.
+	// TargetReplicaArg is passed within the metadata dict of an 'execute_request' ZMQ message.
 	// This indicates that a specific replica should execute the code.
 	TargetReplicaArg  = "target_replica"
 	ForceReprocessArg = "force_reprocess"
@@ -63,31 +63,33 @@ const (
 
 var (
 	// gRPC errors
+
+	ErrNotImplemented = status.Errorf(codes.Unimplemented, "not implemented in daemon")
+	ErrNotSupported   = status.Errorf(codes.Unimplemented, "not supported in daemon")
+	//ErrInvalidParameter   = status.Errorf(codes.InvalidArgument, "invalid parameter")
+	//ErrFailedToRemove     = status.Errorf(codes.Internal, "replica removal failed")
 	// ErrNotFound         = errors.New("function not defined: %s")
-	ErrNoHandler          = status.Errorf(codes.NotFound, "handler not defined")
-	ErrNotImplemented     = status.Errorf(codes.Unimplemented, "not implemented in daemon")
-	ErrNotImplementedKube = status.Errorf(codes.Unimplemented, "not supported in Kubernetes-based implementation (yet)")
-	ErrNotSupported       = status.Errorf(codes.Unimplemented, "not supported in daemon")
-	ErrInvalidParameter   = status.Errorf(codes.InvalidArgument, "invalid parameter")
-	ErrFailedToRemove     = status.Errorf(codes.Internal, "replica removal failed")
+	// ErrNoHandler          = status.Errorf(codes.NotFound, "handler not defined")
+	//ErrNotImplementedKube = status.Errorf(codes.Unimplemented, "not supported in Kubernetes-based implementation (yet)")
 
 	NotificationTypeNames = []string{"ERROR", "WARNING", "INFO", "SUCCESS"}
 
 	// Internal errors
-	ErrHeaderNotFound            = errors.New("message header not found")
-	ErrKernelNotFound            = errors.New("kernel not found")
-	ErrHostNotFound              = errors.New("host not found")
-	ErrInvalidSocketType         = errors.New("invalid socket type specified")
-	ErrKernelNotReady            = errors.New("kernel not ready")
-	ErrActiveExecutionNotFound   = errors.New("active execution for specified kernel could not be found")
-	ErrKernelSpecNotFound        = errors.New("kernel spec not found")
-	ErrResourceSpecNotFound      = errors.New("the kernel does not have a resource spec included with its kernel spec")
-	ErrResourceSpecNotRegistered = errors.New("there is no resource spec registered with the kernel")
-	ErrInvalidJupyterMessage     = errors.New("invalid jupter message")
-	ErrKernelIDRequired          = errors.New("kernel id frame is required for kernel_info_request")
-	ErrDaemonNotFoundOnNode      = errors.New("could not find a local daemon on the specified kubernetes node")
-	ErrFailedToVerifyMessage     = errors.New("failed to verify ZMQ message after (re)encoding it with modified contents")
-	ErrRequestTimedOut           = errors.New("request timed out")
+
+	ErrKernelNotFound          = errors.New("kernel not found")
+	ErrHostNotFound            = errors.New("host not found")
+	ErrInvalidSocketType       = errors.New("invalid socket type specified")
+	ErrKernelNotReady          = errors.New("kernel not ready")
+	ErrActiveExecutionNotFound = errors.New("active execution for specified kernel could not be found")
+	ErrKernelSpecNotFound      = errors.New("kernel spec not found")
+	ErrResourceSpecNotFound    = errors.New("the kernel does not have a resource spec included with its kernel spec")
+	ErrKernelIDRequired        = errors.New("kernel id frame is required for kernel_info_request")
+	ErrDaemonNotFoundOnNode    = errors.New("could not find a local daemon on the specified kubernetes node")
+	ErrFailedToVerifyMessage   = errors.New("failed to verify ZMQ message after (re)encoding it with modified contents")
+	ErrRequestTimedOut         = errors.New("request timed out")
+	//ErrResourceSpecNotRegistered = errors.New("there is no resource spec registered with the kernel")
+	//ErrInvalidJupyterMessage     = errors.New("invalid jupter message")
+	//ErrHeaderNotFound            = errors.New("message header not found")
 )
 
 type GatewayDaemonConfig func(domain.ClusterGateway)
@@ -237,8 +239,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		hdfsNameNodeEndpoint:             clusterDaemonOptions.HdfsNameNodeEndpoint,
 		dockerNetworkName:                clusterDaemonOptions.DockerNetworkName,
 	}
-	for _, config := range configs {
-		config(daemon)
+	for _, configFunc := range configs {
+		configFunc(daemon)
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, "ClusterGatewayRouter", false)
@@ -364,7 +366,7 @@ type registrationWaitGroups struct {
 //
 // Parameters:
 // - numReplicas (int): Value to be added to the registrationWaitGroups's "notified" and "registered" sync.WaitGroups.
-func NewRegistrationWaitGroups(numReplicas int) *registrationWaitGroups {
+func newRegistrationWaitGroups(numReplicas int) *registrationWaitGroups {
 	wg := &registrationWaitGroups{
 		replicas: make(map[int32]string),
 	}
@@ -381,7 +383,7 @@ func (wg *registrationWaitGroups) String() string {
 	return fmt.Sprintf("RegistrationWaitGroups[NumRegistered=%d, NumNotified=%d]", wg.numRegistered, wg.numNotified)
 }
 
-// Call `Done()` on the "notified" sync.WaitGroup.
+// Notify calls `Done()` on the "notified" sync.WaitGroup.
 func (wg *registrationWaitGroups) Notify() {
 	wg.notified.Done()
 
@@ -390,7 +392,7 @@ func (wg *registrationWaitGroups) Notify() {
 	wg.numNotified += 1
 }
 
-// Call `Done()` on the "registered" sync.WaitGroup.
+// Register calls `Done()` on the "registered" sync.WaitGroup.
 func (wg *registrationWaitGroups) Register() {
 	wg.registered.Done()
 
@@ -466,28 +468,28 @@ func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) map[
 // 	return wg.replicas
 // }
 
-// Return the "notified" sync.WaitGroup.
+// GetNotified returns the "notified" sync.WaitGroup.
 func (wg *registrationWaitGroups) GetNotified() *sync.WaitGroup {
 	return &wg.notified
 }
 
-// Return the "registered" sync.WaitGroup.
+// GetRegistered returns the "registered" sync.WaitGroup.
 func (wg *registrationWaitGroups) GetRegistered() *sync.WaitGroup {
 	return &wg.registered
 }
 
-// Call `Wait()` on the "notified" sync.WaitGroup.
+// WaitNotified calls `Wait()` on the "notified" sync.WaitGroup.
 func (wg *registrationWaitGroups) WaitNotified() {
 	wg.notified.Wait()
 }
 
-// Call `Wait()` on the "registered" sync.WaitGroup.
+// WaitRegistered calls `Wait()` on the "registered" sync.WaitGroup.
 func (wg *registrationWaitGroups) WaitRegistered() {
 	wg.registered.Wait()
 }
 
-// First, call `Wait()` on the "registered" sync.WaitGroup.
-// Then, call `Wait()` on the "notified" sync.WaitGroup.
+// Wait first calls `Wait()` on the "registered" sync.WaitGroup.
+// Then, Wait calls `Wait()` on the "notified" sync.WaitGroup.
 func (wg *registrationWaitGroups) Wait() {
 	wg.WaitRegistered()
 	wg.WaitNotified()
@@ -556,7 +558,14 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *gateway.PingIns
 	}
 
 	jMsg := jupyter.NewJupyterMessage(&msg)
-	kernel.RequestWithHandler(ctx, "Forwarding", socketType, jMsg, responseHandler, func() {})
+	err = kernel.RequestWithHandler(ctx, "Forwarding", socketType, jMsg, responseHandler, func() {})
+	if err != nil {
+		d.log.Error("Error while issuing %s '%s' request %s (JupyterID=%s) to kernel %s: %v", socketType.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), kernel.ID(), err)
+		return &gateway.Pong{
+			Id:      kernelId,
+			Success: false,
+		}, err
+	}
 
 	select {
 	case <-ctx.Done():
@@ -724,11 +733,15 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	host, err := NewHostScheduler(incoming.RemoteAddr().String(), gConn, time.Duration(30)*time.Second, d.localDaemonDisconnected)
 	if err == nil {
 		d.cluster.GetHostManager().Store(host.ID(), host)
-	} else if err == errRestoreRequired {
+	} else if errors.Is(err, errRestoreRequired) {
 		// Restore host scheduler.
 		registered, loaded := d.cluster.GetHostManager().LoadOrStore(host.ID(), host)
 		if loaded {
-			registered.Restore(host)
+			err := registered.Restore(host)
+			if err != nil {
+				d.log.Error("Error while restoring host %v: %v", host, err)
+				return nil, err
+			}
 		} else {
 			d.log.Warn("Host scheduler requested for restoration but not found: %s", host.ID())
 			// TODO: Notify scheduler to restore?
@@ -750,7 +763,7 @@ func (d *ClusterGatewayImpl) Addr() net.Addr {
 	return d.listener.Addr()
 }
 
-// Return the associated ClusterGateway.
+// ClusterScheduler returns the associated ClusterGateway.
 func (d *ClusterGatewayImpl) ClusterScheduler() domain.ClusterScheduler {
 	return d.clusterScheduler
 }
@@ -759,7 +772,7 @@ func (d *ClusterGatewayImpl) SetID(ctx context.Context, hostId *gateway.HostId) 
 	return nil, ErrNotImplemented
 }
 
-// Issue a 'prepare-to-migrate' request to a specific replica of a specific kernel.
+// issuePrepareMigrateRequest issues a 'prepare-to-migrate' request to a specific replica of a specific kernel.
 // This will prompt the kernel to shutdown its etcd process (but not remove itself from the cluster)
 // before writing the contents of its data directory to HDFS.
 //
@@ -797,7 +810,7 @@ func (d *ClusterGatewayImpl) issuePrepareMigrateRequest(kernelId string, nodeId 
 
 	// TODO(Ben): Keep track of this. Pass it to the migrated replica so it can read its data directory before it starts running again.
 	var dataDirectory string = resp.DataDir
-	d.log.Debug("Sucessfully issued 'prepare-to-migrate' request to replica %d of kernel %s. Data directory: \"%s\"", nodeId, kernelId, dataDirectory)
+	d.log.Debug("Successfully issued 'prepare-to-migrate' request to replica %d of kernel %s. Data directory: \"%s\"", nodeId, kernelId, dataDirectory)
 
 	time.Sleep(time.Second * 5)
 
@@ -965,10 +978,7 @@ func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel client.KernelReplic
 	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.Type, messageType, reconnectionError)
 	d.log.Error(errorMessage)
 
-	err = d.notifyDashboardOfError("Connection to Kernel Lost & Reconnection Failed", errorMessage)
-	if err != nil {
-		d.log.Error("Failed to notify Cluster Dashboard of connection loss with replica %d of kernel %s: %v", kernel.ReplicaID(), kernel.ID(), err)
-	}
+	go d.notifyDashboardOfError("Connection to Kernel Lost & Reconnection Failed", errorMessage)
 }
 
 // When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
@@ -987,10 +997,7 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 	errorMessage := fmt.Sprintf("Failed to forward \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v", messageType, kernel.ReplicaID(), kernel.ID(), resubmissionError)
 	d.log.Error(errorMessage)
 
-	err = d.notifyDashboardOfError("Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
-	if err != nil {
-		d.log.Error("Failed to notify Cluster Dashboard of request resubmission failure: %v", kernel.ReplicaID(), kernel.ID(), err)
-	}
+	d.notifyDashboardOfError("Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
 }
 
 func (d *ClusterGatewayImpl) ExecutionFailed(c client.DistributedKernelClient) error {
@@ -1005,9 +1012,9 @@ func (d *ClusterGatewayImpl) defaultFailureHandler(c client.DistributedKernelCli
 	return fmt.Errorf("there is no failure handler for the DEFAULT policy; cannot handle error")
 }
 
-func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ jupyter.NotificationType) (err error) {
+func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ jupyter.NotificationType) {
 	if d.clusterDashboard != nil {
-		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
+		_, err := d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 			Title:            notificationName,
 			Message:          notificationMessage,
 			NotificationType: int32(typ),
@@ -1019,24 +1026,27 @@ func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificati
 			d.log.Debug("Successfully sent \"%s\" (typ=%d) notification to Cluster Dashboard.", notificationName, typ)
 		}
 	}
-
-	return err
 }
 
 func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeName string, errorName string, errorMessage string) (err error) {
-	d.RemoveHost(context.TODO(), &gateway.HostId{
+	_, err = d.RemoveHost(context.TODO(), &gateway.HostId{
 		Id:       localDaemonId,
 		NodeName: nodeName, /* Not needed */
 	})
 
+	if err != nil {
+		d.log.Error("Error while removing local daemon %s (node: %s): %v", localDaemonId, nodeName, err)
+	}
+
 	go d.notifyDashboard(errorName, errorMessage, jupyter.WarningNotification)
-	return
+
+	return err
 }
 
 // Used to issue an "info" notification to the Cluster Dashboard.
-func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) (err error) {
+func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) {
 	if d.clusterDashboard != nil {
-		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
+		_, err := d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 			Title:            notificationName,
 			Message:          message,
 			NotificationType: int32(jupyter.InfoNotfication),
@@ -1048,14 +1058,12 @@ func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, mess
 			d.log.Debug("Successfully sent \"%s\" (typ=INFO) notification to Cluster Dashboard.", notificationName)
 		}
 	}
-
-	return err
 }
 
 // Used to issue an "error" notification to the Cluster Dashboard.
-func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) (err error) {
+func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) {
 	if d.clusterDashboard != nil {
-		_, err = d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
+		_, err := d.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
 			Title:            errorName,
 			Message:          errorMessage,
 			NotificationType: int32(jupyter.ErrorNotification),
@@ -1067,8 +1075,6 @@ func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 			d.log.Debug("Successfully sent \"%s\" (typ=ERROR) notification to Cluster Dashboard.", errorName)
 		}
 	}
-
-	return err
 }
 
 func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClient) error {
@@ -1084,7 +1090,7 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	activeExecution, ok := d.activeExecutions.Load(c.ID())
 	if !ok {
 		d.log.Error("Could not find active execution for kernel %s after static scheduling failure.", c.ID())
-		d.notifyDashboardOfError("ErrActiveExecutionNotFound", "active execution for specified kernel could not be found")
+		go d.notifyDashboardOfError("ErrActiveExecutionNotFound", "active execution for specified kernel could not be found")
 		return ErrActiveExecutionNotFound
 	}
 
@@ -1132,8 +1138,8 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 
 	// Next, let's update the message so that we target the new replica.
 	_, _, offset := jupyter.ExtractDestFrame(msg.Frames)
-	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
-	var metadataFrame *jupyter.JupyterFrame = frames[offset:].MetadataFrame()
+	var frames jupyter.JupyterFrames = msg.Frames
+	var metadataFrame = frames[offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
 
 	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
@@ -1161,7 +1167,10 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 
 	// Regenerate the signature.
 	framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(msg.Frames)
-	framesWithoutIdentities.Sign(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+	if _, err := framesWithoutIdentities.Sign(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
+		// Ignore the error; just log it.
+		d.log.Warn("Failed to sign frames because %v", err)
+	}
 
 	// Ensure that the frames are now correct.
 	if verified := d.verifyFrames([]byte(c.ConnectionInfo().Key), c.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
@@ -1196,7 +1205,7 @@ func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClie
 	err = d.ShellHandler(c, msg)
 	if err != nil {
 		d.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
-		d.notifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
+		go d.notifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
 		return err
 	}
 
@@ -1211,7 +1220,10 @@ func (d *ClusterGatewayImpl) verifyFrames(signkey []byte, signatureScheme string
 	}
 
 	signature := make([]byte, hex.DecodedLen(len(frames[offset+jupyter.JupyterFrameSignature])))
-	hex.Decode(signature, frames[offset+jupyter.JupyterFrameSignature])
+	if _, err = hex.Decode(signature, frames[offset+jupyter.JupyterFrameSignature]); err != nil {
+		d.log.Error("Failed to decode Jupyter message/signature because: %v", err)
+		d.log.Error("Erroneous message/frames: %s", frames.String())
+	}
 	verified := hmac.Equal(expect, signature)
 
 	if !verified {
@@ -1307,7 +1319,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 		d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 		_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {
-			kernel.Close()
+			if closeErr := kernel.Close(); closeErr != nil {
+				d.log.Error("Error while closing kernel %s: %v.", kernel.ID(), closeErr)
+			}
+
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 		d.log.Debug("Initializing IO Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
@@ -1315,7 +1330,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 		_, err = kernel.InitializeIOForwarder()
 
 		if err != nil {
-			kernel.Close()
+			if closeErr := kernel.Close(); closeErr != nil {
+				d.log.Error("Error while closing kernel %s: %v.", kernel.ID(), closeErr)
+			}
+
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 	} else {
@@ -1326,7 +1344,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 	// Record that this kernel is starting.
 	kernelStartedChan := make(chan struct{})
 	d.kernelsStarting.Store(in.Id, kernelStartedChan)
-	created := NewRegistrationWaitGroups(d.ClusterOptions.NumReplicas)
+	created := newRegistrationWaitGroups(d.ClusterOptions.NumReplicas)
 
 	d.kernelIdToKernel.Store(in.Id, kernel)
 	d.kernels.Store(in.Id, kernel)
@@ -1671,10 +1689,10 @@ func (d *ClusterGatewayImpl) GetKernelStatus(ctx context.Context, in *gateway.Ke
 		return d.statusErrorf(jupyter.KernelStatusExited, nil)
 	}
 
-	status := kernel.Status()
+	kernelStatus := kernel.Status()
 	// d.log.Debug("Returning kernel status: %v", status)
 
-	return d.statusErrorf(status, nil)
+	return d.statusErrorf(kernelStatus, nil)
 }
 
 // KillKernel kills a kernel.
@@ -1724,7 +1742,9 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *gateway.KernelId) (ret *gateway.
 
 			// Return the ports allocated to the kernel.
 			listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
-			d.availablePorts.ReturnPorts(listenPorts)
+			if err := d.availablePorts.ReturnPorts(listenPorts); err != nil {
+				d.log.Error("Error returning ports %v: %v", listenPorts, err)
+			}
 
 			d.log.Debug("Cleaned kernel %s after kernel stopped.", kernel.ID())
 		}
@@ -1776,14 +1796,7 @@ func (d *ClusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelI
 
 func (d *ClusterGatewayImpl) Notify(ctx context.Context, in *gateway.Notification) (*gateway.Void, error) {
 	d.log.Debug(utils.NotificationStyles[in.NotificationType].Render("Received %s notification \"%s\": %s"), NotificationTypeNames[in.NotificationType], in.Title, in.Message)
-
-	go func() {
-		err := d.notifyDashboard(in.Title, in.Message, jupyter.NotificationType(in.NotificationType))
-		if err != nil {
-			d.log.Error("Failed to notify dashboard of error because: %v", err)
-		}
-	}()
-
+	go d.notifyDashboard(in.Title, in.Message, jupyter.NotificationType(in.NotificationType))
 	return gateway.VOID, nil
 }
 
@@ -1921,7 +1934,7 @@ func (d *ClusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gate
 	opts := NewAddReplicaWaitOptions(true, true, true)
 	addReplicaOp, err := d.addReplica(in, opts, dataDirectory)
 	if err != nil {
-		d.log.Error("Failed to add new replica %d to kernel %s: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
+		d.log.Error("Failed to add new replica %d to kernel %s: %v", in.ReplicaId, in.KernelId, err)
 		return &gateway.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
 	}
 
@@ -2004,20 +2017,27 @@ func (d *ClusterGatewayImpl) Close() error {
 	}
 
 	// Close the router
-	d.router.Close()
+	if err := d.router.Close(); err != nil {
+		d.log.Error("Failed to cleanly shutdown router because: %v", err)
+	}
 
 	// Wait for the kernels to be cleaned up
 	<-d.cleaned
 
 	// Close the listener
 	if d.listener != nil {
-		d.listener.Close()
+		if err := d.listener.Close(); err != nil {
+			d.log.Error("Failed to cleanly shutdown listener because: %v", err)
+		}
 	}
 
 	return nil
 }
 
-// RouterProvider implementations.
+////////////////////////////////////
+// RouterProvider implementations //
+////////////////////////////////////
+
 func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	// If this is a shutdown request, then use the RPC pathway instead.
 	if msg.JupyterMessageType() == jupyter.MessageTypeShutdownRequest {
@@ -2194,7 +2214,7 @@ func (d *ClusterGatewayImpl) HBHandler(info router.RouterInfo, msg *jupyter.Jupy
 	return d.forwardRequest(nil, jupyter.HBMessage, msg)
 }
 
-// Ensure that the next 'execute_request' for the specified kernel fails.
+// FailNextExecution ensures that the next 'execute_request' for the specified kernel fails.
 // This is to be used exclusively for testing/debugging purposes.
 func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *gateway.KernelId) (*gateway.Void, error) {
 	d.log.Debug("Received 'FailNextExecution' request targeting kernel %s.", in.Id)

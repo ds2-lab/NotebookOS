@@ -224,10 +224,10 @@ class RaftLog(object):
         self.logger.debug(f"Received VOTE: {str(vote)}")
         
         if self._current_election == None:
-            self.logger.error(f"Current election is None, even though we just received a vote!")
+            self.logger.error(f"Current election is None, even though we just received a vote... vote: {vote}")
             sys.stderr.flush()
             sys.stdout.flush()
-            raise ValueError("received 'VOTE' proposal with null current election")
+            raise ValueError(f"Received 'VOTE' proposal with null current election. Vote: {str(vote)}")
 
         # The first 'VOTE' proposal received during the term automatically wins.
         with self._election_lock:

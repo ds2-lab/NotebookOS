@@ -129,3 +129,15 @@ If the container/pod exits with error code 134, then this indicates that the app
 It seems common that, if such an error occurs within the Golang code of kernel, then it will often exit without flushing everything to `stdout`/`stderr` (whic is weird, because I thought `stderr` was typically unbuffered?). In any case, if you're observing crashes with nothing helpful in the logs, then common issues may be that the kernels are failing to connect to HDFS or each other (i.e., network connectivity issues of some kind). There may also be some other kind of issue within the Golang code that is causing the kernel to crash.
 
 Ensure that the HDFS hostname being passed to the kernels is (a) correct, and (b) usable from within the container/pod. For example, if you're running HDFS on your host VM and the kernels in Docker containers on that VM, then they can probably connect via something like `172.0.17.1:9000` if the network mode of the container is bridge (`--network 'bridge'`, or you deployed the cluster using `docker compose`, which creates a default network). If you use such a hostname without the proper network configuration, then the HDFS connection will fail.
+
+### `dial unix /var/run/docker.sock: connect: permission denied`
+
+If you get a `panic` in the Cluster Gateway container with that as the reason, then there are several possibilities.
+
+One possibility is that the permissions on your system's Docker socket (`/var/run/docker.sock`) are too restrictive. This can be changed via `chmod 666 /var/run/docker.sock`, though note that this is a significant security risk.
+
+Another possibility is that the `docker` group within the container does not have the same ID as the `docker` group on your host system. To address this, first rebuild the "base" Docker image and then rebuild the Cluster Gateway's Docker image. (Note that this likely won't work if you already built these images locally. That is, this may happen if you use the images available on Dockerhub, but if you built them locally already, then this likely won't address the issue.)
+
+The base image is located at `dockfiles/base-image` while the Cluster Gateway's image is located at `dockfiles/gateway`.
+
+See [this](https://stackoverflow.com/a/41574919/5937661) StackOverflow post for details.

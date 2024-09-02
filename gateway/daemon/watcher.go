@@ -116,53 +116,15 @@ func (w *DockerContainerWatcher) monitor() {
 
 			w.log.Debug("Notifying waiters that new container %s for kernel %s has been created.", shortContainerId, kernelId)
 
-			// Notify the first wait group that a Pod has started.
+			// Notify the first wait group that a Container has started.
 			// We only notify one of the wait groups, as each wait group corresponds to
-			// a different scale-up operation and thus requires a unique Pod to have been created.
+			// a different scale-up operation and thus requires a unique Container to have been created.
 			// We treat the slice of wait groups as FIFO queue.
 			var channel chan string
 			channel, channels = channels[0], channels[1:]
-			channel <- shortContainerId // Notify that the Pod has been created by sending its name over the channel.
+			channel <- shortContainerId // Notify that the Container has been created by sending its name over the channel.
 
 			w.channels.Set(kernelId, channels)
 		}
 	}
 }
-
-// type dockerEvent struct {
-// 	Action       string            `json:"Action"`
-// 	Actor        *dockerEventActor `json:"Actor"`
-// 	Type         string            `json:"Type"`
-// 	From         string            `json:"from"`
-// 	Id           string            `json:"id"`
-// 	Scope        string            `json:"scope"`
-// 	Status       string            `json:"create"`
-// 	TimestampStr string            `json:"time"`
-// 	TimeNanoStr  string            `json:"timeNano"`
-
-// 	// cachedTimestamp    time.Time `json:"-"`
-// 	// timestampConverted bool      `json:"-"`
-// }
-
-// func (e *dockerEvent) String() string {
-// 	out, err := json.Marshal(e)
-// 	if err != nil {
-// 		panic(err)
-// 	}
-
-// 	return string(out)
-// }
-
-// type dockerEventActor struct {
-// 	Attributes map[string]interface{} `json:"Attributes"`
-// 	Id         string                 `json:"ID"`
-// }
-
-// func (a *dockerEventActor) String() string {
-// 	out, err := json.Marshal(a)
-// 	if err != nil {
-// 		panic(err)
-// 	}
-
-// 	return string(out)
-// }
