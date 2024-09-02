@@ -19,12 +19,12 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -59,7 +59,7 @@ type SchedulerDaemonImpl struct {
 	schedulingPolicy string
 	gateway.UnimplementedLocalGatewayServer
 	router    *router.Router
-	scheduler core.LocalDaemonClient
+	scheduler scheduling.LocalDaemonClient
 
 	// Options
 	connectionOptions      *jupyter.ConnectionInfo
@@ -670,7 +670,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 	requestWG.Add(1)
 	// var dataDirectory string
 
-	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 		d.log.Debug("Received response from 'prepare-to-migrate' request.")
 
 		for i, frame := range msg.Frames {
@@ -775,7 +775,7 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(ctx context.Context, req *gatewa
 		var wg sync.WaitGroup
 		var requestReceived int32 = 0
 		wg.Add(1)
-		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel core.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 			d.log.Debug("Received response from 'update-replica' request.")
 
 			// Record that we've received the response.
@@ -1220,7 +1220,7 @@ func (d *SchedulerDaemonImpl) ControlHandler(info router.RouterInfo, msg *jupyte
 	return nil
 }
 
-func (d *SchedulerDaemonImpl) kernelShellHandler(info core.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) kernelShellHandler(info scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	return d.ShellHandler(info, msg)
 }
 
@@ -1285,7 +1285,7 @@ func (d *SchedulerDaemonImpl) ShellHandler(info router.RouterInfo, msg *jupyter.
 }
 
 // Deallocate the GPU resources associated with the kernel.
-func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, kernel core.KernelInfo /*, offset int */) error {
+func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, kernel scheduling.KernelInfo /*, offset int */) error {
 	// Check if we need to release allocated GPUs.
 	// We only release allocated GPUs if this kernel replica executed the code.
 	// If this replica yielded, then there will be no GPUs to release.
@@ -1609,7 +1609,7 @@ func (d *SchedulerDaemonImpl) forwardRequest(ctx context.Context, kernel client.
 	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done)
 }
 
-func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	var (
 		sender         server.Sender
 		connectionInfo *jupyter.ConnectionInfo
@@ -1688,7 +1688,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from core.KernelInfo, typ 
 	return nil // Will be nil on success.
 }
 
-func (d *SchedulerDaemonImpl) handleErrorReport(kernel core.Kernel, frames jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
 	var errorReport jupyter.ErrorReport
 	if err := frames.DecodeContent(&errorReport); err != nil {
 		d.log.Error("Failed to decode content of 'error report' message: %v", err)
@@ -1711,7 +1711,7 @@ func (d *SchedulerDaemonImpl) handleErrorReport(kernel core.Kernel, frames jupyt
 	return nil
 }
 
-func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel core.Kernel, frames jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
 	messageType, err := frames.GetMessageType()
 	if err != nil {
 		d.log.Error("Failed to extract message type from SMR Lead ZMQ message: %v", err)
@@ -1744,7 +1744,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel core.Kernel, frames jupyt
 	}
 }
 
-func (d *SchedulerDaemonImpl) handleIgnoreMsg(kernel core.Kernel, frames jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) handleIgnoreMsg(kernel scheduling.Kernel, frames jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
 	d.log.Debug("%v ignores %v", kernel, raw)
 	return jupyter.ErrStopPropagation
 }
@@ -1772,7 +1772,7 @@ func (d *SchedulerDaemonImpl) statusErrorf(kernel client.KernelReplicaClient, st
 	return &gateway.KernelStatus{Status: int32(status)}, nil
 }
 
-func (d *SchedulerDaemonImpl) getInvoker(kernel core.Kernel) invoker.KernelInvoker {
+func (d *SchedulerDaemonImpl) getInvoker(kernel scheduling.Kernel) invoker.KernelInvoker {
 	return kernel.Context().Value(ctxKernelInvoker).(invoker.KernelInvoker)
 }
 

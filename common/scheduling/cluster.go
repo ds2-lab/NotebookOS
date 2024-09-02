@@ -1,4 +1,4 @@
-package core
+package scheduling
 
 import (
 	"fmt"
@@ -8,10 +8,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )
 
-const (
-	CategoryClusterIndex = "cluster"
-)
-
 var (
 	ErrDuplicatedIndexDefined = fmt.Errorf("duplicated index defined")
 )
@@ -19,6 +15,8 @@ var (
 type ClusterIndexQualification int
 
 const (
+	CategoryClusterIndex = "cluster"
+
 	// ClusterIndexDisqualified indicates that the host has been indexed and unqualified now.
 	ClusterIndexDisqualified ClusterIndexQualification = -1
 	// ClusterIndexUnqualified indicates that the host is not qualified.
@@ -30,11 +28,11 @@ const (
 )
 
 type ClusterIndexProvider interface {
-	// GetCategory returns the category of the index and the expected value.
+	// Category returns the category of the index and the expected value.
 	Category() (category string, expected interface{})
 
 	// IsQualified returns the actual value according to the index category and whether the host is qualified.
-	// A index provider must be able to track indexed hosts and indicate disqualification.
+	// An index provider must be able to track indexed hosts and indicate disqualification.
 	IsQualified(Host) (actual interface{}, qualified ClusterIndexQualification)
 
 	// Len returns the number of hosts in the index.
@@ -57,7 +55,7 @@ type ClusterIndexQuerier interface {
 	// Seek returns the host specified by the metrics.
 	Seek(metrics ...[]float64) (host Host, pos interface{})
 
-	// SeekFrom contines the seek from the position.
+	// SeekFrom continues the seek from the position.
 	SeekFrom(start interface{}, metrics ...[]float64) (host Host, pos interface{})
 }
 

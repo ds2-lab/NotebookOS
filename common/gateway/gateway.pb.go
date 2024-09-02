@@ -1150,7 +1150,7 @@ type ResourceSpec struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Cpu    int32 `protobuf:"varint,1,opt,name=cpu,proto3" json:"cpu,omitempty"`       // In 1/100 core.
+	Cpu    int32 `protobuf:"varint,1,opt,name=cpu,proto3" json:"cpu,omitempty"`       // In 1/100 scheduling.
 	Memory int32 `protobuf:"varint,2,opt,name=memory,proto3" json:"memory,omitempty"` // In MB.
 	Gpu    int32 `protobuf:"varint,3,opt,name=gpu,proto3" json:"gpu,omitempty"`       // Number of GPUs.
 }
@@ -1923,7 +1923,7 @@ type KernelRegistrationNotification struct {
 	PodName        string                `protobuf:"bytes,7,opt,name=podName,proto3" json:"podName,omitempty"`               // The name of the Pod hosting the kernel container.
 	NodeName       string                `protobuf:"bytes,8,opt,name=nodeName,proto3" json:"nodeName,omitempty"`             // Name of the node that the Pod is running on.
 	ResourceSpec   *ResourceSpec         `protobuf:"bytes,9,opt,name=resourceSpec,proto3" json:"resourceSpec,omitempty"`     // ResourceSpec of the kernel.
-	Cpu            int32                 `protobuf:"varint,10,opt,name=cpu,proto3" json:"cpu,omitempty"`                     // In 1/100 core.
+	Cpu            int32                 `protobuf:"varint,10,opt,name=cpu,proto3" json:"cpu,omitempty"`                     // In 1/100 scheduling.
 	Memory         int32                 `protobuf:"varint,11,opt,name=memory,proto3" json:"memory,omitempty"`               // In MB.
 	Gpu            int32                 `protobuf:"varint,12,opt,name=gpu,proto3" json:"gpu,omitempty"`                     // Number of GPUs.
 }

@@ -6,10 +6,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -76,7 +76,7 @@ func (o ClusterDaemonOptions) String() string {
 type ClusterGatewayOptions struct {
 	config.LoggerOptions
 	jupyter.ConnectionInfo
-	core.CoreOptions
+	scheduling.CoreOptions
 	ClusterDaemonOptions
 
 	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
@@ -91,7 +91,7 @@ type ClusterGatewayOptions struct {
 type ClusterGateway interface {
 	gateway.ClusterGatewayServer
 
-	SetClusterOptions(*core.CoreOptions)
+	SetClusterOptions(*scheduling.CoreOptions)
 	ConnectionOptions() *jupyter.ConnectionInfo
 	ClusterScheduler() ClusterScheduler                                                                   // Return the associated ClusterScheduler.
 	GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) // Return the current GPU resource metrics on the node.

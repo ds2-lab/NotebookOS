@@ -11,8 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -146,7 +146,7 @@ func (s *LocalDaemonClient) String() string {
 	return fmt.Sprintf("LocalDaemonClient[Addr: %s, ID: %s]", s.addr, s.id)
 }
 
-func (s *LocalDaemonClient) Restore(scheduler core.Host) error {
+func (s *LocalDaemonClient) Restore(scheduler scheduling.Host) error {
 	restored, ok := scheduler.(*LocalDaemonClient)
 	if !ok {
 		return errExpectingHostScheduler
@@ -157,17 +157,17 @@ func (s *LocalDaemonClient) Restore(scheduler core.Host) error {
 }
 
 // Stats returns the statistics of the host.
-func (s *LocalDaemonClient) Stats() core.HostStats {
+func (s *LocalDaemonClient) Stats() scheduling.HostStats {
 	return nil
 }
 
 // SetMeta sets the meta data of the host.
-func (s *LocalDaemonClient) SetMeta(key core.HostMetaKey, value interface{}) {
+func (s *LocalDaemonClient) SetMeta(key scheduling.HostMetaKey, value interface{}) {
 	s.meta.Store(string(key), value)
 }
 
 // GetMeta return the meta data of the host.
-func (s *LocalDaemonClient) GetMeta(key core.HostMetaKey) interface{} {
+func (s *LocalDaemonClient) GetMeta(key scheduling.HostMetaKey) interface{} {
 	if value, ok := s.meta.Load(string(key)); ok {
 		return value
 	}

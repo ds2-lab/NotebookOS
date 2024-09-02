@@ -3,12 +3,12 @@ package daemon
 import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/core"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 )
 
-// MembershipScheduler is a core.Scheduler that for testing the membership changing.
+// MembershipScheduler is a scheduling.Scheduler that for testing the membership changing.
 type MembershipScheduler struct {
 	daemon domain.SchedulerDaemon
 	log    logger.Logger
@@ -22,12 +22,12 @@ func NewMembershipScheduler(daemon domain.SchedulerDaemon) *MembershipScheduler 
 	return scheduler
 }
 
-func (s *MembershipScheduler) OnTaskStart(kernel core.Kernel, task *jupyter.MessageSMRLeadTask) error {
+func (s *MembershipScheduler) OnTaskStart(kernel scheduling.Kernel, task *jupyter.MessageSMRLeadTask) error {
 	// return s.triggerMigration(kernel)
 	return nil
 }
 
-// func (s *MembershipScheduler) triggerMigration(kernel core.Kernel) error {
+// func (s *MembershipScheduler) triggerMigration(kernel scheduling.Kernel) error {
 // 	persistentId := kernel.(client.KernelReplicaClient).PersistentID()
 // 	s.log.Info("Triggering hard-coded migration of replica %d of kernel %s", kernel.(client.KernelReplicaClient).ReplicaID(), kernel.ID())
 

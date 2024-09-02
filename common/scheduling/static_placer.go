@@ -1,33 +1,35 @@
-package core
+package scheduling
 
 import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
-// RandomPlacer is a simple placer that places sessions randomly.
-type RandomPlacer struct {
+// StaticPlacer is a placer that implements the Static Scheduling algorithm.
+type StaticPlacer struct {
 	AbstractPlacer
 
 	cluster Cluster
-	index   *RandomClusterIndex
 	opts    *CoreOptions
 }
 
-// NewRandomPlacer creates a new RandomPlacer.
-func NewRandomPlacer(cluster Cluster, opts *CoreOptions) *RandomPlacer {
-	placer := &RandomPlacer{
+// NewStaticPlacer creates a new StaticPlacer.
+func NewStaticPlacer(cluster Cluster, opts *CoreOptions) (*StaticPlacer, error) {
+	placer := &StaticPlacer{
 		cluster: cluster,
-		index:   NewRandomClusterIndex(100),
 		opts:    opts,
 	}
-	cluster.AddIndex(placer.index)
+
+	//if err := cluster.AddIndex(placer.index); err != nil {
+	//	return nil, err
+	//}
+
 	config.InitLogger(&placer.log, placer)
-	return placer
+	return placer, nil
 }
 
-// FindHost returns a single host that can satisfy the spec.
-func (placer *RandomPlacer) FindHosts(spec types.Spec) []Host {
+// FindHosts returns a single host that can satisfy the spec.
+func (placer *StaticPlacer) FindHosts(spec types.Spec) []Host {
 	numReplicas := placer.opts.NumReplicas
 	if placer.index.Len() < numReplicas {
 		numReplicas = placer.index.Len()
@@ -44,7 +46,7 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []Host {
 }
 
 // FindHost returns a single host that can satisfy the spec.
-func (placer *RandomPlacer) FindHost(blacklist []interface{}, spec types.Spec) Host {
+func (placer *StaticPlacer) FindHost(blacklist []interface{}, spec types.Spec) Host {
 	host, _ := placer.index.Seek(blacklist)
 	return host
 }

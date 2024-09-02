@@ -19,7 +19,7 @@ func NewSessionManager(kernelSess string) SessionManager {
 	return sm
 }
 
-// Session returns the associated session ID.
+// Sessions returns the associated session ID.
 func (c *sessionManagerImpl) Sessions() []string {
 	return c.sessions
 }

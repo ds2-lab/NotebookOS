@@ -12,7 +12,7 @@ var (
 	ErrIOSocketAlreadySet = errors.New("the server already has a non-nil IO ZeroMQ Socket")
 )
 
-// Router defines the interface to provider infos of a JupyterRouter.
+// ServerInfo defines the interface to provider infos of a JupyterRouter.
 type ServerInfo interface {
 	fmt.Stringer
 
@@ -33,7 +33,7 @@ func (s *BaseServer) SendMessage(request types.Request, socket *types.Socket) er
 // 	return s.server.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
 // }
 
-// Begin listening for an ACK for a message with the given ID.
+// RegisterAck begins listening for an ACK for a message with the given ID.
 func (s *BaseServer) RegisterAck(msg *types.JupyterMessage) (chan struct{}, bool) {
 	// _, reqId, _ := types.ExtractDestFrame(msg.Frames)
 	return s.server.RegisterAck(msg.RequestId)
@@ -44,8 +44,8 @@ func (s *BaseServer) Socket(typ types.MessageType) *types.Socket {
 	return s.server.Sockets.All[typ]
 }
 
-// Set the IOPub socket for the server.
-// Returns an error if the Socket is already set, as it should only be set once when the IO socket is nil.
+// SetIOPubSocket sets the IOPub socket for the server.
+// SetIOPubSocket returns an error if the Socket is already set, as it should only be set once when the IO socket is nil.
 func (s *BaseServer) SetIOPubSocket(iopub *types.Socket) error {
 	if s.server.Sockets.IO != nil {
 		return ErrIOSocketAlreadySet

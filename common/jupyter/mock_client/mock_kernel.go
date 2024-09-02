@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	core "github.com/zhangjyr/distributed-notebook/common/core"
+	core "github.com/zhangjyr/distributed-notebook/common/scheduling"
 	gateway "github.com/zhangjyr/distributed-notebook/common/gateway"
 	client "github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"

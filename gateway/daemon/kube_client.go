@@ -1131,9 +1131,9 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 								},
 							},
 							{
-								"name": "core-dump-mount",
+								"name": "scheduling-dump-mount",
 								"hostPath": map[string]interface{}{
-									"path": "/home/core-dump",
+									"path": "/home/scheduling-dump",
 								},
 							},
 						},
@@ -1197,7 +1197,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 										"mountPath": "/kernel-entrypoint",
 									},
 									{
-										"name":      "core-dump-mount",
+										"name":      "scheduling-dump-mount",
 										"mountPath": "/tmp/cores",
 									},
 								},

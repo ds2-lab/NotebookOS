@@ -51,8 +51,8 @@ ADD dockfiles/cpu-python3-amd64/apport-settings /home/jovyan/.config/apport/sett
 RUN chmod -R 777 /home/jovyan/sample_notebooks/*
 RUN chown jovyan /home/jovyan/sample_notebooks/*
 
-# RUN echo "kernel.core_pattern=/tmp/cores/core.%e.%p.%h.%t" | sudo tee -a /etc/sysctl.conf
-# RUN sudo bash -c 'echo "/tmp/cores/core.%e.%p.%h.%t" > /proc/sys/kernel/core_pattern'
+# RUN echo "kernel.core_pattern=/tmp/cores/scheduling.%e.%p.%h.%t" | sudo tee -a /etc/sysctl.conf
+# RUN sudo bash -c 'echo "/tmp/cores/scheduling.%e.%p.%h.%t" > /proc/sys/kernel/core_pattern'
 
 # Install kernel
 RUN cd /distributed_notebook \

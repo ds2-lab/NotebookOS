@@ -4,13 +4,13 @@ metadata:
   name: core-volume
 spec:
   volumes:
-  - name: core-path
+  - name: scheduling-path
     hostPath:
-      path: /home/core-dump
+      path: /home/scheduling-dump
   containers:
   - name: ubuntu
     image: ubuntu:12.04
     command: ["/bin/sleep","3600"]
     volumeMounts:
     - mountPath: /tmp/cores
-      name: core-path
+      name: scheduling-path

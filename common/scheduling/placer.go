@@ -1,4 +1,4 @@
-package core
+package scheduling
 
 import (
 	"errors"
@@ -14,7 +14,7 @@ var (
 
 // Placer defines the interface for a placer that is responsible for:
 // 1. Finding hosts that can satisfy the spec.
-//   - A host satisfies the spec as long as the over-subscription rate is below a threshold given the assumption that a interactive session:
+//   - A host satisfies the spec as long as the over-subscription rate is below a threshold given the assumption that an interactive session:
 //     i. requires minimum resources to restore the runtime state.
 //     ii. has multiple replicas as candidates to meet the resource requirement.
 //
@@ -32,7 +32,7 @@ type Placer interface {
 	FindHost(blacklist []interface{}, metrics types.Spec) Host
 
 	// Place atomically places a replica on a host.
-	// The subsription rate of the host will be checked before placing the replica. If the rate is above the threshold, a new host will be launched to place the replica.
+	// The subscription rate of the host will be checked before placing the replica. If the rate is above the threshold, a new host will be launched to place the replica.
 	// The reasons to launch a new host are:
 	// 1. If the host is selected by the placer, the subscription rate is updated before placement to ensure the rate is below the threshold.
 	// 2. We assume the host selected by the scheduler is best fit. If such a choice would fail the subscription rate check, a reselection could not help.

@@ -1,4 +1,4 @@
-package core
+package scheduling
 
 import (
 	"math/rand"

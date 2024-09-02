@@ -1,4 +1,4 @@
-package core
+package scheduling
 
 import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"

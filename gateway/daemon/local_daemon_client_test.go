@@ -4,13 +4,13 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/zhangjyr/distributed-notebook/common/core"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )
 
 var (
-	testMetaKey core.HostMetaKey = "test"
+	testMetaKey scheduling.HostMetaKey = "test"
 )
 
 func dummyScheduler(addr string) (*LocalDaemonClient, error) {

@@ -1,4 +1,4 @@
-package core
+package scheduling
 
 import (
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"

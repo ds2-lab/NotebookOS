@@ -1,4 +1,4 @@
-package core
+package scheduling
 
 import (
 	"context"
@@ -9,17 +9,17 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
-// API defines the interface of messages that a JupyterRouter can intercept and handle.
+// KernelMessageHandler is an API defines the interface of messages that a JupyterRouter can intercept and handle.
 type KernelMessageHandler func(KernelInfo, jupyter.MessageType, *jupyter.JupyterMessage) error
 
 type KernelInfo interface {
-	// Provides kernel specific routing information.
+	// RouterInfo provides kernel specific routing information.
 	router.RouterInfo
 
 	// ID returns kernel id.
 	ID() string
 
-	// Spec returns resource spec.
+	// ResourceSpec returns resource spec, which defines the resource requirements of the kernel.
 	ResourceSpec() *gateway.ResourceSpec
 
 	// KernelSpec returns kernel spec.
@@ -73,26 +73,26 @@ type KernelReplica interface {
 	// ReplicaID returns the replica id.
 	ReplicaID() int32
 
-	// Return the name of the Kubernetes Pod hosting the replica.
+	// PodName returns the name of the Kubernetes Pod hosting the replica.
 	PodName() string
 
-	// Name of the node that the Pod is running on.
+	// NodeName returns the name of the node that the Pod is running on.
 	NodeName() string
 
 	// InitializeIOSub initializes the io subscriber of the replica with customized handler.
 	InitializeIOSub(handler jupyter.MessageHandler, subscriptionTopic string) (*jupyter.Socket, error)
 
-	// Returns true if the replica has registered and joined its SMR cluster.
+	// IsReady returns true if the replica has registered and joined its SMR cluster.
 	// Only used by the Cluster Gateway, not by the Local Daemon.
 	IsReady() bool
 
-	// Designate the replica as ready.
+	// SetReady designates the replica as ready.
 	// Only used by the Cluster Gateway, not by the Local Daemon.
 	SetReady()
 
-	// Get the Host on which the replica is hosted.
+	// GetHost returns the Host on which the replica is hosted.
 	GetHost() Host
 
-	// Set the Host of the kernel.
+	// SetHost sets the Host of the kernel.
 	SetHost(Host)
 }

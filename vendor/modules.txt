@@ -371,6 +371,7 @@ github.com/mailru/easyjson/jlexer
 github.com/mailru/easyjson/jwriter
 # github.com/mason-leap-lab/go-utils v1.3.3
 ## explicit; go 1.18
+github.com/mason-leap-lab/go-utils/cache
 github.com/mason-leap-lab/go-utils/config
 github.com/mason-leap-lab/go-utils/logger
 github.com/mason-leap-lab/go-utils/promise

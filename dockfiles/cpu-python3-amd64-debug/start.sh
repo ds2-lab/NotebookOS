@@ -265,7 +265,7 @@ else
     _log "Executing the specified command:" "${cmd[@]}"
     if [[ "${cmd[0]}" == *.sh ]]; then
         # echo "Running bash script in GDB: ${cmd[@]}"
-        # screen -d -m -S gdb-kernel gdb -batch -ex "run" -ex "call fflush(0)" -ex "generate-core-file /cores/core.pid" -ex "bt" -ex "py-bt" --args bash ${cmd[@]} 2>&1 | grep -v ^"No stack."$ || true
+        # screen -d -m -S gdb-kernel gdb -batch -ex "run" -ex "call fflush(0)" -ex "generate-scheduling-file /cores/scheduling.pid" -ex "bt" -ex "py-bt" --args bash ${cmd[@]} 2>&1 | grep -v ^"No stack."$ || true
         ${cmd[@]} 2>&1
     else
         echo "Running executable in GDB: ${cmd[@]}"
