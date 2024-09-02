@@ -90,8 +90,32 @@ func (index *StaticClusterIndex) Add(host Host) {
 }
 
 // Update updates a host in the index.
-func (index *StaticClusterIndex) Update(Host) {
-	// No-op.
+// TODO: Call this when GPU amounts change.
+func (index *StaticClusterIndex) Update(host Host) {
+	found := false
+	for i, h := range index.hosts {
+		if h.ID() == host.ID() {
+			index.hosts[i] = host
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return
+	}
+
+	slices.SortFunc(index.hosts, func(a, b Host) int {
+		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
+		// with the Hosts with the most idle GPUs appearing first.
+		if a.IdleGPUs() > b.IdleGPUs() {
+			return -1
+		} else if a.IdleGPUs() < b.IdleGPUs() {
+			return 1
+		} else {
+			return 0
+		}
+	})
 }
 
 // Remove removes a host from the index.
@@ -115,6 +139,18 @@ func (index *StaticClusterIndex) Remove(host Host) {
 	if len(index.hosts)-index.length >= randomIndexGCThreshold {
 		index.compactLocked(index.freeStart)
 	}
+
+	slices.SortFunc(index.hosts, func(a, b Host) int {
+		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
+		// with the Hosts with the most idle GPUs appearing first.
+		if a.IdleGPUs() > b.IdleGPUs() {
+			return -1
+		} else if a.IdleGPUs() < b.IdleGPUs() {
+			return 1
+		} else {
+			return 0
+		}
+	})
 }
 
 // compact compacts the index by calling compactLocked.
