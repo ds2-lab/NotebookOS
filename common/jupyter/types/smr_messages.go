@@ -68,7 +68,6 @@ func (m MessageSMRAddOrUpdateReplicaRequest) String() string {
 	return fmt.Sprintf("MessageSMRAddOrUpdateReplicaRequest[NodeID=%d, Address=%s]", m.NodeID, m.Address)
 }
 
-// {"error": errorTitle, "message": errorMessage, "kernel_id": self.kernel_id}
 type ErrorReport struct {
 	ErrorTitle   string `json:"error"`
 	ErrorMessage string `json:"message"`
