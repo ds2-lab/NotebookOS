@@ -957,7 +957,7 @@ func (d *SchedulerDaemonImpl) initializeKernelClient(id string, connInfo *jupyte
 	return info, nil
 }
 
-// StartKernel launches a new kernel via Docker.
+// StartKernelReplica launches a new kernel via Docker.
 // This is ONLY used in the Docker-based deployment mode.
 func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
 	if in == nil {
@@ -1725,12 +1725,12 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 			return err
 		}
 
-		client := kernel.(client.KernelReplicaClient)
+		kernelReplicaClient := kernel.(client.KernelReplicaClient)
 
 		d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
-		err := d.gpuManager.AllocateGPUs(decimal.NewFromFloat(client.ResourceSpec().GPU()), client.ReplicaID(), client.ID())
+		err := d.gpuManager.AllocateGPUs(decimal.NewFromFloat(kernelReplicaClient.ResourceSpec().GPU()), kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID())
 		if err != nil {
-			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", client.ReplicaID(), client.ID(), err)
+			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
 			panic(err) // TODO(Ben): Handle gracefully.
 		}
 		go d.scheduler.OnTaskStart(kernel, &leadMessage)

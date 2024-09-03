@@ -11,8 +11,9 @@ import (
 const (
 	// Proposal keys:
 
-	KEY_YIELD = "YIELD"
-	KEY_LEAD  = "LEAD"
+	//KeyVote  = "VOTE"
+	KeyYield = "YIELD"
+	KeyLead  = "LEAD"
 )
 
 var (
@@ -20,13 +21,13 @@ var (
 	ErrExecutionFailedAllYielded = errors.New("an execution failed; all replicas proposed 'YIELD'")
 )
 
-// Encapsulate the submission of a single 'execute_request' message for a particular kernel.
+// ActiveExecution encapsulates the submission of a single 'execute_request' message for a particular kernel.
 // We observe the results of the SMR proposal protocol and take action accordingly, depending upon the results.
 // For example, if all replicas of the kernel issue 'YIELD' proposals, then we will need to perform some sort of
 // scheduling action, depending upon what scheduling policy we're using.
 //
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
-// Alternatively, under 'dynamic scheduling, we migrate existing replicas to another node to handle the request.
+// Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
 type ActiveExecution struct {
 	executionId string // Unique ID identifying the execution request.
 	attemptId   int    // Beginning at 1, identifies the "attempt number", in case we have to retry due to timeouts.
@@ -91,7 +92,7 @@ func (e *ActiveExecution) ReceivedLeadProposal(smrNodeId int32) error {
 		return ErrProposalAlreadyReceived
 	}
 
-	e.proposals[smrNodeId] = KEY_LEAD
+	e.proposals[smrNodeId] = KeyLead
 	e.numLeadProposals += 1
 
 	return nil
@@ -102,7 +103,7 @@ func (e *ActiveExecution) ReceivedYieldProposal(smrNodeId int32) error {
 		return ErrProposalAlreadyReceived
 	}
 
-	e.proposals[smrNodeId] = KEY_YIELD
+	e.proposals[smrNodeId] = KeyYield
 	e.numYieldProposals += 1
 
 	if e.numYieldProposals == e.numReplicas {

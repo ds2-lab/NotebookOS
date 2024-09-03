@@ -23,6 +23,8 @@ const (
 )
 
 var (
+	ErrRestorationFailed = errors.New("restoration failed for unknown reason")
+
 	errRestoreRequired        = errors.New("restore required")
 	errExpectingHostScheduler = errors.New("expecting LocalDaemonClient")
 	errNodeNameUnspecified    = errors.New("no kubernetes node name returned for LocalDaemonClient")
@@ -46,7 +48,7 @@ type LocalDaemonClient struct {
 // NewHostScheduler will return an errRestoreRequired error if the IDs don't match.
 // NewHostScheduler will return an errNodeNameUnspecified error if there is no NodeName returned by the scheduler.
 // If both these errors occur, then only a errNodeNameUnspecified will be returned.
-func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval time.Duration, errorCallback scheduling.ErrorCallback, cpus int32, memMb int32) (*LocalDaemonClient, error) {
+func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval time.Duration, errorCallback scheduling.ErrorCallback, cpus int32, memMb int32, cluster Cluster) (*LocalDaemonClient, error) {
 	// Generate new ID.
 	id := uuid.New().String()
 
@@ -85,7 +87,7 @@ func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval
 	}
 
 	// Create the BaseHost.
-	baseHost := scheduling.NewBaseHost(confirmedId.Id, confirmedId.NodeName, addr, resourceSpec, nil, conn, errorCallback)
+	baseHost := scheduling.NewBaseHost(confirmedId.Id, confirmedId.NodeName, addr, resourceSpec, cluster, conn, errorCallback)
 
 	// Create the LocalDaemonClient.
 	scheduler := &LocalDaemonClient{

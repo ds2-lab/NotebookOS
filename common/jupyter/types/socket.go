@@ -15,7 +15,7 @@ const (
 	IOTopicStatus   = "status"
 	IOTopicShutdown = "shutdown"
 
-	// Default value for Socket::RemoteName.
+	// RemoteNameUnspecified is the default value for Socket::RemoteName.
 	RemoteNameUnspecified = "unspecified_remote"
 )
 

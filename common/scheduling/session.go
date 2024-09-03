@@ -28,6 +28,7 @@ const (
 var (
 	ErrInvalidTransition           = errors.New("invalid session state transition requested")
 	ErrInvalidExplanationRequested = errors.New("invalid explanation requested")
+	ErrInvalidContainer            = errors.New("the specified or provided container is not valid")
 )
 
 type SessionState string
@@ -83,7 +84,7 @@ type Session interface {
 	IsMigrating() bool
 
 	// TrainingStarted should be called when one of the Session's Kernel replicas begins training.
-	TrainingStarted(host Host) promise.Promise
+	TrainingStarted(container Container) promise.Promise
 
 	// TrainingStopped should be called when the actively-training Kernel replica of the Session stops training.
 	TrainingStopped() promise.Promise
@@ -107,18 +108,24 @@ type Session interface {
 
 	// ResourceUtilization returns the current ResourceUtilization of the Session.
 	ResourceUtilization() *ResourceUtilization
+
+	// GetCluster returns the Cluster in which this Session exists.
+	GetCluster() Cluster
 }
 
 type UserSession struct {
 	client.DistributedKernelClient
 
-	instance       Session
-	ctx            context.Context // The Session's context.
-	id             string          // Session/kernel ID.
-	sessionState   SessionState    // The current state of the Session.
-	trainingStart  time.Time       // Time at which the current training began.
-	migrationStart time.Time       // Time at which the migration began.
-	containers     []Container     // The kernel replicas belonging to this Session.
+	instance Session
+
+	cluster           Cluster         // The Cluster in which this Session exists.
+	ctx               context.Context // The Session's context.
+	id                string          // Session/kernel ID.
+	sessionState      SessionState    // The current state of the Session.
+	trainingStart     time.Time       // Time at which the current training began.
+	migrationStart    time.Time       // Time at which the migration began.
+	containers        []Container     // The kernel replicas belonging to this Session.
+	trainingContainer Container       // The Container that is actively training.
 
 	////////////////////////
 	// Session Statistics //
@@ -133,12 +140,42 @@ type UserSession struct {
 	preemptionPriority             cache.InlineCache    // Preemption Priority
 	preemptionPriorityExplanation  string               // Explanation of current  Preemption Priority value.
 
-	ipHistory            *ValueHistory[float64]
-	ppHistory            *ValueHistory[float64]
-	trainingTimeHistory  *ValueHistory[time.Duration]
-	migrationTimeHistory *ValueHistory[time.Duration]
+	interactivePriorityHistory *ValueHistory[float64]
+	preemptionPriorityHistory  *ValueHistory[float64]
+	trainingTimeHistory        *ValueHistory[time.Duration]
+	migrationTimeHistory       *ValueHistory[time.Duration]
 
 	log logger.Logger
+}
+
+func NewUserSession(ctx context.Context, kernel client.DistributedKernelClient, resourceUtilization *ResourceUtilization, cluster Cluster, opts *CoreOptions) *UserSession {
+	session := &UserSession{
+		DistributedKernelClient: kernel,
+		ctx:                     ctx,
+		cluster:                 cluster,
+		id:                      kernel.ID(),
+		log:                     config.GetLogger(fmt.Sprintf("Session %s ", kernel.ID())),
+		sessionState:            SessionStateInit,
+		startedAt:               time.Now(),
+		trainingTime:            NewSessionStatistic(opts.ExecutionTimeSamplingWindow),
+		migrationTime:           NewSessionStatistic(opts.MigrationTimeSamplingWindow),
+		resourceUtilization:     resourceUtilization,
+
+		interactivePriorityHistory: NewValueHistory[float64]("Interactive Priority", "float64"),
+		preemptionPriorityHistory:  NewValueHistory[float64]("Preemption Priority", "float64"),
+		trainingTimeHistory:        NewValueHistory[time.Duration]("Training Time", "time.Duration"),
+		migrationTimeHistory:       NewValueHistory[time.Duration]("Migration Time", "time.Duration"),
+		containers:                 make([]Container, 0, opts.NumReplicas),
+	}
+
+	initialInteractivePriority := session.updateInteractivePriority("session started")
+	session.interactivePriorityHistory.AddValue(initialInteractivePriority)
+
+	session.preemptionPriority.Producer = cache.FormalizeICProducer(session.calculatePreemptionPriority)
+	session.preemptionPriority.Validator = GetClockTimeCacheValidator()
+	session.instance = session
+
+	return session
 }
 
 func (s *UserSession) Context() context.Context {
@@ -149,33 +186,9 @@ func (s *UserSession) SetContext(ctx context.Context) {
 	s.ctx = ctx
 }
 
-func NewUserSession(ctx context.Context, kernel client.DistributedKernelClient, resourceUtilization *ResourceUtilization, opts *CoreOptions) *UserSession {
-	session := &UserSession{
-		DistributedKernelClient: kernel,
-		ctx:                     ctx,
-		id:                      kernel.ID(),
-		log:                     config.GetLogger(fmt.Sprintf("Session %s ", kernel.ID())),
-		sessionState:            SessionStateInit,
-		startedAt:               time.Now(),
-		trainingTime:            NewSessionStatistic(opts.ExecutionTimeSamplingWindow),
-		migrationTime:           NewSessionStatistic(opts.MigrationTimeSamplingWindow),
-		resourceUtilization:     resourceUtilization,
-
-		ipHistory:            NewValueHistory[float64]("Interactive Priority", "float64"),
-		ppHistory:            NewValueHistory[float64]("Preemption Priority", "float64"),
-		trainingTimeHistory:  NewValueHistory[time.Duration]("Training Time", "time.Duration"),
-		migrationTimeHistory: NewValueHistory[time.Duration]("Migration Time", "time.Duration"),
-		containers:           make([]Container, 0, opts.NumReplicas),
-	}
-
-	initialInteractivePriority := session.updateInteractivePriority("session started")
-	session.ipHistory.AddValue(initialInteractivePriority)
-
-	session.preemptionPriority.Producer = cache.FormalizeICProducer(session.calculatePreemptionPriority)
-	session.preemptionPriority.Validator = GetClockTimeCacheValidator()
-	session.instance = session
-
-	return session
+// GetCluster returns the Cluster in which this Session exists.
+func (s *UserSession) GetCluster() Cluster {
+	return s.cluster
 }
 
 // ResourceUtilization returns the current ResourceUtilization of the Session.
@@ -184,9 +197,30 @@ func (s *UserSession) ResourceUtilization() *ResourceUtilization {
 }
 
 // TrainingStarted should be called when one of the Session's Kernel replicas begins training.
-func (s *UserSession) TrainingStarted(host Host) promise.Promise {
+func (s *UserSession) TrainingStarted(container Container) promise.Promise {
 	if err := s.transition(SessionStateTraining); err != nil {
 		s.log.Warn("Failed to start training because: %v", err)
+		return promise.Resolved(s.instance, err)
+	}
+
+	// Verify that the specified Container is indeed one of our replica containers.
+	found := false
+	for _, replica := range s.containers {
+		if replica == container {
+			found = true
+			break
+		}
+	}
+
+	// If the specified Container is NOT one of our replica containers, then we'll resolve with an error.
+	if !found {
+		s.log.Error("Specified container for training is not found in replicas: %v", container)
+		return promise.Resolved(s.instance, ErrInvalidContainer)
+	}
+
+	s.trainingContainer = container
+	if err := s.trainingContainer.TrainingStarted(); err != nil {
+		s.log.Error("Failed to start training in container %s: %v", container.String(), err)
 		return promise.Resolved(s.instance, err)
 	}
 
@@ -202,12 +236,17 @@ func (s *UserSession) TrainingStopped() promise.Promise {
 		return promise.Resolved(s.instance, err)
 	}
 
+	if err := s.trainingContainer.TrainingStopped(); err != nil {
+		s.log.Error("Failed to stop training in active container: %v", err)
+		return promise.Resolved(s.instance, err)
+	}
+
 	trainingDuration := time.Now().Sub(s.trainingStart)
 	s.trainingTimeHistory.AddValue(trainingDuration)
 	s.trainingTime.Add(float64(trainingDuration) / float64(time.Second))
 
 	latestInteractivePriority := s.updateInteractivePriority("training stopped")
-	s.ipHistory.AddValue(latestInteractivePriority)
+	s.interactivePriorityHistory.AddValue(latestInteractivePriority)
 
 	s.log.Debug("Session %s stopped training after %v.", s.id, trainingDuration)
 	return promise.Resolved(s.instance)
@@ -353,7 +392,7 @@ func (s *UserSession) calculatePreemptionPriority() (preemptionPriority float64)
 		preemptionPriority = float64(s.resourceUtilization.NumGpus) * s.MigrationTime()
 	}
 
-	s.ppHistory.AddValue(preemptionPriority)
+	s.preemptionPriorityHistory.AddValue(preemptionPriority)
 	return
 }
 

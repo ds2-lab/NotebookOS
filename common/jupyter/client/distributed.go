@@ -363,7 +363,7 @@ func (c *BaseDistributedKernelClient) BindSession(sess string) {
 	if restarted {
 		c.log.Info("Restarted for binding kernel session %s", sess)
 	} else {
-		c.log.Info("Binded session %s to distributed kernel client.", sess)
+		c.log.Info("Bound session %s to distributed kernel client.", sess)
 	}
 }
 
@@ -387,7 +387,7 @@ func (c *BaseDistributedKernelClient) Size() int {
 	return len(c.replicas) // c.size
 }
 
-// Return the number of active migrations of the associated kernel's replicas.
+// NumActiveAddOperations returns the number of active migrations of the associated kernel's replicas.
 func (c *BaseDistributedKernelClient) NumActiveAddOperations() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -683,7 +683,7 @@ func (c *BaseDistributedKernelClient) IsReplicaReady(replicaId int32) (bool, err
 }
 
 // RequestWithHandler sends a request to all replicas and handles the response.
-func (c *BaseDistributedKernelClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error {
+func (c *BaseDistributedKernelClient) RequestWithHandler(ctx context.Context, _ string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error {
 	return c.RequestWithHandlerAndReplicas(ctx, typ, msg, handler, done)
 }
 
@@ -1040,18 +1040,36 @@ func (c *BaseDistributedKernelClient) getWaitResponseOption(key string) interfac
 }
 
 func (c *BaseDistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
-	// c.log.Debug("DistrKernClient %v handling %v message: %v", c.id, typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
-		// Remove the source kernel frame.
-		// msg.Frames = c.RemoveSourceKernelFrame(msg.Frames, -1)
-
 		topic, jFrames := replica.(*BasicKernelReplicaClient).extractIOTopicFrame(msg)
 		switch topic {
 		case types.IOTopicStatus:
-			return c.handleIOKernelStatus(replica.(*BasicKernelReplicaClient), jFrames, msg)
+			{
+				return c.handleIOKernelStatus(replica.(*BasicKernelReplicaClient), jFrames, msg)
+			}
+		case types.MessageTypeSMRLeadTask:
+			{
+				// TODO: This logic is sort of buried away in a very non-obvious place...
+				kernelReplica := replica.(*BasicKernelReplicaClient)
+				c.log.Debug("Received \"%s\" message from %v: %s", types.MessageTypeSMRLeadTask, kernelReplica.String(), msg.String())
+
+				container := kernelReplica.Container()
+				session := container.Session()
+
+				if p := session.TrainingStarted(container); p.Error() != nil {
+					err := p.Error()
+					c.log.Error("Failed to start training for session %s: %v", session.ID(), err)
+					return err
+				}
+			}
 		default:
-			return c.server.Sockets.IO.Send(*msg.Msg)
+			{
+				return c.server.Sockets.IO.Send(*msg.Msg)
+			}
+		}
+	default:
+		{
 		}
 	}
 

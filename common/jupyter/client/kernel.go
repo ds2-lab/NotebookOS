@@ -78,7 +78,7 @@ type KernelReplicaClient interface {
 	// ID returns the kernel ID.
 	ID() string
 
-	// Sessions returns returns the associated session ID.
+	// Sessions returns the associated session ID.
 	Sessions() []string
 
 	// SetResourceSpec sets the ResourceSpec of the kernel.
@@ -206,7 +206,7 @@ type BasicKernelReplicaClient struct {
 }
 
 // NewKernelClient creates a new BasicKernelReplicaClient.
-// The client will intialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
+// The client will initialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
 func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, host scheduling.Host, shouldAckMessages bool, isGatewayClient bool, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback, resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *BasicKernelReplicaClient {
 	client := &BasicKernelReplicaClient{
 		id:                                   spec.Kernel.Id,
@@ -497,19 +497,19 @@ func (c *BasicKernelReplicaClient) String() string {
 	}
 }
 
-// Returns true if the replica has registered and joined its SMR cluster.
+// IsReady returns true if the replica has registered and joined its SMR cluster.
 // Only used by the Cluster Gateway, not by the Local Daemon.
 func (c *BasicKernelReplicaClient) IsReady() bool {
 	return c.ready
 }
 
-// Return the ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
+// HostId returns the ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
 func (c *BasicKernelReplicaClient) HostId() string {
 	return c.hostId
 }
 
-// Designate the replica as ready.
-// Only used by the Cluster Gateway, not by the Local Daemon.
+// SetReady designates the replica as ready.
+// SetReady is only used by the Cluster Gateway, not by the Local Daemon.
 func (c *BasicKernelReplicaClient) SetReady() {
 	c.log.Debug("Kernel %s-%d has been designated as ready.", c.id, c.replicaId)
 	c.ready = true
@@ -1001,21 +1001,21 @@ func (c *BasicKernelReplicaClient) handleIOKernelStatus(kernel scheduling.Kernel
 // 	return types.ErrStopPropagation
 // }
 
-func (c *BasicKernelReplicaClient) handleIOKernelSMRNodeAdded(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
-	var node_added_message types.MessageSMRNodeUpdated
+func (c *BasicKernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+	var nodeAddedMessage types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR node added: %v", err)
 		return err
 	}
-	err := frames.DecodeContent(&node_added_message)
+	err := frames.DecodeContent(&nodeAddedMessage)
 	if err != nil {
 		return err
 	}
 
-	c.log.Debug("Handling IO Kernel SMR Node-Added message for replica %d of kernel %s.", node_added_message.NodeID, node_added_message.KernelId)
+	c.log.Debug("Handling IO Kernel SMR Node-Added message for replica %d of kernel %s.", nodeAddedMessage.NodeID, nodeAddedMessage.KernelId)
 
 	if c.smrNodeAddedCallback != nil {
-		c.smrNodeAddedCallback(&node_added_message)
+		c.smrNodeAddedCallback(&nodeAddedMessage)
 	}
 
 	return types.ErrStopPropagation

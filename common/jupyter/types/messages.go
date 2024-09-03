@@ -31,6 +31,7 @@ type Message struct {
 	Content      interface{}
 }
 
+// MessageHeader is a Jupyter message header.
 // http://jupyter-client.readthedocs.io/en/latest/messaging.html#general-message-format
 // https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
 type MessageHeader struct {
@@ -72,7 +73,7 @@ type ZmqMessage interface {
 	GetMsg() *zmq4.Msg
 }
 
-// Wrapper around ZMQ4 messages, specifically Jupyter ZMQ4 messages.
+// JupyterMessage is a wrapper around ZMQ4 messages, specifically Jupyter ZMQ4 messages.
 // We encode the message ID and message type for convenience.
 type JupyterMessage struct {
 	*zmq4.Msg
@@ -89,7 +90,7 @@ type JupyterMessage struct {
 	headerDecoded       bool
 }
 
-// Create a new JupyterMessage from a ZMQ4 message.
+// NewJupyterMessage creates and returns a new JupyterMessage from a ZMQ4 message.
 func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 	if msg == nil {
 		panic("Cannot create JupyterMessage from nil ZMQ4 message...")
@@ -181,8 +182,8 @@ func (m *JupyterMessage) AddDestinationId(destID string) (reqID string, jOffset 
 	return reqID, jOffset
 }
 
-// The parent header is lazily decoded/deserialized.
-// This decodes/deserializes it.
+// GetParentHeader decodes/deserializes the Jupyter parent header.
+// (The parent header is lazily decoded in general.)
 func (m *JupyterMessage) GetParentHeader() *MessageHeader {
 	if m.parentHeaderDecoded {
 		return m.parentHeader
@@ -211,11 +212,11 @@ func (m *JupyterMessage) GetParentHeader() *MessageHeader {
 }
 
 func (m *JupyterMessage) ParentHeaderFrame() JupyterFrame {
-	return JupyterFrame(JupyterFrames(m.Msg.Frames[m.Offset:])[JupyterFrameParentHeader])
+	return JupyterFrames(m.Msg.Frames[m.Offset:])[JupyterFrameParentHeader]
 }
 
-// The header is lazily decoded/deserialized.
-// This decodes/deserializes it.
+// GetHeader decodes/deserializes the Jupyter message header.
+// (The header is lazily decoded in general.)
 func (m *JupyterMessage) GetHeader() (*MessageHeader, error) {
 	if m.headerDecoded {
 		return m.header, nil
@@ -270,7 +271,7 @@ func (m *JupyterMessage) GetMsg() *zmq4.Msg {
 	return m.Msg
 }
 
-// Convenience/utility method for retrieving the Jupyter message type from the Jupyter message header.
+// JupyterMessageType is a convenience/utility method for retrieving the Jupyter message type from the Jupyter message header.
 func (m *JupyterMessage) JupyterMessageType() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
@@ -279,7 +280,7 @@ func (m *JupyterMessage) JupyterMessageType() string {
 	return header.MsgType
 }
 
-// Convenience/utility method for retrieving the Jupyter date type from the Jupyter message header.
+// JupyterMessageDate is a convenience/utility method for retrieving the Jupyter date type from the Jupyter message header.
 func (m *JupyterMessage) JupyterMessageDate() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
@@ -288,7 +289,7 @@ func (m *JupyterMessage) JupyterMessageDate() string {
 	return header.Date
 }
 
-// Convenience/utility method for retrieving the Jupyter session from the Jupyter message header.2
+// JupyterSession is a convenience/utility method for retrieving the Jupyter session from the Jupyter message header.2
 func (m *JupyterMessage) JupyterSession() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
@@ -297,7 +298,7 @@ func (m *JupyterMessage) JupyterSession() string {
 	return header.Session
 }
 
-// Convenience/utility method for retrieving the Jupyter message ID from the Jupyter message header.
+// JupyterMessageId is a convenience/utility method for retrieving the Jupyter message ID from the Jupyter message header.
 func (m *JupyterMessage) JupyterMessageId() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {

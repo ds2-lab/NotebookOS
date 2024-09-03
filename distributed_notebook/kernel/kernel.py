@@ -1013,7 +1013,7 @@ class DistributedKernel(IPythonKernel):
             #
             # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
             # Pass value > 0 to lead a specific execution.
-            # In either case, the execution will wait until states are synchornized.
+            # In either case, the execution will wait until states are synchronized.
             # type: ignore
             self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1, True)
 

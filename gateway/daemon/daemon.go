@@ -87,6 +87,8 @@ var (
 	ErrDaemonNotFoundOnNode    = errors.New("could not find a local daemon on the specified kubernetes node")
 	ErrFailedToVerifyMessage   = errors.New("failed to verify ZMQ message after (re)encoding it with modified contents")
 	ErrRequestTimedOut         = errors.New("request timed out")
+	ErrSessionNotTraining      = errors.New("expected session to be training")
+	ErrSessionNotFound         = errors.New("could not locate scheduling.Session instance")
 	//ErrResourceSpecNotRegistered = errors.New("there is no resource spec registered with the kernel")
 	//ErrInvalidJupyterMessage     = errors.New("invalid jupter message")
 	//ErrHeaderNotFound            = errors.New("message header not found")
@@ -740,27 +742,30 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := NewHostScheduler(incoming.RemoteAddr().String(), gConn, time.Duration(30)*time.Second, d.localDaemonDisconnected, 8, 16384)
-	if err == nil {
-		d.cluster.GetHostManager().Store(host.ID(), host)
-	} else if errors.Is(err, errRestoreRequired) {
-		// Restore host scheduler.
-		registered, loaded := d.cluster.GetHostManager().LoadOrStore(host.ID(), host)
-		if loaded {
-			err := registered.Restore(host, d.localDaemonDisconnected)
-			if err != nil {
-				d.log.Error("Error while restoring host %v: %v", host, err)
-				return nil, err
+	host, err := NewHostScheduler(incoming.RemoteAddr().String(), gConn, time.Duration(30)*time.Second,
+		d.localDaemonDisconnected, 8, 16384, d.cluster)
+
+	if err != nil {
+		if errors.Is(err, errRestoreRequired) {
+			// Restore host scheduler.
+			registered, loaded := d.cluster.GetHostManager().LoadOrStore(host.ID(), host)
+			if loaded {
+				err := registered.Restore(host, d.localDaemonDisconnected)
+				if err != nil {
+					d.log.Error("Error while restoring host %v: %v", host, err)
+					return nil, err
+				}
+			} else {
+				d.log.Warn("Host scheduler requested for restoration but not found: %s", host.ID())
+				return nil, ErrRestorationFailed
 			}
 		} else {
-			d.log.Warn("Host scheduler requested for restoration but not found: %s", host.ID())
-			// TODO: Notify scheduler to restore?
+			d.log.Error("Failed to create host scheduler client: %v", err)
+			return nil, err
 		}
-	} else {
-		d.log.Error("Failed to create host scheduler client: %v", err)
-		return conn, nil
 	}
 
+	d.cluster.GetHostManager().Store(host.ID(), host)
 	d.log.Info("Incoming host scheduler %s (node = %s) connected", host.ID(), host.NodeName())
 	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the Cluster Gateway.", host.ID(), host.NodeName()))
 
@@ -1335,19 +1340,18 @@ func (d *ClusterGatewayImpl) initNewKernel(in *gateway.KernelSpec) (*client.Base
 	}
 	d.log.Debug("Initializing IO Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 
-	_, err = kernel.InitializeIOForwarder()
-
-	if err != nil {
+	if _, err = kernel.InitializeIOForwarder(); err != nil {
 		if closeErr := kernel.Close(); closeErr != nil {
 			d.log.Error("Error while closing kernel %s: %v.", kernel.ID(), closeErr)
 		}
 
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
+	replica.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
 
 	// Create a new Session for scheduling purposes.
 	resourceUtil := scheduling.NewEmptyResourceUtilization().WithCpuUtilization(0).WithMemoryUsageMb(0).WithNGpuUtilizationValues(in.ResourceSpec.Gpu, 0)
-	session := scheduling.NewUserSession(context.Background(), kernel, resourceUtil, d.ClusterOptions)
+	session := scheduling.NewUserSession(context.Background(), kernel, resourceUtil, d.cluster, d.ClusterOptions)
 	d.sessions.Store(kernel.ID(), session)
 
 	// Assign the Session to the DistributedKernelClient.
@@ -1808,7 +1812,6 @@ func (d *ClusterGatewayImpl) GetKernelStatus(ctx context.Context, in *gateway.Ke
 	}
 
 	kernelStatus := kernel.Status()
-	// d.log.Debug("Returning kernel status: %v", status)
 
 	return d.statusErrorf(kernelStatus, nil)
 }
@@ -1874,7 +1877,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *gateway.KernelId) (ret *gateway.
 	d.log.Debug("Finished deleting kernel %s.", kernel.ID())
 
 	if !restart && d.KubernetesMode() /* Only delete CloneSet if we're in Kubernetes mode */ {
-		d.log.Debug("Deleting cloneset of deleted kernel %s now.", kernel.ID())
+		d.log.Debug("Deleting CloneSet of deleted kernel %s now.", kernel.ID())
 
 		// Delete the CloneSet.
 		err := d.kubeClient.DeleteCloneset(kernel.ID())
@@ -2241,11 +2244,11 @@ func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *jupyter
 	return err
 }
 
-func (d *ClusterGatewayImpl) kernelShellHandler(kernel scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+func (d *ClusterGatewayImpl) kernelShellHandler(kernel scheduling.KernelInfo, _ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	return d.ShellHandler(kernel, msg)
 }
 
-func (d *ClusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
+func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	// kernelId, header, _, err := jupyter.HeaderFromMsg(msg)
 	// if err != nil {
 	// 	d.log.Error("Could not parse Shell message from %s because: %v", info.String(), err)
@@ -2298,17 +2301,41 @@ func (d *ClusterGatewayImpl) ShellHandler(info router.RouterInfo, msg *jupyter.J
 	return nil
 }
 
-func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) {
+func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	d.log.Debug("Received execute-reply from kernel %s.", kernelId)
 
 	activeExecution, ok := d.activeExecutions.Load(kernelId)
 	if !ok {
 		d.log.Error("No active execution registered for kernel %s...", kernelId)
-		return
+		return nil
 	}
 
 	d.log.Debug("Unregistered active execution %s for kernel %s.", activeExecution.ExecutionId(), kernelId)
 	d.activeExecutions.Delete(kernelId)
+
+	// Attempt to load the associated Session.
+	session, ok := d.sessions.Load(kernelId)
+	if !ok {
+		errorMessage := fmt.Sprintf("Failed to locate scheduling.Session[ID=\"%s\"] when handling \"execute_reply\" message...", kernelId)
+		d.log.Error(errorMessage)
+		return fmt.Errorf("%w: Kernel ID: \"%s\"", ErrSessionNotFound, kernelId)
+	}
+
+	// Validate that the Session is currently training.
+	if !session.IsTraining() {
+		sessionState := session.GetState()
+		d.log.Error("Session \"%s\" is supposed to be training (as we just received \"execute_reply\"); however, Session \"%s\" is in state '%v'...", kernelId, kernelId, sessionState)
+		return fmt.Errorf("%w: found session in state '%v'", ErrSessionNotTraining, sessionState)
+	}
+
+	// Record that the Session has stopped training.
+	if p := session.TrainingStopped(); p.Error() != nil {
+		err := p.Error()
+		d.log.Error("Error when stopping training for Session \"%s\": %v", kernelId, err)
+		return err
+	}
+
+	return nil
 }
 
 func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel client.DistributedKernelClient) {
@@ -2321,21 +2348,11 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernel.ID(), activeExecution)
 }
 
-// func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel client.DistributedKernelClient, header *jupyter.MessageHeader) {
-// 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernel.ID(), msg)
-
-// 	activeExecution := client.NewActiveExecution(kernel.ID(), header.Session, 1, kernel.Size(), msg)
-// 	d.activeExecutions.Store(kernel.ID(), activeExecution)
-// 	kernel.SetActiveExecution(activeExecution)
-
-// 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernel.ID(), activeExecution)
-// }
-
-func (d *ClusterGatewayImpl) StdinHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
+func (d *ClusterGatewayImpl) StdinHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	return d.forwardRequest(nil, jupyter.StdinMessage, msg)
 }
 
-func (d *ClusterGatewayImpl) HBHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
+func (d *ClusterGatewayImpl) HBHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	return d.forwardRequest(nil, jupyter.HBMessage, msg)
 }
 
@@ -2553,24 +2570,11 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 	}
 
 	if typ == jupyter.ShellMessage {
-		// _, header, _, err := jupyter.HeaderFromMsg(msg)
-
-		// if err != nil {
-		// 	// d.log.Error("[gid=%d] Failed to extract header from %v message.", goroutineId, typ)
-		// 	d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
-		// 	sendErr := socket.Send(*msg)
-
-		// 	if sendErr != nil {
-		// 		d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())
-		// 	} else {
-		// 		// d.log.Debug("[gid=%d] Successfully forwarded %v response from kernel %s via %s.", goroutineId, typ, from.ID(), socket.Name)
-		// 	}
-
-		// 	return sendErr
-		// }
-
 		if msg.JupyterMessageType() == ShellExecuteReply {
-			d.processExecutionReply(from.ID())
+			err := d.processExecutionReply(from.ID())
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 
