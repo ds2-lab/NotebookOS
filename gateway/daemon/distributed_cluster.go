@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"net"
 	"sync/atomic"
@@ -10,7 +11,6 @@ import (
 	"github.com/hashicorp/yamux"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -28,7 +28,7 @@ type DistributedCluster struct {
 	log logger.Logger
 }
 
-func NewDistributedCluster(gatewayDaemon *ClusterGatewayImpl, opts *domain.ClusterDaemonOptions) *DistributedCluster {
+func NewDistributedCluster(gatewayDaemon *ClusterGatewayImpl) *DistributedCluster {
 	dc := &DistributedCluster{
 		gatewayDaemon: gatewayDaemon,
 	}
@@ -38,7 +38,7 @@ func NewDistributedCluster(gatewayDaemon *ClusterGatewayImpl, opts *domain.Clust
 	return dc
 }
 
-// This function is used to notify the Dashboard that a panic has occurred.
+// HandlePanic is used to notify the Dashboard that a panic has occurred.
 // We'll still panic, but we send a notification first so that the user can be notified clearly that something bad has happened.
 //
 // Parameter:
@@ -63,12 +63,12 @@ func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{})
 	}
 }
 
-// Used to test notifications.
+// SpoofNotifications is used to test notifications.
 func (dc *DistributedCluster) SpoofNotifications(ctx context.Context, in *proto.Void) (*proto.Void, error) {
 	return dc.gatewayDaemon.SpoofNotifications(ctx, in)
 }
 
-// Used for debugging/testing. Causes a Panic.
+// InducePanic is used for debugging/testing. Causes a Panic.
 func (dc *DistributedCluster) InducePanic(ctx context.Context, in *proto.Void) (*proto.Void, error) {
 	panic("Inducing a panic.")
 }
@@ -98,8 +98,8 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 
 	dc.log.Debug("Accepting gRPC connection from Cluster Dashboard. LocalAddr: %v. RemoteAddr: %v.", incoming.LocalAddr(), incoming.RemoteAddr())
 
-	// Initialize yamux session for bi-directional gRPC calls
-	// At gateway side, we first wait a incoming replacement connection, then create a reverse provisioner connection to the Cluster Dashboard.
+	// Initialize yamux session for bidirectional gRPC calls
+	// At gateway side, we first wait for an incoming replacement connection, then create a reverse provisioner connection to the Cluster Dashboard.
 	cliSession, err := yamux.Client(incoming, yamux.DefaultConfig())
 	if err != nil {
 		dc.log.Error("Failed to create yamux client session with Cluster Dashboard: %v", err)
@@ -165,24 +165,24 @@ func (dc *DistributedCluster) Addr() net.Addr {
 	return dc.listener.Addr()
 }
 
-// Return the current GPU resource metrics on the node.
-func (d *DistributedCluster) GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error) {
-	return d.gatewayDaemon.GetClusterActualGpuInfo(ctx, in)
+// GetClusterActualGpuInfo returns the current GPU resource metrics on the node.
+func (dc *DistributedCluster) GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error) {
+	return dc.gatewayDaemon.GetClusterActualGpuInfo(ctx, in)
 }
 
-// Return the current vGPU (or "deflated GPU") resource metrics on the node.
-func (d *DistributedCluster) GetClusterVirtualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterVirtualGpuInfo, error) {
-	return d.gatewayDaemon.getClusterVirtualGpuInfo(ctx, in)
+// GetClusterVirtualGpuInfo returns the current vGPU (or "deflated GPU") resource metrics on the node.
+func (dc *DistributedCluster) GetClusterVirtualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterVirtualGpuInfo, error) {
+	return dc.gatewayDaemon.getClusterVirtualGpuInfo(ctx, in)
 }
 
-// Adjust the total number of virtual GPUs available on a particular node.
+// SetTotalVirtualGPUs adjusts the total number of virtual GPUs available on a particular node.
 //
 // This operation will fail if the new number of virtual GPUs is less than the number of allocated GPUs.
 // For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
 // this function is called with the new total number specified as 32, then the operation will fail.
 // In this case (when the operation fails), an ErrInvalidParameter is returned.
-func (d *DistributedCluster) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
-	return d.gatewayDaemon.setTotalVirtualGPUs(ctx, in)
+func (dc *DistributedCluster) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
+	return dc.gatewayDaemon.setTotalVirtualGPUs(ctx, in)
 }
 
 func (dc *DistributedCluster) ListKernels(ctx context.Context, in *proto.Void) (*proto.ListKernelsResponse, error) {
@@ -201,7 +201,7 @@ func (dc *DistributedCluster) PingKernel(ctx context.Context, in *proto.PingInst
 	return dc.gatewayDaemon.PingKernel(ctx, in)
 }
 
-// Ensure that the next 'execute_request' for the specified kernel fails.
+// FailNextExecution ensures that the next 'execute_request' for the specified kernel fails.
 // This is to be used exclusively for testing/debugging purposes.
 func (dc *DistributedCluster) FailNextExecution(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
 	return dc.gatewayDaemon.FailNextExecution(ctx, in)

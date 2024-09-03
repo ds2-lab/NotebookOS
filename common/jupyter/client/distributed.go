@@ -383,7 +383,7 @@ func (c *DistributedKernelClient) PrepareNewReplica(persistentId string, smrNode
 }
 
 // AddReplica adds a replica peer to the kernel.
-func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host scheduling.Host) error {
+func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host *scheduling.Host) error {
 	// IOForwarder is initialized, link the kernel to feed the IOPub.
 	// _, err := r.InitializeIOSub(c.handleMsg, c.id)
 	_, err := r.InitializeIOSub(c.handleMsg, "")

@@ -30,19 +30,19 @@ var (
 )
 
 type BasicMigrationOperation struct {
-	id                   string                         // Unique identifier of the migration operation.
-	kernelId             string                         // ID of the kernel for which a replica is being migrated.
-	targetClient         client.DistributedKernelClient // distributedKernelClientImpl of the kernel for which we're migrating a replica.
-	targetSmrNodeId      int32                          // The SMR Node ID of the replica that is being migrated.
-	newPodStarted        bool                           // True if a new Pod has been started for the replica that is being migrated. Otherwise, false.
-	newReplicaJoinedSMR  bool                           // True if the new replica has joined the SMR cluster. Otherwise, false.
-	oldPodStopped        bool                           // True if the original Pod of the replica has stopped. Otherwise, false.
-	oldPodName           string                         // Name of the Pod in which the target replica container is running.
-	newPodName           string                         // Name of the new Pod that was started to host the migrated replica.
-	newReplicaRegistered bool                           // If true, then new replica has registered with the Gateway.
-	persistentId         string                         // Persistent ID of replica.
-	newReplicaHostname   string                         // The IP address of the new replica.
-	newSpec              *proto.KernelReplicaSpec       // Spec for the new replica that is created during the migration.
+	id                   string                          // Unique identifier of the migration operation.
+	kernelId             string                          // ID of the kernel for which a replica is being migrated.
+	targetClient         *client.DistributedKernelClient // distributedKernelClientImpl of the kernel for which we're migrating a replica.
+	targetSmrNodeId      int32                           // The SMR Node ID of the replica that is being migrated.
+	newPodStarted        bool                            // True if a new Pod has been started for the replica that is being migrated. Otherwise, false.
+	newReplicaJoinedSMR  bool                            // True if the new replica has joined the SMR cluster. Otherwise, false.
+	oldPodStopped        bool                            // True if the original Pod of the replica has stopped. Otherwise, false.
+	oldPodName           string                          // Name of the Pod in which the target replica container is running.
+	newPodName           string                          // Name of the new Pod that was started to host the migrated replica.
+	newReplicaRegistered bool                            // If true, then new replica has registered with the Gateway.
+	persistentId         string                          // Persistent ID of replica.
+	newReplicaHostname   string                          // The IP address of the new replica.
+	newSpec              *proto.KernelReplicaSpec        // Spec for the new replica that is created during the migration.
 
 	// podStartedMu   sync.Mutex // Used to signal that the new Pod has started.
 	// podStartedCond *sync.Cond // Used with the podStartedCond condition variable.
@@ -56,7 +56,7 @@ type BasicMigrationOperation struct {
 	// completed       bool                            // True if the migration has been completed; otherwise, false (i.e., if it is still ongoing).
 }
 
-func NewMigrationOperation(targetClient client.DistributedKernelClient, targetSmrNodeId int32, oldPodName string, newSpec *proto.KernelReplicaSpec) *BasicMigrationOperation {
+func NewMigrationOperation(targetClient *client.DistributedKernelClient, targetSmrNodeId int32, oldPodName string, newSpec *proto.KernelReplicaSpec) *BasicMigrationOperation {
 	m := &BasicMigrationOperation{
 		id:                   uuid.New().String(),
 		targetClient:         targetClient,
@@ -117,7 +117,7 @@ func (m *BasicMigrationOperation) OperationID() string {
 }
 
 // KernelReplicaClient returns the client.DistributedKernelClient of the kernel for which we're migrating a replica.
-func (m *BasicMigrationOperation) KernelReplicaClient() client.DistributedKernelClient {
+func (m *BasicMigrationOperation) KernelReplicaClient() *client.DistributedKernelClient {
 	return m.targetClient
 }
 
@@ -280,7 +280,7 @@ func (m *migrationManagerImpl) RegisterKernel(kernelId string) {
 }
 
 // InitiateKernelMigration initiates a migration operation for a particular Pod.
-func (m *migrationManagerImpl) InitiateKernelMigration(_ context.Context, targetClient client.DistributedKernelClient, targetSmrNodeId int32, newSpec *proto.KernelReplicaSpec) (string, error) {
+func (m *migrationManagerImpl) InitiateKernelMigration(_ context.Context, targetClient *client.DistributedKernelClient, targetSmrNodeId int32, newSpec *proto.KernelReplicaSpec) (string, error) {
 	kernelId := targetClient.ID()
 	podName, err := targetClient.PodName(targetSmrNodeId)
 	if err != nil {

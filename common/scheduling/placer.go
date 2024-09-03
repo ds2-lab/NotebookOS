@@ -35,7 +35,7 @@ type Placer interface {
 	// The reasons to launch a new host are:
 	// 1. If the host is selected by the placer, the subscription rate is updated before placement to ensure the rate is below the threshold.
 	// 2. We assume the host selected by the scheduler is best fit. If such a choice would fail the subscription rate check, a reselection could not help.
-	Place(host *Host, sess *Session) (*proto.KernelConnectionInfo, error)
+	Place(host *Host, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error)
 
 	// Reclaim atomically reclaims a replica from a host.
 	// If noop is specified, it is the caller's responsibility to stop the replica.

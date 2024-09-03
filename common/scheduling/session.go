@@ -91,15 +91,15 @@ type Session struct {
 	// Session Statistics //
 	////////////////////////
 
-	kernelSpec                     *proto.KernelReplicaSpec // The kernel resourceSpec of the associated kernel.
-	resourceUtilization            *ResourceUtilization     // Current/latest resource usage statistics.
-	startedAt                      time.Time                // Time at which the session began running.
-	trainingTime                   SessionStatistic         // Moving average of training times.
-	migrationTime                  SessionStatistic         // Moving average of migration times.
-	interactivePriority            float64                  // Interactivity Priority
-	interactivePriorityExplanation string                   // Explanation of current Interactivity Priority value.
-	preemptionPriority             cache.InlineCache        // Preemption Priority
-	preemptionPriorityExplanation  string                   // Explanation of current  Preemption Priority value.
+	kernelSpec                     *proto.KernelSpec    // The kernel resourceSpec of the associated kernel.
+	resourceUtilization            *ResourceUtilization // Current/latest resource usage statistics.
+	startedAt                      time.Time            // Time at which the session began running.
+	trainingTime                   SessionStatistic     // Moving average of training times.
+	migrationTime                  SessionStatistic     // Moving average of migration times.
+	interactivePriority            float64              // Interactivity Priority
+	interactivePriorityExplanation string               // Explanation of current Interactivity Priority value.
+	preemptionPriority             cache.InlineCache    // Preemption Priority
+	preemptionPriorityExplanation  string               // Explanation of current  Preemption Priority value.
 
 	interactivePriorityHistory *ValueHistory[float64]
 	preemptionPriorityHistory  *ValueHistory[float64]
@@ -109,10 +109,10 @@ type Session struct {
 	log logger.Logger
 }
 
-func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelReplicaSpec, resourceUtilization *ResourceUtilization, cluster Cluster, opts *CoreOptions) *Session {
+func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelSpec, resourceUtilization *ResourceUtilization, cluster Cluster, opts *CoreOptions) *Session {
 	session := &Session{
 		kernelSpec:          kernelSpec,
-		resourceSpec:        types.FullSpecFromKernelReplicaSpec(kernelSpec),
+		resourceSpec:        types.FullSpecFromKernelSpec(kernelSpec),
 		ctx:                 ctx,
 		cluster:             cluster,
 		id:                  id,
@@ -166,7 +166,7 @@ func (s *Session) ResourceUtilization() *ResourceUtilization {
 	return s.resourceUtilization
 }
 
-func (s *Session) KernelSpec() *proto.KernelReplicaSpec {
+func (s *Session) KernelSpec() *proto.KernelSpec {
 	return s.kernelSpec
 }
 

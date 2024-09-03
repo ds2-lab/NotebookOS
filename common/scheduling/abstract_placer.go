@@ -15,8 +15,8 @@ type AbstractPlacer struct {
 }
 
 // Place atomically places a replica on a host.
-func (placer *AbstractPlacer) Place(host *Host, sess *Session) (*proto.KernelConnectionInfo, error) {
-	return host.StartKernelReplica(context.Background(), sess.KernelSpec())
+func (placer *AbstractPlacer) Place(host *Host, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+	return host.StartKernelReplica(context.Background(), in)
 }
 
 // Reclaim atomically reclaims a replica from a host.

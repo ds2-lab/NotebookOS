@@ -121,7 +121,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 		srv.SetClusterOptions(&options.CoreOptions)
 	})
 
-	distributedCluster := NewDistributedCluster(srv, &options.ClusterDaemonOptions)
+	distributedCluster := NewDistributedCluster(srv)
 
 	distributedClusterServiceListener, err := distributedCluster.Listen("tcp", fmt.Sprintf(":%d", options.DistributedClusterServicePort))
 	if err != nil {
