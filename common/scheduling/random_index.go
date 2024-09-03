@@ -44,7 +44,12 @@ func (index *RandomClusterIndex) Category() (string, interface{}) {
 
 func (index *RandomClusterIndex) IsQualified(host *Host) (interface{}, ClusterIndexQualification) {
 	// Since all hosts are qualified, we check if the host is in the index only.
-	if _, ok := host.GetMeta(HostMetaRandomIndex).(int32); ok {
+	val := host.GetMeta(HostMetaRandomIndex)
+	if val == nil {
+		return expectedRandomIndex, ClusterIndexNewQualified
+	}
+
+	if _, ok := val.(int32); ok {
 		return expectedRandomIndex, ClusterIndexQualified
 	} else {
 		return expectedRandomIndex, ClusterIndexNewQualified

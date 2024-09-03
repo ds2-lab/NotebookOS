@@ -743,11 +743,12 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), 8, 16384, time.Second*2,
-		d.cluster, gConn, d.localDaemonDisconnected)
+	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), 8, 16384,
+		time.Second*2, d.cluster, gConn, d.localDaemonDisconnected)
 
 	if err != nil {
 		if errors.Is(err, scheduling.ErrRestoreRequired) {
+			d.log.Warn("Restoration is required for newly-connected Local Daemon %s.", host.ID())
 			// Restore host scheduler.
 			registered, loaded := d.cluster.GetHostManager().LoadOrStore(host.ID(), host)
 			if loaded {
@@ -766,8 +767,12 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 		}
 	}
 
-	d.cluster.GetHostManager().Store(host.ID(), host)
+	if host == nil {
+		log.Fatalf("Newly-connected host from addr=%s is nil.\n", incoming.RemoteAddr().String())
+	}
+
 	d.log.Info("Incoming host scheduler %s (node = %s) connected", host.ID(), host.NodeName())
+	d.cluster.GetHostManager().Store(host.ID(), host)
 	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the Cluster Gateway.", host.ID(), host.NodeName()))
 
 	return conn, nil

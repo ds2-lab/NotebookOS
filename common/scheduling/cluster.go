@@ -14,7 +14,7 @@ var (
 type ClusterIndexQualification int
 
 const (
-	CategoryClusterIndex = "cluster"
+	CategoryClusterIndex = "BasicCluster"
 
 	// ClusterIndexDisqualified indicates that the host has been indexed and unqualified now.
 	ClusterIndexDisqualified ClusterIndexQualification = -1
@@ -63,7 +63,7 @@ type ClusterIndex interface {
 	ClusterIndexQuerier
 }
 
-// Cluster defines the interface for a cluster that is responsible for:
+// Cluster defines the interface for a BasicCluster that is responsible for:
 // 1. Launching and terminating hosts.
 // 2. Providing a global view of all hosts with multiple indexes.
 // 3. Providing a statistics of the hosts.
@@ -74,38 +74,38 @@ type Cluster interface {
 	// ReleaseHost terminate a host
 	ReleaseHost(id string) promise.Promise
 
-	// GetHostManager returns the host manager of the cluster.
+	// GetHostManager returns the host manager of the BasicCluster.
 	GetHostManager() hashmap.HashMap[string, *Host]
 
-	// AddIndex adds an index to the cluster. For each category and expected value, there can be only one index.
+	// AddIndex adds an index to the BasicCluster. For each category and expected value, there can be only one index.
 	AddIndex(index ClusterIndexProvider) error
 }
 
-type cluster struct {
+type BasicCluster struct {
 	hosts   hashmap.HashMap[string, *Host]
 	indexes hashmap.BaseHashMap[string, ClusterIndexProvider]
 }
 
 func NewCluster() Cluster {
-	return &cluster{
+	return &BasicCluster{
 		hosts:   hashmap.NewConcurrentMap[*Host](256),
 		indexes: hashmap.NewSyncMap[string, ClusterIndexProvider](),
 	}
 }
 
-func (c *cluster) RequestHost(spec types.Spec) promise.Promise {
+func (c *BasicCluster) RequestHost(spec types.Spec) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
 }
 
-func (c *cluster) ReleaseHost(id string) promise.Promise {
+func (c *BasicCluster) ReleaseHost(id string) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
 }
 
-func (c *cluster) GetHostManager() hashmap.HashMap[string, *Host] {
+func (c *BasicCluster) GetHostManager() hashmap.HashMap[string, *Host] {
 	return c
 }
 
-func (c *cluster) AddIndex(index ClusterIndexProvider) error {
+func (c *BasicCluster) AddIndex(index ClusterIndexProvider) error {
 	category, expected := index.Category()
 	key := fmt.Sprintf("%s:%v", category, expected)
 	if _, ok := c.indexes.Load(key); ok {
@@ -116,8 +116,8 @@ func (c *cluster) AddIndex(index ClusterIndexProvider) error {
 	return nil
 }
 
-// onUpdate is called when a host is added to the cluster.
-func (c *cluster) onUpdate(host *Host) {
+// onUpdate is called when a host is added to the BasicCluster.
+func (c *BasicCluster) onUpdate(host *Host) {
 	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
 		if _, status := index.IsQualified(host); status == ClusterIndexNewQualified {
 			index.Add(host)
@@ -130,8 +130,8 @@ func (c *cluster) onUpdate(host *Host) {
 	})
 }
 
-// onDelete is called when a host is deleted from the cluster.
-func (c *cluster) onDelete(host *Host) {
+// onDelete is called when a host is deleted from the BasicCluster.
+func (c *BasicCluster) onDelete(host *Host) {
 	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
 		if _, status := index.IsQualified(host); status != ClusterIndexUnqualified {
 			index.Remove(host)
@@ -143,20 +143,20 @@ func (c *cluster) onDelete(host *Host) {
 // Hashmap implementation
 
 // Len returns the number of *Host instances in the Cluster.
-func (c *cluster) Len() int {
+func (c *BasicCluster) Len() int {
 	return c.hosts.Len()
 }
 
-func (c *cluster) Load(key string) (*Host, bool) {
+func (c *BasicCluster) Load(key string) (*Host, bool) {
 	return c.hosts.Load(key)
 }
 
-func (c *cluster) Store(key string, value *Host) {
+func (c *BasicCluster) Store(key string, value *Host) {
 	c.hosts.Store(key, value)
 	c.onUpdate(value)
 }
 
-func (c *cluster) LoadOrStore(key string, value *Host) (*Host, bool) {
+func (c *BasicCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
 	host, ok := c.hosts.LoadOrStore(key, value)
 	if !ok {
 		c.onUpdate(value)
@@ -165,11 +165,11 @@ func (c *cluster) LoadOrStore(key string, value *Host) (*Host, bool) {
 }
 
 // CompareAndSwap is not supported in host provisioning and will always return false.
-func (c *cluster) CompareAndSwap(key string, oldValue, newValue *Host) (*Host, bool) {
+func (c *BasicCluster) CompareAndSwap(key string, oldValue, newValue *Host) (*Host, bool) {
 	return oldValue, false
 }
 
-func (c *cluster) LoadAndDelete(key string) (*Host, bool) {
+func (c *BasicCluster) LoadAndDelete(key string) (*Host, bool) {
 	host, ok := c.hosts.LoadAndDelete(key)
 	if ok {
 		c.onDelete(host)
@@ -177,10 +177,10 @@ func (c *cluster) LoadAndDelete(key string) (*Host, bool) {
 	return host, ok
 }
 
-func (c *cluster) Delete(key string) {
+func (c *BasicCluster) Delete(key string) {
 	c.hosts.LoadAndDelete(key)
 }
 
-func (c *cluster) Range(f func(key string, value *Host) bool) {
+func (c *BasicCluster) Range(f func(key string, value *Host) bool) {
 	c.hosts.Range(f)
 }

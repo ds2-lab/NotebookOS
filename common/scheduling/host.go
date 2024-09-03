@@ -125,16 +125,16 @@ type Host struct {
 	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
 
 	// IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
-	idleGPUs *types.StatFloat64
+	idleGPUs types.StatFloat64
 
 	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
-	pendingGPUs *types.StatFloat64
+	pendingGPUs types.StatFloat64
 
 	// PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-	committedGPUs *types.StatFloat64
+	committedGPUs types.StatFloat64
 
 	// lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	lastReschedule *types.StatFloat64
+	lastReschedule types.StatFloat64
 
 	pendingContainers types.StatInt32
 
@@ -200,6 +200,7 @@ func NewHost(id string, addr string, cpus int32, memMb int32, gpuInfoRefreshInte
 		trainingContainers:     make([]*Container, 0, int(resourceSpec.GPU())),
 		penalties:              make([]cachedPenalty, int(resourceSpec.GPU())),
 		seenSessions:           make([]string, int(resourceSpec.GPU())),
+		meta:                   hashmap.NewCornelkMap[string, interface{}](64),
 		errorCallback:          errorCallback,
 	}
 
@@ -407,19 +408,19 @@ func (h *Host) CommittedGPUs() float64 {
 // IdleGPUsStat returns the StatFloat64 representing the number of GPUs that the host
 // has not allocated to any Containers.
 func (h *Host) IdleGPUsStat() types.StatFloat64Field {
-	return h.idleGPUs
+	return &h.idleGPUs
 }
 
 // PendingGPUsStat returns the StatFloat64 representing the number of GPUs that are oversubscribed
 // by Containers scheduled on the Host.
 func (h *Host) PendingGPUsStat() types.StatFloat64Field {
-	return h.pendingGPUs
+	return &h.pendingGPUs
 }
 
 // CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound
 // to Containers scheduled on the Host.
 func (h *Host) CommittedGPUsStat() types.StatFloat64Field {
-	return h.committedGPUs
+	return &h.committedGPUs
 }
 
 // ResourceSpec the types.Spec defining the resources available on the Host.
@@ -453,7 +454,7 @@ func (h *Host) Stats() HostStatistics {
 
 // LastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
 func (h *Host) LastReschedule() types.StatFloat64Field {
-	return h.lastReschedule
+	return &h.lastReschedule
 }
 
 // SetMeta sets the metadata of the host.
