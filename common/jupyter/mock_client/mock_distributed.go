@@ -11,12 +11,13 @@ package mock_client
 
 import (
 	context "context"
+	gateway2 "github.com/zhangjyr/distributed-notebook/common/gateway"
+	gateway "github.com/zhangjyr/distributed-notebook/common/proto"
 	reflect "reflect"
 
-	core "github.com/zhangjyr/distributed-notebook/common/scheduling"
-	gateway "github.com/zhangjyr/distributed-notebook/common/gateway"
 	client "github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	core "github.com/zhangjyr/distributed-notebook/common/scheduling"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -44,10 +45,10 @@ func (m *MockDistributedKernelClient) EXPECT() *MockDistributedKernelClientMockR
 }
 
 // ActiveExecution mocks base method.
-func (m *MockDistributedKernelClient) ActiveExecution() *client.ActiveExecution {
+func (m *MockDistributedKernelClient) ActiveExecution() *gateway2.ActiveExecution {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ActiveExecution")
-	ret0, _ := ret[0].(*client.ActiveExecution)
+	ret0, _ := ret[0].(*gateway2.ActiveExecution)
 	return ret0
 }
 
@@ -434,7 +435,7 @@ func (mr *MockDistributedKernelClientMockRecorder) Sessions() *gomock.Call {
 }
 
 // SetActiveExecution mocks base method.
-func (m *MockDistributedKernelClient) SetActiveExecution(activeExecution *client.ActiveExecution) {
+func (m *MockDistributedKernelClient) SetActiveExecution(activeExecution *gateway2.ActiveExecution) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetActiveExecution", activeExecution)
 }

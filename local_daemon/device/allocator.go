@@ -3,12 +3,12 @@ package device
 import (
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"path/filepath"
 	"sync"
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
@@ -43,7 +43,7 @@ type virtualGpuAllocatorImpl struct {
 	vgpusChangedChan chan interface{}
 
 	// Mapping from PodID to its allocation.
-	allocations map[string]*gateway.VirtualGpuAllocation
+	allocations map[string]*proto.VirtualGpuAllocation
 }
 
 // Creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.
@@ -77,7 +77,7 @@ func newVirtualGpuAllocatorImpl(opts *domain.VirtualGpuPluginServerOptions, node
 	allocator := &virtualGpuAllocatorImpl{
 		opts:             opts,
 		stopChan:         make(chan interface{}),
-		allocations:      make(map[string]*gateway.VirtualGpuAllocation),
+		allocations:      make(map[string]*proto.VirtualGpuAllocation),
 		nodeName:         nodeName,
 		podCache:         podCache,
 		vgpusChangedChan: vgpusChangedChan,
@@ -98,7 +98,7 @@ func newVirtualGpuAllocatorImpl(opts *domain.VirtualGpuPluginServerOptions, node
 }
 
 // Return the map of allocations, which is Pod UID -> allocation.
-func (v *virtualGpuAllocatorImpl) getAllocations() map[string]*gateway.VirtualGpuAllocation {
+func (v *virtualGpuAllocatorImpl) getAllocations() map[string]*proto.VirtualGpuAllocation {
 	return v.allocations
 }
 
@@ -163,7 +163,7 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 	defer v.Unlock()
 
 	// Requests are always sent one-at-a-time.
-	var request *pluginapi.ContainerAllocateRequest = req.ContainerRequests[0]
+	var request = req.ContainerRequests[0]
 
 	v.log.Debug("virtualGpuPluginServerImpl::Allocate called. %d vGPU(s) requested.", len(request.DevicesIDs))
 	klog.V(2).Infof("virtualGpuPluginServerImpl::Allocate called. %d vGPU(s) requested.", len(request.DevicesIDs))
@@ -179,7 +179,7 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 		return nil, fmt.Errorf(errorMessage)
 	}
 
-	var numVirtualGPUsRequested int32 = int32(len(request.DevicesIDs))
+	var numVirtualGPUsRequested = int32(len(request.DevicesIDs))
 	for _, pod := range candidatePods {
 		if _, ok := v.allocations[string(pod.UID)]; ok {
 			v.log.Debug("Pod %s(%s) has already been allocated (%d) GPUs. Continuing our search.", string(pod.UID), pod.Name, len(v.allocations[string(pod.UID)].DeviceIDs))
@@ -239,7 +239,7 @@ func (v *virtualGpuAllocatorImpl) doAllocate(vgpusRequired int32, candidatePod *
 	}
 
 	// Store the allocation.
-	allocation := &gateway.VirtualGpuAllocation{
+	allocation := &proto.VirtualGpuAllocation{
 		DeviceIDs: allocatedDeviceIDs,
 	}
 	v.allocations[string(candidatePod.UID)] = allocation
@@ -267,7 +267,7 @@ func (v *virtualGpuAllocatorImpl) ResourceManager() ResourceManager {
 
 // Return an allocation for a particular pod identified by its UID.
 // Returns an `ErrAllocationNotFound` error if no allocation is found.
-func (v *virtualGpuAllocatorImpl) GetAllocationForPod(podUID string) (*gateway.VirtualGpuAllocation, error) {
+func (v *virtualGpuAllocatorImpl) GetAllocationForPod(podUID string) (*proto.VirtualGpuAllocation, error) {
 	allocation, ok := v.allocations[podUID]
 	if !ok {
 		return nil, ErrAllocationNotFound

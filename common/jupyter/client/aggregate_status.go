@@ -49,21 +49,21 @@ type StatusMsg struct {
 	How    string
 }
 
-// The aggregated Jupyter kernel status of a set of kernel replicas.
+// AggregateKernelStatus is the aggregated Jupyter kernel status of a set of kernel replicas.
 type AggregateKernelStatus struct {
 	promise.Promise
 
 	mu sync.Mutex
 
-	kernel           *distributedKernelClientImpl // The client that manages all the replicas.
-	expectingStatus  string                       // Expected status.
-	expectingMatches int32                        // The number of collected status that matches the expected status.
-	allowViolation   bool                         // If true, the status collection will stop on status dismatch.
-	collecting       int32                        // The number of replicas that are collecting status.
-	collectedMap     map[int32]int32              // Map from replica ID to its status.
-	numCollected     int32                        // Number of statuses we've collected.
-	matches          int32                        // The number of collected status that matches the expected status.
-	status           string                       // The last resolved status.
+	kernel           *DistributedKernelClient // The client that manages all the replicas.
+	expectingStatus  string                   // Expected status.
+	expectingMatches int32                    // The number of collected status that matches the expected status.
+	allowViolation   bool                     // If true, the status collection will stop on status dismatch.
+	collecting       int32                    // The number of replicas that are collecting status.
+	collectedMap     map[int32]int32          // Map from replica ID to its status.
+	numCollected     int32                    // Number of statuses we've collected.
+	matches          int32                    // The number of collected status that matches the expected status.
+	status           string                   // The last resolved status.
 	sampleMsg        *types.JupyterMessage
 	lastErr          error
 
@@ -71,13 +71,13 @@ type AggregateKernelStatus struct {
 }
 
 // NewAggregateKernelStatus creates a new aggregate status with configured number of replicas.
-func NewAggregateKernelStatus(kernel *distributedKernelClientImpl, num_replicas int) *AggregateKernelStatus {
-	resetEmptyCollectedMap(num_replicas + 1) // + 1, as the first slot is the current number of statuses collected.
+func NewAggregateKernelStatus(kernel *DistributedKernelClient, numReplicas int) *AggregateKernelStatus {
+	resetEmptyCollectedMap(numReplicas + 1) // + 1, as the first slot is the current number of statuses collected.
 	return &AggregateKernelStatus{
 		Promise:      promise.Resolved(),
 		kernel:       kernel,
 		status:       types.MessageKernelStatusIdle,
-		collectedMap: make(map[int32]int32, num_replicas),
+		collectedMap: make(map[int32]int32, numReplicas),
 		numCollected: 0,
 		// collected: make([]int32, num_replicas+1),
 	}
@@ -89,12 +89,12 @@ func (s *AggregateKernelStatus) Status() string {
 }
 
 // Collect initiate the status collection with actual number of replicas.
-func (s *AggregateKernelStatus) Collect(ctx context.Context, num_replicas int, replica_slots int, expecting string, publish KernelStatusPublisher) {
+func (s *AggregateKernelStatus) Collect(ctx context.Context, numReplicas int, replica_slots int, expecting string, publish KernelStatusPublisher) {
 	// s.kernel.log.Debug("Collecting aggregate status for kernel %s, %d replicas.", s.kernel.id, num_replicas)
 	s.expectingStatus = expecting
 	if expecting == types.MessageKernelStatusIdle {
 		// Idle status is special, it requires all replicas to be idle.
-		s.expectingMatches = int32(num_replicas)
+		s.expectingMatches = int32(numReplicas)
 		s.allowViolation = false
 	} else {
 		// Other status changes on any replica reaches the status.
@@ -102,7 +102,7 @@ func (s *AggregateKernelStatus) Collect(ctx context.Context, num_replicas int, r
 		s.allowViolation = true
 	}
 	// Reset the collected map. Note we need replice_slots+1 because the first element is the number of collected status.
-	s.collecting = int32(num_replicas)
+	s.collecting = int32(numReplicas)
 
 	// if replica_slots >= cap(s.collected) {
 	// 	resetEmptyCollectedMap(replica_slots + 1)
@@ -110,7 +110,7 @@ func (s *AggregateKernelStatus) Collect(ctx context.Context, num_replicas int, r
 	// }
 	// s.collected = s.collected[:replica_slots+1]
 	// copy(s.collected, emptyCollectedMap[:replica_slots+1]) // Reset the collected map.
-	s.collectedMap = make(map[int32]int32, num_replicas)
+	s.collectedMap = make(map[int32]int32, numReplicas)
 	s.numCollected = 0
 
 	// s.status will remain the same.
@@ -153,7 +153,7 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 
 	if err == nil {
 		ret, err := s.Result()
-		// Double check the promise error. Possibilities are the promise can be reseted with promise.ErrReset.
+		// Double-check the promise error. Possibilities are the promise can be reseted with promise.ErrReset.
 		if err != nil || ret == nil {
 			// s.kernel.log.Warn("Failed to obtain status result. Error: %v", err)
 			return

@@ -5,8 +5,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/cache"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"sync/atomic"
 	"time"
@@ -37,60 +35,13 @@ type ContainerStatistics interface {
 	ScaleOutPriority() float64
 }
 
-type Container interface {
-	client.KernelReplicaClient
-
-	// ID returns the kernel ID of the Container.
-	ID() string
-
-	// Session returns the Session associated with the Container.
-	Session() Session
-
-	// Host returns the Host on which the Container is currently scheduled.
-	Host() Host
-
-	// ContainerStatistics returns the statistics of the Container.
-	ContainerStatistics() ContainerStatistics
-
-	// ContainerState returns the Container's current state.
-	ContainerState() ContainerState
-
-	// OutstandingResources returns the resources required by the Container to begin training.
-	OutstandingResources() types.Spec
-
-	// TrainingStarted should be called when the Container begins training.
-	TrainingStarted() error
-
-	// TrainingStopped should be called when the Container stops training.
-	TrainingStopped() error
-
-	// IsTraining returns true if the Container is actively training.
-	// Otherwise, IsTraining returns false.
-	IsTraining() bool
-
-	// IsStopped returns true if the Container has been terminated.
-	IsStopped() bool
-
-	// IsIdle returns true if the Container is currently idle, meaning that it is not currently training.
-	IsIdle() bool
-
-	// IsMigrating returns true if the Container is currently migrating from one Host to another.
-	IsMigrating() bool
-
-	// GetClient returns the client.KernelReplicaClient associated with the Container.
-	GetClient() client.KernelReplicaClient
-
-	// SetClient sets/updates the client.KernelReplicaClient associated with the Container.
-	SetClient(client client.KernelReplicaClient)
-}
-
-type BasicContainer struct {
-	client.KernelReplicaClient
+type Container struct {
+	KernelReplica
 
 	log logger.Logger
 
-	session              Session        // The Session associated with the Container.
-	host                 Host           // The Host on which the Container is currently scheduled.
+	session              *Session       // The Session associated with the Container.
+	host                 *Host          // The Host on which the Container is currently scheduled.
 	id                   string         // The kernel ID of the Container.
 	containerState       ContainerState // The current state of the Container.
 	executions           atomic.Int32   // The number of training events processed by the Container.
@@ -105,17 +56,17 @@ type BasicContainer struct {
 	interactivePriorityExplanation string
 }
 
-// NewBasicContainer creates and returns a new *BasicContainer.
-func NewBasicContainer(session Session, kernelReplica client.KernelReplicaClient, host Host) *BasicContainer {
+// NewContainer creates and returns a new *Container.
+func NewContainer(session *Session, kernelReplica KernelReplica, host *Host) *Container {
 	id := session.ID()
-	container := &BasicContainer{
-		KernelReplicaClient: kernelReplica,
-		id:                  id,
-		host:                host,
-		session:             session,
-		log:                 config.GetLogger(fmt.Sprintf("Container %s", id)),
-		containerState:      ContainerStateIdle,
-		spec:                session.ResourceSpec(),
+	container := &Container{
+		KernelReplica:  kernelReplica,
+		id:             id,
+		host:           host,
+		session:        session,
+		log:            config.GetLogger(fmt.Sprintf("Container %s", id)),
+		containerState: ContainerStateIdle,
+		spec:           session.ResourceSpec(),
 	}
 
 	container.executions.Store(0)
@@ -125,38 +76,42 @@ func NewBasicContainer(session Session, kernelReplica client.KernelReplicaClient
 	return container
 }
 
-// GetClient returns the client.KernelReplicaClient associated with the Container.
-func (c *BasicContainer) GetClient() client.KernelReplicaClient {
-	return c.KernelReplicaClient
+// GetClient returns the KernelReplica associated with the Container.
+func (c *Container) GetClient() KernelReplica {
+	return c.KernelReplica
 }
 
 // OutstandingResources returns the resources required by the Container to begin training.
-func (c *BasicContainer) OutstandingResources() types.Spec {
+func (c *Container) OutstandingResources() types.Spec {
 	return c.outstandingResources
 }
 
-// SetClient sets/updates the client.KernelReplicaClient associated with the Container.
-func (c *BasicContainer) SetClient(client client.KernelReplicaClient) {
-	c.KernelReplicaClient = client
+// SetClient sets/updates the KernelReplica associated with the Container.
+func (c *Container) SetClient(client KernelReplica) {
+	c.KernelReplica = client
 }
 
-func (c *BasicContainer) ContainerStatistics() ContainerStatistics {
+func (c *Container) ContainerStatistics() ContainerStatistics {
 	return c
 }
 
-func (c *BasicContainer) ID() string {
-	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d]", c.id, c.KernelReplicaClient.ReplicaID())
+func (c *Container) ID() string {
+	return fmt.Sprintf("%s-%d", c.id, c.KernelReplica.ReplicaID())
 }
 
-func (c *BasicContainer) Session() Session {
+func (c *Container) String() string {
+	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d]", c.id, c.KernelReplica.ReplicaID())
+}
+
+func (c *Container) Session() *Session {
 	return c.session
 }
 
-func (c *BasicContainer) Host() Host {
+func (c *Container) Host() *Host {
 	return c.host
 }
 
-func (c *BasicContainer) getInteractivePriority() float64 {
+func (c *Container) getInteractivePriority() float64 {
 	c.interactivePriority.Validator(time.Now())
 	required := c.session.ResourceUtilization().NumGpusAsFloat() // float64(c.Session().Meta().GPU.GPUs)
 	idleGPUs := c.host.Stats().IdleGPUs()
@@ -175,17 +130,17 @@ func (c *BasicContainer) getInteractivePriority() float64 {
 }
 
 // InteractivePriority returns the Container's interactive priority metric.
-func (c *BasicContainer) InteractivePriority() float64 {
+func (c *Container) InteractivePriority() float64 {
 	return c.interactivePriority.Value().(float64)
 }
 
-func (c *BasicContainer) InvalidateInteractivePriority() {
+func (c *Container) InvalidateInteractivePriority() {
 	c.interactivePriority.Invalidate()
 }
 
 // PreemptionPriority returns the Container's preemption priority, which is equal to 0 when the Container is idle.
 // When the Container is actively training, its preemption priority is equal to its Session's preemption priority.
-func (c *BasicContainer) PreemptionPriority() float64 {
+func (c *Container) PreemptionPriority() float64 {
 	if c.IsTraining() {
 		return c.Session().SessionStatistics().PreemptionPriority()
 	}
@@ -194,7 +149,7 @@ func (c *BasicContainer) PreemptionPriority() float64 {
 }
 
 // Explain returns an explanation for how the latest metric (specified using the ExplainerKey argument) was computed.
-func (c *BasicContainer) Explain(key ExplainerEntry) string {
+func (c *Container) Explain(key ExplainerEntry) string {
 	switch key {
 	case ExplainInteractivePriority:
 		return c.interactivePriorityExplanation
@@ -212,32 +167,32 @@ func (c *BasicContainer) Explain(key ExplainerEntry) string {
 }
 
 // ContainerState returns the Container's current state.
-func (c *BasicContainer) ContainerState() ContainerState {
+func (c *Container) ContainerState() ContainerState {
 	return c.containerState
 }
 
 // IsStopped returns true if the Session has been terminated.
-func (c *BasicContainer) IsStopped() bool {
+func (c *Container) IsStopped() bool {
 	return c.containerState == ContainerStateStopped
 }
 
 // IsIdle returns true if the Session is currently idle, meaning that none of its replicas are currently training.
-func (c *BasicContainer) IsIdle() bool {
+func (c *Container) IsIdle() bool {
 	return c.containerState == ContainerStateIdle
 }
 
 // IsMigrating returns true if one or more replicas are currently migrating from one Host to another.
-func (c *BasicContainer) IsMigrating() bool {
+func (c *Container) IsMigrating() bool {
 	return c.containerState == ContainerStateMigrating
 }
 
 // IsTraining returns true if the Session is actively training.
 // Otherwise, IsTraining returns false.
-func (c *BasicContainer) IsTraining() bool {
+func (c *Container) IsTraining() bool {
 	return c.containerState == ContainerStateIdle
 }
 
-func (c *BasicContainer) transition(targetState ContainerState) error {
+func (c *Container) transition(targetState ContainerState) error {
 	if c.IsStopped() {
 		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, c.containerState, targetState)
 	}
@@ -252,12 +207,12 @@ func (c *BasicContainer) transition(targetState ContainerState) error {
 //
 // SOP(h) = Last Rescheduling Clock + Freq(h) * IP(h) + SUM PP(h').
 // To schedule out a potential task, we need to weight benefits of migration(IP) and penalty of preempting running task(s) if stay(PP).
-func (c *BasicContainer) ScaleOutPriority() float64 {
+func (c *Container) ScaleOutPriority() float64 {
 	return (c.interactivePriorityBase + 1) * c.InteractivePriority()
 }
 
 // TrainingStarted should be called when the Container begins training.
-func (c *BasicContainer) TrainingStarted() error {
+func (c *Container) TrainingStarted() error {
 	c.lastSpec = c.spec
 
 	// Update resource data on the Host.
@@ -265,10 +220,10 @@ func (c *BasicContainer) TrainingStarted() error {
 	c.host.Stats().IdleGPUsStat().Sub(c.outstandingResources.GPU())
 
 	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().NumGpus))
-	c.outstandingResources = &gateway.ResourceSpec{
-		Gpu:    0,
-		Cpu:    0,
-		Memory: 0,
+	c.outstandingResources = &types.FullSpec{
+		GPUs:     types.GPUSpec(0),
+		CPUs:     0,
+		MemoryMb: 0,
 	}
 
 	// Processing a new training event.
@@ -285,16 +240,16 @@ func (c *BasicContainer) TrainingStarted() error {
 }
 
 // TrainingStopped should be called when the Container stops training.
-func (c *BasicContainer) TrainingStopped() error {
+func (c *Container) TrainingStopped() error {
 	if err := c.transition(ContainerStateIdle); err != nil {
 		c.log.Error("Failed to transition to state %v because: %v", ContainerStateIdle, err)
 		return err
 	}
 
-	c.outstandingResources = &gateway.ResourceSpec{
-		Gpu:    int32(c.spec.GPU() - c.lastSpec.GPU()),
-		Cpu:    int32(c.spec.CPU() - c.lastSpec.CPU()),
-		Memory: int32(c.spec.MemoryMB() - c.lastSpec.MemoryMB()),
+	c.outstandingResources = &types.FullSpec{
+		GPUs:     types.GPUSpec(c.spec.GPU() - c.lastSpec.GPU()),
+		CPUs:     c.spec.CPU() - c.lastSpec.CPU(),
+		MemoryMb: c.spec.MemoryMB() - c.lastSpec.MemoryMB(),
 	}
 	c.spec = c.lastSpec
 

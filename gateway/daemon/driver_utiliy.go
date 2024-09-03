@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"net"
 	"os"
@@ -15,7 +16,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/opentracing/opentracing-go"
 	"github.com/zhangjyr/distributed-notebook/common/consul"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	"google.golang.org/grpc"
@@ -138,14 +138,14 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	// Initialize internel gRPC server
 	provisioner := grpc.NewServer(GetGrpcOptions("Provisioner gRPC Server", tracer, distributedCluster)...)
-	gateway.RegisterClusterGatewayServer(provisioner, srv)
+	proto.RegisterClusterGatewayServer(provisioner, srv)
 
 	// Initialize Jupyter gRPC server
 	registrar := grpc.NewServer(GetGrpcOptions("Jupyter gRPC Server", tracer, distributedCluster)...)
-	gateway.RegisterLocalGatewayServer(registrar, srv)
+	proto.RegisterLocalGatewayServer(registrar, srv)
 
 	distributedClusterRpcServer := grpc.NewServer(GetGrpcOptions("Distributed Cluster gRPC Server", tracer, distributedCluster)...)
-	gateway.RegisterDistributedClusterServer(distributedClusterRpcServer, distributedCluster)
+	proto.RegisterDistributedClusterServer(distributedClusterRpcServer, distributedCluster)
 
 	// Register services in consul
 	if consulClient != nil {

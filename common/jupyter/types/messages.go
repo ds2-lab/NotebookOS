@@ -2,10 +2,10 @@ package types
 
 import (
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"log"
 
 	"github.com/go-zeromq/zmq4"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 

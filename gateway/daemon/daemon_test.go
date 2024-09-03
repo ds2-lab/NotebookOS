@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"sync"
 	"testing"
 
@@ -9,8 +11,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/mock_client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -34,12 +34,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		clusterGateway *ClusterGatewayImpl
 		mockCtrl       *gomock.Controller
 		kernel         *mock_client.MockDistributedKernelClient
-		kernel_key     string = "23d90942-8c3de3a713a5c3611792b7a5"
+		kernel_key     = "23d90942-8c3de3a713a5c3611792b7a5"
 	)
 
 	BeforeEach(func() {
 		clusterGateway = &ClusterGatewayImpl{
-			activeExecutions: hashmap.NewCornelkMap[string, *client.ActiveExecution](64),
+			activeExecutions: hashmap.NewCornelkMap[string, *gateway.ActiveExecution](64),
 		}
 		config.InitLogger(&clusterGateway.log, clusterGateway)
 
@@ -47,18 +47,18 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		kernel = mock_client.NewMockDistributedKernelClient(mockCtrl)
 
 		kernel.EXPECT().ConnectionInfo().Return(&types.ConnectionInfo{SignatureScheme: signature_scheme, Key: kernel_key}).AnyTimes()
-		kernel.EXPECT().KernelSpec().Return(&gateway.KernelSpec{
+		kernel.EXPECT().KernelSpec().Return(&proto.KernelSpec{
 			Id:              "66902bac-9386-432e-b1b9-21ac853fa1c9",
 			Session:         "10cb49c9-b17e-425e-9bc1-ee3ff66e6974",
 			SignatureScheme: signature_scheme,
 			Key:             "23d90942-8c3de3a713a5c3611792b7a5",
-			ResourceSpec: &gateway.ResourceSpec{
+			ResourceSpec: &proto.ResourceSpec{
 				Gpu:    2,
 				Cpu:    100,
 				Memory: 1000,
 			},
 		}).AnyTimes()
-		kernel.EXPECT().ResourceSpec().Return(&gateway.ResourceSpec{
+		kernel.EXPECT().ResourceSpec().Return(&proto.ResourceSpec{
 			Gpu:    2,
 			Cpu:    100,
 			Memory: 1000,

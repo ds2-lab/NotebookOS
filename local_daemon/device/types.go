@@ -2,8 +2,8 @@ package device
 
 import (
 	"errors"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	informersCore "k8s.io/client-go/informers/core/v1"
@@ -44,7 +44,7 @@ type Allocator interface {
 
 	// Return an allocation for a particular pod identified by its UID.
 	// Returns an `ErrAllocationNotFound` error if no allocation is found.
-	GetAllocationForPod(string) (*gateway.VirtualGpuAllocation, error)
+	GetAllocationForPod(string) (*proto.VirtualGpuAllocation, error)
 }
 
 type PreferredAllocator interface {
@@ -73,7 +73,7 @@ type VirtualGpuPluginServer interface {
 	NumAllocatedVirtualGPUs() int    // Return the number of vGPUs that are presently allocated.
 	NumFreeVirtualGPUs() int         // Return the number of vGPUs that are presently free/not allocated.
 
-	GetAllocations() map[string]*gateway.VirtualGpuAllocation // Return the map of allocations, which is Pod UID -> allocation.
+	GetAllocations() map[string]*proto.VirtualGpuAllocation // Return the map of allocations, which is Pod UID -> allocation.
 }
 
 // Implements the PodResourcesLister interface.

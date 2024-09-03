@@ -63,7 +63,7 @@ import (
 	"unsafe"
 
 	"github.com/zhangjyr/distributed-notebook/smr"
-	raft "go.etcd.io/etcd/raft/v3"
+	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"go.etcd.io/etcd/server/v3/wal/walpb"
 	"google.golang.org/protobuf/runtime/protoiface"
@@ -2167,7 +2167,7 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 			}
 			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", arg_0))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
@@ -2191,7 +2191,7 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 			}
 			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", arg_0))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
@@ -2230,7 +2230,7 @@ func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve
 			}
 			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", arg_0))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
@@ -2254,7 +2254,7 @@ func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve
 			}
 			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", arg_0))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
@@ -2293,7 +2293,7 @@ func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObjec
 			}
 			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", arg_0))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
@@ -2317,7 +2317,7 @@ func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObjec
 			}
 			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", arg_0))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
@@ -2356,7 +2356,7 @@ func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, reso
 			}
 			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", arg_0))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
@@ -2380,7 +2380,7 @@ func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, reso
 			}
 			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", arg_0))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
@@ -2482,7 +2482,7 @@ func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state CG
 			}
 			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", arg_0))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
@@ -2506,7 +2506,7 @@ func smr_LogNode_WriteDataDirectoryToHDFS(_handle CGoHandle, serialized_state CG
 			}
 			fmt.Printf("Setting up Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			_fcargs := C.PyTuple_New(2)
-			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", (arg_0)))))
+			C.PyTuple_SetItem(_fcargs, 0, C.gopy_build_string(C.CString(fmt.Sprintf("%s", arg_0))))
 			C.PyTuple_SetItem(_fcargs, 1, C.gopy_build_string(C.CString(arg_1)))
 			fmt.Printf("Setup Python arguments tuple for Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)

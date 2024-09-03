@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"math"
 	"sync"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -31,11 +31,11 @@ var (
 )
 
 type LocalDaemonClient struct {
-	gateway.LocalGatewayClient
+	proto.LocalGatewayClient
 	*scheduling.BaseHost
 
 	// The latest GPU info of this host scheduler.
-	latestGpuInfo          *gateway.GpuInfo
+	latestGpuInfo          *proto.GpuInfo
 	gpuInfoMutex           sync.Mutex
 	gpuInfoRefreshInterval time.Duration
 
@@ -53,10 +53,10 @@ func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval
 	id := uuid.New().String()
 
 	// Create gRPC client.
-	localGatewayClient := gateway.NewLocalGatewayClient(conn)
+	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
-	confirmedId, err := localGatewayClient.SetID(context.Background(), &gateway.HostId{Id: id})
+	confirmedId, err := localGatewayClient.SetID(context.Background(), &proto.HostId{Id: id})
 
 	// Validate the response if there's no explicit error.
 	if err == nil {
@@ -74,20 +74,20 @@ func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval
 	}
 
 	// Get the initial GPU info. If this fails, the creation of a new host scheduler fails.
-	gpuInfoResp, err := localGatewayClient.GetActualGpuInfo(context.Background(), &gateway.Void{})
+	gpuInfoResp, err := localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
 	if err != nil {
 		return nil, err
 	}
 
 	// Create the ResourceSpec defining the resources available on the Host.
-	resourceSpec := &gateway.ResourceSpec{
+	resourceSpec := &proto.ResourceSpec{
 		Gpu:    gpuInfoResp.SpecGPUs,
 		Cpu:    cpus,
 		Memory: memMb,
 	}
 
 	// Create the BaseHost.
-	baseHost := scheduling.NewBaseHost(confirmedId.Id, confirmedId.NodeName, addr, resourceSpec, cluster, conn, errorCallback)
+	baseHost := scheduling.NewHost(confirmedId.Id, confirmedId.NodeName, addr, resourceSpec, cluster, conn, errorCallback)
 
 	// Create the LocalDaemonClient.
 	scheduler := &LocalDaemonClient{
@@ -109,7 +109,7 @@ func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval
 func (c *LocalDaemonClient) pollForGpuInfo() {
 	numConsecutiveFailures := 0
 	for {
-		resp, err := c.LocalGatewayClient.GetActualGpuInfo(context.Background(), &gateway.Void{})
+		resp, err := c.LocalGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
 		if err != nil {
 			c.log.Error("Failed to refresh GPU info from Scheduler %s on Node %s: %v", c.ID(), c.NodeName(), err)
 			numConsecutiveFailures += 1
@@ -123,7 +123,7 @@ func (c *LocalDaemonClient) pollForGpuInfo() {
 					_ = c.BaseHost.ErrorCallback()(c.ID(), c.NodeName(), "Local Daemon Connectivity Error", errorMessage)
 					return
 				} else if numConsecutiveFailures >= ConsecutiveFailuresBad { // If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
-					errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %c. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.", numConsecutiveFailures, c.ID(), c.NodeName(), c.Conn().GetState().String(), c.ID())
+					errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.", numConsecutiveFailures, c.ID(), c.NodeName(), c.Conn().GetState().String(), c.ID())
 					c.log.Error(errorMessage)
 					_ = c.BaseHost.ErrorCallback()(c.ID(), c.NodeName(), "Local Daemon Connectivity Error", errorMessage)
 					return

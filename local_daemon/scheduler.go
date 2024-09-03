@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -23,9 +24,9 @@ const (
 )
 
 var (
-	options domain.LocalDaemonOptions = domain.LocalDaemonOptions{}
-	logger                            = config.GetLogger("")
-	sig                               = make(chan os.Signal, 1)
+	options = domain.LocalDaemonOptions{}
+	logger  = config.GetLogger("")
+	sig     = make(chan os.Signal, 1)
 )
 
 func init() {
@@ -38,7 +39,7 @@ func init() {
 
 func ValidateOptions() {
 	flags, err := config.ValidateOptions(&options)
-	if err == config.ErrPrintUsage {
+	if errors.Is(err, config.ErrPrintUsage) {
 		flags.PrintDefaults()
 		os.Exit(0)
 	} else if err != nil {

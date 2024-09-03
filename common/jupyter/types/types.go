@@ -15,9 +15,7 @@ var (
 	ErrInvalidJupyterMessage       = fmt.Errorf("invalid jupyter message")
 	ErrNotSupportedSignatureScheme = fmt.Errorf("not supported signature scheme")
 	ErrInvalidJupyterSignature     = fmt.Errorf("invalid jupyter signature")
-
-	ErrStopPropagation = fmt.Errorf("stop propagation")
-	ErrNoHandler       = fmt.Errorf("no handler")
+	ErrNoHandler                   = fmt.Errorf("no handler")
 )
 
 const (
@@ -82,7 +80,7 @@ func (ci ConnectionInfo) ToConnectionInfoForKernel() *ConnectionInfoForKernel {
 	}
 }
 
-// ConnectionInfo stores the contents of the kernel connection info.
+// ConnectionInfoForKernel stores the contents of the kernel connection info.
 // The definition is compatible with github.com/mason-leap-lab/go-utils/config.Options
 type ConnectionInfoForKernel struct {
 	IP              string `json:"ip" name:"ip" description:"The IP address of the kernel."`

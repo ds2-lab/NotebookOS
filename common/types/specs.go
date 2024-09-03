@@ -1,6 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
+)
 
 type Spec interface {
 	// GPU returns the number of GPUs required.
@@ -105,4 +108,24 @@ func (s *FullSpec) String() string {
 // parameterized Spec (the Spec being satisfied).
 func (s *FullSpec) Validate(requirement Spec) bool {
 	return s.GPU() >= requirement.GPU() && s.CPU() >= requirement.CPU() && s.MemoryMB() > requirement.MemoryMB()
+}
+
+// FullSpecFromKernelReplicaSpec converts the *proto.ResourceSpec contained within the given
+// *proto.KernelReplicaSpec to a *FullSpec and returns the resulting *FullSpec.
+func FullSpecFromKernelReplicaSpec(in *proto.KernelReplicaSpec) *FullSpec {
+	return &FullSpec{
+		GPUs:     GPUSpec(in.Kernel.ResourceSpec.Gpu),
+		CPUs:     float64(in.Kernel.ResourceSpec.Cpu),
+		MemoryMb: float64(in.Kernel.ResourceSpec.Memory),
+	}
+}
+
+// FullSpecFromKernelReplicaSpec converts the *proto.ResourceSpec contained within the given
+// *proto.KernelSpec to a *FullSpec and returns the resulting *FullSpec.
+func FullSpecFromKernelSpec(in *proto.KernelSpec) *FullSpec {
+	return &FullSpec{
+		GPUs:     GPUSpec(in.ResourceSpec.Gpu),
+		CPUs:     float64(in.ResourceSpec.Cpu),
+		MemoryMb: float64(in.ResourceSpec.Memory),
+	}
 }

@@ -4,7 +4,7 @@
 // 	protoc        v5.27.2
 // source: common/gateway/gateway.proto
 
-package gateway
+package proto
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -1698,9 +1698,9 @@ type KernelSpec struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id              string        `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`           // The kernel id.
-	Session         string        `protobuf:"bytes,2,opt,name=session,proto3" json:"session,omitempty"` // The id of session associated with the kernel manager.
-	Argv            []string      `protobuf:"bytes,3,rep,name=argv,proto3" json:"argv,omitempty"` // Command line arguments to be passed to the kernel Python process upon starting it.
+	Id              string        `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                           // The kernel id.
+	Session         string        `protobuf:"bytes,2,opt,name=session,proto3" json:"session,omitempty"`                 // The id of session associated with the kernel manager.
+	Argv            []string      `protobuf:"bytes,3,rep,name=argv,proto3" json:"argv,omitempty"`                       // Command line arguments to be passed to the kernel Python process upon starting it.
 	SignatureScheme string        `protobuf:"bytes,4,opt,name=signatureScheme,proto3" json:"signatureScheme,omitempty"` // The signature scheme to use.
 	Key             string        `protobuf:"bytes,5,opt,name=key,proto3" json:"key,omitempty"`                         // The key to use for signing messages.
 	ResourceSpec    *ResourceSpec `protobuf:"bytes,6,opt,name=resourceSpec,proto3" json:"resourceSpec,omitempty"`       // Resource requirements of the kernel.
@@ -2052,9 +2052,9 @@ type KernelRegistrationNotificationResponse struct {
 
 	Id                     int32            `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	Replicas               map[int32]string `protobuf:"bytes,2,rep,name=replicas,proto3" json:"replicas,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	SmrPort                int32            `protobuf:"varint,3,opt,name=smrPort,proto3" json:"smrPort,omitempty"`
-	ResourceSpec           *ResourceSpec    `protobuf:"bytes,4,opt,name=resourceSpec,proto3" json:"resourceSpec,omitempty"`
-	ShouldReadDataFromHdfs bool             `protobuf:"varint,5,opt,name=shouldReadDataFromHdfs,proto3" json:"shouldReadDataFromHdfs,omitempty"`
+	SmrPort                int32         `protobuf:"varint,3,opt,name=smrPort,proto3" json:"smrPort,omitempty"`
+	ResourceSpec           *ResourceSpec `protobuf:"bytes,4,opt,name=resourceSpec,proto3" json:"resourceSpec,omitempty"`
+	ShouldReadDataFromHdfs bool          `protobuf:"varint,5,opt,name=shouldReadDataFromHdfs,proto3" json:"shouldReadDataFromHdfs,omitempty"`
 	PersistentId           *string          `protobuf:"bytes,6,opt,name=persistentId,proto3,oneof" json:"persistentId,omitempty"`
 }
 

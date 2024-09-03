@@ -4,17 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"strings"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 )
 
 const (
-	DefaultRequestTimeout time.Duration = time.Second * 120
+	DefaultRequestTimeout = time.Second * 120
 )
 
 var (
@@ -220,7 +220,7 @@ func (b *RequestBuilder) WithJMsgPayload(msg *JupyterMessage) *RequestBuilder {
 
 	var (
 		requestId string
-		jOffset   int = -1
+		jOffset   = -1
 	)
 	if len(msg.DestinationId) == 0 {
 		requestId, jOffset = msg.AddDestinationId(b.destinationId)

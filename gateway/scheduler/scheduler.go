@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"math"
 	"net/http"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	corev1 "k8s.io/api/core/v1"
 	scheduler "k8s.io/kube-scheduler/extender/v1"
@@ -23,7 +23,7 @@ var (
 )
 
 type aggregateGpuInfo struct {
-	*gateway.ClusterActualGpuInfo
+	*proto.ClusterActualGpuInfo
 
 	TotalSpecGPUs              int32 `json:"specGPUs,omitempty"`              // The total number of GPUs c onfigured/present on this node.
 	TotalIdleGPUs              int32 `json:"idleGPUs,omitempty"`              // The number of GPUs that are uncommitted and therefore available on this node. This quantity is equal to specGPUs - committedGPUs.
@@ -189,7 +189,7 @@ func (s *clusterSchedulerImpl) RefreshAll() []error {
 // Refresh the actual GPU usage information.
 // Returns nil on success; returns an error on failure.
 func (s *clusterSchedulerImpl) RefreshActualGpuInfo() error {
-	clusterGpuInfo, err := s.gateway.GetClusterActualGpuInfo(context.TODO(), &gateway.Void{})
+	clusterGpuInfo, err := s.gateway.GetClusterActualGpuInfo(context.TODO(), &proto.Void{})
 	if err != nil {
 		s.log.Error("Error while to retrieving 'actual' GPU info: %v", err)
 	} else {
@@ -279,7 +279,7 @@ func (s *clusterSchedulerImpl) ValidateCapacity() {
 	// result in the intended behavior as I set the minimum capacity of the host pool moreso from an economic standpoint
 	// to take advantage of reserved pricing.
 	if scaledOutNumHosts < (minNumHosts + s.scalingBufferSize) {
-		scaledOutNumHosts = (minNumHosts + s.scalingBufferSize)
+		scaledOutNumHosts = minNumHosts + s.scalingBufferSize
 		// s.log.Debug("Adjusted scaledOutNumHosts: %s.", scaledOutNumHosts)
 	}
 	if limit < minNumHosts+4 {
@@ -294,7 +294,7 @@ func (s *clusterSchedulerImpl) ValidateCapacity() {
 	// Only scale-out if that feature is enabled.
 	if s.scalingOutEnaled && old_num_hosts < scaledOutNumHosts {
 		// Scaling out
-		var numProvisioned int = 0
+		var numProvisioned = 0
 
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
 			s.log.Debug("Scaling-out by %d hosts (from %d to %d).", scaledOutNumHosts-old_num_hosts, old_num_hosts, scaledOutNumHosts)
@@ -302,7 +302,7 @@ func (s *clusterSchedulerImpl) ValidateCapacity() {
 
 		// This is such a minor optimization, but we cache the size of the active host pool locally so that we don't have to grab it everytime.
 		// The size of the pending host pool will grow each time we provision a new host.
-		var activeSize int32 = s.activeSize()
+		var activeSize = s.activeSize()
 		for (activeSize + s.pendingSize()) < scaledOutNumHosts {
 			err := s.AddNode()
 			if err != nil {

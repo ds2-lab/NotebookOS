@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"log"
 	"net"
 	"os"
@@ -24,8 +26,8 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 
@@ -57,16 +59,15 @@ type SchedulerDaemonImpl struct {
 	virtualGpuPluginServer device.VirtualGpuPluginServer
 
 	schedulingPolicy string
-	gateway.UnimplementedLocalGatewayServer
-	router    *router.Router
-	scheduler scheduling.LocalDaemonClient
+	proto.UnimplementedLocalGatewayServer
+	router *router.Router
 
 	// Options
 	connectionOptions      *jupyter.ConnectionInfo
 	schedulerDaemonOptions domain.SchedulerDaemonOptions
 
 	// Cluster client
-	provisioner gateway.ClusterGatewayClient
+	provisioner proto.ClusterGatewayClient
 
 	smrPort int
 
@@ -74,7 +75,7 @@ type SchedulerDaemonImpl struct {
 	transport                    string
 	ip                           string
 	kernels                      hashmap.HashMap[string, client.KernelReplicaClient]
-	kernelClientCreationChannels hashmap.HashMap[string, chan *gateway.KernelConnectionInfo]
+	kernelClientCreationChannels hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
 
 	log logger.Logger
 
@@ -119,7 +120,7 @@ type SchedulerDaemonImpl struct {
 type KernelRegistrationPayload struct {
 	SignatureScheme string                  `json:"signature_scheme"`
 	Key             string                  `json:"key"`
-	Kernel          *gateway.KernelSpec     `json:"kernel,omitempty"`
+	Kernel          *proto.KernelSpec       `json:"kernel,omitempty"`
 	ReplicaId       int32                   `json:"replicaId,omitempty"`
 	NumReplicas     int32                   `json:"numReplicas,omitempty"`
 	Join            bool                    `json:"join,omitempty"`
@@ -145,7 +146,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		ip:                           ip,
 		nodeName:                     nodeName,
 		kernels:                      hashmap.NewCornelkMap[string, client.KernelReplicaClient](1000),
-		kernelClientCreationChannels: hashmap.NewCornelkMap[string, chan *gateway.KernelConnectionInfo](250),
+		kernelClientCreationChannels: hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](250),
 		kernelDebugPorts:             hashmap.NewCornelkMap[string, int](250),
 		availablePorts:               utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
 		closed:                       make(chan struct{}),
@@ -164,7 +165,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
-	daemon.scheduler = NewMembershipScheduler(daemon)
 
 	if daemon.ip == "" {
 		ip, err := utils.GetIP()
@@ -256,19 +256,19 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	return daemon
 }
 
-func (d *SchedulerDaemonImpl) Provisioner() gateway.ClusterGatewayClient {
+func (d *SchedulerDaemonImpl) Provisioner() proto.ClusterGatewayClient {
 	return d.provisioner
 }
 
-func (d *SchedulerDaemonImpl) SetProvisioner(provisioner gateway.ClusterGatewayClient) {
+func (d *SchedulerDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayClient) {
 	d.provisioner = provisioner
 }
 
 // SetID sets the SchedulerDaemonImpl id by the gateway.
-func (d *SchedulerDaemonImpl) SetID(ctx context.Context, in *gateway.HostId) (*gateway.HostId, error) {
+func (d *SchedulerDaemonImpl) SetID(ctx context.Context, in *proto.HostId) (*proto.HostId, error) {
 	// If id has been set(e.g., restored after restart), return the original id.
 	if d.id != "" {
-		return &gateway.HostId{
+		return &proto.HostId{
 			Id:       d.id,
 			NodeName: d.nodeName,
 		}, nil
@@ -280,8 +280,8 @@ func (d *SchedulerDaemonImpl) SetID(ctx context.Context, in *gateway.HostId) (*g
 }
 
 // StartKernel starts a single kernel.
-func (d *SchedulerDaemonImpl) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
-	return d.StartKernelReplica(ctx, &gateway.KernelReplicaSpec{
+func (d *SchedulerDaemonImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
+	return d.StartKernelReplica(ctx, &proto.KernelReplicaSpec{
 		ReplicaId: 1,
 		Replicas:  nil,
 		Kernel:    in,
@@ -334,7 +334,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	}
 	d.log.Debug("connInfo: %v", connInfo)
 
-	kernelReplicaSpec := &gateway.KernelReplicaSpec{
+	kernelReplicaSpec := &proto.KernelReplicaSpec{
 		Kernel:       registrationPayload.Kernel,
 		ReplicaId:    registrationPayload.ReplicaId,   // Can get (from config file).
 		NumReplicas:  registrationPayload.NumReplicas, // Can get (from config file).
@@ -354,9 +354,9 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	// We create the kernel client in Docker mode when we launch the kernel (using a DockerInvoker).
 	var (
 		kernel                      client.KernelReplicaClient
-		kernelClientCreationChannel chan *gateway.KernelConnectionInfo
+		kernelClientCreationChannel chan *proto.KernelConnectionInfo
 		loaded                      bool
-		kernelConnectionInfo        *gateway.KernelConnectionInfo
+		kernelConnectionInfo        *proto.KernelConnectionInfo
 	)
 	if d.deploymentMode == types.KubernetesMode {
 		invokerOpts := &invoker.DockerInvokerOptions{
@@ -442,7 +442,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 
 	// TODO: Is this any different than the KernelConnectionInfo object that's created while initializing the kernel client?
 	// If not, then we should just return the `kernelConnectionInfo` variable directly (that's the one created when initializing the kernel client).
-	info := &gateway.KernelConnectionInfo{
+	info := &proto.KernelConnectionInfo{
 		Ip:              d.ip,
 		Transport:       d.transport,
 		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
@@ -455,7 +455,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		Key:             connInfo.Key,
 	}
 
-	kernelRegistrationNotification := &gateway.KernelRegistrationNotification{
+	kernelRegistrationNotification := &proto.KernelRegistrationNotification{
 		ConnectionInfo: info,
 		KernelId:       kernel.ID(),
 		SessionId:      "N/A",
@@ -472,7 +472,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	num_tries := 0
 	max_num_tries := 3
 
-	var response *gateway.KernelRegistrationNotificationResponse
+	var response *proto.KernelRegistrationNotificationResponse
 	// TODO: Figure out a better way to handle this. As of right now, we really cannot recover from this.
 	for num_tries < max_num_tries {
 		response, err = d.provisioner.NotifyKernelRegistered(ctx, kernelRegistrationNotification)
@@ -508,7 +508,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	kernel.SetResourceSpec(response.ResourceSpec)
 	kernel.SetReplicaID(response.Id)
 
-	var kernelDebugPort int = -1
+	var kernelDebugPort = -1
 	kernelDebugPort, _ = d.kernelDebugPorts.Load(kernel.ID())
 
 	payload := map[string]interface{}{
@@ -572,7 +572,7 @@ func (d *SchedulerDaemonImpl) kernelReconnectionFailed(kernel client.KernelRepli
 	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.Type, msg.JupyterMessageType(), reconnectionError)
 	d.log.Error(errorMessage)
 
-	go d.provisioner.Notify(context.TODO(), &gateway.Notification{
+	go d.provisioner.Notify(context.TODO(), &proto.Notification{
 		Title:            "Connection to Kernel Lost & Reconnection Failed",
 		Message:          errorMessage,
 		NotificationType: 0,
@@ -598,7 +598,7 @@ func (d *SchedulerDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(k
 	errorMessage := fmt.Sprintf("Failed to forward \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v", msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID(), resubmissionError)
 	d.log.Error(errorMessage)
 
-	go d.provisioner.Notify(context.TODO(), &gateway.Notification{
+	go d.provisioner.Notify(context.TODO(), &proto.Notification{
 		Title:            "Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed",
 		Message:          errorMessage,
 		NotificationType: 0,
@@ -609,7 +609,7 @@ func (d *SchedulerDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(k
 func (d *SchedulerDaemonImpl) smrReadyCallback(kernelClient client.KernelReplicaClient) {
 	d.log.Debug("Replica %d of kernel %s is ready to join its SMR cluster.", kernelClient.ReplicaID(), kernelClient.ID())
 
-	_, err := d.provisioner.SmrReady(context.TODO(), &gateway.SmrReadyNotification{
+	_, err := d.provisioner.SmrReady(context.TODO(), &proto.SmrReadyNotification{
 		KernelId:     kernelClient.ID(),
 		ReplicaId:    kernelClient.ReplicaID(),
 		PersistentId: kernelClient.PersistentID(),
@@ -621,8 +621,8 @@ func (d *SchedulerDaemonImpl) smrReadyCallback(kernelClient client.KernelReplica
 	}
 }
 
-func (d *SchedulerDaemonImpl) GetActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.GpuInfo, error) {
-	gpuInfo := &gateway.GpuInfo{
+func (d *SchedulerDaemonImpl) GetActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.GpuInfo, error) {
+	gpuInfo := &proto.GpuInfo{
 		SpecGPUs:              int32(d.gpuManager.specGPUs.InexactFloat64()),
 		IdleGPUs:              int32(d.gpuManager.idleGPUs.InexactFloat64()),
 		CommittedGPUs:         int32(d.gpuManager.committedGPUs.InexactFloat64()),
@@ -638,11 +638,11 @@ func (d *SchedulerDaemonImpl) GetActualGpuInfo(ctx context.Context, in *gateway.
 	return gpuInfo, nil
 }
 
-func (d *SchedulerDaemonImpl) PingKernel(ctx context.Context, in *gateway.PingInstruction) (*gateway.Pong, error) {
+func (d *SchedulerDaemonImpl) PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error) {
 	return nil, domain.ErrNotImplemented
 }
 
-func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway.ReplicaInfo) (*gateway.PrepareToMigrateResponse, error) {
+func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *proto.ReplicaInfo) (*proto.PrepareToMigrateResponse, error) {
 	kernelId := req.KernelId
 	replicaId := req.ReplicaId
 	d.log.Debug("Preparing to migrate replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
@@ -720,7 +720,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 	requestWG.Wait()
 	d.log.Debug("Prepare-to-migrate request to replica %d of kernel %s succeeded.", replicaId, kernelId)
 
-	return &gateway.PrepareToMigrateResponse{
+	return &proto.PrepareToMigrateResponse{
 		Id:       replicaId,
 		KernelId: kernelId,
 	}, nil
@@ -728,7 +728,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 
 // Ensure that the next 'execute_request' for the specified kernel fails.
 // This is to be used exclusively for testing/debugging purposes.
-func (d *SchedulerDaemonImpl) YieldNextExecution(ctx context.Context, in *gateway.KernelId) (*gateway.Void, error) {
+func (d *SchedulerDaemonImpl) YieldNextExecution(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
 	kernelId := in.Id
 
 	kernel, ok := d.kernels.Load(kernelId)
@@ -743,7 +743,7 @@ func (d *SchedulerDaemonImpl) YieldNextExecution(ctx context.Context, in *gatewa
 	return gateway.VOID, nil
 }
 
-func (d *SchedulerDaemonImpl) UpdateReplicaAddr(ctx context.Context, req *gateway.ReplicaInfoWithAddr) (*gateway.Void, error) {
+func (d *SchedulerDaemonImpl) UpdateReplicaAddr(ctx context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
 	kernelId := req.KernelId
 	hostname := req.Hostname // The new hostname of the replica.
 	replicaId := req.Id
@@ -768,9 +768,9 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(ctx context.Context, req *gatewa
 	_msg := &zmq4.Msg{Frames: frames}
 	jMsg := jupyter.NewJupyterMessage(_msg)
 
-	var currentNumTries int = 0
-	var maxNumTries int = 3
-	var success bool = false
+	var currentNumTries = 0
+	var maxNumTries = 3
+	var success = false
 	for currentNumTries < maxNumTries {
 		var wg sync.WaitGroup
 		var requestReceived int32 = 0
@@ -814,7 +814,7 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(ctx context.Context, req *gatewa
 	return gateway.VOID, nil
 }
 
-func (d *SchedulerDaemonImpl) AddReplica(ctx context.Context, req *gateway.ReplicaInfoWithAddr) (*gateway.Void, error) {
+func (d *SchedulerDaemonImpl) AddReplica(ctx context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
 	kernelId := req.KernelId
 	hostname := req.Hostname
 	replicaId := req.Id
@@ -864,7 +864,7 @@ func (d *SchedulerDaemonImpl) smrNodeAddedCallback(readyMessage *jupyter.Message
 		return
 	}
 
-	_, err := d.provisioner.SmrNodeAdded(context.TODO(), &gateway.ReplicaInfo{
+	_, err := d.provisioner.SmrNodeAdded(context.TODO(), &proto.ReplicaInfo{
 		KernelId:     readyMessage.KernelId,
 		ReplicaId:    readyMessage.NodeID,
 		PersistentId: readyMessage.PersistentID,
@@ -896,7 +896,7 @@ func (d *SchedulerDaemonImpl) LocalMode() bool {
 // Initialize a kernel client for a new kernel.
 // Initialize shell/IO forwarders, validate the connection with the kernel (which includes connecting to the ZMQ sockets), etc.
 // If there's an error at any point during the initialization process, then the kernel connection/client is closed and an error is returned.
-func (d *SchedulerDaemonImpl) initializeKernelClient(id string, connInfo *jupyter.ConnectionInfo, kernel client.KernelReplicaClient) (*gateway.KernelConnectionInfo, error) {
+func (d *SchedulerDaemonImpl) initializeKernelClient(id string, connInfo *jupyter.ConnectionInfo, kernel client.KernelReplicaClient) (*proto.KernelConnectionInfo, error) {
 	shell := d.router.Socket(jupyter.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		var err error
@@ -939,7 +939,7 @@ func (d *SchedulerDaemonImpl) initializeKernelClient(id string, connInfo *jupyte
 		d.kernels.Store(session, kernel)
 	}
 
-	info := &gateway.KernelConnectionInfo{
+	info := &proto.KernelConnectionInfo{
 		Ip:              d.ip,
 		Transport:       d.transport,
 		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
@@ -959,7 +959,7 @@ func (d *SchedulerDaemonImpl) initializeKernelClient(id string, connInfo *jupyte
 
 // StartKernelReplica launches a new kernel via Docker.
 // This is ONLY used in the Docker-based deployment mode.
-func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gateway.KernelReplicaSpec) (*gateway.KernelConnectionInfo, error) {
+func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
 	if in == nil {
 		d.log.Error("`gateway.KernelReplicaSpec` argument is nil in call to StartKernelReplica...")
 		return nil, ErrNilArgument
@@ -998,7 +998,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 
 	// When the kernel registers, we need the kernel client that we create here.
 	// We use this channel to notify the goroutine handling the registration that the kernel client is setup and connected.
-	kernelClientCreationChannel := make(chan *gateway.KernelConnectionInfo)
+	kernelClientCreationChannel := make(chan *proto.KernelConnectionInfo)
 	d.kernelClientCreationChannels.Store(in.Kernel.Id, kernelClientCreationChannel)
 
 	connInfo, err := kernelInvoker.InvokeWithContext(ctx, in)
@@ -1033,7 +1033,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *gatewa
 }
 
 // KernelStatus returns the status of a kernel.
-func (d *SchedulerDaemonImpl) GetKernelStatus(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
+func (d *SchedulerDaemonImpl) GetKernelStatus(ctx context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Warn("Kernel %s not found on query status", in.Id)
@@ -1045,7 +1045,7 @@ func (d *SchedulerDaemonImpl) GetKernelStatus(ctx context.Context, in *gateway.K
 }
 
 // KillKernel kills a kernel.
-func (d *SchedulerDaemonImpl) KillKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
+func (d *SchedulerDaemonImpl) KillKernel(ctx context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
 	d.log.Debug("KillKernel RPC called for kernel %s.", in.Id)
 
 	kernel, ok := d.kernels.Load(in.Id)
@@ -1060,7 +1060,7 @@ func (d *SchedulerDaemonImpl) KillKernel(ctx context.Context, in *gateway.Kernel
 }
 
 // StopKernel stops a kernel.
-func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
+func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
 	d.log.Debug("StopKernel RPC called for kernel %s.", in.Id)
 
 	kernel, ok := d.kernels.Load(in.Id)
@@ -1125,7 +1125,7 @@ func (d *SchedulerDaemonImpl) stopKernel(ctx context.Context, kernel client.Kern
 }
 
 // WaitKernel waits for a kernel to exit.
-func (d *SchedulerDaemonImpl) WaitKernel(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
+func (d *SchedulerDaemonImpl) WaitKernel(ctx context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", in.Id)
@@ -1136,7 +1136,7 @@ func (d *SchedulerDaemonImpl) WaitKernel(ctx context.Context, in *gateway.Kernel
 	return d.statusErrorf(kernel, status, err)
 }
 
-func (d *SchedulerDaemonImpl) SetClose(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
+func (d *SchedulerDaemonImpl) SetClose(ctx context.Context, in *proto.Void) (*proto.Void, error) {
 	d.Close()
 	return gateway.VOID, nil
 }
@@ -1316,8 +1316,8 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_execute" message.
 	// This will force the replica to necessarily yield the execution to the other replicas.
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
-	var frames jupyter.JupyterFrames = jupyter.JupyterFrames(msg.Frames)
-	var metadataFrame *jupyter.JupyterFrame = frames[msg.Offset:].MetadataFrame()
+	var frames = jupyter.JupyterFrames(msg.Frames)
+	var metadataFrame = frames[msg.Offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
 
 	d.log.Debug("Processing `execute_request` for kernel %s now.", kernel.ID())
@@ -1353,7 +1353,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 		// If this is true, then we'll yield the execution.
 		// Note that we may pass 0 to force the execution to fail, for testing/debugging purposes.
 		// No SMR replica can have an ID of 0.
-		differentTargetReplicaSpecified bool = (targetReplicaId != int32(-1) && targetReplicaId != kernel.ReplicaID())
+		differentTargetReplicaSpecified = targetReplicaId != int32(-1) && targetReplicaId != kernel.ReplicaID()
 
 		// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
 		err error
@@ -1454,8 +1454,8 @@ func (d *SchedulerDaemonImpl) HBHandler(info router.RouterInfo, msg *jupyter.Jup
 // }
 
 // Return the current vGPU allocations on this node.
-func (d *SchedulerDaemonImpl) GetVirtualGpuAllocations(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuAllocations, error) {
-	allocations := &gateway.VirtualGpuAllocations{
+func (d *SchedulerDaemonImpl) GetVirtualGpuAllocations(ctx context.Context, in *proto.Void) (*proto.VirtualGpuAllocations, error) {
+	allocations := &proto.VirtualGpuAllocations{
 		Allocations: d.virtualGpuPluginServer.GetAllocations(),
 	}
 
@@ -1464,8 +1464,8 @@ func (d *SchedulerDaemonImpl) GetVirtualGpuAllocations(ctx context.Context, in *
 	return allocations, nil
 }
 
-func (d *SchedulerDaemonImpl) GetVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuInfo, error) {
-	response := &gateway.VirtualGpuInfo{
+func (d *SchedulerDaemonImpl) GetVirtualGpuInfo(ctx context.Context, in *proto.Void) (*proto.VirtualGpuInfo, error) {
+	response := &proto.VirtualGpuInfo{
 		TotalVirtualGPUs:     int32(d.virtualGpuPluginServer.NumVirtualGPUs()),
 		AllocatedVirtualGPUs: int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()),
 		FreeVirtualGPUs:      int32(d.virtualGpuPluginServer.NumFreeVirtualGPUs()),
@@ -1481,10 +1481,10 @@ func (d *SchedulerDaemonImpl) GetVirtualGpuInfo(ctx context.Context, in *gateway
 // For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
 // this function is called with the new total number specified as 32, then the operation will fail.
 // In this case (when the operation fails), an domain.ErrInvalidParameter is returned.
-func (d *SchedulerDaemonImpl) SetTotalVirtualGPUs(ctx context.Context, in *gateway.SetVirtualGPUsRequest) (*gateway.VirtualGpuInfo, error) {
+func (d *SchedulerDaemonImpl) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
 	newNumVirtualGPUs := in.GetValue()
 	if newNumVirtualGPUs < int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()) {
-		response := &gateway.VirtualGpuInfo{
+		response := &proto.VirtualGpuInfo{
 			TotalVirtualGPUs:     int32(d.virtualGpuPluginServer.NumVirtualGPUs()),
 			AllocatedVirtualGPUs: int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()),
 			FreeVirtualGPUs:      int32(d.virtualGpuPluginServer.NumFreeVirtualGPUs()),
@@ -1499,7 +1499,7 @@ func (d *SchedulerDaemonImpl) SetTotalVirtualGPUs(ctx context.Context, in *gatew
 		return nil, err
 	}
 
-	response, err := d.GetVirtualGpuInfo(ctx, &gateway.Void{})
+	response, err := d.GetVirtualGpuInfo(ctx, &proto.Void{})
 	if err != nil {
 		d.log.Error("Unexpected error while getting the new virtual GPU info: %v", err)
 		return nil, err
@@ -1521,7 +1521,7 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 	var err error
 
 	// Clone the original message.
-	var newMessage zmq4.Msg = msg.Clone()
+	var newMessage = msg.Clone()
 	jMsg := jupyter.NewJupyterMessage(&newMessage)
 
 	// Change the message header.
@@ -1701,7 +1701,7 @@ func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames
 		d.log.Error("Error report specifies kernel %s, but our records indicate that the report originated from kernel %s...", errorReport.KernelId, kernel.ID())
 	}
 
-	go d.provisioner.Notify(context.TODO(), &gateway.Notification{
+	go d.provisioner.Notify(context.TODO(), &proto.Notification{
 		Title:            errorReport.ErrorTitle,
 		Message:          errorReport.ErrorMessage,
 		NotificationType: 0,
@@ -1725,7 +1725,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 			return err
 		}
 
-		kernelReplicaClient := kernel.(client.KernelReplicaClient)
+		kernelReplicaClient := kernel.(scheduling.KernelReplicaClient)
 
 		d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
 		err := d.gpuManager.AllocateGPUs(decimal.NewFromFloat(kernelReplicaClient.ResourceSpec().GPU()), kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID())
@@ -1733,8 +1733,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
 			panic(err) // TODO(Ben): Handle gracefully.
 		}
-		go d.scheduler.OnTaskStart(kernel, &leadMessage)
-		return jupyter.ErrStopPropagation
+		return commonTypes.ErrStopPropagation
 	} else if messageType == jupyter.MessageTypeLeadAfterYield {
 		// TODO(Ben): Need a better way to propagate errors back to the user, either at the Jupyter Notebook or the Workload Driver.
 		panic(fmt.Sprintf("Our replica of kernel %s was selected to lead an execution after explicitly yielding.", kernel.ID()))
@@ -1746,7 +1745,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 
 func (d *SchedulerDaemonImpl) handleIgnoreMsg(kernel scheduling.Kernel, frames jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
 	d.log.Debug("%v ignores %v", kernel, raw)
-	return jupyter.ErrStopPropagation
+	return commonTypes.ErrStopPropagation
 }
 
 func (d *SchedulerDaemonImpl) errorf(err error) error {
@@ -1756,7 +1755,7 @@ func (d *SchedulerDaemonImpl) errorf(err error) error {
 	return status.Errorf(codes.Internal, err.Error())
 }
 
-func (d *SchedulerDaemonImpl) statusErrorf(kernel client.KernelReplicaClient, status jupyter.KernelStatus, err error) (*gateway.KernelStatus, error) {
+func (d *SchedulerDaemonImpl) statusErrorf(kernel client.KernelReplicaClient, status jupyter.KernelStatus, err error) (*proto.KernelStatus, error) {
 	if err != nil {
 		return nil, d.errorf(err)
 	}
@@ -1769,7 +1768,7 @@ func (d *SchedulerDaemonImpl) statusErrorf(kernel client.KernelReplicaClient, st
 		d.log.Debug("Cleaned kernel %s and associated sessions %v after kernel stopped.", kernel.ID(), kernel.Sessions())
 		kernel.Close()
 	}
-	return &gateway.KernelStatus{Status: int32(status)}, nil
+	return &proto.KernelStatus{Status: int32(status)}, nil
 }
 
 func (d *SchedulerDaemonImpl) getInvoker(kernel scheduling.Kernel) invoker.KernelInvoker {

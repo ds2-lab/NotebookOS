@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"net/url"
 	"os"
 	"os/exec"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
@@ -111,7 +111,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		panic("HDFS NameNode endpoint is empty.")
 	}
 
-	var dockerNetworkName string = os.Getenv(DockerNetworkNameEnv)
+	var dockerNetworkName = os.Getenv(DockerNetworkNameEnv)
 
 	invoker := &DockerInvoker{
 		connInfo:             connInfo,
@@ -135,7 +135,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	return invoker
 }
 
-func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *gateway.KernelReplicaSpec) (*jupyter.ConnectionInfo, error) {
+func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.KernelReplicaSpec) (*jupyter.ConnectionInfo, error) {
 	ivk.closed = make(chan struct{})
 	ivk.spec = spec
 	ivk.status = jupyter.KernelStatusInitializing
@@ -250,8 +250,8 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *gateway.K
 // Returns true if both files exist; otherwise, returns false.
 func (ivk *DockerInvoker) validateConfigFilesExist(connectionFile string, configFile string) bool {
 	var (
-		connectionFileExists bool = false
-		configFileExists     bool = false
+		connectionFileExists = false
+		configFileExists     = false
 	)
 
 	if _, err := os.Stat(connectionFile); err == nil {
@@ -363,16 +363,16 @@ func (ivk *DockerInvoker) Wait() (jupyter.KernelStatus, error) {
 	return ivk.status, nil
 }
 
-func (ivk *DockerInvoker) GetReplicaAddress(kernel *gateway.KernelSpec, replicaId int32) string {
+func (ivk *DockerInvoker) GetReplicaAddress(kernel *proto.KernelSpec, replicaId int32) string {
 	return fmt.Sprintf("%s:%d", ivk.generateKernelName(kernel, replicaId), ivk.smrPort)
 }
 
-func (ivk *DockerInvoker) generateKernelName(kernel *gateway.KernelSpec, replica_id int32) string {
+func (ivk *DockerInvoker) generateKernelName(kernel *proto.KernelSpec, replica_id int32) string {
 	return fmt.Sprintf(DockerKernelName, fmt.Sprintf("%s-%d", kernel.Id, replica_id))
 }
 
 // extractKernelName extracts kernel name and port from the replica spec
-func (ivk *DockerInvoker) extractKernelNamePort(spec *gateway.KernelReplicaSpec) (name string, port int, err error) {
+func (ivk *DockerInvoker) extractKernelNamePort(spec *proto.KernelReplicaSpec) (name string, port int, err error) {
 	if spec.ReplicaId > int32(len(spec.Replicas)) {
 		return ivk.generateKernelName(spec.Kernel, spec.ReplicaId), 0, nil
 	}
@@ -386,7 +386,7 @@ func (ivk *DockerInvoker) extractKernelNamePort(spec *gateway.KernelReplicaSpec)
 	return addr.Hostname(), port, nil
 }
 
-func (ivk *DockerInvoker) prepareConnectionInfo(spec *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
+func (ivk *DockerInvoker) prepareConnectionInfo(spec *proto.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	// Write connection file
 	connectionInfo := &jupyter.ConnectionInfo{
 		IP:              "0.0.0.0",
@@ -404,7 +404,7 @@ func (ivk *DockerInvoker) prepareConnectionInfo(spec *gateway.KernelSpec) (*jupy
 	return connectionInfo, nil
 }
 
-func (ivk *DockerInvoker) prepareConfigFile(spec *gateway.KernelReplicaSpec) (*jupyter.ConfigFile, error) {
+func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jupyter.ConfigFile, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		ivk.log.Error("[ERROR] DockerInvoker could not resolve hostname because: %v", err)

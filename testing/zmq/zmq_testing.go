@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"net"
 	"net/http"
@@ -19,7 +20,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/go-zeromq/zmq4"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/testing/fake_kernel"
 )
@@ -218,7 +218,7 @@ func RegisterFakeKernel(kernelId string, replicaId int, wg *sync.WaitGroup) {
 	wg.Done()
 }
 
-func ConnectToDistributedClusterGRPC() (gateway.DistributedClusterClient, *grpc.ClientConn) {
+func ConnectToDistributedClusterGRPC() (proto.DistributedClusterClient, *grpc.ClientConn) {
 	conn, err := grpc.Dial("localhost:18077", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
@@ -226,12 +226,12 @@ func ConnectToDistributedClusterGRPC() (gateway.DistributedClusterClient, *grpc.
 
 	fmt.Printf("Connected to Gateway.\n")
 
-	client := gateway.NewDistributedClusterClient(conn)
+	client := proto.NewDistributedClusterClient(conn)
 
 	return client, conn
 }
 
-func ConnectToLocalGatewayGRPC() (gateway.LocalGatewayClient, *grpc.ClientConn) {
+func ConnectToLocalGatewayGRPC() (proto.LocalGatewayClient, *grpc.ClientConn) {
 	conn, err := grpc.Dial("localhost:18080", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
@@ -239,12 +239,12 @@ func ConnectToLocalGatewayGRPC() (gateway.LocalGatewayClient, *grpc.ClientConn) 
 
 	fmt.Printf("Connected to Gateway.\n")
 
-	client := gateway.NewLocalGatewayClient(conn)
+	client := proto.NewLocalGatewayClient(conn)
 
 	return client, conn
 }
 
-func ConnectToClusterGatewayGRPC() (gateway.ClusterGatewayClient, *grpc.ClientConn) {
+func ConnectToClusterGatewayGRPC() (proto.ClusterGatewayClient, *grpc.ClientConn) {
 	conn, err := grpc.Dial("localhost:18081", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
@@ -252,25 +252,25 @@ func ConnectToClusterGatewayGRPC() (gateway.ClusterGatewayClient, *grpc.ClientCo
 
 	fmt.Printf("Connected to Gateway.\n")
 
-	client := gateway.NewClusterGatewayClient(conn)
+	client := proto.NewClusterGatewayClient(conn)
 
 	return client, conn
 }
 
-func StartFakeKernel(kernelId string, wg *sync.WaitGroup) *gateway.KernelConnectionInfo {
+func StartFakeKernel(kernelId string, wg *sync.WaitGroup) *proto.KernelConnectionInfo {
 	client, conn := ConnectToLocalGatewayGRPC()
 	defer conn.Close()
 
 	fmt.Printf("Created new ClusterGatewayClient.\n")
 
 	resp, err := client.StartKernel(context.Background(),
-		&gateway.KernelSpec{
+		&proto.KernelSpec{
 			Id:              kernelId,
 			Session:         kernelId,
 			Argv:            make([]string, 0),
 			SignatureScheme: "hmac-sha256",
 			Key:             "",
-			ResourceSpec: &gateway.ResourceSpec{
+			ResourceSpec: &proto.ResourceSpec{
 				Cpu:    1,
 				Memory: 1,
 				Gpu:    1,
@@ -290,7 +290,7 @@ func StartFakeKernel(kernelId string, wg *sync.WaitGroup) *gateway.KernelConnect
 func TestZMQ() {
 	kernelId := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
-	respChannel := make(chan *gateway.KernelConnectionInfo)
+	respChannel := make(chan *proto.KernelConnectionInfo)
 
 	var wg1 sync.WaitGroup
 	wg1.Add(1)
@@ -355,7 +355,7 @@ func TestZMQ() {
 			continue
 		}
 
-		resp, err := client.PingKernel(context.Background(), &gateway.PingInstruction{
+		resp, err := client.PingKernel(context.Background(), &proto.PingInstruction{
 			SocketType: socketType,
 			KernelId:   kernelId,
 		})

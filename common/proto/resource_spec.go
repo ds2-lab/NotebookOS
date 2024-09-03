@@ -1,6 +1,4 @@
-package gateway
-
-import "github.com/zhangjyr/distributed-notebook/common/types"
+package proto
 
 // GPU returns the number of GPUs required.
 //
@@ -37,6 +35,6 @@ func (s *ResourceSpec) Mem() float64 {
 //
 // To "satisfy" a Spec means that all the resource values of "this" Spec are larger than that of the
 // parameterized Spec (the Spec being satisfied).
-func (s *ResourceSpec) Validate(requirement types.Spec) bool {
-	return s.GPU() >= requirement.GPU() && s.CPU() >= requirement.CPU() && s.MemoryMB() > requirement.MemoryMB()
-}
+//func (s *ResourceSpec) Validate(requirement types.Spec) bool {
+//	return s.GPU() >= requirement.GPU() && s.CPU() >= requirement.CPU() && s.MemoryMB() > requirement.MemoryMB()
+//}

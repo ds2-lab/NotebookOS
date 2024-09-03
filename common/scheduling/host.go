@@ -5,14 +5,13 @@ import (
 	"github.com/mason-leap-lab/go-utils/cache"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc"
 	"math"
 	"sort"
 	"time"
-
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 )
 
 // ErrorCallback defines a function to be called if a Host appears to be dead.
@@ -36,7 +35,7 @@ type HostMetaKey string
 
 type HostStatistics interface {
 	// Priority returns the host's "priority", which is the benefit gained or lost in terms of GPU time per migration.
-	Priority(session Session) float64
+	Priority(session *Session) float64
 
 	// ScaleInPriority returns the host's "scheduling-in priority", or SIP, which is defined as a * the interactive
 	// priority of a given task + b * the sum of the preemption priorities of the preemptible tasks
@@ -53,58 +52,20 @@ type HostStatistics interface {
 	CommittedGPUs() float64
 
 	// IdleGPUsStat returns the StatFloat64 representing the number of GPUs that the host has not allocated to any Containers.
-	IdleGPUsStat() StatFloat64Field
+	IdleGPUsStat() types.StatFloat64Field
 
 	// PendingGPUsStat returns the StatFloat64 representing the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-	PendingGPUsStat() StatFloat64Field
+	PendingGPUsStat() types.StatFloat64Field
 
 	// CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound to Containers scheduled on the Host.
-	CommittedGPUsStat() StatFloat64Field
+	CommittedGPUsStat() types.StatFloat64Field
 
 	// LastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	LastReschedule() StatFloat64Field
+	LastReschedule() types.StatFloat64Field
 }
 
 type HostMeta interface {
 	Value(key interface{}) interface{}
-}
-
-// Host defines the interface for a host scheduler that is responsible for:
-// 1. Provisioning host-local jupyter kernels.
-// 2. Providing statistics of the host for cluster indexing.
-type Host interface {
-	gateway.LocalGatewayClient
-	fmt.Stringer
-
-	// ID returns the host id.
-	ID() string
-
-	// NodeName returns the name of the Kubernetes host that the node is running on.
-	NodeName() string
-
-	// Addr returns the host address.
-	Addr() string
-
-	// Restore restores the host connection.
-	Restore(Host, ErrorCallback) error
-
-	// Stats returns the statistics of the host.
-	Stats() HostStatistics
-
-	// SetMeta sets the metadata of the host.
-	SetMeta(key HostMetaKey, value interface{})
-
-	// GetMeta return the metadata of the host.
-	GetMeta(key HostMetaKey) interface{}
-
-	// ResourceSpec the types.Spec defining the resources available on the Host.
-	ResourceSpec() types.Spec
-
-	// ContainerScheduled is to be called when a Container is scheduled onto the Host.
-	ContainerScheduled(container Container)
-
-	// ContainerRemoved is to be called when a Container is stopped and removed from the Host.
-	ContainerRemoved(container Container)
 }
 
 type cachedPenalty struct {
@@ -126,41 +87,41 @@ func (p *cachedPenalty) Candidates() ContainerList {
 	return p.preemptions[:]
 }
 
-type BaseHost struct {
-	gateway.LocalGatewayClient
+type Host struct {
+	proto.LocalGatewayClient
 
 	log logger.Logger
 
 	meta               hashmap.BaseHashMap[string, interface{}] // meta is a map of metadata.
-	conn               *grpc.ClientConn                         // gRPC connection to the BaseHost.
-	addr               string                                   // The BaseHost's address.
-	nodeName           string                                   // The BaseHost's name (for printing/logging).
+	conn               *grpc.ClientConn                         // gRPC connection to the Host.
+	addr               string                                   // The Host's address.
+	nodeName           string                                   // The Host's name (for printing/logging).
 	cluster            Cluster                                  // Reference to the Cluster interface that manages this Host.
 	id                 string                                   // Unique ID of this host.
-	containers         hashmap.BaseHashMap[string, Container]   // All kernel replicas scheduled onto this host.
-	trainingContainers []Container                              // Actively-training kernel replicas.
+	containers         hashmap.BaseHashMap[string, *Container]  // All kernel replicas scheduled onto this host.
+	trainingContainers []*Container                             // Actively-training kernel replicas.
 	seenSessions       []string                                 // Sessions that have been scheduled onto this host at least once.
 	resourceSpec       types.Spec                               // The resources available on the Host.
 
 	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
 
 	// IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
-	idleGPUs *StatFloat64
+	idleGPUs *types.StatFloat64
 
 	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
-	pendingGPUs *StatFloat64
+	pendingGPUs *types.StatFloat64
 
 	// PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-	committedGPUs *StatFloat64
+	committedGPUs *types.StatFloat64
 
 	// lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	lastReschedule *StatFloat64
+	lastReschedule *types.StatFloat64
 
-	pendingContainers StatInt32
+	pendingContainers types.StatInt32
 
 	// Cached penalties
 	sip             cache.InlineCache
-	sipSession      Session
+	sipSession      *Session
 	penaltyList     cache.InlineCache
 	penalties       []cachedPenalty
 	penaltyValidity bool
@@ -169,9 +130,9 @@ type BaseHost struct {
 	errorCallback ErrorCallback
 }
 
-// NewBaseHost creates and returns a new *BaseHost.
-func NewBaseHost(id string, nodeName string, addr string, spec types.Spec, cluster Cluster, conn *grpc.ClientConn, errorCallback ErrorCallback) *BaseHost {
-	host := &BaseHost{
+// NewHost creates and returns a new *Host.
+func NewHost(id string, nodeName string, addr string, spec types.Spec, cluster Cluster, conn *grpc.ClientConn, errorCallback ErrorCallback) *Host {
+	host := &Host{
 		id:                 id,
 		nodeName:           nodeName,
 		addr:               addr,
@@ -179,8 +140,8 @@ func NewBaseHost(id string, nodeName string, addr string, spec types.Spec, clust
 		cluster:            cluster,
 		conn:               conn,
 		log:                config.GetLogger(fmt.Sprintf("Host %s", id)),
-		containers:         hashmap.NewCornelkMap[string, Container](5),
-		trainingContainers: make([]Container, 0, int(spec.GPU())),
+		containers:         hashmap.NewCornelkMap[string, *Container](5),
+		trainingContainers: make([]*Container, 0, int(spec.GPU())),
 		penalties:          make([]cachedPenalty, int(spec.GPU())),
 		seenSessions:       make([]string, int(spec.GPU())),
 		errorCallback:      errorCallback,
@@ -195,7 +156,7 @@ func NewBaseHost(id string, nodeName string, addr string, spec types.Spec, clust
 }
 
 // ContainerScheduled is to be called when a Container is scheduled onto the Host.
-func (h *BaseHost) ContainerScheduled(container Container) {
+func (h *Host) ContainerScheduled(container *Container) {
 	h.containers.Store(container.ID(), container)
 	h.pendingContainers.Add(1)
 	h.pendingGPUs.Add(container.OutstandingResources().GPU())
@@ -204,7 +165,7 @@ func (h *BaseHost) ContainerScheduled(container Container) {
 }
 
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.
-func (h *BaseHost) ContainerRemoved(container Container) {
+func (h *Host) ContainerRemoved(container *Container) {
 	h.containers.Delete(container.ID())
 	h.pendingContainers.Sub(1)
 	h.pendingGPUs.Sub(container.OutstandingResources().GPU())
@@ -212,17 +173,17 @@ func (h *BaseHost) ContainerRemoved(container Container) {
 	h.log.Debug("Container %s was removed from Host %s.", container.String(), h.ID())
 }
 
-// ErrorCallback returns the BaseHost's ErrorCallback field.
-func (h *BaseHost) ErrorCallback() ErrorCallback {
+// ErrorCallback returns the Host's ErrorCallback field.
+func (h *Host) ErrorCallback() ErrorCallback {
 	return h.errorCallback
 }
 
-// SetErrorCallback sets the BaseHost's ErrorCallback field.
-func (h *BaseHost) SetErrorCallback(callback ErrorCallback) {
+// SetErrorCallback sets the Host's ErrorCallback field.
+func (h *Host) SetErrorCallback(callback ErrorCallback) {
 	h.errorCallback = callback
 }
 
-func (h *BaseHost) getPenalty(cached *cachedPenalty, gpus int) (*cachedPenalty, error) {
+func (h *Host) getPenalty(cached *cachedPenalty, gpus int) (*cachedPenalty, error) {
 	if cached.valid {
 		return cached, nil
 	}
@@ -242,7 +203,7 @@ func (h *BaseHost) getPenalty(cached *cachedPenalty, gpus int) (*cachedPenalty, 
 	return cached, err
 }
 
-func (h *BaseHost) Penalty(gpus float64) (float64, PreemptionInfo, error) {
+func (h *Host) Penalty(gpus float64) (float64, PreemptionInfo, error) {
 	// Find number of GPUs required to preempt trainings.
 	bucket := int(math.Ceil(gpus) - h.IdleGPUs())
 	if bucket <= 0 {
@@ -257,7 +218,7 @@ func (h *BaseHost) Penalty(gpus float64) (float64, PreemptionInfo, error) {
 	return penalty.penalty, penalty, nil
 }
 
-func (h *BaseHost) getSIP(sess Session) float64 {
+func (h *Host) getSIP(sess *Session) float64 {
 	numGPUs := sess.ResourceUtilization().NumGpusAsFloat()
 
 	penalty, _, err := h.Penalty(numGPUs)
@@ -267,11 +228,12 @@ func (h *BaseHost) getSIP(sess Session) float64 {
 	h.sip.Validator(time.Now())
 
 	rb := h.getRB(sess.SessionStatistics().InteractivePriority(), numGPUs)
-	h.log.Debug("Cached sip for session %v: %.2f(%.2f-%.2f). IP: %.4f (%s).", sess, rb-penalty, rb, penalty, sess.SessionStatistics().InteractivePriority(), sess.SessionStatistics().Explain(ExplainInteractivePriority))
+	h.log.Debug("Cached sip for session %v: %.2f(%.2f-%.2f). IP: %.4f (%s).", sess, rb-penalty, rb, penalty,
+		sess.SessionStatistics().InteractivePriority(), sess.SessionStatistics().Explain(ExplainInteractivePriority))
 	return rb - penalty
 }
 
-func (h *BaseHost) getRB(sessRB float64, required float64) float64 {
+func (h *Host) getRB(sessRB float64, required float64) float64 {
 	idleGPUs := h.idleGPUs.Load()
 	extras := 0.0
 	if idleGPUs > required {
@@ -282,11 +244,11 @@ func (h *BaseHost) getRB(sessRB float64, required float64) float64 {
 	return rb
 }
 
-func (h *BaseHost) validatePenaltyList(_ interface{}) bool {
+func (h *Host) validatePenaltyList(_ interface{}) bool {
 	return h.penaltyValidity
 }
 
-func (h *BaseHost) updatePenaltyList(cached *PenaltyContainers) *PenaltyContainers {
+func (h *Host) updatePenaltyList(cached *PenaltyContainers) *PenaltyContainers {
 	h.penaltyValidity = true
 	if cached == nil {
 		cached = &PenaltyContainers{ContainerList: ContainerList(h.trainingContainers)}
@@ -298,90 +260,90 @@ func (h *BaseHost) updatePenaltyList(cached *PenaltyContainers) *PenaltyContaine
 }
 
 // IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
-func (h *BaseHost) IdleGPUs() float64 {
+func (h *Host) IdleGPUs() float64 {
 	return h.idleGPUs.Load()
 }
 
 // PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-func (h *BaseHost) PendingGPUs() float64 {
+func (h *Host) PendingGPUs() float64 {
 	return h.pendingGPUs.Load()
 }
 
 // CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
-func (h *BaseHost) CommittedGPUs() float64 {
+func (h *Host) CommittedGPUs() float64 {
 	return h.committedGPUs.Load()
 }
 
 // IdleGPUsStat returns the StatFloat64 representing the number of GPUs that the host
 // has not allocated to any Containers.
-func (h *BaseHost) IdleGPUsStat() StatFloat64Field {
+func (h *Host) IdleGPUsStat() types.StatFloat64Field {
 	return h.idleGPUs
 }
 
 // PendingGPUsStat returns the StatFloat64 representing the number of GPUs that are oversubscribed
 // by Containers scheduled on the Host.
-func (h *BaseHost) PendingGPUsStat() StatFloat64Field {
+func (h *Host) PendingGPUsStat() types.StatFloat64Field {
 	return h.pendingGPUs
 }
 
 // CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound
 // to Containers scheduled on the Host.
-func (h *BaseHost) CommittedGPUsStat() StatFloat64Field {
+func (h *Host) CommittedGPUsStat() types.StatFloat64Field {
 	return h.committedGPUs
 }
 
 // ResourceSpec the types.Spec defining the resources available on the Host.
-func (h *BaseHost) ResourceSpec() types.Spec {
+func (h *Host) ResourceSpec() types.Spec {
 	return h.resourceSpec
 }
 
-func (h *BaseHost) String() string {
+func (h *Host) String() string {
 	return fmt.Sprintf("Host[ID=%s,Name=%s,Addr=%s,Spec=%s]", h.id, h.nodeName, h.addr, h.resourceSpec.String())
 }
 
-func (h *BaseHost) ID() string {
+func (h *Host) ID() string {
 	return h.id
 }
 
-func (h *BaseHost) NodeName() string {
+func (h *Host) NodeName() string {
 	return h.nodeName
 }
 
-func (h *BaseHost) Addr() string {
+func (h *Host) Addr() string {
 	return h.addr
 }
 
-func (h *BaseHost) Conn() *grpc.ClientConn {
+func (h *Host) Conn() *grpc.ClientConn {
 	return h.conn
 }
 
-func (h *BaseHost) Restore(Host) error {
-	panic("The Restore method is not implemented in BaseHost.")
+func (h *Host) Restore(*Host) error {
+	panic("The Restore method is not implemented in Host.")
 }
 
-func (h *BaseHost) Stats() HostStatistics {
+func (h *Host) Stats() HostStatistics {
 	return h
 }
 
 // LastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-func (h *BaseHost) LastReschedule() StatFloat64Field {
+func (h *Host) LastReschedule() types.StatFloat64Field {
 	return h.lastReschedule
 }
 
 // SetMeta sets the metadata of the host.
-func (h *BaseHost) SetMeta(key HostMetaKey, value interface{}) {
+func (h *Host) SetMeta(key HostMetaKey, value interface{}) {
 	h.meta.Store(string(key), value)
 }
 
 // GetMeta return the metadata of the host.
-func (h *BaseHost) GetMeta(key HostMetaKey) interface{} {
+func (h *Host) GetMeta(key HostMetaKey) interface{} {
 	if value, ok := h.meta.Load(string(key)); ok {
 		return value
 	}
 	return nil
 }
 
-func (h *BaseHost) Priority(session Session) float64 {
+func (h *Host) Priority(session *Session) float64 {
 	if session != h.sipSession {
 		h.sip.Invalidate()
 		h.sipSession = session
@@ -389,6 +351,6 @@ func (h *BaseHost) Priority(session Session) float64 {
 	return h.sip.Value(session).(float64)
 }
 
-func (h *BaseHost) ScaleInPriority() float64 {
+func (h *Host) ScaleInPriority() float64 {
 	return h.sip.Value().(float64)
 }

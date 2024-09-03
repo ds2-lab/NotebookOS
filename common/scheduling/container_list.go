@@ -9,7 +9,7 @@ var (
 	ErrInsufficientPreemptableContainers = errors.New("insufficient preemptable containers")
 )
 
-type ContainerList []Container
+type ContainerList []*Container
 
 func (cl ContainerList) Len() int {
 	return len(cl)

@@ -1,7 +1,7 @@
 package gateway
 
 import (
-	context "context"
+	"context"
 	"net/http"
 	"time"
 

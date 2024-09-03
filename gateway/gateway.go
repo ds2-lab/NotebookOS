@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -19,9 +20,9 @@ import (
 )
 
 var (
-	options domain.ClusterGatewayOptions = domain.ClusterGatewayOptions{}
-	logger                               = config.GetLogger("")
-	sig                                  = make(chan os.Signal, 1)
+	options = domain.ClusterGatewayOptions{}
+	logger  = config.GetLogger("")
+	sig     = make(chan os.Signal, 1)
 )
 
 func init() {
@@ -56,7 +57,7 @@ func createAndStartDebugHttpServer() {
 	// 	w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
 	// })
 
-	var address string = fmt.Sprintf(":%d", options.DebugPort)
+	var address = fmt.Sprintf(":%d", options.DebugPort)
 	log.Printf("Serving debug HTTP server: %s\n", address)
 
 	if err := http.ListenAndServe(address, nil); err != nil {
@@ -64,10 +65,10 @@ func createAndStartDebugHttpServer() {
 	}
 }
 
-// Ensure that the options/configuration is valid.
+// ValidateOptions ensures that the options/configuration is valid.
 func ValidateOptions() {
 	flags, err := config.ValidateOptions(&options)
-	if err == config.ErrPrintUsage {
+	if errors.Is(err, config.ErrPrintUsage) {
 		flags.PrintDefaults()
 		os.Exit(0)
 	} else if err != nil {

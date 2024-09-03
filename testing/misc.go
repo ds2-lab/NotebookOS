@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"os"
 	"os/signal"
@@ -15,7 +16,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/pkg/errors"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -106,7 +106,7 @@ func testAddAnnotations() {
 		fmt.Printf("Could not find Pod \"%s\" in namespace \"%s\": %v\n", podName, "default", err)
 	}
 
-	var annotations map[string]string = pod.GetAnnotations()
+	var annotations = pod.GetAnnotations()
 
 	annotations["apps.kruise.io/specified-delete"] = "true"
 	annotations["controller.kubernetes.io/pod-deletion-cost"] = "-2147483647"
@@ -193,11 +193,11 @@ func testGRPC() {
 
 	fmt.Printf("Connected to Gateway.\n")
 
-	client := gateway.NewClusterGatewayClient(conn)
+	client := proto.NewClusterGatewayClient(conn)
 
 	fmt.Printf("Created new ClusterGatewayClient.\n")
 
-	resp, err := client.ID(context.Background(), &gateway.Void{})
+	resp, err := client.ID(context.Background(), &proto.Void{})
 	if err != nil {
 		panic(err)
 	}

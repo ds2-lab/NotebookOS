@@ -3,10 +3,10 @@ package domain
 import (
 	"context"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
@@ -89,13 +89,13 @@ type ClusterGatewayOptions struct {
 }
 
 type ClusterGateway interface {
-	gateway.ClusterGatewayServer
+	proto.ClusterGatewayServer
 
 	SetClusterOptions(*scheduling.CoreOptions)
 	ConnectionOptions() *jupyter.ConnectionInfo
-	ClusterScheduler() ClusterScheduler                                                                   // Return the associated ClusterScheduler.
-	GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) // Return the current GPU resource metrics on the node.
-	KubernetesMode() bool                                                                                 // Return true if we're running in a Kubernetes cluster (rather than as a docker-compose application).
+	ClusterScheduler() ClusterScheduler                                                               // Return the associated ClusterScheduler.
+	GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error) // Return the current GPU resource metrics on the node.
+	KubernetesMode() bool                                                                             // Return true if we're running in a Kubernetes cluster (rather than as a docker-compose application).
 }
 
 // Performs scheduling of kernels across the cluster.
@@ -165,7 +165,7 @@ type KubeClient interface {
 	ClusterGateway() ClusterGateway       // Get the associated Gateway daemon.
 
 	// Create a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
-	DeployDistributedKernels(context.Context, *gateway.KernelSpec) (*jupyter.ConnectionInfo, error)
+	DeployDistributedKernels(context.Context, *proto.KernelSpec) (*jupyter.ConnectionInfo, error)
 
 	// Delete the Cloneset for the kernel identified by the given ID.
 	DeleteCloneset(kernelId string) error
@@ -214,7 +214,7 @@ type AddReplicaOperation interface {
 	PodStarted() bool                                    // Return true if the new Pod has started.
 	ReplicaPodHostname() string                          // Return the IP address of the new replica.
 	ReplicaId() int32                                    // The SMR node ID to use for the new replica.
-	KernelSpec() *gateway.KernelReplicaSpec              // Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
+	KernelSpec() *proto.KernelReplicaSpec                // Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
 	SetReplicaRegistered()                               // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered. This also sends a notification on the replicaRegisteredChannel.
 	SetPodName(string)                                   // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
 	SetReplicaHostname(hostname string)                  // Set the IP address of the new replica.
@@ -248,7 +248,7 @@ type MigrationOperation interface {
 	Wait()                                               // Block and wait until the migration operation has completed.
 	NotifyNewReplicaRegistered()                         // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered.
 	Broadcast()                                          // Broadcast (Notify) any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
-	GetNewReplicaKernelSpec() *gateway.KernelReplicaSpec // Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
+	GetNewReplicaKernelSpec() *proto.KernelReplicaSpec   // Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
 	NewReplicaHostname() string                          // Return the IP address of the new replica.
 	SetNewReplicaHostname(hostname string)               // Set the IP address of the new replica.
 }

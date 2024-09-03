@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"

@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"strings"
 	"sync"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/pkg/errors"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	corev1 "k8s.io/api/core/v1"
@@ -29,7 +29,7 @@ var (
 	ErrMigrationOpNotFound          = errors.New("The given migration operation was not in the list and thus could not be deleted (as it wasn't present to begin with).")
 )
 
-type migrationOperationImpl struct {
+type BasicMigrationOperation struct {
 	id                   string                         // Unique identifier of the migration operation.
 	kernelId             string                         // ID of the kernel for which a replica is being migrated.
 	targetClient         client.DistributedKernelClient // distributedKernelClientImpl of the kernel for which we're migrating a replica.
@@ -42,7 +42,7 @@ type migrationOperationImpl struct {
 	newReplicaRegistered bool                           // If true, then new replica has registered with the Gateway.
 	persistentId         string                         // Persistent ID of replica.
 	newReplicaHostname   string                         // The IP address of the new replica.
-	newSpec              *gateway.KernelReplicaSpec     // Spec for the new replica that is created during the migration.
+	newSpec              *proto.KernelReplicaSpec       // Spec for the new replica that is created during the migration.
 
 	// podStartedMu   sync.Mutex // Used to signal that the new Pod has started.
 	// podStartedCond *sync.Cond // Used with the podStartedCond condition variable.
@@ -56,8 +56,8 @@ type migrationOperationImpl struct {
 	// completed       bool                            // True if the migration has been completed; otherwise, false (i.e., if it is still ongoing).
 }
 
-func NewMigrationOperation(targetClient client.DistributedKernelClient, targetSmrNodeId int32, oldPodName string, newSpec *gateway.KernelReplicaSpec) *migrationOperationImpl {
-	m := &migrationOperationImpl{
+func NewMigrationOperation(targetClient client.DistributedKernelClient, targetSmrNodeId int32, oldPodName string, newSpec *proto.KernelReplicaSpec) *BasicMigrationOperation {
+	m := &BasicMigrationOperation{
 		id:                   uuid.New().String(),
 		targetClient:         targetClient,
 		kernelId:             targetClient.ID(),
@@ -77,29 +77,29 @@ func NewMigrationOperation(targetClient client.DistributedKernelClient, targetSm
 	return m
 }
 
-// Return true if the new replica has already registered with the Gateway; otherwise, return false.
-func (m *migrationOperationImpl) GetNewReplicaRegistered() bool {
+// GetNewReplicaRegistered returns true if the new replica has already registered with the Gateway; otherwise, return false.
+func (m *BasicMigrationOperation) GetNewReplicaRegistered() bool {
 	return m.newReplicaRegistered
 }
 
-// Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
-func (m *migrationOperationImpl) GetNewReplicaKernelSpec() *gateway.KernelReplicaSpec {
+// GetNewReplicaKernelSpec returns the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
+func (m *BasicMigrationOperation) GetNewReplicaKernelSpec() *proto.KernelReplicaSpec {
 	return m.newSpec
 }
 
-// Return the IP address of the new replica.
-func (m *migrationOperationImpl) NewReplicaHostname() string {
+// NewReplicaHostname returns the IP address of the new replica.
+func (m *BasicMigrationOperation) NewReplicaHostname() string {
 	return m.newReplicaHostname
 }
 
-// Set the IP address of the new replica.
-func (m *migrationOperationImpl) SetNewReplicaHostname(hostname string) {
+// SetNewReplicaHostname sets the IP address of the new replica.
+func (m *BasicMigrationOperation) SetNewReplicaHostname(hostname string) {
 	m.newReplicaHostname = hostname
 }
 
-// Record that the new replica for this migration operation has registered with the Gateway.
+// NotifyNewReplicaRegistered records that the new replica for this migration operation has registered with the Gateway.
 // Will panic if we've already recorded that the new replica has registered.
-func (m *migrationOperationImpl) NotifyNewReplicaRegistered() {
+func (m *BasicMigrationOperation) NotifyNewReplicaRegistered() {
 	if m.newReplicaRegistered {
 		panic(fmt.Sprintf("We've already recorded that new replica has registered for %v.", m.String()))
 	}
@@ -107,58 +107,58 @@ func (m *migrationOperationImpl) NotifyNewReplicaRegistered() {
 	m.newReplicaRegistered = true
 }
 
-func (m *migrationOperationImpl) String() string {
+func (m *BasicMigrationOperation) String() string {
 	return fmt.Sprintf("domain.MigrationOperation[ID=%s,KernelID=%s,ReplicaID=%d,Completed=%v,TargetPod=%s,NewPodName=%s,PersistentID=%s,NewReplicaRegistered=%v]", m.id, m.kernelId, m.targetSmrNodeId, m.Completed(), m.oldPodName, m.newPodName, m.persistentId, m.newReplicaRegistered)
 }
 
-// Unique identifier of the migration operation.
-func (m *migrationOperationImpl) OperationID() string {
+// OperationID returns the unique identifier of the migration operation.
+func (m *BasicMigrationOperation) OperationID() string {
 	return m.id
 }
 
-// distributedKernelClientImpl of the kernel for which we're migrating a replica.
-func (m *migrationOperationImpl) KernelReplicaClient() client.DistributedKernelClient {
+// KernelReplicaClient returns the client.DistributedKernelClient of the kernel for which we're migrating a replica.
+func (m *BasicMigrationOperation) KernelReplicaClient() client.DistributedKernelClient {
 	return m.targetClient
 }
 
-// The SMR Node ID of the replica that is being migrated.
-func (m *migrationOperationImpl) OriginalSMRNodeID() int32 {
+// OriginalSMRNodeID returns the SMR Node ID of the replica that is being migrated.
+func (m *BasicMigrationOperation) OriginalSMRNodeID() int32 {
 	return m.targetSmrNodeId
 }
 
-// Returns true if a new Pod has been started for the replica that is being migrated. Otherwise, returns false.
-func (m *migrationOperationImpl) NewReplicaJoinedSMR() bool {
+// NewReplicaJoinedSMR returns true if a new Pod has been started for the replica that is being migrated. Otherwise, returns false.
+func (m *BasicMigrationOperation) NewReplicaJoinedSMR() bool {
 	return m.newReplicaJoinedSMR
 }
 
-// Record that the new replica has joined its SMR cluster.
-func (m *migrationOperationImpl) SetNewReplicaJoinedSMR() {
+// SetNewReplicaJoinedSMR records that the new replica has joined its SMR cluster.
+func (m *BasicMigrationOperation) SetNewReplicaJoinedSMR() {
 	m.newReplicaJoinedSMR = true
 }
 
-// Return true if the new Pod has started.
-func (m *migrationOperationImpl) NewPodStarted() bool {
+// NewPodStarted returns true if the new Pod has started.
+func (m *BasicMigrationOperation) NewPodStarted() bool {
 	return m.newPodStarted
 }
 
-// Returns true if the original Pod of the replica has stopped. Otherwise, returns false.
-func (m *migrationOperationImpl) OldPodStopped() bool {
+// OldPodStopped returns true if the original Pod of the replica has stopped. Otherwise, returns false.
+func (m *BasicMigrationOperation) OldPodStopped() bool {
 	return m.oldPodStopped
 }
 
-// Return true if the migration has been completed; otherwise, return false (i.e., if it is still ongoing).
-func (m *migrationOperationImpl) Completed() bool {
+// Completed returns true if the migration has been completed; otherwise, return false (i.e., if it is still ongoing).
+func (m *BasicMigrationOperation) Completed() bool {
 	return m.oldPodStopped && m.newPodStarted && m.newReplicaRegistered && m.newReplicaJoinedSMR
 }
 
-// Return the name of the Pod in which the target replica container is running.
-func (m *migrationOperationImpl) OldPodName() string {
+// OldPodName returns the name of the Pod in which the target replica container is running.
+func (m *BasicMigrationOperation) OldPodName() string {
 	return m.oldPodName
 }
 
-// Return the name of the newly-created Pod that will host the migrated replica.
+// NewPodName returns the name of the newly-created Pod that will host the migrated replica.
 // Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
-func (m *migrationOperationImpl) NewPodName() (string, bool) {
+func (m *BasicMigrationOperation) NewPodName() (string, bool) {
 	if m.newPodStarted {
 		return m.newPodName, true
 	} else {
@@ -166,8 +166,8 @@ func (m *migrationOperationImpl) NewPodName() (string, bool) {
 	}
 }
 
-// Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
-func (m *migrationOperationImpl) SetNewPodName(newPodName string) {
+// SetNewPodName sets the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
+func (m *BasicMigrationOperation) SetNewPodName(newPodName string) {
 	if m.newPodStarted {
 		panic(fmt.Sprintf("Migration operation %s already has a new pod (pod %s).", m.id, m.newPodName))
 	}
@@ -176,8 +176,8 @@ func (m *migrationOperationImpl) SetNewPodName(newPodName string) {
 	m.newPodName = newPodName
 }
 
-// Record that the old Pod (containing the replica to be migrated) has stopped.
-func (m *migrationOperationImpl) SetOldPodStopped() {
+// SetOldPodStopped records that the old Pod (containing the replica to be migrated) has stopped.
+func (m *BasicMigrationOperation) SetOldPodStopped() {
 	if m.oldPodStopped {
 		panic(fmt.Sprintf("Migration operation %s: old pod (pod %s) already stopped.", m.id, m.oldPodName))
 	}
@@ -185,26 +185,26 @@ func (m *migrationOperationImpl) SetOldPodStopped() {
 	m.oldPodStopped = true
 }
 
-// Block and wait until the migration operation has completed.
-func (m *migrationOperationImpl) Wait() {
+// Wait blocks and waits until the migration operation has completed.
+func (m *BasicMigrationOperation) Wait() {
 	m.opCompletedCond.L.Lock()
 	m.opCompletedCond.Wait()
 	m.opCompletedCond.L.Unlock()
 }
 
-// Notify any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
-func (m *migrationOperationImpl) Broadcast() {
+// Broadcast notifies any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
+func (m *BasicMigrationOperation) Broadcast() {
 	m.opCompletedCond.L.Lock()
 	m.opCompletedCond.Broadcast()
 	m.opCompletedCond.L.Unlock()
 }
 
-func (m *migrationOperationImpl) PersistentID() string {
+func (m *BasicMigrationOperation) PersistentID() string {
 	return m.persistentId
 }
 
-// Notify any go routines waiting for the migration operation to complete. Should only be called once the migration operation has completed.
-func (m *migrationOperationImpl) KernelId() string {
+// KernelId returns the kernel ID.
+func (m *BasicMigrationOperation) KernelId() string {
 	return m.kernelId
 }
 
@@ -279,8 +279,8 @@ func (m *migrationManagerImpl) RegisterKernel(kernelId string) {
 	}
 }
 
-// Initiate a migration operation for a particular Pod.
-func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targetClient client.DistributedKernelClient, targetSmrNodeId int32, newSpec *gateway.KernelReplicaSpec) (string, error) {
+// InitiateKernelMigration initiates a migration operation for a particular Pod.
+func (m *migrationManagerImpl) InitiateKernelMigration(_ context.Context, targetClient client.DistributedKernelClient, targetSmrNodeId int32, newSpec *proto.KernelReplicaSpec) (string, error) {
 	kernelId := targetClient.ID()
 	podName, err := targetClient.PodName(targetSmrNodeId)
 	if err != nil {
@@ -313,40 +313,40 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 
 	// Increase the number of replicas.
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		cloneset_id := fmt.Sprintf("kernel-%s", kernelId)
-		result, getErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
+		clonesetId := fmt.Sprintf("kernel-%s", kernelId)
+		result, getErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), clonesetId, metav1.GetOptions{})
 
 		if getErr != nil {
-			panic(fmt.Errorf("failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
+			panic(fmt.Errorf("failed to get latest version of CloneSet \"%s\": %v", clonesetId, getErr))
 		}
 
-		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
+		currentNumReplicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
 
 		if err != nil || !found {
-			m.log.Error("Replicas not found for CloneSet %s: error=%s", cloneset_id, err)
+			m.log.Error("Replicas not found for CloneSet %s: error=%s", clonesetId, err)
 			return err
 		}
 
-		m.log.Debug("Attempting to INCREASE the number of replicas of CloneSet \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, current_num_replicas)
-		new_num_replicas := current_num_replicas + 1
+		m.log.Debug("Attempting to INCREASE the number of replicas of CloneSet \"%s\". Currently, it is configured to have %d replicas.", clonesetId, currentNumReplicas)
+		newNumReplicas := currentNumReplicas + 1
 
 		// Increase the number of replicas.
-		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
-			panic(fmt.Errorf("failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
+		if err := unstructured.SetNestedField(result.Object, newNumReplicas, "spec", "replicas"); err != nil {
+			panic(fmt.Errorf("failed to set replica value for CloneSet \"%s\": %v", clonesetId, err))
 		}
 
 		_, updateErr := m.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
 
 		if updateErr != nil {
-			m.log.Error("Failed to apply update to CloneSet \"%s\": error=%s", cloneset_id, err)
+			m.log.Error("Failed to apply update to CloneSet \"%s\": error=%s", clonesetId, err)
 		} else {
-			m.log.Debug("Successfully increased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
+			m.log.Debug("Successfully increased number of replicas of CloneSet \"%s\" to %d.", clonesetId, newNumReplicas)
 		}
 
 		return updateErr
 	})
 
-	// It's possile that the associated unlock should not occur until the associated Pod is created.
+	// It's possible that the associated unlock should not occur until the associated Pod is created.
 	// But we would need to handle a case where the associated Pod cannot be scheduled for some reason,
 	// as the lock would be held indefinitely in this case unless we could detect that the Pod was unable to be scheduled.
 	// TODO(Ben): Possible race condition if there are concurrent migration operations that increment and decrement the number of replicas concurrently here.
@@ -391,7 +391,7 @@ func (m *migrationManagerImpl) InitiateKernelMigration(ctx context.Context, targ
 // 	}
 // }
 
-// Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
+// PodCreated is a function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
 func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	pod := obj.(*corev1.Pod)
 	m.log.Debug("Pod created: %s/%s", pod.Namespace, pod.Name)
@@ -425,11 +425,11 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 
 	mutex.Lock()
 
-	var op_id string
+	var opId string
 	var op domain.MigrationOperation
-	var validOpFound bool = false
+	var validOpFound = false
 	for el := activeOps.Front(); el != nil; el = el.Next() {
-		op_id = el.Key
+		opId = el.Key
 		op = el.Value
 
 		// The operation has already passed this stage; it's not waiting on a new Pod.
@@ -437,11 +437,11 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 			continue
 		}
 
-		m.log.Debug("Found active migration operation \"%s\" for kernel \"%s\" that is waiting on a new Pod to start.", op_id, kernelId)
+		m.log.Debug("Found active migration operation \"%s\" for kernel \"%s\" that is waiting on a new Pod to start.", opId, kernelId)
 		validOpFound = true
 	}
 
-	if !validOpFound {
+	if op == nil || !validOpFound {
 		m.log.Warn("Could not find active migration operation for kernel \"%s\" that was waiting on a new Pod to start.", kernelId)
 		return
 	}
@@ -479,7 +479,7 @@ func (m *migrationManagerImpl) PodCreated(obj interface{}) {
 	// We also need to facilitate hooking up the new replica with the rest of the system.
 }
 
-// Function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
+// PodUpdated is a function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
 func (m *migrationManagerImpl) PodUpdated(oldObj interface{}, newObj interface{}) {
 	oldPod := oldObj.(*corev1.Pod)
 	newPod := newObj.(*corev1.Pod)
@@ -490,7 +490,7 @@ func (m *migrationManagerImpl) PodUpdated(oldObj interface{}, newObj interface{}
 	}
 }
 
-// Function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
+// PodDeleted is a function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
 func (m *migrationManagerImpl) PodDeleted(obj interface{}) {
 	pod := obj.(*corev1.Pod)
 	m.log.Debug("Pod deleted: %s/%s", pod.Namespace, pod.Name)
@@ -562,8 +562,9 @@ func (m *migrationManagerImpl) migrationCompleted(op domain.MigrationOperation) 
 	}
 }
 
-// Check if the given Migration Operation has finished. This is called twice: when the new replica registers with the Gateway,
-// and when the old Pod is deleted. Whichever of those two events happens last will be the one that designates the operation has having completed.
+// CheckIfMigrationCompleted checks if the given Migration Operation has finished. This is called twice: when the
+// new replica registers with the Gateway, and when the old Pod is deleted. Whichever of those two events happens
+// last will be the one that designates the operation has having completed.
 func (m *migrationManagerImpl) CheckIfMigrationCompleted(op domain.MigrationOperation) bool {
 	m.mainMutex.Lock()
 	defer m.mainMutex.Unlock()
@@ -579,7 +580,8 @@ func (m *migrationManagerImpl) GetMigrationOperationByNewPod(newPodName string) 
 	return m.migrationOperationsByNewPodName.Get(newPodName)
 }
 
-// Return the migration operation associated with the given Kernel ID and SMR Node ID of the new replica.
+// GetMigrationOperationByKernelIdAndNewReplicaId returns the migration operation associated with the given
+// Kernel ID and SMR Node ID of the new replica.
 func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (domain.MigrationOperation, bool) {
 	m.mainMutex.Lock()
 	defer m.mainMutex.Unlock()
@@ -606,35 +608,35 @@ func (m *migrationManagerImpl) GetMigrationOperationByKernelIdAndNewReplicaId(ke
 //
 // Note: this MUST be called with the main mutex held!
 func (m *migrationManagerImpl) storeActiveMigrationOperationForKernel(kernelId string, op domain.MigrationOperation) error {
-	ops_ptr, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
+	opsPtr, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
 
 	if !ok {
-		ops_ptr = orderedmap.NewOrderedMap[string, domain.MigrationOperation]()
+		opsPtr = orderedmap.NewOrderedMap[string, domain.MigrationOperation]()
 	}
 
-	value_was_new := ops_ptr.Set(op.OperationID(), op)
-	if !value_was_new {
+	valueWasNew := opsPtr.Set(op.OperationID(), op)
+	if !valueWasNew {
 		return ErrMigrationOpAlreadyRegistered
 	}
 
-	m.activeMigrationOpsPerKenel.Set(kernelId, ops_ptr)
+	m.activeMigrationOpsPerKenel.Set(kernelId, opsPtr)
 
 	return nil
 }
 
 func (m *migrationManagerImpl) removeActiveMigrationOperationForKernel(kernelId string, op domain.MigrationOperation) error {
-	ops_ptr, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
+	opsPtr, ok := m.activeMigrationOpsPerKenel.Get(kernelId)
 
 	if !ok {
-		ops_ptr = orderedmap.NewOrderedMap[string, domain.MigrationOperation]()
+		opsPtr = orderedmap.NewOrderedMap[string, domain.MigrationOperation]()
 	}
 
-	didDelete := ops_ptr.Delete(op.OperationID())
+	didDelete := opsPtr.Delete(op.OperationID())
 	if !didDelete {
 		return ErrMigrationOpNotFound
 	}
 
-	m.activeMigrationOpsPerKenel.Set(kernelId, ops_ptr)
+	m.activeMigrationOpsPerKenel.Set(kernelId, opsPtr)
 
 	return nil
 }

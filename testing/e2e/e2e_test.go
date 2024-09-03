@@ -2,7 +2,9 @@ package e2e_testing
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"os"
 	"sync"
@@ -16,7 +18,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/gateway/daemon"
@@ -34,7 +35,7 @@ var (
 
 func validateOptions(opts config.Options, configPath string) {
 	flags, err := config.ValidateOptionsWithFlags(opts, "-yaml", configPath, "-debug")
-	if err == config.ErrPrintUsage {
+	if errors.Is(err, config.ErrPrintUsage) {
 		flags.PrintDefaults()
 		os.Exit(0)
 	} else if err != nil {
@@ -54,14 +55,14 @@ func getLocalDaemonOptions(configPath string) *local_daemon_domain.LocalDaemonOp
 	return options
 }
 
-func createGrpcGatewayClient() (client gateway.LocalGatewayClient, conn *grpc.ClientConn, err error) {
+func createGrpcGatewayClient() (client proto.LocalGatewayClient, conn *grpc.ClientConn, err error) {
 	conn, err = grpc.Dial("127.0.0.1:18080", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	Expect(err).To(BeNil())
 	Expect(conn).ToNot(BeNil())
 
 	fmt.Printf("Connected to Gateway via gRPC.\n")
 
-	client = gateway.NewLocalGatewayClient(conn)
+	client = proto.NewLocalGatewayClient(conn)
 	Expect(client).ToNot(BeNil())
 	return
 }
@@ -117,13 +118,13 @@ var _ = Describe("End to End (E2E) Tests", func() {
 			kernelId := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 			go func() {
 				resp, err := client.StartKernel(context.Background(),
-					&gateway.KernelSpec{
+					&proto.KernelSpec{
 						Id:              kernelId,
 						Session:         kernelId,
 						Argv:            []string{"python3.11", "-m", "distributed_notebook.kernel", "-f", "/home/bcarver2/go/pkg/distributed-notebook/testing/e2e/connection_files/fake_kernel1_connection.json", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
 						SignatureScheme: "hmac-sha256",
 						Key:             "",
-						ResourceSpec: &gateway.ResourceSpec{
+						ResourceSpec: &proto.ResourceSpec{
 							Cpu:    1,
 							Memory: 1,
 							Gpu:    1,

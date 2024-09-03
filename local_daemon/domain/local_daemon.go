@@ -2,20 +2,20 @@ package domain
 
 import (
 	"context"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 )
 
 type SchedulerDaemon interface {
-	gateway.LocalGatewayServer
+	proto.LocalGatewayServer
 	router.RouterProvider
 
 	// SetID sets the SchedulerDaemonImpl id by the gateway.
-	SetID(ctx context.Context, in *gateway.HostId) (*gateway.HostId, error)
+	SetID(ctx context.Context, in *proto.HostId) (*proto.HostId, error)
 
 	// StartKernel starts a single kernel.
-	StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error)
+	StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error)
 
 	// Return true if we're running in Docker (i.e., the Docker-based deployment).
 	// We could technically be running within a Docker container that is managed/orchestrated
@@ -32,7 +32,7 @@ type SchedulerDaemon interface {
 
 	Close() error
 
-	Provisioner() gateway.ClusterGatewayClient
+	Provisioner() proto.ClusterGatewayClient
 
-	SetProvisioner(gateway.ClusterGatewayClient)
+	SetProvisioner(proto.ClusterGatewayClient)
 }

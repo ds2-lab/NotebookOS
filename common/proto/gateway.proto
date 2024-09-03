@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-option go_package = "github.com/zhangjyr/distributed-notebook/common/gateway";
+option go_package = "github.com/zhangjyr/distributed-notebook/common/proto";
 option java_multiple_files = true;
-option java_package = "com.github.zhangjyr.distributed-notebook.common.gateway";
+option java_package = "com.github.zhangjyr.distributed-notebook.common.proto";
 option java_outer_classname = "GatewayProto";
 
 package gateway;

@@ -2,9 +2,9 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 
 	"github.com/google/uuid"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 )
@@ -20,7 +20,7 @@ type addReplicaOperationImpl struct {
 	replicaRegistered bool                           // If true, then new replica has registered with the Gateway.
 	persistentId      string                         // Persistent ID of replica.
 	replicaHostname   string                         // The IP address of the new replica.
-	spec              *gateway.KernelReplicaSpec     // Spec for the new replica that is created during the add operation.
+	spec              *proto.KernelReplicaSpec       // Spec for the new replica that is created during the add operation.
 	dataDirectory     string                         // Path to etcd-raft data directory in HDFS.
 
 	podStartedChannel        chan string   // Used to notify that the new Pod has started.
@@ -28,7 +28,7 @@ type addReplicaOperationImpl struct {
 	replicaJoinedSmrChannel  chan struct{} // Used to notify that the new replica has joined its SMR cluster.
 }
 
-func NewAddReplicaOperation(client client.DistributedKernelClient, spec *gateway.KernelReplicaSpec, dataDirectory string) domain.AddReplicaOperation {
+func NewAddReplicaOperation(client client.DistributedKernelClient, spec *proto.KernelReplicaSpec, dataDirectory string) domain.AddReplicaOperation {
 	op := &addReplicaOperationImpl{
 		id:                       uuid.New().String(),
 		client:                   client,
@@ -179,7 +179,7 @@ func (op *addReplicaOperationImpl) SetReplicaRegistered() {
 }
 
 // Return the *gateway.KernelReplicaSpec for the new replica that is created during the add operation.
-func (op *addReplicaOperationImpl) KernelSpec() *gateway.KernelReplicaSpec {
+func (op *addReplicaOperationImpl) KernelSpec() *proto.KernelReplicaSpec {
 	return op.spec
 }
 

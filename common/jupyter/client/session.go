@@ -1,12 +1,5 @@
 package client
 
-type SessionManager interface {
-	Sessions() []string        // Session returns the associated session ID.
-	BindSession(sess string)   // BindSession binds a session ID to the client.
-	UnbindSession(sess string) // UnbindSession unbinds a session ID from the client.
-	ClearSessions()            // ClearSessions clears all sessions.
-}
-
 type sessionManagerImpl struct {
 	sessions []string
 }

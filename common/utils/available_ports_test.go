@@ -9,8 +9,8 @@ var _ = Describe("AvailablePorts", func() {
 	It("should allocate ports as expected", func() {
 		ports := NewAvailablePorts(9000, 20, 4)
 
-		Expect(ports.TotalNumPorts()).To((Equal(20)))
-		Expect(ports.NumPortsAvailable()).To((Equal(20)))
+		Expect(ports.TotalNumPorts()).To(Equal(20))
+		Expect(ports.NumPortsAvailable()).To(Equal(20))
 		Expect(ports.AllocationSize()).To(Equal(4))
 
 		alloc, err := ports.RequestPorts()
@@ -46,8 +46,8 @@ var _ = Describe("AvailablePorts", func() {
 	It("should allow ports to be returned and reallocated", func() {
 		ports := NewAvailablePorts(9000, 4, 4)
 
-		Expect(ports.TotalNumPorts()).To((Equal(4)))
-		Expect(ports.NumPortsAvailable()).To((Equal(4)))
+		Expect(ports.TotalNumPorts()).To(Equal(4))
+		Expect(ports.NumPortsAvailable()).To(Equal(4))
 		Expect(ports.AllocationSize()).To(Equal(4))
 
 		alloc1, err := ports.RequestPorts()
@@ -71,8 +71,8 @@ var _ = Describe("AvailablePorts", func() {
 	It("should allow ports to be returned and reallocated in order", func() {
 		ports := NewAvailablePorts(9000, 4, 2)
 
-		Expect(ports.TotalNumPorts()).To((Equal(4)))
-		Expect(ports.NumPortsAvailable()).To((Equal(4)))
+		Expect(ports.TotalNumPorts()).To(Equal(4))
+		Expect(ports.NumPortsAvailable()).To(Equal(4))
 		Expect(ports.AllocationSize()).To(Equal(2))
 
 		alloc1, err := ports.RequestPorts()

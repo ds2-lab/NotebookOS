@@ -8,7 +8,8 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/mason-leap-lab/go-utils/promise"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"math"
 	"time"
 )
@@ -19,10 +20,6 @@ const (
 	SessionStateStopped   SessionState = "SESSION_STOPPED"   // Indicates that the Session is permanently stopped.
 	SessionStateIdle      SessionState = "SESSION_IDLE"      // Indicates that the Session is actively running on a Host and is NOT actively performing a task.
 	SessionStateMigrating SessionState = "SESSION_MIGRATING" // Indicates that one or more replicas are currently migrating to new Hosts.
-
-	ExplainInteractivePriority ExplainerEntry = "explain_ip"
-	ExplainPreemptionPriority  ExplainerEntry = "explain_pp"
-	ExplainScaleOutPriority    ExplainerEntry = "explain_sop"
 )
 
 var (
@@ -33,10 +30,24 @@ var (
 
 type SessionState string
 
-type ExplainerEntry string
+type SessionStatistic interface {
+	Add(val float64)
+	Sum() float64
+	Window() int64
+	N() int64
+	Avg() float64
+	Last() float64
+	LastN(n int64) float64
+}
 
-type Explainer interface {
-	Explain(key ExplainerEntry) string
+func NewSessionStatistic(window int64) SessionStatistic {
+	if window > 0 {
+		return types.NewMovingStat(window, 0, make([]float64, window), 0, [2]float64{0, 0}, 0, 1)
+	} else if window < 0 {
+		panic("Negative window size (meaning no window) is not yet supported.")
+	} else {
+		panic("Window size cannot be 0.")
+	}
 }
 
 type SessionStatistics interface {
@@ -49,10 +60,10 @@ type SessionStatistics interface {
 	// replicas of the Session) has/have historically taken to be migrated.
 	MigrationTime() float64
 
-	// InteractivePriority returns the UserSession's interactive priority metric.
+	// InteractivePriority returns the Session's interactive priority metric.
 	InteractivePriority() float64
 
-	// PreemptionPriority returns the currently-cached value of the UserSession's preemption priority metric.
+	// PreemptionPriority returns the currently-cached value of the Session's preemption priority metric.
 	// This may prompt a recalculation of the metric if the cached value is no longer valid.
 	PreemptionPriority() float64
 
@@ -63,60 +74,8 @@ type SessionStatistics interface {
 	Duration() time.Duration
 }
 
-type Session interface {
-	Kernel
-
-	// SetID sets the id of the session.
-	// Session will be created first and acquires id from kernel_info_request.
-	// SetID(string)
-
-	// IsTraining returns true if the Session is actively training.
-	// Otherwise, IsTraining returns false.
-	IsTraining() bool
-
-	// IsStopped returns true if the Session has been terminated.
-	IsStopped() bool
-
-	// IsIdle returns true if the Session is currently idle, meaning that none of its replicas are currently training.
-	IsIdle() bool
-
-	// IsMigrating returns true if one or more replicas are currently migrating from one Host to another.
-	IsMigrating() bool
-
-	// TrainingStarted should be called when one of the Session's Kernel replicas begins training.
-	TrainingStarted(container Container) promise.Promise
-
-	// TrainingStopped should be called when the actively-training Kernel replica of the Session stops training.
-	TrainingStopped() promise.Promise
-
-	// MigrationStarted should be called when one of the replicas of the Session begins the
-	// process of migrating from its current Host to another Host.
-	MigrationStarted() promise.Promise
-
-	// MigrationComplete should be called when the migrating replica of the Session has finished its migration
-	// to another host.
-	MigrationComplete() promise.Promise
-
-	// SessionStopped should be called when the Session is terminated.
-	SessionStopped() promise.Promise
-
-	// SessionStatistics returns the SessionStatistics instance associated with the Session.
-	SessionStatistics() SessionStatistics
-
-	// GetState returns the current state of the Session in the form of a SessionState.
-	GetState() SessionState
-
-	// ResourceUtilization returns the current ResourceUtilization of the Session.
-	ResourceUtilization() *ResourceUtilization
-
-	// GetCluster returns the Cluster in which this Session exists.
-	GetCluster() Cluster
-}
-
-type UserSession struct {
-	client.DistributedKernelClient
-
-	instance Session
+type Session struct {
+	instance *Session
 
 	cluster           Cluster         // The Cluster in which this Session exists.
 	ctx               context.Context // The Session's context.
@@ -124,21 +83,23 @@ type UserSession struct {
 	sessionState      SessionState    // The current state of the Session.
 	trainingStart     time.Time       // Time at which the current training began.
 	migrationStart    time.Time       // Time at which the migration began.
-	containers        []Container     // The kernel replicas belonging to this Session.
-	trainingContainer Container       // The Container that is actively training.
+	containers        []*Container    // The kernel replicas belonging to this Session.
+	trainingContainer *Container      // The Container that is actively training.
+	resourceSpec      types.Spec      // The (current) resource requirements of the Session.
 
 	////////////////////////
 	// Session Statistics //
 	////////////////////////
 
-	resourceUtilization            *ResourceUtilization // Current/latest resource usage statistics.
-	startedAt                      time.Time            // Time at which the session began running.
-	trainingTime                   SessionStatistic     // Moving average of training times.
-	migrationTime                  SessionStatistic     // Moving average of migration times.
-	interactivePriority            float64              // Interactivity Priority
-	interactivePriorityExplanation string               // Explanation of current Interactivity Priority value.
-	preemptionPriority             cache.InlineCache    // Preemption Priority
-	preemptionPriorityExplanation  string               // Explanation of current  Preemption Priority value.
+	kernelSpec                     *proto.KernelReplicaSpec // The kernel resourceSpec of the associated kernel.
+	resourceUtilization            *ResourceUtilization     // Current/latest resource usage statistics.
+	startedAt                      time.Time                // Time at which the session began running.
+	trainingTime                   SessionStatistic         // Moving average of training times.
+	migrationTime                  SessionStatistic         // Moving average of migration times.
+	interactivePriority            float64                  // Interactivity Priority
+	interactivePriorityExplanation string                   // Explanation of current Interactivity Priority value.
+	preemptionPriority             cache.InlineCache        // Preemption Priority
+	preemptionPriorityExplanation  string                   // Explanation of current  Preemption Priority value.
 
 	interactivePriorityHistory *ValueHistory[float64]
 	preemptionPriorityHistory  *ValueHistory[float64]
@@ -148,24 +109,25 @@ type UserSession struct {
 	log logger.Logger
 }
 
-func NewUserSession(ctx context.Context, kernel client.DistributedKernelClient, resourceUtilization *ResourceUtilization, cluster Cluster, opts *CoreOptions) *UserSession {
-	session := &UserSession{
-		DistributedKernelClient: kernel,
-		ctx:                     ctx,
-		cluster:                 cluster,
-		id:                      kernel.ID(),
-		log:                     config.GetLogger(fmt.Sprintf("Session %s ", kernel.ID())),
-		sessionState:            SessionStateInit,
-		startedAt:               time.Now(),
-		trainingTime:            NewSessionStatistic(opts.ExecutionTimeSamplingWindow),
-		migrationTime:           NewSessionStatistic(opts.MigrationTimeSamplingWindow),
-		resourceUtilization:     resourceUtilization,
+func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelReplicaSpec, resourceUtilization *ResourceUtilization, cluster Cluster, opts *CoreOptions) *Session {
+	session := &Session{
+		kernelSpec:          kernelSpec,
+		resourceSpec:        types.FullSpecFromKernelReplicaSpec(kernelSpec),
+		ctx:                 ctx,
+		cluster:             cluster,
+		id:                  id,
+		log:                 config.GetLogger(fmt.Sprintf("Session %s ", id)),
+		sessionState:        SessionStateInit,
+		startedAt:           time.Now(),
+		trainingTime:        NewSessionStatistic(opts.ExecutionTimeSamplingWindow),
+		migrationTime:       NewSessionStatistic(opts.MigrationTimeSamplingWindow),
+		resourceUtilization: resourceUtilization,
 
 		interactivePriorityHistory: NewValueHistory[float64]("Interactive Priority", "float64"),
 		preemptionPriorityHistory:  NewValueHistory[float64]("Preemption Priority", "float64"),
 		trainingTimeHistory:        NewValueHistory[time.Duration]("Training Time", "time.Duration"),
 		migrationTimeHistory:       NewValueHistory[time.Duration]("Migration Time", "time.Duration"),
-		containers:                 make([]Container, 0, opts.NumReplicas),
+		containers:                 make([]*Container, 0, opts.NumReplicas),
 	}
 
 	initialInteractivePriority := session.updateInteractivePriority("session started")
@@ -178,26 +140,42 @@ func NewUserSession(ctx context.Context, kernel client.DistributedKernelClient, 
 	return session
 }
 
-func (s *UserSession) Context() context.Context {
+func (s *Session) ResourceSpec() types.Spec {
+	return s.resourceSpec
+}
+
+func (s *Session) ID() string {
+	return s.id
+}
+
+func (s *Session) Context() context.Context {
 	return s.ctx
 }
 
-func (s *UserSession) SetContext(ctx context.Context) {
+func (s *Session) SetContext(ctx context.Context) {
 	s.ctx = ctx
 }
 
 // GetCluster returns the Cluster in which this Session exists.
-func (s *UserSession) GetCluster() Cluster {
+func (s *Session) GetCluster() Cluster {
 	return s.cluster
 }
 
 // ResourceUtilization returns the current ResourceUtilization of the Session.
-func (s *UserSession) ResourceUtilization() *ResourceUtilization {
+func (s *Session) ResourceUtilization() *ResourceUtilization {
 	return s.resourceUtilization
 }
 
+func (s *Session) KernelSpec() *proto.KernelReplicaSpec {
+	return s.kernelSpec
+}
+
+func (s *Session) String() string {
+	return fmt.Sprintf("Session[ID=%s]", s.id)
+}
+
 // TrainingStarted should be called when one of the Session's Kernel replicas begins training.
-func (s *UserSession) TrainingStarted(container Container) promise.Promise {
+func (s *Session) TrainingStarted(container *Container) promise.Promise {
 	if err := s.transition(SessionStateTraining); err != nil {
 		s.log.Warn("Failed to start training because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -232,7 +210,7 @@ func (s *UserSession) TrainingStarted(container Container) promise.Promise {
 }
 
 // TrainingStopped should be called when the actively-training Kernel replica of the Session stops training.
-func (s *UserSession) TrainingStopped() promise.Promise {
+func (s *Session) TrainingStopped() promise.Promise {
 	if err := s.transition(SessionStateIdle); err != nil {
 		s.log.Warn("Failed to stop training because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -256,7 +234,7 @@ func (s *UserSession) TrainingStopped() promise.Promise {
 
 // MigrationStarted should be called when one of the replicas of the Session begins the
 // process of migrating from its current Host to another Host.
-func (s *UserSession) MigrationStarted() promise.Promise {
+func (s *Session) MigrationStarted() promise.Promise {
 	if err := s.transition(SessionStateMigrating); err != nil {
 		s.log.Warn("Failed to initiate migration because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -268,7 +246,7 @@ func (s *UserSession) MigrationStarted() promise.Promise {
 
 // MigrationComplete should be called when the migrating replica of the Session has finished its migration
 // to another host.
-func (s *UserSession) MigrationComplete() promise.Promise {
+func (s *Session) MigrationComplete() promise.Promise {
 	if err := s.transition(SessionStateIdle); err != nil {
 		s.log.Warn("Failed to conclude migration because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -282,17 +260,17 @@ func (s *UserSession) MigrationComplete() promise.Promise {
 }
 
 // SessionStatistics returns the SessionStatistics instance associated with the Session.
-func (s *UserSession) SessionStatistics() SessionStatistics {
+func (s *Session) SessionStatistics() SessionStatistics {
 	return s
 }
 
 // GetState returns the current state of the Session in the form of a SessionState.
-func (s *UserSession) GetState() SessionState {
+func (s *Session) GetState() SessionState {
 	return s.sessionState
 }
 
 // SessionStopped should be called when the Session is terminated.
-func (s *UserSession) SessionStopped() promise.Promise {
+func (s *Session) SessionStopped() promise.Promise {
 	if err := s.transition(SessionStateIdle); err != nil {
 		s.log.Warn("Failed to terminate session because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -302,27 +280,27 @@ func (s *UserSession) SessionStopped() promise.Promise {
 }
 
 // IsStopped returns true if the Session has been terminated.
-func (s *UserSession) IsStopped() bool {
+func (s *Session) IsStopped() bool {
 	return s.sessionState == SessionStateStopped
 }
 
 // IsIdle returns true if the Session is currently idle, meaning that none of its replicas are currently training.
-func (s *UserSession) IsIdle() bool {
+func (s *Session) IsIdle() bool {
 	return s.sessionState == SessionStateIdle
 }
 
 // IsMigrating returns true if one or more replicas are currently migrating from one Host to another.
-func (s *UserSession) IsMigrating() bool {
+func (s *Session) IsMigrating() bool {
 	return s.sessionState == SessionStateMigrating
 }
 
 // IsTraining returns true if the Session is actively training.
 // Otherwise, IsTraining returns false.
-func (s *UserSession) IsTraining() bool {
+func (s *Session) IsTraining() bool {
 	return s.sessionState == SessionStateIdle
 }
 
-func (s *UserSession) transition(targetState SessionState) error {
+func (s *Session) transition(targetState SessionState) error {
 	if s.IsStopped() {
 		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, s.sessionState, targetState)
 	}
@@ -335,7 +313,7 @@ func (s *UserSession) transition(targetState SessionState) error {
 // Session Statistics //
 ////////////////////////
 
-func (s *UserSession) Explain(key ExplainerEntry) string {
+func (s *Session) Explain(key ExplainerEntry) string {
 	switch key {
 	case ExplainInteractivePriority:
 		return s.interactivePriorityExplanation
@@ -346,23 +324,23 @@ func (s *UserSession) Explain(key ExplainerEntry) string {
 	}
 }
 
-func (s *UserSession) TrainingTime() SessionStatistic {
+func (s *Session) TrainingTime() SessionStatistic {
 	return s.trainingTime
 }
 
-func (s *UserSession) MigrationTime() float64 {
+func (s *Session) MigrationTime() float64 {
 	return s.migrationTime.Avg()
 }
 
-// InteractivePriority returns the UserSession's interactive priority metric.
-func (s *UserSession) InteractivePriority() float64 {
+// InteractivePriority returns the Session's interactive priority metric.
+func (s *Session) InteractivePriority() float64 {
 	return s.interactivePriority
 }
 
-// updateInteractivePriority recalculates and subsequently returns the UserSession's InteractivePriority statistic/metric.
+// updateInteractivePriority recalculates and subsequently returns the Session's InteractivePriority statistic/metric.
 //
-// This should be called when the UserSession stops training.
-func (s *UserSession) updateInteractivePriority(reason string) float64 {
+// This should be called when the Session stops training.
+func (s *Session) updateInteractivePriority(reason string) float64 {
 	if s.TrainingTime().N() < 1 {
 		s.interactivePriority = 100000 // obsoleted: float64(s.meta.GPU.GPUs) * s.MigrationTime()
 		s.interactivePriorityExplanation = "initialization(no training history)"
@@ -374,15 +352,15 @@ func (s *UserSession) updateInteractivePriority(reason string) float64 {
 	return s.interactivePriority
 }
 
-// PreemptionPriority returns the currently-cached value of the UserSession's preemption priority metric.
+// PreemptionPriority returns the currently-cached value of the Session's preemption priority metric.
 // This may prompt a recalculation of the metric if the cached value is no longer valid.
-func (s *UserSession) PreemptionPriority() float64 {
+func (s *Session) PreemptionPriority() float64 {
 	return s.preemptionPriority.Value().(float64)
 }
 
 // calculatePreemptionPriority manually calculates and returns the preemption priority of the Session.
 // This is also used by the cache.InlineCache that "automatically" maintains the PreemptionPriority of the Session.
-func (s *UserSession) calculatePreemptionPriority() (preemptionPriority float64) {
+func (s *Session) calculatePreemptionPriority() (preemptionPriority float64) {
 	s.preemptionPriority.Validator(time.Now())
 
 	if !s.IsTraining() {
@@ -398,10 +376,10 @@ func (s *UserSession) calculatePreemptionPriority() (preemptionPriority float64)
 	return
 }
 
-func (s *UserSession) StartedAt() time.Time {
+func (s *Session) StartedAt() time.Time {
 	return s.startedAt
 }
 
-func (s *UserSession) Duration() time.Duration {
+func (s *Session) Duration() time.Duration {
 	return time.Now().Sub(s.startedAt)
 }

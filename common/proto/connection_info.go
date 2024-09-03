@@ -1,6 +1,8 @@
-package gateway
+package proto
 
-import jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+import (
+	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+)
 
 func (ci *KernelConnectionInfo) ConnectionInfo() *jupyter.ConnectionInfo {
 	return &jupyter.ConnectionInfo{

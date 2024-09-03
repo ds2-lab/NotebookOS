@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/pkg/errors"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
@@ -222,7 +222,7 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 // Add 'NoExecute' and 'NoSchedule' taints to the specified node to prevent Pods from being scheduled onto it,
 // and to evict any existing pods that are already scheduled onto it.
 func (c *BasicKubeClient) AddSchedulingTaintsToNode(nodeName string) error {
-	var patchData string = `{
+	var patchData = `{
 		"spec": {
 			"taints": [
 				{
@@ -252,7 +252,7 @@ func (c *BasicKubeClient) AddSchedulingTaintsToNode(nodeName string) error {
 
 // Remove all taints from the specified Kubernetes node.
 func (c *BasicKubeClient) RemoveAllTaintsFromNode(nodeName string) error {
-	var patchData string = `{
+	var patchData = `{
 		"spec": {
 			"taints": null
 		}
@@ -408,7 +408,7 @@ func (c *BasicKubeClient) DeleteCloneset(kernelId string) error {
 // Create a new Kubernetes StatefulSet for the given Session.
 // Returns a tuple containing the connection info returned by the `prepareConnectionFileContents` function and an error,
 // which will be nil if there were no errors encountered while creating the StatefulSet and related components.
-func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
+func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *proto.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	c.log.Debug("Creating Kubernetes resources for Kernel %s [Session: %s].", kernel.Id, kernel.Session)
 
 	// Prepare the *jupyter.ConnectionInfo.
@@ -425,7 +425,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	headlessServiceName := fmt.Sprintf("kernel-%s-svc", kernel.Id)
 
 	// Prepare the *jupyter.ConfigFile.
-	configFileInfo, err := c.prepareConfigFileContents(&gateway.KernelReplicaSpec{
+	configFileInfo, err := c.prepareConfigFileContents(&proto.KernelReplicaSpec{
 		ReplicaId: DummySMRNodeId, // We'll replace the dummy value with the correct ID when the Pod starts.
 		Replicas:  nil,
 		Kernel:    kernel,
@@ -706,12 +706,12 @@ func (c *BasicKubeClient) createPodWatcher(namespace string) {
 // - kernel (*gateway.KernelSpec): The specification of the distributed kernel.
 // - connectionInfo (*jupyter.ConnectionInfo): The connection info of the distributed kernel.
 // - headlessServiceName (string): The name of the headless Kubernetes service that was created to manage the networking of the Pods of the StatefulSet.
-func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) error {
+func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *proto.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) error {
 	// Create the StatefulSet of distributed kernel replicas.
 	statefulSetsClient := c.kubeClientset.AppsV1().StatefulSets(metav1.NamespaceDefault)
 	var replicas int32 = 3
-	var storageClassName string = "local-path"
-	var affinity corev1.Affinity = corev1.Affinity{
+	var storageClassName = "local-path"
+	var affinity = corev1.Affinity{
 		PodAntiAffinity: &corev1.PodAntiAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
 				{
@@ -994,10 +994,10 @@ type patchStringValue struct {
 // - kernel (*gateway.KernelSpec): The specification of the distributed kernel.
 // - connectionInfo (*jupyter.ConnectionInfo): The connection info of the distributed kernel.
 // - headlessServiceName (string): The name of the headless Kubernetes service that was created to manage the networking of the Pods of the CloneSet.
-func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) error {
-	var kernelResourceRequirements *gateway.ResourceSpec = kernel.GetResourceSpec()
+func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *proto.KernelSpec, connectionInfo *jupyter.ConnectionInfo, headlessServiceName string) error {
+	var kernelResourceRequirements = kernel.GetResourceSpec()
 	if kernelResourceRequirements == nil {
-		kernelResourceRequirements = &gateway.ResourceSpec{
+		kernelResourceRequirements = &proto.ResourceSpec{
 			Gpu:    0,
 			Cpu:    0,
 			Memory: 0,
@@ -1311,7 +1311,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *gate
 
 // Create a Kubernetes ConfigMap containing the configuration information for a particular deployment of distributed kernels.
 // Both the connectionInfoJson and configJson arguments should be values returned by the json.Marshal function.
-func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJson []byte, configJson []byte, kernel *gateway.KernelSpec) error {
+func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJson []byte, configJson []byte, kernel *proto.KernelSpec) error {
 	// Construct the ConfigMap. We'll mount this to the Pods.
 	connectionFileConfigMap := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
@@ -1339,7 +1339,7 @@ func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJso
 }
 
 // Create a headless service that will control the networking of the distributed kernel StatefulSet.
-func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *gateway.KernelSpec, connectionInfo *jupyter.ConnectionInfo, serviceName string) {
+func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *proto.KernelSpec, connectionInfo *jupyter.ConnectionInfo, serviceName string) {
 	// Create a headless service for the StatefulSet that we'll be creating later on.
 	svcClient := c.kubeClientset.CoreV1().Services(corev1.NamespaceDefault)
 	svc := &corev1.Service{
@@ -1446,7 +1446,7 @@ func (c *BasicKubeClient) createHeadlessService(ctx context.Context, kernel *gat
 	}
 }
 
-func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
+func (c *BasicKubeClient) prepareConnectionFileContents(spec *proto.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	// Prepare contents of the connection file.
 	// We just need to add the SignatureScheme and Key.
 	// The other information will be available in a file already on the host.
@@ -1467,7 +1467,7 @@ func (c *BasicKubeClient) prepareConnectionFileContents(spec *gateway.KernelSpec
 	return connectionInfo, nil
 }
 
-func (c *BasicKubeClient) prepareConfigFileContents(spec *gateway.KernelReplicaSpec, headlessServiceName string) (*jupyter.ConfigFile, error) {
+func (c *BasicKubeClient) prepareConfigFileContents(spec *proto.KernelReplicaSpec, headlessServiceName string) (*jupyter.ConfigFile, error) {
 	var replicas []string
 
 	// We can only deterministically construct the hostnames of the replicas if we're using a StatefulSet.

@@ -58,8 +58,8 @@ type MessageHandlerWrapper struct {
 
 func GetMessageHandlerWrapper(request Request) *MessageHandlerWrapper {
 	var (
-		h    MessageHandler = request.MessageHandler()
-		done MessageDone    = request.DoneCallback()
+		h    = request.MessageHandler()
+		done = request.DoneCallback()
 	)
 
 	m := mhwPool.Get().(*MessageHandlerWrapper)

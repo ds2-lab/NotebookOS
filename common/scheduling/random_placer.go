@@ -34,7 +34,7 @@ func NewRandomPlacer(cluster Cluster, opts *CoreOptions) (*RandomPlacer, error) 
 }
 
 // FindHosts returns a slice of Host instances that can satisfy the resourceSpec.
-func (placer *RandomPlacer) FindHosts(spec types.Spec) []Host {
+func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 
@@ -49,8 +49,8 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []Host {
 
 	var (
 		pos   interface{}
-		host  Host
-		hosts = make([]Host, numReplicas)
+		host  *Host
+		hosts = make([]*Host, numReplicas)
 	)
 	for i := 0; i < len(hosts); i++ {
 		host, pos = placer.index.SeekFrom(pos)
@@ -64,7 +64,7 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []Host {
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *RandomPlacer) FindHost(blacklist []interface{}, spec types.Spec) Host {
+func (placer *RandomPlacer) FindHost(blacklist []interface{}, spec types.Spec) *Host {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 

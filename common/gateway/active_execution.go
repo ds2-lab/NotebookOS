@@ -1,11 +1,11 @@
-package client
+package gateway
 
 import (
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 
 	"github.com/google/uuid"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
 const (
@@ -42,14 +42,14 @@ type ActiveExecution struct {
 	proposals map[int32]string // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
 
 	nextAttempt     *ActiveExecution // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
-	previousAttempt *ActiveExecution // The retry that preceeded this one, if this is not the first attempt.
+	previousAttempt *ActiveExecution // The retry that preceded this one, if this is not the first attempt.
 
-	msg *jupyter.JupyterMessage // The original 'execute_request' message.
+	msg *types.JupyterMessage // The original 'execute_request' message.
 
 	executed bool
 }
 
-func NewActiveExecution(kernelId string, sessionId string, attemptId int, numReplicas int, msg *jupyter.JupyterMessage) *ActiveExecution {
+func NewActiveExecution(kernelId string, sessionId string, attemptId int, numReplicas int, msg *types.JupyterMessage) *ActiveExecution {
 	return &ActiveExecution{
 		executionId:     uuid.NewString(),
 		sessionId:       sessionId,
@@ -63,7 +63,7 @@ func NewActiveExecution(kernelId string, sessionId string, attemptId int, numRep
 	}
 }
 
-func (e *ActiveExecution) Msg() *jupyter.JupyterMessage {
+func (e *ActiveExecution) Msg() *types.JupyterMessage {
 	return e.msg
 }
 

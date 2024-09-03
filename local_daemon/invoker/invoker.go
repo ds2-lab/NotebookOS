@@ -2,9 +2,9 @@ package invoker
 
 import (
 	"context"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"time"
 
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
@@ -12,7 +12,7 @@ type StatucChangedHandler func(old jupyter.KernelStatus, new jupyter.KernelStatu
 
 type KernelInvoker interface {
 	// InvokeWithContext starts a kernel with the given context.
-	InvokeWithContext(context.Context, *gateway.KernelReplicaSpec) (*jupyter.ConnectionInfo, error)
+	InvokeWithContext(context.Context, *proto.KernelReplicaSpec) (*jupyter.ConnectionInfo, error)
 
 	// Status returns the status of the kernel.
 	Status() (jupyter.KernelStatus, error)
@@ -35,5 +35,5 @@ type KernelInvoker interface {
 	OnStatusChanged(StatucChangedHandler)
 
 	// GetReplicaAddress
-	GetReplicaAddress(spec *gateway.KernelSpec, replicaId int32) string
+	GetReplicaAddress(spec *proto.KernelSpec, replicaId int32) string
 }

@@ -811,7 +811,7 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 		node.sugaredLogger.Debugf("LogNode %d will be restarting, as the old WAL directory is available (%v), and/or we've been told to join (%v).", node.id, oldWALExists, node.join)
 		node.node = raft.RestartNode(c)
 	} else {
-		node.sugaredLogger.Debugf("LogNode %d will be starting (as if for the first time), as the old WAL directory is not available (%v) and we've not been instructed to join.", node.id, oldWALExists, node.join)
+		node.sugaredLogger.Debugf("LogNode %d will be starting (as if for the first time), as the old WAL directory is not available (%v) and we've not been instructed to join (%v).", node.id, oldWALExists, node.join)
 		node.node = raft.StartNode(c, rpeers)
 	}
 
@@ -983,7 +983,7 @@ func (node *LogNode) writeRaftLogSerializedStateToHdfs(serialized_state []byte) 
 	serialized_state_filepath := filepath.Join(serialized_state_file_dir, serialized_state_filename)
 	// new_serialized_state_filepath := filepath.Join(serialized_state_file_dir, SerializedStateFile)
 
-	var alreadyExists bool = false
+	var alreadyExists = false
 	if _, err := node.hdfsClient.Stat(serialized_state_filepath); err == nil {
 		// The file already exists. We'll write our state to another file.
 		// If that is successful, then we'll delete the old one and replace it with the new one.
@@ -1087,7 +1087,7 @@ func (node *LogNode) writeLocalDirectoryToHdfs(dir string) error {
 				}
 			}
 
-			var num_tries int = 1
+			var num_tries = 1
 
 			// The node.hdfsClient has a CopyLocalToRemote function which does exactly what the code below does.
 			// The only difference is that we retry remote.Close() in a loop until it stops returning ErrReplicating and succeeds.
@@ -1299,7 +1299,7 @@ func (node *LogNode) loadSnapshot() *raftpb.Snapshot {
 			return nil
 		}
 		snapshot, err := node.snapshotter.LoadNewestAvailable(walSnaps)
-		if err != nil && err != snap.ErrNoSnapshot {
+		if err != nil && !errors.Is(err, snap.ErrNoSnapshot) {
 			node.logWarnf("LogNode: error loading snapshot (%v)", err)
 		}
 
@@ -1364,7 +1364,7 @@ func (node *LogNode) replayWAL() *wal.WAL {
 
 	w := node.openWAL(snapshot)
 	if w == nil {
-		node.sugaredLogger.Warnf("Failed to open WAL snapshot.", zap.String("waldir", node.waldir))
+		node.sugaredLogger.Warn("Failed to open WAL snapshot.", zap.String("waldir", node.waldir))
 		return w
 	}
 

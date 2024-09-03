@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"io"
 	"math"
 	"math/rand"
@@ -19,10 +20,17 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/petermattis/goid"
 
-	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+)
+
+const (
+	MessageTypeACK = "ACK"
+
+	// GolangFrontendRegistrationRequest is a message type sent by our custom Golang Jupyter frontend clients.
+	// These inform us that we should expect the frontend to send ACKs, which does not happen for "regular" Jupyter frontends.
+	GolangFrontendRegistrationRequest = "golang_frontend_registration_request"
 )
 
 var (
@@ -31,13 +39,6 @@ var (
 )
 
 type WaitResponseOptionGetter func(key string) interface{}
-
-type Sender interface {
-	// Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
-	SendMessage(request types.Request, socket *types.Socket) error
-
-	// SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest types.RequestDest, sourceKernel types.SourceKernel, offset int) error
-}
 
 // AbstractServer implements the basic socket serving useful for a Jupyter server. Embed this struct in your server implementation.
 type AbstractServer struct {
@@ -206,11 +207,14 @@ func (s *AbstractServer) handleAck(msg *zmq4.Msg, rspId string, socket *types.So
 		s.Log.Error("[gid=%d] [3] Received ACK for %s message %s via local socket %s [remoteSocket=%s]; however, we were not expecting an ACK for that message...", goroutineId, socket.Type.String(), rspId, socket.Name, socket.RemoteName)
 	} else if ackReceived {
 		s.Log.Error("[gid=%d] [4] Received ACK for %s message %s via local socket %s [remoteSocket=%s]; however, we already received an ACK for that message...", goroutineId, socket.Type.String(), rspId, socket.Name, socket.RemoteName)
-	} else if !loaded {
-		panic(fmt.Sprintf("[gid=%d] Did not have ACK entry for message %s", goroutineId, rspId))
 	} else {
 		panic(fmt.Sprintf("[gid=%d] Unexpected condition.", goroutineId))
 	}
+
+	// Commented out because supposedly unreachable condition:
+	//else if !loaded {
+	//	panic(fmt.Sprintf("[gid=%d] Did not have ACK entry for message %s", goroutineId, rspId))
+	//}
 }
 
 func (s *AbstractServer) sendAck(messageWeAreAcking *types.JupyterMessage, socket *types.Socket) error {
@@ -868,7 +872,7 @@ func (s *AbstractServer) isMessageAnAck(msg *types.JupyterMessage, typ types.Mes
 		return false
 	}
 
-	return (msg.JupyterMessageType() == jupyter.MessageTypeACK)
+	return msg.JupyterMessageType() == MessageTypeACK
 }
 
 func (s *AbstractServer) isMessageGolangFrontendRegistrationRequest(msg *types.JupyterMessage, typ types.MessageType) bool {
@@ -877,7 +881,7 @@ func (s *AbstractServer) isMessageGolangFrontendRegistrationRequest(msg *types.J
 		return false
 	}
 
-	return (msg.JupyterMessageType() == jupyter.GolangFrontendRegistrationRequest)
+	return msg.JupyterMessageType() == GolangFrontendRegistrationRequest
 }
 
 func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDestFrameBeRemoved bool, defaultHandler types.MessageHandler) types.MessageHandler {

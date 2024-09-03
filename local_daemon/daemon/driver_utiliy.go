@@ -3,6 +3,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"net"
 	"os"
@@ -14,7 +15,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/opentracing/opentracing-go"
 	"github.com/zhangjyr/distributed-notebook/common/consul"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/local_daemon/device"
@@ -105,7 +105,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	// Initialize grpc server
 	srv := grpc.NewServer(gOpts...)
 	scheduler := New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort, devicePluginServer, nodeName)
-	gateway.RegisterLocalGatewayServer(srv, scheduler)
+	proto.RegisterLocalGatewayServer(srv, scheduler)
 
 	// Initialize gRPC listener
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
@@ -116,8 +116,8 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	globalLogger.Info("Scheduler listening for gRPC at %v", lis.Addr())
 
 	start := time.Now()
-	var connectedToProvisioner bool = false
-	var numAttempts int = 1
+	var connectedToProvisioner = false
+	var numAttempts = 1
 	var provConn net.Conn
 	for !connectedToProvisioner && time.Since(start) < (time.Minute*1) {
 		globalLogger.Debug("Attempt #%d to connect to Provisioner (Gateway) at %s. Connection timeout: %v.", numAttempts, options.ProvisionerAddr, connectionTimeout)
@@ -136,6 +136,10 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	if !connectedToProvisioner {
 		lis.Close()
 		log.Fatalf("Failed to connect to provisioner after %d attempt(s). Most recent error: %v", numAttempts, err)
+	}
+
+	if provConn == nil {
+		panic("provConn should not be nil at this point")
 	}
 	// defer provConn.Close()
 

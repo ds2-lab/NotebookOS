@@ -52,7 +52,7 @@ func getDeviceIDs(d device.Devices, startIdx int, endIdx int) []string {
 }
 
 func spoofPods(startIndex int, endIndex int, podsWithVGPUs int, numVGPUs int) (device.StringSet, []corev1.Pod, map[string]*corev1.Pod) {
-	var n int = endIndex - startIndex
+	var n = endIndex - startIndex
 	activePodIDs := sets.New[string]()
 	activePods := make([]corev1.Pod, 0, n)
 	activePodsMap := make(map[string]*corev1.Pod)
@@ -66,7 +66,7 @@ func spoofPods(startIndex int, endIndex int, podsWithVGPUs int, numVGPUs int) (d
 		panic(err)
 	}
 
-	var idx int = startIndex
+	var idx = startIndex
 	for i := 0; i < podsWithVGPUs; i++ {
 		pod := spoofPod(idx, cpu, mem, vgpu, corev1.PodPending)
 		activePodIDs.Insert(string(pod.UID))
@@ -140,7 +140,7 @@ var _ = Describe("Allocator Tests", func() {
 		opts         *domain.VirtualGpuPluginServerOptions
 		mockCtrl     *gomock.Controller
 		mockPodCache *mock_device.MockPodCache
-		nodeName     string = "TestNode"
+		nodeName     = "TestNode"
 	)
 
 	BeforeEach(func() {
@@ -184,7 +184,7 @@ var _ = Describe("Allocator Tests", func() {
 				Expect(allocator.NumFreeVirtualGPUs()).To(Equal(totalVirtualGPUs))
 				Expect(allocator.NumAllocatedVirtualGPUs()).To(BeZero())
 
-				var adjustedVirtualGPUs int = 128
+				var adjustedVirtualGPUs = 128
 				Expect(adjustedVirtualGPUs > totalVirtualGPUs).To(BeTrue())
 				allocator.SetTotalVirtualGPUs(int32(adjustedVirtualGPUs))
 
@@ -198,7 +198,7 @@ var _ = Describe("Allocator Tests", func() {
 				Expect(allocator.NumFreeVirtualGPUs()).To(Equal(totalVirtualGPUs))
 				Expect(allocator.NumAllocatedVirtualGPUs()).To(BeZero())
 
-				var adjustedVirtualGPUs int = 32
+				var adjustedVirtualGPUs = 32
 				Expect(adjustedVirtualGPUs < totalVirtualGPUs).To(BeTrue())
 				allocator.SetTotalVirtualGPUs(int32(adjustedVirtualGPUs))
 
@@ -272,7 +272,7 @@ var _ = Describe("Allocator Tests", func() {
 				// Increase total available vGPUs //
 				////////////////////////////////////
 
-				var adjustedVirtualGPUs int = 128
+				var adjustedVirtualGPUs = 128
 				Expect(adjustedVirtualGPUs > totalVirtualGPUs).To(BeTrue())
 				allocator.SetTotalVirtualGPUs(int32(adjustedVirtualGPUs))
 
@@ -344,7 +344,7 @@ var _ = Describe("Allocator Tests", func() {
 				// Decrease total available vGPUs //
 				////////////////////////////////////
 
-				var adjustedVirtualGPUs int = 32
+				var adjustedVirtualGPUs = 32
 				Expect(adjustedVirtualGPUs < totalVirtualGPUs).To(BeTrue())
 				allocator.SetTotalVirtualGPUs(int32(adjustedVirtualGPUs))
 

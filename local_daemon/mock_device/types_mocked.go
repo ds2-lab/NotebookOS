@@ -5,9 +5,9 @@
 package mock_device
 
 import (
+	gateway "github.com/zhangjyr/distributed-notebook/common/proto"
 	reflect "reflect"
 
-	gateway "github.com/zhangjyr/distributed-notebook/common/gateway"
 	device "github.com/zhangjyr/distributed-notebook/local_daemon/device"
 	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"

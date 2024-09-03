@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"net"
 	"os"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
@@ -36,7 +36,7 @@ type LocalInvoker struct {
 	SMRPort int
 
 	cmd           *exec.Cmd
-	spec          *gateway.KernelReplicaSpec
+	spec          *proto.KernelReplicaSpec
 	closedAt      time.Time
 	closed        chan struct{}
 	status        jupyter.KernelStatus
@@ -54,7 +54,7 @@ func NewLocalInvoker() *LocalInvoker {
 	return invoker
 }
 
-func (ivk *LocalInvoker) InvokeWithContext(ctx context.Context, spec *gateway.KernelReplicaSpec) (*jupyter.ConnectionInfo, error) {
+func (ivk *LocalInvoker) InvokeWithContext(ctx context.Context, spec *proto.KernelReplicaSpec) (*jupyter.ConnectionInfo, error) {
 	ivk.closed = make(chan struct{})
 	ivk.spec = spec
 	ivk.status = jupyter.KernelStatusInitializing
@@ -137,7 +137,7 @@ func (ivk *LocalInvoker) OnStatusChanged(handler StatucChangedHandler) {
 	ivk.statusChanged = handler
 }
 
-func (ivk *LocalInvoker) GetReplicaAddress(spec *gateway.KernelSpec, replicaId int32) string {
+func (ivk *LocalInvoker) GetReplicaAddress(spec *proto.KernelSpec, replicaId int32) string {
 	ivk.initSMRPort()
 	return fmt.Sprintf("127.0.0.1:%d", ivk.SMRPort)
 }
@@ -152,7 +152,7 @@ func (ivk *LocalInvoker) initSMRPort() {
 	}
 }
 
-func (ivk *LocalInvoker) prepareConnectionFile(spec *gateway.KernelSpec) (*jupyter.ConnectionInfo, error) {
+func (ivk *LocalInvoker) prepareConnectionFile(spec *proto.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	// Write connection file
 	connectionInfo := &jupyter.ConnectionInfo{
 		IP:              "127.0.0.1",

@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,14 +12,15 @@ import (
 
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
 )
 
 const (
 	ClusterGatewayRouter    string = "ClusterGatewayRouter"
 	LocalDaemonRouterPrefix string = "LocalDaemon_"
 
-	GatewayRetrySleepInterval     time.Duration = time.Millisecond * 675
-	LocalDaemonRetrySleepInterval time.Duration = time.Millisecond * 550
+	GatewayRetrySleepInterval     = time.Millisecond * 675
+	LocalDaemonRetrySleepInterval = time.Millisecond * 550
 )
 
 type Router struct {
@@ -130,7 +132,7 @@ func (g *Router) AddHandler(typ types.MessageType, handler RouterMessageHandler)
 				err := newHandler(sockets, msg)
 				if err == nil {
 					return oldHandler(sockets, msg)
-				} else if err == types.ErrStopPropagation {
+				} else if errors.Is(err, commonTypes.ErrStopPropagation) {
 					return nil
 				} else {
 					return err

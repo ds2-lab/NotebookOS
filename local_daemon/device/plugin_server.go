@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"net"
 	"os"
 	"path"
@@ -13,7 +14,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/pkg/errors"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -73,7 +73,7 @@ func NewVirtualGpuPluginServer(opts *domain.VirtualGpuPluginServerOptions, nodeN
 }
 
 // Return the map of allocations, which is Pod UID -> allocation.
-func (v *virtualGpuPluginServerImpl) GetAllocations() map[string]*gateway.VirtualGpuAllocation {
+func (v *virtualGpuPluginServerImpl) GetAllocations() map[string]*proto.VirtualGpuAllocation {
 	return v.allocator.getAllocations()
 }
 
@@ -282,7 +282,7 @@ func (v *virtualGpuPluginServerImpl) ListAndWatch(e *pluginapi.Empty, s pluginap
 	}
 
 	// We don't send unhealthy state.
-	var running bool = true
+	var running = true
 	for running {
 		select {
 		case <-v.totalNumVirtualGpusChanged:

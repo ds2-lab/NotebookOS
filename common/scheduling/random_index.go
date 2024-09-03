@@ -18,7 +18,7 @@ const (
 // RandomClusterIndex is a simple cluster that seeks hosts randomly.
 // RandomClusterIndex uses CategoryClusterIndex and all hosts are qualified.
 type RandomClusterIndex struct {
-	hosts     []Host
+	hosts     []*Host
 	len       int32
 	freeStart int32 // The first freed index.
 	perm      []int // The permutation of the hosts.
@@ -30,7 +30,7 @@ type RandomClusterIndex struct {
 
 func NewRandomClusterIndex(size int) *RandomClusterIndex {
 	idx := &RandomClusterIndex{
-		hosts: make([]Host, 0, size),
+		hosts: make([]*Host, 0, size),
 	}
 
 	config.InitLogger(&idx.log, idx)
@@ -42,7 +42,7 @@ func (index *RandomClusterIndex) Category() (string, interface{}) {
 	return CategoryClusterIndex, expectedRandomIndex
 }
 
-func (index *RandomClusterIndex) IsQualified(host Host) (interface{}, ClusterIndexQualification) {
+func (index *RandomClusterIndex) IsQualified(host *Host) (interface{}, ClusterIndexQualification) {
 	// Since all hosts are qualified, we check if the host is in the index only.
 	if _, ok := host.GetMeta(HostMetaRandomIndex).(int32); ok {
 		return expectedRandomIndex, ClusterIndexQualified
@@ -55,7 +55,7 @@ func (index *RandomClusterIndex) Len() int {
 	return int(index.len)
 }
 
-func (index *RandomClusterIndex) Add(host Host) {
+func (index *RandomClusterIndex) Add(host *Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -77,11 +77,11 @@ func (index *RandomClusterIndex) Add(host Host) {
 	index.len += 1
 }
 
-func (index *RandomClusterIndex) Update(host Host) {
+func (index *RandomClusterIndex) Update(host *Host) {
 	// No-op.
 }
 
-func (index *RandomClusterIndex) Remove(host Host) {
+func (index *RandomClusterIndex) Remove(host *Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -116,11 +116,11 @@ func (index *RandomClusterIndex) compactLocked(from int32) {
 	index.hosts = index.hosts[:frontier]
 }
 
-func (index *RandomClusterIndex) GetMetrics(_ Host) []float64 {
+func (index *RandomClusterIndex) GetMetrics(_ *Host) []float64 {
 	return nil
 }
 
-func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret Host, pos interface{}) {
+func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret *Host, pos interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -168,7 +168,7 @@ func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 }
 
 // SeekFrom seeks from the given position. Pass nil as pos to reset the seek.
-func (index *RandomClusterIndex) SeekFrom(pos interface{}, metrics ...[]float64) (ret Host, newPos interface{}) {
+func (index *RandomClusterIndex) SeekFrom(pos interface{}, metrics ...[]float64) (ret *Host, newPos interface{}) {
 	if start, ok := pos.(int32); ok {
 		index.seekStart = start
 	} else {

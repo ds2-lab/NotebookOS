@@ -4,7 +4,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )
@@ -16,7 +16,7 @@ var (
 func dummyScheduler(addr string) (*LocalDaemonClient, error) {
 	id := uuid.New().String()
 	scheduler := &LocalDaemonClient{
-		LocalGatewayClient: gateway.NewLocalGatewayClient(nil),
+		LocalGatewayClient: proto.NewLocalGatewayClient(nil),
 		addr:               addr,
 		conn:               nil,
 		meta:               hashmap.NewCornelkMap[string, interface{}](10),

@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"net"
 
 	"github.com/hashicorp/yamux"
@@ -21,7 +22,7 @@ var (
 // initializes the gRPC client. The Accept method should be called only once.
 type Provisioner struct {
 	net.Listener
-	gateway.ClusterGatewayClient
+	proto.ClusterGatewayClient
 	ready chan struct{}
 	log   logger.Logger
 }
@@ -97,7 +98,7 @@ func (p *Provisioner) InitClient(session *yamux.Session) error {
 
 	p.log.Debug("Successfully created gRPC connection using dummy dialer. Target: %v", gConn.Target())
 
-	p.ClusterGatewayClient = gateway.NewClusterGatewayClient(gConn)
+	p.ClusterGatewayClient = proto.NewClusterGatewayClient(gConn)
 	return nil
 }
 

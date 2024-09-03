@@ -3,25 +3,24 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"net"
 	"sync/atomic"
 
 	"github.com/hashicorp/yamux"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
-	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 type DistributedCluster struct {
-	gateway.UnimplementedDistributedClusterServer
+	proto.UnimplementedDistributedClusterServer
 
 	gatewayDaemon *ClusterGatewayImpl
 
-	clusterDashboard gateway.ClusterDashboardClient
+	clusterDashboard proto.ClusterDashboardClient
 
 	listener net.Listener
 	closed   int32
@@ -52,7 +51,7 @@ func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{})
 		panic(fatalErr)
 	}
 
-	_, err := dc.clusterDashboard.SendNotification(context.TODO(), &gateway.Notification{
+	_, err := dc.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
 		Title:            fmt.Sprintf("%s panicked.", identity),
 		Message:          fmt.Sprintf("%v", fatalErr),
 		NotificationType: int32(types.ErrorNotification),
@@ -65,12 +64,12 @@ func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{})
 }
 
 // Used to test notifications.
-func (dc *DistributedCluster) SpoofNotifications(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
+func (dc *DistributedCluster) SpoofNotifications(ctx context.Context, in *proto.Void) (*proto.Void, error) {
 	return dc.gatewayDaemon.SpoofNotifications(ctx, in)
 }
 
 // Used for debugging/testing. Causes a Panic.
-func (dc *DistributedCluster) InducePanic(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
+func (dc *DistributedCluster) InducePanic(ctx context.Context, in *proto.Void) (*proto.Void, error) {
 	panic("Inducing a panic.")
 }
 
@@ -140,7 +139,7 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 	dc.log.Debug("Successfully dialed to create reverse connection with Cluster Dashboard. Target: %v", gConn.Target())
 
 	// Create a Cluster Dashboard client and register it.
-	dc.clusterDashboard = gateway.NewClusterDashboardClient(gConn)
+	dc.clusterDashboard = proto.NewClusterDashboardClient(gConn)
 	dc.gatewayDaemon.clusterDashboard = dc.clusterDashboard
 	return conn, nil
 }
@@ -167,12 +166,12 @@ func (dc *DistributedCluster) Addr() net.Addr {
 }
 
 // Return the current GPU resource metrics on the node.
-func (d *DistributedCluster) GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
+func (d *DistributedCluster) GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error) {
 	return d.gatewayDaemon.GetClusterActualGpuInfo(ctx, in)
 }
 
 // Return the current vGPU (or "deflated GPU") resource metrics on the node.
-func (d *DistributedCluster) GetClusterVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterVirtualGpuInfo, error) {
+func (d *DistributedCluster) GetClusterVirtualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterVirtualGpuInfo, error) {
 	return d.gatewayDaemon.getClusterVirtualGpuInfo(ctx, in)
 }
 
@@ -182,28 +181,28 @@ func (d *DistributedCluster) GetClusterVirtualGpuInfo(ctx context.Context, in *g
 // For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
 // this function is called with the new total number specified as 32, then the operation will fail.
 // In this case (when the operation fails), an ErrInvalidParameter is returned.
-func (d *DistributedCluster) SetTotalVirtualGPUs(ctx context.Context, in *gateway.SetVirtualGPUsRequest) (*gateway.VirtualGpuInfo, error) {
+func (d *DistributedCluster) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
 	return d.gatewayDaemon.setTotalVirtualGPUs(ctx, in)
 }
 
-func (dc *DistributedCluster) ListKernels(ctx context.Context, in *gateway.Void) (*gateway.ListKernelsResponse, error) {
+func (dc *DistributedCluster) ListKernels(ctx context.Context, in *proto.Void) (*proto.ListKernelsResponse, error) {
 	return dc.gatewayDaemon.listKernels()
 }
 
-func (dc *DistributedCluster) MigrateKernelReplica(ctx context.Context, in *gateway.MigrationRequest) (*gateway.MigrateKernelResponse, error) {
+func (dc *DistributedCluster) MigrateKernelReplica(ctx context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error) {
 	return dc.gatewayDaemon.MigrateKernelReplica(ctx, in)
 }
 
-func (dc *DistributedCluster) Ping(ctx context.Context, in *gateway.Void) (*gateway.Pong, error) {
-	return &gateway.Pong{Id: dc.gatewayDaemon.id}, nil
+func (dc *DistributedCluster) Ping(ctx context.Context, in *proto.Void) (*proto.Pong, error) {
+	return &proto.Pong{Id: dc.gatewayDaemon.id}, nil
 }
 
-func (dc *DistributedCluster) PingKernel(ctx context.Context, in *gateway.PingInstruction) (*gateway.Pong, error) {
+func (dc *DistributedCluster) PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error) {
 	return dc.gatewayDaemon.PingKernel(ctx, in)
 }
 
 // Ensure that the next 'execute_request' for the specified kernel fails.
 // This is to be used exclusively for testing/debugging purposes.
-func (dc *DistributedCluster) FailNextExecution(ctx context.Context, in *gateway.KernelId) (*gateway.Void, error) {
+func (dc *DistributedCluster) FailNextExecution(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
 	return dc.gatewayDaemon.FailNextExecution(ctx, in)
 }

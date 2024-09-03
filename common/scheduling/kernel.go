@@ -2,10 +2,9 @@ package scheduling
 
 import (
 	"context"
-
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
@@ -20,10 +19,10 @@ type KernelInfo interface {
 	ID() string
 
 	// ResourceSpec returns resource resourceSpec, which defines the resource requirements of the kernel.
-	ResourceSpec() *gateway.ResourceSpec
+	ResourceSpec() *types.FullSpec
 
 	// KernelSpec returns kernel resourceSpec.
-	KernelSpec() *gateway.KernelSpec
+	KernelSpec() *proto.KernelSpec
 }
 
 // Kernel defines the interface for a jupyter kernel.
@@ -91,14 +90,14 @@ type KernelReplica interface {
 	SetReady()
 
 	// GetHost returns the Host on which the replica is hosted.
-	GetHost() Host
+	GetHost() *Host
 
 	// SetHost sets the Host of the kernel.
-	SetHost(Host)
+	SetHost(*Host)
 
 	// Container returns the Container associated with the KernelReplica.
-	Container() Container
+	Container() *Container
 
 	// SetContainer sets/updates the Container associated with the KernelReplica.
-	SetContainer(Container)
+	SetContainer(*Container)
 }

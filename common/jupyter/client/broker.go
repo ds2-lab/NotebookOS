@@ -1,11 +1,12 @@
 package client
 
 import (
-	"reflect"
-	"sync"
-
+	"errors"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
+	"reflect"
+	"sync"
 )
 
 const (
@@ -100,7 +101,7 @@ func (broker *MessageBroker[S, R, T]) findInHandlers(needle MessageBrokerHandler
 }
 
 func (broker *MessageBroker[S, R, T]) shouldStop(err error) (error, bool) {
-	if err == types.ErrStopPropagation {
+	if errors.Is(err, commonTypes.ErrStopPropagation) {
 		return nil, true
 	} else if err != nil {
 		return err, true

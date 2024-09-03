@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,11 +13,10 @@ import (
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 
@@ -26,109 +27,8 @@ var (
 	ErrDeadlineExceeded       = errors.New("deadline for parent context has already been exceeded")
 )
 
-type SMRNodeReadyNotificationCallback func(KernelReplicaClient)
+type SMRNodeReadyNotificationCallback func(*KernelReplicaClient)
 type SMRNodeUpdatedNotificationCallback func(*types.MessageSMRNodeUpdated) // For node-added or node-removed notifications.
-
-// KernelReplicaClient offers a simple interface to communicate with a kernel replica.
-type KernelReplicaClient interface {
-	scheduling.KernelReplica
-	server.Sender
-
-	// InitializeShellForwarder initializes the IOPub serving.
-	InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*types.Socket, error)
-
-	// InitializeIOForwarder initializes the IOPub serving.
-	// Returns Pub socket, Sub socket, error.
-	InitializeIOForwarder() (*types.Socket, error)
-
-	// ShouldAckMessages returns true if this kernel replica client is configured to ACK messages.
-	ShouldAckMessages() bool
-
-	// InitializeIOSub initializes the ZMQ SUB socket for handling IO messages from the Jupyter kernel.
-	// If the provided types.MessageHandler parameter is nil, then we will use the default handler. (The default handler is BasicKernelReplicaClient::InitializeIOSub.)
-	// The ZMQ socket is subscribed to the specified topic, which should be "" (i.e., the empty string) if no subscription is desired.
-	InitializeIOSub(handler types.MessageHandler, subscriptionTopic string) (*types.Socket, error)
-
-	ShellListenPort() int
-
-	IOPubListenPort() int
-
-	// GetHost returns the Host on which the replica is hosted.
-	GetHost() scheduling.Host
-
-	// SetHost sets the Host of the kernel.
-	SetHost(scheduling.Host)
-
-	// PodName returns the name of the Kubernetes Pod hosting the replica.
-	PodName() string
-
-	SourceKernelID() string
-
-	// ReplicaID returns the replica ID.
-	ReplicaID() int32
-
-	NodeName() string
-
-	SetPersistentID(string)
-
-	// AddIOHandler adds a handler for a specific IOPub topic.
-	// The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
-	AddIOHandler(topic string, handler KernelMessageBrokerHandler) error
-
-	// ID returns the kernel ID.
-	ID() string
-
-	// Sessions returns the associated session ID.
-	Sessions() []string
-
-	// SetResourceSpec sets the ResourceSpec of the kernel.
-	SetResourceSpec(spec *gateway.ResourceSpec)
-
-	SetReplicaID(replicaId int32)
-
-	// PersistentID returns the persistent ID.
-	PersistentID() string
-
-	// Address returns the address of the kernel.
-	Address() string
-
-	// String returns a string representation of the client.
-	String() string
-
-	// IsReady returns true if the replica has registered and joined its SMR cluster.
-	// Only used by the Cluster Gateway, not by the Local Daemon.
-	IsReady() bool
-
-	// SetReady designates the replica as ready.
-	// Only used by the Cluster Gateway, not by the Local Daemon.
-	SetReady()
-
-	// Socket returns the serve socket the kernel is listening on.
-	Socket(typ types.MessageType) *types.Socket
-
-	// Status returns the kernel status.
-	Status() types.KernelStatus
-
-	// BusyStatus returns the kernel busy status.
-	BusyStatus() (string, *types.JupyterMessage)
-
-	// BindSession binds a session ID to the client.
-	BindSession(sess string)
-
-	// YieldNextExecutionRequest takes note that we should yield the next execution request.
-	YieldNextExecutionRequest()
-
-	// YieldedNextExecutionRequest is called after successfully yielding the next execution request.
-	// This flips the BasicKernelReplicaClient::yieldNextExecutionRequest
-	// flag to false so that the kernel replica isn't forced to yield future requests.
-	YieldedNextExecutionRequest()
-
-	// SupposedToYieldNextExecutionRequest returns true if we're supposed to yield the next execution request.
-	SupposedToYieldNextExecutionRequest() bool
-
-	// HostId returns the ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
-	HostId() string
-}
 
 // ConnectionRevalidationFailedCallback defines a special type of callback function.
 //
@@ -136,7 +36,7 @@ type KernelReplicaClient interface {
 // we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
 //
 // If we do not reconnect successfully, then this method is called.
-type ConnectionRevalidationFailedCallback func(replica KernelReplicaClient, msg *types.JupyterMessage, err error)
+type ConnectionRevalidationFailedCallback func(replica *KernelReplicaClient, msg *types.JupyterMessage, err error)
 
 // ResubmissionAfterSuccessfulRevalidationFailedCallback defines a special type of callback function.
 //
@@ -145,18 +45,18 @@ type ConnectionRevalidationFailedCallback func(replica KernelReplicaClient, msg 
 //
 // If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
 // then this method is called.
-type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica KernelReplicaClient, msg *types.JupyterMessage, err error)
+type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica *KernelReplicaClient, msg *types.JupyterMessage, err error)
 
-// BasicKernelReplicaClient is an implementation of the KernelReplicaClient interface.
+// KernelReplicaClient is an implementation of the KernelReplicaClient interface.
 //
 // All sockets except IOPub are connected on dialing.
 //
-// Each replica of a particular Distributed Kernel will have a corresponding BasicKernelReplicaClient.
+// Each replica of a particular Distributed Kernel will have a corresponding KernelReplicaClient.
 // These KernelClients are then wrapped/managed by a distributedKernelClientImpl, which is only
 // used by the Gateway.
 //
 // Used by both the Gateway and Local Daemon components.
-type BasicKernelReplicaClient struct {
+type KernelReplicaClient struct {
 	*server.BaseServer
 	SessionManager
 	client *server.AbstractServer
@@ -165,22 +65,22 @@ type BasicKernelReplicaClient struct {
 	id                        string
 	replicaId                 int32
 	persistentId              string
-	spec                      *gateway.KernelSpec
+	spec                      *proto.KernelSpec
 	status                    types.KernelStatus
 	busyStatus                string
 	lastBStatusMsg            *types.JupyterMessage
 	iobroker                  *MessageBroker[scheduling.Kernel, *types.JupyterMessage, types.JupyterFrames]
-	shell                     *types.Socket   // Listener.
-	iopub                     *types.Socket   // Listener.
-	addSourceKernelFrames     bool            // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the BasicKernelReplicaClient's kernel ID.
-	shellListenPort           int             // Port that the BasicKernelReplicaClient::shell socket listens on.
-	iopubListenPort           int             // Port that the BasicKernelReplicaClient::iopub socket listens on.
-	kernelPodName             string          // Name of the Pod housing the associated distributed kernel replica container.
-	kubernetesNodeName        string          // Name of the node that the Pod is running on.
-	ready                     bool            // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
-	yieldNextExecutionRequest bool            // If true, then we will yield the next 'execute_request'.
-	hostId                    string          // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
-	host                      scheduling.Host // The host that the kernel replica is running on.
+	shell                     *types.Socket    // Listener.
+	iopub                     *types.Socket    // Listener.
+	addSourceKernelFrames     bool             // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelReplicaClient's kernel ID.
+	shellListenPort           int              // Port that the KernelReplicaClient::shell socket listens on.
+	iopubListenPort           int              // Port that the KernelReplicaClient::iopub socket listens on.
+	kernelPodName             string           // Name of the Pod housing the associated distributed kernel replica container.
+	kubernetesNodeName        string           // Name of the node that the Pod is running on.
+	ready                     bool             // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
+	yieldNextExecutionRequest bool             // If true, then we will yield the next 'execute_request'.
+	hostId                    string           // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
+	host                      *scheduling.Host // The host that the kernel replica is running on.
 
 	// Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
 	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback
@@ -199,16 +99,16 @@ type BasicKernelReplicaClient struct {
 	isGatewayClient bool
 
 	// The Container associated with this KernelReplicaClient.
-	container scheduling.Container
+	container *scheduling.Container
 
 	log logger.Logger
 	mu  sync.Mutex
 }
 
-// NewKernelClient creates a new BasicKernelReplicaClient.
+// NewKernelClient creates a new KernelReplicaClient.
 // The client will initialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, host scheduling.Host, shouldAckMessages bool, isGatewayClient bool, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback, resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *BasicKernelReplicaClient {
-	client := &BasicKernelReplicaClient{
+func NewKernelClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, host *scheduling.Host, shouldAckMessages bool, isGatewayClient bool, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback, resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *KernelReplicaClient {
+	client := &KernelReplicaClient{
 		id:                                   spec.Kernel.Id,
 		persistentId:                         persistentId,
 		replicaId:                            spec.ReplicaId,
@@ -241,7 +141,7 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 			s.Sockets.HB = types.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx), info.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-HB[%s]", remoteComponentName, spec.Kernel.Id))
 			s.ReconnectOnAckFailure = true
 			s.PrependId = false
-			s.Name = fmt.Sprintf("BasicKernelReplicaClient-%s", spec.Kernel.Id)
+			s.Name = fmt.Sprintf("KernelReplicaClient-%s", spec.Kernel.Id)
 
 			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */
 			s.ShouldAckMessages = shouldAckMessages
@@ -264,17 +164,17 @@ func NewKernelClient(ctx context.Context, spec *gateway.KernelReplicaSpec, info 
 	return client
 }
 
-func (c *BasicKernelReplicaClient) Container() scheduling.Container {
+func (c *KernelReplicaClient) Container() *scheduling.Container {
 	return c.container
 }
 
-func (c *BasicKernelReplicaClient) SetContainer(container scheduling.Container) {
+func (c *KernelReplicaClient) SetContainer(container *scheduling.Container) {
 	c.container = container
 }
 
 // Recreate and return the kernel's control socket.
 // This reuses the handler on the existing/previous control socket.
-func (c *BasicKernelReplicaClient) recreateControlSocket() *types.Socket {
+func (c *KernelReplicaClient) recreateControlSocket() *types.Socket {
 	handler, err := c.closeSocket(types.ControlMessage)
 	if err != nil {
 		c.log.Error("Could not find control socket on Client... Handler of new socket will be nil.")
@@ -297,13 +197,13 @@ func (c *BasicKernelReplicaClient) recreateControlSocket() *types.Socket {
 
 // Recreate and return the kernel's shell socket.
 // This reuses the handler on the existing/previous shell socket.
-func (c *BasicKernelReplicaClient) recreateShellSocket() *types.Socket {
+func (c *KernelReplicaClient) recreateShellSocket() *types.Socket {
 	handler, err := c.closeSocket(types.ShellMessage)
 	if err != nil {
 		c.log.Error("Could not find shell socket on Client... Handler of new socket will be nil.")
 	}
 
-	var remoteName string = types.RemoteNameUnspecified
+	var remoteName = types.RemoteNameUnspecified
 	if c.isGatewayClient {
 		// The remote client is the kernel client on one of the Local Daemons.
 		remoteName = fmt.Sprintf("K-LD-Shell[%s]", c.id)
@@ -318,13 +218,13 @@ func (c *BasicKernelReplicaClient) recreateShellSocket() *types.Socket {
 	return newSocket
 }
 
-func (c *BasicKernelReplicaClient) ShouldAckMessages() bool {
+func (c *KernelReplicaClient) ShouldAckMessages() bool {
 	return c.client.ShouldAckMessages
 }
 
 // Recreate and return the kernel's stdin socket.
 // This reuses the handler on the existing/previous stdin socket.
-func (c *BasicKernelReplicaClient) recreateStdinSocket() *types.Socket {
+func (c *KernelReplicaClient) recreateStdinSocket() *types.Socket {
 	handler, err := c.closeSocket(types.StdinMessage)
 	if err != nil {
 		c.log.Error("Could not find stdin socket on Client... Handler of new socket will be nil.")
@@ -347,13 +247,13 @@ func (c *BasicKernelReplicaClient) recreateStdinSocket() *types.Socket {
 
 // Recreate and return the kernel's heartbeat socket.
 // This reuses the handler on the existing/previous heartbeat socket.
-func (c *BasicKernelReplicaClient) recreateHeartbeatSocket() *types.Socket {
+func (c *KernelReplicaClient) recreateHeartbeatSocket() *types.Socket {
 	handler, err := c.closeSocket(types.HBMessage)
 	if err != nil {
 		c.log.Error("Could not find heartbeat socket on Client... Handler of new socket will be nil.")
 	}
 
-	var remoteName string = types.RemoteNameUnspecified
+	var remoteName = types.RemoteNameUnspecified
 	if c.isGatewayClient {
 		// The remote client is the kernel client on one of the Local Daemons.
 		remoteName = fmt.Sprintf("K-LD-HB[%s]", c.id)
@@ -369,7 +269,7 @@ func (c *BasicKernelReplicaClient) recreateHeartbeatSocket() *types.Socket {
 }
 
 // Close the socket of the specified type, returning the handler set for that socket.
-func (c *BasicKernelReplicaClient) closeSocket(typ types.MessageType) (types.MessageHandler, error) {
+func (c *KernelReplicaClient) closeSocket(typ types.MessageType) (types.MessageHandler, error) {
 	if c.client != nil && c.client.Sockets.All[typ] != nil {
 		oldSocket := c.client.Sockets.All[typ]
 		handler := oldSocket.Handler
@@ -393,7 +293,7 @@ func (c *BasicKernelReplicaClient) closeSocket(typ types.MessageType) (types.Mes
 }
 
 // This is called when the replica ID is set/changed, so that the logger's prefix reflects the replica ID.
-func (c *BasicKernelReplicaClient) updateLogPrefix() {
+func (c *KernelReplicaClient) updateLogPrefix() {
 	if c.client.Log == nil {
 		return
 	}
@@ -402,54 +302,54 @@ func (c *BasicKernelReplicaClient) updateLogPrefix() {
 }
 
 // PodName returns the name of the Kubernetes Pod hosting the replica.
-func (c *BasicKernelReplicaClient) PodName() string {
+func (c *KernelReplicaClient) PodName() string {
 	return c.kernelPodName
 }
 
 // NodeName returns the name of the node that the Pod is running on.
-func (c *BasicKernelReplicaClient) NodeName() string {
+func (c *KernelReplicaClient) NodeName() string {
 	return c.kubernetesNodeName
 }
 
-func (c *BasicKernelReplicaClient) ShellListenPort() int {
+func (c *KernelReplicaClient) ShellListenPort() int {
 	return c.shellListenPort
 }
 
-func (c *BasicKernelReplicaClient) IOPubListenPort() int {
+func (c *KernelReplicaClient) IOPubListenPort() int {
 	return c.iopubListenPort
 }
 
 // YieldNextExecutionRequest takes note that we should yield the next execution request.
-func (c *BasicKernelReplicaClient) YieldNextExecutionRequest() {
+func (c *KernelReplicaClient) YieldNextExecutionRequest() {
 	c.yieldNextExecutionRequest = true
 }
 
 // YieldedNextExecutionRequest is called after successfully yielding the next execution request.
-// This flips the BasicKernelReplicaClient::yieldNextExecutionRequest
+// This flips the KernelReplicaClient::yieldNextExecutionRequest
 // flag to false so that the kernel replica isn't forced to yield future requests.
-func (c *BasicKernelReplicaClient) YieldedNextExecutionRequest() {
+func (c *KernelReplicaClient) YieldedNextExecutionRequest() {
 	c.yieldNextExecutionRequest = false
 }
 
-func (c *BasicKernelReplicaClient) SupposedToYieldNextExecutionRequest() bool {
+func (c *KernelReplicaClient) SupposedToYieldNextExecutionRequest() bool {
 	return c.yieldNextExecutionRequest
 }
 
 // ID returns the kernel ID.
-func (c *BasicKernelReplicaClient) ID() string {
+func (c *KernelReplicaClient) ID() string {
 	return c.id
 }
 
-func (c *BasicKernelReplicaClient) SourceKernelID() string {
+func (c *KernelReplicaClient) SourceKernelID() string {
 	return c.id
 }
 
 // ReplicaID returns the replica ID.
-func (c *BasicKernelReplicaClient) ReplicaID() int32 {
+func (c *KernelReplicaClient) ReplicaID() int32 {
 	return c.replicaId
 }
 
-func (c *BasicKernelReplicaClient) SetReplicaID(replicaId int32) {
+func (c *KernelReplicaClient) SetReplicaID(replicaId int32) {
 	c.replicaId = replicaId
 
 	c.updateLogPrefix()
@@ -457,7 +357,7 @@ func (c *BasicKernelReplicaClient) SetReplicaID(replicaId int32) {
 
 // SetPersistentID sets the value of the persistentId field.
 // This will panic if the persistentId has already been set to something other than the empty string.
-func (c *BasicKernelReplicaClient) SetPersistentID(persistentId string) {
+func (c *KernelReplicaClient) SetPersistentID(persistentId string) {
 	if c.persistentId != "" {
 		panic(fmt.Sprintf("Cannot set persistent ID of kernel %s. Persistent ID already set to value: '%s'", c.id, c.persistentId))
 	}
@@ -465,31 +365,31 @@ func (c *BasicKernelReplicaClient) SetPersistentID(persistentId string) {
 }
 
 // PersistentID returns the persistent ID.
-func (c *BasicKernelReplicaClient) PersistentID() string {
+func (c *KernelReplicaClient) PersistentID() string {
 	return c.persistentId
 }
 
 // ResourceSpec returns the resource spec
-func (c *BasicKernelReplicaClient) ResourceSpec() *gateway.ResourceSpec {
-	return c.spec.GetResourceSpec()
+func (c *KernelReplicaClient) ResourceSpec() *commonTypes.FullSpec {
+	return commonTypes.FullSpecFromKernelSpec(c.spec)
 }
 
-func (c *BasicKernelReplicaClient) SetResourceSpec(spec *gateway.ResourceSpec) {
+func (c *KernelReplicaClient) SetResourceSpec(spec *proto.ResourceSpec) {
 	c.spec.ResourceSpec = spec
 }
 
 // KernelSpec returns the kernel spec.
-func (c *BasicKernelReplicaClient) KernelSpec() *gateway.KernelSpec {
+func (c *KernelReplicaClient) KernelSpec() *proto.KernelSpec {
 	return c.spec
 }
 
 // Address returns the address of the kernel.
-func (c *BasicKernelReplicaClient) Address() string {
+func (c *KernelReplicaClient) Address() string {
 	return c.client.Meta.IP
 }
 
 // String returns a string representation of the client.
-func (c *BasicKernelReplicaClient) String() string {
+func (c *KernelReplicaClient) String() string {
 	if c.replicaId == 0 {
 		return fmt.Sprintf("kernel(%s)", c.id)
 	} else {
@@ -499,24 +399,24 @@ func (c *BasicKernelReplicaClient) String() string {
 
 // IsReady returns true if the replica has registered and joined its SMR cluster.
 // Only used by the Cluster Gateway, not by the Local Daemon.
-func (c *BasicKernelReplicaClient) IsReady() bool {
+func (c *KernelReplicaClient) IsReady() bool {
 	return c.ready
 }
 
 // HostId returns the ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
-func (c *BasicKernelReplicaClient) HostId() string {
+func (c *KernelReplicaClient) HostId() string {
 	return c.hostId
 }
 
 // SetReady designates the replica as ready.
 // SetReady is only used by the Cluster Gateway, not by the Local Daemon.
-func (c *BasicKernelReplicaClient) SetReady() {
+func (c *KernelReplicaClient) SetReady() {
 	c.log.Debug("Kernel %s-%d has been designated as ready.", c.id, c.replicaId)
 	c.ready = true
 }
 
 // Socket returns the serve socket the kernel is listening on.
-func (c *BasicKernelReplicaClient) Socket(typ types.MessageType) *types.Socket {
+func (c *KernelReplicaClient) Socket(typ types.MessageType) *types.Socket {
 	switch typ {
 	case types.IOMessage:
 		return c.iopub
@@ -528,28 +428,28 @@ func (c *BasicKernelReplicaClient) Socket(typ types.MessageType) *types.Socket {
 }
 
 // ConnectionInfo returns the connection info.
-func (c *BasicKernelReplicaClient) ConnectionInfo() *types.ConnectionInfo {
+func (c *KernelReplicaClient) ConnectionInfo() *types.ConnectionInfo {
 	return c.client.Meta
 }
 
 // Status returns the kernel status.
-func (c *BasicKernelReplicaClient) Status() types.KernelStatus {
+func (c *KernelReplicaClient) Status() types.KernelStatus {
 	return c.status
 }
 
 // BusyStatus returns the kernel busy status.
-func (c *BasicKernelReplicaClient) BusyStatus() (string, *types.JupyterMessage) {
+func (c *KernelReplicaClient) BusyStatus() (string, *types.JupyterMessage) {
 	return c.busyStatus, c.lastBStatusMsg
 }
 
 // BindSession binds a session ID to the client.
-func (c *BasicKernelReplicaClient) BindSession(sess string) {
+func (c *KernelReplicaClient) BindSession(sess string) {
 	c.SessionManager.BindSession(sess)
 	c.log.Info("Binded session %s to kernel client", sess)
 }
 
 // ReconnectSocket recreates and redials a particular socket.
-func (c *BasicKernelReplicaClient) ReconnectSocket(typ types.MessageType) (*types.Socket, error) {
+func (c *KernelReplicaClient) ReconnectSocket(typ types.MessageType) (*types.Socket, error) {
 	var socket *types.Socket
 
 	c.log.Debug("Recreating %s socket.", typ.String())
@@ -599,7 +499,7 @@ func (c *BasicKernelReplicaClient) ReconnectSocket(typ types.MessageType) (*type
 }
 
 // Validate validates the kernel connections. If IOPub has been initialized, it will also validate the IOPub connection and start the IOPub forwarder.
-func (c *BasicKernelReplicaClient) Validate() error {
+func (c *KernelReplicaClient) Validate() error {
 	if c.status >= types.KernelStatusRunning { /* If we're already connected, then just return, unless `forceReconnect` is true */
 		return nil
 	}
@@ -639,7 +539,7 @@ func (c *BasicKernelReplicaClient) Validate() error {
 	}
 }
 
-func (c *BasicKernelReplicaClient) InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*types.Socket, error) {
+func (c *KernelReplicaClient) InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*types.Socket, error) {
 	c.log.Debug("Initializing shell forwarder for kernel client.")
 
 	shell := types.NewSocket(zmq4.NewRouter(c.client.Ctx), c.shellListenPort, types.ShellMessage, fmt.Sprintf("K-Router-ShellForwrder[%s]", c.id))
@@ -657,17 +557,17 @@ func (c *BasicKernelReplicaClient) InitializeShellForwarder(handler scheduling.K
 	return shell, nil
 }
 
-// func (c *BasicKernelReplicaClient) Unlock() {
+// func (c *KernelReplicaClient) Unlock() {
 // 	c.destMutex.Unlock()
 // }
 
-// func (c *BasicKernelReplicaClient) Lock() {
+// func (c *KernelReplicaClient) Lock() {
 // 	c.destMutex.Lock()
 // }
 
 // InitializeIOForwarder initializes the IOPub serving.
 // Returns Pub socket, Sub socket, error.
-func (c *BasicKernelReplicaClient) InitializeIOForwarder() (*types.Socket, error) {
+func (c *KernelReplicaClient) InitializeIOForwarder() (*types.Socket, error) {
 	iopub := types.NewSocket(zmq4.NewPub(c.client.Ctx), c.iopubListenPort /* c.client.Meta.IOSubPort */, types.IOMessage, fmt.Sprintf("K-Pub-IOForwrder[%s]", c.id))
 
 	c.log.Debug("Created ZeroMQ PUB socket with port %d.", iopub.Port)
@@ -688,7 +588,7 @@ func (c *BasicKernelReplicaClient) InitializeIOForwarder() (*types.Socket, error
 
 // AddIOHandler adds a handler for a specific IOPub topic.
 // The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
-func (c *BasicKernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, types.JupyterFrames, *types.JupyterMessage]) error {
+func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, types.JupyterFrames, *types.JupyterMessage]) error {
 	if c.iobroker == nil {
 		return ErrIOPubNotStarted
 	}
@@ -697,12 +597,12 @@ func (c *BasicKernelReplicaClient) AddIOHandler(topic string, handler MessageBro
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *BasicKernelReplicaClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error {
+func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error {
 	// c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
 	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
 
-func (c *BasicKernelReplicaClient) requestWithHandler(parentContext context.Context, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
+func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
 	}
@@ -720,7 +620,7 @@ func (c *BasicKernelReplicaClient) requestWithHandler(parentContext context.Cont
 	wrappedHandler := func(server types.JupyterServerInfo, respType types.MessageType, respMsg *types.JupyterMessage) (err error) {
 		// Kernel frame is automatically removed.
 		if handler != nil {
-			err = handler(server.(*BasicKernelReplicaClient), respType, respMsg)
+			err = handler(server.(*KernelReplicaClient), respType, respMsg)
 		}
 		return err
 	}
@@ -821,7 +721,7 @@ func (c *BasicKernelReplicaClient) requestWithHandler(parentContext context.Cont
 }
 
 // Close closes the zmq sockets.
-func (c *BasicKernelReplicaClient) Close() error {
+func (c *KernelReplicaClient) Close() error {
 	c.BaseServer.Close()
 	for _, socket := range c.client.Sockets.All {
 		if socket != nil {
@@ -836,25 +736,25 @@ func (c *BasicKernelReplicaClient) Close() error {
 }
 
 // GetHost returns the Host on which the replica is hosted.
-func (c *BasicKernelReplicaClient) GetHost() scheduling.Host {
+func (c *KernelReplicaClient) GetHost() *scheduling.Host {
 	return c.host
 }
 
 // SetHost sets the Host of the kernel.
-func (c *BasicKernelReplicaClient) SetHost(host scheduling.Host) {
+func (c *KernelReplicaClient) SetHost(host *scheduling.Host) {
 	c.host = host
 }
 
 // InitializeIOSub initializes the ZMQ SUB socket for handling IO messages from the Jupyter kernel.
 // If the provided types.MessageHandler parameter is nil, then we will use the default handler.
-// (The default handler is BasicKernelReplicaClient::InitializeIOSub.)
+// (The default handler is KernelReplicaClient::InitializeIOSub.)
 //
 // The ZMQ socket is subscribed to the specified topic, which should be "" (i.e., the empty string) if no subscription is desired.
-func (c *BasicKernelReplicaClient) InitializeIOSub(handler types.MessageHandler, subscriptionTopic string) (*types.Socket, error) {
+func (c *KernelReplicaClient) InitializeIOSub(handler types.MessageHandler, subscriptionTopic string) (*types.Socket, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Default to BasicKernelReplicaClient::handleMsg if the provided handler is null.
+	// Default to KernelReplicaClient::handleMsg if the provided handler is null.
 	if handler == nil {
 		c.log.Debug("Creating ZeroMQ SUB socket: default handler, port %d, subscribe-topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
 		handler = c.handleMsg
@@ -880,7 +780,7 @@ func (c *BasicKernelReplicaClient) InitializeIOSub(handler types.MessageHandler,
 }
 
 // dial connects to specified sockets
-func (c *BasicKernelReplicaClient) dial(sockets ...*types.Socket) error {
+func (c *KernelReplicaClient) dial(sockets ...*types.Socket) error {
 	// Start listening on all specified sockets.
 	address := fmt.Sprintf("%v://%v:%%v", c.client.Meta.Transport, c.client.Meta.IP)
 	for _, socket := range sockets {
@@ -912,7 +812,7 @@ func (c *BasicKernelReplicaClient) dial(sockets ...*types.Socket) error {
 	return nil
 }
 
-func (c *BasicKernelReplicaClient) handleMsg(_ types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleMsg(_ types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 	// c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
@@ -926,7 +826,7 @@ func (c *BasicKernelReplicaClient) handleMsg(_ types.JupyterServerInfo, typ type
 	return ErrHandlerNotImplemented
 }
 
-func (c *BasicKernelReplicaClient) getWaitResponseOption(key string) interface{} {
+func (c *KernelReplicaClient) getWaitResponseOption(key string) interface{} {
 	switch key {
 	case jupyter.WROptionRemoveDestFrame:
 		return c.shell != nil
@@ -937,7 +837,7 @@ func (c *BasicKernelReplicaClient) getWaitResponseOption(key string) interface{}
 	return nil
 }
 
-func (c *BasicKernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage) (topic string, jFrames types.JupyterFrames) {
+func (c *KernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage) (topic string, jFrames types.JupyterFrames) {
 	// _, jOffset := types.SkipIdentitiesFrame(msg.Frames)
 	// jFrames = msg.Frames[jOffset:]
 	// if jOffset == 0 {
@@ -958,11 +858,11 @@ func (c *BasicKernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage
 	return string(rawTopic), jFrames
 }
 
-func (c *BasicKernelReplicaClient) forwardIOMessage(kernel scheduling.Kernel, _ types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.Kernel, _ types.JupyterFrames, msg *types.JupyterMessage) error {
 	return kernel.Socket(types.IOMessage).Send(*msg.Msg)
 }
 
-func (c *BasicKernelReplicaClient) handleIOKernelStatus(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelStatus(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
 	var status types.MessageKernelStatus
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling IO kernel status: %v", err)
@@ -981,7 +881,7 @@ func (c *BasicKernelReplicaClient) handleIOKernelStatus(kernel scheduling.Kernel
 	return nil
 }
 
-// func (c *BasicKernelReplicaClient) handleIOKernelSMRNodeRemoved(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+// func (c *KernelReplicaClient) handleIOKernelSMRNodeRemoved(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
 // 	c.log.Debug("Handling IO Kernel SMR Node-Removed message...")
 // 	var node_removed_message types.MessageSMRNodeUpdated
 // 	if err := frames.Validate(); err != nil {
@@ -1001,7 +901,7 @@ func (c *BasicKernelReplicaClient) handleIOKernelStatus(kernel scheduling.Kernel
 // 	return types.ErrStopPropagation
 // }
 
-func (c *BasicKernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
 	var nodeAddedMessage types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR node added: %v", err)
@@ -1018,10 +918,10 @@ func (c *BasicKernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kerne
 		c.smrNodeAddedCallback(&nodeAddedMessage)
 	}
 
-	return types.ErrStopPropagation
+	return commonTypes.ErrStopPropagation
 }
 
-func (c *BasicKernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
 	var nodeReadyMessage types.MessageSMRReady
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR ready: %v", err)
@@ -1041,5 +941,5 @@ func (c *BasicKernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.Kern
 		c.smrNodeReadyCallback(c)
 	}
 
-	return types.ErrStopPropagation
+	return commonTypes.ErrStopPropagation
 }

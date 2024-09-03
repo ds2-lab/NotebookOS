@@ -1,16 +1,16 @@
 package tracing
 
 import (
-	"time"
 	"os"
 	"strconv"
+	"time"
 
-	opentracing "github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go"
 	"github.com/uber/jaeger-client-go/config"
 )
 
 var (
-	defaultSampleRatio float64 = 0.01
+	defaultSampleRatio = 0.01
 )
 
 // Init returns a newly configured tracer

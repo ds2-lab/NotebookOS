@@ -4,7 +4,7 @@
 // - protoc             v5.27.2
 // source: common/gateway/gateway.proto
 
-package gateway
+package proto
 
 import (
 	context "context"

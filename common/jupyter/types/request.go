@@ -12,30 +12,30 @@ import (
 )
 
 const (
-	// The request has been created, but it has not yet been submitted.
+	// RequestStateInit indicates that the request has been created, but it has not yet been submitted.
 	RequestStateInit RequestState = "RequestInitializing"
 
-	// The request has been created and submitted, but we've not yet received an ACK.
+	// RequestStateSubmitted indicates that the request has been created and submitted, but we've not yet received an ACK.
 	RequestStateSubmitted RequestState = "RequestSubmitted"
 
-	// The request has been created, submitted, and ACK'd.
+	// RequestStateProcessing indicates that the request has been created, submitted, and ACK'd.
 	// We've not yet received a response for the request.
 	RequestStateProcessing RequestState = "RequestProcessing"
 
-	// An error state.
+	// RequestStateTimedOut is an error state.
 	// The request timed-out, either because no ACK was received in time, or because
 	// no result was received in time (despite the request being ACK'd).
 	RequestStateTimedOut RequestState = "RequestTimedOut"
 
-	// The request was created, submitted, ACK'd (if ACKs are required), and the result was received.
+	// RequestStateComplete indicates that the request was created, submitted, ACK'd (if ACKs are required), and the result was received.
 	// If no result is required, then a request enters the RequestStateComplete state after receiving an ACK.
 	// If no result is required AND no ACK is required, then a request enters the RequestStateComplete state after being sent without an error.
 	RequestStateComplete RequestState = "RequestComplete"
 
-	// The request was explicitly cancelled by the client.
+	// RequestStateExplicitlyCancelled indicates that the request was explicitly cancelled by the client.
 	RequestStateExplicitlyCancelled RequestState = "RequestExplicitlyCancelled"
 
-	// The request encountered some irrecoverable error while being sent (other than timing out).
+	// RequestStateErred indicates that the request encountered some irrecoverable error while being sent (other than timing out).
 	RequestStateErred RequestState = "RequestErred"
 )
 
@@ -44,9 +44,9 @@ var (
 
 	ErrIllegalTransition = errors.New("illegal transition")
 
-	// Map from "destination" or "to" state to a slice of illegal "source" or "from" states.
+	// IllegalSourceStates is a map from "destination" or "to" state to a slice of illegal "source" or "from" states.
 	// For example, RequestStateTimedOut is a key that is mapped to a slice of the states from which it is illegal to transition to the RequestStateTimedOut state.
-	IllegalSourceStates map[RequestState][]RequestState = map[RequestState][]RequestState{
+	IllegalSourceStates = map[RequestState][]RequestState{
 		RequestStateInit:                {RequestStateSubmitted, RequestStateProcessing, RequestStateProcessing, RequestStateTimedOut, RequestStateComplete, RequestStateExplicitlyCancelled, RequestStateErred},
 		RequestStateSubmitted:           {RequestStateComplete},
 		RequestStateProcessing:          {RequestStateComplete},
@@ -56,9 +56,9 @@ var (
 		RequestStateErred:               {RequestStateComplete},
 	}
 
-	// Map from "source" or "from" state to a slice of illegal "destination" or "to" states.
+	// IllegalDestinationStates is a map from "source" or "from" state to a slice of illegal "destination" or "to" states.
 	// For example, RequestStateInit is a key that is mapped to a slice of the states to which it is illegal to transition from the RequestStateInit state.
-	IllegalDestinationStates map[RequestState][]RequestState = map[RequestState][]RequestState{
+	IllegalDestinationStates = map[RequestState][]RequestState{
 		RequestStateInit:                {RequestStateInit},
 		RequestStateSubmitted:           {RequestStateInit},
 		RequestStateProcessing:          {RequestStateInit},
@@ -69,16 +69,16 @@ var (
 	}
 )
 
-// Helper function. Only shell and control messages should require ACKs.
+// ShouldMessageRequireAck is a helper function. Only shell and control messages should require ACKs.
 func ShouldMessageRequireAck(typ MessageType) bool {
 	return typ == ShellMessage || typ == ControlMessage
 }
 
-// Default 'done' handler for requests.
+// DefaultDoneHandler is the default 'done' handler for requests.
 // Does nothing.
 func DefaultDoneHandler() {}
 
-// Default message/response handler for requests.
+// DefaultMessageHandler is the default message/response handler for requests.
 // Simply returns nil.
 func DefaultMessageHandler(server JupyterServerInfo, typ MessageType, msg *JupyterMessage) error {
 	return nil
@@ -86,95 +86,95 @@ func DefaultMessageHandler(server JupyterServerInfo, typ MessageType, msg *Jupyt
 
 type RequestState string
 
-// Interface representing a Request to be passed to Server::Request.
+// Request is an interface representing a Request to be passed to Server::Request.
 // This interface is designed to encapsulate a number of options that may be passed to the Server::Request method.
 type Request interface {
-	// Return the associated Context.
+	// Context returns the associated Context.
 	Context() context.Context
 
-	// Return the associated cancel function, if one exists. Otherwise, return nil.
+	// GetCancelFunc returns the associated cancel function, if one exists. Otherwise, return nil.
 	GetCancelFunc() context.CancelFunc
 
-	// Indicates whether the call to Server::Request block when issuing this request
+	// IsBlocking indicates whether the call to Server::Request block when issuing this request
 	// True indicates blocking; false indicates non-blocking (i.e., Server::Request will return immediately, rather than wait for a response for returning)
 	// Default: true
 	IsBlocking() bool
 
-	// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
+	// Timeout returns how long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
 	// Default: infinite.
 	//
 	// If the returned bool is true, then the timeout is valid.
 	// If it is false, then the timeout is invalid, meaning the request does not timeout.
 	Timeout() (time.Duration, bool)
 
-	// The maximum number of attempts allowed before giving up on sending the request.
+	// MaxNumAttempts returns the maximum number of attempts allowed before giving up on sending the request.
 	// Default: 3
 	MaxNumAttempts() int
 
-	// This is not configurable.
+	// RequestId is not configurable.
 	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
 	RequestId() string
 
-	// The MessageType of the request.
+	// MessageType is the MessageType of the request.
 	MessageType() MessageType
 
-	// Should the destination frame be automatically removed?
+	// ShouldDestFrameBeRemoved returns a flag indicating whether the destination frame be automatically removed?
 	// Default: true
 	ShouldDestFrameBeRemoved() bool
 
-	// Should the request require ACKs
+	// RequiresAck returns a flag indicating whether the request require ACKs
 	RequiresAck() bool
 
-	// The message itself.
+	// Payload returns the message itself.
 	Payload() *JupyterMessage
 
-	// Return the message ID taken from the Jupyter header of the message.
+	// JupyterMessageId returns the message ID taken from the Jupyter header of the message.
 	JupyterMessageId() string
 
-	// Return the message type taken from the Jupyter header of the message.
+	// JupyterMessageType returns the message type taken from the Jupyter header of the message.
 	JupyterMessageType() string
 
-	// Return the timestamp taken from the Jupyter header of the message.
+	// JupyterTimestamp returns the timestamp taken from the Jupyter header of the message.
 	JupyterTimestamp() (ts time.Time, err error)
 
-	// Return the "done" callback for this request.
+	// DoneCallback returns the "done" callback for this request.
 	// This callback is executed when the response is received and the request is handled.
 	DoneCallback() MessageDone
 
-	// Return the handler that is called to process the response to this request.
+	// MessageHandler returns the handler that is called to process the response to this request.
 	MessageHandler() MessageHandler
 
-	// The ID associated with the source of the message.
+	// SourceID returns the ID associated with the source of the message.
 	// This will typically be a kernel ID.
 	SourceID() string
 
-	// DestID extracted from the request payload.
+	// DestinationId returns the DestID extracted from the request payload.
 	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
 	DestinationId() string
 
-	// Offset/index of start of Jupyter frames within message frames.
+	// Offset returns the offset/index of start of Jupyter frames within message frames.
 	Offset() (jOffset int)
 
-	// Return the associated Context and the associated cancel function, if one exists.
+	// ContextAndCancel returns the associated Context and the associated cancel function, if one exists.
 	ContextAndCancel() (context.Context, context.CancelFunc)
 
-	// Return the current state of the request.
+	// RequestState returns the current state of the request.
 	RequestState() RequestState
 
-	// Return true if the request has been ACK'd.
+	// HasBeenAcknowledged returns true if the request has been ACK'd.
 	HasBeenAcknowledged() bool
 
-	// Return true if the request was completed successfully.
+	// HasCompleted returns true if the request was completed successfully.
 	HasCompleted() bool
 
-	// Return true if the request timed-out.
+	// TimedOut returns true if the request timed-out.
 	// If it timed-out and was later submitted successfully, then this will be true.
 	TimedOut() bool
 
-	// Return true if the request is currently in the timed-out state.
+	// IsTimedOut returns true if the request is currently in the timed-out state.
 	IsTimedOut() bool
 
-	// Return true if the request was explicitly cancelled by the user.
+	// WasExplicitlyCancelled returns true if the request was explicitly cancelled by the user.
 	//
 	// This will return true if the request was explicitly cancelled at any point.
 	// If the request was explicitly cancelled and then successfully resubmitted, then this will still return true.

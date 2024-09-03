@@ -155,7 +155,7 @@ func (m *resourceManagerImpl) __unsafeDecreaseTotalNumDevices(value int32) error
 
 	m.log.Debug("Removing %d device(s) so that there is a total of %d devices (current: %d).", numDevicesToRemove, value, int32(len(m.devices)))
 
-	var toRemove []*Device = make([]*Device, 0, numDevicesToRemove)
+	var toRemove = make([]*Device, 0, numDevicesToRemove)
 	for el := m.freeDevices.Front(); el != nil; el = el.Next() {
 		device := el.Value
 		toRemove = append(toRemove, device)

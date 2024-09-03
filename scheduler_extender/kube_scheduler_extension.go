@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -143,7 +144,7 @@ func (s *schedulerExtensionImpl) Serve() {
 
 func main() {
 	flags, err := config.ValidateOptions(&options)
-	if err == config.ErrPrintUsage {
+	if errors.Is(err, config.ErrPrintUsage) {
 		flags.PrintDefaults()
 		os.Exit(0)
 	} else if err != nil {

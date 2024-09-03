@@ -19,7 +19,7 @@ var (
 	ErrAllocationPartiallyNotFound = errors.New("the requested GPU allocation was found only in one of the various internal mappings (rather than within all of the mappings)")
 	ErrNoPendingAllocationFound    = errors.New("a pending allocation could not be found when allocating actual GPUs")
 
-	ZeroDecimal decimal.Decimal = decimal.NewFromFloat(0.0)
+	ZeroDecimal = decimal.NewFromFloat(0.0)
 )
 
 // Represents an allocation of GPU resources to a particular replica.

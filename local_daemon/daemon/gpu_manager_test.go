@@ -17,9 +17,9 @@ var _ = Describe("GPU Manager Tests", func() {
 
 	var numActualGPUsDecimal decimal.Decimal
 	var tooManyGPUsDecimal decimal.Decimal
-	var zeroDecimal decimal.Decimal = decimal.NewFromFloat(0.0)
+	var zeroDecimal = decimal.NewFromFloat(0.0)
 
-	var kernel1 string = "kernel1"
+	var kernel1 = "kernel1"
 
 	BeforeEach(func() {
 		numActualGPUs = 8

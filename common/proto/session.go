@@ -1,4 +1,4 @@
-package gateway
+package proto
 
 // Session implementation
 func (x *KernelReplicaSpec) ResourceSpec() *ResourceSpec {
