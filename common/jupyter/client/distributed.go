@@ -560,6 +560,7 @@ func (c *BaseDistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, 
 	// c.size--
 
 	host.ContainerRemoved(r.Container())
+	r.Container().SetHost(nil) // Set the Host to nil...
 	return host, nil
 }
 
