@@ -99,6 +99,12 @@ type Host interface {
 
 	// ResourceSpec the types.Spec defining the resources available on the Host.
 	ResourceSpec() types.Spec
+
+	// ContainerScheduled is to be called when a Container is scheduled onto the Host.
+	ContainerScheduled(container Container)
+
+	// ContainerRemoved is to be called when a Container is stopped and removed from the Host.
+	ContainerRemoved(container Container)
 }
 
 type cachedPenalty struct {
@@ -186,6 +192,24 @@ func NewBaseHost(id string, nodeName string, addr string, spec types.Spec, clust
 	host.penaltyList.Validator = host.validatePenaltyList
 
 	return host
+}
+
+// ContainerScheduled is to be called when a Container is scheduled onto the Host.
+func (h *BaseHost) ContainerScheduled(container Container) {
+	h.containers.Store(container.ID(), container)
+	h.pendingContainers.Add(1)
+	h.pendingGPUs.Add(container.OutstandingResources().GPU())
+
+	h.log.Debug("Container %s was scheduled onto Host %s.", container.String(), h.ID())
+}
+
+// ContainerRemoved is to be called when a Container is stopped and removed from the Host.
+func (h *BaseHost) ContainerRemoved(container Container) {
+	h.containers.Delete(container.ID())
+	h.pendingContainers.Sub(1)
+	h.pendingGPUs.Sub(container.OutstandingResources().GPU())
+
+	h.log.Debug("Container %s was removed from Host %s.", container.String(), h.ID())
 }
 
 // ErrorCallback returns the BaseHost's ErrorCallback field.

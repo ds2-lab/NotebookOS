@@ -5,6 +5,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/cache"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"sync/atomic"
@@ -54,6 +55,9 @@ type Container interface {
 	// ContainerState returns the Container's current state.
 	ContainerState() ContainerState
 
+	// OutstandingResources returns the resources required by the Container to begin training.
+	OutstandingResources() types.Spec
+
 	// TrainingStarted should be called when the Container begins training.
 	TrainingStarted() error
 
@@ -85,13 +89,13 @@ type BasicContainer struct {
 
 	log logger.Logger
 
-	session         Session        // The Session associated with the Container.
-	host            Host           // The Host on which the Container is currently scheduled.
-	id              string         // The kernel ID of the Container.
-	containerState  ContainerState // The current state of the Container.
-	executions      atomic.Int32   // The number of training events processed by the Container.
-	outstandingGPUs types.GPUSpec  // The number of GPUs required by the Container to train.
-	isTraining      bool           // Flag indicating whether the Container is actively training (true) or not (false).
+	session              Session        // The Session associated with the Container.
+	host                 Host           // The Host on which the Container is currently scheduled.
+	id                   string         // The kernel ID of the Container.
+	containerState       ContainerState // The current state of the Container.
+	executions           atomic.Int32   // The number of training events processed by the Container.
+	outstandingResources types.Spec     // The number of GPUs required by the Container to train.
+	isTraining           bool           // Flag indicating whether the Container is actively training (true) or not (false).
 
 	spec     types.Spec
 	lastSpec types.Spec
@@ -102,11 +106,12 @@ type BasicContainer struct {
 }
 
 // NewBasicContainer creates and returns a new *BasicContainer.
-func NewBasicContainer(session Session, kernelReplica client.KernelReplicaClient) *BasicContainer {
+func NewBasicContainer(session Session, kernelReplica client.KernelReplicaClient, host Host) *BasicContainer {
 	id := session.ID()
 	container := &BasicContainer{
 		KernelReplicaClient: kernelReplica,
 		id:                  id,
+		host:                host,
 		session:             session,
 		log:                 config.GetLogger(fmt.Sprintf("Container %s", id)),
 		containerState:      ContainerStateIdle,
@@ -125,6 +130,11 @@ func (c *BasicContainer) GetClient() client.KernelReplicaClient {
 	return c.KernelReplicaClient
 }
 
+// OutstandingResources returns the resources required by the Container to begin training.
+func (c *BasicContainer) OutstandingResources() types.Spec {
+	return c.outstandingResources
+}
+
 // SetClient sets/updates the client.KernelReplicaClient associated with the Container.
 func (c *BasicContainer) SetClient(client client.KernelReplicaClient) {
 	c.KernelReplicaClient = client
@@ -135,7 +145,7 @@ func (c *BasicContainer) ContainerStatistics() ContainerStatistics {
 }
 
 func (c *BasicContainer) ID() string {
-	return c.id
+	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d]", c.id, c.KernelReplicaClient.ReplicaID())
 }
 
 func (c *BasicContainer) Session() Session {
@@ -251,11 +261,15 @@ func (c *BasicContainer) TrainingStarted() error {
 	c.lastSpec = c.spec
 
 	// Update resource data on the Host.
-	c.host.Stats().PendingGPUsStat().Sub(c.outstandingGPUs.GPU())
-	c.host.Stats().IdleGPUsStat().Sub(c.outstandingGPUs.GPU())
+	c.host.Stats().PendingGPUsStat().Sub(c.outstandingResources.GPU())
+	c.host.Stats().IdleGPUsStat().Sub(c.outstandingResources.GPU())
 
 	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().NumGpus))
-	c.outstandingGPUs = types.GPUSpec(0)
+	c.outstandingResources = &gateway.ResourceSpec{
+		Gpu:    0,
+		Cpu:    0,
+		Memory: 0,
+	}
 
 	// Processing a new training event.
 	c.executions.Add(1)
@@ -277,11 +291,15 @@ func (c *BasicContainer) TrainingStopped() error {
 		return err
 	}
 
-	c.outstandingGPUs = types.GPUSpec(c.spec.GPU() - c.lastSpec.GPU())
+	c.outstandingResources = &gateway.ResourceSpec{
+		Gpu:    int32(c.spec.GPU() - c.lastSpec.GPU()),
+		Cpu:    int32(c.spec.CPU() - c.lastSpec.CPU()),
+		Memory: int32(c.spec.MemoryMB() - c.lastSpec.MemoryMB()),
+	}
 	c.spec = c.lastSpec
 
-	c.host.Stats().PendingGPUsStat().Add(c.outstandingGPUs.GPU())
-	c.host.Stats().IdleGPUsStat().Add(c.outstandingGPUs.GPU())
+	c.host.Stats().PendingGPUsStat().Add(c.outstandingResources.GPU())
+	c.host.Stats().IdleGPUsStat().Add(c.outstandingResources.GPU())
 
 	return nil
 }

@@ -282,7 +282,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		{
 			daemon.schedulingPolicy = "static"
 			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
-			daemon.failureHandler = daemon.staticFailureHandler
+			daemon.failureHandler = daemon.staticSchedulingFailureHandler
 		}
 	case "dynamic-v3":
 		{
@@ -826,7 +826,7 @@ func (d *ClusterGatewayImpl) issuePrepareMigrateRequest(kernelId string, nodeId 
 	}
 
 	// TODO(Ben): Keep track of this. Pass it to the migrated replica so it can read its data directory before it starts running again.
-	var dataDirectory string = resp.DataDir
+	var dataDirectory = resp.DataDir
 	d.log.Debug("Successfully issued 'prepare-to-migrate' request to replica %d of kernel %s. Data directory: \"%s\"", nodeId, kernelId, dataDirectory)
 
 	time.Sleep(time.Second * 5)
@@ -1094,7 +1094,9 @@ func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 	}
 }
 
-func (d *ClusterGatewayImpl) staticFailureHandler(c client.DistributedKernelClient) error {
+// staticSchedulingFailureHandler is a callback to be invoked when all replicas of a
+// kernel propose 'YIELD' while static scheduling is set as the configured scheduling policy.
+func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c client.DistributedKernelClient) error {
 	// Dynamically migrate one of the existing replicas to another node.
 	//
 	// Randomly select a replica to migrate.
@@ -1258,14 +1260,14 @@ func (d *ClusterGatewayImpl) dynamicV4FailureHandler(c client.DistributedKernelC
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 }
 
-// Return true if we're running in Docker (i.e., the Docker-based deployment).
+// DockerMode returns true if we're running in Docker (i.e., the Docker-based deployment).
 // We could technically be running within a Docker container that is managed/orchestrated
 // by Kubernetes. In this case, this function would return false.
 func (d *ClusterGatewayImpl) DockerMode() bool {
 	return d.deploymentMode == types.DockerMode
 }
 
-// Return true if we're running in Kubernetes.
+// KubernetesMode returns true if we're running in Kubernetes.
 func (d *ClusterGatewayImpl) KubernetesMode() bool {
 	return d.deploymentMode == types.KubernetesMode
 }
@@ -1347,7 +1349,6 @@ func (d *ClusterGatewayImpl) initNewKernel(in *gateway.KernelSpec) (*client.Base
 
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
-	replica.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
 
 	// Create a new Session for scheduling purposes.
 	resourceUtil := scheduling.NewEmptyResourceUtilization().WithCpuUtilization(0).WithMemoryUsageMb(0).WithNGpuUtilizationValues(in.ResourceSpec.Gpu, 0)
@@ -1595,9 +1596,11 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 		panic(errorMessage)
 	}
 
-	container := scheduling.NewBasicContainer(session, replica)
+	container := scheduling.NewBasicContainer(session, replica, host)
 	// Assign the Container to the KernelReplicaClient.
 	replica.SetContainer(container)
+	// Add the Container to the Host.
+	host.ContainerScheduled(container)
 
 	d.log.Debug("Adding replica for kernel %s, replica %d on host %s.", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID())
 	err = kernel.AddReplica(replica, host)
@@ -1751,9 +1754,11 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *gatew
 		panic(errorMessage)
 	}
 
-	container := scheduling.NewBasicContainer(session, replica)
+	container := scheduling.NewBasicContainer(session, replica, host)
 	// Assign the Container to the KernelReplicaClient.
 	replica.SetContainer(container)
+	// Add the Container to the Host.
+	host.ContainerScheduled(container)
 
 	d.log.Debug("Validating new interactivePriorityBase for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
@@ -2040,7 +2045,7 @@ func (d *ClusterGatewayImpl) setTotalVirtualGPUs(ctx context.Context, in *gatewa
 	return resp, err
 }
 
-func (d *ClusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
+func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *gateway.ReplicaInfo) (*gateway.MigrateKernelResponse, error) {
 	// We pass 'false' for `wait` here, as we don't really need to wait for the CloneSet to scale-down.
 	// As long as the replica is stopped, we can continue.
 	dataDirectory := d.issuePrepareMigrateRequest(in.KernelId, in.ReplicaId)
@@ -2051,9 +2056,9 @@ func (d *ClusterGatewayImpl) migrate_removeFirst(in *gateway.ReplicaInfo) (*gate
 		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
 	}
 
-	var num_seconds int = 5
-	d.log.Debug("Done removing replica %d of kernel %s. Sleeping for %d seconds.", in.ReplicaId, in.KernelId, num_seconds)
-	time.Sleep(time.Second * time.Duration(num_seconds))
+	var numSeconds = 5
+	d.log.Debug("Done removing replica %d of kernel %s. Sleeping for %d seconds.", in.ReplicaId, in.KernelId, numSeconds)
+	time.Sleep(time.Second * time.Duration(numSeconds))
 
 	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
 	opts := NewAddReplicaWaitOptions(true, true, true)
@@ -2108,7 +2113,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *gateway
 
 	d.log.Debug("Migrating replica %d of kernel %s now.", replicaInfo.ReplicaId, replicaInfo.KernelId)
 
-	resp, err := d.migrate_removeFirst(replicaInfo)
+	resp, err := d.migrateReplicaRemoveFirst(replicaInfo)
 	if err != nil {
 		d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed because: %s", replicaInfo.ReplicaId, replicaInfo.KernelId, targetNode, err.Error())
 	} else {
@@ -2166,7 +2171,7 @@ func (d *ClusterGatewayImpl) Close() error {
 // RouterProvider implementations //
 ////////////////////////////////////
 
-func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
+func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	// If this is a shutdown request, then use the RPC pathway instead.
 	if msg.JupyterMessageType() == jupyter.MessageTypeShutdownRequest {
 		sessionId := msg.JupyterSession()
@@ -2179,53 +2184,12 @@ func (d *ClusterGatewayImpl) ControlHandler(info router.RouterInfo, msg *jupyter
 
 			// Spawn a separate goroutine to send an error notification to the dashboard.
 			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Session %s", sessionId), err.Error())
-
-			// No kernel associated with the session...
-			// For now, just log the error message.
-			// if errors.Is(err, ErrKernelNotFound) {
-			// 	d.log.Error("Cannot write error back to Jupyter client/server/frontend, as the kernel associated with session \"%s\" either no longer exists or never existed in the first place...", sessionId)
-			// 	// Spawn a separate goroutine to send an error notification to the dashboard.
-			// 	go d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Session %s", sessionId), err.Error())
-			// 	return err
-			// }
-
-			// // Try to load the kernel that was supposed to be terminated.
-			// kernel, ok := d.kernels.Load(sessionId)
-			// if !ok {
-			// 	d.log.Error("Cannot write error back to Jupyter client/server/frontend, as the kernel associated with session \"%s\" either no longer exists or never existed in the first place...", sessionId)
-
-			// 	// Spawn a separate goroutine to send some error notifications to the dashboard.
-			// 	go func() {
-			// 		// First, notify the dashboard/frontend that we failed to cleanly terminate this session.
-			// 		d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Session %s", sessionId), err.Error())
-
-			// 		// Next, tell the dashboard that our attempt to notify the Jupyter client/server of this failed termination also failed.
-			// 		d.notifyDashboardOfError("Could Not Notify Jupyter Client/Server of Failed Termination", fmt.Sprintf("Cannot write error back to Jupyter client/server/frontend, as the kernel associated with session \"%s\" either no longer exists or never existed in the first place...", sessionId))
-			// 	}()
-
-			// 	return err
-			// }
-
-			// // Try to send an error message to the Jupyter client/server so that it knows something went wrong.
-			// sendRespErr := d.kernelResponseForwarder(kernel, jupyter.ControlMessage, jupyter.NewJupyterMessage(zmq4.NewMsgFrom()))
-			// if sendRespErr != nil {
-			// 	// Spawn a separate goroutine to send some error notifications to the dashboard.
-			// 	go func() {
-			// 		// First, notify the dashboard/frontend that we failed to cleanly terminate this session.
-			// 		d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Session %s", sessionId), err.Error())
-
-			// 		// Next, tell the dashboard that our attempt to notify the Jupyter client/server of this failed termination also failed.
-			// 		d.notifyDashboardOfError("Could Not Notify Jupyter Client/Server of Failed Termination", sendRespErr.Error())
-			// 	}()
-
-			// 	return err // Return the original error, not the send-related error.
-			// }
 		}
 
 		// TODO: This doesn't actually send an error response back to the client/Jupyter server.
 		// This just returns to our underlying server's request handler code.
 		// To send a response to Jupyter, we'd need to use the ClusterGatewayImpl::kernelResponseForwarder method.
-		return err // Will be nil if we successfully shutdown the kernel.
+		return err // Will be nil if we successfully shut down the kernel.
 	}
 
 	err := d.forwardRequest(nil, jupyter.ControlMessage, msg)

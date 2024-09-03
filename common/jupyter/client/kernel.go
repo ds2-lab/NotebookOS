@@ -362,10 +362,10 @@ func (c *BasicKernelReplicaClient) recreateHeartbeatSocket() *types.Socket {
 		remoteName = fmt.Sprintf("K-Kernel-HB[%s]", c.id)
 	}
 
-	new_socket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.client.Meta.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", c.id), remoteName, handler)
-	c.client.Sockets.HB = new_socket
-	c.client.Sockets.All[types.HBMessage] = new_socket
-	return new_socket
+	newSocket := types.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.client.Meta.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", c.id), remoteName, handler)
+	c.client.Sockets.HB = newSocket
+	c.client.Sockets.All[types.HBMessage] = newSocket
+	return newSocket
 }
 
 // Close the socket of the specified type, returning the handler set for that socket.
@@ -401,12 +401,12 @@ func (c *BasicKernelReplicaClient) updateLogPrefix() {
 	c.client.Log.(*logger.ColorLogger).Prefix = fmt.Sprintf("Replica %s:%d ", c.id, c.replicaId)
 }
 
-// Return the name of the Kubernetes Pod hosting the replica.
+// PodName returns the name of the Kubernetes Pod hosting the replica.
 func (c *BasicKernelReplicaClient) PodName() string {
 	return c.kernelPodName
 }
 
-// Name of the node that the Pod is running on.
+// NodeName returns the name of the node that the Pod is running on.
 func (c *BasicKernelReplicaClient) NodeName() string {
 	return c.kubernetesNodeName
 }
@@ -419,12 +419,12 @@ func (c *BasicKernelReplicaClient) IOPubListenPort() int {
 	return c.iopubListenPort
 }
 
-// Take note that we should yield the next execution request.
+// YieldNextExecutionRequest takes note that we should yield the next execution request.
 func (c *BasicKernelReplicaClient) YieldNextExecutionRequest() {
 	c.yieldNextExecutionRequest = true
 }
 
-// Call after successfully yielding the next execution request.
+// YieldedNextExecutionRequest is called after successfully yielding the next execution request.
 // This flips the BasicKernelReplicaClient::yieldNextExecutionRequest
 // flag to false so that the kernel replica isn't forced to yield future requests.
 func (c *BasicKernelReplicaClient) YieldedNextExecutionRequest() {
@@ -455,7 +455,7 @@ func (c *BasicKernelReplicaClient) SetReplicaID(replicaId int32) {
 	c.updateLogPrefix()
 }
 
-// Set the value of the persistentId field.
+// SetPersistentID sets the value of the persistentId field.
 // This will panic if the persistentId has already been set to something other than the empty string.
 func (c *BasicKernelReplicaClient) SetPersistentID(persistentId string) {
 	if c.persistentId != "" {
@@ -469,7 +469,7 @@ func (c *BasicKernelReplicaClient) PersistentID() string {
 	return c.persistentId
 }
 
-// Spec returns the resource spec
+// ResourceSpec returns the resource spec
 func (c *BasicKernelReplicaClient) ResourceSpec() *gateway.ResourceSpec {
 	return c.spec.GetResourceSpec()
 }
@@ -548,7 +548,7 @@ func (c *BasicKernelReplicaClient) BindSession(sess string) {
 	c.log.Info("Binded session %s to kernel client", sess)
 }
 
-// Recreate and redial a particular socket.
+// ReconnectSocket recreates and redials a particular socket.
 func (c *BasicKernelReplicaClient) ReconnectSocket(typ types.MessageType) (*types.Socket, error) {
 	var socket *types.Socket
 
@@ -912,7 +912,7 @@ func (c *BasicKernelReplicaClient) dial(sockets ...*types.Socket) error {
 	return nil
 }
 
-func (c *BasicKernelReplicaClient) handleMsg(server types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
+func (c *BasicKernelReplicaClient) handleMsg(_ types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 	// c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
 	switch typ {
 	case types.IOMessage:

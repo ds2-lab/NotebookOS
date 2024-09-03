@@ -558,6 +558,8 @@ func (c *BaseDistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, 
 
 	// c.replicas[r.ReplicaID()-1] = nil
 	// c.size--
+
+	host.ContainerRemoved(r.Container())
 	return host, nil
 }
 

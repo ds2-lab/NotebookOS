@@ -52,11 +52,6 @@ func (s GPUSpec) MemoryMB() float64 {
 	return 0.0
 }
 
-// UpdateSpecGPUs can be used to update the number of GPUs.
-func (s *GPUSpec) UpdateSpecGPUs(gpus float64) {
-	*s = GPUSpec(gpus)
-}
-
 func (s GPUSpec) String() string {
 	return fmt.Sprintf("GPUSpec[GPUs: %.2f]", s)
 }
