@@ -33,7 +33,7 @@ func NewStaticPlacer(cluster Cluster, opts *CoreOptions) (*StaticPlacer, error) 
 	return placer, nil
 }
 
-// FindHosts returns a single host that can satisfy the spec.
+// FindHosts returns a single host that can satisfy the resourceSpec.
 func (placer *StaticPlacer) FindHosts(spec types.Spec) []Host {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
@@ -54,14 +54,14 @@ func (placer *StaticPlacer) FindHosts(spec types.Spec) []Host {
 		host, pos = placer.index.SeekFrom(pos)
 
 		if host.ResourceSpec().Validate(spec) {
-			// The Host can satisfy the spec, so append it to the slice.
+			// The Host can satisfy the resourceSpec, so append it to the slice.
 			hosts = append(hosts, host)
 		}
 	}
 	return hosts
 }
 
-// FindHost returns a single host that can satisfy the spec.
+// FindHost returns a single host that can satisfy the resourceSpec.
 func (placer *StaticPlacer) FindHost(blacklist []interface{}, spec types.Spec) Host {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
@@ -69,10 +69,10 @@ func (placer *StaticPlacer) FindHost(blacklist []interface{}, spec types.Spec) H
 	host, _ := placer.index.Seek(blacklist)
 
 	if host.ResourceSpec().Validate(spec) {
-		// The Host can satisfy the spec, so return it.
+		// The Host can satisfy the resourceSpec, so return it.
 		return host
 	} else {
-		// The Host could not satisfy the spec, so return nil.
+		// The Host could not satisfy the resourceSpec, so return nil.
 		return nil
 	}
 }

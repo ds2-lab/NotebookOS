@@ -737,14 +737,14 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := NewHostScheduler(incoming.RemoteAddr().String(), gConn, time.Duration(30)*time.Second, d.localDaemonDisconnected)
+	host, err := NewHostScheduler(incoming.RemoteAddr().String(), gConn, time.Duration(30)*time.Second, d.localDaemonDisconnected, 8, 16384)
 	if err == nil {
 		d.cluster.GetHostManager().Store(host.ID(), host)
 	} else if errors.Is(err, errRestoreRequired) {
 		// Restore host scheduler.
 		registered, loaded := d.cluster.GetHostManager().LoadOrStore(host.ID(), host)
 		if loaded {
-			err := registered.Restore(host)
+			err := registered.Restore(host, d.localDaemonDisconnected)
 			if err != nil {
 				d.log.Error("Error while restoring host %v: %v", host, err)
 				return nil, err
@@ -1307,41 +1307,126 @@ func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host scheduling.
 	return replicaConnInfo, nil
 }
 
+// startNewKernel is called by StartKernel when creating a brand-new kernel, rather than restarting an existing kernel.
+func (d *ClusterGatewayImpl) startNewKernel(in *gateway.KernelSpec) (*client.BaseDistributedKernelClient, error) {
+	d.log.Debug("Did not find existing kernelReplicaClientImpl with KernelID=\"%s\". Creating new distributedKernelClientImpl now.", in.Id)
+
+	listenPorts, err := d.availablePorts.RequestPorts()
+	if err != nil {
+		panic(err)
+	}
+
+	// Initialize kernel with new context.
+	kernel := client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions,
+		listenPorts[0], listenPorts[1], uuid.NewString(), d.ExecutionFailed)
+	d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
+	_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
+	if err != nil {
+		if closeErr := kernel.Close(); closeErr != nil {
+			d.log.Error("Error while closing kernel %s: %v.", kernel.ID(), closeErr)
+		}
+
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	d.log.Debug("Initializing IO Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
+
+	_, err = kernel.InitializeIOForwarder()
+
+	if err != nil {
+		if closeErr := kernel.Close(); closeErr != nil {
+			d.log.Error("Error while closing kernel %s: %v.", kernel.ID(), closeErr)
+		}
+
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	return kernel, nil
+}
+
+// handleNewDockerKernel is called by StartKernel to handle Docker-specific initialization steps.
+// That is, handleNewDockerKernel is only called when running in Docker Mode.
+//
+// This function is responsible for interfacing with the Scheduler to determine which virtual nodes to
+// place the new kernel replicas on.
+//
+// This function initiates the scheduling and provisioning process before waiting for the replicas to register
+// with the Cluster Gateway (via their Local Daemons).
+func (d *ClusterGatewayImpl) handleNewDockerKernel(ctx context.Context, in *gateway.KernelSpec) error {
+	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
+	// or errors that occurred when launching a replica.
+	resultChan := make(chan interface{}, 3)
+
+	// Identify the hosts onto which we will place replicas of the kernel.
+	hosts := d.placer.FindHosts(in.ResourceSpec)
+
+	// For each host, launch a Docker replica on that host.
+	for i, host := range hosts {
+		// Launch replicas in parallel.
+		go func(replicaId int, targetHost scheduling.Host) {
+			_, err := d.launchReplicaDocker(replicaId, targetHost, int32(len(hosts)), in, nil) /* Only 1 of arguments 3 and 4 can be non-nil */
+
+			if err != nil {
+				// An error occurred. Send it over the channel.
+				resultChan <- err
+			} else {
+				// Send a notification that a replica was launched successfully.
+				resultChan <- struct{}{}
+			}
+		}(i+1, host)
+	}
+
+	// Keep looping until we've received all responses or the context times-out.
+	responsesReceived := 0
+	responsesRequired := len(hosts)
+	for responsesReceived < responsesRequired {
+		select {
+		// Context time-out, meaning the operation itself has timed-out or been cancelled.
+		case <-ctx.Done():
+			{
+				err := ctx.Err()
+				if err != nil {
+					d.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. Error extracted from now-cancelled context: %v", in.Id, err)
+					return err
+				} else {
+					d.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. No error extracted from now-cancelled context.", in.Id, err)
+					return ErrRequestTimedOut // Return generic error if we can't get one from the Context for some reason.
+				}
+			}
+		// Received response.
+		case val := <-resultChan:
+			{
+				if err, ok := val.(error); ok {
+					d.log.Error("Error while launching at least one of the replicas of kernel %s: %v", in.Id, err)
+					return err
+				}
+
+				responsesReceived += 1
+
+				d.log.Debug("Launched %d/%d replica(s) of kernel %s.", responsesReceived, responsesRequired, in.Id)
+			}
+		}
+	}
+
+	return nil
+}
+
 // StartKernel launches a new kernel.
 func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.KernelSpec) (*gateway.KernelConnectionInfo, error) {
 	d.log.Info("ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v].", in.Id, in.Session, in.ResourceSpec)
 
+	var (
+		kernel client.DistributedKernelClient
+		ok     bool
+		err    error
+	)
+
 	// Try to find existing kernel by session id first. The kernel that associated with the session id will not be clear during restart.
-	kernel, ok := d.kernels.Load(in.Id)
+	kernel, ok = d.kernels.Load(in.Id)
 	if !ok {
-		d.log.Debug("Did not find existing kernelReplicaClientImpl with KernelID=\"%s\". Creating new distributedKernelClientImpl now.", in.Id)
-
-		listenPorts, err := d.availablePorts.RequestPorts()
+		kernel, err = d.startNewKernel(in)
 		if err != nil {
-			panic(err)
-		}
-
-		// Initialize kernel with new context.
-		kernel = client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.ExecutionFailed) /* d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection */
-		d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
-		_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
-		if err != nil {
-			if closeErr := kernel.Close(); closeErr != nil {
-				d.log.Error("Error while closing kernel %s: %v.", kernel.ID(), closeErr)
-			}
-
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
-		d.log.Debug("Initializing IO Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
-
-		_, err = kernel.InitializeIOForwarder()
-
-		if err != nil {
-			if closeErr := kernel.Close(); closeErr != nil {
-				d.log.Error("Error while closing kernel %s: %v.", kernel.ID(), closeErr)
-			}
-
-			return nil, status.Errorf(codes.Internal, err.Error())
+			d.log.Error("Failed to create new kernel %s because: %v", in.Id, err)
+			return nil, err
 		}
 	} else {
 		d.log.Info("Restarting %v...", kernel)
@@ -1362,73 +1447,59 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 
 	// If we're in KubeMode, then
 	if d.KubernetesMode() {
-		_, err := d.kubeClient.DeployDistributedKernels(ctx, in)
+		_, err = d.kubeClient.DeployDistributedKernels(ctx, in)
 		if err != nil {
-			d.log.Error("Error encountered while attempting to create the StatefulSet for Session %s", in.Id)
+			d.log.Error("Error encountered while attempting to create the Kubernetes resources for Session %s", in.Id)
 			d.log.Error("%v", err)
 			return nil, status.Errorf(codes.Internal, "Failed to start kernel")
 		}
 	} else if d.DockerMode() {
-		errorChan := make(chan interface{}, 3)
-		hosts := d.placer.FindHosts(in.ResourceSpec)
-		for i, host := range hosts {
-			// Launch replicas in parallel.
-			go func(replicaId int, targetHost scheduling.Host) {
-				_, err := d.launchReplicaDocker(replicaId, targetHost, int32(len(hosts)), in, nil) /* Only 1 of arguments 3 and 4 can be non-nil */
-
-				if err != nil {
-					errorChan <- err
-				} else {
-					errorChan <- struct{}{}
-				}
-			}(i+1, host)
-		}
-
-		responsesReceived := 0
-		responsesRequired := len(hosts)
-
-		for responsesReceived < responsesRequired {
-			val := <-errorChan
-			if err, ok := val.(error); ok {
-				d.log.Error("Error while launching at least one of the replicas of kernel %s: %v", in.Id, err)
-				return nil, err
-			}
-
-			responsesReceived += 1
-
-			d.log.Debug("Launched %d/%d replica(s) of kernel %s.", responsesReceived, responsesRequired, in.Id)
+		err = d.handleNewDockerKernel(ctx, in)
+		if err != nil {
+			d.log.Error("Error while handling Docker-specific initiation steps for new kernel %s: %v", in.Id, err)
+			return nil, err
 		}
 	}
 
+	// Wait for all replicas to be created.
+	// Note that creation just means that the Container/Pod was created.
+	// It does not mean that the Container/Pod has entered the active/running state.
 	d.log.Debug("Waiting for replicas of new kernel %s to register.", in.Id)
-	created.Wait() // Wait for all replicas to be created.
+	created.Wait()
 	d.log.Debug("All %d replicas of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster now.", d.ClusterOptions.NumReplicas, in.Id)
+
+	// Wait until all replicas have started.
 	for i := 0; i < d.ClusterOptions.NumReplicas; i++ {
 		<-kernelStartedChan // Wait for all replicas to join their SMR cluster.
 	}
+
+	// Clean up.
 	d.kernelsStarting.Delete(in.Id)
 	d.log.Debug("All %d replicas of new kernel %s have registered and joined their SMR cluster.", d.ClusterOptions.NumReplicas, in.Id)
 
+	// Sanity check.
 	if kernel.Size() == 0 {
 		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
 	}
 
+	// Map all the sessions (probably just one?) to the kernel client.
 	for _, sess := range kernel.Sessions() {
 		d.log.Debug("Storing kernel %v under session ID %s.", kernel, sess)
 		d.kernels.Store(sess, kernel)
 	}
 
-	// Now that all replicas have started, we need to remove labels from all of the other Kubernetes nodes.
+	// TODO: Do we need to implement the below?
+	// Now that all replicas have started, we need to remove labels from all the other Kubernetes nodes.
 
 	// Option #1:
-	// - When scheduling a new kernel, add labels to ALL of the Kubernetes nodes and allow system to schedule kernels whenever.
+	// - When scheduling a new kernel, add labels to ALL the Kubernetes nodes and allow system to schedule kernels whenever.
 	// - Once the kernels have been created and registered, remove labels from all the nodes except the nodes that the kernels are presently running on.
 
 	// Option #2:
 	// - When creating a dynamic replica for a new kernel on a particular node, identify the replica that is to be stopped.
 	// - Add labels to nodes hosting the other two replicas.
 	// - Add a label to the target node for the new dynamic replica.
-	// - Update the cloneset to have a nodeAffinity constraint for matching labels.
+	// - Update the CloneSet to have a nodeAffinity constraint for matching labels.
 	// - Once the new replica has been created, remove the scheduling constraint (but not the node labels).
 	// - Whenever we migrate a replica, we also need to update node labels (if they exist).
 	//		- This involves removing the label from the old node and adding the label to the new node, for the migrated replica.
@@ -1447,6 +1518,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 	}
 	d.log.Info("Kernel(%s) started: %v", kernel.ID(), info)
 
+	// Tell the Dashboard that the kernel has successfully started running.
 	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running.", kernel.ID()), jupyter.SuccessNotification)
 
 	return info, nil

@@ -328,7 +328,7 @@ message ReplicaInfoWithAddr {
 message KernelSpec {
   string id = 1;  // The kernel id.
   string session = 2; // The id of session associated with the kernel manager.
-  repeated string argv = 3;
+  repeated string argv = 3; // Command line arguments to be passed to the kernel Python process upon starting it.
 	string signatureScheme = 4; // The signature scheme to use.
   string key = 5; // The key to use for signing messages.
   ResourceSpec resourceSpec = 6; // Resource requirements of the kernel.

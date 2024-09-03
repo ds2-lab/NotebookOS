@@ -73,20 +73,10 @@ func (index *StaticClusterIndex) Add(host Host) {
 		i = index.freeStart // old len(index.hosts) or current len(index.hosts) - 1
 		index.freeStart += 1
 	}
+
 	host.SetMeta(HostMetaRandomIndex, i)
 	index.length += 1
-
-	slices.SortFunc(index.hosts, func(a, b Host) int {
-		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
-		// with the Hosts with the most idle GPUs appearing first.
-		if a.IdleGPUs() > b.IdleGPUs() {
-			return -1
-		} else if a.IdleGPUs() < b.IdleGPUs() {
-			return 1
-		} else {
-			return 0
-		}
-	})
+	index.sortIndex()
 }
 
 // Update updates a host in the index.
@@ -105,17 +95,7 @@ func (index *StaticClusterIndex) Update(host Host) {
 		return
 	}
 
-	slices.SortFunc(index.hosts, func(a, b Host) int {
-		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
-		// with the Hosts with the most idle GPUs appearing first.
-		if a.IdleGPUs() > b.IdleGPUs() {
-			return -1
-		} else if a.IdleGPUs() < b.IdleGPUs() {
-			return 1
-		} else {
-			return 0
-		}
-	})
+	index.sortIndex()
 }
 
 // Remove removes a host from the index.
@@ -140,6 +120,22 @@ func (index *StaticClusterIndex) Remove(host Host) {
 		index.compactLocked(index.freeStart)
 	}
 
+	slices.SortFunc(index.hosts, func(a, b Host) int {
+		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
+		// with the Hosts with the most idle GPUs appearing first.
+		if a.IdleGPUs() > b.IdleGPUs() {
+			return -1
+		} else if a.IdleGPUs() < b.IdleGPUs() {
+			return 1
+		} else {
+			return 0
+		}
+	})
+}
+
+// sortIndex sorts the Host instances in the index by their number of idle GPUs.
+// Host instances with more idle GPUs available appear first in the index.
+func (index *StaticClusterIndex) sortIndex() {
 	slices.SortFunc(index.hosts, func(a, b Host) int {
 		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
 		// with the Hosts with the most idle GPUs appearing first.

@@ -19,10 +19,10 @@ type KernelInfo interface {
 	// ID returns kernel id.
 	ID() string
 
-	// ResourceSpec returns resource spec, which defines the resource requirements of the kernel.
+	// ResourceSpec returns resource resourceSpec, which defines the resource requirements of the kernel.
 	ResourceSpec() *gateway.ResourceSpec
 
-	// KernelSpec returns kernel spec.
+	// KernelSpec returns kernel resourceSpec.
 	KernelSpec() *gateway.KernelSpec
 }
 

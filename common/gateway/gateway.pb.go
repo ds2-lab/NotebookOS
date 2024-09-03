@@ -1700,7 +1700,7 @@ type KernelSpec struct {
 
 	Id              string        `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`           // The kernel id.
 	Session         string        `protobuf:"bytes,2,opt,name=session,proto3" json:"session,omitempty"` // The id of session associated with the kernel manager.
-	Argv            []string      `protobuf:"bytes,3,rep,name=argv,proto3" json:"argv,omitempty"`
+	Argv            []string      `protobuf:"bytes,3,rep,name=argv,proto3" json:"argv,omitempty"` // Command line arguments to be passed to the kernel Python process upon starting it.
 	SignatureScheme string        `protobuf:"bytes,4,opt,name=signatureScheme,proto3" json:"signatureScheme,omitempty"` // The signature scheme to use.
 	Key             string        `protobuf:"bytes,5,opt,name=key,proto3" json:"key,omitempty"`                         // The key to use for signing messages.
 	ResourceSpec    *ResourceSpec `protobuf:"bytes,6,opt,name=resourceSpec,proto3" json:"resourceSpec,omitempty"`       // Resource requirements of the kernel.

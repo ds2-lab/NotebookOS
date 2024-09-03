@@ -6,13 +6,17 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/hashmap"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"google.golang.org/grpc"
 	"math"
 	"sort"
 	"time"
 
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 )
+
+// Defines a function to be called if a Host appears to be dead.
+type ErrorCallback func(localDaemonId string, nodeName string, errorName string, errorMessage string) error
 
 // ResourceSpec defines the resources available on a particular Host.
 type ResourceSpec struct {
@@ -79,7 +83,7 @@ type Host interface {
 	Addr() string
 
 	// Restore restores the host connection.
-	Restore(Host) error
+	Restore(Host, ErrorCallback) error
 
 	// Stats returns the statistics of the host.
 	Stats() HostStatistics
@@ -124,14 +128,19 @@ func (p *cachedPenalty) Candidates() ContainerList {
 
 type BaseHost struct {
 	gateway.LocalGatewayClient
+
 	log logger.Logger
 
-	cluster            Cluster          // Reference to the Cluster interface that manages this Host.
-	id                 string           // Unique ID of this host.
-	containers         *hashmap.HashMap // All kernel replicas scheduled onto this host.
-	trainingContainers []Container      // Actively-training kernel replicas.
-	seenSessions       []string         // Sessions that have been scheduled onto this host at least once.
-	spec               types.Spec       // The resources available on the Host.
+	meta               hashmap.BaseHashMap[string, interface{}] // meta is a map of metadata.
+	conn               *grpc.ClientConn                         // gRPC connection to the BaseHost.
+	addr               string                                   // The BaseHost's address.
+	nodeName           string                                   // The BaseHost's name (for printing/logging).
+	cluster            Cluster                                  // Reference to the Cluster interface that manages this Host.
+	id                 string                                   // Unique ID of this host.
+	containers         hashmap.BaseHashMap[string, Container]   // All kernel replicas scheduled onto this host.
+	trainingContainers []Container                              // Actively-training kernel replicas.
+	seenSessions       []string                                 // Sessions that have been scheduled onto this host at least once.
+	resourceSpec       types.Spec                               // The resources available on the Host.
 
 	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
 
@@ -152,17 +161,26 @@ type BaseHost struct {
 	penaltyList     cache.InlineCache
 	penalties       []cachedPenalty
 	penaltyValidity bool
+
+	// A function to be called if a Host appears to be dead.
+	errorCallback ErrorCallback
 }
 
-func NewBasicHost(id string, spec types.Spec, cluster Cluster) *BaseHost {
+// NewBaseHost creates and returns a new *BaseHost.
+func NewBaseHost(id string, nodeName string, addr string, spec types.Spec, cluster Cluster, conn *grpc.ClientConn, errorCallback ErrorCallback) *BaseHost {
 	host := &BaseHost{
 		id:                 id,
+		nodeName:           nodeName,
+		addr:               addr,
+		resourceSpec:       spec,
 		cluster:            cluster,
+		conn:               conn,
 		log:                config.GetLogger(fmt.Sprintf("Host %s", id)),
-		containers:         hashmap.New(10),
+		containers:         hashmap.NewCornelkMap[string, Container](5),
 		trainingContainers: make([]Container, 0, int(spec.GPU())),
 		penalties:          make([]cachedPenalty, int(spec.GPU())),
 		seenSessions:       make([]string, int(spec.GPU())),
+		errorCallback:      errorCallback,
 	}
 
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
@@ -171,6 +189,16 @@ func NewBasicHost(id string, spec types.Spec, cluster Cluster) *BaseHost {
 	host.penaltyList.Validator = host.validatePenaltyList
 
 	return host
+}
+
+// ErrorCallback returns the BaseHost's ErrorCallback field.
+func (h *BaseHost) ErrorCallback() ErrorCallback {
+	return h.errorCallback
+}
+
+// SetErrorCallback sets the BaseHost's ErrorCallback field.
+func (h *BaseHost) SetErrorCallback(callback ErrorCallback) {
+	h.errorCallback = callback
 }
 
 func (h *BaseHost) getPenalty(cached *cachedPenalty, gpus int) (*cachedPenalty, error) {
@@ -248,31 +276,6 @@ func (h *BaseHost) updatePenaltyList(cached *PenaltyContainers) *PenaltyContaine
 	return cached
 }
 
-func (h *BaseHost) Priority() float64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (h *BaseHost) InteractivePriority() float64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (h *BaseHost) PreemptionPriority() float64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (h *BaseHost) SchedulingOutPriority() float64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (h *BaseHost) SchedulingInPriority() float64 {
-	//TODO implement me
-	panic("implement me")
-}
-
 // IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
 func (h *BaseHost) IdleGPUs() float64 {
 	return h.idleGPUs.Load()
@@ -290,5 +293,66 @@ func (h *BaseHost) CommittedGPUs() float64 {
 
 // ResourceSpec the types.Spec defining the resources available on the Host.
 func (h *BaseHost) ResourceSpec() types.Spec {
-	return h.spec
+	return h.resourceSpec
+}
+
+func (h *BaseHost) String() string {
+	return fmt.Sprintf("Host[ID=%s,Name=%s,Addr=%s,Spec=%s]", h.id, h.nodeName, h.addr, h.resourceSpec.String())
+}
+
+func (h *BaseHost) ID() string {
+	return h.id
+}
+
+func (h *BaseHost) NodeName() string {
+	return h.nodeName
+}
+
+func (h *BaseHost) Addr() string {
+	return h.addr
+}
+
+func (h *BaseHost) Conn() *grpc.ClientConn {
+	return h.conn
+}
+
+func (h *BaseHost) Restore(Host) error {
+	panic("The Restore method is not implemented in BaseHost.")
+}
+
+func (h *BaseHost) Stats() HostStatistics {
+	return h
+}
+
+// SetMeta sets the metadata of the host.
+func (h *BaseHost) SetMeta(key HostMetaKey, value interface{}) {
+	h.meta.Store(string(key), value)
+}
+
+// GetMeta return the metadata of the host.
+func (h *BaseHost) GetMeta(key HostMetaKey) interface{} {
+	if value, ok := h.meta.Load(string(key)); ok {
+		return value
+	}
+	return nil
+}
+
+func (h *BaseHost) Priority() float64 {
+	panic("BaseHost does not implement Priority.")
+}
+
+func (h *BaseHost) InteractivePriority() float64 {
+	panic("BaseHost does not implement InteractivePriority.")
+}
+
+func (h *BaseHost) PreemptionPriority() float64 {
+	panic("BaseHost does not implement PreemptionPriority.")
+}
+
+func (h *BaseHost) SchedulingOutPriority() float64 {
+	panic("BaseHost does not implement SchedulingOutPriority.")
+}
+
+func (h *BaseHost) SchedulingInPriority() float64 {
+	panic("BaseHost does not implement SchedulingInPriority.")
 }
