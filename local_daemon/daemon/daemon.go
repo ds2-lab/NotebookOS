@@ -418,7 +418,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	// Subscribe to all messages.
 	// Dial our self if the client is running and serving heartbeat.
 	// Try dial, ignore failure.
-	// The function will default to `kernelReplicaClientImpl::handleMsg` if the provided handler is null.
+	// The function will default to `BasicKernelReplicaClient::handleMsg` if the provided handler is null.
 	// iosub, err := kernel.InitializeIOSub(nil, "")
 	// if err != nil {
 	// 	d.log.Error("Failed to initialize IO SUB socket. Error: %v", err)
@@ -649,7 +649,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *gateway
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find kernelReplicaClientImpl for kernel %s.", kernelId)
+		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
 		return nil, domain.ErrInvalidParameter
 	}
 
@@ -733,7 +733,7 @@ func (d *SchedulerDaemonImpl) YieldNextExecution(ctx context.Context, in *gatewa
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find kernelReplicaClientImpl for kernel %s specified in 'YieldNextExecution' request.", kernelId)
+		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s specified in 'YieldNextExecution' request.", kernelId)
 		return gateway.VOID, domain.ErrInvalidParameter
 	}
 
@@ -750,7 +750,7 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(ctx context.Context, req *gatewa
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find kernelReplicaClientImpl for kernel %s.", kernelId)
+		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
 		return gateway.VOID, domain.ErrInvalidParameter
 	}
 
@@ -821,7 +821,7 @@ func (d *SchedulerDaemonImpl) AddReplica(ctx context.Context, req *gateway.Repli
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find kernelReplicaClientImpl for kernel %s.", kernelId)
+		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
 		return gateway.VOID, domain.ErrInvalidParameter
 	}
 

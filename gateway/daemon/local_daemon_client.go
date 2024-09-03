@@ -46,7 +46,7 @@ type LocalDaemonClient struct {
 // NewHostScheduler will return an errRestoreRequired error if the IDs don't match.
 // NewHostScheduler will return an errNodeNameUnspecified error if there is no NodeName returned by the scheduler.
 // If both these errors occur, then only a errNodeNameUnspecified will be returned.
-func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval time.Duration, callback scheduling.ErrorCallback, cpus int32, memMb int32) (*LocalDaemonClient, error) {
+func NewHostScheduler(addr string, conn *grpc.ClientConn, gpuInfoRefreshInterval time.Duration, errorCallback scheduling.ErrorCallback, cpus int32, memMb int32) (*LocalDaemonClient, error) {
 	// Generate new ID.
 	id := uuid.New().String()
 
@@ -138,6 +138,15 @@ func (c *LocalDaemonClient) pollForGpuInfo() {
 		} else {
 			c.gpuInfoMutex.Lock()
 			c.latestGpuInfo = resp
+
+			c.Stats().IdleGPUsStat().Store(float64(resp.IdleGPUs))
+			c.Stats().PendingGPUsStat().Store(float64(resp.PendingGPUs))
+			c.Stats().CommittedGPUsStat().Store(float64(resp.CommittedGPUs))
+			if c.ResourceSpec().GPU() != float64(resp.SpecGPUs) {
+				c.log.Warn("Current spec GPUs (%.0f) do not match latest result from polling (%.0f). Updating spec now...", c.ResourceSpec().GPU(), resp.SpecGPUs)
+				c.ResourceSpec().UpdateSpecGPUs(float64(resp.SpecGPUs))
+			}
+
 			c.gpuInfoMutex.Unlock()
 
 			numConsecutiveFailures = 0
@@ -160,7 +169,6 @@ func (c *LocalDaemonClient) Restore(scheduler scheduling.Host, callback scheduli
 	c.BaseHost.SetErrorCallback(callback)
 	c.LocalGatewayClient = restored.LocalGatewayClient
 	c.latestGpuInfo = restored.latestGpuInfo
-	c.gpuInfoMutex = restored.gpuInfoMutex
 	c.gpuInfoRefreshInterval = restored.gpuInfoRefreshInterval
 
 	// TODO: Make sure the other goroutine is no longer active.
@@ -171,30 +179,5 @@ func (c *LocalDaemonClient) Restore(scheduler scheduling.Host, callback scheduli
 
 // Stats returns the statistics of the host.
 func (c *LocalDaemonClient) Stats() scheduling.HostStatistics {
-	return c
-}
-
-func (c *LocalDaemonClient) Priority() float64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (c *LocalDaemonClient) InteractivePriority() float64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (c *LocalDaemonClient) PreemptionPriority() float64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (c *LocalDaemonClient) SchedulingOutPriority() float64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (c *LocalDaemonClient) SchedulingInPriority() float64 {
-	//TODO implement me
-	panic("implement me")
+	return c.BaseHost
 }

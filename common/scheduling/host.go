@@ -15,7 +15,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 )
 
-// Defines a function to be called if a Host appears to be dead.
+// ErrorCallback defines a function to be called if a Host appears to be dead.
 type ErrorCallback func(localDaemonId string, nodeName string, errorName string, errorMessage string) error
 
 // ResourceSpec defines the resources available on a particular Host.
@@ -36,30 +36,33 @@ type HostMetaKey string
 
 type HostStatistics interface {
 	// Priority returns the host's "priority", which is the benefit gained or lost in terms of GPU time per migration.
-	Priority() float64
+	Priority(session Session) float64
 
-	InteractivePriority() float64
-
-	PreemptionPriority() float64
-
-	// SchedulingOutPriority returns the host's "scheduling-out priority", or SOP, which is defined as the time of the
-	// last rescheduling operation plus the frequency of training tasks multiplied by the interactive priority of the
-	// potential training task plus the sum of the preemption priorities of the preemptible tasks.
-	SchedulingOutPriority() float64
-
-	// SchedulingInPriority returns the host's "scheduling-in priority", or SIP, which is defined as a * the interactive
+	// ScaleInPriority returns the host's "scheduling-in priority", or SIP, which is defined as a * the interactive
 	// priority of a given task + b * the sum of the preemption priorities of the preemptible tasks
-	SchedulingInPriority() float64
+	ScaleInPriority() float64
 
 	// IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
 	IdleGPUs() float64
 
-	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
-	CommittedGPUs() float64
-
 	// PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
 	// Pending GPUs are NOT actively bound to any
 	PendingGPUs() float64
+
+	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
+	CommittedGPUs() float64
+
+	// IdleGPUsStat returns the StatFloat64 representing the number of GPUs that the host has not allocated to any Containers.
+	IdleGPUsStat() StatFloat64Field
+
+	// PendingGPUsStat returns the StatFloat64 representing the number of GPUs that are oversubscribed by Containers scheduled on the Host.
+	PendingGPUsStat() StatFloat64Field
+
+	// CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound to Containers scheduled on the Host.
+	CommittedGPUsStat() StatFloat64Field
+
+	// LastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	LastReschedule() StatFloat64Field
 }
 
 type HostMeta interface {
@@ -96,15 +99,6 @@ type Host interface {
 
 	// ResourceSpec the types.Spec defining the resources available on the Host.
 	ResourceSpec() types.Spec
-
-	// IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
-	IdleGPUs() float64
-
-	// PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-	PendingGPUs() float64
-
-	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
-	CommittedGPUs() float64
 }
 
 type cachedPenalty struct {
@@ -145,13 +139,16 @@ type BaseHost struct {
 	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
 
 	// IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
-	idleGPUs StatFloat64
+	idleGPUs *StatFloat64
 
 	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
-	pendingGPUs StatFloat64
+	pendingGPUs *StatFloat64
 
 	// PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-	committedGPUs StatFloat64
+	committedGPUs *StatFloat64
+
+	// lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	lastReschedule *StatFloat64
 
 	pendingContainers StatInt32
 
@@ -291,6 +288,24 @@ func (h *BaseHost) CommittedGPUs() float64 {
 	return h.committedGPUs.Load()
 }
 
+// IdleGPUsStat returns the StatFloat64 representing the number of GPUs that the host
+// has not allocated to any Containers.
+func (h *BaseHost) IdleGPUsStat() StatFloat64Field {
+	return h.idleGPUs
+}
+
+// PendingGPUsStat returns the StatFloat64 representing the number of GPUs that are oversubscribed
+// by Containers scheduled on the Host.
+func (h *BaseHost) PendingGPUsStat() StatFloat64Field {
+	return h.pendingGPUs
+}
+
+// CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound
+// to Containers scheduled on the Host.
+func (h *BaseHost) CommittedGPUsStat() StatFloat64Field {
+	return h.committedGPUs
+}
+
 // ResourceSpec the types.Spec defining the resources available on the Host.
 func (h *BaseHost) ResourceSpec() types.Spec {
 	return h.resourceSpec
@@ -324,6 +339,11 @@ func (h *BaseHost) Stats() HostStatistics {
 	return h
 }
 
+// LastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+func (h *BaseHost) LastReschedule() StatFloat64Field {
+	return h.lastReschedule
+}
+
 // SetMeta sets the metadata of the host.
 func (h *BaseHost) SetMeta(key HostMetaKey, value interface{}) {
 	h.meta.Store(string(key), value)
@@ -337,22 +357,14 @@ func (h *BaseHost) GetMeta(key HostMetaKey) interface{} {
 	return nil
 }
 
-func (h *BaseHost) Priority() float64 {
-	panic("BaseHost does not implement Priority.")
+func (h *BaseHost) Priority(session Session) float64 {
+	if session != h.sipSession {
+		h.sip.Invalidate()
+		h.sipSession = session
+	}
+	return h.sip.Value(session).(float64)
 }
 
-func (h *BaseHost) InteractivePriority() float64 {
-	panic("BaseHost does not implement InteractivePriority.")
-}
-
-func (h *BaseHost) PreemptionPriority() float64 {
-	panic("BaseHost does not implement PreemptionPriority.")
-}
-
-func (h *BaseHost) SchedulingOutPriority() float64 {
-	panic("BaseHost does not implement SchedulingOutPriority.")
-}
-
-func (h *BaseHost) SchedulingInPriority() float64 {
-	panic("BaseHost does not implement SchedulingInPriority.")
+func (h *BaseHost) ScaleInPriority() float64 {
+	return h.sip.Value().(float64)
 }

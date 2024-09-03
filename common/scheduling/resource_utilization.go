@@ -56,6 +56,24 @@ func (u *ResourceUtilization) WithMemoryUsageMb(mb float64) *ResourceUtilization
 	return u
 }
 
+// WithNGpuUtilizationValues populates the ResourceUtilization struct's IndividualGpuUtilizationValues field
+// with a slice of length n, where each element of that slice has value util.
+//
+// Likewise, WithNGpuUtilizationValues sets the ResourceUtilization struct's AggregateGpuUtilization field
+// to n * util and the NumGpus field to n.
+func (u *ResourceUtilization) WithNGpuUtilizationValues(n int32, util float64) *ResourceUtilization {
+	u.NumGpus = int(n)
+	u.AggregateGpuUtilization = float64(n) * util
+	u.IndividualGpuUtilizationValues = make([]float64, 0, n)
+
+	var i int32
+	for i = 0; i < n; i++ {
+		u.IndividualGpuUtilizationValues = append(u.IndividualGpuUtilizationValues, util)
+	}
+
+	return u
+}
+
 func (u *ResourceUtilization) WithGpuUtilizationValues(utils []float64) *ResourceUtilization {
 	u.NumGpus = len(utils)
 	u.IndividualGpuUtilizationValues = utils

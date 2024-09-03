@@ -160,11 +160,12 @@ func NewUserSession(ctx context.Context, kernel client.DistributedKernelClient, 
 		trainingTime:            NewSessionStatistic(opts.ExecutionTimeSamplingWindow),
 		migrationTime:           NewSessionStatistic(opts.MigrationTimeSamplingWindow),
 		resourceUtilization:     resourceUtilization,
-		ipHistory:               NewValueHistory[float64]("Interactive Priority", "float64"),
-		ppHistory:               NewValueHistory[float64]("Preemption Priority", "float64"),
-		trainingTimeHistory:     NewValueHistory[time.Duration]("Training Time", "time.Duration"),
-		migrationTimeHistory:    NewValueHistory[time.Duration]("Migration Time", "time.Duration"),
-		containers:              make([]Container, 0, opts.NumReplicas),
+
+		ipHistory:            NewValueHistory[float64]("Interactive Priority", "float64"),
+		ppHistory:            NewValueHistory[float64]("Preemption Priority", "float64"),
+		trainingTimeHistory:  NewValueHistory[time.Duration]("Training Time", "time.Duration"),
+		migrationTimeHistory: NewValueHistory[time.Duration]("Migration Time", "time.Duration"),
+		containers:           make([]Container, 0, opts.NumReplicas),
 	}
 
 	initialInteractivePriority := session.updateInteractivePriority("session started")
@@ -173,6 +174,7 @@ func NewUserSession(ctx context.Context, kernel client.DistributedKernelClient, 
 	session.preemptionPriority.Producer = cache.FormalizeICProducer(session.calculatePreemptionPriority)
 	session.preemptionPriority.Validator = GetClockTimeCacheValidator()
 	session.instance = session
+
 	return session
 }
 

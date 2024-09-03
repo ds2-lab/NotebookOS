@@ -5,6 +5,8 @@ import (
 	"github.com/mason-leap-lab/go-utils/cache"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"sync/atomic"
 	"time"
 )
@@ -27,9 +29,16 @@ type ContainerStatistics interface {
 
 	// InteractivePriority returns the Container's interactive priority metric.
 	InteractivePriority() float64
+
+	// ScaleOutPriority returns the host's "scheduling-out priority", or SOP, which is defined as the time of the
+	// last rescheduling operation plus the frequency of training tasks multiplied by the interactive priority of the
+	// potential training task plus the sum of the preemption priorities of the preemptible tasks.
+	ScaleOutPriority() float64
 }
 
 type Container interface {
+	client.KernelReplicaClient
+
 	// ID returns the kernel ID of the Container.
 	ID() string
 
@@ -45,6 +54,12 @@ type Container interface {
 	// ContainerState returns the Container's current state.
 	ContainerState() ContainerState
 
+	// TrainingStarted should be called when the Container begins training.
+	TrainingStarted() error
+
+	// TrainingStopped should be called when the Container stops training.
+	TrainingStopped() error
+
 	// IsTraining returns true if the Container is actively training.
 	// Otherwise, IsTraining returns false.
 	IsTraining() bool
@@ -57,36 +72,62 @@ type Container interface {
 
 	// IsMigrating returns true if the Container is currently migrating from one Host to another.
 	IsMigrating() bool
+
+	// GetClient returns the client.KernelReplicaClient associated with the Container.
+	GetClient() client.KernelReplicaClient
+
+	// SetClient sets/updates the client.KernelReplicaClient associated with the Container.
+	SetClient(client client.KernelReplicaClient)
 }
 
 type BasicContainer struct {
+	client.KernelReplicaClient
+
 	log logger.Logger
 
-	session        Session        // The Session associated with the Container.
-	host           Host           // The Host on which the Container is currently scheduled.
-	id             string         // The kernel ID of the Container.
-	containerState ContainerState // The current state of the Container.
+	session         Session        // The Session associated with the Container.
+	host            Host           // The Host on which the Container is currently scheduled.
+	id              string         // The kernel ID of the Container.
+	containerState  ContainerState // The current state of the Container.
+	executions      atomic.Int32   // The number of training events processed by the Container.
+	outstandingGPUs types.GPUSpec  // The number of GPUs required by the Container to train.
+	isTraining      bool           // Flag indicating whether the Container is actively training (true) or not (false).
 
-	executions atomic.Int32
-	ipBase     float64
-	ip         cache.InlineCache
-	ipExplain  string
+	spec     types.Spec
+	lastSpec types.Spec
+
+	interactivePriorityBase        float64
+	interactivePriority            cache.InlineCache
+	interactivePriorityExplanation string
 }
 
-func NewBasicContainer(session Session) *BasicContainer {
+// NewBasicContainer creates and returns a new *BasicContainer.
+func NewBasicContainer(session Session, kernelReplica client.KernelReplicaClient) *BasicContainer {
 	id := session.ID()
 	container := &BasicContainer{
-		id:             id,
-		session:        session,
-		log:            config.GetLogger(fmt.Sprintf("Container %s", id)),
-		containerState: ContainerStateIdle,
+		KernelReplicaClient: kernelReplica,
+		id:                  id,
+		session:             session,
+		log:                 config.GetLogger(fmt.Sprintf("Container %s", id)),
+		containerState:      ContainerStateIdle,
+		spec:                session.ResourceSpec(),
 	}
 
 	container.executions.Store(0)
-	container.ip.Producer = cache.FormalizeICProducer(container.getIP)
-	container.ip.Validator = GetClockTimeCacheValidator()
+	container.interactivePriority.Producer = cache.FormalizeICProducer(container.getInteractivePriority)
+	container.interactivePriority.Validator = GetClockTimeCacheValidator()
 
 	return container
+}
+
+// GetClient returns the client.KernelReplicaClient associated with the Container.
+func (c *BasicContainer) GetClient() client.KernelReplicaClient {
+	return c.KernelReplicaClient
+}
+
+// SetClient sets/updates the client.KernelReplicaClient associated with the Container.
+func (c *BasicContainer) SetClient(client client.KernelReplicaClient) {
+	c.KernelReplicaClient = client
 }
 
 func (c *BasicContainer) ContainerStatistics() ContainerStatistics {
@@ -105,8 +146,8 @@ func (c *BasicContainer) Host() Host {
 	return c.host
 }
 
-func (c *BasicContainer) getIP() float64 {
-	c.ip.Validator(time.Now())
+func (c *BasicContainer) getInteractivePriority() float64 {
+	c.interactivePriority.Validator(time.Now())
 	required := c.session.ResourceUtilization().NumGpusAsFloat() // float64(c.Session().Meta().GPU.GPUs)
 	idleGPUs := c.host.Stats().IdleGPUs()
 	extras := 0.0
@@ -115,12 +156,21 @@ func (c *BasicContainer) getIP() float64 {
 		extras = idleGPUs / c.host.Stats().PendingGPUs()
 		extraExplain = fmt.Sprintf("%f / %f", idleGPUs, c.host.Stats().PendingGPUs())
 	}
-	// ip := float64(c.executions) * c.session.Stats().IP() * idleGPUs / c.host.Stats().PendingGPUs().Load()
+	// interactivePriority := float64(c.executions) * c.session.Stats().IP() * idleGPUs / c.host.Stats().PendingGPUs().Load()
 	stats := c.session.SessionStatistics()
-	ip := stats.InteractivePriority() * (extras + 1)
-	c.ipExplain = fmt.Sprintf("%s( * (1 + %s))", stats.Explain(ExplainInteractivePriority), extraExplain)
-	// log.Printf("%v: updated cached ip %f, container:%v, potentials: %f, pending containers: %d\n", ClockTime, ip, c.session, extras+1, c.host.Stats().PendingContainers().Load())
-	return ip
+	interactivePriority := stats.InteractivePriority() * (extras + 1)
+	c.interactivePriorityExplanation = fmt.Sprintf("%s( * (1 + %s))", stats.Explain(ExplainInteractivePriority), extraExplain)
+	// log.Printf("%v: updated cached interactivePriority %f, container:%v, potentials: %f, pending containers: %d\n", ClockTime, interactivePriority, c.session, extras+1, c.host.Stats().PendingContainers().Load())
+	return interactivePriority
+}
+
+// InteractivePriority returns the Container's interactive priority metric.
+func (c *BasicContainer) InteractivePriority() float64 {
+	return c.interactivePriority.Value().(float64)
+}
+
+func (c *BasicContainer) InvalidateInteractivePriority() {
+	c.interactivePriority.Invalidate()
 }
 
 // PreemptionPriority returns the Container's preemption priority, which is equal to 0 when the Container is idle.
@@ -133,16 +183,11 @@ func (c *BasicContainer) PreemptionPriority() float64 {
 	return 0.0
 }
 
-// InteractivePriority returns the Container's interactive priority metric.
-func (c *BasicContainer) InteractivePriority() float64 {
-	return c.ip.Value().(float64)
-}
-
 // Explain returns an explanation for how the latest metric (specified using the ExplainerKey argument) was computed.
 func (c *BasicContainer) Explain(key ExplainerEntry) string {
 	switch key {
 	case ExplainInteractivePriority:
-		return c.ipExplain
+		return c.interactivePriorityExplanation
 	case ExplainPreemptionPriority:
 		if c.IsTraining() {
 			return c.Session().SessionStatistics().Explain(ExplainPreemptionPriority)
@@ -150,7 +195,7 @@ func (c *BasicContainer) Explain(key ExplainerEntry) string {
 			return "not training"
 		}
 	case ExplainScaleOutPriority:
-		return fmt.Sprintf("calculated(%f + %d * %f)", c.ipBase, c.executions.Load(), c.ContainerStatistics().InteractivePriority())
+		return fmt.Sprintf("calculated(%f + %d * %f)", c.interactivePriorityBase, c.executions.Load(), c.ContainerStatistics().InteractivePriority())
 	default:
 		return ""
 	}
@@ -188,5 +233,55 @@ func (c *BasicContainer) transition(targetState ContainerState) error {
 	}
 
 	c.containerState = targetState
+	return nil
+}
+
+// ScaleOutPriority returns the host's "scheduling-out priority", or SOP, which is defined as the time of the
+// last rescheduling operation plus the frequency of training tasks multiplied by the interactive priority of the
+// potential training task plus the sum of the preemption priorities of the preemptible tasks.
+//
+// SOP(h) = Last Rescheduling Clock + Freq(h) * IP(h) + SUM PP(h').
+// To schedule out a potential task, we need to weight benefits of migration(IP) and penalty of preempting running task(s) if stay(PP).
+func (c *BasicContainer) ScaleOutPriority() float64 {
+	return (c.interactivePriorityBase + 1) * c.InteractivePriority()
+}
+
+// TrainingStarted should be called when the Container begins training.
+func (c *BasicContainer) TrainingStarted() error {
+	c.lastSpec = c.spec
+
+	// Update resource data on the Host.
+	c.host.Stats().PendingGPUsStat().Sub(c.outstandingGPUs.GPU())
+	c.host.Stats().IdleGPUsStat().Sub(c.outstandingGPUs.GPU())
+
+	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().NumGpus))
+	c.outstandingGPUs = types.GPUSpec(0)
+
+	// Processing a new training event.
+	c.executions.Add(1)
+
+	c.interactivePriorityBase = c.host.Stats().LastReschedule().Load()
+
+	if err := c.transition(ContainerStateTraining); err != nil {
+		c.log.Error("Failed to transition to state %v because: %v", ContainerStateTraining, err)
+		return err
+	}
+
+	return nil
+}
+
+// TrainingStopped should be called when the Container stops training.
+func (c *BasicContainer) TrainingStopped() error {
+	if err := c.transition(ContainerStateIdle); err != nil {
+		c.log.Error("Failed to transition to state %v because: %v", ContainerStateIdle, err)
+		return err
+	}
+
+	c.outstandingGPUs = types.GPUSpec(c.spec.GPU() - c.lastSpec.GPU())
+	c.spec = c.lastSpec
+
+	c.host.Stats().PendingGPUsStat().Add(c.outstandingGPUs.GPU())
+	c.host.Stats().IdleGPUsStat().Add(c.outstandingGPUs.GPU())
+
 	return nil
 }

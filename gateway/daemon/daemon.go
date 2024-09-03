@@ -126,6 +126,7 @@ type ClusterGatewayImpl struct {
 	// kernel members
 	transport        string
 	ip               string
+	sessions         hashmap.HashMap[string, scheduling.Session]             // Map of Sessions
 	kernels          hashmap.HashMap[string, client.DistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
 	kernelIdToKernel hashmap.HashMap[string, client.DistributedKernelClient] // Map from Kernel ID to  client.DistributedKernelClient.
 	kernelSpecs      hashmap.HashMap[string, *gateway.KernelSpec]
@@ -224,10 +225,11 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		transport:                        "tcp",
 		ip:                               opts.IP,
 		availablePorts:                   utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
-		kernels:                          hashmap.NewCornelkMap[string, client.DistributedKernelClient](1000),
-		kernelIdToKernel:                 hashmap.NewCornelkMap[string, client.DistributedKernelClient](1000),
-		kernelSpecs:                      hashmap.NewCornelkMap[string, *gateway.KernelSpec](100),
-		waitGroups:                       hashmap.NewCornelkMap[string, *registrationWaitGroups](100),
+		sessions:                         hashmap.NewCornelkMap[string, scheduling.Session](128),
+		kernels:                          hashmap.NewCornelkMap[string, client.DistributedKernelClient](128),
+		kernelIdToKernel:                 hashmap.NewCornelkMap[string, client.DistributedKernelClient](128),
+		kernelSpecs:                      hashmap.NewCornelkMap[string, *gateway.KernelSpec](128),
+		waitGroups:                       hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
 		cleaned:                          make(chan struct{}),
 		smrPort:                          clusterDaemonOptions.SMRPort,
 		addReplicaOperations:             hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
@@ -698,7 +700,8 @@ func (d *ClusterGatewayImpl) Listen(transport string, addr string) (net.Listener
 // }
 // }
 
-// net.Listener implementation
+// Accept waits for and returns the next connection to the listener.
+// Accept is part of the net.Listener interface implementation.
 func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	// Inspired by https://github.com/dustin-decker/grpc-firewall-bypass
 	incoming, err := d.listener.Accept()
@@ -766,6 +769,8 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 // Close are compatible with ClusterGatewayImpl.Close().
 
+// Addr returns the listener's network address.
+// Addr is part of the net.Listener implementation.
 func (d *ClusterGatewayImpl) Addr() net.Addr {
 	return d.listener.Addr()
 }
@@ -780,7 +785,7 @@ func (d *ClusterGatewayImpl) SetID(ctx context.Context, hostId *gateway.HostId) 
 }
 
 // issuePrepareMigrateRequest issues a 'prepare-to-migrate' request to a specific replica of a specific kernel.
-// This will prompt the kernel to shutdown its etcd process (but not remove itself from the cluster)
+// This will prompt the kernel to shut down its etcd process (but not remove itself from the cluster)
 // before writing the contents of its data directory to HDFS.
 //
 // Returns the path to the data directory in HDFS.
@@ -1308,8 +1313,8 @@ func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host scheduling.
 }
 
 // startNewKernel is called by StartKernel when creating a brand-new kernel, rather than restarting an existing kernel.
-func (d *ClusterGatewayImpl) startNewKernel(in *gateway.KernelSpec) (*client.BaseDistributedKernelClient, error) {
-	d.log.Debug("Did not find existing kernelReplicaClientImpl with KernelID=\"%s\". Creating new distributedKernelClientImpl now.", in.Id)
+func (d *ClusterGatewayImpl) initNewKernel(in *gateway.KernelSpec) (*client.BaseDistributedKernelClient, error) {
+	d.log.Debug("Did not find existing interactivePriorityBase with KernelID=\"%s\". Creating new distributedKernelClientImpl now.", in.Id)
 
 	listenPorts, err := d.availablePorts.RequestPorts()
 	if err != nil {
@@ -1339,6 +1344,14 @@ func (d *ClusterGatewayImpl) startNewKernel(in *gateway.KernelSpec) (*client.Bas
 
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
+
+	// Create a new Session for scheduling purposes.
+	resourceUtil := scheduling.NewEmptyResourceUtilization().WithCpuUtilization(0).WithMemoryUsageMb(0).WithNGpuUtilizationValues(in.ResourceSpec.Gpu, 0)
+	session := scheduling.NewUserSession(context.Background(), kernel, resourceUtil, d.ClusterOptions)
+	d.sessions.Store(kernel.ID(), session)
+
+	// Assign the Session to the DistributedKernelClient.
+	kernel.SetSession(session)
 
 	return kernel, nil
 }
@@ -1423,7 +1436,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *gateway.Kernel
 	// Try to find existing kernel by session id first. The kernel that associated with the session id will not be clear during restart.
 	kernel, ok = d.kernels.Load(in.Id)
 	if !ok {
-		kernel, err = d.startNewKernel(in)
+		kernel, err = d.initNewKernel(in)
 		if err != nil {
 			d.log.Error("Failed to create new kernel %s because: %v", in.Id, err)
 			return nil, err
@@ -1570,10 +1583,22 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
 	}
 
+	session, ok := d.sessions.Load(in.PodName)
+	if !ok {
+		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", in.PodName)
+		d.log.Error(errorMessage)
+		d.notifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
+		panic(errorMessage)
+	}
+
+	container := scheduling.NewBasicContainer(session, replica)
+	// Assign the Container to the KernelReplicaClient.
+	replica.SetContainer(container)
+
 	d.log.Debug("Adding replica for kernel %s, replica %d on host %s.", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID())
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
-		panic(fmt.Sprintf("kernelReplicaClientImpl::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("interactivePriorityBase::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaId, in.KernelId, waitGroup.NumReplicas())
@@ -1583,12 +1608,12 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 	// updatedReplicas := waitGroup.UpdateAndGetReplicasAfterMigration(migrationOperation.OriginalSMRNodeID()-1, in.KernelIp)
 	updatedReplicas := waitGroup.AddReplica(replicaSpec.ReplicaId, in.KernelIp)
 
-	persistent_id := addReplicaOp.PersistentID()
+	persistentId := addReplicaOp.PersistentID()
 	// dataDirectory := addReplicaOp.DataDirectory()
 	response := &gateway.KernelRegistrationNotificationResponse{
 		Id:                     replicaSpec.ReplicaId,
 		Replicas:               updatedReplicas,
-		PersistentId:           &persistent_id,
+		PersistentId:           &persistentId,
 		ShouldReadDataFromHdfs: true,
 		// DataDirectory: &dataDirectory,
 		SmrPort: int32(d.smrPort),
@@ -1610,17 +1635,19 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *gateway.KernelRe
 	return response, nil
 }
 
+// AddReplicaDynamic dynamically creates and adds a replica for a particular kernel.
+//
 // Under the static scheduling policy, we dynamically create a new replica to execute
 // code when the existing replicas are unable to do so due to resource contention.
 //
 // Possible errors:
 // - ErrKernelSpecNotFound: If there is no mapping from the provided kernel's ID to a kernel spec.
 // - ErrResourceSpecNotFound: If there is no resource spec included within the kernel spec of the specified kernel.
-func (d *ClusterGatewayImpl) AddReplicaDynamic(ctx context.Context, in *gateway.KernelId) error {
+func (d *ClusterGatewayImpl) AddReplicaDynamic(_ context.Context, in *gateway.KernelId) error {
 	// Steps:
 	// - Identify a target node with sufficient resources to serve an execution request for the associated kernel.
 	// - Add a label to that node to ensure the new replica is scheduled onto that node.
-	// - Increase the size of the associated kernel's Cloneset.
+	// - Increase the size of the associated kernel's CloneSet.
 
 	kernelSpec, ok := d.kernelSpecs.Load(in.Id)
 	if !ok {
@@ -1638,12 +1665,12 @@ func (d *ClusterGatewayImpl) AddReplicaDynamic(ctx context.Context, in *gateway.
 
 	// Add a label to that node to ensure the new replica is scheduled onto that node.
 
-	// Increase the size of the associated kernel's Cloneset.
+	// Increase the size of the associated kernel's CloneSet.
 
 	return nil
 }
 
-func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gateway.KernelRegistrationNotification) (*gateway.KernelRegistrationNotificationResponse, error) {
+func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *gateway.KernelRegistrationNotification) (*gateway.KernelRegistrationNotificationResponse, error) {
 	d.log.Info("Received kernel registration notification.")
 
 	connectionInfo := in.ConnectionInfo
@@ -1712,16 +1739,28 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 
 	// Initialize kernel client
 	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, host, true, true, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
-	d.log.Debug("Validating new kernelReplicaClientImpl for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
-	err := replica.Validate()
-	if err != nil {
-		panic(fmt.Sprintf("kernelReplicaClientImpl::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
+	session, ok := d.sessions.Load(kernelId)
+	if !ok {
+		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", kernelId)
+		d.log.Error(errorMessage)
+		d.notifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
+		panic(errorMessage)
 	}
 
-	d.log.Debug("Adding Replica kernelReplicaClientImpl for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	container := scheduling.NewBasicContainer(session, replica)
+	// Assign the Container to the KernelReplicaClient.
+	replica.SetContainer(container)
+
+	d.log.Debug("Validating new interactivePriorityBase for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	err := replica.Validate()
+	if err != nil {
+		panic(fmt.Sprintf("interactivePriorityBase::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
+	}
+
+	d.log.Debug("Adding Replica interactivePriorityBase for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
-		panic(fmt.Sprintf("kernelReplicaClientImpl::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("interactivePriorityBase::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// The replica is fully operational at this point, so record that it is ready.
@@ -1731,7 +1770,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *gat
 	waitGroup.SetReplica(replicaId, kernelIp)
 
 	waitGroup.Register()
-	d.log.Debug("Done registering kernelReplicaClientImpl for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("Done registering interactivePriorityBase for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	d.log.Debug("WaitGroup for Kernel \"%s\": %s", kernelId, waitGroup.String())
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
 	waitGroup.WaitRegistered()
@@ -1759,7 +1798,7 @@ func (d *ClusterGatewayImpl) StartKernelReplica(ctx context.Context, in *gateway
 	return nil, ErrNotSupported
 }
 
-// KernelStatus returns the status of a kernel.
+// GetKernelStatus returns the status of a kernel.
 func (d *ClusterGatewayImpl) GetKernelStatus(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
@@ -1775,7 +1814,7 @@ func (d *ClusterGatewayImpl) GetKernelStatus(ctx context.Context, in *gateway.Ke
 }
 
 // KillKernel kills a kernel.
-func (d *ClusterGatewayImpl) KillKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
+func (d *ClusterGatewayImpl) KillKernel(_ context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
 	d.log.Debug("KillKernel RPC called for kernel %s.", in.Id)
 
 	// Call the impl rather than the RPC stub.
@@ -1857,14 +1896,14 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *gateway.KernelId) (ret *gateway.
 }
 
 // StopKernel stops a kernel.
-func (d *ClusterGatewayImpl) StopKernel(ctx context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
+func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *gateway.KernelId) (ret *gateway.Void, err error) {
 	d.log.Debug("StopKernel RPC called for kernel %s.", in.Id)
 
 	return d.stopKernelImpl(in)
 }
 
 // WaitKernel waits for a kernel to exit.
-func (d *ClusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
+func (d *ClusterGatewayImpl) WaitKernel(_ context.Context, in *gateway.KernelId) (*gateway.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		return d.statusErrorf(jupyter.KernelStatusExited, nil)
@@ -1873,13 +1912,13 @@ func (d *ClusterGatewayImpl) WaitKernel(ctx context.Context, in *gateway.KernelI
 	return d.statusErrorf(kernel.WaitClosed(), nil)
 }
 
-func (d *ClusterGatewayImpl) Notify(ctx context.Context, in *gateway.Notification) (*gateway.Void, error) {
+func (d *ClusterGatewayImpl) Notify(_ context.Context, in *gateway.Notification) (*gateway.Void, error) {
 	d.log.Debug(utils.NotificationStyles[in.NotificationType].Render("Received %s notification \"%s\": %s"), NotificationTypeNames[in.NotificationType], in.Title, in.Message)
 	go d.notifyDashboard(in.Title, in.Message, jupyter.NotificationType(in.NotificationType))
 	return gateway.VOID, nil
 }
 
-func (d *ClusterGatewayImpl) SpoofNotifications(ctx context.Context, in *gateway.Void) (*gateway.Void, error) {
+func (d *ClusterGatewayImpl) SpoofNotifications(_ context.Context, _ *gateway.Void) (*gateway.Void, error) {
 	go func() {
 		d.notifyDashboard("Spoofed Error", "This is a made-up error message sent by the Cluster Gateway.", jupyter.ErrorNotification)
 		d.notifyDashboard("Spoofed Warning", "This is a made-up warning message sent by the Cluster Gateway.", jupyter.WarningNotification)
@@ -1891,29 +1930,33 @@ func (d *ClusterGatewayImpl) SpoofNotifications(ctx context.Context, in *gateway
 }
 
 // ClusterGateway implementation.
-func (d *ClusterGatewayImpl) ID(ctx context.Context, in *gateway.Void) (*gateway.ProvisionerId, error) {
+
+// ID returns the unique ID of the provisioner.
+func (d *ClusterGatewayImpl) ID(_ context.Context, _ *gateway.Void) (*gateway.ProvisionerId, error) {
 	d.log.Debug("Returning ID for RPC. ID=%s", d.id)
 	return &gateway.ProvisionerId{Id: d.id}, nil
 }
 
-func (d *ClusterGatewayImpl) RemoveHost(ctx context.Context, in *gateway.HostId) (*gateway.Void, error) {
+func (d *ClusterGatewayImpl) RemoveHost(_ context.Context, in *gateway.HostId) (*gateway.Void, error) {
 	d.cluster.GetHostManager().Delete(in.Id)
 	return gateway.VOID, nil
 }
 
+// GetActualGpuInfo is not implemented for the Cluster Gateway.
 // This is the single-node version of the function; it's only supposed to be issued to local daemons.
 // The cluster-level version of this method is 'GetClusterActualGpuInfo'.
-func (d *ClusterGatewayImpl) GetActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.GpuInfo, error) {
+func (d *ClusterGatewayImpl) GetActualGpuInfo(_ context.Context, _ *gateway.Void) (*gateway.GpuInfo, error) {
 	return nil, ErrNotImplemented
 }
 
+// GetVirtualGpuInfo is not implemented for the Cluster Gateway.
 // This is the single-node version of the function; it's only supposed to be issued to local daemons.
 // The cluster-level version of this method is 'GetClusterVirtualGpuInfo'.
-func (d *ClusterGatewayImpl) GetVirtualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.VirtualGpuInfo, error) {
+func (d *ClusterGatewayImpl) GetVirtualGpuInfo(_ context.Context, _ *gateway.Void) (*gateway.VirtualGpuInfo, error) {
 	return nil, ErrNotImplemented
 }
 
-// Return the current GPU resource metrics on the node.
+// GetClusterActualGpuInfo returns the current GPU resource metrics on the node.
 func (d *ClusterGatewayImpl) GetClusterActualGpuInfo(ctx context.Context, in *gateway.Void) (*gateway.ClusterActualGpuInfo, error) {
 	resp := &gateway.ClusterActualGpuInfo{
 		GpuInfo: make(map[string]*gateway.GpuInfo),
@@ -2039,7 +2082,7 @@ func (d *ClusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
 	return d.kubeClient.GetKubernetesNodes()
 }
 
-func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *gateway.MigrationRequest) (*gateway.MigrateKernelResponse, error) {
+func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *gateway.MigrationRequest) (*gateway.MigrateKernelResponse, error) {
 	replicaInfo := in.TargetReplica
 	targetNode := in.GetTargetNodeId()
 
@@ -2089,6 +2132,9 @@ func (d *ClusterGatewayImpl) Start() error {
 	return err
 }
 
+// Close closes the listener.
+// Any blocked Accept operations will be unblocked and return errors.
+// Close is part of the net.Listener implementation.
 func (d *ClusterGatewayImpl) Close() error {
 	if !atomic.CompareAndSwapInt32(&d.closed, 0, 1) {
 		// Closed already
@@ -2558,7 +2604,7 @@ func (d *ClusterGatewayImpl) cleanUp() {
 	close(d.cleaned)
 }
 
-// func (d *ClusterGatewayImpl) closeReplica(host scheduling.Host, kernel client.DistributedKernelClient, replica *client.kernelReplicaClientImpl, replicaId int, reason string) {
+// func (d *ClusterGatewayImpl) closeReplica(host scheduling.Host, kernel client.DistributedKernelClient, replica *client.interactivePriorityBase, replicaId int, reason string) {
 // 	defer replica.Close()
 
 // 	if err := d.placer.Reclaim(host, kernel, false); err != nil {

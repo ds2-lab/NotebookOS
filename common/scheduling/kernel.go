@@ -95,4 +95,10 @@ type KernelReplica interface {
 
 	// SetHost sets the Host of the kernel.
 	SetHost(Host)
+
+	// Container returns the Container associated with the KernelReplica.
+	Container() Container
+
+	// SetContainer sets/updates the Container associated with the KernelReplica.
+	SetContainer(Container)
 }

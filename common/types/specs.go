@@ -11,6 +11,9 @@ type Spec interface {
 	// It should be an integral value.
 	GPU() float64
 
+	// UpdateSpecGPUs can be used to update the number of GPUs.
+	UpdateSpecGPUs(float64)
+
 	// CPU returns the number of vCPUs, which may be fractional.
 	CPU() float64
 
@@ -49,6 +52,11 @@ func (s GPUSpec) MemoryMB() float64 {
 	return 0.0
 }
 
+// UpdateSpecGPUs can be used to update the number of GPUs.
+func (s *GPUSpec) UpdateSpecGPUs(gpus float64) {
+	*s = GPUSpec(gpus)
+}
+
 func (s GPUSpec) String() string {
 	return fmt.Sprintf("GPUSpec[GPUs: %.2f]", s)
 }
@@ -85,6 +93,11 @@ func (s *FullSpec) CPU() float64 {
 // MemoryMB returns the amount of memory in MB.
 func (s *FullSpec) MemoryMB() float64 {
 	return s.MemoryMb
+}
+
+// UpdateSpecGPUs can be used to update the number of GPUs.
+func (s *FullSpec) UpdateSpecGPUs(gpus float64) {
+	s.GPUs = GPUSpec(gpus)
 }
 
 func (s *FullSpec) String() string {
