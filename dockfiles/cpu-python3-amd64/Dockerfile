@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vi
 
 # Add files
 ADD common/gateway /distributed_notebook/common/gateway
+ADD common/proto /distributed_notebook/common/proto
 ADD distributed_notebook /distributed_notebook/distributed_notebook
 ADD README.md /distributed_notebook/README.md
 ADD MANIFEST.in /distributed_notebook/MANIFEST.in
@@ -56,10 +57,10 @@ RUN chown jovyan /home/jovyan/sample_notebooks/*
 
 # Install kernel
 RUN cd /distributed_notebook \
-    && python3 -m grpc_tools.protoc -Icommon/gateway \
+    && python3 -m grpc_tools.protoc -Icommon/proto \
     --python_out=distributed_notebook/gateway \
     --grpc_python_out=distributed_notebook/gateway \
-    common/gateway/gateway.proto \
+    common/proto/gateway.proto \
     && sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
 RUN cd /distributed_notebook && ./install_kernel.sh
 
