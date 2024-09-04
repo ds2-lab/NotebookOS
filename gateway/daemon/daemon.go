@@ -1634,7 +1634,11 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// Add the Container to the Host.
 	host.ContainerScheduled(container)
 	// Register the Container with the Session.
-	session.AddReplica(container)
+	if err := session.AddReplica(container); err != nil {
+		d.log.Error("Error while registering container %v with session %v: %v", container, session, err)
+		d.notifyDashboardOfError("Failed to Register Container with Session", err.Error())
+		panic(err)
+	}
 
 	d.log.Debug("Adding replica for kernel %s, replica %d on host %s.", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID())
 	err = kernel.AddReplica(replica, host)
@@ -1795,7 +1799,11 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	// Add the Container to the Host.
 	host.ContainerScheduled(container)
 	// Register the Container with the Session.
-	session.AddReplica(container)
+	if err := session.AddReplica(container); err != nil {
+		d.log.Error("Error while registering container %v with session %v: %v", container, session, err)
+		d.notifyDashboardOfError("Failed to Register Container with Session", err.Error())
+		panic(err)
+	}
 
 	d.log.Debug("Validating new interactivePriorityBase for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
