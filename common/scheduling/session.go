@@ -15,11 +15,12 @@ import (
 )
 
 const (
-	SessionStateInit      SessionState = "SESSION_INIT"      // Indicates that the Session has just been created, but its replicas have not yet been scheduled onto Hosts.
-	SessionStateTraining  SessionState = "SESSION_TRAINING"  // Indicates that the Session is actively running AND one of its replicas is actively training.
-	SessionStateStopped   SessionState = "SESSION_STOPPED"   // Indicates that the Session is permanently stopped.
-	SessionStateIdle      SessionState = "SESSION_IDLE"      // Indicates that the Session is actively running on a Host and is NOT actively performing a task.
-	SessionStateMigrating SessionState = "SESSION_MIGRATING" // Indicates that one or more replicas are currently migrating to new Hosts.
+	SessionStateInit              SessionState = "SESSION_INIT"               // Indicates that the Session has just been created, but its replicas have not yet been scheduled onto Hosts.
+	SessionStateTraining          SessionState = "SESSION_TRAINING"           // Indicates that the Session is actively running AND one of its replicas is actively training.
+	SessionStateStopped           SessionState = "SESSION_STOPPED"            // Indicates that the Session is permanently stopped.
+	SessionStateIdle              SessionState = "SESSION_IDLE"               // Indicates that the Session is actively running on a Host and is NOT actively performing a task.
+	SessionStateExpectingTraining SessionState = "SESSION_EXPECTING_TRAINING" // Indicates that the Session is expecting to begin training shortly, as a "execute_request" message has been forwarded, but the training has not yet began.
+	SessionStateMigrating         SessionState = "SESSION_MIGRATING"          // Indicates that one or more replicas are currently migrating to new Hosts.
 )
 
 var (
@@ -174,6 +175,25 @@ func (s *Session) String() string {
 	return fmt.Sprintf("Session[ID=%s]", s.id)
 }
 
+// SetExpectingTraining attempts to transition the Session to the SessionStateExpectingTraining state.
+//
+// Returns a promise.Promise, which will be resolved with an error if the Session is in any of the following states:
+// SessionStateStopped, SessionStateTraining.
+func (s *Session) SetExpectingTraining() promise.Promise {
+	if s.IsTraining() {
+		s.log.Error("Session cannot transition to state \"%s\" -- Session is already training!", SessionStateExpectingTraining)
+		err := fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, s.sessionState, SessionStateExpectingTraining)
+		return promise.Resolved(s.instance, err)
+	}
+
+	if err := s.transition(SessionStateExpectingTraining); err != nil {
+		s.log.Error("Could not transition to state \"%s\" because: %v", SessionStateExpectingTraining, err)
+		return promise.Resolved(s.instance, err)
+	}
+
+	return promise.Resolved(s.instance)
+}
+
 // TrainingStarted should be called when one of the Session's Kernel replicas begins training.
 func (s *Session) TrainingStarted(container *Container) promise.Promise {
 	if err := s.transition(SessionStateTraining); err != nil {
@@ -269,9 +289,20 @@ func (s *Session) GetState() SessionState {
 	return s.sessionState
 }
 
+// SessionStarted should be called when the Session is scheduled successfully, meaning that all the Session's
+// replicas (Containers) have successfully been scheduled and started running.
+func (s *Session) SessionStarted() promise.Promise {
+	if err := s.transition(SessionStateIdle); err != nil {
+		s.log.Warn("Failed to terminate session because: %v", err)
+		return promise.Resolved(s.instance, err)
+	}
+
+	return promise.Resolved(s.instance)
+}
+
 // SessionStopped should be called when the Session is terminated.
 func (s *Session) SessionStopped() promise.Promise {
-	if err := s.transition(SessionStateIdle); err != nil {
+	if err := s.transition(SessionStateStopped); err != nil {
 		s.log.Warn("Failed to terminate session because: %v", err)
 		return promise.Resolved(s.instance, err)
 	}
@@ -297,7 +328,7 @@ func (s *Session) IsMigrating() bool {
 // IsTraining returns true if the Session is actively training.
 // Otherwise, IsTraining returns false.
 func (s *Session) IsTraining() bool {
-	return s.sessionState == SessionStateIdle
+	return s.sessionState == SessionStateTraining
 }
 
 func (s *Session) transition(targetState SessionState) error {
@@ -305,7 +336,9 @@ func (s *Session) transition(targetState SessionState) error {
 		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, s.sessionState, targetState)
 	}
 
+	s.log.Debug("Attempting to transition from state \"%v\" to state \"%v\"", s.sessionState, targetState)
 	s.sessionState = targetState
+	s.log.Debug("Successfully transitioned from state \"%v\" to state \"%v\"", s.sessionState, targetState)
 	return nil
 }
 

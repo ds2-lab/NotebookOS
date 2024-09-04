@@ -953,8 +953,9 @@ func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ
 				container := kernelReplica.Container()
 				session := container.Session()
 
-				if p := session.TrainingStarted(container); p.Error() != nil {
-					err := p.Error()
+				p := session.TrainingStarted(container)
+				err := p.Error()
+				if err != nil {
 					c.log.Error("Failed to start training for session %s: %v", session.ID(), err)
 					return err
 				}

@@ -1552,6 +1552,21 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	}
 	d.log.Info("Kernel(%s) started: %v", kernel.ID(), info)
 
+	session, ok := d.sessions.Load(kernel.ID())
+	if ok {
+		p := session.SessionStarted()
+		err = p.Error()
+		if err != nil {
+			d.notifyDashboardOfError(fmt.Sprintf("Error Starting Session \"%s\"", kernel.ID()), err.Error())
+			panic(err)
+		}
+	} else {
+		errorMessage := fmt.Sprintf("Could not find scheduling.Session associated with kernel \"%s\", even though that kernel just started running successfully...", kernel.ID())
+		d.log.Error(errorMessage)
+		d.notifyDashboardOfError("Session Not Found", errorMessage)
+		panic(errorMessage)
+	}
+
 	// Tell the Dashboard that the kernel has successfully started running.
 	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running.", kernel.ID()), jupyter.SuccessNotification)
 
@@ -2309,9 +2324,11 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	}
 
 	// Record that the Session has stopped training.
-	if p := session.TrainingStopped(); p.Error() != nil {
-		err := p.Error()
+	p := session.TrainingStopped()
+	err := p.Error()
+	if err != nil {
 		d.log.Error("Error when stopping training for Session \"%s\": %v", kernelId, err)
+		d.notifyDashboardOfError(fmt.Sprintf("Failed to Stop Training for Session \"%s\"", kernelId), err.Error())
 		return err
 	}
 
@@ -2319,13 +2336,26 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 }
 
 func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.DistributedKernelClient) {
-	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernel.ID(), msg)
+	kernelId := kernel.ID()
+	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernelId, msg)
 
-	activeExecution := gateway.NewActiveExecution(kernel.ID(), msg.JupyterSession(), 1, kernel.Size(), msg)
-	d.activeExecutions.Store(kernel.ID(), activeExecution)
+	activeExecution := gateway.NewActiveExecution(kernelId, msg.JupyterSession(), 1, kernel.Size(), msg)
+	d.activeExecutions.Store(kernelId, activeExecution)
 	kernel.SetActiveExecution(activeExecution)
 
-	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernel.ID(), activeExecution)
+	session, ok := d.sessions.Load(kernelId)
+	if ok {
+		p := session.SetExpectingTraining()
+		err := p.Error()
+		if err != nil {
+			d.notifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
+			panic(err)
+		}
+	} else {
+		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
+	}
+
+	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernelId, activeExecution)
 }
 
 func (d *ClusterGatewayImpl) StdinHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
@@ -2553,6 +2583,7 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 		if msg.JupyterMessageType() == ShellExecuteReply {
 			err := d.processExecutionReply(from.ID())
 			if err != nil {
+				go d.notifyDashboardOfError("Error While Processing \"execute_reply\" Message", err.Error())
 				panic(err)
 			}
 		}
