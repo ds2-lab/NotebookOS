@@ -1627,11 +1627,14 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		panic(errorMessage)
 	}
 
+	// Create the new Container.
 	container := scheduling.NewContainer(session, replica, host)
 	// Assign the Container to the KernelReplicaClient.
 	replica.SetContainer(container)
 	// Add the Container to the Host.
 	host.ContainerScheduled(container)
+	// Register the Container with the Session.
+	session.AddReplica(container)
 
 	d.log.Debug("Adding replica for kernel %s, replica %d on host %s.", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID())
 	err = kernel.AddReplica(replica, host)
@@ -1785,11 +1788,14 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 		panic(errorMessage)
 	}
 
+	// Create the new Container.
 	container := scheduling.NewContainer(session, replica, host)
 	// Assign the Container to the KernelReplicaClient.
 	replica.SetContainer(container)
 	// Add the Container to the Host.
 	host.ContainerScheduled(container)
+	// Register the Container with the Session.
+	session.AddReplica(container)
 
 	d.log.Debug("Validating new interactivePriorityBase for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()

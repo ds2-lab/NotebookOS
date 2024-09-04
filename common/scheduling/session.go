@@ -26,7 +26,8 @@ const (
 var (
 	ErrInvalidTransition           = errors.New("invalid session state transition requested")
 	ErrInvalidExplanationRequested = errors.New("invalid explanation requested")
-	ErrInvalidContainer            = errors.New("the specified or provided container is not valid")
+	ErrInvalidContainer            = errors.New("the specified or provided container is invalid")
+	ErrMissingTrainingContainer    = errors.New("session is training, but its \"training container\" is nil")
 )
 
 type SessionState string
@@ -141,6 +142,33 @@ func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelSpec
 	return session
 }
 
+// AddReplica adds a given Container to the Session's slice of Containers.
+//
+// AddReplica will return an error if the specified Container is nil, the ID of the Container does not match the Session's
+// ID (as the IDs correspond to the kernel IDs and thus should be equal), or if there is already a Container with the
+// same replica ID (i.e., SMR node ID) registered with the Session.
+//
+// On success, AddReplica will return nil.
+func (s *Session) AddReplica(container *Container) error {
+	if container == nil {
+		return fmt.Errorf("%w: container is nil", ErrInvalidContainer)
+	}
+
+	if container.ID() != s.id {
+		return fmt.Errorf("%w: ID mismatch (session ID=\"%s\", container ID=\"%s\")", ErrInvalidContainer, s.id, container.ID())
+	}
+
+	for _, replica := range s.containers {
+		if replica.ReplicaID() == container.ReplicaID() {
+			return fmt.Errorf("%w: session already has container for replica %d registered", ErrInvalidContainer, container.ReplicaID())
+		}
+	}
+
+	s.containers = append(s.containers, container)
+
+	return nil
+}
+
 func (s *Session) ResourceSpec() types.Spec {
 	return s.resourceSpec
 }
@@ -201,6 +229,11 @@ func (s *Session) TrainingStarted(container *Container) promise.Promise {
 		return promise.Resolved(s.instance, err)
 	}
 
+	if container == nil {
+		s.log.Error("Specified container for training is nil.")
+		return promise.Resolved(s.instance, fmt.Errorf("%w: container is nil", ErrInvalidContainer))
+	}
+
 	// Verify that the specified Container is indeed one of our replica containers.
 	found := false
 	for _, replica := range s.containers {
@@ -213,7 +246,8 @@ func (s *Session) TrainingStarted(container *Container) promise.Promise {
 	// If the specified Container is NOT one of our replica containers, then we'll resolve with an error.
 	if !found {
 		s.log.Error("Specified container for training is not found in replicas: %v", container)
-		return promise.Resolved(s.instance, ErrInvalidContainer)
+		return promise.Resolved(s.instance,
+			fmt.Errorf("%w: container not in session's replicas (container=%v)", ErrInvalidContainer, container))
 	}
 
 	s.trainingContainer = container
@@ -234,6 +268,11 @@ func (s *Session) TrainingStopped() promise.Promise {
 	if err := s.transition(SessionStateIdle); err != nil {
 		s.log.Warn("Failed to stop training because: %v", err)
 		return promise.Resolved(s.instance, err)
+	}
+
+	if s.trainingContainer == nil {
+		s.log.Error("Session is supposedly training, but its \"training container\" is nil...")
+		return promise.Resolved(s.instance, ErrMissingTrainingContainer)
 	}
 
 	if err := s.trainingContainer.TrainingStopped(); err != nil {

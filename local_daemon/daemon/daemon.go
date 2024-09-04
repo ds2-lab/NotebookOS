@@ -1748,7 +1748,9 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
 			panic(err) // TODO(Ben): Handle gracefully.
 		}
-		return commonTypes.ErrStopPropagation
+
+		// Don't return here -- we want his to be forwarded to the Cluster Gateway.
+		// return commonTypes.ErrStopPropagation
 	} else if messageType == jupyter.MessageTypeLeadAfterYield {
 		// TODO(Ben): Need a better way to propagate errors back to the user, either at the Jupyter Notebook or the Workload Driver.
 		panic(fmt.Sprintf("Our replica of kernel %s was selected to lead an execution after explicitly yielding.", kernel.ID()))
@@ -1756,6 +1758,8 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 		d.log.Error("Received message of unexpected type '%s' for SMR Lead ZMQ message topic.", messageType)
 		return domain.ErrUnexpectedZMQMessageType
 	}
+
+	return nil
 }
 
 func (d *SchedulerDaemonImpl) handleIgnoreMsg(kernel scheduling.Kernel, _ jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
