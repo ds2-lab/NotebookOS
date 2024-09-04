@@ -31,6 +31,9 @@ type Spec interface {
 
 	// String returns a string representation of the Spec.
 	String() string
+
+	// Clone returns a copy of the Spec.
+	Clone() Spec
 }
 
 type GPUSpec float64
@@ -48,6 +51,11 @@ func (s GPUSpec) GPU() float64 {
 // CPU returns the number of vCPUs, which may be fractional.
 func (s GPUSpec) CPU() float64 {
 	return 0.0
+}
+
+func (s GPUSpec) Clone() GPUSpec {
+	var gpus = float64(s)
+	return GPUSpec(gpus)
 }
 
 // MemoryMB returns the amount of memory in MB.
@@ -110,6 +118,14 @@ func (s *FullSpec) Validate(requirement Spec) bool {
 	return s.GPU() >= requirement.GPU() && s.CPU() >= requirement.CPU() && s.MemoryMB() > requirement.MemoryMB()
 }
 
+func (s *FullSpec) Clone() Spec {
+	return &FullSpec{
+		GPUs:     s.GPUs,
+		CPUs:     s.CPUs,
+		MemoryMb: s.MemoryMb,
+	}
+}
+
 // FullSpecFromKernelReplicaSpec converts the *proto.ResourceSpec contained within the given
 // *proto.KernelReplicaSpec to a *FullSpec and returns the resulting *FullSpec.
 func FullSpecFromKernelReplicaSpec(in *proto.KernelReplicaSpec) *FullSpec {
@@ -120,7 +136,7 @@ func FullSpecFromKernelReplicaSpec(in *proto.KernelReplicaSpec) *FullSpec {
 	}
 }
 
-// FullSpecFromKernelReplicaSpec converts the *proto.ResourceSpec contained within the given
+// FullSpecFromKernelSpec converts the *proto.ResourceSpec contained within the given
 // *proto.KernelSpec to a *FullSpec and returns the resulting *FullSpec.
 func FullSpecFromKernelSpec(in *proto.KernelSpec) *FullSpec {
 	return &FullSpec{

@@ -148,7 +148,7 @@ func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 
 	index.log.Debug("Searching for host. Size of blacklist: %d. Number of hosts in index: %d.", len(__blacklist), index.Len())
 
-	for ret == nil {
+	for ret == nil && hostsSeen < index.Len() {
 		// Generate a new permutation if seekStart is invalid.
 		if index.seekStart == 0 || index.seekStart >= int32(len(index.perm)) {
 			index.perm = rand.Perm(len(index.hosts))

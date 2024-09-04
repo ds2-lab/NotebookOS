@@ -60,13 +60,14 @@ type Container struct {
 func NewContainer(session *Session, kernelReplica KernelReplica, host *Host) *Container {
 	id := session.ID()
 	container := &Container{
-		KernelReplica:  kernelReplica,
-		id:             id,
-		host:           host,
-		session:        session,
-		log:            config.GetLogger(fmt.Sprintf("Container %s", id)),
-		containerState: ContainerStateIdle,
-		spec:           session.ResourceSpec(),
+		KernelReplica:        kernelReplica,
+		id:                   id,
+		host:                 host,
+		session:              session,
+		log:                  config.GetLogger(fmt.Sprintf("Container %s", id)),
+		containerState:       ContainerStateIdle,
+		spec:                 session.ResourceSpec().Clone(),
+		outstandingResources: kernelReplica.ResourceSpec().Clone(),
 	}
 
 	container.executions.Store(0)

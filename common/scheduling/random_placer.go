@@ -38,13 +38,15 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 
-	numReplicas := placer.opts.NumReplicas
-	if placer.index.Len() < numReplicas {
-		numReplicas = placer.index.Len()
-	}
+	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", placer.opts.NumReplicas, spec.String(), placer.index.Len())
 
-	if numReplicas == 0 {
-		return nil
+	numReplicas := placer.opts.NumReplicas
+	if placer.index.Len() == 0 {
+		placer.log.Warn("Index is empty... returning empty slice of Hosts.")
+		return make([]*Host, 0)
+	} else if placer.index.Len() < numReplicas {
+		placer.log.Warn("Index has just %d hosts (%d are required).", placer.index.Len(), placer.opts.NumReplicas)
+		numReplicas = placer.index.Len()
 	}
 
 	var (
@@ -57,7 +59,10 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
 
 		// If the Host can satisfy the resourceSpec, then add it to the slice of Host instances being returned.
 		if host.ResourceSpec().Validate(spec) {
-			hosts = append(hosts, host)
+			hosts[i] = host
+			placer.log.Debug("Found viable host: %v. Identified hosts: %d.", host, len(hosts))
+		} else {
+			placer.log.Debug("Host %v cannot satisfy request %v. (Host resources: %v.)", host, host.ResourceSpec().String(), spec.String())
 		}
 	}
 	return hosts

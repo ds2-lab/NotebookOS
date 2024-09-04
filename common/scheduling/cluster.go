@@ -2,6 +2,8 @@ package scheduling
 
 import (
 	"fmt"
+	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -84,13 +86,16 @@ type Cluster interface {
 type BasicCluster struct {
 	hosts   hashmap.HashMap[string, *Host]
 	indexes hashmap.BaseHashMap[string, ClusterIndexProvider]
+	log     logger.Logger
 }
 
 func NewCluster() Cluster {
-	return &BasicCluster{
+	cluster := &BasicCluster{
 		hosts:   hashmap.NewConcurrentMap[*Host](256),
 		indexes: hashmap.NewSyncMap[string, ClusterIndexProvider](),
 	}
+	config.InitLogger(&cluster.log, cluster)
+	return cluster
 }
 
 func (c *BasicCluster) RequestHost(spec types.Spec) promise.Promise {
@@ -120,10 +125,13 @@ func (c *BasicCluster) AddIndex(index ClusterIndexProvider) error {
 func (c *BasicCluster) onUpdate(host *Host) {
 	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
 		if _, status := index.IsQualified(host); status == ClusterIndexNewQualified {
+			c.log.Debug("Adding new host to index: %v", host)
 			index.Add(host)
 		} else if status == ClusterIndexQualified {
+			c.log.Debug("Updating existing host within index: %v", host)
 			index.Update(host)
 		} else if status == ClusterIndexDisqualified {
+			c.log.Debug("Removing existing host from index: %v", host)
 			index.Remove(host)
 		} // else unqualified
 		return true

@@ -253,6 +253,8 @@ func (h *Host) pollForGpuInfo() {
 			h.gpuInfoMutex.Lock()
 			h.latestGpuInfo = resp
 
+			// TODO: This is overwriting the manual adjustments from the scheduling stuff.
+			// How best to handle this?
 			h.Stats().IdleGPUsStat().Store(float64(resp.IdleGPUs))
 			h.Stats().PendingGPUsStat().Store(float64(resp.PendingGPUs))
 			h.Stats().CommittedGPUsStat().Store(float64(resp.CommittedGPUs))

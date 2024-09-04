@@ -77,19 +77,20 @@ var (
 
 	// Internal errors
 
-	ErrKernelNotFound          = errors.New("kernel not found")
-	ErrHostNotFound            = errors.New("host not found")
-	ErrInvalidSocketType       = errors.New("invalid socket type specified")
-	ErrKernelNotReady          = errors.New("kernel not ready")
-	ErrActiveExecutionNotFound = errors.New("active execution for specified kernel could not be found")
-	ErrKernelSpecNotFound      = errors.New("kernel spec not found")
-	ErrResourceSpecNotFound    = errors.New("the kernel does not have a resource spec included with its kernel spec")
-	ErrKernelIDRequired        = errors.New("kernel id frame is required for kernel_info_request")
-	ErrDaemonNotFoundOnNode    = errors.New("could not find a local daemon on the specified kubernetes node")
-	ErrFailedToVerifyMessage   = errors.New("failed to verify ZMQ message after (re)encoding it with modified contents")
-	ErrRequestTimedOut         = errors.New("request timed out")
-	ErrSessionNotTraining      = errors.New("expected session to be training")
-	ErrSessionNotFound         = errors.New("could not locate scheduling.Session instance")
+	ErrKernelNotFound             = errors.New("kernel not found")
+	ErrHostNotFound               = errors.New("host not found")
+	ErrInvalidSocketType          = errors.New("invalid socket type specified")
+	ErrKernelNotReady             = errors.New("kernel not ready")
+	ErrActiveExecutionNotFound    = errors.New("active execution for specified kernel could not be found")
+	ErrKernelSpecNotFound         = errors.New("kernel spec not found")
+	ErrResourceSpecNotFound       = errors.New("the kernel does not have a resource spec included with its kernel spec")
+	ErrKernelIDRequired           = errors.New("kernel id frame is required for kernel_info_request")
+	ErrDaemonNotFoundOnNode       = errors.New("could not find a local daemon on the specified kubernetes node")
+	ErrFailedToVerifyMessage      = errors.New("failed to verify ZMQ message after (re)encoding it with modified contents")
+	ErrRequestTimedOut            = errors.New("request timed out")
+	ErrSessionNotTraining         = errors.New("expected session to be training")
+	ErrSessionNotFound            = errors.New("could not locate scheduling.Session instance")
+	ErrInsufficientHostsAvailable = errors.New("insufficient hosts available")
 	//ErrResourceSpecNotRegistered = errors.New("there is no resource spec registered with the kernel")
 	//ErrInvalidJupyterMessage     = errors.New("invalid jupter message")
 	//ErrHeaderNotFound            = errors.New("message header not found")
@@ -1327,7 +1328,7 @@ func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host *scheduling
 
 // startNewKernel is called by StartKernel when creating a brand-new kernel, rather than restarting an existing kernel.
 func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.DistributedKernelClient, error) {
-	d.log.Debug("Did not find existing interactivePriorityBase with KernelID=\"%s\". Creating new distributedKernelClientImpl now.", in.Id)
+	d.log.Debug("Did not find existing DistributedKernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
 
 	listenPorts, err := d.availablePorts.RequestPorts()
 	if err != nil {
@@ -1380,8 +1381,17 @@ func (d *ClusterGatewayImpl) handleNewDockerKernel(ctx context.Context, in *prot
 	// or errors that occurred when launching a replica.
 	resultChan := make(chan interface{}, 3)
 
+	d.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", d.ClusterOptions.NumReplicas, in.Id, in.ResourceSpec.String())
+
 	// Identify the hosts onto which we will place replicas of the kernel.
 	hosts := d.placer.FindHosts(types.FullSpecFromKernelSpec(in))
+
+	if len(hosts) < d.ClusterOptions.NumReplicas {
+		d.log.Error("Found %d/%d hosts to serve replicas of kernel %s.", len(hosts), d.ClusterOptions.NumReplicas, in.Id)
+		return fmt.Errorf("%w: found %d/%d required hosts to serve replicas of kernel %s", ErrInsufficientHostsAvailable, len(hosts), d.ClusterOptions.NumReplicas, in.Id)
+	}
+
+	d.log.Debug("Found %d hosts to serve replicas of kernel %s: %v", d.ClusterOptions.NumReplicas, in.Id, hosts)
 
 	// For each host, launch a Docker replica on that host.
 	for i, host := range hosts {
