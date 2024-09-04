@@ -60,6 +60,11 @@ const (
 	ForceReprocessArg = "force_reprocess"
 
 	DockerKernelDebugPortDefault int32 = 32000
+
+	SchedulingPolicyLocal     SchedulingPolicy = "local"
+	SchedulingPolicyStatic    SchedulingPolicy = "static"
+	SchedulingPolicyDynamicV3 SchedulingPolicy = "dynamic-v3"
+	SchedulingPolicyDynamicV4 SchedulingPolicy = "dynamic-v4"
 )
 
 var (
@@ -96,8 +101,15 @@ var (
 	//ErrHeaderNotFound            = errors.New("message header not found")
 )
 
+// SchedulingPolicy indicates the scheduling policy/methodology/algorithm that the Cluster Gateway is configured to use.
+type SchedulingPolicy string
+
 type GatewayDaemonConfig func(domain.ClusterGateway)
 
+// FailureHandler defines a recovery callback for panics.
+// The primary purpose is simply to send a notification to the dashboard that a panic occurred before exiting.
+// This makes error detection easier (i.e., it's immediately obvious when the system breaks as we're notified
+// visually of the panic in the cluster dashboard).
 type FailureHandler func(c *client.DistributedKernelClient) error
 
 // ClusterGatewayImpl serves distributed notebook gateway for three roles:
@@ -113,7 +125,8 @@ type ClusterGatewayImpl struct {
 
 	id string
 
-	schedulingPolicy string
+	// schedulingPolicy refers to the scheduling policy/methodology/algorithm that the Cluster Gateway is configured to use.
+	schedulingPolicy SchedulingPolicy
 	proto.UnimplementedClusterGatewayServer
 	proto.UnimplementedLocalGatewayServer
 	router *router.Router
@@ -141,6 +154,10 @@ type ClusterGatewayImpl struct {
 	closed  int32
 	cleaned chan struct{}
 
+	// failureHandler is the ClusterGatewayImpl's FailureHandler (i.e., recovery callback for panics).
+	// The primary purpose is simply to send a notification to the dashboard that a panic occurred before exiting.
+	// This makes error detection easier (i.e., it's immediately obvious when the system breaks as we're notified
+	// visually of the panic in the cluster dashboard).
 	failureHandler FailureHandler
 
 	// Makes certain operations atomic, specifically operations that target the same
@@ -280,21 +297,21 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			daemon.log.Debug("Using the 'DEFAULT' scheduling policy.")
 			daemon.failureHandler = daemon.defaultFailureHandler
 		}
-	case "static":
+	case string(SchedulingPolicyStatic):
 		{
-			daemon.schedulingPolicy = "static"
+			daemon.schedulingPolicy = SchedulingPolicyStatic
 			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
 			daemon.failureHandler = daemon.staticSchedulingFailureHandler
 		}
-	case "dynamic-v3":
+	case string(SchedulingPolicyDynamicV3):
 		{
-			daemon.schedulingPolicy = "dynamic-v3"
+			daemon.schedulingPolicy = SchedulingPolicyDynamicV3
 			daemon.log.Debug("Using the 'DYNAMIC v3' scheduling policy.")
 			daemon.failureHandler = daemon.dynamicV3FailureHandler
 		}
-	case "dynamic-v4":
+	case string(SchedulingPolicyDynamicV4):
 		{
-			daemon.schedulingPolicy = "dynamic-v4"
+			daemon.schedulingPolicy = SchedulingPolicyDynamicV4
 			daemon.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
 			daemon.failureHandler = daemon.dynamicV4FailureHandler
 		}
@@ -1844,6 +1861,19 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 
 	waitGroup.Notify()
 	return response, nil
+}
+
+// RegisterDashboard is called by the Cluster Dashboard backend server to both verify that a connection has been
+// established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
+// Kubernetes), from the Cluster Gateway.
+func (d *ClusterGatewayImpl) RegisterDashboard(ctx context.Context, in *proto.Void) (*proto.DashboardRegistrationResponse, error) {
+	resp := &proto.DashboardRegistrationResponse{
+		DeploymentMode:   string(d.deploymentMode),
+		SchedulingPolicy: string(d.schedulingPolicy),
+		NumReplicas:      d.ClusterOptions.NumReplicas,
+	}
+
+	return resp, nil
 }
 
 func (d *ClusterGatewayImpl) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {

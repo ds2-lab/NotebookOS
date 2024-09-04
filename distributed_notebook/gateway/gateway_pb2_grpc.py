@@ -5,10 +5,10 @@ import warnings
 
 from . import gateway_pb2 as gateway__pb2
 
-GRPC_GENERATED_VERSION = '1.64.1'
+GRPC_GENERATED_VERSION = '1.65.1'
 GRPC_VERSION = grpc.__version__
-EXPECTED_ERROR_RELEASE = '1.65.0'
-SCHEDULED_RELEASE_DATE = 'June 25, 2024'
+EXPECTED_ERROR_RELEASE = '1.66.0'
+SCHEDULED_RELEASE_DATE = 'August 6, 2024'
 _version_not_supported = False
 
 try:
@@ -437,6 +437,11 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.KernelId.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 _registered_method=True)
+        self.RegisterDashboard = channel.unary_unary(
+                '/gateway.DistributedCluster/RegisterDashboard',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.DashboardRegistrationResponse.FromString,
+                _registered_method=True)
 
 
 class DistributedClusterServicer(object):
@@ -480,7 +485,7 @@ class DistributedClusterServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def SetTotalVirtualGPUs(self, request, context):
-        """Set the maximum number of vGPU resources availabe on a particular node (identified by the local daemon).
+        """Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -515,6 +520,15 @@ class DistributedClusterServicer(object):
     def FailNextExecution(self, request, context):
         """Ensure that the next 'execute_request' for the specified kernel fails.
         This is to be used exclusively for testing/debugging purposes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RegisterDashboard(self, request, context):
+        """RegisterDashboard is called by the Cluster Dashboard backend server to both verify that a connection has been
+        established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
+        Kubernetes), from the Cluster Gateway.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -572,6 +586,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.FailNextExecution,
                     request_deserializer=gateway__pb2.KernelId.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'RegisterDashboard': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterDashboard,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.DashboardRegistrationResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -846,6 +865,33 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/FailNextExecution',
             gateway__pb2.KernelId.SerializeToString,
             gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RegisterDashboard(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/RegisterDashboard',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.DashboardRegistrationResponse.FromString,
             options,
             channel_credentials,
             insecure,

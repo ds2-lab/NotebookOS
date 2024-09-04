@@ -53,7 +53,7 @@ service DistributedCluster {
   // Return a list of all of the current kernel IDs.
   rpc ListKernels(Void) returns (ListKernelsResponse) {}
 
-  // Set the maximum number of vGPU resources availabe on a particular node (identified by the local daemon).
+  // Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
   rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
 
   // Return the current GPU resource metrics on the node.
@@ -72,13 +72,30 @@ service DistributedCluster {
 
   // Ensure that the next 'execute_request' for the specified kernel fails.
   // This is to be used exclusively for testing/debugging purposes.
-  rpc FailNextExecution(KernelId) returns (Void) {} 
+  rpc FailNextExecution(KernelId) returns (Void) {}
+
+  // RegisterDashboard is called by the Cluster Dashboard backend server to both verify that a connection has been
+  // established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
+  // Kubernetes), from the Cluster Gateway.
+  rpc RegisterDashboard(Void) returns (DashboardRegistrationResponse) {}
 }
 
 // gRPC service provided by the Dashboard and "used" by the Cluster Gateway
 // (i.e., the Dashboard is the server while the Cluster Gateway is the client).
 service ClusterDashboard {
   rpc SendNotification(Notification) returns (Void) {} // Report to the Dashboard that an error occurred.
+}
+
+// DashboardRegistrationResponse encapsulates any important configuration information that is desired by the
+// backend server of the Cluster Dashboard.
+message DashboardRegistrationResponse {
+  // DeploymentMode indicates whether the Cluster is running in Kubernetes mode or Docker mode.
+  // Valid options include "local", "docker", and "kubernetes".
+  string DeploymentMode = 1;
+  // SchedulingMode indicates the scheduling policy that the Cluster Gateway has been configured to use.
+  string SchedulingPolicy = 2;
+  // NumReplicas refers to the number of replicas that each Jupyter kernel is configured to have.
+  int32 NumReplicas = 3;
 }
 
 message Pong {

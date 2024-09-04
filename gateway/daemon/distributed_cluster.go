@@ -197,6 +197,13 @@ func (dc *DistributedCluster) Ping(ctx context.Context, in *proto.Void) (*proto.
 	return &proto.Pong{Id: dc.gatewayDaemon.id}, nil
 }
 
+// RegisterDashboard is called by the Cluster Dashboard backend server to both verify that a connection has been
+// established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
+// Kubernetes), from the Cluster Gateway.
+func (dc *DistributedCluster) RegisterDashboard(ctx context.Context, in *proto.Void) (*proto.Pong, error) {
+	return dc.gatewayDaemon.RegisterDashboard(ctx, in)
+}
+
 func (dc *DistributedCluster) PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error) {
 	return dc.gatewayDaemon.PingKernel(ctx, in)
 }
