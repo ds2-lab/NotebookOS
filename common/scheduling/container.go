@@ -96,8 +96,13 @@ func (c *Container) ContainerStatistics() ContainerStatistics {
 	return c
 }
 
-func (c *Container) ID() string {
+// ContainerID returns the "container ID", which is a combination of the kernel ID and the replica ID.
+func (c *Container) ContainerID() string {
 	return fmt.Sprintf("%s-%d", c.id, c.KernelReplica.ReplicaID())
+}
+
+func (c *Container) KernelID() string {
+	return c.id
 }
 
 func (c *Container) String() string {

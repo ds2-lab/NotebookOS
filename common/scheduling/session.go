@@ -154,8 +154,8 @@ func (s *Session) AddReplica(container *Container) error {
 		return fmt.Errorf("%w: container is nil", ErrInvalidContainer)
 	}
 
-	if container.ID() != s.id {
-		return fmt.Errorf("%w: ID mismatch (session ID=\"%s\", container ID=\"%s\")", ErrInvalidContainer, s.id, container.ID())
+	if container.KernelID() != s.id {
+		return fmt.Errorf("%w: ID mismatch (session ID=\"%s\", container ID=\"%s\")", ErrInvalidContainer, s.id, container.KernelID())
 	}
 
 	for _, replica := range s.containers {
@@ -375,9 +375,10 @@ func (s *Session) transition(targetState SessionState) error {
 		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, s.sessionState, targetState)
 	}
 
-	s.log.Debug("Attempting to transition from state \"%v\" to state \"%v\"", s.sessionState, targetState)
+	originalState := s.sessionState
+	s.log.Debug("Attempting to transition from state \"%v\" to state \"%v\"", originalState, targetState)
 	s.sessionState = targetState
-	s.log.Debug("Successfully transitioned from state \"%v\" to state \"%v\"", s.sessionState, targetState)
+	s.log.Debug("Successfully transitioned from state \"%v\" to state \"%v\"", originalState, targetState)
 	return nil
 }
 

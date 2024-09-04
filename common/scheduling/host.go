@@ -273,7 +273,7 @@ func (h *Host) pollForGpuInfo() {
 
 // ContainerScheduled is to be called when a Container is scheduled onto the Host.
 func (h *Host) ContainerScheduled(container *Container) {
-	h.containers.Store(container.ID(), container)
+	h.containers.Store(container.ContainerID(), container)
 	h.pendingContainers.Add(1)
 	h.pendingGPUs.Add(container.OutstandingResources().GPU())
 
@@ -299,7 +299,7 @@ func (h *Host) Restore(restored *Host, callback ErrorCallback) error {
 
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.
 func (h *Host) ContainerRemoved(container *Container) {
-	h.containers.Delete(container.ID())
+	h.containers.Delete(container.ContainerID())
 	h.pendingContainers.Sub(1)
 	h.pendingGPUs.Sub(container.OutstandingResources().GPU())
 
