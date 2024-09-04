@@ -1870,7 +1870,7 @@ func (d *ClusterGatewayImpl) RegisterDashboard(ctx context.Context, in *proto.Vo
 	resp := &proto.DashboardRegistrationResponse{
 		DeploymentMode:   string(d.deploymentMode),
 		SchedulingPolicy: string(d.schedulingPolicy),
-		NumReplicas:      d.ClusterOptions.NumReplicas,
+		NumReplicas:      int32(d.ClusterOptions.NumReplicas),
 	}
 
 	return resp, nil
