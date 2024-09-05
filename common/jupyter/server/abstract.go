@@ -34,7 +34,9 @@ const (
 )
 
 var (
-	errServeOnce = errors.New("break after served once")
+	errServeOnce              = errors.New("break after served once")
+	errMissingSignatureScheme = errors.New("signature scheme has not been set")
+	errMissingKey             = errors.New("key has not been set")
 	// errMessageNotFound = errors.New("message not found")
 )
 
@@ -147,7 +149,7 @@ func (s *AbstractServer) Server() *BaseServer {
 	return &BaseServer{s}
 }
 
-func (s *AbstractServer) NumAcksReceived() int {
+func (s *AbstractServer) NumAcknowledgementsReceived() int {
 	return s.numAcksReceived
 }
 
@@ -436,6 +438,8 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				if err != nil {
 					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Handler for %s message \"%v\" has returned with an error: %v."), goroutineId, socket.Type.String(), jMsg.JupyterMessageId(), err)
 
+					// Send an error message of some sort back to the original sender, in Jupyter format.
+					_ = s.replyWithError(jMsg, socket, err)
 				}
 			}
 
@@ -497,6 +501,119 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			// s.Log.Debug("[gid=%d] Continue waiting for the response of %s requests(%d)", goroutineId, socket.Type.String(), socket.PendingReq.Len())
 		}
 	}
+}
+
+func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMessage, err error) (*zmq4.Msg, error) {
+	// We need the signature scheme and key in order to sign the error message that we create here.
+	// If those haven't been populated yet (they must be populated manually), then we cannot send the error message.
+	var (
+		signatureScheme    string
+		signatureSchemeSet bool
+		key                string
+		keySet             bool
+	)
+
+	// If we're a server in a KernelReplicaClient or DistributedKernelClient, then the Meta field should be non-nil
+	// and will have the connection info. So, we can get the signature scheme and key from there.
+	if s.Meta != nil {
+		signatureScheme = s.Meta.SignatureScheme
+		key = s.Meta.Key
+	}
+
+	// If we couldn't retrieve these from the Meta field, then we'll need to hope that they were populated elsewhere.
+	// If not, then we cannot send the message.
+	if len(signatureScheme) == 0 || len(key) == 0 {
+		if signatureScheme, signatureSchemeSet = originalMessage.SignatureScheme(); !signatureSchemeSet {
+			return nil, errMissingSignatureScheme
+		}
+
+		if key, keySet = originalMessage.Key(); !keySet {
+			return nil, errMissingKey
+		}
+	}
+
+	msgType := types.JupyterMessageType(originalMessage.JupyterMessageType())
+
+	var respMsgType string
+	baseType, ok := msgType.GetBaseMessageType()
+	if ok {
+		respMsgType = baseType + "reply"
+	} else {
+		respMsgType = baseType
+	}
+
+	// Create the new message.
+	frames := types.NewJupyterFramesWithReservation(1)
+
+	// Create the message header.
+	header := &types.MessageHeader{
+		Date:     time.Now().UTC().Format(types.JavascriptISOString),
+		MsgID:    uuid.New().String(),
+		MsgType:  types.JupyterMessageType(respMsgType),
+		Session:  originalMessage.JupyterSession(),
+		Username: originalMessage.JupyterUsername(),
+		Version:  originalMessage.JupyterVersion(),
+	}
+
+	// Encode the message header, returning an error if the encoding fails.
+	if encodingError := frames.EncodeHeader(header); encodingError != nil {
+		return nil, encodingError
+	}
+
+	// Create the message content.
+	errorContent := &types.MessageError{
+		Status:   types.MessageStatusError,
+		ErrName:  fmt.Sprintf("%T", err),
+		ErrValue: err.Error(),
+	}
+
+	// Encode the message content, returning an error if the encoding fails.
+	if encodingError := frames.EncodeContent(errorContent); encodingError != nil {
+		return nil, encodingError
+	}
+
+	var (
+		msg          zmq4.Msg
+		signingError error
+	)
+	msg.Frames, signingError = frames.Sign(signatureScheme, []byte(key))
+	if signingError != nil {
+		return nil, signingError
+	}
+
+	// Add the destination frame, in case we're in the Local Daemon and this has to go back to the Cluster Gateway.
+	jMsg := types.NewJupyterMessage(&msg)
+	jMsg.AddDestinationId(originalMessage.DestinationId)
+
+	return jMsg.Msg, nil
+}
+
+// replyWithError replies to the sender with a message encoding the provided error.
+// The message that is sent back to the sender is in Jupyter format.
+// The message is constructed using information from the original message.
+func (s *AbstractServer) replyWithError(originalMessage *types.JupyterMessage, socket *types.Socket, err error) error {
+	errorMessage, generationError := s.generateErrorMessage(originalMessage, err)
+	if generationError != nil {
+		s.Log.Error("Failed to generate error message because: %v", generationError)
+		return generationError
+	}
+
+	//builder := types.NewRequestBuilder(
+	//	context.Background(), originalMessage.DestinationId, originalMessage.DestinationId, s.client.Meta).
+	//	WithAckRequired(false).
+	//	WithMessageType(socket.Type).
+	//	WithBlocking(true).
+	//	WithTimeout(time.Second * 30).
+	//	WithDoneCallback(func() {}).
+	//	WithMessageHandler(func(_ types.JupyterServerInfo, _ types.MessageType, _ *types.JupyterMessage) error {}).
+	//	WithNumAttempts(3).
+	//	WithJMsgPayload(errorMessage).
+	//	WithSocketProvider(s).
+	//	WithRemoveDestFrame(getOption(jupyter.WROptionRemoveDestFrame).(bool))
+	//req, err := builder.BuildRequest()
+	//s.SendMessage(req, socket)
+
+	return socket.Send(*errorMessage)
 }
 
 // RegisterAck instructs the Server to begin listening for an ACK for a message with the given ID.
@@ -754,7 +871,7 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 						"Error encountered when calling pprof.Lookup(\"goroutine\").WriteTo(os.Stderr, 1): %v",
 						pprofErr)
 				}
-				
+
 				panic("Failed to receive ACK (after just one try).")
 
 				time.Sleep(nextSleepInterval)
@@ -786,21 +903,22 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 
 // Get the next sleep interval for a request, optionally including jitter.
 //
-// In general, jitter should probably be used:
-// - https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
+// In general, jitter should probably be used. See [this] for a discussion.
+//
+// [this]: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
 func (s *AbstractServer) getSleepInterval(attempt int) time.Duration {
 	// Compute sleep interval as BaseSleep * 2^NumTries.
-	next_sleep_interval := s.RetrySleepInterval * time.Duration(math.Pow(2, float64(attempt)))
+	nextSleepInterval := s.RetrySleepInterval * time.Duration(math.Pow(2, float64(attempt)))
 
 	// Clamp the sleep interval.
-	next_sleep_interval = time.Duration(math.Min(float64(s.MaxSleepInterval), float64(next_sleep_interval)))
+	nextSleepInterval = time.Duration(math.Min(float64(s.MaxSleepInterval), float64(nextSleepInterval)))
 
 	if s.UseJitter {
 		// Generating a random value between [0..next_sleep_interval)
-		next_sleep_interval = time.Duration(rand.Float64() * (float64(next_sleep_interval)))
+		nextSleepInterval = time.Duration(rand.Float64() * (float64(nextSleepInterval)))
 	}
 
-	return next_sleep_interval
+	return nextSleepInterval
 }
 
 func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, contd <-chan bool) {

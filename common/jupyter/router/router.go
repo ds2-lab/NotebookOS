@@ -102,10 +102,10 @@ func (g *Router) Start() error {
 			return fmt.Errorf("could not listen on router socket (port:%d): %w", socket.Port, err)
 		}
 
-		defer socket.Socket.Close()
+		// defer socket.Socket.Close()
 	}
 
-	// Now listeners are ready, start servering.
+	// Now listeners are ready, start serving.
 	for _, socket := range g.server.Sockets.All {
 		if socket == nil {
 			continue
@@ -115,6 +115,11 @@ func (g *Router) Start() error {
 
 		// socket.Handler has not been set, use shared handler.
 		go g.server.Serve(g, socket, g.handleMsg)
+	}
+
+	// Close all of the sockets.
+	for _, socket := range g.server.Sockets.All {
+		_ = socket.Socket.Close()
 	}
 
 	<-g.server.Ctx.Done()

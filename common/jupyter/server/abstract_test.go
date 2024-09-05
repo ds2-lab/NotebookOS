@@ -207,7 +207,7 @@ var _ = Describe("AbstractServer", func() {
 
 			// When no ACK is received, the server waits 5 seconds, then sleeps for a bit, then retries.
 			wg.Wait()
-			Expect(client.NumAcksReceived()).To(Equal(1))
+			Expect(client.NumAcknowledgementsReceived()).To(Equal(1))
 			Expect(serverMessagesReceived).To(Equal(3))
 
 			client.Sockets.Shell.Close()
@@ -329,7 +329,7 @@ var _ = Describe("AbstractServer", func() {
 			Expect(err).To(BeNil())
 
 			wg.Wait()
-			Expect(client.NumAcksReceived()).To(Equal(1))
+			Expect(client.NumAcknowledgementsReceived()).To(Equal(1))
 			Expect(serverMessagesReceived).To(Equal(1))
 
 			client.Sockets.Shell.Close()

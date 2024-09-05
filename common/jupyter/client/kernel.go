@@ -23,8 +23,8 @@ import (
 var (
 	heartbeatInterval = time.Second
 
-	ErrResourceSpecAlreadySet = errors.New("kernel already has a resource spec set")
-	ErrDeadlineExceeded       = errors.New("deadline for parent context has already been exceeded")
+	ErrDeadlineExceeded = errors.New("deadline for parent context has already been exceeded")
+	//ErrResourceSpecAlreadySet = errors.New("kernel already has a resource spec set")
 )
 
 type SMRNodeReadyNotificationCallback func(*KernelReplicaClient)
@@ -422,9 +422,9 @@ func (c *KernelReplicaClient) Socket(typ types.MessageType) *types.Socket {
 		return c.iopub
 	case types.ShellMessage:
 		return c.shell
+	default:
+		return nil
 	}
-
-	return nil
 }
 
 // ConnectionInfo returns the connection info.
@@ -470,6 +470,8 @@ func (c *KernelReplicaClient) ReconnectSocket(typ types.MessageType) (*types.Soc
 		{
 			socket = c.recreateHeartbeatSocket()
 		}
+	default:
+		return nil, fmt.Errorf("invalid socket type: \"%d\"", typ)
 	}
 
 	timer := time.NewTimer(0)
@@ -486,7 +488,7 @@ func (c *KernelReplicaClient) ReconnectSocket(typ types.MessageType) (*types.Soc
 			c.log.Debug("Attempting to reconnect on %s socket.", typ.String())
 			if err := c.dial(socket); err != nil {
 				c.client.Log.Error("Failed to reconnect %v socket: %v", typ, err)
-				c.Close()
+				_ = c.Close()
 				c.status = types.KernelStatusExited
 				c.mu.Unlock()
 				return nil, err
@@ -526,7 +528,7 @@ func (c *KernelReplicaClient) Validate() error {
 			// If IO socket is set previously and has not been dialed because kernel is not ready, then dial it now.
 			if err := c.dial(c.client.Sockets.All[types.HBMessage+1:]...); err != nil {
 				c.client.Log.Error("Failed to dial at least one socket: %v", err)
-				c.Close()
+				_ = c.Close()
 				c.status = types.KernelStatusExited
 				c.mu.Unlock()
 				return err
@@ -597,7 +599,7 @@ func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHa
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, prompt string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error {
+func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, _ string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error {
 	// c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
 	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
@@ -725,11 +727,11 @@ func (c *KernelReplicaClient) Close() error {
 	c.BaseServer.Close()
 	for _, socket := range c.client.Sockets.All {
 		if socket != nil {
-			socket.Close()
+			_ = socket.Close()
 		}
 	}
 	if c.iopub != nil {
-		c.iopub.Close()
+		_ = c.iopub.Close()
 		c.iopub = nil
 	}
 	return nil
@@ -765,7 +767,7 @@ func (c *KernelReplicaClient) InitializeIOSub(handler types.MessageHandler, subs
 	// Handler is set, so server routing will be started on dialing.
 	c.client.Sockets.IO = types.NewSocketWithHandler(zmq4.NewSub(c.client.Ctx), c.client.Meta.IOPubPort /* sub socket for client */, types.IOMessage, fmt.Sprintf("K-Sub-IOSub[%s]", c.id), handler)
 
-	c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
+	_ = c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
 	c.client.Sockets.All[types.IOMessage] = c.client.Sockets.IO
 
 	if c.status == types.KernelStatusRunning {
@@ -816,22 +818,22 @@ func (c *KernelReplicaClient) handleMsg(_ types.JupyterServerInfo, typ types.Mes
 	// c.log.Debug("Received message of type %v: \"%v\"", typ.String(), msg)
 	switch typ {
 	case types.IOMessage:
-		if c.iopub != nil {
-			return c.iobroker.Publish(c, msg)
-		} else {
-			return ErrIOPubNotStarted
+		{
+			if c.iopub != nil {
+				return c.iobroker.Publish(c, msg)
+			} else {
+				return ErrIOPubNotStarted
+			}
 		}
+	default:
+		return ErrHandlerNotImplemented
 	}
-
-	return ErrHandlerNotImplemented
 }
 
 func (c *KernelReplicaClient) getWaitResponseOption(key string) interface{} {
 	switch key {
 	case jupyter.WROptionRemoveDestFrame:
 		return c.shell != nil
-		// case server.WROptionRemoveSourceKernelFrame:
-		// 	return c.removeSourceKernelFramesFromMessages
 	}
 
 	return nil
@@ -862,7 +864,7 @@ func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.Kernel, _ types
 	return kernel.Socket(types.IOMessage).Send(*msg.Msg)
 }
 
-func (c *KernelReplicaClient) handleIOKernelStatus(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
 	var status types.MessageKernelStatus
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling IO kernel status: %v", err)
@@ -901,7 +903,7 @@ func (c *KernelReplicaClient) handleIOKernelStatus(kernel scheduling.Kernel, fra
 // 	return types.ErrStopPropagation
 // }
 
-func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames types.JupyterFrames, _ *types.JupyterMessage) error {
 	var nodeAddedMessage types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR node added: %v", err)
@@ -921,7 +923,7 @@ func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, fr
 	return commonTypes.ErrStopPropagation
 }
 
-func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.Kernel, frames types.JupyterFrames, _ *types.JupyterMessage) error {
 	var nodeReadyMessage types.MessageSMRReady
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR ready: %v", err)

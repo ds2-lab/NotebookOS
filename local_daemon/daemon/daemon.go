@@ -724,7 +724,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *proto.R
 	}, nil
 }
 
-// Ensure that the next 'execute_request' for the specified kernel fails.
+// YieldNextExecution ensures that the next 'execute_request' for the specified kernel fails.
 // This is to be used exclusively for testing/debugging purposes.
 func (d *SchedulerDaemonImpl) YieldNextExecution(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
 	kernelId := in.Id
@@ -741,7 +741,7 @@ func (d *SchedulerDaemonImpl) YieldNextExecution(ctx context.Context, in *proto.
 	return gateway.VOID, nil
 }
 
-func (d *SchedulerDaemonImpl) UpdateReplicaAddr(ctx context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
+func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
 	kernelId := req.KernelId
 	hostname := req.Hostname // The new hostname of the replica.
 	replicaId := req.Id
@@ -754,10 +754,14 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(ctx context.Context, req *proto.
 
 	d.log.Debug("Informing replicas of kernel %s to update address of replica %d to %s.", kernelId, replicaId, hostname)
 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypeUpdateReplicaRequest, kernel.Sessions()[0])
-	frames.EncodeContent(&jupyter.MessageSMRAddOrUpdateReplicaRequest{
+	if err := frames.EncodeContent(&jupyter.MessageSMRAddOrUpdateReplicaRequest{
 		NodeID:  replicaId,
 		Address: hostname,
-	})
+	}); err != nil {
+		d.log.Error("Error occurred while encoding the content frame for update-replica request to kernel %s: %v", kernelId, err)
+		return gateway.VOID, err
+	}
+
 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		d.log.Error("Error occurred while signing frames for update-replica request to kernel %s: %v", kernelId, err)
 		return gateway.VOID, err
@@ -1194,7 +1198,7 @@ func (d *SchedulerDaemonImpl) startKernelRegistryService() {
 
 func (d *SchedulerDaemonImpl) Close() error {
 	// Close the router
-	d.router.Close()
+	_ = d.router.Close()
 
 	// Wait for the kernels to be cleaned up
 	<-d.cleaned
@@ -1202,7 +1206,8 @@ func (d *SchedulerDaemonImpl) Close() error {
 }
 
 // RouterProvider implementations.
-func (d *SchedulerDaemonImpl) ControlHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
+
+func (d *SchedulerDaemonImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	// Kernel ID is not available in the control message.
 	// _, header, _, err := jupyter.HeaderFromMsg(msg)
 	// if err != nil {
@@ -1215,6 +1220,12 @@ func (d *SchedulerDaemonImpl) ControlHandler(info router.RouterInfo, msg *jupyte
 		return domain.ErrKernelNotFound
 	}
 
+	connInfo := kernel.ConnectionInfo()
+	if connInfo != nil {
+		msg.SetSignatureSchemeIfNotSet(connInfo.SignatureScheme)
+		msg.SetKeyIfNotSet(connInfo.Key)
+	}
+
 	if err := d.forwardRequest(context.Background(), kernel, jupyter.ControlMessage, msg, nil); err != nil {
 		return err
 	}
@@ -1222,19 +1233,19 @@ func (d *SchedulerDaemonImpl) ControlHandler(info router.RouterInfo, msg *jupyte
 	// Handle ShutdownRequest
 	if msg.JupyterMessageType() == domain.ShellShutdownRequest {
 		go func() {
-			status, err := d.getInvoker(kernel).Wait() // Wait() will detect the kernel status and the cleanup() will clean kernel automatically.
-			d.statusErrorf(kernel, status, err)
+			kernelStatus, err := d.getInvoker(kernel).Wait() // Wait() will detect the kernel status and the cleanup() will clean kernel automatically.
+			_, _ = d.statusErrorf(kernel, kernelStatus, err)
 		}()
 	}
 
 	return nil
 }
 
-func (d *SchedulerDaemonImpl) kernelShellHandler(info scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) kernelShellHandler(info scheduling.KernelInfo, _ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	return d.ShellHandler(info, msg)
 }
 
-func (d *SchedulerDaemonImpl) ShellHandler(info router.RouterInfo, msg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	// d.log.Debug("Received shell message with %d frame(s): %s", len(msg.Frames), msg)
 	// kernelId, header, offset, err := d.headerAndOffsetFromMsg(msg)
 	// if err != nil {
@@ -1243,8 +1254,8 @@ func (d *SchedulerDaemonImpl) ShellHandler(info router.RouterInfo, msg *jupyter.
 
 	session := msg.JupyterSession()
 	kernel, ok := d.kernels.Load(session)
-	msg_type := msg.JupyterMessageType()
-	if !ok && (msg_type == domain.ShellKernelInfoRequest || msg_type == domain.ShellExecuteRequest) {
+	msgType := msg.JupyterMessageType()
+	if !ok && (msgType == domain.ShellKernelInfoRequest || msgType == domain.ShellExecuteRequest) {
 		// Register kernel on ShellKernelInfoRequest
 		if msg.DestinationId == "" {
 			return domain.ErrKernelIDRequired
@@ -1263,6 +1274,12 @@ func (d *SchedulerDaemonImpl) ShellHandler(info router.RouterInfo, msg *jupyter.
 	if kernel == nil {
 		d.log.Error("Could not find kernel with ID \"%s\"", session)
 		return domain.ErrKernelNotFound
+	}
+
+	connInfo := kernel.ConnectionInfo()
+	if connInfo != nil {
+		msg.SetSignatureSchemeIfNotSet(connInfo.SignatureScheme)
+		msg.SetKeyIfNotSet(connInfo.Key)
 	}
 
 	// Check availability
@@ -1463,8 +1480,8 @@ func (d *SchedulerDaemonImpl) HBHandler(_ router.RouterInfo, msg *jupyter.Jupyte
 // 	return header.Session, true, nil
 // }
 
-// Return the current vGPU allocations on this node.
-func (d *SchedulerDaemonImpl) GetVirtualGpuAllocations(ctx context.Context, in *proto.Void) (*proto.VirtualGpuAllocations, error) {
+// GetVirtualGpuAllocations returns the current vGPU allocations on this node.
+func (d *SchedulerDaemonImpl) GetVirtualGpuAllocations(_ context.Context, _ *proto.Void) (*proto.VirtualGpuAllocations, error) {
 	allocations := &proto.VirtualGpuAllocations{
 		Allocations: d.virtualGpuPluginServer.GetAllocations(),
 	}
@@ -1474,7 +1491,7 @@ func (d *SchedulerDaemonImpl) GetVirtualGpuAllocations(ctx context.Context, in *
 	return allocations, nil
 }
 
-func (d *SchedulerDaemonImpl) GetVirtualGpuInfo(ctx context.Context, in *proto.Void) (*proto.VirtualGpuInfo, error) {
+func (d *SchedulerDaemonImpl) GetVirtualGpuInfo(_ context.Context, _ *proto.Void) (*proto.VirtualGpuInfo, error) {
 	response := &proto.VirtualGpuInfo{
 		TotalVirtualGPUs:     int32(d.virtualGpuPluginServer.NumVirtualGPUs()),
 		AllocatedVirtualGPUs: int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()),
@@ -1486,7 +1503,7 @@ func (d *SchedulerDaemonImpl) GetVirtualGpuInfo(ctx context.Context, in *proto.V
 	return response, nil
 }
 
-// Adjust the total number of virtual GPUs available on this node.
+// SetTotalVirtualGPUs adjusts the total number of virtual GPUs available on this node.
 // This operation will fail if the new number of virtual GPUs is less than the number of allocated GPUs.
 // For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
 // this function is called with the new total number specified as 32, then the operation will fail.
@@ -1518,7 +1535,7 @@ func (d *SchedulerDaemonImpl) SetTotalVirtualGPUs(ctx context.Context, in *proto
 	return response, nil
 }
 
-// Convert the given message to a "yield_execute" message.
+// convertExecuteRequestToYieldExecute converts the given message to a "yield_execute" message.
 //
 // This will return a COPY of the original message with the type field modified to contact "yield_execute" instead of "execute_request".
 // On success, the returned error will be nil. If an error occurs, then the returned message will be nil, and the error will be non-nil.

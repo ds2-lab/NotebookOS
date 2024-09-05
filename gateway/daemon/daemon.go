@@ -78,9 +78,9 @@ var (
 
 	// Internal errors
 
+	ErrInvalidSocketType          = status.Error(codes.Internal, "invalid socket type specified")
 	ErrKernelNotFound             = status.Error(codes.InvalidArgument, "kernel not found")
 	ErrHostNotFound               = status.Error(codes.Internal, "host not found")
-	ErrInvalidSocketType          = status.Error(codes.InvalidArgument, "invalid socket type specified")
 	ErrKernelNotReady             = status.Error(codes.Unavailable, "kernel not ready")
 	ErrActiveExecutionNotFound    = status.Error(codes.InvalidArgument, "active execution for specified kernel could not be found")
 	ErrKernelSpecNotFound         = status.Error(codes.InvalidArgument, "kernel spec not found")
@@ -535,7 +535,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		return &proto.Pong{
 			Id:      kernelId,
 			Success: false,
-		}, status.Error(codes.Internal, ErrInvalidSocketType.Error())
+		}, ErrInvalidSocketType
 	}
 
 	kernel, loaded := d.kernels.Load(kernelId)
@@ -544,7 +544,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		return &proto.Pong{
 			Id:      kernelId,
 			Success: false,
-		}, status.Error(codes.InvalidArgument, ErrKernelNotFound.Error())
+		}, ErrKernelNotFound
 	}
 
 	var (
@@ -2274,6 +2274,12 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 		return ErrKernelNotFound
 	}
 
+	connInfo := kernel.ConnectionInfo()
+	if connInfo != nil {
+		msg.SetSignatureSchemeIfNotSet(connInfo.SignatureScheme)
+		msg.SetKeyIfNotSet(connInfo.Key)
+	}
+
 	// Check availability
 	if kernel.Status() != jupyter.KernelStatusRunning {
 		return ErrKernelNotReady
@@ -2476,7 +2482,7 @@ func (d *ClusterGatewayImpl) kernelIdAndTypeFromMsg(msg *jupyter.JupyterMessage)
 		kernelId = header.Session
 	}
 
-	return kernelId, header.MsgType, true, nil
+	return kernelId, string(header.MsgType), true, nil
 }
 
 // Extract the Kernel ID and the message type from the given ZMQ message.
@@ -2554,6 +2560,14 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel *client.DistributedKernelClie
 	} else {
 		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting kernel %s. Inspecting now..."), goroutineId, typ.String(), kernel.ID())
 		// _, _ /* messageType */, err = d.kernelAndTypeFromMsg(msg)
+	}
+
+	if kernel != nil {
+		connInfo := kernel.ConnectionInfo()
+		if connInfo != nil {
+			msg.SetSignatureSchemeIfNotSet(connInfo.SignatureScheme)
+			msg.SetKeyIfNotSet(connInfo.Key)
+		}
 	}
 
 	if err != nil {

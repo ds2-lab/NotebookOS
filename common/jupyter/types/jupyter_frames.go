@@ -85,7 +85,7 @@ func NewJupyterFramesWithHeader(msgType string, session string) JupyterFrames {
 		Username: MessageHeaderDefaultUsername,
 		Session:  session,
 		Date:     time.Now().UTC().Format(time.RFC3339Nano),
-		MsgType:  msgType,
+		MsgType:  JupyterMessageType(msgType),
 		Version:  SMRVersion,
 	})
 	return frames
@@ -158,7 +158,7 @@ func (frames JupyterFrames) GetMessageType() (string, error) {
 		return "", err
 	}
 
-	return header.MsgType, nil
+	return string(header.MsgType), nil
 }
 
 func (frames JupyterFrames) EncodeHeader(in any) (err error) {
