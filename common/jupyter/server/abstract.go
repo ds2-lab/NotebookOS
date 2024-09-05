@@ -181,14 +181,16 @@ func (s *AbstractServer) handleAck(msg *zmq4.Msg, rspId string, socket *types.So
 	}
 
 	if len(rspId) == 0 {
-		if !socket.IsGolangFrontend { // Golang frontend sockets do not send messages the same way. So, if it is a frontend socket, then this is OK. If not, then we panic.
-			panic(fmt.Sprintf("Received %s message on socket %s [remoteName=%s] with no response ID: %v", socket.Type.String(), socket.Name, socket.RemoteName, msg))
-		} else {
-			// TODO: How to get rspId in this case...? Maybe we can add it as metadata to the replies sent to Golang Frontends?
-			// Should we fallback to using the Jupyter request ID or something?
-			s.Log.Warn("Received ACK from Golang Frontend %s; however, we have no way to recover the response ID at this point...", socket.RemoteName)
-			return
-		}
+		panic(fmt.Sprintf("Received %s message on socket %s [remoteName=%s] with no response ID: %v", socket.Type.String(), socket.Name, socket.RemoteName, msg))
+
+		//if !socket.IsGolangFrontend { // Golang frontend sockets do not send messages the same way. So, if it is a frontend socket, then this is OK. If not, then we panic.
+		//	panic(fmt.Sprintf("Received %s message on socket %s [remoteName=%s] with no response ID: %v", socket.Type.String(), socket.Name, socket.RemoteName, msg))
+		//} else {
+		//	// TODO: How to get rspId in this case...? Maybe we can add it as metadata to the replies sent to Golang Frontends?
+		//	// Should we fallback to using the Jupyter request ID or something?
+		//	s.Log.Warn("Received ACK from Golang Frontend %s; however, we have no way to recover the response ID at this point...", socket.RemoteName)
+		//	return
+		//}
 	}
 
 	ackChan, _ := s.ackChannels.Load(rspId)
@@ -217,7 +219,7 @@ func (s *AbstractServer) handleAck(msg *zmq4.Msg, rspId string, socket *types.So
 	//}
 }
 
-func (s *AbstractServer) sendAck(messageWeAreAcking *types.JupyterMessage, socket *types.Socket) error {
+func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket) error {
 	goroutineId := goid.Get()
 
 	// If we should ACK the message, then we'll ACK it.
@@ -240,7 +242,7 @@ func (s *AbstractServer) sendAck(messageWeAreAcking *types.JupyterMessage, socke
 	// }
 
 	// The parent header of the ACK will be the header of the message we're ACK-ing.
-	messageHeader, err := messageWeAreAcking.GetHeader()
+	messageHeader, err := msg.GetHeader()
 	if err != nil {
 		panic(err)
 	}
@@ -256,11 +258,11 @@ func (s *AbstractServer) sendAck(messageWeAreAcking *types.JupyterMessage, socke
 	headerMap["msg_type"] = "ACK"
 	header, _ := json.Marshal(&headerMap)
 
-	var ack_msg zmq4.Msg
+	var ackMsg zmq4.Msg
 	if s.PrependId {
-		ack_msg = zmq4.NewMsgFrom(
-			messageWeAreAcking.Frames[0],
-			[]byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, messageWeAreAcking.DestinationId, messageWeAreAcking.RequestId)),
+		ackMsg = zmq4.NewMsgFrom(
+			msg.Frames[0],
+			[]byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, msg.DestinationId, msg.RequestId)),
 			[]byte("<IDS|MSG>"),
 			[]byte(""),
 			header,
@@ -268,8 +270,8 @@ func (s *AbstractServer) sendAck(messageWeAreAcking *types.JupyterMessage, socke
 			[]byte(fmt.Sprintf("%s (R: %s, L: %s)", socket.Name, s.Meta.IP, s.localIpAdderss)),
 			[]byte(fmt.Sprintf("%s (%s)", time.Now().Format(time.RFC3339Nano), s.Name)))
 	} else {
-		ack_msg = zmq4.NewMsgFrom(
-			[]byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, messageWeAreAcking.DestinationId, messageWeAreAcking.RequestId)),
+		ackMsg = zmq4.NewMsgFrom(
+			[]byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, msg.DestinationId, msg.RequestId)),
 			[]byte("<IDS|MSG>"),
 			[]byte(""),
 			header,
@@ -278,17 +280,17 @@ func (s *AbstractServer) sendAck(messageWeAreAcking *types.JupyterMessage, socke
 			[]byte(fmt.Sprintf("%s (%s)", time.Now().Format(time.RFC3339Nano), s.Name)))
 	}
 
-	messageHeader, err = messageWeAreAcking.GetHeader()
+	messageHeader, err = msg.GetHeader()
 	if err != nil {
 		panic(err)
 	}
 
 	firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sending ACK for %v \"%v\""), goroutineId, socket.Type, messageHeader.MsgType)
-	secondPart := fmt.Sprintf("(MsgId=%v, ReqId=%v)", utils.PurpleStyle.Render(messageWeAreAcking.RequestId), utils.LightPurpleStyle.Render(messageHeader.MsgID))
-	thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("message via %s: %v"), socket.Name, ack_msg)
+	secondPart := fmt.Sprintf("(MsgId=%v, ReqId=%v)", utils.PurpleStyle.Render(msg.RequestId), utils.LightPurpleStyle.Render(messageHeader.MsgID))
+	thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("message via %s: %v"), socket.Name, ackMsg)
 	s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 
-	err = socket.Send(ack_msg)
+	err = socket.Send(ackMsg)
 	if err != nil {
 		s.Log.Error("[gid=%d] Error while sending ACK message: %v", goroutineId, err)
 		return err
@@ -367,7 +369,6 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 		select {
 		case <-socket.StopServingChan:
 			s.Log.Debug("Received 'stop-serving' notification for %v socket [MyName: \"%s\"]. Will cease serving now.", socket.Type, s.Name)
-			// TODO: Do we need to notify the `poll` goroutine, or is sending `false` to the `cond` channel sufficient?
 			if contd != nil {
 				contd <- false
 			}
@@ -388,8 +389,8 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			}
 
 			var (
-				err    error
-				is_ack bool
+				err   error
+				isAck bool
 			)
 			switch v := msg.(type) {
 			case error:
@@ -397,7 +398,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			case *zmq4.Msg:
 				jMsg := types.NewJupyterMessage(v)
 
-				if (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && !is_ack {
+				if (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && !isAck {
 					firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Received %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
 					secondPart := fmt.Sprintf("'%s' (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()))
 					thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
@@ -405,13 +406,13 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				}
 
 				// This checks if the message is an ACK.
-				keep_processing, err := s.tryHandleSpecialMessage(jMsg, socket)
+				keepProcessing, err := s.tryHandleSpecialMessage(jMsg, socket)
 				if err != nil {
 					panic(fmt.Sprintf("[gid=%d] Fatal error while attempting to handle message as special. Message: %v. Error: %v.", goroutineId, msg, err))
 				}
 
 				// If it was a special message, like an ACK, then we don't process it any further.
-				if !keep_processing {
+				if !keepProcessing {
 					if contd != nil {
 						contd <- true
 					}
@@ -420,42 +421,22 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					continue
 				}
 
-				// s.Log.Debug("%s \"%s\" message is NOT special. Will process like normal.", socket.Type, jMsg.JupyterMessageType())
-
-				// TODO: Optimize this. Lots of redundancy here, and that we also do the same parsing again later.
-				// is_ack, err = s.isMessageAnAck(v, socket.Type)
-				// if err != nil {
-				// 	panic(fmt.Sprintf("[gid=%d] Could not determine if message is an 'ACK'. Message: %v. Error: %v.", goroutineId, msg, err))
-				// }
-
-				// if is_ack {
-				// 	firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %s \"%s\""), goroutineId, socket.Type, jMsg.GetParentHeader().MsgType)
-				// 	secondPart := fmt.Sprintf("%s (JupyterID=%s, ParentJupyterId=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()), utils.LightPurpleStyle.Render(jMsg.GetParentHeader().MsgID))
-				// 	thirdPart := fmt.Sprintf(utils.GreenStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
-				// 	s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
-				// 	s.handleAck(v, jMsg.RequestId, socket)
-				// 	if contd != nil {
-				// 		contd <- true
-				// 	}
-				// 	continue
-				// } else if !is_ack && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
-				// 	s.sendAck(v, socket)
-				// }
-
-				// Send an ACK if it is a Shell or Control message and we've been configured to ACK messages in general.
+				// Send an ACK if (a) it is a Shell or Control message and (b) we've been configured to ACK messages in general.
 				//
 				// AbstractServers that live on the Cluster Gateway and receive messages from frontend clients typically
 				// do not ACK messages unless the frontend client is our custom Jupyter Golang client.
-				if !is_ack && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
-					s.sendAck(jMsg, socket)
+				if !isAck && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
+					ackErr := s.sendAck(jMsg, socket)
+					if ackErr != nil {
+						s.Log.Error("Error while sending 'ACK' for message. Message we failed to ACK: %s. Error: %v.", jMsg.String(), ackErr)
+					}
 				}
 
 				err = handler(server, socket.Type, jMsg)
 				if err != nil {
 					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Handler for %s message \"%v\" has returned with an error: %v."), goroutineId, socket.Type.String(), jMsg.JupyterMessageId(), err)
-				}
 
-				// s.Log.Debug("[gid=%d] Handler for %v message \"%v\" has returned. Error: %v.", goroutineId, socket.Type, rspId, err)
+				}
 			}
 
 			// Stop serving on error.
@@ -513,12 +494,12 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 		if socket.PendingReq != nil {
 			contd <- true
-			// s.Log.Debug("[gid=%d] Continue waiting for the resposne of %s requests(%d)", goroutineId, socket.Type.String(), socket.PendingReq.Len())
+			// s.Log.Debug("[gid=%d] Continue waiting for the response of %s requests(%d)", goroutineId, socket.Type.String(), socket.PendingReq.Len())
 		}
 	}
 }
 
-// Begin listening for an ACK for a message with the given ID.
+// RegisterAck instructs the Server to begin listening for an ACK for a message with the given ID.
 func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
 	return s.ackChannels.LoadOrStore(reqId, make(chan struct{}, 1))
 }
@@ -639,7 +620,10 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 		}
 
 		if errors.Is(err, context.DeadlineExceeded) {
-			request.SetTimedOut()
+			out, err := request.SetTimedOut()
+			if err != nil {
+				return
+			}
 		}
 
 		// Clear pending request.

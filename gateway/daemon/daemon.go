@@ -71,27 +71,28 @@ const (
 var (
 	// gRPC errors
 
-	ErrNotImplemented = status.Errorf(codes.Unimplemented, "not implemented in daemon")
-	ErrNotSupported   = status.Errorf(codes.Unimplemented, "not supported in daemon")
+	ErrNotImplemented = status.Error(codes.Unimplemented, "not implemented in daemon")
+	ErrNotSupported   = status.Error(codes.Unimplemented, "not supported in daemon")
 
 	NotificationTypeNames = []string{"ERROR", "WARNING", "INFO", "SUCCESS"}
 
 	// Internal errors
 
-	ErrKernelNotFound             = status.Errorf(codes.InvalidArgument, "kernel not found")
-	ErrHostNotFound               = status.Errorf(codes.Internal, "host not found")
-	ErrInvalidSocketType          = status.Errorf(codes.InvalidArgument, "invalid socket type specified")
-	ErrKernelNotReady             = status.Errorf(codes.Unavailable, "kernel not ready")
-	ErrActiveExecutionNotFound    = status.Errorf(codes.InvalidArgument, "active execution for specified kernel could not be found")
-	ErrKernelSpecNotFound         = status.Errorf(codes.InvalidArgument, "kernel spec not found")
-	ErrResourceSpecNotFound       = status.Errorf(codes.InvalidArgument, "the kernel does not have a resource spec included with its kernel spec")
-	ErrKernelIDRequired           = status.Errorf(codes.InvalidArgument, "kernel id frame is required for kernel_info_request")
-	ErrDaemonNotFoundOnNode       = status.Errorf(codes.InvalidArgument, "could not find a local daemon on the specified kubernetes node")
-	ErrFailedToVerifyMessage      = status.Errorf(codes.Internal, "failed to verify ZMQ message after (re)encoding it with modified contents")
-	ErrRequestTimedOut            = status.Errorf(codes.Unavailable, "request timed out")
-	ErrSessionNotTraining         = status.Errorf(codes.Internal, "expected session to be training")
-	ErrSessionNotFound            = status.Errorf(codes.InvalidArgument, "could not locate scheduling.Session instance")
-	ErrInsufficientHostsAvailable = status.Errorf(codes.Internal, "insufficient hosts available")
+	ErrKernelNotFound             = status.Error(codes.InvalidArgument, "kernel not found")
+	ErrHostNotFound               = status.Error(codes.Internal, "host not found")
+	ErrInvalidSocketType          = status.Error(codes.InvalidArgument, "invalid socket type specified")
+	ErrKernelNotReady             = status.Error(codes.Unavailable, "kernel not ready")
+	ErrActiveExecutionNotFound    = status.Error(codes.InvalidArgument, "active execution for specified kernel could not be found")
+	ErrKernelSpecNotFound         = status.Error(codes.InvalidArgument, "kernel spec not found")
+	ErrResourceSpecNotFound       = status.Error(codes.InvalidArgument, "the kernel does not have a resource spec included with its kernel spec")
+	ErrKernelIDRequired           = status.Error(codes.InvalidArgument, "kernel id frame is required for kernel_info_request")
+	ErrDaemonNotFoundOnNode       = status.Error(codes.InvalidArgument, "could not find a local daemon on the specified kubernetes node")
+	ErrFailedToVerifyMessage      = status.Error(codes.Internal, "failed to verify ZMQ message after (re)encoding it with modified contents")
+	ErrRequestTimedOut            = status.Error(codes.Unavailable, "request timed out")
+	ErrSessionNotTraining         = status.Error(codes.Internal, "expected session to be training")
+	ErrSessionNotFound            = status.Error(codes.InvalidArgument, "could not locate scheduling.Session instance")
+	ErrInsufficientHostsAvailable = status.Error(codes.Internal, "insufficient hosts available")
+	ErrIncompatibleDeploymentMode = status.Error(codes.FailedPrecondition, "current deployment mode is incompatible with the requested action")
 )
 
 // SchedulingPolicy indicates the scheduling policy/methodology/algorithm that the Cluster Gateway is configured to use.
@@ -560,7 +561,6 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		}, ErrFailedToVerifyMessage
 	}
 
-	// TODO: Really need to rework the request/server system so that timeouts are more centralized.
 	ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 	defer cancel()
 
@@ -2124,7 +2124,6 @@ func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo) (*
 	// As long as the replica is stopped, we can continue.
 	dataDirectory := d.issuePrepareMigrateRequest(in.KernelId, in.ReplicaId)
 
-	// TODO: Add support/logic for Docker-based deployment.
 	err := d.removeReplica(in.ReplicaId, in.KernelId)
 	if err != nil {
 		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
@@ -2158,7 +2157,7 @@ func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo) (*
 
 func (d *ClusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
 	if d.DockerMode() {
-		return make([]corev1.Node, 0), types.ErrIncompatibleDeploymentMode /* TODO: Should I return an error here? Probably? */
+		return make([]corev1.Node, 0), ErrIncompatibleDeploymentMode
 	}
 
 	return d.kubeClient.GetKubernetesNodes()
@@ -2838,8 +2837,6 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 // - smrNodeId (int32): The SMR node ID of the replica that should be removed.
 // - kernelId (string): The ID of the kernel from which we're removing a replica.
 func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) error {
-	// TODO: Add support/logic for Docker-based deployment.
-
 	kernelClient, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find kernel client for kernel %s.", kernelId)
@@ -2951,6 +2948,10 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 //
 // If the Cluster is not running in Docker mode, then this will return an error.
 func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
+	if !d.DockerMode() {
+		return nil, ErrIncompatibleDeploymentMode
+	}
+
 	hostManager := d.cluster.GetHostManager()
 	nodes := make([]*proto.VirtualDockerNode, 0, hostManager.Len())
 
@@ -2978,21 +2979,37 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 //
 // If the Cluster is not running in Docker mode, then this will return an error.
 func (d *ClusterGatewayImpl) GetDockerSwarmNodes(_ context.Context, _ *proto.Void) (*proto.GetDockerSwarmNodesResponse, error) {
+	if !d.DockerMode() {
+		return nil, ErrIncompatibleDeploymentMode
+	}
+
 	return nil, status.Errorf(codes.Unimplemented, "method GetDockerSwarmNodes not implemented")
 }
 
 // AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
 func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
+	if !d.DockerMode() {
+		return nil, ErrIncompatibleDeploymentMode
+	}
+
 	return nil, status.Errorf(codes.Unimplemented, "method AddVirtualDockerNodes not implemented")
 }
 
 // RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
 func (d *ClusterGatewayImpl) RemoveVirtualDockerNodes(_ context.Context, in *proto.RemoveVirtualDockerNodesRequest) (*proto.RemoveVirtualDockerNodesResponse, error) {
+	if !d.DockerMode() {
+		return nil, ErrIncompatibleDeploymentMode
+	}
+
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveVirtualDockerNodes not implemented")
 }
 
 // ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
 // Modifications include altering the number of GPUs available on the nodes.
 func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, in *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
+	if !d.DockerMode() {
+		return nil, ErrIncompatibleDeploymentMode
+	}
+
 	return nil, status.Errorf(codes.Unimplemented, "method ModifyVirtualDockerNodes not implemented")
 }

@@ -88,7 +88,7 @@ func (c *Container) ToDockerContainer() *proto.DockerContainer {
 		ContainerName:   c.ContainerID(),
 		ContainerAge:    time.Now().Sub(c.StartedAt()).String(),
 		ContainerIp:     c.addr,
-		ContainerStatus: "running",
+		ContainerStatus: "running", // TODO: This may be inaccurate during migrations and such.
 		Valid:           true,
 	}
 }
