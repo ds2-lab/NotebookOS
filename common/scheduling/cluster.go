@@ -173,7 +173,7 @@ func (c *BasicCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
 }
 
 // CompareAndSwap is not supported in host provisioning and will always return false.
-func (c *BasicCluster) CompareAndSwap(key string, oldValue, newValue *Host) (*Host, bool) {
+func (c *BasicCluster) CompareAndSwap(_ string, oldValue, _ *Host) (*Host, bool) {
 	return oldValue, false
 }
 

@@ -22,7 +22,12 @@ const (
 	// TODO: Don't hardcode this. If the "name" field in "deploy/docker/docker-compose.yml" is changed,
 	// then the value of this const must be updated so that it matches the "name" field.
 	DockerProjectName = "distributed_cluster"
+
+	DockerContainerFullId  MetadataKey = "docker-container-full-id"
+	DockerContainerShortId MetadataKey = "docker-container-short-id"
 )
+
+type MetadataKey string
 
 type ClusterDaemonOptions struct {
 	ClusterSchedulerOptions
@@ -205,25 +210,28 @@ type KubeClient interface {
 }
 
 type AddReplicaOperation interface {
-	KernelReplicaClient() *client.DistributedKernelClient // The distributedKernelClientImpl of the kernel for which we're migrating a replica.
-	KernelId() string                                     // Return the ID of the associated kernel.
-	ReplicaRegistered() bool                              // Return true if the new replica has already registered with the Gateway; otherwise, return false.
-	OperationID() string                                  // Unique identifier of the migration operation.
-	PersistentID() string                                 // Return the persistent ID of the replica.
-	PodName() (string, bool)                              // Return the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
-	PodStarted() bool                                     // Return true if the new Pod has started.
-	ReplicaPodHostname() string                           // Return the IP address of the new replica.
-	ReplicaId() int32                                     // The SMR node ID to use for the new replica.
-	KernelSpec() *proto.KernelReplicaSpec                 // Return the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
-	SetReplicaRegistered()                                // Record that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered. This also sends a notification on the replicaRegisteredChannel.
-	SetPodName(string)                                    // Set the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
-	SetReplicaHostname(hostname string)                   // Set the IP address of the new replica.
-	SetReplicaJoinedSMR()                                 // Record that the new replica has joined its SMR cluster. This also sends a notification on the ReplicaJoinedSmrChannel. NOTE: This does NOT mark the associated replica as ready. That must be done separately.
-	Completed() bool                                      // Return true if the operation has completed successfully. This is the inverse of `AddReplicaOperation::IsActive`.
-	IsActive() bool                                       // Returns true if the operation has not yet finished. This is the inverse of `AddReplicaOperation::Completed`.
-	ReplicaStartedChannel() chan string                   // Return the channel used to notify that the new Pod has started.
-	ReplicaJoinedSmrChannel() chan struct{}               // Return the channel that is used to notify that the new replica has joined its SMR cluster.
-	ReplicaRegisteredChannel() chan struct{}              // Return the channel that is used to notify that the new replica has registered with the Gateway.
+	KernelReplicaClient() *client.DistributedKernelClient // KernelReplicaClient returns the client.DistributedKernelClient of the kernel for which we're migrating a replica.
+	KernelId() string                                     // KernelId returns the ID of the associated kernel.
+	ReplicaRegistered() bool                              // ReplicaRegistered returns true if the new replica has already registered with the Gateway; otherwise, return false.
+	OperationID() string                                  // OperationID returns the unique identifier of the migration operation.
+	PersistentID() string                                 // PersistentID returns the persistent ID of the replica.
+	PodName() (string, bool)                              // PodName returns the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
+	PodStarted() bool                                     // PodStarted returns true if the new Pod has started.
+	ReplicaPodHostname() string                           // ReplicaPodHostname returns the IP address of the new replica.
+	ReplicaId() int32                                     // ReplicaId returns the SMR node ID to use for the new replica.
+	KernelSpec() *proto.KernelReplicaSpec                 // KernelSpec returns the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
+	SetReplicaRegistered()                                // SetReplicaRegistered records that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered. This also sends a notification on the replicaRegisteredChannel.
+	SetPodName(string)                                    // SetPodName sets the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
+	SetReplicaHostname(hostname string)                   // SetReplicaHostname sets the IP address of the new replica.
+	SetReplicaJoinedSMR()                                 // SetReplicaJoinedSMR records that the new replica has joined its SMR cluster. This also sends a notification on the ReplicaJoinedSmrChannel. NOTE: This does NOT mark the associated replica as ready. That must be done separately.
+	Completed() bool                                      // Completed return true if the operation has completed successfully. This is the inverse of `AddReplicaOperation::IsActive`.
+	IsActive() bool                                       // IsActive returns true if the operation has not yet finished. This is the inverse of `AddReplicaOperation::Completed`.
+	ReplicaStartedChannel() chan string                   // ReplicaStartedChannel returns the channel used to notify that the new Pod has started.
+	ReplicaJoinedSmrChannel() chan struct{}               // ReplicaJoinedSmrChannel returns the channel that is used to notify that the new replica has joined its SMR cluster.
+	ReplicaRegisteredChannel() chan struct{}              // ReplicaRegisteredChannel returns the channel that is used to notify that the new replica has registered with the Gateway.
+	GetMetadata(MetadataKey) (interface{}, bool)          // GetMetadata returns a piece of metadata associated with the given MetadataKey and a bool indicating whether the metadata was successfully retrieved.
+	SetMetadata(MetadataKey, interface{})                 // SetMetadata stores a piece of metadata under the given MetadataKey.
+
 	// ShouldReadDataFromHdfs() bool                        // If true, then read data from the waldir and snapdir.
 	// DataDirectory() string                               // Return the path to etcd-raft data directory in HDFS.
 }

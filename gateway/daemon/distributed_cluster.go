@@ -220,22 +220,46 @@ func (dc *DistributedCluster) FailNextExecution(ctx context.Context, in *proto.K
 	return dc.gatewayDaemon.FailNextExecution(ctx, in)
 }
 
-func (dc *DistributedCluster) GetVirtualDockerNodes(ctx context.Context, _ *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetVirtualDockerNodes not implemented")
+// GetVirtualDockerNodes returns a (pointer to a) proto.GetVirtualDockerNodesResponse struct describing the virtual,
+// simulated nodes currently provisioned within the cluster.
+//
+// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+//
+// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+//
+// If the Cluster is not running in Docker mode, then this will return an error.
+func (dc *DistributedCluster) GetVirtualDockerNodes(ctx context.Context, in *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
+	return dc.gatewayDaemon.GetVirtualDockerNodes(ctx, in)
 }
 
-func (dc *DistributedCluster) GetDockerSwarmNodes(ctx context.Context, _ *proto.Void) (*proto.GetDockerSwarmNodesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetDockerSwarmNodes not implemented")
+// GetDockerSwarmNodes returns a (pointer to a) proto.GetDockerSwarmNodesResponse struct describing the Docker Swarm
+// nodes that exist within the Docker Swarm cluster.
+//
+// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+//
+// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+//
+// If the Cluster is not running in Docker mode, then this will return an error.
+func (dc *DistributedCluster) GetDockerSwarmNodes(ctx context.Context, in *proto.Void) (*proto.GetDockerSwarmNodesResponse, error) {
+	return dc.gatewayDaemon.GetDockerSwarmNodes(ctx, in)
 }
 
+// AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
 func (dc *DistributedCluster) AddVirtualDockerNodes(ctx context.Context, in *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method AddVirtualDockerNodes not implemented")
+	return dc.gatewayDaemon.AddVirtualDockerNodes(ctx, in)
 }
 
+// RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
 func (dc *DistributedCluster) RemoveVirtualDockerNodes(ctx context.Context, in *proto.RemoveVirtualDockerNodesRequest) (*proto.RemoveVirtualDockerNodesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RemoveVirtualDockerNodes not implemented")
+	return dc.gatewayDaemon.RemoveVirtualDockerNodes(ctx, in)
 }
 
+// ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
+// Modifications include altering the number of GPUs available on the nodes.
 func (dc *DistributedCluster) ModifyVirtualDockerNodes(ctx context.Context, in *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ModifyVirtualDockerNodes not implemented")
+	return dc.gatewayDaemon.ModifyVirtualDockerNodes(ctx, in)
 }

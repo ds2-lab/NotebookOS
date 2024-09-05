@@ -146,22 +146,22 @@ type Host struct {
 
 	log logger.Logger
 
-	latestGpuInfo          *proto.GpuInfo                           // latestGpuInfo is the latest GPU info of this host scheduler.
-	gpuInfoMutex           sync.Mutex                               // gpuInfoMutex controls access to the latest GPU info.
-	gpuInfoRefreshInterval time.Duration                            // gpuInfoRefreshInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
-	meta                   hashmap.BaseHashMap[string, interface{}] // meta is a map of metadata.
-	conn                   *grpc.ClientConn                         // conn is the gRPC connection to the Host.
-	addr                   string                                   // addr is the Host's address.
-	nodeName               string                                   // nodeName is the Host's name (for printing/logging).
-	cluster                Cluster                                  // cluster is a reference to the Cluster interface that manages this Host.
-	id                     string                                   // id is the unique ID of this host.
-	containers             hashmap.BaseHashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
-	trainingContainers     []*Container                             // trainingContainers are the actively-training kernel replicas.
-	seenSessions           []string                                 // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec           types.Spec                               // resourceSpec is the spec describing the total resources available on the Host, not impacted by allocations.
-	lastReschedule         types.StatFloat64                        // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	errorCallback          ErrorCallback                            // errorCallback is a function to be called if a Host appears to be dead.
-	pendingContainers      types.StatInt32                          // pendingContainers is the number of Containers that are scheduled on the host.
+	latestGpuInfo          *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
+	gpuInfoMutex           sync.Mutex                           // gpuInfoMutex controls access to the latest GPU info.
+	gpuInfoRefreshInterval time.Duration                        // gpuInfoRefreshInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
+	meta                   hashmap.HashMap[string, interface{}] // meta is a map of metadata.
+	conn                   *grpc.ClientConn                     // conn is the gRPC connection to the Host.
+	addr                   string                               // addr is the Host's address.
+	nodeName               string                               // nodeName is the Host's name (for printing/logging).
+	cluster                Cluster                              // cluster is a reference to the Cluster interface that manages this Host.
+	id                     string                               // id is the unique ID of this host.
+	containers             hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
+	trainingContainers     []*Container                         // trainingContainers are the actively-training kernel replicas.
+	seenSessions           []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
+	resourceSpec           types.Spec                           // resourceSpec is the spec describing the total resources available on the Host, not impacted by allocations.
+	lastReschedule         types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	errorCallback          ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
+	pendingContainers      types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
 
 	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
 
@@ -254,6 +254,11 @@ func NewHost(id string, addr string, cpus int32, memMb int32, gpuInfoRefreshInte
 // ToVirtualDockerNode converts a Host struct to a proto.VirtualDockerNode struct and
 // returns a pointer to the new proto.VirtualDockerNode.
 func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
+	containers := make([]*proto.DockerContainer, 0, h.containers.Len())
+	h.containers.Range(func(_ string, container *Container) (contd bool) {
+
+	})
+
 	return &proto.VirtualDockerNode{
 		NodeId:          h.id,
 		NodeName:        h.nodeName,
@@ -324,7 +329,7 @@ func (h *Host) pollForGpuInfo() {
 // ContainerScheduled is to be called when a Container is scheduled onto the Host.
 func (h *Host) ContainerScheduled(container *Container) {
 	h.containers.Store(container.ContainerID(), container)
-	
+
 	h.pendingContainers.Add(1)
 
 	h.pendingCPUs.Add(container.OutstandingResources().CPU())

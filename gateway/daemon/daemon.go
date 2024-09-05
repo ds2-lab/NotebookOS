@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
@@ -439,7 +440,7 @@ func (wg *registrationWaitGroups) NumReplicas() int {
 	return len(wg.replicas)
 }
 
-// Returns true if the node with the given ID was actually removed.
+// RemoveReplica returns true if the node with the given ID was actually removed.
 // If the node with the given ID was not present in the WaitGroup, then returns false.
 func (wg *registrationWaitGroups) RemoveReplica(nodeId int32) bool {
 	wg.replicasMutex.Lock()
@@ -725,8 +726,8 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	d.log.Debug("ClusterGatewayImpl is accepting a new connection.")
 
-	// Initialize yamux session for bi-directional gRPC calls
-	// At gateway side, we first wait a incoming replacement connection, then create a reverse provisioner connection to the host scheduler.
+	// Initialize yamux session for bidirectional gRPC calls
+	// At gateway side, we first wait an incoming replacement connection, then create a reverse provisioner connection to the host scheduler.
 	cliSession, err := yamux.Client(incoming, yamux.DefaultConfig())
 	if err != nil {
 		d.log.Error("Failed to create yamux client session: %v", err)
@@ -931,7 +932,7 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 // 	time.Sleep(time.Second * 5)
 // }
 
-func (d *ClusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification *proto.SmrReadyNotification) (*proto.Void, error) {
+func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *proto.SmrReadyNotification) (*proto.Void, error) {
 	kernelId := smrReadyNotification.KernelId
 
 	// First, check if this notification is from a replica of a kernel that is starting up for the very first time.
@@ -975,7 +976,7 @@ func (d *ClusterGatewayImpl) SmrReady(ctx context.Context, smrReadyNotification 
 // 	return gateway.VOID, nil
 // }
 
-func (d *ClusterGatewayImpl) SmrNodeAdded(ctx context.Context, replicaInfo *proto.ReplicaInfo) (*proto.Void, error) {
+func (d *ClusterGatewayImpl) SmrNodeAdded(_ context.Context, replicaInfo *proto.ReplicaInfo) (*proto.Void, error) {
 	kernelId := replicaInfo.KernelId
 	d.log.Debug("Received SMR Node-Added notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
 
@@ -1040,7 +1041,7 @@ func (d *ClusterGatewayImpl) ExecutionFailed(c *client.DistributedKernelClient) 
 	return d.failureHandler(c)
 }
 
-func (d *ClusterGatewayImpl) defaultFailureHandler(c *client.DistributedKernelClient) error {
+func (d *ClusterGatewayImpl) defaultFailureHandler(_ *client.DistributedKernelClient) error {
 	d.log.Warn("There is no failure handler for the DEFAULT policy.")
 	return fmt.Errorf("there is no failure handler for the DEFAULT policy; cannot handle error")
 }
@@ -1268,11 +1269,11 @@ func (d *ClusterGatewayImpl) verifyFrames(signkey []byte, signatureScheme string
 	return verified
 }
 
-func (d *ClusterGatewayImpl) dynamicV3FailureHandler(c *client.DistributedKernelClient) error {
+func (d *ClusterGatewayImpl) dynamicV3FailureHandler(_ *client.DistributedKernelClient) error {
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 }
 
-func (d *ClusterGatewayImpl) dynamicV4FailureHandler(c *client.DistributedKernelClient) error {
+func (d *ClusterGatewayImpl) dynamicV4FailureHandler(_ *client.DistributedKernelClient) error {
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 }
 
@@ -1649,6 +1650,12 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		panic(err)
 	}
 
+	// Attempt to load the Docker container ID metadata, which will be attached to the metadata of the add replica
+	// operation if we're running in Docker mode. If we're not in Docker mode, then this will do nothing.
+	if dockerContainerId, loaded := addReplicaOp.GetMetadata(domain.DockerContainerFullId); loaded {
+		container.SetDockerContainerID(dockerContainerId.(string))
+	}
+
 	d.log.Debug("Adding replica for kernel %s, replica %d on host %s.", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID())
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
@@ -1858,7 +1865,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 // RegisterDashboard is called by the Cluster Dashboard backend server to both verify that a connection has been
 // established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
 // Kubernetes), from the Cluster Gateway.
-func (d *ClusterGatewayImpl) RegisterDashboard(ctx context.Context, in *proto.Void) (*proto.DashboardRegistrationResponse, error) {
+func (d *ClusterGatewayImpl) RegisterDashboard(_ context.Context, _ *proto.Void) (*proto.DashboardRegistrationResponse, error) {
 	resp := &proto.DashboardRegistrationResponse{
 		DeploymentMode:   string(d.deploymentMode),
 		SchedulingPolicy: string(d.schedulingPolicy),
@@ -1868,14 +1875,14 @@ func (d *ClusterGatewayImpl) RegisterDashboard(ctx context.Context, in *proto.Vo
 	return resp, nil
 }
 
-func (d *ClusterGatewayImpl) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+func (d *ClusterGatewayImpl) StartKernelReplica(_ context.Context, _ *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
 	d.log.Debug("StartKernelReplica has been instructed to StartKernel. This is actually not supported/implemented.")
 
 	return nil, ErrNotSupported
 }
 
 // GetKernelStatus returns the status of a kernel.
-func (d *ClusterGatewayImpl) GetKernelStatus(ctx context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
+func (d *ClusterGatewayImpl) GetKernelStatus(_ context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		// d.log.Debug("Returning kernel status directly: %v", jupyter.KernelStatusExited)
@@ -2673,8 +2680,6 @@ func (d *ClusterGatewayImpl) cleanUp() {
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in HDFS.
 func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string) (domain.AddReplicaOperation, error) {
-	// TODO: Add support/logic for Docker-based deployment.
-
 	var kernelId = in.KernelId
 	var persistentId = in.PersistentId
 
@@ -2713,12 +2718,18 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 
 	d.containerWatcher.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
 
+	var newReplicaName string
 	if d.KubernetesMode() {
 		err := d.kubeClient.ScaleOutCloneSet(kernelId)
 		if err != nil {
 			d.log.Error("Failed to add replica to kernel %s. Could not scale-up CloneSet because: %v", kernelId, err)
 			return addReplicaOp, err
 		}
+
+		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
+
+		// Always wait for the scale-out operation to complete and the new replica to be created.
+		newReplicaName = <-addReplicaOp.ReplicaStartedChannel()
 	} else {
 		blacklist := make([]interface{}, 0)
 
@@ -2750,12 +2761,30 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		} else {
 			d.log.Debug("Received replica connection info after calling placer.Place: %v", connInfo)
 		}
+
+		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
+
+		// Always wait for the scale-out operation to complete and the new replica to be created.
+		notificationMarshalled := <-addReplicaOp.ReplicaStartedChannel()
+
+		// In Docker mode, we receive a DockerContainerStartedNotification that was marshalled to JSON, which returns
+		// a []byte, and then converted to a string via string(marshalledDockerContainerStartedNotification).
+		//
+		// Unmarshal it so we can extract the metadata.
+		//
+		// We'll store the metadata from the DockerContainerStartedNotification in the AddReplicaOperation's metadata.
+		var notification *DockerContainerStartedNotification
+		if err := json.Unmarshal([]byte(notificationMarshalled), &notification); err != nil {
+			d.log.Error("Failed to unmarshal DockerContainerStartedNotification because: %v", err)
+			go d.notifyDashboardOfError("Failed to Unmarshal DockerContainerStartedNotification", err.Error())
+			panic(err)
+		}
+
+		addReplicaOp.SetMetadata(domain.DockerContainerFullId, notification.FullContainerId)
+		addReplicaOp.SetMetadata(domain.DockerContainerShortId, notification.ShortContainerId)
+		newReplicaName = notification.KernelId
 	}
 
-	d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
-
-	// Always wait for the scale-out operation to complete and the new replica to be created.
-	newReplicaName := <-addReplicaOp.ReplicaStartedChannel()
 	d.log.Debug("New replica %s has been created for kernel %s.", newReplicaName, kernelId)
 	addReplicaOp.SetPodName(newReplicaName)
 	d.addReplicaOperationsByNewPodName.Store(newReplicaName, addReplicaOp)
@@ -2909,4 +2938,61 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 	})
 
 	return resp, nil
+}
+
+// GetVirtualDockerNodes returns a (pointer to a) proto.GetVirtualDockerNodesResponse struct describing the virtual,
+// simulated nodes currently provisioned within the cluster.
+//
+// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+//
+// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+//
+// If the Cluster is not running in Docker mode, then this will return an error.
+func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
+	hostManager := d.cluster.GetHostManager()
+	nodes := make([]*proto.VirtualDockerNode, 0, hostManager.Len())
+
+	hostManager.Range(func(_ string, host *scheduling.Host) (contd bool) {
+		virtualDockerNode := host.ToVirtualDockerNode()
+		nodes = append(nodes, virtualDockerNode)
+		return true
+	})
+
+	resp := &proto.GetVirtualDockerNodesResponse{
+		Nodes: nodes,
+	}
+
+	return resp, nil
+}
+
+// GetDockerSwarmNodes returns a (pointer to a) proto.GetDockerSwarmNodesResponse struct describing the Docker Swarm
+// nodes that exist within the Docker Swarm cluster.
+//
+// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+//
+// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+//
+// If the Cluster is not running in Docker mode, then this will return an error.
+func (d *ClusterGatewayImpl) GetDockerSwarmNodes(_ context.Context, _ *proto.Void) (*proto.GetDockerSwarmNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDockerSwarmNodes not implemented")
+}
+
+// AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
+func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddVirtualDockerNodes not implemented")
+}
+
+// RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
+func (d *ClusterGatewayImpl) RemoveVirtualDockerNodes(_ context.Context, in *proto.RemoveVirtualDockerNodesRequest) (*proto.RemoveVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveVirtualDockerNodes not implemented")
+}
+
+// ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
+// Modifications include altering the number of GPUs available on the nodes.
+func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, in *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ModifyVirtualDockerNodes not implemented")
 }

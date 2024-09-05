@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
@@ -10,18 +11,19 @@ import (
 )
 
 type addReplicaOperationImpl struct {
-	id                string                          // Unique identifier of the add operation.
-	kernelId          string                          // ID of the kernel for which a replica is being added.
-	client            *client.DistributedKernelClient // distributedKernelClientImpl of the kernel for which we're migrating a replica.
-	smrNodeId         int32                           // The SMR Node ID of the replica that is being added.
-	podStarted        bool                            // True if a new Pod has been started for the replica that is being added. Otherwise, false.
-	replicaJoinedSMR  bool                            // True if the new replica has joined the SMR cluster. Otherwise, false.
-	podName           string                          // Name of the new Pod that was started to host the added replica.
-	replicaRegistered bool                            // If true, then new replica has registered with the Gateway.
-	persistentId      string                          // Persistent ID of replica.
-	replicaHostname   string                          // The IP address of the new replica.
-	spec              *proto.KernelReplicaSpec        // Spec for the new replica that is created during the add operation.
-	dataDirectory     string                          // Path to etcd-raft data directory in HDFS.
+	id                string                                           // Unique identifier of the add operation.
+	kernelId          string                                           // ID of the kernel for which a replica is being added.
+	client            *client.DistributedKernelClient                  // distributedKernelClientImpl of the kernel for which we're migrating a replica.
+	smrNodeId         int32                                            // The SMR Node ID of the replica that is being added.
+	podStarted        bool                                             // True if a new Pod has been started for the replica that is being added. Otherwise, false.
+	replicaJoinedSMR  bool                                             // True if the new replica has joined the SMR cluster. Otherwise, false.
+	podName           string                                           // Name of the new Pod that was started to host the added replica.
+	replicaRegistered bool                                             // If true, then new replica has registered with the Gateway.
+	persistentId      string                                           // Persistent ID of replica.
+	replicaHostname   string                                           // The IP address of the new replica.
+	spec              *proto.KernelReplicaSpec                         // Spec for the new replica that is created during the add operation.
+	dataDirectory     string                                           // Path to etcd-raft data directory in HDFS.
+	metadata          hashmap.HashMap[domain.MetadataKey, interface{}] // Arbitrary metadata associated with this domain.AddReplicaOperation.
 
 	podStartedChannel        chan string   // Used to notify that the new Pod has started.
 	replicaRegisteredChannel chan struct{} // Used to notify that the new replica has registered with the Gateway.
@@ -40,9 +42,10 @@ func NewAddReplicaOperation(client *client.DistributedKernelClient, spec *proto.
 		replicaJoinedSMR:         false,
 		replicaRegistered:        false,
 		dataDirectory:            dataDirectory,
-		podStartedChannel:        make(chan string),   // TODO: These were originally buffered. Is it OK if they're not buffered?
-		replicaRegisteredChannel: make(chan struct{}), // TODO: These were originally buffered. Is it OK if they're not buffered?
-		replicaJoinedSmrChannel:  make(chan struct{}), // TODO: These were originally buffered. Is it OK if they're not buffered?
+		metadata:                 hashmap.NewCornelkMap[domain.MetadataKey, interface{}](4),
+		podStartedChannel:        make(chan string),
+		replicaRegisteredChannel: make(chan struct{}),
+		replicaJoinedSmrChannel:  make(chan struct{}),
 	}
 
 	return op
@@ -191,6 +194,17 @@ func (op *addReplicaOperationImpl) ReplicaPodHostname() string {
 // SetReplicaHostname Sets the IP address of the new replica.
 func (op *addReplicaOperationImpl) SetReplicaHostname(hostname string) {
 	op.replicaHostname = hostname
+}
+
+// GetMetadata returns a piece of metadata associated with the given MetadataKey, or nil if no such metadata exists.
+func (op *addReplicaOperationImpl) GetMetadata(key domain.MetadataKey) (value interface{}, loaded bool) {
+	value, loaded = op.metadata.Load(key)
+	return
+}
+
+// SetMetadata stores a piece of metadata under the given MetadataKey.
+func (op *addReplicaOperationImpl) SetMetadata(key domain.MetadataKey, value interface{}) {
+	op.metadata.Store(key, value)
 }
 
 type addReplicaWaitOptionsImpl struct {

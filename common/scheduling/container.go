@@ -5,6 +5,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/cache"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"sync/atomic"
 	"time"
@@ -43,6 +44,7 @@ type Container struct {
 	session              *Session       // The Session associated with the Container.
 	host                 *Host          // The Host on which the Container is currently scheduled.
 	id                   string         // The kernel ID of the Container.
+	dockerId             string         // The Docker container ID of the Container.
 	containerState       ContainerState // The current state of the Container.
 	executions           atomic.Int32   // The number of training events processed by the Container.
 	outstandingResources types.Spec     // The number of GPUs required by the Container to train.
@@ -77,6 +79,12 @@ func NewContainer(session *Session, kernelReplica KernelReplica, host *Host) *Co
 	return container
 }
 
+func (c *Container) ToDockerContainer() *proto.DockerContainer {
+	return &proto.DockerContainer{
+		ContainerName: c.ContainerID(),
+	}
+}
+
 // GetClient returns the KernelReplica associated with the Container.
 func (c *Container) GetClient() KernelReplica {
 	return c.KernelReplica
@@ -94,6 +102,16 @@ func (c *Container) SetClient(client KernelReplica) {
 
 func (c *Container) ContainerStatistics() ContainerStatistics {
 	return c
+}
+
+// DockerContainerID returns the Docker container ID of the Container.
+func (c *Container) DockerContainerID() string {
+	return c.dockerId
+}
+
+// SetDockerContainerID sets the Docker container ID of the Container to the specified value.
+func (c *Container) SetDockerContainerID(dockerId string) {
+	c.dockerId = dockerId
 }
 
 // ContainerID returns the "container ID", which is a combination of the kernel ID and the replica ID.
