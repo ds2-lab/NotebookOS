@@ -276,6 +276,9 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		AllocatedCpu:    float32(h.committedCPUs.Load()),
 		AllocatedGpu:    float32(h.committedGPUs.Load()),
 		AllocatedMemory: float32(h.committedMemoryMb.Load()),
+		PendingCpu:      float32(h.pendingCPUs.Load()),
+		PendingMemory:   float32(h.pendingMemoryMb.Load()),
+		PendingGpu:      float32(h.pendingGPUs.Load()),
 	}
 }
 

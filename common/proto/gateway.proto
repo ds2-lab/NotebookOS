@@ -232,18 +232,18 @@ message VirtualDockerNode {
   float allocatedMemory = 7;
   // AllocatedGpu is the number of vGPUs that is actively/currently allocated on the VirtualDockerNode.
   float allocatedGpu = 8;
-//  // PendingCpu is the number of vCPUs that is subscribed (but not committed) on the VirtualDockerNode.
-//  float pendingCpu = 9;
-//  // PendingMemory is the amount of memory (in megabytes) that is subscribed (but not committed) on the VirtualDockerNode.
-//  float pendingMemory = 10;
-//  // PendingGpus is the number of vGPUs that is subscribed (but not committed) on the VirtualDockerNode.
-//  float pendingGpus = 11;
+  // PendingCpu is the number of vCPUs that is subscribed (but not committed) on the VirtualDockerNode.
+  float pendingCpu = 9;
+  // PendingMemory is the amount of memory (in megabytes) that is subscribed (but not committed) on the VirtualDockerNode.
+  float pendingMemory = 10;
+  // PendingGpus is the number of vGPUs that is subscribed (but not committed) on the VirtualDockerNode.
+  float pendingGpu = 11;
   // NodeName is the name of the node.
-  string nodeName = 9;
+  string nodeName = 12;
   // Address is the IP address of the node.
-  string address = 10;
+  string address = 13;
   // CreatedAt is the time that the node was created.
-  google.protobuf.Timestamp createdAt = 11;
+  google.protobuf.Timestamp createdAt = 14;
 }
 
 // DockerContainer describes a Docker container.
