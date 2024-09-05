@@ -4,6 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
+	"sync"
+	"time"
+
 	"github.com/mason-leap-lab/go-utils/cache"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
@@ -12,10 +17,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
-	"math"
-	"sort"
-	"sync"
-	"time"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -162,6 +164,7 @@ type Host struct {
 	lastReschedule         types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
 	errorCallback          ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
 	pendingContainers      types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
+	createdAt              time.Time                            // createdAt is the time at which the Host was created.
 
 	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
 
@@ -184,7 +187,7 @@ type Host struct {
 }
 
 // NewHost creates and returns a new *Host.
-func NewHost(id string, addr string, cpus int32, memMb int32, gpuInfoRefreshInterval time.Duration, cluster Cluster, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
+func NewHost(id string, addr string, millicpus int32, memMb int32, gpuInfoRefreshInterval time.Duration, cluster Cluster, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
@@ -215,7 +218,7 @@ func NewHost(id string, addr string, cpus int32, memMb int32, gpuInfoRefreshInte
 	// Create the ResourceSpec defining the resources available on the Host.
 	resourceSpec := &types.FullSpec{
 		GPUs:     types.GPUSpec(gpuInfoResp.SpecGPUs),
-		CPUs:     float64(cpus),
+		CPUs:     float64(millicpus),
 		MemoryMb: float64(memMb),
 	}
 
@@ -236,6 +239,7 @@ func NewHost(id string, addr string, cpus int32, memMb int32, gpuInfoRefreshInte
 		seenSessions:           make([]string, int(resourceSpec.GPU())),
 		meta:                   hashmap.NewCornelkMap[string, interface{}](64),
 		errorCallback:          errorCallback,
+		createdAt:              time.Now(),
 	}
 
 	config.InitLogger(&host.log, host)
@@ -264,12 +268,13 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		NodeId:          h.id,
 		NodeName:        h.nodeName,
 		Address:         h.addr,
+		CreatedAt:       timestamppb.New(h.createdAt),
 		Containers:      dockerContainers,
 		SpecCpu:         float32(h.resourceSpec.CPU()),
 		SpecMemory:      float32(h.resourceSpec.MemoryMB()),
 		SpecGpu:         float32(h.resourceSpec.GPU()),
 		AllocatedCpu:    float32(h.committedCPUs.Load()),
-		AllocatedGpus:   float32(h.committedGPUs.Load()),
+		AllocatedGpu:    float32(h.committedGPUs.Load()),
 		AllocatedMemory: float32(h.committedMemoryMb.Load()),
 	}
 }

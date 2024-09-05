@@ -127,11 +127,12 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 			conn, err := cliSession.Open()
 			if err != nil {
 				dc.log.Error("Failed to open CLI session during dial: %v", err)
+				return nil, status.Error(codes.Internal, err.Error())
 			} else {
 				dc.log.Debug("Opened cliSession. conn.LocalAddr(): %v, conn.RemoteAddr(): %v", conn.LocalAddr(), conn.RemoteAddr())
 			}
 
-			return conn, status.Error(codes.Internal, err.Error())
+			return conn, nil
 		}))
 	if err != nil {
 		dc.log.Error("Failed to open reverse Distributed Cluster connection with Cluster Dashboard: %v", err)

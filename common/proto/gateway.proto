@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/zhangjyr/distributed-notebook/common/proto";
 option java_multiple_files = true;
 option java_package = "com.github.zhangjyr.distributed-notebook.common.proto";
@@ -228,8 +230,8 @@ message VirtualDockerNode {
   float allocatedCpu = 6;
   // AllocatedMemory is the amount of memory (in megabytes) that is currently allocated on the VirtualDockerNode.
   float allocatedMemory = 7;
-  // AllocatedGpus is the number of vGPUs that is actively/currently allocated on the VirtualDockerNode.
-  float allocatedGpus = 8;
+  // AllocatedGpu is the number of vGPUs that is actively/currently allocated on the VirtualDockerNode.
+  float allocatedGpu = 8;
 //  // PendingCpu is the number of vCPUs that is subscribed (but not committed) on the VirtualDockerNode.
 //  float pendingCpu = 9;
 //  // PendingMemory is the amount of memory (in megabytes) that is subscribed (but not committed) on the VirtualDockerNode.
@@ -240,6 +242,8 @@ message VirtualDockerNode {
   string nodeName = 9;
   // Address is the IP address of the node.
   string address = 10;
+  // CreatedAt is the time that the node was created.
+  google.protobuf.Timestamp createdAt = 11;
 }
 
 // DockerContainer describes a Docker container.

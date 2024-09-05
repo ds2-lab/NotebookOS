@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 )
 
@@ -17,7 +18,7 @@ type Spec interface {
 	// UpdateSpecGPUs can be used to update the number of GPUs.
 	UpdateSpecGPUs(float64)
 
-	// CPU returns the number of vCPUs, which may be fractional.
+	// CPU returns the number of vCPUs in milliCPUs, where 1000 mCPU = 1 vCPU, which may be fractional.
 	CPU() float64
 
 	// MemoryMB returns the amount of memory in MB.
@@ -48,7 +49,7 @@ func (s GPUSpec) GPU() float64 {
 	return float64(s)
 }
 
-// CPU returns the number of vCPUs, which may be fractional.
+// CPU returns the number of vCPUs in milliCPUs, where 1000 mCPU = 1 vCPU, which may be fractional.
 func (s GPUSpec) CPU() float64 {
 	return 0.0
 }
@@ -77,7 +78,7 @@ func (s GPUSpec) Validate(requirement Spec) bool {
 
 type FullSpec struct {
 	GPUs     GPUSpec `json:"gpus"`
-	CPUs     float64 `json:"cpus"`
+	CPUs     float64 `json:"cpus"` // Number of CPUs in millicpus, where 1000 mCPU = 1 vCPU
 	MemoryMb float64 `json:"memory_mb"`
 }
 
@@ -91,7 +92,7 @@ func (s *FullSpec) GPU() float64 {
 	return float64(s.GPUs)
 }
 
-// CPU returns the number of vCPUs, which may be fractional.
+// CPU returns the number of vCPUs in milliCPUs, where 1000 mCPU = 1 vCPU, which may be fractional.
 func (s *FullSpec) CPU() float64 {
 	return s.CPUs
 }

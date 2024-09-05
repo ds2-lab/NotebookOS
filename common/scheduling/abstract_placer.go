@@ -4,8 +4,13 @@ import (
 	"context"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"time"
+	"errors"
 
 	"github.com/mason-leap-lab/go-utils/logger"
+)
+
+var (
+	ErrNilHost = errors.New("host is nil when attempting to place kernel")
 )
 
 // AbstractPlacer implements basic place/reclaim functionality.
@@ -16,6 +21,11 @@ type AbstractPlacer struct {
 
 // Place atomically places a replica on a host.
 func (placer *AbstractPlacer) Place(host *Host, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+	if host == nil {
+		placer.log.Debug("Host cannot be nil when placing a kernel replica...")
+		return nil, ErrNilHost
+	}
+
 	return host.StartKernelReplica(context.Background(), in)
 }
 

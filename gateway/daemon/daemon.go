@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"math/rand"
 	"net"
@@ -16,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/go-zeromq/zmq4"
@@ -754,7 +755,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), 8, 16384,
+	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), 8000, 16384,
 		time.Second*2, d.cluster, gConn, d.localDaemonDisconnected)
 
 	if err != nil {
@@ -1246,6 +1247,11 @@ func (d *ClusterGatewayImpl) KubernetesMode() bool {
 // Important: exactly ONE of `kernelSpec` and `replicaSpec` must be non-nil. That is, they cannot both be nil, and they cannot both be non-nil.
 func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host *scheduling.Host, numReplicas int32, kernelSpec *proto.KernelSpec, replicaSpec *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
 	var err error
+
+	if host == nil {
+		d.log.Error("Target host cannot be nil when launching kernel replica via Docker")
+		return nil, scheduling.ErrNilHost
+	}
 
 	if kernelSpec == nil && replicaSpec == nil {
 		panic("Both `kernelSpec` and `replicaSpec` cannot be nil; exactly one of these two arguments must be non-nil.")
