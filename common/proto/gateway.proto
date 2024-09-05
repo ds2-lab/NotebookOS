@@ -245,7 +245,10 @@ message VirtualDockerNode {
 // DockerContainer describes a Docker container.
 message DockerContainer {
   string containerName = 1;
-  string containerPhase = 2;
+  // ContainerStatus describes the [lifecycle state or status] of the Docker container.
+  //
+  // [lifecycle state or status]: https://docs.docker.com/reference/cli/docker/container/ls/#status
+  string containerStatus = 2;
   string containerAge = 3;
   string containerIp = 4;
   bool  valid = 5;

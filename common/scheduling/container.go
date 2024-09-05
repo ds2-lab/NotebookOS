@@ -49,6 +49,8 @@ type Container struct {
 	executions           atomic.Int32   // The number of training events processed by the Container.
 	outstandingResources types.Spec     // The number of GPUs required by the Container to train.
 	isTraining           bool           // Flag indicating whether the Container is actively training (true) or not (false).
+	startedAt            time.Time      // The time at which the Container was created.
+	addr                 string         // The address of the Container.
 
 	spec     types.Spec
 	lastSpec types.Spec
@@ -59,7 +61,7 @@ type Container struct {
 }
 
 // NewContainer creates and returns a new *Container.
-func NewContainer(session *Session, kernelReplica KernelReplica, host *Host) *Container {
+func NewContainer(session *Session, kernelReplica KernelReplica, host *Host, kernelIp string) *Container {
 	id := session.ID()
 	container := &Container{
 		KernelReplica:        kernelReplica,
@@ -70,6 +72,8 @@ func NewContainer(session *Session, kernelReplica KernelReplica, host *Host) *Co
 		containerState:       ContainerStateIdle,
 		spec:                 session.ResourceSpec().Clone(),
 		outstandingResources: kernelReplica.ResourceSpec().Clone(),
+		startedAt:            time.Now(),
+		addr:                 kernelIp,
 	}
 
 	container.executions.Store(0)
@@ -81,8 +85,23 @@ func NewContainer(session *Session, kernelReplica KernelReplica, host *Host) *Co
 
 func (c *Container) ToDockerContainer() *proto.DockerContainer {
 	return &proto.DockerContainer{
-		ContainerName: c.ContainerID(),
+		ContainerName:   c.ContainerID(),
+		ContainerAge:    time.Now().Sub(c.StartedAt()).String(),
+		ContainerIp:     c.addr,
+		ContainerStatus: "running",
+		Valid:           true,
 	}
+}
+
+// StartedAt returns a time.Time encoding the time at which the Container was created.
+// (Specifically, it is the time at which the Container struct was instantiated.)
+func (c *Container) StartedAt() time.Time {
+	return c.startedAt
+}
+
+// Address returns the address/IP of the Container.
+func (c *Container) Address() string {
+	return c.addr
 }
 
 // GetClient returns the KernelReplica associated with the Container.

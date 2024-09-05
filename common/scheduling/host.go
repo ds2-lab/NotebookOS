@@ -254,15 +254,17 @@ func NewHost(id string, addr string, cpus int32, memMb int32, gpuInfoRefreshInte
 // ToVirtualDockerNode converts a Host struct to a proto.VirtualDockerNode struct and
 // returns a pointer to the new proto.VirtualDockerNode.
 func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
-	containers := make([]*proto.DockerContainer, 0, h.containers.Len())
+	dockerContainers := make([]*proto.DockerContainer, 0, h.containers.Len())
 	h.containers.Range(func(_ string, container *Container) (contd bool) {
-
+		dockerContainers = append(dockerContainers, container.ToDockerContainer())
+		return true
 	})
 
 	return &proto.VirtualDockerNode{
 		NodeId:          h.id,
 		NodeName:        h.nodeName,
 		Address:         h.addr,
+		Containers:      dockerContainers,
 		SpecCpu:         float32(h.resourceSpec.CPU()),
 		SpecMemory:      float32(h.resourceSpec.MemoryMB()),
 		SpecGpu:         float32(h.resourceSpec.GPU()),

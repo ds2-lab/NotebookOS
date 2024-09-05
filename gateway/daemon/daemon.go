@@ -1638,7 +1638,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	}
 
 	// Create the new Container.
-	container := scheduling.NewContainer(session, replica, host)
+	container := scheduling.NewContainer(session, replica, host, in.KernelIp)
 	// Assign the Container to the KernelReplicaClient.
 	replica.SetContainer(container)
 	// Add the Container to the Host.
@@ -1809,7 +1809,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	}
 
 	// Create the new Container.
-	container := scheduling.NewContainer(session, replica, host)
+	container := scheduling.NewContainer(session, replica, host, in.KernelIp)
 	// Assign the Container to the KernelReplicaClient.
 	replica.SetContainer(container)
 	// Add the Container to the Host.
