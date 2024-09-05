@@ -386,6 +386,11 @@ const (
 	DistributedCluster_MigrateKernelReplica_FullMethodName     = "/gateway.DistributedCluster/MigrateKernelReplica"
 	DistributedCluster_FailNextExecution_FullMethodName        = "/gateway.DistributedCluster/FailNextExecution"
 	DistributedCluster_RegisterDashboard_FullMethodName        = "/gateway.DistributedCluster/RegisterDashboard"
+	DistributedCluster_GetVirtualDockerNodes_FullMethodName    = "/gateway.DistributedCluster/GetVirtualDockerNodes"
+	DistributedCluster_GetDockerSwarmNodes_FullMethodName      = "/gateway.DistributedCluster/GetDockerSwarmNodes"
+	DistributedCluster_AddVirtualDockerNodes_FullMethodName    = "/gateway.DistributedCluster/AddVirtualDockerNodes"
+	DistributedCluster_RemoveVirtualDockerNodes_FullMethodName = "/gateway.DistributedCluster/RemoveVirtualDockerNodes"
+	DistributedCluster_ModifyVirtualDockerNodes_FullMethodName = "/gateway.DistributedCluster/ModifyVirtualDockerNodes"
 )
 
 // DistributedClusterClient is the client API for DistributedCluster service.
@@ -425,6 +430,35 @@ type DistributedClusterClient interface {
 	// established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
 	// Kubernetes), from the Cluster Gateway.
 	RegisterDashboard(ctx context.Context, in *Void, opts ...grpc.CallOption) (*DashboardRegistrationResponse, error)
+	// GetVirtualDockerNodes returns a (pointer to a) GetVirtualDockerNodesResponse struct describing the virtual,
+	// simulated nodes currently provisioned within the cluster.
+	//
+	// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+	// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+	//
+	// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+	// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+	//
+	// If the Cluster is not running in Docker mode, then this will return an error.
+	GetVirtualDockerNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetVirtualDockerNodesResponse, error)
+	// GetDockerSwarmNodes returns a (pointer to a) GetDockerSwarmNodesResponse struct describing the Docker Swarm
+	// nodes that exist within the Docker Swarm cluster.
+	//
+	// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+	// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+	//
+	// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+	// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+	//
+	// If the Cluster is not running in Docker mode, then this will return an error.
+	GetDockerSwarmNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetDockerSwarmNodesResponse, error)
+	// AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
+	AddVirtualDockerNodes(ctx context.Context, in *AddVirtualDockerNodesRequest, opts ...grpc.CallOption) (*AddVirtualDockerNodesResponse, error)
+	// RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
+	RemoveVirtualDockerNodes(ctx context.Context, in *RemoveVirtualDockerNodesRequest, opts ...grpc.CallOption) (*RemoveVirtualDockerNodesResponse, error)
+	// ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
+	// Modifications include altering the number of GPUs available on the nodes.
+	ModifyVirtualDockerNodes(ctx context.Context, in *ModifyVirtualDockerNodesRequest, opts ...grpc.CallOption) (*ModifyVirtualDockerNodesResponse, error)
 }
 
 type distributedClusterClient struct {
@@ -545,6 +579,56 @@ func (c *distributedClusterClient) RegisterDashboard(ctx context.Context, in *Vo
 	return out, nil
 }
 
+func (c *distributedClusterClient) GetVirtualDockerNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetVirtualDockerNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetVirtualDockerNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_GetVirtualDockerNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) GetDockerSwarmNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetDockerSwarmNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDockerSwarmNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_GetDockerSwarmNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) AddVirtualDockerNodes(ctx context.Context, in *AddVirtualDockerNodesRequest, opts ...grpc.CallOption) (*AddVirtualDockerNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddVirtualDockerNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_AddVirtualDockerNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) RemoveVirtualDockerNodes(ctx context.Context, in *RemoveVirtualDockerNodesRequest, opts ...grpc.CallOption) (*RemoveVirtualDockerNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveVirtualDockerNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_RemoveVirtualDockerNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) ModifyVirtualDockerNodes(ctx context.Context, in *ModifyVirtualDockerNodesRequest, opts ...grpc.CallOption) (*ModifyVirtualDockerNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ModifyVirtualDockerNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_ModifyVirtualDockerNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DistributedClusterServer is the server API for DistributedCluster service.
 // All implementations must embed UnimplementedDistributedClusterServer
 // for forward compatibility.
@@ -582,6 +666,35 @@ type DistributedClusterServer interface {
 	// established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
 	// Kubernetes), from the Cluster Gateway.
 	RegisterDashboard(context.Context, *Void) (*DashboardRegistrationResponse, error)
+	// GetVirtualDockerNodes returns a (pointer to a) GetVirtualDockerNodesResponse struct describing the virtual,
+	// simulated nodes currently provisioned within the cluster.
+	//
+	// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+	// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+	//
+	// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+	// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+	//
+	// If the Cluster is not running in Docker mode, then this will return an error.
+	GetVirtualDockerNodes(context.Context, *Void) (*GetVirtualDockerNodesResponse, error)
+	// GetDockerSwarmNodes returns a (pointer to a) GetDockerSwarmNodesResponse struct describing the Docker Swarm
+	// nodes that exist within the Docker Swarm cluster.
+	//
+	// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+	// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+	//
+	// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+	// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+	//
+	// If the Cluster is not running in Docker mode, then this will return an error.
+	GetDockerSwarmNodes(context.Context, *Void) (*GetDockerSwarmNodesResponse, error)
+	// AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
+	AddVirtualDockerNodes(context.Context, *AddVirtualDockerNodesRequest) (*AddVirtualDockerNodesResponse, error)
+	// RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
+	RemoveVirtualDockerNodes(context.Context, *RemoveVirtualDockerNodesRequest) (*RemoveVirtualDockerNodesResponse, error)
+	// ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
+	// Modifications include altering the number of GPUs available on the nodes.
+	ModifyVirtualDockerNodes(context.Context, *ModifyVirtualDockerNodesRequest) (*ModifyVirtualDockerNodesResponse, error)
 	mustEmbedUnimplementedDistributedClusterServer()
 }
 
@@ -624,6 +737,21 @@ func (UnimplementedDistributedClusterServer) FailNextExecution(context.Context, 
 }
 func (UnimplementedDistributedClusterServer) RegisterDashboard(context.Context, *Void) (*DashboardRegistrationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterDashboard not implemented")
+}
+func (UnimplementedDistributedClusterServer) GetVirtualDockerNodes(context.Context, *Void) (*GetVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetVirtualDockerNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) GetDockerSwarmNodes(context.Context, *Void) (*GetDockerSwarmNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDockerSwarmNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) AddVirtualDockerNodes(context.Context, *AddVirtualDockerNodesRequest) (*AddVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddVirtualDockerNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) RemoveVirtualDockerNodes(context.Context, *RemoveVirtualDockerNodesRequest) (*RemoveVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveVirtualDockerNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) ModifyVirtualDockerNodes(context.Context, *ModifyVirtualDockerNodesRequest) (*ModifyVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ModifyVirtualDockerNodes not implemented")
 }
 func (UnimplementedDistributedClusterServer) mustEmbedUnimplementedDistributedClusterServer() {}
 func (UnimplementedDistributedClusterServer) testEmbeddedByValue()                            {}
@@ -844,6 +972,96 @@ func _DistributedCluster_RegisterDashboard_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DistributedCluster_GetVirtualDockerNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).GetVirtualDockerNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_GetVirtualDockerNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).GetVirtualDockerNodes(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_GetDockerSwarmNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).GetDockerSwarmNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_GetDockerSwarmNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).GetDockerSwarmNodes(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_AddVirtualDockerNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddVirtualDockerNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).AddVirtualDockerNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_AddVirtualDockerNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).AddVirtualDockerNodes(ctx, req.(*AddVirtualDockerNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_RemoveVirtualDockerNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveVirtualDockerNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).RemoveVirtualDockerNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_RemoveVirtualDockerNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).RemoveVirtualDockerNodes(ctx, req.(*RemoveVirtualDockerNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_ModifyVirtualDockerNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ModifyVirtualDockerNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).ModifyVirtualDockerNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_ModifyVirtualDockerNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).ModifyVirtualDockerNodes(ctx, req.(*ModifyVirtualDockerNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DistributedCluster_ServiceDesc is the grpc.ServiceDesc for DistributedCluster service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -894,6 +1112,26 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RegisterDashboard",
 			Handler:    _DistributedCluster_RegisterDashboard_Handler,
+		},
+		{
+			MethodName: "GetVirtualDockerNodes",
+			Handler:    _DistributedCluster_GetVirtualDockerNodes_Handler,
+		},
+		{
+			MethodName: "GetDockerSwarmNodes",
+			Handler:    _DistributedCluster_GetDockerSwarmNodes_Handler,
+		},
+		{
+			MethodName: "AddVirtualDockerNodes",
+			Handler:    _DistributedCluster_AddVirtualDockerNodes_Handler,
+		},
+		{
+			MethodName: "RemoveVirtualDockerNodes",
+			Handler:    _DistributedCluster_RemoveVirtualDockerNodes_Handler,
+		},
+		{
+			MethodName: "ModifyVirtualDockerNodes",
+			Handler:    _DistributedCluster_ModifyVirtualDockerNodes_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -1032,11 +1270,11 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// The juypter gateway service for host local kernels.
+// The Jupyter gateway service for host local kernels.
 type LocalGatewayClient interface {
-	// SetID sets the local gatway id and return old id for failure tolerance.
+	// SetID sets the local gateway id and return old id for failure tolerance.
 	SetID(ctx context.Context, in *HostId, opts ...grpc.CallOption) (*HostId, error)
-	// StartKernel a kernel or kernel replica.
+	// StartKernel starts a kernel or kernel replica.
 	StartKernel(ctx context.Context, in *KernelSpec, opts ...grpc.CallOption) (*KernelConnectionInfo, error)
 	// StartKernelReplica starts a kernel replica on the local host.
 	StartKernelReplica(ctx context.Context, in *KernelReplicaSpec, opts ...grpc.CallOption) (*KernelConnectionInfo, error)
@@ -1256,11 +1494,11 @@ func (c *localGatewayClient) YieldNextExecution(ctx context.Context, in *KernelI
 // All implementations must embed UnimplementedLocalGatewayServer
 // for forward compatibility.
 //
-// The juypter gateway service for host local kernels.
+// The Jupyter gateway service for host local kernels.
 type LocalGatewayServer interface {
-	// SetID sets the local gatway id and return old id for failure tolerance.
+	// SetID sets the local gateway id and return old id for failure tolerance.
 	SetID(context.Context, *HostId) (*HostId, error)
-	// StartKernel a kernel or kernel replica.
+	// StartKernel starts a kernel or kernel replica.
 	StartKernel(context.Context, *KernelSpec) (*KernelConnectionInfo, error)
 	// StartKernelReplica starts a kernel replica on the local host.
 	StartKernelReplica(context.Context, *KernelReplicaSpec) (*KernelConnectionInfo, error)

@@ -72,33 +72,25 @@ var (
 
 	ErrNotImplemented = status.Errorf(codes.Unimplemented, "not implemented in daemon")
 	ErrNotSupported   = status.Errorf(codes.Unimplemented, "not supported in daemon")
-	//ErrInvalidParameter   = status.Errorf(codes.InvalidArgument, "invalid parameter")
-	//ErrFailedToRemove     = status.Errorf(codes.Internal, "replica removal failed")
-	// ErrNotFound         = errors.New("function not defined: %s")
-	// ErrNoHandler          = status.Errorf(codes.NotFound, "handler not defined")
-	//ErrNotImplementedKube = status.Errorf(codes.Unimplemented, "not supported in Kubernetes-based implementation (yet)")
 
 	NotificationTypeNames = []string{"ERROR", "WARNING", "INFO", "SUCCESS"}
 
 	// Internal errors
 
-	ErrKernelNotFound             = errors.New("kernel not found")
-	ErrHostNotFound               = errors.New("host not found")
-	ErrInvalidSocketType          = errors.New("invalid socket type specified")
-	ErrKernelNotReady             = errors.New("kernel not ready")
-	ErrActiveExecutionNotFound    = errors.New("active execution for specified kernel could not be found")
-	ErrKernelSpecNotFound         = errors.New("kernel spec not found")
-	ErrResourceSpecNotFound       = errors.New("the kernel does not have a resource spec included with its kernel spec")
-	ErrKernelIDRequired           = errors.New("kernel id frame is required for kernel_info_request")
-	ErrDaemonNotFoundOnNode       = errors.New("could not find a local daemon on the specified kubernetes node")
-	ErrFailedToVerifyMessage      = errors.New("failed to verify ZMQ message after (re)encoding it with modified contents")
-	ErrRequestTimedOut            = errors.New("request timed out")
-	ErrSessionNotTraining         = errors.New("expected session to be training")
-	ErrSessionNotFound            = errors.New("could not locate scheduling.Session instance")
-	ErrInsufficientHostsAvailable = errors.New("insufficient hosts available")
-	//ErrResourceSpecNotRegistered = errors.New("there is no resource spec registered with the kernel")
-	//ErrInvalidJupyterMessage     = errors.New("invalid jupter message")
-	//ErrHeaderNotFound            = errors.New("message header not found")
+	ErrKernelNotFound             = status.Errorf(codes.InvalidArgument, "kernel not found")
+	ErrHostNotFound               = status.Errorf(codes.Internal, "host not found")
+	ErrInvalidSocketType          = status.Errorf(codes.InvalidArgument, "invalid socket type specified")
+	ErrKernelNotReady             = status.Errorf(codes.Unavailable, "kernel not ready")
+	ErrActiveExecutionNotFound    = status.Errorf(codes.InvalidArgument, "active execution for specified kernel could not be found")
+	ErrKernelSpecNotFound         = status.Errorf(codes.InvalidArgument, "kernel spec not found")
+	ErrResourceSpecNotFound       = status.Errorf(codes.InvalidArgument, "the kernel does not have a resource spec included with its kernel spec")
+	ErrKernelIDRequired           = status.Errorf(codes.InvalidArgument, "kernel id frame is required for kernel_info_request")
+	ErrDaemonNotFoundOnNode       = status.Errorf(codes.InvalidArgument, "could not find a local daemon on the specified kubernetes node")
+	ErrFailedToVerifyMessage      = status.Errorf(codes.Internal, "failed to verify ZMQ message after (re)encoding it with modified contents")
+	ErrRequestTimedOut            = status.Errorf(codes.Unavailable, "request timed out")
+	ErrSessionNotTraining         = status.Errorf(codes.Internal, "expected session to be training")
+	ErrSessionNotFound            = status.Errorf(codes.InvalidArgument, "could not locate scheduling.Session instance")
+	ErrInsufficientHostsAvailable = status.Errorf(codes.Internal, "insufficient hosts available")
 )
 
 // SchedulingPolicy indicates the scheduling policy/methodology/algorithm that the Cluster Gateway is configured to use.
@@ -115,7 +107,7 @@ type FailureHandler func(c *client.DistributedKernelClient) error
 // ClusterGatewayImpl serves distributed notebook gateway for three roles:
 // 1. A jupyter remote kernel gateway.
 // 2. A global scheduler that coordinate host schedulers.
-// 3. Implemented net.Listener interface to bi-directional gRPC calls.
+// 3. Implemented net.Listener interface to bidirectional gRPC calls.
 //
 // Some useful resources for jupyter protocol:
 // https://jupyter-client.readthedocs.io/en/stable/messaging.html
@@ -541,7 +533,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		return &proto.Pong{
 			Id:      kernelId,
 			Success: false,
-		}, ErrInvalidSocketType
+		}, status.Error(codes.Internal, ErrInvalidSocketType.Error())
 	}
 
 	kernel, loaded := d.kernels.Load(kernelId)
@@ -550,7 +542,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		return &proto.Pong{
 			Id:      kernelId,
 			Success: false,
-		}, ErrKernelNotFound
+		}, status.Error(codes.InvalidArgument, ErrKernelNotFound.Error())
 	}
 
 	var (
@@ -2079,14 +2071,14 @@ func (d *ClusterGatewayImpl) getClusterVirtualGpuInfo(ctx context.Context, in *p
 	return resp, nil
 }
 
-// Adjust the total number of virtual GPUs available on a particular node.
+// setTotalVirtualGPUs adjusts the total number of virtual GPUs available on a particular node.
 //
 // This operation will fail if the new number of virtual GPUs is less than the number of allocated GPUs.
 // For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
 // this function is called with the new total number specified as 32, then the operation will fail.
 // In this case (when the operation fails), an ErrInvalidParameter is returned.
 func (d *ClusterGatewayImpl) setTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
-	d.log.Debug("Recevied 'SetTotalVirtualGPUs' request targeting node %s with %d vGPU(s).", in.KubernetesNodeName, in.Value)
+	d.log.Debug("Received 'SetTotalVirtualGPUs' request targeting node %s with %d vGPU(s).", in.KubernetesNodeName, in.Value)
 	var targetHost *scheduling.Host
 	d.log.Debug("We currently have %d LocalDaemons connected.", d.cluster.GetHostManager().Len())
 	d.cluster.GetHostManager().Range(func(hostId string, host *scheduling.Host) bool {

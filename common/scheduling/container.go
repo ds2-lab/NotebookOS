@@ -222,8 +222,19 @@ func (c *Container) TrainingStarted() error {
 	c.lastSpec = c.spec
 
 	// Update resource data on the Host.
+	// TODO: Should these just be updated either via "pushes" from the Local Daemon or "pulls" by the Cluster Gateway?
+
+	c.host.Stats().PendingCPUsStat().Sub(c.outstandingResources.CPU())
+	c.host.Stats().PendingMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
 	c.host.Stats().PendingGPUsStat().Sub(c.outstandingResources.GPU())
+
+	c.host.Stats().IdleCPUsStat().Sub(c.outstandingResources.CPU())
+	c.host.Stats().IdleMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
 	c.host.Stats().IdleGPUsStat().Sub(c.outstandingResources.GPU())
+
+	c.host.Stats().CommittedCPUsStat().Add(c.outstandingResources.CPU())
+	c.host.Stats().CommittedMemoryMbStat().Add(c.outstandingResources.MemoryMB())
+	c.host.Stats().CommittedGPUsStat().Add(c.outstandingResources.GPU())
 
 	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().NumGpus))
 	c.outstandingResources = &types.FullSpec{

@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
@@ -41,8 +40,8 @@ var (
 
 	cleanUpInterval = time.Minute
 
-	ErrExistingReplicaAlreadyRunning = errors.New("an existing replica of the target kernel is already running on this node")
-	ErrNilArgument                   = errors.New("one or more of the required arguments was nil")
+	ErrExistingReplicaAlreadyRunning = status.Error(codes.Internal, "an existing replica of the target kernel is already running on this node")
+	ErrNilArgument                   = status.Error(codes.InvalidArgument, "one or more of the required arguments was nil")
 )
 
 // SchedulerDaemonImpl is the daemon that proxy requests to kernel replicas on local-host.

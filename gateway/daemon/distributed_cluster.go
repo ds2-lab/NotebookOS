@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net"
 	"sync/atomic"
 
@@ -69,7 +71,7 @@ func (dc *DistributedCluster) SpoofNotifications(ctx context.Context, in *proto.
 }
 
 // InducePanic is used for debugging/testing. Causes a Panic.
-func (dc *DistributedCluster) InducePanic(ctx context.Context, in *proto.Void) (*proto.Void, error) {
+func (dc *DistributedCluster) InducePanic(_ context.Context, _ *proto.Void) (*proto.Void, error) {
 	panic("Inducing a panic.")
 }
 
@@ -80,7 +82,7 @@ func (dc *DistributedCluster) Listen(transport string, addr string) (net.Listene
 	// Initialize listener
 	lis, err := net.Listen(transport, addr)
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	dc.listener = lis
@@ -92,7 +94,7 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 	// Inspired by https://github.com/dustin-decker/grpc-firewall-bypass
 	incoming, err := dc.listener.Accept()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 	conn := incoming
 
@@ -129,7 +131,7 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 				dc.log.Debug("Opened cliSession. conn.LocalAddr(): %v, conn.RemoteAddr(): %v", conn.LocalAddr(), conn.RemoteAddr())
 			}
 
-			return conn, err
+			return conn, status.Error(codes.Internal, err.Error())
 		}))
 	if err != nil {
 		dc.log.Error("Failed to open reverse Distributed Cluster connection with Cluster Dashboard: %v", err)
@@ -145,7 +147,7 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 }
 
 // Close closes the listener.
-// Any blocked Accept operations will be unblocked and return errors.
+// Any blocked 'Accept' operations will be unblocked and return errors.
 func (dc *DistributedCluster) Close() error {
 	if !atomic.CompareAndSwapInt32(&dc.closed, 0, 1) {
 		// Closed already
@@ -154,7 +156,11 @@ func (dc *DistributedCluster) Close() error {
 
 	// Close the listener
 	if dc.listener != nil {
-		dc.listener.Close()
+		err := dc.listener.Close()
+
+		if err != nil {
+			dc.log.Error("Error while closing DistributedCluster listener: %v", err)
+		}
 	}
 
 	return nil
@@ -185,7 +191,7 @@ func (dc *DistributedCluster) SetTotalVirtualGPUs(ctx context.Context, in *proto
 	return dc.gatewayDaemon.setTotalVirtualGPUs(ctx, in)
 }
 
-func (dc *DistributedCluster) ListKernels(ctx context.Context, in *proto.Void) (*proto.ListKernelsResponse, error) {
+func (dc *DistributedCluster) ListKernels(_ context.Context, _ *proto.Void) (*proto.ListKernelsResponse, error) {
 	return dc.gatewayDaemon.listKernels()
 }
 
@@ -193,14 +199,14 @@ func (dc *DistributedCluster) MigrateKernelReplica(ctx context.Context, in *prot
 	return dc.gatewayDaemon.MigrateKernelReplica(ctx, in)
 }
 
-func (dc *DistributedCluster) Ping(ctx context.Context, in *proto.Void) (*proto.Pong, error) {
+func (dc *DistributedCluster) Ping(_ context.Context, _ *proto.Void) (*proto.Pong, error) {
 	return &proto.Pong{Id: dc.gatewayDaemon.id}, nil
 }
 
 // RegisterDashboard is called by the Cluster Dashboard backend server to both verify that a connection has been
 // established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
 // Kubernetes), from the Cluster Gateway.
-func (dc *DistributedCluster) RegisterDashboard(ctx context.Context, in *proto.Void) (*proto.Pong, error) {
+func (dc *DistributedCluster) RegisterDashboard(ctx context.Context, in *proto.Void) (*proto.DashboardRegistrationResponse, error) {
 	return dc.gatewayDaemon.RegisterDashboard(ctx, in)
 }
 
@@ -212,4 +218,24 @@ func (dc *DistributedCluster) PingKernel(ctx context.Context, in *proto.PingInst
 // This is to be used exclusively for testing/debugging purposes.
 func (dc *DistributedCluster) FailNextExecution(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
 	return dc.gatewayDaemon.FailNextExecution(ctx, in)
+}
+
+func (dc *DistributedCluster) GetVirtualDockerNodes(ctx context.Context, _ *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetVirtualDockerNodes not implemented")
+}
+
+func (dc *DistributedCluster) GetDockerSwarmNodes(ctx context.Context, _ *proto.Void) (*proto.GetDockerSwarmNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDockerSwarmNodes not implemented")
+}
+
+func (dc *DistributedCluster) AddVirtualDockerNodes(ctx context.Context, in *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddVirtualDockerNodes not implemented")
+}
+
+func (dc *DistributedCluster) RemoveVirtualDockerNodes(ctx context.Context, in *proto.RemoveVirtualDockerNodesRequest) (*proto.RemoveVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveVirtualDockerNodes not implemented")
+}
+
+func (dc *DistributedCluster) ModifyVirtualDockerNodes(ctx context.Context, in *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ModifyVirtualDockerNodes not implemented")
 }

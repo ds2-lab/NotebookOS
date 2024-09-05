@@ -442,6 +442,31 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.DashboardRegistrationResponse.FromString,
                 _registered_method=True)
+        self.GetVirtualDockerNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/GetVirtualDockerNodes',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.GetVirtualDockerNodesResponse.FromString,
+                _registered_method=True)
+        self.GetDockerSwarmNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/GetDockerSwarmNodes',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.GetDockerSwarmNodesResponse.FromString,
+                _registered_method=True)
+        self.AddVirtualDockerNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/AddVirtualDockerNodes',
+                request_serializer=gateway__pb2.AddVirtualDockerNodesRequest.SerializeToString,
+                response_deserializer=gateway__pb2.AddVirtualDockerNodesResponse.FromString,
+                _registered_method=True)
+        self.RemoveVirtualDockerNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/RemoveVirtualDockerNodes',
+                request_serializer=gateway__pb2.RemoveVirtualDockerNodesRequest.SerializeToString,
+                response_deserializer=gateway__pb2.RemoveVirtualDockerNodesResponse.FromString,
+                _registered_method=True)
+        self.ModifyVirtualDockerNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/ModifyVirtualDockerNodes',
+                request_serializer=gateway__pb2.ModifyVirtualDockerNodesRequest.SerializeToString,
+                response_deserializer=gateway__pb2.ModifyVirtualDockerNodesResponse.FromString,
+                _registered_method=True)
 
 
 class DistributedClusterServicer(object):
@@ -534,6 +559,60 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetVirtualDockerNodes(self, request, context):
+        """GetVirtualDockerNodes returns a (pointer to a) GetVirtualDockerNodesResponse struct describing the virtual,
+        simulated nodes currently provisioned within the cluster.
+
+        When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+        Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+
+        In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+        we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+
+        If the Cluster is not running in Docker mode, then this will return an error.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetDockerSwarmNodes(self, request, context):
+        """GetDockerSwarmNodes returns a (pointer to a) GetDockerSwarmNodesResponse struct describing the Docker Swarm
+        nodes that exist within the Docker Swarm cluster.
+
+        When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+        Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+
+        In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+        we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+
+        If the Cluster is not running in Docker mode, then this will return an error.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AddVirtualDockerNodes(self, request, context):
+        """AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RemoveVirtualDockerNodes(self, request, context):
+        """RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ModifyVirtualDockerNodes(self, request, context):
+        """ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
+        Modifications include altering the number of GPUs available on the nodes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DistributedClusterServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -591,6 +670,31 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.RegisterDashboard,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.DashboardRegistrationResponse.SerializeToString,
+            ),
+            'GetVirtualDockerNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetVirtualDockerNodes,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.GetVirtualDockerNodesResponse.SerializeToString,
+            ),
+            'GetDockerSwarmNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetDockerSwarmNodes,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.GetDockerSwarmNodesResponse.SerializeToString,
+            ),
+            'AddVirtualDockerNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.AddVirtualDockerNodes,
+                    request_deserializer=gateway__pb2.AddVirtualDockerNodesRequest.FromString,
+                    response_serializer=gateway__pb2.AddVirtualDockerNodesResponse.SerializeToString,
+            ),
+            'RemoveVirtualDockerNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.RemoveVirtualDockerNodes,
+                    request_deserializer=gateway__pb2.RemoveVirtualDockerNodesRequest.FromString,
+                    response_serializer=gateway__pb2.RemoveVirtualDockerNodesResponse.SerializeToString,
+            ),
+            'ModifyVirtualDockerNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.ModifyVirtualDockerNodes,
+                    request_deserializer=gateway__pb2.ModifyVirtualDockerNodesRequest.FromString,
+                    response_serializer=gateway__pb2.ModifyVirtualDockerNodesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -902,6 +1006,141 @@ class DistributedCluster(object):
             metadata,
             _registered_method=True)
 
+    @staticmethod
+    def GetVirtualDockerNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetVirtualDockerNodes',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.GetVirtualDockerNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetDockerSwarmNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetDockerSwarmNodes',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.GetDockerSwarmNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AddVirtualDockerNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/AddVirtualDockerNodes',
+            gateway__pb2.AddVirtualDockerNodesRequest.SerializeToString,
+            gateway__pb2.AddVirtualDockerNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RemoveVirtualDockerNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/RemoveVirtualDockerNodes',
+            gateway__pb2.RemoveVirtualDockerNodesRequest.SerializeToString,
+            gateway__pb2.RemoveVirtualDockerNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ModifyVirtualDockerNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/ModifyVirtualDockerNodes',
+            gateway__pb2.ModifyVirtualDockerNodesRequest.SerializeToString,
+            gateway__pb2.ModifyVirtualDockerNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
 
 class ClusterDashboardStub(object):
     """gRPC service provided by the Dashboard and "used" by the Cluster Gateway
@@ -982,7 +1221,7 @@ class ClusterDashboard(object):
 
 
 class LocalGatewayStub(object):
-    """The juypter gateway service for host local kernels.
+    """The Jupyter gateway service for host local kernels.
     """
 
     def __init__(self, channel):
@@ -1079,18 +1318,18 @@ class LocalGatewayStub(object):
 
 
 class LocalGatewayServicer(object):
-    """The juypter gateway service for host local kernels.
+    """The Jupyter gateway service for host local kernels.
     """
 
     def SetID(self, request, context):
-        """SetID sets the local gatway id and return old id for failure tolerance.
+        """SetID sets the local gateway id and return old id for failure tolerance.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def StartKernel(self, request, context):
-        """StartKernel a kernel or kernel replica.
+        """StartKernel starts a kernel or kernel replica.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1302,7 +1541,7 @@ def add_LocalGatewayServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class LocalGateway(object):
-    """The juypter gateway service for host local kernels.
+    """The Jupyter gateway service for host local kernels.
     """
 
     @staticmethod
