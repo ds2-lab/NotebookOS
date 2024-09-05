@@ -117,12 +117,15 @@ func (g *Router) Start() error {
 		go g.server.Serve(g, socket, g.handleMsg)
 	}
 
-	// Close all of the sockets.
+	<-g.server.Ctx.Done()
+
+	// Close all the sockets.
 	for _, socket := range g.server.Sockets.All {
-		_ = socket.Socket.Close()
+		if socket.Socket != nil {
+			_ = socket.Socket.Close()
+		}
 	}
 
-	<-g.server.Ctx.Done()
 	return nil
 }
 
