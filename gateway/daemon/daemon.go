@@ -842,7 +842,6 @@ func (d *ClusterGatewayImpl) issuePrepareMigrateRequest(kernelId string, nodeId 
 		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster because: %v", nodeId, kernelId, err))
 	}
 
-	// TODO(Ben): Keep track of this. Pass it to the migrated replica so it can read its data directory before it starts running again.
 	var dataDirectory = resp.DataDir
 	d.log.Debug("Successfully issued 'prepare-to-migrate' request to replica %d of kernel %s. Data directory: \"%s\"", nodeId, kernelId, dataDirectory)
 
@@ -892,45 +891,9 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
 	}
 
-	d.log.Debug("Sucessfully updated peer address of replica %d of kernel %s to %s.", nodeId, kernelId, newAddress)
+	d.log.Debug("Successfully updated peer address of replica %d of kernel %s to %s.", nodeId, kernelId, newAddress)
 	time.Sleep(time.Second * 5)
 }
-
-// Issue an 'add-replica' request to a random replica of a specific kernel, informing that replica and its peers
-// to add a new replica to the cluster (with ID `nodeId`).
-// func (d *ClusterGatewayImpl) issueAddNodeRequest(kernelId string, nodeId int32, address string) {
-// 	d.log.Info("Issuing 'add-replica' request to kernel %s for replica %d.", kernelId, nodeId)
-
-// 	kernelClient, ok := d.kernels.Load(kernelId)
-// 	if !ok {
-// 		panic(fmt.Sprintf("Could not find distributed kernel client with ID %s.", kernelId))
-// 	}
-
-// 	targetReplica := kernelClient.GetReadyReplica()
-// 	if targetReplica == nil {
-// 		panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernelId))
-// 	}
-
-// 	host := targetReplica.Context().Value(client.CtxKernelHost).(scheduling.Host)
-// 	if host == nil {
-// 		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
-// 	}
-
-// 	d.log.Debug("Issuing AddReplica RPC for new replica %d of kernel %s.", nodeId, kernelId)
-// 	replicaInfo := &gateway.ReplicaInfoWithAddr{
-// 		Id:       nodeId,
-// 		KernelId: kernelId,
-// 		Hostname: fmt.Sprintf("%s:%d", address, d.smrPort),
-// 	}
-
-// 	// Issue the 'add-replica' request. We panic if there was an error.
-// 	if _, err := host.AddReplica(context.TODO(), replicaInfo); err != nil {
-// 		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
-// 	}
-
-// 	d.log.Debug("Sucessfully notified existing replicas of kernel %s that new replica %d has been created.", kernelId, nodeId)
-// 	time.Sleep(time.Second * 5)
-// }
 
 func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *proto.SmrReadyNotification) (*proto.Void, error) {
 	kernelId := smrReadyNotification.KernelId
@@ -1131,13 +1094,6 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	}
 
 	msg := activeExecution.Msg()
-	// _, header, _, err := jupyter.HeaderFromMsg(msg)
-
-	// TODO(Ben): How to handle this more elegantly?
-	// if err != nil {
-	// 	d.log.Error("Failed to extract header from execution request because: %v", err)
-	// 	return err
-	// }
 
 	// TODO(Ben): Pre-reserve resources on the host that we're migrating the replica to.
 	// For now, we'll just let the standard scheduling logic handle things, which will prioritize the least-loaded host.
@@ -1197,7 +1153,6 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	err := frames[offset:].EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("Failed to encode metadata frame because: %v", err)
-		// TODO(Ben): What do we do here?
 		return err
 	}
 
@@ -1212,7 +1167,6 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	if verified := d.verifyFrames([]byte(c.ConnectionInfo().Key), c.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", c.ConnectionInfo().SignatureScheme, c.ConnectionInfo().Key)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
-		// TODO(Ben): What do we do here?
 		return ErrFailedToVerifyMessage
 	}
 
@@ -1555,8 +1509,8 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		ShellPort:       int32(kernel.Socket(jupyter.ShellMessage).Port),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(kernel.Socket(jupyter.IOMessage).Port), // TODO(Ben): Need to set these correctly.
-		IosubPort:       int32(kernel.Socket(jupyter.IOMessage).Port), // TODO(Ben): Need to set these correctly.
+		IopubPort:       int32(kernel.Socket(jupyter.IOMessage).Port),
+		IosubPort:       int32(kernel.Socket(jupyter.IOMessage).Port),
 		SignatureScheme: kernel.KernelSpec().SignatureScheme,
 		Key:             kernel.KernelSpec().Key,
 	}
@@ -1795,7 +1749,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	replicaSpec := &proto.KernelReplicaSpec{
 		Kernel:      kernelSpec,
 		ReplicaId:   replicaId,
-		NumReplicas: int32(d.ClusterOptions.NumReplicas), // TODO(Ben): Don't hardcode this.
+		NumReplicas: int32(d.ClusterOptions.NumReplicas),
 	}
 
 	// Initialize kernel client
@@ -2820,13 +2774,6 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		smrWg.Wait()
 	}
 
-	// TODO:
-	// - Wait for new Pod to register with the Gateway.
-	// - Need to avoid race between when we begin waiting and when the registration occurs.
-	// - Also need to wait for the new Pod to join the SMR cluster.
-	// - I don't think we have a notification for this yet? I'm not sure, though.
-	// - We have a notification for "SMR Ready" but not "SMR Joined" as far as I know.
-
 	// Return nil on success.
 	return addReplicaOp, nil
 }
@@ -2987,7 +2934,7 @@ func (d *ClusterGatewayImpl) GetDockerSwarmNodes(_ context.Context, _ *proto.Voi
 }
 
 // AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
-func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
+func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, _ *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
 	if !d.DockerMode() {
 		return nil, ErrIncompatibleDeploymentMode
 	}
@@ -2996,7 +2943,7 @@ func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.
 }
 
 // RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
-func (d *ClusterGatewayImpl) RemoveVirtualDockerNodes(_ context.Context, in *proto.RemoveVirtualDockerNodesRequest) (*proto.RemoveVirtualDockerNodesResponse, error) {
+func (d *ClusterGatewayImpl) RemoveVirtualDockerNodes(_ context.Context, _ *proto.RemoveVirtualDockerNodesRequest) (*proto.RemoveVirtualDockerNodesResponse, error) {
 	if !d.DockerMode() {
 		return nil, ErrIncompatibleDeploymentMode
 	}
@@ -3006,7 +2953,7 @@ func (d *ClusterGatewayImpl) RemoveVirtualDockerNodes(_ context.Context, in *pro
 
 // ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
 // Modifications include altering the number of GPUs available on the nodes.
-func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, in *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
+func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, _ *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
 	if !d.DockerMode() {
 		return nil, ErrIncompatibleDeploymentMode
 	}

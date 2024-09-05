@@ -620,14 +620,18 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 		}
 
 		if errors.Is(err, context.DeadlineExceeded) {
-			out, err := request.SetTimedOut()
+			_, err := request.SetTimedOut()
 			if err != nil {
-				return
+				s.Log.Error(
+					"Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'timed-out' state: %v",
+					request.MessageType(), request.JupyterMessageType(),
+					request.RequestId(), request.JupyterMessageId(), err)
 			}
 		}
 
-		// Clear pending request.
 		// TODO(Ben): There is conceivably a race here in which we call the code below AFTER we begin resubmitting the request, which causes it to be prematurely released.
+		// TODO: Does this race condition still exist...?
+		// Clear pending request.
 		cleanUpRequest(err)
 	}()
 
@@ -664,12 +668,12 @@ func (s *AbstractServer) waitForAck(ackChan chan struct{}, timeout time.Duration
 	}
 }
 
-// Sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
+// SendMessage sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
 func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket) error {
 	goroutineId := goid.Get()
 	reqId := request.RequestId()
-	max_num_tries := request.MaxNumAttempts()
-	num_tries := 0
+	maxNumTries := request.MaxNumAttempts()
+	numTries := 0
 	requiresACK := request.RequiresAck()
 
 	// If the message requires an ACK, then we'll try sending it multiple times.
@@ -683,11 +687,17 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 		}
 	}
 
-	for num_tries < max_num_tries {
+	for numTries < maxNumTries {
 		// Send request.
 		if err := socket.Send(*request.Payload().Msg); err != nil {
-			s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to send %v \"%s\" message on attempt %d/%d via %s because: %v"), goroutineId, socket.Type, request.JupyterMessageType(), num_tries+1, max_num_tries, socket.Name, err.Error())
-			request.SetErred(err)
+			s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to send %v \"%s\" message on attempt %d/%d via %s because: %v"), goroutineId, socket.Type, request.JupyterMessageType(), numTries+1, maxNumTries, socket.Name, err.Error())
+			if _, transitionErr := request.SetErred(err); transitionErr != nil {
+				s.Log.Error(
+					"Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'erred' state: %v",
+					request.MessageType(), request.JupyterMessageType(),
+					request.RequestId(), request.JupyterMessageId(), transitionErr)
+			}
+
 			return err
 		}
 
@@ -699,7 +709,7 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 		if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
 			firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sent %s \"%s\" message with"), goroutineId, socket.Type.String(), request.JupyterMessageType())
 			secondPart := fmt.Sprintf("reqID=%v (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
-			thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("via %s. Attempt %d/%d. Message: %v"), socket.Name, num_tries+1, max_num_tries, request.Payload().Msg)
+			thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("via %s. Attempt %d/%d. Message: %v"), socket.Name, numTries+1, maxNumTries, request.Payload().Msg)
 			s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 		}
 
@@ -711,7 +721,7 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 				if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
 					firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message"), goroutineId, socket.Type, request.JupyterMessageType())
 					secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
-					thirdPart := fmt.Sprintf(utils.GreenStyle.Render("has successfully been ACK'd on attempt %d/%d."), num_tries+1, max_num_tries)
+					thirdPart := fmt.Sprintf(utils.GreenStyle.Render("has successfully been ACK'd on attempt %d/%d."), numTries+1, maxNumTries)
 					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 				}
 
@@ -723,8 +733,8 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 				return nil
 			} else {
 				// Just to avoid going through the process of sleeping and updating the header if that was our last try.
-				if (num_tries + 1) >= max_num_tries {
-					s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Giving up."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, num_tries+1, max_num_tries)
+				if (numTries + 1) >= maxNumTries {
+					s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Giving up."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, numTries+1, maxNumTries)
 
 					_, err := request.SetTimedOut()
 					if err != nil {
@@ -735,20 +745,31 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 				}
 
 				// Sleep for an amount of time proportional to the number of attempts with some random jitter added.
-				next_sleep_interval := s.getSleepInterval(num_tries)
-				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Serving: %d. Will sleep for %v before trying again."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, num_tries+1, max_num_tries, next_sleep_interval, atomic.LoadInt32(&socket.Serving))
+				nextSleepInterval := s.getSleepInterval(numTries)
+				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Serving: %d. Will sleep for %v before trying again."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, numTries+1, maxNumTries, nextSleepInterval, atomic.LoadInt32(&socket.Serving))
 
-				pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
+				pprofErr := pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
+				if pprofErr != nil {
+					s.Log.Error(
+						"Error encountered when calling pprof.Lookup(\"goroutine\").WriteTo(os.Stderr, 1): %v",
+						pprofErr)
+				}
+				
 				panic("Failed to receive ACK (after just one try).")
 
-				time.Sleep(next_sleep_interval)
-				num_tries += 1
+				time.Sleep(nextSleepInterval)
+				numTries += 1
 
 				// err := s.UpdateMessageHeader(req, offset, sourceKernel)
 				err := request.PrepareForResubmission()
 				if err != nil {
 					s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to update message header for %v \"%s\" message %v: %v"), goroutineId, request.JupyterMessageType(), socket.Type, reqId, err)
-					request.SetErred(err)
+					if _, transitionErr := request.SetErred(err); transitionErr != nil {
+						s.Log.Error(
+							"Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'erred' state: %v",
+							request.MessageType(), request.JupyterMessageType(),
+							request.RequestId(), request.JupyterMessageId(), transitionErr)
+					}
 					return err
 				}
 			}
@@ -756,7 +777,7 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 	}
 
 	if requiresACK {
-		s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to receive ACK for %v \"%s\" message %v (src: %v, dest: %v) from remote socket %s after %d attempt(s)."), goroutineId, request.JupyterMessageType(), socket.Type, reqId, request.SourceID(), request.DestinationId(), socket.RemoteName, max_num_tries)
+		s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to receive ACK for %v \"%s\" message %v (src: %v, dest: %v) from remote socket %s after %d attempt(s)."), goroutineId, request.JupyterMessageType(), socket.Type, reqId, request.SourceID(), request.DestinationId(), socket.RemoteName, maxNumTries)
 		return jupyter.ErrNoAck
 	}
 
