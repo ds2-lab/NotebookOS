@@ -299,7 +299,9 @@ func (d *SchedulerDaemonImpl) SetID(ctx context.Context, in *proto.HostId) (*pro
 	}
 
 	d.id = in.Id
-	in.NodeName = d.nodeName
+	in.NodeName = d.nodeName // We're passing this value back
+
+	d.log.Debug("Set ID to \"%s\"", d.id)
 
 	if d.prometheusManager != nil {
 		_ = d.prometheusManager.Stop()
