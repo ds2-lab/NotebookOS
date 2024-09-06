@@ -1,19 +1,19 @@
-# Important: this value should not be changed. 
+# Important: this value should not be changed.
 # If you have to change it, then you need to update the code.
 # Specifically, you need to change the value of the 'DockerProjectName' variable/const that is defined in "gateway/domain/types.go".
-name: distributed_cluster 
+name: distributed_cluster
 
 services:
-
   docker-hoster:
+    platform: linux/amd64
     build:
       context: ../..
       dockerfile: deploy/docker/hoster/Dockerfile
     image: scusemua/docker-hoster:latest
     labels:
       app: "distributed_cluster"
-    container_name: 'docker-hoster'
-    restart: always 
+    container_name: "docker-hoster"
+    restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/tmp/docker.sock
       - /etc/hosts:/tmp/hosts
@@ -21,16 +21,14 @@ services:
       - "host.docker.internal:host-gateway"
 
   jupyter:
+    platform: linux/amd64
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    # build: 
-    #   context: ../..
-    #   dockerfile: dockfiles/cpu-python3-amd64-debug/Dockerfile
     image: scusemua/jupyter-debug:latest
     labels:
       app: "distributed_cluster"
-    container_name: 'jupyter'
+    container_name: "jupyter"
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
     expose:
       - 8888
@@ -39,14 +37,12 @@ services:
     depends_on:
       - gateway
       - docker-hoster
-    restart: always
+    restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
-        
+
   gateway:
-    #build: 
-    #  context: ./gateway
-    #  dockerfile: Dockerfile
+    platform: linux/amd64
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
@@ -56,8 +52,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
-    container_name: 'gateway'
-    restart: always
+    container_name: "gateway"
+    restart: unless-stopped
     expose:
       - 8079
       - 9996
@@ -66,12 +62,15 @@ services:
       - "8079:8079"
       - "9996:9996"
       - "8081:8081"
+      - "8089:8089"
     depends_on:
       - docker-hoster
+      - prometheus
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
   daemon:
+    platform: linux/amd64
     environment:
       - KERNEL_TEMP_BASE=/kernel_base
       - KERNEL_IMAGE=scusemua/jupyter-debug:latest
@@ -80,12 +79,11 @@ services:
       - STORAGE=/home/$USER/kernel_storage
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    # build:
-    #   context: ./local_daemon
-    #   dockerfile: Dockerfile
     image: scusemua/daemon:latest
     labels:
       app: "distributed_cluster"
+    ports:
+      - "8089:8089"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base
@@ -94,10 +92,55 @@ services:
     depends_on:
       - gateway
       - docker-hoster
-    restart: always
+      - prometheus
+    restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
-  
+
+  init-prometheus:
+    platform: linux/amd64
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus/data
+    image: busybox:latest
+    command: ["/bin/chmod","-R","777", "/prometheus"]
+    container_name: prometheus-data-permission-fix
+    restart: on-failure:3
+    user: 0:0
+
+  prometheus:
+    platform: linux/amd64
+    ports:
+      - "8500:8500"
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus/data
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.listen-address=0.0.0.0:8500
+    image: prom/prometheus:main
+    container_name: prometheus
+    restart: unless-stopped
+    user: "1000:1000"
+    depends_on:
+      init-prometheus:
+        condition: service_completed_successfully
+
+  grafana:
+    platform: linux/amd64
+    image: grafana/grafana-enterprise:latest
+    container_name: grafana
+    ports:
+      - 3000:3000
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=scusemua
+      - GF_SECURITY_ADMIN_PASSWORD=grafana
+    volumes:
+      - ./grafana:/etc/grafana/provisioning/datasources
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+
 volumes:
   storage:
   coredumps_volume:
+  prometheus_data:

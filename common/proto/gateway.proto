@@ -345,6 +345,7 @@ message HostId {
 // The Jupyter gateway service for host local kernels.
 service LocalGateway {
   // SetID sets the local gateway id and return old id for failure tolerance.
+  // This also instructs the Local Daemon associated with the LocalGateway to create a PrometheusManager and begin serving metrics.
   rpc SetID(HostId) returns (HostId) {}
 
   // StartKernel starts a kernel or kernel replica.

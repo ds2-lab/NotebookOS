@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"log"
 	"net"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -25,7 +26,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/types"
-	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 
@@ -66,6 +66,9 @@ type SchedulerDaemonImpl struct {
 
 	// Cluster client
 	provisioner proto.ClusterGatewayClient
+
+	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
+	prometheusManager *PrometheusManager
 
 	smrPort int
 
@@ -113,6 +116,14 @@ type SchedulerDaemonImpl struct {
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
+
+	// Indicates that a goroutine has been started to publish metrics to Prometheus.
+	servingPrometheus atomic.Int32
+	// prometheusStarted is a sync.WaitGroup used to signal to the metric-publishing goroutine
+	// that it should start publishing metrics now.
+	prometheusStarted sync.WaitGroup
+	// prometheusInterval is how often we publish metrics to Prometheus.
+	prometheusInterval time.Duration
 }
 
 type KernelRegistrationPayload struct {
@@ -157,12 +168,17 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		hdfsNameNodeEndpoint:         schedulerDaemonOptions.HdfsNameNodeEndpoint,
 		dockerStorageBase:            schedulerDaemonOptions.DockerStorageBase,
 		usingWSL:                     schedulerDaemonOptions.UsingWSL,
+		prometheusInterval:           time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
 	}
 	for _, config := range configs {
 		config(daemon)
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
+
+	if daemon.prometheusInterval == time.Duration(0) {
+		daemon.prometheusInterval = time.Second * 2
+	}
 
 	if daemon.ip == "" {
 		ip, err := utils.GetIP()
@@ -251,6 +267,15 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		daemon.nodeName = types.DockerNode
 	}
 
+	// The goroutine that publishes metrics to Prometheus waits for this WaitGroup to be Done.
+	daemon.prometheusStarted.Add(1)
+
+	// We use this WaitGroup to wait for the goroutine that publishes metrics to Prometheus to start.
+	var goroutineStarted sync.WaitGroup
+	goroutineStarted.Add(1)
+	daemon.publishPrometheusMetrics(&goroutineStarted)
+	goroutineStarted.Wait() // Wait for goroutine to start.
+
 	return daemon
 }
 
@@ -263,6 +288,7 @@ func (d *SchedulerDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayCli
 }
 
 // SetID sets the SchedulerDaemonImpl id by the gateway.
+// This also instructs the Local Daemon to create a PrometheusManager and begin serving metrics.
 func (d *SchedulerDaemonImpl) SetID(ctx context.Context, in *proto.HostId) (*proto.HostId, error) {
 	// If id has been set(e.g., restored after restart), return the original id.
 	if d.id != "" {
@@ -274,7 +300,47 @@ func (d *SchedulerDaemonImpl) SetID(ctx context.Context, in *proto.HostId) (*pro
 
 	d.id = in.Id
 	in.NodeName = d.nodeName
+
+	if d.prometheusManager != nil {
+		_ = d.prometheusManager.Stop()
+		d.prometheusManager.Start()
+	} else {
+		d.prometheusManager = NewPrometheusManager(8089, in.Id)
+		err := d.prometheusManager.Start()
+		if err != nil {
+			d.log.Error("Failed to start Prometheus Manager because: %v", err)
+			return in, status.Error(codes.Internal, err.Error())
+		}
+
+		// We only call Done if we're creating the PrometheusManager for the first time.
+		d.prometheusStarted.Done()
+	}
+
 	return in, nil
+}
+
+// publishPrometheusMetrics creates a goroutine that publishes metrics to prometheus on a configurable interval.
+func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
+	go func() {
+		// Claim ownership of publishing metrics.
+		if !d.servingPrometheus.CompareAndSwap(0, 1) {
+			return
+		}
+
+		wg.Done()
+		d.prometheusStarted.Wait()
+
+		d.log.Debug("Beginning to publish metrics to Prometheus now. Interval: %v", d.prometheusInterval)
+
+		for {
+			time.Sleep(d.prometheusInterval)
+
+			d.prometheusManager.IdleGpuGuage.Set(d.gpuManager.IdleGPUs().InexactFloat64())
+			d.prometheusManager.PendingGpuGuage.Set(d.gpuManager.PendingGPUs().InexactFloat64())
+			d.prometheusManager.CommittedGpuGauge.Set(d.gpuManager.CommittedGPUs().InexactFloat64())
+			d.prometheusManager.SpecGpuGuage.Set(d.gpuManager.SpecGPUs().InexactFloat64())
+		}
+	}()
 }
 
 // StartKernel starts a single kernel.
@@ -1780,7 +1846,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 
 func (d *SchedulerDaemonImpl) handleIgnoreMsg(kernel scheduling.Kernel, _ jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
 	d.log.Debug("%v ignores %v", kernel, raw)
-	return commonTypes.ErrStopPropagation
+	return types.ErrStopPropagation
 }
 
 func (d *SchedulerDaemonImpl) errorf(err error) error {
