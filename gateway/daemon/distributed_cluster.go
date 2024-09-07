@@ -3,12 +3,13 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"net"
+	"sync/atomic"
+
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net"
-	"sync/atomic"
 
 	"github.com/hashicorp/yamux"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -254,10 +255,16 @@ func (dc *DistributedCluster) AddVirtualDockerNodes(ctx context.Context, in *pro
 	return dc.gatewayDaemon.AddVirtualDockerNodes(ctx, in)
 }
 
-// RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
-func (dc *DistributedCluster) RemoveVirtualDockerNodes(ctx context.Context, in *proto.RemoveVirtualDockerNodesRequest) (*proto.RemoveVirtualDockerNodesResponse, error) {
-	return dc.gatewayDaemon.RemoveVirtualDockerNodes(ctx, in)
+// SetNumVirtualDockerNodes is used to scale the number of nodes in the cluster to a specifically value.
+// This function accepts a SetNumVirtualDockerNodesRequest struct, which encodes the target number of nodes.
+func (dc *DistributedCluster) SetNumVirtualDockerNodes(ctx context.Context, in *proto.SetNumVirtualDockerNodesRequest) (*proto.SetNumVirtualDockerNodesResponse, error) {
+	return dc.gatewayDaemon.SetNumVirtualDockerNodes(ctx, in)
 }
+
+// // RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
+// func (dc *DistributedCluster) RemoveVirtualDockerNodes(ctx context.Context, in *proto.RemoveVirtualDockerNodesRequest) (*proto.RemoveVirtualDockerNodesResponse, error) {
+// 	return dc.gatewayDaemon.RemoveVirtualDockerNodes(ctx, in)
+// }
 
 // ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
 // Modifications include altering the number of GPUs available on the nodes.

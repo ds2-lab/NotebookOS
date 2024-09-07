@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"fmt"
+
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 
 	"github.com/gin-gonic/gin"
@@ -43,19 +44,32 @@ type ClusterDaemonOptions struct {
 	NotebookImageName             string `name:"notebook-image-name" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
 	NotebookImageTag              string `name:"notebook-image-tag" description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`   // Tag to use for the jupyter notebook/kernel image
 	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
-	DeploymentMode                string `name:"deployment_mode" description:"Options are 'docker' and 'kubernetes'."`
+	DeploymentMode                string `name:"deployment_mode" description:"Options are 'docker-compose', 'docker-swarm', and 'kubernetes'."`
 	UsingWSL                      bool   `name:"using-wsl" description:"Flag indicating whether we're running within WSL2 (Windows Subsystem for Linux). Requires additional networking configuring for the Docker containers."`
 	DockerNetworkName             string `name:"docker_network_name" description:"The name of the Docker network that the container is running within. Only used in Docker mode."`
 }
 
+// IsLocalMode returns true if the deployment mode is specified as "local".
 func (o ClusterDaemonOptions) IsLocalMode() bool {
 	return o.DeploymentMode == string(types.LocalMode)
 }
 
+// IsDockerSwarmMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".
 func (o ClusterDaemonOptions) IsDockerMode() bool {
-	return o.DeploymentMode == string(types.DockerMode)
+	return o.IsDockerComposeMode() || o.IsDockerSwarmMode()
 }
 
+// IsDockerSwarmMode returns true if the deployment mode is specified as "docker-swarm".
+func (o ClusterDaemonOptions) IsDockerSwarmMode() bool {
+	return o.DeploymentMode == string(types.DockerSwarmMode)
+}
+
+// IsDockerSwarmMode returns true if the deployment mode is specified as "docker-compose".
+func (o ClusterDaemonOptions) IsDockerComposeMode() bool {
+	return o.DeploymentMode == string(types.DockerComposeMode)
+}
+
+// IsKubernetesMode returns true if the deployment mode is specified as "kubernetes".
 func (o ClusterDaemonOptions) IsKubernetesMode() bool {
 	return o.DeploymentMode == string(types.KubernetesMode)
 }

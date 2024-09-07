@@ -452,15 +452,25 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.GetDockerSwarmNodesResponse.FromString,
                 _registered_method=True)
+        self.GetNumNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/GetNumNodes',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.NumNodesResponse.FromString,
+                _registered_method=True)
+        self.SetNumVirtualDockerNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/SetNumVirtualDockerNodes',
+                request_serializer=gateway__pb2.SetNumVirtualDockerNodesRequest.SerializeToString,
+                response_deserializer=gateway__pb2.SetNumVirtualDockerNodesResponse.FromString,
+                _registered_method=True)
         self.AddVirtualDockerNodes = channel.unary_unary(
                 '/gateway.DistributedCluster/AddVirtualDockerNodes',
                 request_serializer=gateway__pb2.AddVirtualDockerNodesRequest.SerializeToString,
                 response_deserializer=gateway__pb2.AddVirtualDockerNodesResponse.FromString,
                 _registered_method=True)
-        self.RemoveVirtualDockerNodes = channel.unary_unary(
-                '/gateway.DistributedCluster/RemoveVirtualDockerNodes',
-                request_serializer=gateway__pb2.RemoveVirtualDockerNodesRequest.SerializeToString,
-                response_deserializer=gateway__pb2.RemoveVirtualDockerNodesResponse.FromString,
+        self.DecreaseNumNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/DecreaseNumNodes',
+                request_serializer=gateway__pb2.DecreaseNumNodesRequest.SerializeToString,
+                response_deserializer=gateway__pb2.DecreaseNumNodesResponse.FromString,
                 _registered_method=True)
         self.ModifyVirtualDockerNodes = channel.unary_unary(
                 '/gateway.DistributedCluster/ModifyVirtualDockerNodes',
@@ -591,6 +601,21 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetNumNodes(self, request, context):
+        """GetNumNodes returns the number of nodes in the cluster.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetNumVirtualDockerNodes(self, request, context):
+        """SetNumVirtualDockerNodes is used to scale the number of nodes in the cluster to a specifically value.
+        This function accepts a SetNumVirtualDockerNodesRequest struct, which encodes the target number of nodes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def AddVirtualDockerNodes(self, request, context):
         """AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
         """
@@ -598,8 +623,11 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def RemoveVirtualDockerNodes(self, request, context):
+    def DecreaseNumNodes(self, request, context):
         """RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
+        rpc RemoveVirtualDockerNodes(RemoveVirtualDockerNodesRequest) returns (RemoveVirtualDockerNodesResponse) {}
+
+        DecreaseNumNodes removes a specific number of existing nodes from the Docker cluster.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -681,15 +709,25 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.GetDockerSwarmNodesResponse.SerializeToString,
             ),
+            'GetNumNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetNumNodes,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.NumNodesResponse.SerializeToString,
+            ),
+            'SetNumVirtualDockerNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetNumVirtualDockerNodes,
+                    request_deserializer=gateway__pb2.SetNumVirtualDockerNodesRequest.FromString,
+                    response_serializer=gateway__pb2.SetNumVirtualDockerNodesResponse.SerializeToString,
+            ),
             'AddVirtualDockerNodes': grpc.unary_unary_rpc_method_handler(
                     servicer.AddVirtualDockerNodes,
                     request_deserializer=gateway__pb2.AddVirtualDockerNodesRequest.FromString,
                     response_serializer=gateway__pb2.AddVirtualDockerNodesResponse.SerializeToString,
             ),
-            'RemoveVirtualDockerNodes': grpc.unary_unary_rpc_method_handler(
-                    servicer.RemoveVirtualDockerNodes,
-                    request_deserializer=gateway__pb2.RemoveVirtualDockerNodesRequest.FromString,
-                    response_serializer=gateway__pb2.RemoveVirtualDockerNodesResponse.SerializeToString,
+            'DecreaseNumNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.DecreaseNumNodes,
+                    request_deserializer=gateway__pb2.DecreaseNumNodesRequest.FromString,
+                    response_serializer=gateway__pb2.DecreaseNumNodesResponse.SerializeToString,
             ),
             'ModifyVirtualDockerNodes': grpc.unary_unary_rpc_method_handler(
                     servicer.ModifyVirtualDockerNodes,
@@ -1061,6 +1099,60 @@ class DistributedCluster(object):
             _registered_method=True)
 
     @staticmethod
+    def GetNumNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetNumNodes',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.NumNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetNumVirtualDockerNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/SetNumVirtualDockerNodes',
+            gateway__pb2.SetNumVirtualDockerNodesRequest.SerializeToString,
+            gateway__pb2.SetNumVirtualDockerNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def AddVirtualDockerNodes(request,
             target,
             options=(),
@@ -1088,7 +1180,7 @@ class DistributedCluster(object):
             _registered_method=True)
 
     @staticmethod
-    def RemoveVirtualDockerNodes(request,
+    def DecreaseNumNodes(request,
             target,
             options=(),
             channel_credentials=None,
@@ -1101,9 +1193,9 @@ class DistributedCluster(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/gateway.DistributedCluster/RemoveVirtualDockerNodes',
-            gateway__pb2.RemoveVirtualDockerNodesRequest.SerializeToString,
-            gateway__pb2.RemoveVirtualDockerNodesResponse.FromString,
+            '/gateway.DistributedCluster/DecreaseNumNodes',
+            gateway__pb2.DecreaseNumNodesRequest.SerializeToString,
+            gateway__pb2.DecreaseNumNodesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1323,6 +1415,7 @@ class LocalGatewayServicer(object):
 
     def SetID(self, request, context):
         """SetID sets the local gateway id and return old id for failure tolerance.
+        This also instructs the Local Daemon associated with the LocalGateway to create a PrometheusManager and begin serving metrics.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

@@ -3,12 +3,13 @@ package daemon
 import (
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"net"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
@@ -92,7 +93,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	var nodeName string
 	if options.IsLocalMode() {
 		nodeName = options.NodeName
-	} else if options.DeploymentMode == string(types.DockerMode) {
+	} else if options.IsDockerMode() {
 		nodeName = types.DockerNode
 	} else {
 		nodeName = os.Getenv("NODE_NAME")

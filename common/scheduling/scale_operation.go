@@ -1,0 +1,140 @@
+package scheduling
+
+import (
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+const (
+	// ScaleInOperation indicates that the ScaleOperation will be decreasing the number of Host instances within the Cluster.
+	ScaleInOperation ScaleOperationType = "ScaleInOperation"
+
+	// ScaleOutOperation indicates that the ScaleOperation will be increasing the number of Host instances within the Cluster.
+	ScaleOutOperation ScaleOperationType = "ScaleOutOperation"
+
+	ScaleOperationAwaitingStart ScaleOperationStatus = "awaiting_start"
+	ScaleOperationInProgress    ScaleOperationStatus = "in_progress"
+	ScaleOperationComplete      ScaleOperationStatus = "complete"
+	ScaleOperationErred         ScaleOperationStatus = "error"
+)
+
+var (
+	ErrInvalidTargetScale error = errors.New("invalid target scale specified")
+	ErrInvalidOperation   error = errors.New("scale operation is in invalid state for requested operation")
+)
+
+type ScaleOperationType string
+
+type ScaleOperationStatus string
+
+type ScaleOperation struct {
+	OperationId      string               `json:"request_id"`
+	InitialScale     int                  `json:"initial_scale"`
+	TargetScale      int32                `json:"target_scale"`
+	OperationType    ScaleOperationType   `json:"scale_operation_type"`
+	RegistrationTime time.Time            `json:"registration_time"`
+	StartTime        time.Time            `json:"start_time"`
+	EndTime          time.Time            `json:"end_time"`
+	Status           ScaleOperationStatus `json:"status"`
+	NotificationChan chan struct{}        `json:"-"`
+
+	// cond exists so that goroutines can wait for the scale operation to complete.
+	cond   *sync.Cond
+	condMu sync.Mutex
+
+	mu sync.Mutex
+}
+
+func NewScaleOperation(operationId string, initialScale int, targetScale int32) (*ScaleOperation, error) {
+	scaleOperation := &ScaleOperation{
+		OperationId:      operationId,
+		NotificationChan: make(chan struct{}, 1),
+		InitialScale:     initialScale,
+		TargetScale:      targetScale,
+		RegistrationTime: time.Now(),
+	}
+
+	scaleOperation.cond = sync.NewCond(&scaleOperation.condMu)
+
+	if targetScale < int32(initialScale) {
+		scaleOperation.OperationType = ScaleInOperation
+	} else if targetScale > int32(initialScale) {
+		scaleOperation.OperationType = ScaleOutOperation
+	} else /* targetScale == initialScale */ {
+		wrappedErr := fmt.Errorf("%w: current scale and initial scale are equal (%d)", ErrInvalidTargetScale, targetScale)
+		return nil, status.Error(codes.InvalidArgument, wrappedErr.Error())
+	}
+
+	return scaleOperation, nil
+}
+
+// IsComplete returns true if the ScaleOperation has either completed successfully or stopped due to an error.
+//
+// Note: this acquires the "main" mutex of the ScaleOperation.
+func (op *ScaleOperation) IsComplete() bool {
+	op.mu.Lock()
+	defer op.mu.Unlock()
+
+	return op.Status == ScaleOperationComplete || op.Status == ScaleOperationErred
+}
+
+// Wait blocks the caller until the ScaleOperation has either completed successfully or terminates due to an error.
+// If the operation has already completed, then this just returns immediately.
+//
+// Note: this does NOT directly acquire the "main" mutex of the ScaleOperation.
+// This calls IsComplete, which acquires said mutex.
+func (op *ScaleOperation) Wait() {
+	// Just to avoid locking unnecessarily, we can go ahead and check if the operation is complete here.
+	if op.IsComplete() {
+		return
+	}
+
+	op.cond.L.Lock()
+	for !op.IsComplete() {
+		op.cond.Wait()
+	}
+	op.cond.L.Unlock()
+}
+
+// Start records that the ScaleOperation has started.
+//
+// Note: this acquires the "main" mutex of the ScaleOperation.
+func (op *ScaleOperation) Start() error {
+	op.mu.Lock()
+	defer op.mu.Unlock()
+
+	if op.Status != ScaleOperationAwaitingStart {
+		return fmt.Errorf("%w: \"%s\"", ErrInvalidOperation, op.Status)
+	}
+
+	op.StartTime = time.Now()
+	op.Status = ScaleOperationInProgress
+
+	return nil
+}
+
+// SetOperationFinished records that the ScaleOperation has completed successfully.
+//
+// Note: this acquires the "main" mutex of the ScaleOperation.
+func (op *ScaleOperation) SetOperationFinished() error {
+	op.mu.Lock()
+	defer op.mu.Unlock()
+
+	if op.Status != ScaleOperationAwaitingStart && op.Status != ScaleOperationInProgress {
+		return fmt.Errorf("%w: \"%s\"", ErrInvalidOperation, op.Status)
+	}
+
+	op.EndTime = time.Now()
+	op.Status = ScaleOperationComplete
+
+	// Wake up anybody waiting for the operation to complete.
+	// Note: it is allowed but not required for the caller to hold cond.L during the call.
+	op.cond.Broadcast()
+
+	return nil
+}

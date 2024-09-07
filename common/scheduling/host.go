@@ -232,7 +232,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, gpuInfoRefres
 		resourceSpec:           resourceSpec,
 		cluster:                cluster,
 		conn:                   conn,
-		log:                    config.GetLogger(fmt.Sprintf("Host %s", id)),
+		log:                    config.GetLogger(fmt.Sprintf("Host %s ", id)),
 		containers:             hashmap.NewCornelkMap[string, *Container](5),
 		trainingContainers:     make([]*Container, 0, int(resourceSpec.GPU())),
 		penalties:              make([]cachedPenalty, int(resourceSpec.GPU())),
@@ -241,8 +241,6 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, gpuInfoRefres
 		errorCallback:          errorCallback,
 		createdAt:              time.Now(),
 	}
-
-	config.InitLogger(&host.log, host)
 
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
 	host.sip.Validator = GetClockTimeCacheValidator()

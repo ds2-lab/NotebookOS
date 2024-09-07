@@ -34,6 +34,13 @@ import (
 	"github.com/zhangjyr/distributed-notebook/local_daemon/invoker"
 )
 
+const (
+	// The default port on which the Local Daemon will serve Prometheus metrics.
+	DefaultPrometheusPort int = 8089
+	// The default interval on which the Local Daemon will push new Prometheus metrics.
+	DefaultPrometheusInterval time.Duration = time.Second * 2
+)
+
 var (
 	// Context keys
 	ctxKernelInvoker = utils.ContextKey("invoker")
@@ -124,6 +131,8 @@ type SchedulerDaemonImpl struct {
 	prometheusStarted sync.WaitGroup
 	// prometheusInterval is how often we publish metrics to Prometheus.
 	prometheusInterval time.Duration
+	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
+	prometheusPort int
 }
 
 type KernelRegistrationPayload struct {
@@ -169,6 +178,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		dockerStorageBase:            schedulerDaemonOptions.DockerStorageBase,
 		usingWSL:                     schedulerDaemonOptions.UsingWSL,
 		prometheusInterval:           time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
+		prometheusPort:               schedulerDaemonOptions.PrometheusPort,
 	}
 	for _, config := range configs {
 		config(daemon)
@@ -177,7 +187,13 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
 
 	if daemon.prometheusInterval == time.Duration(0) {
-		daemon.prometheusInterval = time.Second * 2
+		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
+		daemon.prometheusInterval = DefaultPrometheusInterval
+	}
+
+	if daemon.prometheusPort <= 0 {
+		daemon.log.Debug("Using default Prometheus port: %d.", DefaultPrometheusPort)
+		daemon.prometheusPort = DefaultPrometheusPort
 	}
 
 	if daemon.ip == "" {
@@ -235,8 +251,23 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		daemon.deploymentMode = types.LocalMode
 	case "docker":
 		{
-			daemon.log.Info("Running in DOCKER mode.")
-			daemon.deploymentMode = types.DockerMode
+			daemon.log.Error("\"docker\" mode is no longer a valid deployment mode")
+			daemon.log.Error("The supported deployment modes are: ")
+			daemon.log.Error("- \"docker-swarm\"")
+			daemon.log.Error("- \"docker-compose\"")
+			daemon.log.Error("- \"kubernetes\"")
+			daemon.log.Error("- \"local\"")
+			os.Exit(1)
+		}
+	case "docker-compose":
+		{
+			daemon.log.Info("Running in DOCKER COMPOSE mode.")
+			daemon.deploymentMode = types.DockerComposeMode
+		}
+	case "docker-swarm":
+		{
+			daemon.log.Info("Running in DOCKER SWARM mode.")
+			daemon.deploymentMode = types.DockerSwarmMode
 		}
 	case "kubernetes":
 		{
@@ -248,7 +279,8 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 			daemon.log.Error("Unknown/unsupported deployment mode: \"%s\"", schedulerDaemonOptions.DeploymentMode)
 			daemon.log.Error("The supported deployment modes are: ")
 			daemon.log.Error("- \"kubernetes\"")
-			daemon.log.Error("- \"docker\"")
+			daemon.log.Error("- \"docker-swarm\"")
+			daemon.log.Error("- \"docker-compose\"")
 			daemon.log.Error("- \"local\"")
 		}
 	}
@@ -263,8 +295,14 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		daemon.nodeName = types.LocalNode
 	}
 
-	if schedulerDaemonOptions.IsDockerMode() && len(nodeName) == 0 {
-		daemon.nodeName = types.DockerNode
+	if schedulerDaemonOptions.IsDockerComposeMode() && len(nodeName) == 0 {
+		daemon.nodeName = types.VirtualDockerNode
+	}
+
+	if schedulerDaemonOptions.IsDockerSwarmMode() && len(nodeName) == 0 {
+		// Eventually, Docker Swarm mode will only support "Docker Nodes", which correspond to real machines or VMs.
+		// Virtual Docker Nodes will only be used in Docker Compose mode.
+		daemon.nodeName = types.VirtualDockerNode // types.DockerNode
 	}
 
 	// The goroutine that publishes metrics to Prometheus waits for this WaitGroup to be Done.
@@ -950,11 +988,31 @@ func (d *SchedulerDaemonImpl) smrNodeAddedCallback(readyMessage *jupyter.Message
 	}
 }
 
-// DockerMode returns true if we're running in Docker (i.e., the Docker-based deployment).
+// DockerComposeMode returns true if we're running in Docker via "docker compose".
+// If we're running via "docker swarm", then DockerComposeMode returns false.
+//
+// We could technically be running within a Docker container that is managed/orchestrated
+// by Kubernetes. In this case, DockerComposeMode also returns false.
+func (d *SchedulerDaemonImpl) DockerComposeMode() bool {
+	return d.deploymentMode == types.DockerComposeMode
+}
+
+// DockerSwarmMode returns true if we're running in Docker via "docker swarm".
+// If we're running via "docker compose", then DockerSwarmMode returns false.
+//
+// We could technically be running within a Docker container that is managed/orchestrated
+// by Kubernetes. In this case, DockerSwarmMode also returns false.
+func (d *SchedulerDaemonImpl) DockerSwarmMode() bool {
+	return d.deploymentMode == types.DockerComposeMode
+}
+
+// DockerMode returns true if we're running in either "docker swarm" or "docker compose".
+// That is, DockerMode turns true if and only if one of DockerSwarmMode or DockerComposeMode return true.
+//
 // We could technically be running within a Docker container that is managed/orchestrated
 // by Kubernetes. In this case, this function would return false.
 func (d *SchedulerDaemonImpl) DockerMode() bool {
-	return d.deploymentMode == types.DockerMode
+	return d.DockerComposeMode() || d.DockerComposeMode()
 }
 
 // KubernetesMode returns true if we're running in Kubernetes.

@@ -41,18 +41,32 @@ type SchedulerDaemonOptions struct {
 	DockerStorageBase    string `name:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
 	UsingWSL             bool   `name:"using-wsl" description:"Flag indicating whether we're running within WSL2 (Windows Subsystem for Linux). Requires additional networking configuring for the Docker containers."`
 	PrometheusInterval   int    `name:"prometheus_interval" description:"Frequency in seconds of how often to publish metrics to Prometheus. So, setting this to 5 means we publish metrics roughly every 5 seconds."`
+	PrometheusPort       int    `name:"prometheus_port" description:"The port on which this local daemon will serve Prometheus metrics. Default/suggested: 8089."`
 }
 
+// IsKubernetesMode returns true if the deployment mode is specified as "kubernetes".
 func (o SchedulerDaemonOptions) IsKubernetesMode() bool {
 	return o.DeploymentMode == string(types.KubernetesMode)
 }
 
+// IsLocalMode returns true if the deployment mode is specified as "local".
 func (o SchedulerDaemonOptions) IsLocalMode() bool {
 	return o.DeploymentMode == string(types.LocalMode)
 }
 
+// IsDockerSwarmMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".
 func (o SchedulerDaemonOptions) IsDockerMode() bool {
-	return o.DeploymentMode == string(types.DockerMode)
+	return o.IsDockerComposeMode() || o.IsDockerSwarmMode()
+}
+
+// IsDockerSwarmMode returns true if the deployment mode is specified as "docker-swarm".
+func (o SchedulerDaemonOptions) IsDockerSwarmMode() bool {
+	return o.DeploymentMode == string(types.DockerSwarmMode)
+}
+
+// IsDockerSwarmMode returns true if the deployment mode is specified as "docker-compose".
+func (o SchedulerDaemonOptions) IsDockerComposeMode() bool {
+	return o.DeploymentMode == string(types.DockerComposeMode)
 }
 
 func (o SchedulerDaemonOptions) String() string {

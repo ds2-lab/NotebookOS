@@ -52,6 +52,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
+      - ./docker-compose.yml:/docker-compose.yml
     container_name: "gateway"
     restart: unless-stopped
     expose:
@@ -134,10 +135,12 @@ services:
       - GF_SECURITY_ADMIN_USER=scusemua
       - GF_SECURITY_ADMIN_PASSWORD=grafana
     volumes:
-      - ./grafana:/etc/grafana/provisioning/datasources
+      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+      - grafana_data:/var/lib/grafana
 
 volumes:
   storage:
   coredumps_volume:
   prometheus_data:
+  grafana_data:

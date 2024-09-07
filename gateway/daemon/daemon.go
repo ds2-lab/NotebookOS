@@ -11,7 +11,10 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"os/exec"
 	"runtime/debug"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -79,6 +82,7 @@ var (
 
 	// Internal errors
 
+	ErrInvalidTargetNumHosts      = status.Error(codes.InvalidArgument, "requested operation would result in an invalid or illegal number of nodes")
 	ErrInvalidSocketType          = status.Error(codes.Internal, "invalid socket type specified")
 	ErrKernelNotFound             = status.Error(codes.InvalidArgument, "kernel not found")
 	ErrHostNotFound               = status.Error(codes.Internal, "host not found")
@@ -155,10 +159,14 @@ type ClusterGatewayImpl struct {
 	// visually of the panic in the cluster dashboard).
 	failureHandler FailureHandler
 
-	// Makes certain operations atomic, specifically operations that target the same
+	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
 	// by multiple concurrent RPC requests).
 	addReplicaMutex sync.Mutex
+
+	// dockerNodeMutex is used to synchronize the operations involved with getting or modifying the
+	// number of Local Daemon Docker nodes/containers.
+	dockerNodeMutex sync.Mutex
 
 	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
 	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
@@ -329,8 +337,18 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	case "docker":
 		{
-			daemon.log.Info("Running in DOCKER mode.")
-			daemon.deploymentMode = types.DockerMode
+			daemon.log.Error("\"docker\" mode is no longer a valid deployment mode")
+			daemon.log.Error("The supported deployment modes are: ")
+			daemon.log.Error("- \"docker-swarm\"")
+			daemon.log.Error("- \"docker-compose\"")
+			daemon.log.Error("- \"kubernetes\"")
+			daemon.log.Error("- \"local\"")
+			os.Exit(1)
+		}
+	case "docker-compose":
+		{
+			daemon.log.Info("Running in DOCKER COMPOSE mode.")
+			daemon.deploymentMode = types.DockerComposeMode
 
 			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
 			if err != nil {
@@ -338,9 +356,20 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			}
 
 			daemon.dockerApiClient = apiClient
-
 			daemon.dockerModeKernelDebugPort.Store(DockerKernelDebugPortDefault)
-			// daemon.initializeDockerKernelDebugPort()
+		}
+	case "docker-swarm":
+		{
+			daemon.log.Info("Running in DOCKER SWARM mode.")
+			daemon.deploymentMode = types.DockerSwarmMode
+
+			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
+			if err != nil {
+				panic(err)
+			}
+
+			daemon.dockerApiClient = apiClient
+			daemon.dockerModeKernelDebugPort.Store(DockerKernelDebugPortDefault)
 		}
 	case "kubernetes":
 		{
@@ -353,7 +382,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			daemon.log.Error("Unknown/unsupported deployment mode: \"%s\"", clusterDaemonOptions.DeploymentMode)
 			daemon.log.Error("The supported deployment modes are: ")
 			daemon.log.Error("- \"kubernetes\"")
-			daemon.log.Error("- \"docker\"")
+			daemon.log.Error("- \"docker-swarm\"")
+			daemon.log.Error("- \"docker-compose\"")
 			daemon.log.Error("- \"local\"")
 			os.Exit(1)
 		}
@@ -1232,11 +1262,31 @@ func (d *ClusterGatewayImpl) dynamicV4FailureHandler(_ *client.DistributedKernel
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 }
 
-// DockerMode returns true if we're running in Docker (i.e., the Docker-based deployment).
+// DockerComposeMode returns true if we're running in Docker via "docker compose".
+// If we're running via "docker swarm", then DockerComposeMode returns false.
+//
+// We could technically be running within a Docker container that is managed/orchestrated
+// by Kubernetes. In this case, DockerComposeMode also returns false.
+func (d *ClusterGatewayImpl) DockerComposeMode() bool {
+	return d.deploymentMode == types.DockerComposeMode
+}
+
+// DockerSwarmMode returns true if we're running in Docker via "docker swarm".
+// If we're running via "docker compose", then DockerSwarmMode returns false.
+//
+// We could technically be running within a Docker container that is managed/orchestrated
+// by Kubernetes. In this case, DockerSwarmMode also returns false.
+func (d *ClusterGatewayImpl) DockerSwarmMode() bool {
+	return d.deploymentMode == types.DockerComposeMode
+}
+
+// DockerMode returns true if we're running in either "docker swarm" or "docker compose".
+// That is, DockerMode turns true if and only if one of DockerSwarmMode or DockerComposeMode return true.
+//
 // We could technically be running within a Docker container that is managed/orchestrated
 // by Kubernetes. In this case, this function would return false.
 func (d *ClusterGatewayImpl) DockerMode() bool {
-	return d.deploymentMode == types.DockerMode
+	return d.DockerComposeMode() || d.DockerComposeMode()
 }
 
 // KubernetesMode returns true if we're running in Kubernetes.
@@ -1461,7 +1511,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		err = d.handleNewDockerKernel(ctx, in)
 		if err != nil {
 			d.log.Error("Error while handling Docker-specific initiation steps for new kernel %s: %v", in.Id, err)
-			return nil, err
+			return nil, status.Error(codes.Internal, err.Error())
 		}
 	}
 
@@ -2915,6 +2965,14 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 //
 // If the Cluster is not running in Docker mode, then this will return an error.
 func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
+	expectedNumNodes, _ := d.getNumLocalDaemonDocker()
+
+	d.dockerNodeMutex.Lock()
+	defer d.dockerNodeMutex.Unlock()
+
+	// TODO: For now, both Docker Swarm mode and Docker Compose mode support Virtual Docker Nodes.
+	// Eventually, Docker Swarm mode will ~only~ support Docker Swarm nodes, which correspond to real machines or VMs.
+	// Virtual Docker nodes correspond to each Local Daemon container, and are primarily used for development or small, local simulations.
 	if !d.DockerMode() {
 		return nil, ErrIncompatibleDeploymentMode
 	}
@@ -2927,6 +2985,13 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 		nodes = append(nodes, virtualDockerNode)
 		return true
 	})
+
+	// Sanity check.
+	// It's possible that GetVirtualDockerNodes is called during a scaling operation, so the values will be inconsistent.
+	// As a result, we just log the error, but we don't panic or return an error.
+	if expectedNumNodes > 0 && len(nodes) != expectedNumNodes {
+		d.log.Error("Expected to find %d Local Daemon Docker node(s), based on output from Docker CLI. Instead, we have %d connection(s) to Local Daemon Docker nodes.", expectedNumNodes, len(nodes))
+	}
 
 	resp := &proto.GetVirtualDockerNodesResponse{
 		Nodes: nodes,
@@ -2946,7 +3011,11 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 //
 // If the Cluster is not running in Docker mode, then this will return an error.
 func (d *ClusterGatewayImpl) GetDockerSwarmNodes(_ context.Context, _ *proto.Void) (*proto.GetDockerSwarmNodesResponse, error) {
-	if !d.DockerMode() {
+	d.dockerNodeMutex.Lock()
+	defer d.dockerNodeMutex.Unlock()
+
+	// We can only get Docker Swarm nodes if we're running in Docker Swarm.
+	if !d.DockerSwarmMode() {
 		return nil, ErrIncompatibleDeploymentMode
 	}
 
@@ -2954,29 +3023,263 @@ func (d *ClusterGatewayImpl) GetDockerSwarmNodes(_ context.Context, _ *proto.Voi
 }
 
 // AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
-func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, _ *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
+func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
+	d.dockerNodeMutex.Lock()
+	defer d.dockerNodeMutex.Unlock()
+
 	if !d.DockerMode() {
 		return nil, ErrIncompatibleDeploymentMode
 	}
 
-	return nil, status.Errorf(codes.Unimplemented, "method AddVirtualDockerNodes not implemented")
+	currentNumNodes := int32(d.cluster.GetHostManager().Len())
+	targetNumNodes := in.NumNodes + currentNumNodes
+
+	// Register a new scaling operation.
+	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
+	// on the current and target cluster size).
+	opId := uuid.NewString()
+	scaleOp, err := d.cluster.RegisterScaleOutOperation(opId, targetNumNodes)
+	if err != nil {
+		d.log.Error("Could not register new scale-out operation to %d nodes because: %v", targetNumNodes, err)
+		return nil, err // This error should already be gRPC compatible...
+	}
+
+	// Start the operation.
+	if err := scaleOp.Start(); err != nil {
+		go d.notifyDashboardOfError("Failed to Start Scaling Operation", err.Error())
+		return nil, status.Error(codes.Internal, err.Error()) // This really shouldn't happened.
+	}
+
+	// Use a separate goroutine to execute the shell command to scale the number of Local Daemon nodes.
+	resultChan := make(chan interface{})
+	go func() {
+		app := "docker"
+		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetNumNodes)
+		args := strings.Split(argString, " ")
+
+		cmd := exec.Command(app, args...)
+		stdout, err := cmd.Output()
+
+		if err != nil {
+			d.log.Error("Failed to add %d new Local Daemon Docker node(s) because: %v", in.NumNodes, err)
+			// return nil, status.Errorf(codes.Internal, err.Error())
+			resultChan <- err
+		} else {
+			d.log.Debug("Output from adding %d new Local Daemon Docker node(s):\n%s", in.NumNodes, string(stdout))
+			resultChan <- struct{}{}
+		}
+	}()
+
+	// Wait for the shell command above to finish.
+	res := <-resultChan
+	if err, ok := res.(error); ok {
+		// If there was an error, then we'll return the error.
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	// Now wait for the scale operation to complete.
+	// If it has already completed by the time we call Wait, then Wait just returns immediately.
+	scaleOp.Wait()
+
+	return &proto.AddVirtualDockerNodesResponse{
+		RequestId:         in.RequestId,
+		NumNodesCreated:   in.NumNodes,
+		NumNodesRequested: in.NumNodes,
+		PrevNumNodes:      currentNumNodes,
+	}, nil
 }
 
 // RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
-func (d *ClusterGatewayImpl) RemoveVirtualDockerNodes(_ context.Context, _ *proto.RemoveVirtualDockerNodesRequest) (*proto.RemoveVirtualDockerNodesResponse, error) {
+func (d *ClusterGatewayImpl) DecreaseNumNodes(_ context.Context, in *proto.DecreaseNumNodesRequest) (*proto.DecreaseNumNodesResponse, error) {
+	d.dockerNodeMutex.Lock()
+	defer d.dockerNodeMutex.Unlock()
+
 	if !d.DockerMode() {
 		return nil, ErrIncompatibleDeploymentMode
 	}
 
-	return nil, status.Errorf(codes.Unimplemented, "method RemoveVirtualDockerNodes not implemented")
+	currentNumNodes := int32(d.cluster.GetHostManager().Len())
+	targetNumNodes := currentNumNodes - in.NumNodesToRemove
+
+	if targetNumNodes < int32(d.ClusterOptions.NumReplicas) {
+		d.log.Error("Cannot remove %d Local Daemon Docker node(s) from the cluster", in.NumNodesToRemove)
+		d.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		return nil, ErrInvalidTargetNumHosts
+	}
+
+	// Register a new scaling operation.
+	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
+	// on the current and target cluster size).
+	opId := uuid.NewString()
+	scaleOp, err := d.cluster.RegisterScaleOutOperation(opId, targetNumNodes)
+	if err != nil {
+		d.log.Error("Could not register new scale-out operation to %d nodes because: %v", targetNumNodes, err)
+		return nil, err // This error should already be gRPC compatible...
+	}
+
+	// Start the operation.
+	if err := scaleOp.Start(); err != nil {
+		go d.notifyDashboardOfError("Failed to Start Scaling Operation", err.Error())
+		return nil, status.Error(codes.Internal, err.Error()) // This really shouldn't happened.
+	}
+
+	// Use a separate goroutine to execute the shell command to scale the number of Local Daemon nodes.
+	resultChan := make(chan interface{})
+	go func() {
+		app := "docker"
+		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetNumNodes)
+		args := strings.Split(argString, " ")
+
+		cmd := exec.Command(app, args...)
+		stdout, err := cmd.Output()
+
+		if err != nil {
+			d.log.Error("Failed to remove %d Local Daemon Docker node(s) because: %v", in.NumNodesToRemove, err)
+			resultChan <- err
+			// return nil, status.Errorf(codes.Internal, err.Error())
+		} else {
+			d.log.Debug("Output from removing %d Local Daemon Docker node(s):\n%s", in.NumNodesToRemove, string(stdout))
+		}
+	}()
+
+	// Wait for the shell command above to finish.
+	res := <-resultChan
+	if err, ok := res.(error); ok {
+		// If there was an error, then we'll return the error.
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	// Now wait for the scale operation to complete.
+	// If it has already completed by the time we call Wait, then Wait just returns immediately.
+	scaleOp.Wait()
+
+	return &proto.DecreaseNumNodesResponse{
+		RequestId:       in.RequestId,
+		OldNumNodes:     currentNumNodes,
+		NumNodesRemoved: in.NumNodesToRemove,
+		NewNumNodes:     targetNumNodes,
+	}, nil
 }
 
 // ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
 // Modifications include altering the number of GPUs available on the nodes.
-func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, _ *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
+func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, in *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
+	d.dockerNodeMutex.Lock()
+	defer d.dockerNodeMutex.Unlock()
+
 	if !d.DockerMode() {
 		return nil, ErrIncompatibleDeploymentMode
 	}
 
-	return nil, status.Errorf(codes.Unimplemented, "method ModifyVirtualDockerNodes not implemented")
+	return nil, ErrNotImplemented
+}
+
+// SetNumVirtualDockerNodes is used to scale the number of nodes in the cluster to a specifically value.
+// This function accepts a SetNumVirtualDockerNodesRequest struct, which encodes the target number of nodes.
+func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(_ context.Context, in *proto.SetNumVirtualDockerNodesRequest) (*proto.SetNumVirtualDockerNodesResponse, error) {
+	d.dockerNodeMutex.Lock()
+	defer d.dockerNodeMutex.Unlock()
+
+	if !d.DockerMode() {
+		return nil, ErrIncompatibleDeploymentMode
+	}
+
+	currentNumNodes := int32(d.cluster.GetHostManager().Len())
+
+	if in.TargetNumNodes < int32(d.ClusterOptions.NumReplicas) {
+		d.log.Error("Cannot set number of Local Daemon Docker nodes to %d. Minimum: %d.", in.TargetNumNodes, d.ClusterOptions.NumReplicas)
+		return nil, ErrInvalidTargetNumHosts
+	}
+
+	// Register a new scaling operation.
+	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
+	// on the current and target cluster size).
+	opId := uuid.NewString()
+	scaleOp, err := d.cluster.RegisterScaleOutOperation(opId, in.TargetNumNodes)
+	if err != nil {
+		d.log.Error("Could not register new scale-out operation to %d nodes because: %v", in.TargetNumNodes, err)
+		return nil, err // This error should already be gRPC compatible...
+	}
+
+	// Start the operation.
+	if err := scaleOp.Start(); err != nil {
+		go d.notifyDashboardOfError("Failed to Start Scaling Operation", err.Error())
+		return nil, status.Error(codes.Internal, err.Error()) // This really shouldn't happened.
+	}
+
+	// Use a separate goroutine to execute the shell command to scale the number of Local Daemon nodes.
+	resultChan := make(chan interface{})
+	go func() {
+		app := "docker"
+		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", in.TargetNumNodes)
+		args := strings.Split(argString, " ")
+
+		cmd := exec.Command(app, args...)
+		stdout, err := cmd.Output()
+
+		if err != nil {
+			d.log.Error("Failed to set number of Local Daemon Docker nodes to %d because: %v", in.TargetNumNodes, err)
+			resultChan <- err
+			// return nil, status.Errorf(codes.Internal, err.Error())
+		} else {
+			d.log.Debug("Output from setting number of Local Daemon Docker nodes to %d:\n%s", in.TargetNumNodes, string(stdout))
+		}
+	}()
+
+	// Wait for the shell command above to finish.
+	res := <-resultChan
+	if err, ok := res.(error); ok {
+		// If there was an error, then we'll return the error.
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	// Now wait for the scale operation to complete.
+	// If it has already completed by the time we call Wait, then Wait just returns immediately.
+	scaleOp.Wait()
+
+	return &proto.SetNumVirtualDockerNodesResponse{
+		RequestId:   in.RequestId,
+		OldNumNodes: currentNumNodes,
+		NewNumNodes: in.TargetNumNodes,
+	}, nil
+}
+
+// getNumLocalDaemonDocker returns the number of Local Daemon Docker containers.
+// A return value of -1 indicates that an error occurred.
+//
+// We should probably just go off of the number of connected Hosts we have, rather than use this function...
+func (d *ClusterGatewayImpl) getNumLocalDaemonDocker() (int, error) {
+	d.dockerNodeMutex.Lock()
+	defer d.dockerNodeMutex.Unlock()
+
+	if !d.DockerMode() {
+		return -1, ErrIncompatibleDeploymentMode
+	}
+
+	if d.DockerComposeMode() {
+		app := "docker"
+		argsString := "compose ps daemon | wc -l"
+		args := strings.Split(argsString, " ")
+
+		cmd := exec.Command(app, args...)
+		stdout, err := cmd.Output()
+
+		if err != nil {
+			d.log.Error("Failed to get number of Local Daemon Docker containers because: %v", err)
+			return -1, err
+		}
+
+		numContainers, err := strconv.Atoi(string(stdout))
+		if err != nil {
+			d.log.Error("Failed to parse command output for number of Local Daemon Docker containers.")
+			d.log.Error("Command output: \"%s\"", string(stdout))
+			d.log.Error("Error: %v", err)
+
+			return -1, err
+		}
+
+		return numContainers, nil
+	} else /* Docker Swarm mode */ {
+		panic("Not implemented.")
+	}
 }

@@ -46,3 +46,4 @@ debug_port: 9996
 docker-storage-base: "/storage"
 using-wsl: true 
 prometheus_interval: 2
+prometheus_port: 8089

@@ -105,11 +105,21 @@ service DistributedCluster {
   // If the Cluster is not running in Docker mode, then this will return an error.
   rpc GetDockerSwarmNodes(Void) returns (GetDockerSwarmNodesResponse) {}
 
+  // GetNumNodes returns the number of nodes in the cluster.
+  rpc GetNumNodes(Void) returns (NumNodesResponse) {}
+
+  // SetNumVirtualDockerNodes is used to scale the number of nodes in the cluster to a specifically value.
+  // This function accepts a SetNumVirtualDockerNodesRequest struct, which encodes the target number of nodes.
+  rpc SetNumVirtualDockerNodes(SetNumVirtualDockerNodesRequest) returns (SetNumVirtualDockerNodesResponse) {}
+
   // AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
   rpc AddVirtualDockerNodes(AddVirtualDockerNodesRequest) returns (AddVirtualDockerNodesResponse) {}
 
   // RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
-  rpc RemoveVirtualDockerNodes(RemoveVirtualDockerNodesRequest) returns (RemoveVirtualDockerNodesResponse) {}
+  // rpc RemoveVirtualDockerNodes(RemoveVirtualDockerNodesRequest) returns (RemoveVirtualDockerNodesResponse) {}
+  
+  // DecreaseNumNodes removes a specific number of existing nodes from the Docker cluster.
+  rpc DecreaseNumNodes(DecreaseNumNodesRequest) returns (DecreaseNumNodesResponse) {}
 
   // ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
   // Modifications include altering the number of GPUs available on the nodes.
@@ -126,12 +136,34 @@ service ClusterDashboard {
 // backend server of the Cluster Dashboard.
 message DashboardRegistrationResponse {
   // DeploymentMode indicates whether the Cluster is running in Kubernetes mode or Docker mode.
-  // Valid options include "local", "docker", and "kubernetes".
+  // Valid options include "local", "docker-compose", "docker-swarm", and "kubernetes".
   string DeploymentMode = 1;
   // SchedulingMode indicates the scheduling policy that the Cluster Gateway has been configured to use.
   string SchedulingPolicy = 2;
   // NumReplicas refers to the number of replicas that each Jupyter kernel is configured to have.
   int32 NumReplicas = 3;
+}
+
+// DecreaseNumNodesRequest is passed as an argument to the DecreaseNumNodes gRPC function.
+// DecreaseNumNodesRequest encodes the number of nodes to remove from the cluster.
+message DecreaseNumNodesRequest {
+  // RequestId is the unique request ID of the DecreaseNumNodesRequest.
+  string requestId = 1;
+  // numNodesToRemove is the the number of nodes that should be removed from the cluster.
+  int32 numNodesToRemove = 2;
+}
+
+// DecreaseNumNodesResponse is returned by the DecreaseNumNodes gRPC function.
+// It encodes information about the number of nodes in the cluster before and after the 'decrease' operation.
+message DecreaseNumNodesResponse {
+  // RequestId is the unique request ID that was included in the associated DecreaseNumNodesRequest.
+  string requestId = 1;
+  // OldNumNodes is the number of nodes that were in the cluster prior to the 'decrease' operation.
+  int32 oldNumNodes = 2;
+  // NumNodesRemoved is the the number of nodes that were removed from the cluster.
+  int32 numNodesRemoved = 3;
+  // NewNumNodes is the number of nodes that are in the cluster after to the 'decrease' operation.
+  int32 newNumNodes = 4;
 }
 
 // AddVirtualDockerNodesRequest structs are passed as arguments to the AddVirtualDockerNodes gRPC function.
@@ -153,49 +185,72 @@ message AddVirtualDockerNodesResponse {
   int32 numNodesCreated = 2;
   // NumNodesRequested encodes the number of virtual node that were originally requested to be provisioned.
   int32 numNodesRequested = 3;
+  // PrevNumNodes is how many nodes there were prior to adding new nodes.
+  int32 prevNumNodes = 4;
 }
 
 // RemoveVirtualDockerNodesRequest structs are passed as arguments to the RemoveVirtualDockerNodes gRPC function.
 // An RemoveVirtualDockerNodesRequest struct encodes the number of nodes to be removed from the cluster.
-message RemoveVirtualDockerNodesRequest {
-  // RequestId is a unique identifier for this particular RemoveVirtualDockerNodes operation.
-  string requestId = 1;
-  // TargetNodes is a slice of strings encoding the node IDs of the nodes that are to be removed.
-  repeated string targetNodes = 2;
-}
+// message RemoveVirtualDockerNodesRequest {
+//   // RequestId is a unique identifier for this particular RemoveVirtualDockerNodes operation.
+//   string requestId = 1;
+//   // TargetNodes is a slice of strings encoding the node IDs of the nodes that are to be removed.
+//   repeated string targetNodes = 2;
+// }
 
 // RemoveVirtualDockerNodesResponse structs are returned by the RemoveVirtualDockerNodes gRPC function.
 // RemoveVirtualDockerNodesResponse structs describe whether the 'remove node(s)' operation was successful.
-message RemoveVirtualDockerNodesResponse {
-  // RequestId is the unique identifier that was included in the corresponding RemoveVirtualDockerNodesRequest struct.
-  string requestId = 1;
-  // NodesRemoved is a slice of strings encoding the node IDs of the nodes that were successfully removed.
-  repeated string nodesRemoved = 3;
-  // FailedToRemove is a slice of VirtualDockerNodeRemovalFailure structs encoding information about any nodes
-  // whose removal failed, either because the node did not exist or because some other error occurred.
-  repeated VirtualDockerNodeRemovalFailure failedToRemove = 4;
-}
+// message RemoveVirtualDockerNodesResponse {
+//   // RequestId is the unique identifier that was included in the corresponding RemoveVirtualDockerNodesRequest struct.
+//   string requestId = 1;
+//   // NodesRemoved is a slice of strings encoding the node IDs of the nodes that were successfully removed.
+//   repeated string nodesRemoved = 3;
+//   // FailedToRemove is a slice of VirtualDockerNodeRemovalFailure structs encoding information about any nodes
+//   // whose removal failed, either because the node did not exist or because some other error occurred.
+//   repeated VirtualDockerNodeRemovalFailure failedToRemove = 4;
+//   // PrevNumNodes is how many nodes there were prior to removing nodes.
+//   int32 prevNumNodes = 5;
+// }
 
-// VirtualDockerNodeRemovalFailure structs describe a failed node-removal operation.
-message VirtualDockerNodeRemovalFailure {
-  // RequestId is the unique identifier that was included in the corresponding RemoveVirtualDockerNodesRequest struct.
-  string requestId = 1;
-  // NodeId is the ID of the node whose removal operation failed.
-  string nodeId = 2;
-  // Reason encodes the reason for the node-removal failure.
-  string reason = 3;
-}
+// // VirtualDockerNodeRemovalFailure structs describe a failed node-removal operation.
+// message VirtualDockerNodeRemovalFailure {
+//   // RequestId is the unique identifier that was included in the corresponding RemoveVirtualDockerNodesRequest struct.
+//   string requestId = 1;
+//   // NodeId is the ID of the node whose removal operation failed.
+//   string nodeId = 2;
+//   // Reason encodes the reason for the node-removal failure.
+//   string reason = 3;
+// }
 
 // ModifyVirtualDockerNodesRequest structs are passed as arguments to the ModifyVirtualDockerNodes gRPC function.
 // An ModifyVirtualDockerNodesRequest struct encodes the properties to be modified for each of the target nodes.
 message ModifyVirtualDockerNodesRequest {
-
+  string requestId = 1;
+  int32 targetNumNodes = 2;
 }
 
 // ModifyVirtualDockerNodesResponse structs are returned by the ModifyVirtualDockerNodes gRPC function.
 // ModifyVirtualDockerNodesResponse structs describe whether the 'modify/update node(s)' operation was successful.
 message ModifyVirtualDockerNodesResponse {
+  string requestId = 1;
+}
 
+// SetNumNodesRequest is passed as an argument to the SetNumNodes gRPC function.
+// SetNumNodesRequest encodes the target number of nodes.
+message SetNumVirtualDockerNodesRequest {
+  string requestId = 1;
+  // TargetNumNodes is the target number of nodes to scale to. 
+  int32 targetNumNodes = 2;
+}
+
+// SetNumNodesResponse is returned by the SetNumNodes gRPC function.
+// It encodes information about the number of nodes in the cluster before and after the 'set' operation.
+message SetNumVirtualDockerNodesResponse {
+  string requestId = 1;
+  // OldNumNodes is the number of nodes that were in the cluster prior to the 'set' operation.
+  int32 oldNumNodes = 2;
+  // NewNumNodes is the number of nodes that are in the cluster after to the 'set' operation.
+  int32 newNumNodes = 3;
 }
 
 // GetVirtualDockerNodesResponse is returned by the GetVirtualDockerNodes gRPC function.
@@ -401,23 +456,6 @@ service LocalGateway {
   rpc YieldNextExecution(KernelId) returns (Void) {} 
 }
 
-// message GetKubernetesNodesResponse {
-//   repeated KubernetesNode nodes = 1;
-// }
-//
-// message KubernetesNode {
-//   string nodeId = 1;
-//   repeated string pods = 2;
-//   float allocatableCPU = 3;
-//   float allocatableMemory = 4;
-//   float allocatableGPUs = 5;
-//   float allocatableVGPUs = 6;
-//   float allocatedCPU = 7;
-//   float allocatedMemory = 8;
-//   float allocatedGPUs = 9;
-//   float allocatedVGPUs = 10;
-// }
-
 message VirtualGpuAllocations {
   map<string,VirtualGpuAllocation> allocations = 1;
 }
@@ -429,6 +467,50 @@ message VirtualGpuAllocation {
 message SetVirtualGPUsRequest {
   int32 value = 1;
   string kubernetesNodeName = 2;
+}
+
+// // IncreaseNumNodesRequest is passed as an argument to the IncreaseNumNodes gRPC function.
+// // IncreaseNumNodesRequest encodes the number of nodes to add to the cluster.
+// message IncreaseNumNodesRequest {
+//   // NumNodesToAdd is the the number of nodes that should be added to the cluster.
+//   int32 numNodesToAdd = 1;
+// }
+
+// // IncreaseNumNodesResponse is returned by the IncreaseNumNodes gRPC function.
+// // It encodes information about the number of nodes in the cluster before and after the 'increase' operation.
+// message IncreaseNumNodesResponse {
+//   // OldNumNodes is the number of nodes that were in the cluster prior to the 'increase' operation.
+//   int32 oldNumNodes = 1;
+//   // NumNodesToAdd is the the number of nodes that were added to the cluster.
+//   int32 numNodesAdded = 2;
+//   // NewNumNodes is the number of nodes that are in the cluster after to the 'increase' operation.
+//   int32 newNumNodes = 3;
+// }
+
+// // DecreaseNumNodesRequest is passed as an argument to the DecreaseNumNodes gRPC function.
+// // DecreaseNumNodesRequest encodes the number of nodes to remove from the cluster.
+// message DecreaseNumNodesRequest {
+//   // numNodesToRemove is the the number of nodes that should be removed from the cluster.
+//   int32 numNodesToRemove = 1;
+// }
+
+// // DecreaseNumNodesResponse is returned by the DecreaseNumNodes gRPC function.
+// // It encodes information about the number of nodes in the cluster before and after the 'decrease' operation.
+// message DecreaseNumNodesResponse {
+//   // OldNumNodes is the number of nodes that were in the cluster prior to the 'decrease' operation.
+//   int32 oldNumNodes = 1;
+//   // NumNodesToAdd is the the number of nodes that were removed from the cluster.
+//   int32 numNodesAdded = 2;
+//   // NewNumNodes is the number of nodes that are in the cluster after to the 'decrease' operation.
+//   int32 newNumNodes = 3;
+// }
+
+// NumNodesResponse is returned by the GetNumNodes gRPC function.
+message NumNodesResponse {
+  // NumNodes returns the number of nodes in the Cluster.
+  int32 numNodes = 1;
+  // NodeType is the type of node, as there can be either Kubernetes nodes or Docker nodes.
+  string nodeType = 2;
 }
 
 // Encapsulates the current vGPU (or "deflated GPU") resource usage on a paritcular node. 
