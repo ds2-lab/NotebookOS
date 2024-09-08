@@ -393,6 +393,7 @@ const (
 	DistributedCluster_AddVirtualDockerNodes_FullMethodName    = "/gateway.DistributedCluster/AddVirtualDockerNodes"
 	DistributedCluster_DecreaseNumNodes_FullMethodName         = "/gateway.DistributedCluster/DecreaseNumNodes"
 	DistributedCluster_ModifyVirtualDockerNodes_FullMethodName = "/gateway.DistributedCluster/ModifyVirtualDockerNodes"
+	DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName    = "/gateway.DistributedCluster/GetLocalDaemonNodeIDs"
 )
 
 // DistributedClusterClient is the client API for DistributedCluster service.
@@ -466,6 +467,8 @@ type DistributedClusterClient interface {
 	// ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
 	// Modifications include altering the number of GPUs available on the nodes.
 	ModifyVirtualDockerNodes(ctx context.Context, in *ModifyVirtualDockerNodesRequest, opts ...grpc.CallOption) (*ModifyVirtualDockerNodesResponse, error)
+	// GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
+	GetLocalDaemonNodeIDs(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetLocalDaemonNodeIDsResponse, error)
 }
 
 type distributedClusterClient struct {
@@ -656,6 +659,16 @@ func (c *distributedClusterClient) ModifyVirtualDockerNodes(ctx context.Context,
 	return out, nil
 }
 
+func (c *distributedClusterClient) GetLocalDaemonNodeIDs(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetLocalDaemonNodeIDsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetLocalDaemonNodeIDsResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DistributedClusterServer is the server API for DistributedCluster service.
 // All implementations must embed UnimplementedDistributedClusterServer
 // for forward compatibility.
@@ -727,6 +740,8 @@ type DistributedClusterServer interface {
 	// ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
 	// Modifications include altering the number of GPUs available on the nodes.
 	ModifyVirtualDockerNodes(context.Context, *ModifyVirtualDockerNodesRequest) (*ModifyVirtualDockerNodesResponse, error)
+	// GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
+	GetLocalDaemonNodeIDs(context.Context, *Void) (*GetLocalDaemonNodeIDsResponse, error)
 	mustEmbedUnimplementedDistributedClusterServer()
 }
 
@@ -790,6 +805,9 @@ func (UnimplementedDistributedClusterServer) DecreaseNumNodes(context.Context, *
 }
 func (UnimplementedDistributedClusterServer) ModifyVirtualDockerNodes(context.Context, *ModifyVirtualDockerNodesRequest) (*ModifyVirtualDockerNodesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ModifyVirtualDockerNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) GetLocalDaemonNodeIDs(context.Context, *Void) (*GetLocalDaemonNodeIDsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLocalDaemonNodeIDs not implemented")
 }
 func (UnimplementedDistributedClusterServer) mustEmbedUnimplementedDistributedClusterServer() {}
 func (UnimplementedDistributedClusterServer) testEmbeddedByValue()                            {}
@@ -1136,6 +1154,24 @@ func _DistributedCluster_ModifyVirtualDockerNodes_Handler(srv interface{}, ctx c
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DistributedCluster_GetLocalDaemonNodeIDs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).GetLocalDaemonNodeIDs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).GetLocalDaemonNodeIDs(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DistributedCluster_ServiceDesc is the grpc.ServiceDesc for DistributedCluster service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1214,6 +1250,10 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ModifyVirtualDockerNodes",
 			Handler:    _DistributedCluster_ModifyVirtualDockerNodes_Handler,
+		},
+		{
+			MethodName: "GetLocalDaemonNodeIDs",
+			Handler:    _DistributedCluster_GetLocalDaemonNodeIDs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

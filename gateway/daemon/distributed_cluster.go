@@ -271,3 +271,7 @@ func (dc *DistributedCluster) SetNumVirtualDockerNodes(ctx context.Context, in *
 func (dc *DistributedCluster) ModifyVirtualDockerNodes(ctx context.Context, in *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
 	return dc.gatewayDaemon.ModifyVirtualDockerNodes(ctx, in)
 }
+
+func (dc *DistributedCluster) GetLocalDaemonNodeIDs(ctx context.Context, in *proto.Void) (*proto.GetLocalDaemonNodeIDsResponse, error) {
+	return dc.gatewayDaemon.GetLocalDaemonNodeIDs(ctx, in)
+}

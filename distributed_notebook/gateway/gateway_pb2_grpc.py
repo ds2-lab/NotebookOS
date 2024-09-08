@@ -477,6 +477,11 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.ModifyVirtualDockerNodesRequest.SerializeToString,
                 response_deserializer=gateway__pb2.ModifyVirtualDockerNodesResponse.FromString,
                 _registered_method=True)
+        self.GetLocalDaemonNodeIDs = channel.unary_unary(
+                '/gateway.DistributedCluster/GetLocalDaemonNodeIDs',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.GetLocalDaemonNodeIDsResponse.FromString,
+                _registered_method=True)
 
 
 class DistributedClusterServicer(object):
@@ -641,6 +646,13 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetLocalDaemonNodeIDs(self, request, context):
+        """GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DistributedClusterServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -733,6 +745,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.ModifyVirtualDockerNodes,
                     request_deserializer=gateway__pb2.ModifyVirtualDockerNodesRequest.FromString,
                     response_serializer=gateway__pb2.ModifyVirtualDockerNodesResponse.SerializeToString,
+            ),
+            'GetLocalDaemonNodeIDs': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetLocalDaemonNodeIDs,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.GetLocalDaemonNodeIDsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1223,6 +1240,33 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/ModifyVirtualDockerNodes',
             gateway__pb2.ModifyVirtualDockerNodesRequest.SerializeToString,
             gateway__pb2.ModifyVirtualDockerNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetLocalDaemonNodeIDs(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetLocalDaemonNodeIDs',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.GetLocalDaemonNodeIDsResponse.FromString,
             options,
             channel_credentials,
             insecure,

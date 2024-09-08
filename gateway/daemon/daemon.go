@@ -3000,6 +3000,41 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 	return resp, nil
 }
 
+func (d *ClusterGatewayImpl) GetLocalDaemonNodeIDs(_ context.Context, _ *proto.Void) (*proto.GetLocalDaemonNodeIDsResponse, error) {
+	expectedNumNodes, _ := d.getNumLocalDaemonDocker()
+
+	d.dockerNodeMutex.Lock()
+	defer d.dockerNodeMutex.Unlock()
+
+	// TODO: For now, both Docker Swarm mode and Docker Compose mode support Virtual Docker Nodes.
+	// Eventually, Docker Swarm mode will ~only~ support Docker Swarm nodes, which correspond to real machines or VMs.
+	// Virtual Docker nodes correspond to each Local Daemon container, and are primarily used for development or small, local simulations.
+	if !d.DockerMode() {
+		return nil, ErrIncompatibleDeploymentMode
+	}
+
+	hostManager := d.cluster.GetHostManager()
+	hostIds := make([]string, 0, hostManager.Len())
+
+	hostManager.Range(func(hostId string, _ *scheduling.Host) (contd bool) {
+		hostIds = append(hostIds, hostId)
+		return true
+	})
+
+	// Sanity check.
+	// It's possible that GetVirtualDockerNodes is called during a scaling operation, so the values will be inconsistent.
+	// As a result, we just log the error, but we don't panic or return an error.
+	if expectedNumNodes > 0 && len(hostIds) != expectedNumNodes {
+		d.log.Error("Expected to find %d Local Daemon Docker node(s), based on output from Docker CLI. Instead, we have %d connection(s) to Local Daemon Docker nodes.", expectedNumNodes, len(hostIds))
+	}
+
+	resp := &proto.GetLocalDaemonNodeIDsResponse{
+		HostIds: hostIds,
+	}
+
+	return resp, nil
+}
+
 // GetDockerSwarmNodes returns a (pointer to a) proto.GetDockerSwarmNodesResponse struct describing the Docker Swarm
 // nodes that exist within the Docker Swarm cluster.
 //
