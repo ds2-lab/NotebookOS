@@ -47,6 +47,8 @@ type ClusterDaemonOptions struct {
 	DeploymentMode                string `name:"deployment_mode" description:"Options are 'docker-compose', 'docker-swarm', and 'kubernetes'."`
 	UsingWSL                      bool   `name:"using-wsl" description:"Flag indicating whether we're running within WSL2 (Windows Subsystem for Linux). Requires additional networking configuring for the Docker containers."`
 	DockerNetworkName             string `name:"docker_network_name" description:"The name of the Docker network that the container is running within. Only used in Docker mode."`
+	PrometheusInterval            int    `name:"prometheus_interval" description:"Frequency in seconds of how often to publish metrics to Prometheus. So, setting this to 5 means we publish metrics roughly every 5 seconds."`
+	PrometheusPort                int    `name:"prometheus_port" description:"The port on which this local daemon will serve Prometheus metrics. Default/suggested: 8089."`
 }
 
 // IsLocalMode returns true if the deployment mode is specified as "local".
@@ -54,7 +56,7 @@ func (o ClusterDaemonOptions) IsLocalMode() bool {
 	return o.DeploymentMode == string(types.LocalMode)
 }
 
-// IsDockerSwarmMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".
+// IsDockerMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".
 func (o ClusterDaemonOptions) IsDockerMode() bool {
 	return o.IsDockerComposeMode() || o.IsDockerSwarmMode()
 }
@@ -64,7 +66,7 @@ func (o ClusterDaemonOptions) IsDockerSwarmMode() bool {
 	return o.DeploymentMode == string(types.DockerSwarmMode)
 }
 
-// IsDockerSwarmMode returns true if the deployment mode is specified as "docker-compose".
+// IsDockerComposeMode returns true if the deployment mode is specified as "docker-compose".
 func (o ClusterDaemonOptions) IsDockerComposeMode() bool {
 	return o.DeploymentMode == string(types.DockerComposeMode)
 }

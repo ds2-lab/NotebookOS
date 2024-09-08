@@ -54,7 +54,7 @@ func (o SchedulerDaemonOptions) IsLocalMode() bool {
 	return o.DeploymentMode == string(types.LocalMode)
 }
 
-// IsDockerSwarmMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".
+// IsDockerMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".
 func (o SchedulerDaemonOptions) IsDockerMode() bool {
 	return o.IsDockerComposeMode() || o.IsDockerSwarmMode()
 }
@@ -64,7 +64,7 @@ func (o SchedulerDaemonOptions) IsDockerSwarmMode() bool {
 	return o.DeploymentMode == string(types.DockerSwarmMode)
 }
 
-// IsDockerSwarmMode returns true if the deployment mode is specified as "docker-compose".
+// IsDockerComposeMode returns true if the deployment mode is specified as "docker-compose".
 func (o SchedulerDaemonOptions) IsDockerComposeMode() bool {
 	return o.DeploymentMode == string(types.DockerComposeMode)
 }

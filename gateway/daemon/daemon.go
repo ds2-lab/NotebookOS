@@ -70,6 +70,11 @@ const (
 	SchedulingPolicyStatic    SchedulingPolicy = "static"
 	SchedulingPolicyDynamicV3 SchedulingPolicy = "dynamic-v3"
 	SchedulingPolicyDynamicV4 SchedulingPolicy = "dynamic-v4"
+
+	// DefaultPrometheusPort is the default port on which the Local Daemon will serve Prometheus metrics.
+	DefaultPrometheusPort int = 8089
+	// DefaultPrometheusInterval is the default interval on which the Local Daemon will push new Prometheus metrics.
+	DefaultPrometheusInterval = time.Second * 2
 )
 
 var (
@@ -240,6 +245,16 @@ type ClusterGatewayImpl struct {
 
 	// The name of the Docker network that the container is running within. Only used in Docker mode.
 	dockerNetworkName string
+
+	// gatewayPrometheusManager serves Prometheus metrics and responds to HTTP GET queries
+	// issued by Grafana to create Grafana Variables for use in creating Grafana Dashboards.
+	gatewayPrometheusManager *GatewayPrometheusManager
+	// Indicates that a goroutine has been started to publish metrics to Prometheus.
+	servingPrometheus atomic.Int32
+	// prometheusInterval is how often we publish metrics to Prometheus.
+	prometheusInterval time.Duration
+	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
+	prometheusPort int
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
@@ -271,6 +286,23 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, "ClusterGatewayRouter", false)
 	daemon.cluster = scheduling.NewCluster()
+
+	if daemon.prometheusInterval == time.Duration(0) {
+		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
+		daemon.prometheusInterval = DefaultPrometheusInterval
+	}
+
+	if daemon.prometheusPort <= 0 {
+		daemon.log.Debug("Using default Prometheus port: %d.", DefaultPrometheusPort)
+		daemon.prometheusPort = DefaultPrometheusPort
+	}
+
+	daemon.gatewayPrometheusManager = NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, daemon)
+	err := daemon.gatewayPrometheusManager.Start()
+	if err != nil {
+		panic(err)
+	}
+	daemon.publishPrometheusMetrics()
 
 	placer, err := scheduling.NewRandomPlacer(daemon.cluster, daemon.ClusterOptions)
 	if err != nil {
@@ -661,6 +693,22 @@ func (d *ClusterGatewayImpl) NumLocalDaemonsConnected() int {
 
 func (d *ClusterGatewayImpl) NumKernelsRegistered() int {
 	return d.kernels.Len()
+}
+
+// publishPrometheusMetrics creates a goroutine that publishes metrics to prometheus on a configurable interval.
+func (d *ClusterGatewayImpl) publishPrometheusMetrics() {
+	go func() {
+		// Claim ownership of publishing metrics.
+		if !d.servingPrometheus.CompareAndSwap(0, 1) {
+			return
+		}
+
+		d.log.Debug("Beginning to publish metrics to Prometheus now. Interval: %v", d.prometheusInterval)
+
+		//for {
+		//	time.Sleep(d.prometheusInterval)
+		//}
+	}()
 }
 
 // Listen listens on the TCP network address addr and returns a net.Listener that intercepts incoming connections.

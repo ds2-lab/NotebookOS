@@ -18,12 +18,13 @@ import (
 )
 
 var (
-	ErrPrometheusManagerAlreadyRunning = errors.New("PrometheusManager is already running")
-	ErrPrometheusManagerNotRunning     = errors.New("PrometheusManager is not running")
+	ErrLocalDaemonPrometheusManagerAlreadyRunning = errors.New("LocalDaemonPrometheusManager is already running")
+	ErrLocalDaemonPrometheusManagerNotRunning     = errors.New("LocalDaemonPrometheusManager is not running")
 )
 
-// PrometheusManager is responsible for registering metrics with Prometheus and serving them via HTTP.
-type PrometheusManager struct {
+// LocalDaemonPrometheusManager is responsible for registering metrics with Prometheus and serving them via HTTP.
+// This to be used by Local Daemons. The Cluster Gateway uses the ClusterGatewayPrometheusManager struct.
+type LocalDaemonPrometheusManager struct {
 	log    logger.Logger
 	nodeId string
 
@@ -42,8 +43,8 @@ type PrometheusManager struct {
 	IdleGpuGuage      prometheus.Gauge
 }
 
-func NewPrometheusManager(port int, nodeId string) *PrometheusManager {
-	manager := &PrometheusManager{
+func NewLocalDaemonPrometheusManager(port int, nodeId string) *LocalDaemonPrometheusManager {
+	manager := &LocalDaemonPrometheusManager{
 		port:              port,
 		prometheusHandler: promhttp.Handler(),
 		nodeId:            nodeId,
@@ -67,13 +68,13 @@ func (rw *responseWriter) WriteHeader(code int) {
 }
 
 // Start registers metrics with Prometheus and begins serving the metrics via an HTTP endpoint.
-func (m *PrometheusManager) Start() error {
+func (m *LocalDaemonPrometheusManager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.serving {
-		m.log.Warn("PrometheusManager for Local Daemon %s is already running.", m.nodeId)
-		return ErrPrometheusManagerAlreadyRunning
+		m.log.Warn("LocalDaemonPrometheusManager for Local Daemon %s is already running.", m.nodeId)
+		return ErrLocalDaemonPrometheusManagerAlreadyRunning
 	}
 
 	if !m.metricsInitialized {
@@ -87,28 +88,28 @@ func (m *PrometheusManager) Start() error {
 	return nil
 }
 
-// IsRunning returns true if the PrometheusManager has been started and is serving metrics.
-func (m *PrometheusManager) IsRunning() bool {
+// IsRunning returns true if the LocalDaemonPrometheusManager has been started and is serving metrics.
+func (m *LocalDaemonPrometheusManager) IsRunning() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return m.isRunningUnsafe()
 }
 
-// isRunningUnsafe returns true if the PrometheusManager has been started and is serving metrics.
+// isRunningUnsafe returns true if the LocalDaemonPrometheusManager has been started and is serving metrics.
 // This does not acquire the mutex and is intended for file-internal use only.
-func (m *PrometheusManager) isRunningUnsafe() bool {
+func (m *LocalDaemonPrometheusManager) isRunningUnsafe() bool {
 	return m.serving
 }
 
-// Stop instructs the PrometheusManager to shutdown its HTTP server.
-func (m *PrometheusManager) Stop() error {
+// Stop instructs the LocalDaemonPrometheusManager to shutdown its HTTP server.
+func (m *LocalDaemonPrometheusManager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if !m.isRunningUnsafe() /* we already have the lock */ {
-		m.log.Warn("PrometheusManager for Local Daemon %s is already running.", m.nodeId)
-		return ErrPrometheusManagerNotRunning
+		m.log.Warn("LocalDaemonPrometheusManager for Local Daemon %s is already running.", m.nodeId)
+		return ErrLocalDaemonPrometheusManagerNotRunning
 	}
 
 	m.serving = false
@@ -124,7 +125,7 @@ func (m *PrometheusManager) Stop() error {
 }
 
 // InitMetrics creates a Prometheus endpoint and
-func (m *PrometheusManager) initMetrics() error {
+func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	nodeId := strings.ReplaceAll(m.nodeId, "-", "_")
 
 	m.IdleGpuGuage = prometheus.NewGauge(prometheus.GaugeOpts{
@@ -175,11 +176,11 @@ func (m *PrometheusManager) initMetrics() error {
 	return nil
 }
 
-func (m *PrometheusManager) HandleRequest(c *gin.Context) {
+func (m *LocalDaemonPrometheusManager) HandleRequest(c *gin.Context) {
 	m.prometheusHandler.ServeHTTP(c.Writer, c.Request)
 }
 
-func (m *PrometheusManager) initializeHttpServer() {
+func (m *LocalDaemonPrometheusManager) initializeHttpServer() {
 	m.engine = gin.New()
 
 	m.engine.Use(gin.Logger())

@@ -35,10 +35,10 @@ import (
 )
 
 const (
-	// The default port on which the Local Daemon will serve Prometheus metrics.
+	// DefaultPrometheusPort is the default port on which the Local Daemon will serve Prometheus metrics.
 	DefaultPrometheusPort int = 8089
-	// The default interval on which the Local Daemon will push new Prometheus metrics.
-	DefaultPrometheusInterval time.Duration = time.Second * 2
+	// DefaultPrometheusInterval is the default interval on which the Local Daemon will push new Prometheus metrics.
+	DefaultPrometheusInterval = time.Second * 2
 )
 
 var (
@@ -75,7 +75,16 @@ type SchedulerDaemonImpl struct {
 	provisioner proto.ClusterGatewayClient
 
 	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
-	prometheusManager *PrometheusManager
+	prometheusManager *LocalDaemonPrometheusManager
+	// Indicates that a goroutine has been started to publish metrics to Prometheus.
+	servingPrometheus atomic.Int32
+	// prometheusStarted is a sync.WaitGroup used to signal to the metric-publishing goroutine
+	// that it should start publishing metrics now.
+	prometheusStarted sync.WaitGroup
+	// prometheusInterval is how often we publish metrics to Prometheus.
+	prometheusInterval time.Duration
+	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
+	prometheusPort int
 
 	smrPort int
 
@@ -123,16 +132,6 @@ type SchedulerDaemonImpl struct {
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
-
-	// Indicates that a goroutine has been started to publish metrics to Prometheus.
-	servingPrometheus atomic.Int32
-	// prometheusStarted is a sync.WaitGroup used to signal to the metric-publishing goroutine
-	// that it should start publishing metrics now.
-	prometheusStarted sync.WaitGroup
-	// prometheusInterval is how often we publish metrics to Prometheus.
-	prometheusInterval time.Duration
-	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
-	prometheusPort int
 }
 
 type KernelRegistrationPayload struct {
@@ -151,7 +150,7 @@ type KernelRegistrationPayload struct {
 	ConnectionInfo  *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
 }
 
-// Incoming connection from local distributed kernel.
+// KernelRegistrationClient represents an incoming connection from local distributed kernel.
 type KernelRegistrationClient struct {
 	conn net.Conn
 }
@@ -326,7 +325,7 @@ func (d *SchedulerDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayCli
 }
 
 // SetID sets the SchedulerDaemonImpl id by the gateway.
-// This also instructs the Local Daemon to create a PrometheusManager and begin serving metrics.
+// This also instructs the Local Daemon to create a LocalDaemonPrometheusManager and begin serving metrics.
 func (d *SchedulerDaemonImpl) SetID(ctx context.Context, in *proto.HostId) (*proto.HostId, error) {
 	// If id has been set(e.g., restored after restart), return the original id.
 	if d.id != "" {
@@ -345,14 +344,14 @@ func (d *SchedulerDaemonImpl) SetID(ctx context.Context, in *proto.HostId) (*pro
 		_ = d.prometheusManager.Stop()
 		d.prometheusManager.Start()
 	} else {
-		d.prometheusManager = NewPrometheusManager(8089, in.Id)
+		d.prometheusManager = NewLocalDaemonPrometheusManager(8089, in.Id)
 		err := d.prometheusManager.Start()
 		if err != nil {
 			d.log.Error("Failed to start Prometheus Manager because: %v", err)
 			return in, status.Error(codes.Internal, err.Error())
 		}
 
-		// We only call Done if we're creating the PrometheusManager for the first time.
+		// We only call Done if we're creating the LocalDaemonPrometheusManager for the first time.
 		d.prometheusStarted.Done()
 	}
 
