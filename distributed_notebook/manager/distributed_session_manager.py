@@ -20,7 +20,7 @@ class DistributedSessionManager(SessionManager):
         kernel_name: Optional[KernelName] = None,
         kernel_id: Optional[str] = None,
         session_id: Optional[str] = None,
-        resource_spec: Optional[dict[str, int]] = None,
+        resource_spec: Optional[dict[str, float|int]] = None,
     ) -> Dict[str, Any]:
         """Creates a session and returns its model
 
@@ -29,6 +29,13 @@ class DistributedSessionManager(SessionManager):
         name: ModelName(str)
             Usually the model name, like the filename associated with current
             kernel.
+            :param resource_spec:
+            :param session_id:
+            :param kernel_id:
+            :param kernel_name:
+            :param type:
+            :param name:
+            :param path:
         """
         self.log.info("DistributedSessionManager is creating new Session: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, SessionId=%s, ResourceSpec=%s" % (path, name, type, kernel_name, kernel_id, session_id, str(resource_spec)))
        
@@ -66,7 +73,7 @@ class DistributedSessionManager(SessionManager):
         type: Optional[str],
         kernel_name: Optional[KernelName],
         kernel_id: Optional[str] = None, 
-        resource_spec: Optional[dict[str, int]] = None,
+        resource_spec: Optional[dict[str, float|int]] = None,
     ) -> str:
         """Start a new kernel for a given session.
 
@@ -104,7 +111,7 @@ class DistributedSessionManager(SessionManager):
         
         # If the caller didn't specify a particular kernel ID, then that's fine.
         # If they did, then the returned kernel ID should necessarily be equal to whatever was passed by the caller.
-        if kernel_id != None:
+        if kernel_id is not None:
             assert(returned_kernel_id == kernel_id)
         else:
             kernel_id = returned_kernel_id

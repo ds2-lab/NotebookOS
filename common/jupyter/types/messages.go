@@ -22,6 +22,8 @@ const (
 	SuccessNotification NotificationType = 3
 
 	JavascriptISOString = "2006-01-02T15:04:05.999Z07:00"
+
+	MessageTypeACK = "ACK"
 )
 
 type JupyterMessageType string
@@ -218,6 +220,11 @@ func (m *JupyterMessage) SetKeyIfNotSet(key string) {
 // Key returns the key of the JupyterMessage and a boolean indicating whether the returned key is valid.
 func (m *JupyterMessage) Key() (string, bool) {
 	return m.key, m.keySet
+}
+
+// IsAck returns true if this is an ACK message.
+func (m *JupyterMessage) IsAck() bool {
+	return m.JupyterMessageType() == MessageTypeACK
 }
 
 func (m *JupyterMessage) AddDestinationId(destID string) (reqID string, jOffset int) {

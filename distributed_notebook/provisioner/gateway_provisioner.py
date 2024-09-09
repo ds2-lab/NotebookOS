@@ -1,17 +1,15 @@
 import pprint
 import signal
-
-from lib2to3.pgen2.token import OP
-from jupyter_client.provisioning.provisioner_base import KernelProvisionerBase
-from jupyter_client.connect import KernelConnectionInfo
-
 from typing import Any, Dict, List, Optional, Union
 
+import grpc
+from jupyter_client.connect import KernelConnectionInfo
+from jupyter_client.provisioning.provisioner_base import KernelProvisionerBase
 from traitlets.config import Unicode
 
-import grpc
 from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import LocalGatewayStub
+
 
 class GatewayProvisioner(KernelProvisionerBase):
     # The properties read from the config of the kernel spec: "metadata.kernel_provisioner.config"
@@ -25,9 +23,9 @@ class GatewayProvisioner(KernelProvisionerBase):
 
     # Our version of kernel_id
     _kernel_id: Union[str, Unicode] = Unicode(None, allow_none=True)
-    
-    # Allow up to 5 minutes for the kernel to shutdown gracefully, as it may be offloading lots of data before exiting.
-    _kernel_shutdown_wait_time: float = 300.0 
+
+    # Allow up to 5 minutes for the kernel to shut down gracefully, as it may be offloading lots of data before exiting.
+    _kernel_shutdown_wait_time: float = 300.0
 
     @property
     def has_process(self) -> bool:
@@ -160,16 +158,22 @@ class GatewayProvisioner(KernelProvisionerBase):
         This method is called from `KernelManager.launch_kernel()` during the
         kernel manager's start kernel sequence.
         """
-        assert self.parent != None
+        assert self.parent is not None
         self.log.info("launch_kernel[self.parent.session.session: %s]" % str(self.parent.session.session))
-        
+
         if "resource_spec" in kwargs:
-            resource_spec:dict[str,int] = kwargs["resource_spec"]
+            resource_spec: dict[str, float | int] = kwargs["resource_spec"]
             self.log.debug("Received resource spec for kernel %s: %s" % (self.kernel_id, str(kwargs["resource_spec"])))
         else:
-            resource_spec:dict[str,int] = {"cpu": 0, "gpu": 0, "memory": 0}
+            resource_spec: dict[str, float | int] = {"cpu": 0, "gpu": 0, "memory": 0}
             self.log.error("Did not receive a resource spec for kernel %s." % self.kernel_id)
-        
+
+        spec = gateway_pb2.ResourceSpec(
+            cpu=resource_spec.get("cpu", 0),
+            gpu=resource_spec.get("gpu", 0),
+            memory=resource_spec.get("memory", 0)
+        )
+
         try:
             spec = gateway_pb2.KernelSpec(
                 id=self._kernel_id,
@@ -177,7 +181,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                 argv=cmd,
                 signatureScheme=self.parent.session.signature_scheme,
                 key=self.parent.session.key,
-                resourceSpec=resource_spec)
+                resourceSpec=spec)
             connectionInfo = self._get_stub().StartKernel(spec)
             self.launched = True
 
@@ -259,9 +263,10 @@ class GatewayProvisioner(KernelProvisionerBase):
         :meth:`launch_kernel()`.
         """
         self._kernel_id = self.kernel_id
-        
-        self.log.debug("Pre-launching kernel. self.kernel_id=%s, self._kernel_id=%s" % (str(self.kernel_id), str(self._kernel_id)))
-        
+
+        self.log.debug(
+            "Pre-launching kernel. self.kernel_id=%s, self._kernel_id=%s" % (str(self.kernel_id), str(self._kernel_id)))
+
         if "resource_spec" in kwargs:
             self.log.debug("Received resource spec for kernel %s: %s" % (self.kernel_id, str(kwargs["resource_spec"])))
         else:
@@ -271,13 +276,13 @@ class GatewayProvisioner(KernelProvisionerBase):
         return await super().pre_launch(cmd=self.kernel_spec.argv, **kwargs)
 
     async def post_launch(self, **kwargs: Any) -> None:
-      """
-      Perform any steps following the kernel process launch.
-      This method is called from `KernelManager.post_start_kernel()` as part of its
-      start kernel sequence.
-      """
-      self.log.info(f"post_launch called for kernel {self.kernel_id}")
-      pass
+        """
+        Perform any steps following the kernel process launch.
+        This method is called from `KernelManager.post_start_kernel()` as part of its
+        start kernel sequence.
+        """
+        self.log.info(f"post_launch called for kernel {self.kernel_id}")
+        pass
 
     async def get_provisioner_info(self) -> Dict[str, Any]:
         """
@@ -315,9 +320,9 @@ class GatewayProvisioner(KernelProvisionerBase):
         """
         if recommended == None or recommended < self._kernel_shutdown_wait_time:
             recommended = self._kernel_shutdown_wait_time
-            
+
             self.log.debug(f"{type(self).__name__} shutdown wait time adjusted to {recommended} seconds.")
-            
+
         return recommended
 
     def _get_stub(self) -> LocalGatewayStub:

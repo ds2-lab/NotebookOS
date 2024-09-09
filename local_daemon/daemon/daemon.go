@@ -314,10 +314,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	daemon.publishPrometheusMetrics(&goroutineStarted)
 	goroutineStarted.Wait() // Wait for goroutine to start.
 
-	daemon.prometheusManager.SpecGpuGauge.
-		With(prometheus.Labels{"local_daemon_id": daemon.id}).
-		Set(daemon.gpuManager.SpecGPUs().InexactFloat64())
-
 	return daemon
 }
 
@@ -358,6 +354,10 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 			d.log.Error("Failed to start Prometheus Manager because: %v", err)
 			return in, status.Error(codes.Internal, err.Error())
 		}
+
+		d.prometheusManager.SpecGpuGauge.
+			With(prometheus.Labels{"local_daemon_id": d.id}).
+			Set(d.gpuManager.SpecGPUs().InexactFloat64())
 
 		// We only call Done if we're creating the LocalDaemonPrometheusManager for the first time.
 		d.prometheusStarted.Done()
@@ -431,7 +431,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		errorMessage := fmt.Sprintf("Failed to extract remote address from kernel registration connection because: %v", err)
 		d.log.Error(errorMessage)
 		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
-		go d.provisioner.Notify(context.Background(), &proto.Notification{
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
 			Title:            "Failed to Register Kernel.",
 			Message:          errorMessage,
 			NotificationType: 0,
@@ -447,7 +447,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		errorMessage := fmt.Sprintf("Failed to decode registration payload: %v", err)
 		d.log.Error(errorMessage)
 		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
-		go d.provisioner.Notify(context.Background(), &proto.Notification{
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
 			Title:            "Failed to Register Kernel.",
 			Message:          errorMessage,
 			NotificationType: 0,
@@ -522,7 +522,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		if err != nil {
 			errorMessage := fmt.Sprintf("Failed to initialize replica %d of kernel %s because: %v", registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err)
 			d.log.Error(errorMessage)
-			go d.provisioner.Notify(context.Background(), &proto.Notification{
+			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
 				Title:            "Failed to Register Kernel.",
 				Message:          errorMessage,
 				NotificationType: 0,
@@ -727,7 +727,7 @@ func (d *SchedulerDaemonImpl) kernelReconnectionFailed(kernel *client.KernelRepl
 	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.Type, msg.JupyterMessageType(), reconnectionError)
 	d.log.Error(errorMessage)
 
-	go d.provisioner.Notify(context.TODO(), &proto.Notification{
+	go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
 		Title:            "Connection to Kernel Lost & Reconnection Failed",
 		Message:          errorMessage,
 		NotificationType: 0,
@@ -753,7 +753,7 @@ func (d *SchedulerDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(k
 	errorMessage := fmt.Sprintf("Failed to forward \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v", msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID(), resubmissionError)
 	d.log.Error(errorMessage)
 
-	go d.provisioner.Notify(context.TODO(), &proto.Notification{
+	go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
 		Title:            "Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed",
 		Message:          errorMessage,
 		NotificationType: 0,
@@ -1163,14 +1163,14 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	}
 
 	kernelId := in.Kernel.Id
-	d.log.Debug("SchedulerDaemonImpl::StartKernelReplica(\"%s\")", kernelId)
+	d.log.Debug("SchedulerDaemonImpl::StartKernelReplica(\"%s\"). ResourceSpec: %v", kernelId, in.Kernel.ResourceSpec)
 
 	if otherReplica, loaded := d.kernels.Load(kernelId); loaded {
 		d.log.Error("We already have a replica of kernel %s running locally (replica %d). Cannot launch new replica on this node.", kernelId, otherReplica.ReplicaID())
 		return nil, ErrExistingReplicaAlreadyRunning
 	}
 
-	err := d.gpuManager.AllocatePendingGPUs(decimal.NewFromInt(int64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
+	err := d.gpuManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
 	if err != nil {
 		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
 			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, err)

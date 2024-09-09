@@ -116,6 +116,11 @@ func (m *GpuManager) IdleGPUs() decimal.Decimal {
 }
 
 // AdjustSpecGPUs sets the available GPUs to the specified value.
+//
+// Spec GPUs cannot be adjusted to a value < the number of allocated GPUs.
+//
+// For example, if Spec GPUs is currently 8, and 5/8 GPUs are committed, then Spec GPUs cannot be adjusted
+// to a value less than 5.
 func (m *GpuManager) AdjustSpecGPUs(numGpus float64) error {
 	m.Lock()
 	defer m.Unlock()
@@ -124,6 +129,12 @@ func (m *GpuManager) AdjustSpecGPUs(numGpus float64) error {
 	if numGpusDecimal.LessThan(m.committedGPUs) {
 		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s", ErrIllegalGpuAdjustment, m.committedGPUs.StringFixed(0), numGpusDecimal.StringFixed(0))
 	}
+
+	oldSpecGPUs := m.specGPUs.Copy()
+	m.specGPUs = numGpusDecimal
+	m.log.Debug("Adjusted Spec GPUs from %s to %s.", oldSpecGPUs.StringFixed(0), m.specGPUs.StringFixed(0))
+
+	return nil
 }
 
 // CommittedGPUs returns the number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
@@ -251,18 +262,23 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 	m.pendingAllocKernelReplicaMap.Store(key, allocation)
 	m.pendingAllocIdMap.Store(allocation.id, allocation)
 
-	m.log.Debug("Allocated %s pending GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
+	pending := m.pendingGPUs.InexactFloat64()
+	idle := m.idleGPUs.InexactFloat64()
+	m.log.Debug("Allocated %s pending GPU(s) to replica %d of kernel %s. Idle GPUs: %s. Pending GPUs: %d",
+		numGPUs.StringFixed(0), replicaId, kernelId, idle, pending)
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
+	m.resourceMetricsCallback(idle, pending, m.committedGPUs.InexactFloat64())
 
 	return nil
 }
 
-// ReleaseAllocatedGPUs demotes an existing, non-pending GPU allocation to a pending GPU allocation for the specified kernel replica.
+// ReleaseAllocatedGPUs demotes an existing, non-pending GPU allocation to a pending GPU allocation for
+// the specified kernel replica.
 //
 // Returns nil on success.
-// Returns ErrAllocationNotFound if there is no "actual" GPU allocation (as opposed to a "pending" GPU allocation) for the specified kernel replica.
+// Returns ErrAllocationNotFound if there is no "actual" GPU allocation (as opposed to a "pending" GPU allocation)
+// for the specified kernel replica.
 //
 // NOTE: This function will acquire the mutex; the mutex should not be held when this function is called.
 func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) error {
@@ -293,7 +309,10 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 	m.pendingAllocKernelReplicaMap.Store(key, allocation)
 	m.pendingAllocIdMap.Store(allocation.id, allocation)
 
-	m.log.Debug("Deallocated %s committed GPU(s) from replica %d of kernel %s.", allocation.numGPUs.StringFixed(0), replicaId, kernelId)
+	pending := m.pendingGPUs.InexactFloat64()
+	idle := m.idleGPUs.InexactFloat64()
+	m.log.Debug("Deallocated %s committed GPU(s) from replica %d of kernel %s. Idle GPUs: %s. Pending GPUs: %d",
+		allocation.numGPUs.StringFixed(0), replicaId, kernelId, idle, pending)
 
 	// Now, release the pending GPUs.
 	// This will increment the number of idle GPUs available.

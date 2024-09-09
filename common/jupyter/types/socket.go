@@ -104,7 +104,7 @@ type Socket struct {
 	mu               sync.Mutex                                      // Synchronizes access to the underlying ZMQ socket, only for sends.
 }
 
-// Create a new Socket, without specifying the message handler.
+// NewSocket creates a new Socket, without specifying the message handler.
 func NewSocket(socket zmq4.Socket, port int, typ MessageType, name string) *Socket {
 	return &Socket{
 		Socket:          socket,
@@ -116,7 +116,7 @@ func NewSocket(socket zmq4.Socket, port int, typ MessageType, name string) *Sock
 	}
 }
 
-// Create a new Socket, without specifying the message handler.
+// NewSocketWithRemoteName creates a new Socket, without specifying the message handler.
 func NewSocketWithRemoteName(socket zmq4.Socket, port int, typ MessageType, name string, remoteName string) *Socket {
 	return &Socket{
 		Socket:          socket,
@@ -128,7 +128,7 @@ func NewSocketWithRemoteName(socket zmq4.Socket, port int, typ MessageType, name
 	}
 }
 
-// Create a new Socket with a message handler specified at creation time.
+// NewSocketWithHandler creates a new Socket with a message handler specified at creation time.
 func NewSocketWithHandler(socket zmq4.Socket, port int, typ MessageType, name string, handler MessageHandler) *Socket {
 	return &Socket{
 		Socket:          socket,
@@ -141,7 +141,7 @@ func NewSocketWithHandler(socket zmq4.Socket, port int, typ MessageType, name st
 	}
 }
 
-// Create a new Socket with a message handler specified at creation time.
+// NewSocketWithHandlerAndRemoteName creates a new Socket with a message handler specified at creation time.
 func NewSocketWithHandlerAndRemoteName(socket zmq4.Socket, port int, typ MessageType, name string, remoteName string, handler MessageHandler) *Socket {
 	return &Socket{
 		Socket:          socket,

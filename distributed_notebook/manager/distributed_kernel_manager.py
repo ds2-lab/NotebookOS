@@ -30,7 +30,7 @@ class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
         
         # If the caller didn't specify a particular kernel ID, then that's fine.
         # If they did, then the returned kernel ID should necessarily be equal to whatever was passed by the caller.
-        assert kernel_id == "" or kernel_id == None or kernel_id == returned_kernel_id
+        assert kernel_id == "" or kernel_id is None or kernel_id == returned_kernel_id
         
         self.log.info(f"Started kernel {returned_kernel_id}. Number of kernels: {len(self._kernels)}.")
         self.log.info(f"Kernels: {str(self._kernels.keys())}")
