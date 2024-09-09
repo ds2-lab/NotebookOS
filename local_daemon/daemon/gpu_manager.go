@@ -14,6 +14,7 @@ import (
 )
 
 var (
+	ErrIllegalGpuAdjustment        = errors.New("requested gpu adjustment is illegal")
 	ErrInsufficientGPUs            = errors.New("there are insufficient GPUs available to satisfy the allocation request")
 	ErrAllocationNotFound          = errors.New("could not find the requested GPU allocation")
 	ErrAllocationPartiallyNotFound = errors.New("the requested GPU allocation was found only in one of the various internal mappings (rather than within all of the mappings)")
@@ -24,7 +25,7 @@ var (
 
 // resourceMetricsCallback is a callback function that is supposed to be triggered whenever resources
 // are allocated or deallocated so that the associated Prometheus metrics can be updated accordingly.
-type resourceMetricsCallback func()
+type resourceMetricsCallback func(idleGpus float64, pendingGpus float64, committedGpus float64)
 
 // gpuAllocation represents an allocation of GPU resources to a particular replica.
 type gpuAllocation struct {
@@ -112,6 +113,17 @@ func (m *GpuManager) IdleGPUs() decimal.Decimal {
 	defer m.Unlock()
 
 	return m.idleGPUs
+}
+
+// AdjustSpecGPUs sets the available GPUs to the specified value.
+func (m *GpuManager) AdjustSpecGPUs(numGpus float64) error {
+	m.Lock()
+	defer m.Unlock()
+
+	numGpusDecimal := decimal.NewFromFloat(numGpus)
+	if numGpusDecimal.LessThan(m.committedGPUs) {
+		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s", ErrIllegalGpuAdjustment, m.committedGPUs.StringFixed(0), numGpusDecimal.StringFixed(0))
+	}
 }
 
 // CommittedGPUs returns the number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
@@ -205,7 +217,7 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 	m.log.Debug("Allocated %s committed GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback()
+	m.resourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
 
 	return nil
 }
@@ -242,7 +254,7 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 	m.log.Debug("Allocated %s pending GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback()
+	m.resourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
 
 	return nil
 }
@@ -301,7 +313,7 @@ func (m *GpuManager) __unsafeReleasePendingGPUs(replicaId int32, kernelId string
 	}
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback()
+	m.resourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
 
 	return nil
 }
@@ -335,7 +347,7 @@ func (m *GpuManager) __unsafeTryDeallocatePendingGPUs(replicaId int32, kernelId 
 		m.log.Debug("Deallocated %s pending GPU(s) from replica %d of kernel %s.", pendingAllocation.numGPUs.StringFixed(0), replicaId, kernelId)
 
 		// Update Prometheus metrics.
-		m.resourceMetricsCallback()
+		m.resourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
 
 		return pendingAllocation, true
 	} else {

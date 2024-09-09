@@ -314,6 +314,10 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	daemon.publishPrometheusMetrics(&goroutineStarted)
 	goroutineStarted.Wait() // Wait for goroutine to start.
 
+	daemon.prometheusManager.SpecGpuGauge.
+		With(prometheus.Labels{"local_daemon_id": daemon.id}).
+		Set(daemon.gpuManager.SpecGPUs().InexactFloat64())
+
 	return daemon
 }
 
@@ -396,19 +400,16 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 
 // updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
 // updatePrometheusResourceMetrics is used as a callback by the GPU/Resource Manager.
-func (d *SchedulerDaemonImpl) updatePrometheusResourceMetrics() {
+func (d *SchedulerDaemonImpl) updatePrometheusResourceMetrics(idleGpus float64, pendingGpus float64, committedGpus float64) {
 	d.prometheusManager.IdleGpuGauge.
 		With(prometheus.Labels{"local_daemon_id": d.id}).
-		Set(d.gpuManager.IdleGPUs().InexactFloat64())
+		Set(idleGpus)
 	d.prometheusManager.PendingGpuGauge.
 		With(prometheus.Labels{"local_daemon_id": d.id}).
-		Set(d.gpuManager.PendingGPUs().InexactFloat64())
+		Set(pendingGpus)
 	d.prometheusManager.CommittedGpuGauge.
 		With(prometheus.Labels{"local_daemon_id": d.id}).
-		Set(d.gpuManager.CommittedGPUs().InexactFloat64())
-	d.prometheusManager.SpecGpuGauge.
-		With(prometheus.Labels{"local_daemon_id": d.id}).
-		Set(d.gpuManager.SpecGPUs().InexactFloat64())
+		Set(committedGpus)
 }
 
 // StartKernel starts a single kernel.
@@ -1703,8 +1704,37 @@ func (d *SchedulerDaemonImpl) GetVirtualGpuInfo(_ context.Context, _ *proto.Void
 // This operation will fail if the new number of virtual GPUs is less than the number of allocated GPUs.
 // For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
 // this function is called with the new total number specified as 32, then the operation will fail.
-// In this case (when the operation fails), an domain.ErrInvalidParameter is returned.
+// In this case (when the operation fails), a domain.ErrInvalidParameter is returned.
 func (d *SchedulerDaemonImpl) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
+	if d.KubernetesMode() {
+		return d.setTotalVirtualGPUsKubernetes(ctx, in)
+	} else {
+		return d.setTotalVirtualGPUsDocker(in)
+	}
+}
+
+// setTotalVirtualGPUsKubernetes is used to change the vGPUs available on this node when running in Docker mode.
+func (d *SchedulerDaemonImpl) setTotalVirtualGPUsDocker(in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
+	err := d.gpuManager.AdjustSpecGPUs(float64(in.GetValue()))
+	if err != nil {
+		response := &proto.VirtualGpuInfo{
+			TotalVirtualGPUs:     int32(d.gpuManager.SpecGPUs().InexactFloat64()),
+			AllocatedVirtualGPUs: int32(d.gpuManager.CommittedGPUs().InexactFloat64()),
+			FreeVirtualGPUs:      int32(d.gpuManager.IdleGPUs().InexactFloat64()),
+		}
+		return response, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	response := &proto.VirtualGpuInfo{
+		TotalVirtualGPUs:     int32(d.gpuManager.SpecGPUs().InexactFloat64()),
+		AllocatedVirtualGPUs: int32(d.gpuManager.CommittedGPUs().InexactFloat64()),
+		FreeVirtualGPUs:      int32(d.gpuManager.IdleGPUs().InexactFloat64()),
+	}
+	return response, nil
+}
+
+// setTotalVirtualGPUsKubernetes is used to change the vGPUs available on this node when running in Kubernetes mode.
+func (d *SchedulerDaemonImpl) setTotalVirtualGPUsKubernetes(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
 	newNumVirtualGPUs := in.GetValue()
 	if newNumVirtualGPUs < int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()) {
 		response := &proto.VirtualGpuInfo{
@@ -1928,7 +1958,7 @@ func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames
 		d.log.Error("Error report specifies kernel %s, but our records indicate that the report originated from kernel %s...", errorReport.KernelId, kernel.ID())
 	}
 
-	go d.provisioner.Notify(context.TODO(), &proto.Notification{
+	go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
 		Title:            errorReport.ErrorTitle,
 		Message:          errorReport.ErrorMessage,
 		NotificationType: 0,
@@ -1936,6 +1966,18 @@ func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames
 	})
 
 	return nil
+}
+
+// notifyClusterGatewayOfError calls the Cluster Gateway's 'Notify' gRPC method.
+// This is used to report errors to the Gateway.
+// In general, this is done so that the errors can then be
+// pushed to the frontend UI to inform the user.
+func (d *SchedulerDaemonImpl) notifyClusterGatewayOfError(ctx context.Context, notification *proto.Notification) {
+	_, err := d.provisioner.Notify(ctx, notification)
+
+	if err != nil {
+		d.log.Error("Failed to notify Cluster Gateway of error because: %v", err)
+	}
 }
 
 func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames jupyter.JupyterFrames, _ *jupyter.JupyterMessage) error {

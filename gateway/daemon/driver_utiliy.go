@@ -98,10 +98,6 @@ func GetGrpcOptions(identity string, tracer opentracing.Tracer, distributedClust
 	return gOpts
 }
 
-func CreateComponents() {
-
-}
-
 func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOptions, done *sync.WaitGroup, finalize GatewayFinalizer, sig chan os.Signal) (*ClusterGatewayImpl, *DistributedCluster) {
 	if done == nil {
 		panic("The provided sync.WaitGroup cannot be nil.")
@@ -164,11 +160,11 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 		registrar.Stop()
 		provisioner.Stop()
 		distributedClusterRpcServer.Stop()
-		distributedCluster.Close()
-		srv.Close()
-		lisHost.Close()
-		lis.Close()
-		distributedClusterServiceListener.Close()
+		_ = distributedCluster.Close()
+		_ = srv.Close()
+		_ = lisHost.Close()
+		_ = lis.Close()
+		_ = distributedClusterServiceListener.Close()
 
 		done.Done()
 	}()
