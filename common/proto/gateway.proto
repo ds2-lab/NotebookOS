@@ -566,7 +566,7 @@ message KernelId {
   optional string persistentId = 3;
 }
 
-// The paramters for migration
+// The parameters for migration
 message ReplicaInfo {
   string kernelId = 1;
   int32 replicaId = 2;

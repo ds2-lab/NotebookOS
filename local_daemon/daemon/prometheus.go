@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 
 	"github.com/gin-gonic/contrib/cors"
@@ -37,10 +36,13 @@ type LocalDaemonPrometheusManager struct {
 	httpServer         *http.Server
 	prometheusHandler  http.Handler
 
-	SpecGpuGuage      prometheus.Gauge
-	CommittedGpuGauge prometheus.Gauge
-	PendingGpuGuage   prometheus.Gauge
-	IdleGpuGuage      prometheus.Gauge
+	SpecGpuGauge      *prometheus.GaugeVec
+	CommittedGpuGauge *prometheus.GaugeVec
+	PendingGpuGauge   *prometheus.GaugeVec
+	IdleGpuGauge      *prometheus.GaugeVec
+
+	// NumReplicasGauge is a Prometheus Gauge Vector for how many replicas are scheduled on a particular Local Daemon.
+	NumReplicasGauge *prometheus.GaugeVec
 }
 
 func NewLocalDaemonPrometheusManager(port int, nodeId string) *LocalDaemonPrometheusManager {
@@ -102,7 +104,7 @@ func (m *LocalDaemonPrometheusManager) isRunningUnsafe() bool {
 	return m.serving
 }
 
-// Stop instructs the LocalDaemonPrometheusManager to shutdown its HTTP server.
+// Stop instructs the LocalDaemonPrometheusManager to shut down its HTTP server.
 func (m *LocalDaemonPrometheusManager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -126,38 +128,42 @@ func (m *LocalDaemonPrometheusManager) Stop() error {
 
 // InitMetrics creates a Prometheus endpoint and
 func (m *LocalDaemonPrometheusManager) initMetrics() error {
-	nodeId := strings.ReplaceAll(m.nodeId, "-", "_")
-
-	m.IdleGpuGuage = prometheus.NewGauge(prometheus.GaugeOpts{
+	m.IdleGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
-		Name:      fmt.Sprintf("ld_%s_idle_gpus", nodeId),
+		Name:      "idle_gpus",
 		Help:      fmt.Sprintf("Idle GPUs available on Local Daemon %s", m.nodeId),
-	})
+	}, []string{"local_daemon_id"})
 
-	m.SpecGpuGuage = prometheus.NewGauge(prometheus.GaugeOpts{
+	m.SpecGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
-		Name:      fmt.Sprintf("ld_%s_spec_gpus", nodeId),
+		Name:      "spec_gpus",
 		Help:      fmt.Sprintf("Total GPUs available for use on Local Daemon %s", m.nodeId),
-	})
+	}, []string{"local_daemon_id"})
 
-	m.CommittedGpuGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+	m.CommittedGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
-		Name:      fmt.Sprintf("ld_%s_committed_gpus", nodeId),
+		Name:      "committed_gpus",
 		Help:      fmt.Sprintf("Allocated/committed GPUs on Local Daemon %s", m.nodeId),
-	})
+	}, []string{"local_daemon_id"})
 
-	m.PendingGpuGuage = prometheus.NewGauge(prometheus.GaugeOpts{
+	m.PendingGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
-		Name:      fmt.Sprintf("ld_%s_pending_gpus", nodeId),
+		Name:      "pending_gpus",
 		Help:      fmt.Sprintf("Pending GPUs on Local Daemon %s", m.nodeId),
-	})
+	}, []string{"local_daemon_id"})
 
-	if err := prometheus.Register(m.IdleGpuGuage); err != nil {
+	m.NumReplicasGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "num_replicas",
+		Help:      fmt.Sprintf("Number of kernel replicas scheduled on Local Daemon %s", m.nodeId),
+	}, []string{"local_daemon_id"})
+
+	if err := prometheus.Register(m.IdleGpuGauge); err != nil {
 		m.log.Error("Failed to register Idle GPUs metric because: %v", err)
 		return err
 	}
 
-	if err := prometheus.Register(m.SpecGpuGuage); err != nil {
+	if err := prometheus.Register(m.SpecGpuGauge); err != nil {
 		m.log.Error("Failed to register Spec GPUs metric because: %v", err)
 		return err
 	}
@@ -167,7 +173,7 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 		return err
 	}
 
-	if err := prometheus.Register(m.PendingGpuGuage); err != nil {
+	if err := prometheus.Register(m.PendingGpuGauge); err != nil {
 		m.log.Error("Failed to register Pending GPUs metric because: %v", err)
 		return err
 	}

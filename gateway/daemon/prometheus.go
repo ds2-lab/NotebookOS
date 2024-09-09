@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"go.uber.org/zap"
 	"net/http"
-	"path"
 	"sync"
 
 	"github.com/gin-gonic/contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
@@ -38,6 +37,15 @@ type GatewayPrometheusManager struct {
 	httpServer         *http.Server
 	prometheusHandler  http.Handler
 
+	// NumActiveKernels is the number of actively-running kernels.
+	NumActiveKernels prometheus.Gauge
+
+	// TotalNumKernels is the total number of kernels that have been created, including kernels that have since stopped.
+	TotalNumKernels prometheus.Counter
+
+	// NumTrainingEventsCompleted is the number of training events that have completed successfully.
+	NumTrainingEventsCompleted prometheus.Counter
+
 	gatewayDaemon *ClusterGatewayImpl
 }
 
@@ -47,6 +55,7 @@ func NewGatewayPrometheusManager(port int, gatewayDaemon *ClusterGatewayImpl) *G
 		prometheusHandler: promhttp.Handler(),
 		nodeId:            gatewayDaemon.id,
 		gatewayDaemon:     gatewayDaemon,
+		serving:           false,
 	}
 	config.InitLogger(&manager.log, manager)
 	return manager
@@ -76,6 +85,7 @@ func (m *GatewayPrometheusManager) Start() error {
 		return ErrGatewayPrometheusManagerAlreadyRunning
 	}
 
+	m.serving = true
 	if !m.metricsInitialized {
 		err := m.initMetrics()
 		if err != nil {
@@ -125,14 +135,30 @@ func (m *GatewayPrometheusManager) Stop() error {
 
 // InitMetrics creates a Prometheus endpoint and
 func (m *GatewayPrometheusManager) initMetrics() error {
+	m.NumActiveKernels = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "num_active_kernels",
+		Help:      "Number of actively-running kernels within the cluster",
+	})
+	m.TotalNumKernels = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "total_num_kernels",
+		Help:      "Total number of kernels to have ever been created within the cluster",
+	})
+	m.NumTrainingEventsCompleted = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "num_training_events_completed",
+		Help:      "The number of training events that have completed successfully",
+	})
+
 	m.metricsInitialized = true
 	return nil
 }
 
 // HandleVariablesRequest handles query requests from Grafana for variables that are required to create Dashboards.
 func (m *GatewayPrometheusManager) HandleVariablesRequest(c *gin.Context) {
-	variable := path.Base(c.Request.RequestURI)
-	m.log.Debug("Received query for variable.", zap.String("variable", variable))
+	variable := c.Param("variable_name")
+	m.log.Debug("Received query for variable: \"%s\"", variable)
 
 	response := make(map[string]interface{})
 	switch variable {
@@ -146,6 +172,8 @@ func (m *GatewayPrometheusManager) HandleVariablesRequest(c *gin.Context) {
 				return
 			}
 			response["num_nodes"] = len(resp.HostIds)
+			m.log.Debug("Returning number of nodes: %d", len(resp.HostIds))
+			break
 		}
 	case "local_daemon_ids":
 		{
@@ -157,10 +185,12 @@ func (m *GatewayPrometheusManager) HandleVariablesRequest(c *gin.Context) {
 				return
 			}
 			response["local_daemon_ids"] = resp.HostIds
+			m.log.Debug("Returning Local Daemon host IDs: %v", resp.HostIds)
+			break
 		}
 	case "default":
 		{
-			m.log.Error("Received variable query for unknown variable.", zap.String("variable", variable))
+			m.log.Error("Received variable query for unknown variable \"%s\".", variable)
 			_ = c.AbortWithError(http.StatusBadRequest, fmt.Errorf("unknown or unsupported variable: \"%s\"", variable))
 			return
 		}
@@ -179,7 +209,7 @@ func (m *GatewayPrometheusManager) initializeHttpServer() {
 	m.engine.Use(gin.Logger())
 	m.engine.Use(cors.Default())
 
-	m.engine.GET("/variables", m.HandleVariablesRequest)
+	m.engine.GET("/variables/:variable_name", m.HandleVariablesRequest)
 	m.engine.GET("/prometheus", m.HandleRequest)
 
 	address := fmt.Sprintf("0.0.0.0:%d", m.port)

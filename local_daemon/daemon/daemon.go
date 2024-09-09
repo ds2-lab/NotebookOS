@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"net"
 	"os"
@@ -170,7 +171,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		cleaned:                      make(chan struct{}),
 		kernelRegistryPort:           kernelRegistryPort,
 		smrPort:                      schedulerDaemonOptions.SMRPort,
-		gpuManager:                   NewGpuManager(schedulerDaemonOptions.NumGPUs),
 		virtualGpuPluginServer:       virtualGpuPluginServer,
 		deploymentMode:               types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
 		hdfsNameNodeEndpoint:         schedulerDaemonOptions.HdfsNameNodeEndpoint,
@@ -179,11 +179,12 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		prometheusInterval:           time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
 		prometheusPort:               schedulerDaemonOptions.PrometheusPort,
 	}
-	for _, config := range configs {
-		config(daemon)
+	for _, configFunc := range configs {
+		configFunc(daemon)
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
+	daemon.gpuManager = NewGpuManager(schedulerDaemonOptions.NumGPUs, daemon.updatePrometheusResourceMetrics)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -326,7 +327,7 @@ func (d *SchedulerDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayCli
 
 // SetID sets the SchedulerDaemonImpl id by the gateway.
 // This also instructs the Local Daemon to create a LocalDaemonPrometheusManager and begin serving metrics.
-func (d *SchedulerDaemonImpl) SetID(ctx context.Context, in *proto.HostId) (*proto.HostId, error) {
+func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto.HostId, error) {
 	// If id has been set(e.g., restored after restart), return the original id.
 	if d.id != "" {
 		return &proto.HostId{
@@ -342,7 +343,10 @@ func (d *SchedulerDaemonImpl) SetID(ctx context.Context, in *proto.HostId) (*pro
 
 	if d.prometheusManager != nil {
 		_ = d.prometheusManager.Stop()
-		d.prometheusManager.Start()
+		if err := d.prometheusManager.Start(); err != nil {
+			d.log.Error("Failed to start Prometheus Manager because: %v", err)
+			return nil, status.Error(codes.Internal, err.Error())
+		}
 	} else {
 		d.prometheusManager = NewLocalDaemonPrometheusManager(8089, in.Id)
 		err := d.prometheusManager.Start()
@@ -374,12 +378,37 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 		for {
 			time.Sleep(d.prometheusInterval)
 
-			d.prometheusManager.IdleGpuGuage.Set(d.gpuManager.IdleGPUs().InexactFloat64())
-			d.prometheusManager.PendingGpuGuage.Set(d.gpuManager.PendingGPUs().InexactFloat64())
-			d.prometheusManager.CommittedGpuGauge.Set(d.gpuManager.CommittedGPUs().InexactFloat64())
-			d.prometheusManager.SpecGpuGuage.Set(d.gpuManager.SpecGPUs().InexactFloat64())
+			d.prometheusManager.IdleGpuGauge.
+				With(prometheus.Labels{"local_daemon_id": d.id}).
+				Set(d.gpuManager.IdleGPUs().InexactFloat64())
+			d.prometheusManager.PendingGpuGauge.
+				With(prometheus.Labels{"local_daemon_id": d.id}).
+				Set(d.gpuManager.PendingGPUs().InexactFloat64())
+			d.prometheusManager.CommittedGpuGauge.
+				With(prometheus.Labels{"local_daemon_id": d.id}).
+				Set(d.gpuManager.CommittedGPUs().InexactFloat64())
+			d.prometheusManager.SpecGpuGauge.
+				With(prometheus.Labels{"local_daemon_id": d.id}).
+				Set(d.gpuManager.SpecGPUs().InexactFloat64())
 		}
 	}()
+}
+
+// updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
+// updatePrometheusResourceMetrics is used as a callback by the GPU/Resource Manager.
+func (d *SchedulerDaemonImpl) updatePrometheusResourceMetrics() {
+	d.prometheusManager.IdleGpuGauge.
+		With(prometheus.Labels{"local_daemon_id": d.id}).
+		Set(d.gpuManager.IdleGPUs().InexactFloat64())
+	d.prometheusManager.PendingGpuGauge.
+		With(prometheus.Labels{"local_daemon_id": d.id}).
+		Set(d.gpuManager.PendingGPUs().InexactFloat64())
+	d.prometheusManager.CommittedGpuGauge.
+		With(prometheus.Labels{"local_daemon_id": d.id}).
+		Set(d.gpuManager.CommittedGPUs().InexactFloat64())
+	d.prometheusManager.SpecGpuGauge.
+		With(prometheus.Labels{"local_daemon_id": d.id}).
+		Set(d.gpuManager.SpecGPUs().InexactFloat64())
 }
 
 // StartKernel starts a single kernel.
@@ -396,10 +425,17 @@ func (d *SchedulerDaemonImpl) StartKernel(ctx context.Context, in *proto.KernelS
 func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelRegistrationClient *KernelRegistrationClient) {
 	d.log.Debug("Registering Kernel at (remote) address %v", kernelRegistrationClient.conn.RemoteAddr())
 
-	remote_ip, _, err := net.SplitHostPort(kernelRegistrationClient.conn.RemoteAddr().String())
+	remoteIp, _, err := net.SplitHostPort(kernelRegistrationClient.conn.RemoteAddr().String())
 	if err != nil {
-		d.log.Error("Failed to extract remote address from kernel registration connection: %v", err)
+		errorMessage := fmt.Sprintf("Failed to extract remote address from kernel registration connection because: %v", err)
+		d.log.Error(errorMessage)
 		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
+		go d.provisioner.Notify(context.Background(), &proto.Notification{
+			Title:            "Failed to Register Kernel.",
+			Message:          errorMessage,
+			NotificationType: 0,
+			Panicked:         false,
+		})
 		return
 	}
 
@@ -407,8 +443,15 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
 	err = jsonDecoder.Decode(&registrationPayload)
 	if err != nil {
-		d.log.Error("Failed to decode registration payload: %v", err)
+		errorMessage := fmt.Sprintf("Failed to decode registration payload: %v", err)
+		d.log.Error(errorMessage)
 		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
+		go d.provisioner.Notify(context.Background(), &proto.Notification{
+			Title:            "Failed to Register Kernel.",
+			Message:          errorMessage,
+			NotificationType: 0,
+			Panicked:         false,
+		})
 		return
 	}
 
@@ -419,7 +462,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		connInfo = registrationPayload.ConnectionInfo
 	} else {
 		connInfo = &jupyter.ConnectionInfo{
-			IP:              remote_ip,
+			IP:              remoteIp,
 			Transport:       "tcp",
 			ControlPort:     d.connectionOptions.ControlPort,
 			ShellPort:       d.connectionOptions.ShellPort,
@@ -433,7 +476,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	}
 
 	if connInfo == nil {
-		panic(fmt.Sprintf("Connection info sent to us by kernel at %s is nil.", remote_ip))
+		panic(fmt.Sprintf("Connection info sent to us by kernel at %s is nil.", remoteIp))
 	}
 	d.log.Debug("connInfo: %v", connInfo)
 
@@ -469,14 +512,21 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			UsingWSL:             d.usingWSL,
 		}
 
-		invoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts)
-		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, invoker)
+		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts)
+		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
 		kernel = client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 		kernelConnectionInfo, err = d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
 		if err != nil {
-			d.log.Error("Failed to initialize replica %d of kernel %s.", registrationPayload.ReplicaId, registrationPayload.Kernel.Id)
+			errorMessage := fmt.Sprintf("Failed to initialize replica %d of kernel %s because: %v", registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err)
+			d.log.Error(errorMessage)
+			go d.provisioner.Notify(context.Background(), &proto.Notification{
+				Title:            "Failed to Register Kernel.",
+				Message:          errorMessage,
+				NotificationType: 0,
+				Panicked:         false,
+			})
 			// TODO: Handle this more gracefully.
 			return
 		}
@@ -549,11 +599,11 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		Ip:              d.ip,
 		Transport:       d.transport,
 		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
-		ShellPort:       int32(kernelConnectionInfo.ShellPort),
+		ShellPort:       kernelConnectionInfo.ShellPort,
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(kernelConnectionInfo.IopubPort), // TODO(Ben): Are these still needed? I think so...
-		IosubPort:       int32(kernelConnectionInfo.IosubPort), // TODO(Ben): Are these still needed? I think so...
+		IopubPort:       kernelConnectionInfo.IopubPort, // TODO(Ben): Are these still needed? I think so...
+		IosubPort:       kernelConnectionInfo.IosubPort, // TODO(Ben): Are these still needed? I think so...
 		SignatureScheme: connInfo.SignatureScheme,
 		Key:             connInfo.Key,
 	}
@@ -564,7 +614,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		SessionId:      "N/A",
 		ReplicaId:      registrationPayload.ReplicaId,
 		HostId:         d.id,
-		KernelIp:       remote_ip,
+		KernelIp:       remoteIp,
 		PodName:        registrationPayload.PodName,
 		NodeName:       registrationPayload.NodeName,
 		// ResourceSpec:   registrationPayload.ResourceSpec,
@@ -616,7 +666,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 
 	payload := map[string]interface{}{
 		"smr_node_id": response.Id,
-		"hostname":    remote_ip,
+		"hostname":    remoteIp,
 		"replicas":    response.Replicas,
 		"debug_port":  kernelDebugPort,
 	}
@@ -655,6 +705,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	d.log.Debug("Wrote %d bytes back to kernel in response to kernel registration.", bytesWritten)
 
 	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
+	// TODO: Is this still needed?
 	time.Sleep(time.Second * 1)
 }
 
@@ -724,7 +775,7 @@ func (d *SchedulerDaemonImpl) smrReadyCallback(kernelClient *client.KernelReplic
 	}
 }
 
-func (d *SchedulerDaemonImpl) GetActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.GpuInfo, error) {
+func (d *SchedulerDaemonImpl) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.GpuInfo, error) {
 	gpuInfo := &proto.GpuInfo{
 		SpecGPUs:              int32(d.gpuManager.specGPUs.InexactFloat64()),
 		IdleGPUs:              int32(d.gpuManager.idleGPUs.InexactFloat64()),
@@ -741,11 +792,11 @@ func (d *SchedulerDaemonImpl) GetActualGpuInfo(ctx context.Context, in *proto.Vo
 	return gpuInfo, nil
 }
 
-func (d *SchedulerDaemonImpl) PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error) {
+func (d *SchedulerDaemonImpl) PingKernel(_ context.Context, _ *proto.PingInstruction) (*proto.Pong, error) {
 	return nil, domain.ErrNotImplemented
 }
 
-func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *proto.ReplicaInfo) (*proto.PrepareToMigrateResponse, error) {
+func (d *SchedulerDaemonImpl) PrepareToMigrate(_ context.Context, req *proto.ReplicaInfo) (*proto.PrepareToMigrateResponse, error) {
 	kernelId := req.KernelId
 	replicaId := req.ReplicaId
 	d.log.Debug("Preparing to migrate replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
@@ -757,13 +808,17 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *proto.R
 	}
 
 	frames := jupyter.NewJupyterFramesWithHeader(jupyter.MessageTypePrepareToMigrateRequest, kernel.Sessions()[0])
-	frames.EncodeContent(&jupyter.MessageSMRAddOrUpdateReplicaRequest{
+	if err := frames.EncodeContent(&jupyter.MessageSMRAddOrUpdateReplicaRequest{
 		NodeID:  replicaId,
 		Address: kernel.Address(),
-	})
+	}); err != nil {
+		d.log.Error("Failed to encode JupyterFrames for \"MessageSMRAddOrUpdateReplicaRequest\" message because: %v", err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		d.log.Error("Error occurred while signing frames for prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
-		return nil, err
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	d.log.Debug("Sending Jupyter 'prepare-to-migrate' request to replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
@@ -805,7 +860,11 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *proto.R
 		// dataDirectory = respMessage.DataDirectory
 		if respMessage.Status == "error" {
 			var msgErr jupyter.MessageError
-			frames.DecodeBuffers(&msgErr)
+			err := frames.DecodeBuffers(&msgErr)
+			if err != nil {
+				d.log.Error("Failed to decode ErrorMessage from JupyterMessage content: %v", err)
+				return err
+			}
 
 			d.log.Error("Error encountered by kernel %s while it was preparing to migrate: %v", kernel.ID(), msgErr)
 			return fmt.Errorf("ErrPrepareToMigrateFailed (%s) -- %s: %s", msgErr.Status, msgErr.ErrName, msgErr.ErrValue)
@@ -817,7 +876,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *proto.R
 	}, requestWG.Done)
 	if err != nil {
 		d.log.Error("Error occurred while issuing prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
-		return nil, err
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	requestWG.Wait()
@@ -831,7 +890,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(ctx context.Context, req *proto.R
 
 // YieldNextExecution ensures that the next 'execute_request' for the specified kernel fails.
 // This is to be used exclusively for testing/debugging purposes.
-func (d *SchedulerDaemonImpl) YieldNextExecution(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
+func (d *SchedulerDaemonImpl) YieldNextExecution(_ context.Context, in *proto.KernelId) (*proto.Void, error) {
 	kernelId := in.Id
 
 	kernel, ok := d.kernels.Load(kernelId)
@@ -1043,7 +1102,7 @@ func (d *SchedulerDaemonImpl) initializeKernelClient(id string, connInfo *jupyte
 
 	iopub, err := kernel.InitializeIOForwarder()
 	if err != nil {
-		d.log.Error("Failed to initialize IO forwarder (ZMQ IOPUB socket) for kernel %s because: %v", id, err)
+		d.log.Error("Failed to initialize IO forwarder (ZMQ IO Pub socket) for kernel %s because: %v", id, err)
 		d.closeKernel(kernel, "failed initializing io forwarder")
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -1062,8 +1121,8 @@ func (d *SchedulerDaemonImpl) initializeKernelClient(id string, connInfo *jupyte
 	}
 
 	// Handle kernel response.
-	kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
-	kernel.AddIOHandler(jupyter.MessageTypeErrorReport, d.handleErrorReport)
+	_ = kernel.AddIOHandler(jupyter.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
+	_ = kernel.AddIOHandler(jupyter.MessageTypeErrorReport, d.handleErrorReport)
 
 	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager (manager.py).
 	for _, session := range kernel.Sessions() {
@@ -1110,6 +1169,13 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, ErrExistingReplicaAlreadyRunning
 	}
 
+	err := d.gpuManager.AllocatePendingGPUs(decimal.NewFromInt(int64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
+	if err != nil {
+		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
+			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
 	var kernelInvoker invoker.KernelInvoker
 	if d.DockerMode() {
 		invokerOpts := &invoker.DockerInvokerOptions{
@@ -1128,7 +1194,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	}
 
 	// When the kernel registers, we need the kernel client that we create here.
-	// We use this channel to notify the goroutine handling the registration that the kernel client is setup and connected.
+	// We use this channel to notify the goroutine handling the registration that the kernel client is set up and connected.
 	kernelClientCreationChannel := make(chan *proto.KernelConnectionInfo)
 	d.kernelClientCreationChannels.Store(in.Kernel.Id, kernelClientCreationChannel)
 
@@ -1164,7 +1230,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 }
 
 // GetKernelStatus returns the status of a kernel.
-func (d *SchedulerDaemonImpl) GetKernelStatus(ctx context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
+func (d *SchedulerDaemonImpl) GetKernelStatus(_ context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Warn("Kernel %s not found on query status", in.Id)
@@ -1176,7 +1242,7 @@ func (d *SchedulerDaemonImpl) GetKernelStatus(ctx context.Context, in *proto.Ker
 }
 
 // KillKernel kills a kernel.
-func (d *SchedulerDaemonImpl) KillKernel(ctx context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
+func (d *SchedulerDaemonImpl) KillKernel(_ context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
 	d.log.Debug("KillKernel RPC called for kernel %s.", in.Id)
 
 	kernel, ok := d.kernels.Load(in.Id)
@@ -1511,24 +1577,24 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 		err error
 
 		// The number of GPUs required by this kernel replica.
-		requiredGPUs decimal.Decimal
+		//requiredGPUs decimal.Decimal
 	)
 
-	if kernel.ResourceSpec() == nil {
-		d.log.Error("Kernel %s (replica %d) does not have a ResourceSpec associated with it...", kernel.ID(), kernel.ReplicaID())
-		requiredGPUs = ZeroDecimal.Copy()
-	} else {
-		d.log.Debug("Kernel %s requires %d GPU(s).", kernel.ID(), kernel.ResourceSpec().GPU())
-		requiredGPUs = decimal.NewFromFloat(kernel.ResourceSpec().GPU())
-	}
+	//if kernel.ResourceSpec() == nil {
+	//	d.log.Error("Kernel %s (replica %d) does not have a ResourceSpec associated with it...", kernel.ID(), kernel.ReplicaID())
+	//	requiredGPUs = ZeroDecimal.Copy()
+	//} else {
+	//	d.log.Debug("Kernel %s requires %d GPU(s).", kernel.ID(), kernel.ResourceSpec().GPU())
+	//	requiredGPUs = decimal.NewFromFloat(kernel.ResourceSpec().GPU())
+	//}
 
 	// If the error is non-nil, then there weren't enough idle GPUs available.
-	if !differentTargetReplicaSpecified {
-		// Only bother trying to allocate GPUs if the request isn't explicitly targeting another replica.
-		err = d.gpuManager.AllocatePendingGPUs(requiredGPUs, kernel.ReplicaID(), kernel.ID())
-	}
+	//if !differentTargetReplicaSpecified {
+	//	// Only bother trying to allocate GPUs if the request isn't explicitly targeting another replica.
+	//	err = d.gpuManager.AllocatePendingGPUs(requiredGPUs, kernel.ReplicaID(), kernel.ID())
+	//}
 
-	// Include the current number of idle GPUs availabe.
+	// Include the current number of idle GPUs available.
 	idleGPUs := d.gpuManager.IdleGPUs()
 	d.log.Debug("Including idle-gpus (%s) in request metadata.", idleGPUs.StringFixed(0))
 	metadataDict["idle-gpus"] = idleGPUs
@@ -1536,13 +1602,14 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.
 	// - If one of the other replicas was explicitly specified as the target replica, then our replica will need to yield.
-	if err != nil || differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest() {
+	if differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest() { // err != nil ||
 		var reason domain.YieldReason
 		// Log message depends on which condition was true (first).
-		if err != nil {
-			d.log.Debug("Insufficient GPUs available (%s) for replica %d of kernel %s to execute code (%v required).", d.gpuManager.IdleGPUs(), kernel.ReplicaID(), kernel.ID(), 0 /* Placeholder */)
-			reason = domain.YieldInsufficientGPUs
-		} else if differentTargetReplicaSpecified {
+		//if err != nil {
+		//	d.log.Debug("Insufficient GPUs available (%s) for replica %d of kernel %s to execute code (%v required).", d.gpuManager.IdleGPUs(), kernel.ReplicaID(), kernel.ID(), 0 /* Placeholder */)
+		//	reason = domain.YieldInsufficientGPUs
+		//} else
+		if differentTargetReplicaSpecified {
 			d.log.Debug("Replica %d of kernel %s is targeted, while we have replica %d running on this node.", targetReplicaId, kernel.ID(), kernel.ReplicaID() /* Placeholder */)
 			reason = domain.YieldDifferentReplicaTargeted
 		} else if kernel.SupposedToYieldNextExecutionRequest() {
@@ -1572,7 +1639,11 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 
 	// Regenerate the signature.
 	framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(msg.Frames)
-	framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+	_, err = framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
+	if err != nil {
+		d.log.Error("Failed to sign updated JupyterFrames for \"%s\" message because: %v", msg.JupyterMessageType(), err)
+		panic(err)
+	}
 
 	if verified := jupyter.ValidateFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, msg.Offset, msg.Frames); !verified {
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)

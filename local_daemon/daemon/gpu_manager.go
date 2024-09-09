@@ -22,7 +22,11 @@ var (
 	ZeroDecimal = decimal.NewFromFloat(0.0)
 )
 
-// Represents an allocation of GPU resources to a particular replica.
+// resourceMetricsCallback is a callback function that is supposed to be triggered whenever resources
+// are allocated or deallocated so that the associated Prometheus metrics can be updated accordingly.
+type resourceMetricsCallback func()
+
+// gpuAllocation represents an allocation of GPU resources to a particular replica.
 type gpuAllocation struct {
 	id          string          // Unique ID of the allocation.
 	numGPUs     decimal.Decimal // Number of GPUs that were allocated.
@@ -47,7 +51,7 @@ func (a *gpuAllocation) String() string {
 	return fmt.Sprintf("GpuAllocation(ID=%s,NumGPUs=%s,ReplicaID=%d,KernelID=%s,AllocatedAt=%s,Pending=%v)", a.id, a.numGPUs.StringFixed(0), a.replicaId, a.kernelId, a.allocatedAt.String(), a.pending)
 }
 
-// Manages the "actual" GPUs that are allocated to kernel replicas at training-time.
+// GpuManager manages the "actual" GPUs that are allocated to kernel replicas at training-time.
 type GpuManager struct {
 	sync.Mutex
 
@@ -67,10 +71,12 @@ type GpuManager struct {
 	idleGPUs      decimal.Decimal // The number of GPUs that are uncommitted and therefore available on this node. This quantity is equal to specGPUs - committedGPUs.
 	committedGPUs decimal.Decimal // The number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
 	pendingGPUs   decimal.Decimal // GPUs that have been reserved for a replica that may or may not win its election. These cannot be allocated to another replica until the replica in question loses its election.
+
+	resourceMetricsCallback resourceMetricsCallback
 }
 
-// Create and return a new GPU Manager.
-func NewGpuManager(gpus int64) *GpuManager {
+// NewGpuManager creates and return a new GPU Manager.
+func NewGpuManager(gpus int64, resourceMetricsCallback resourceMetricsCallback) *GpuManager {
 	manager := &GpuManager{
 		id:                           uuid.NewString(),
 		allocationIdMap:              hashmap.NewCornelkMap[string, *gpuAllocation](16),
@@ -81,6 +87,7 @@ func NewGpuManager(gpus int64) *GpuManager {
 		idleGPUs:                     decimal.NewFromInt(gpus), // Initially, all GPUs are idle.
 		committedGPUs:                ZeroDecimal.Copy(),       // Initially, there are 0 committed GPUs.
 		pendingGPUs:                  ZeroDecimal.Copy(),       // Initially, there are 0 pending GPUs.
+		resourceMetricsCallback:      resourceMetricsCallback,
 	}
 
 	config.InitLogger(&manager.log, manager)
@@ -90,31 +97,43 @@ func NewGpuManager(gpus int64) *GpuManager {
 	return manager
 }
 
-// The total number of GPUs configured/present on this node.
+// SpecGPUs returns the total number of GPUs configured/present on this node.
 func (m *GpuManager) SpecGPUs() decimal.Decimal {
+	m.Lock()
+	defer m.Unlock()
+
 	return m.specGPUs
 }
 
-// The number of GPUs that are uncommitted and therefore available on this node.
+// IdleGPUs returns the number of GPUs that are uncommitted and therefore available on this node.
 // This quantity is equal to specGPUs - committedGPUs.
 func (m *GpuManager) IdleGPUs() decimal.Decimal {
+	m.Lock()
+	defer m.Unlock()
+
 	return m.idleGPUs
 }
 
-// The number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
+// CommittedGPUs returns the number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
 func (m *GpuManager) CommittedGPUs() decimal.Decimal {
+	m.Lock()
+	defer m.Unlock()
+
 	return m.committedGPUs
 }
 
-// The sum of the outstanding GPUs of all replicas scheduled onto this node.
+// PendingGPUs returns the sum of the outstanding GPUs of all replicas scheduled onto this node.
 // Pending GPUs are not allocated or committed to a particular replica yet.
 // The time at which resources are actually committed to a replica depends upon the policy being used.
 // In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
 func (m *GpuManager) PendingGPUs() decimal.Decimal {
+	m.Lock()
+	defer m.Unlock()
+
 	return m.pendingGPUs
 }
 
-// Return the number of pending GPUs associated with the kernel identified by the given ID.
+// GetPendingGPUsAssociatedWithKernel returns the number of pending GPUs associated with the kernel identified by the given ID.
 func (m *GpuManager) GetPendingGPUsAssociatedWithKernel(replicaId int32, kernelId string) decimal.Decimal {
 	key := m.getKey(replicaId, kernelId)
 	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
@@ -126,7 +145,7 @@ func (m *GpuManager) GetPendingGPUsAssociatedWithKernel(replicaId int32, kernelI
 	return alloc.numGPUs
 }
 
-// Return the number of actual GPUs associated with the kernel identified by the given ID.
+// GetActualGPUsAssociatedWithKernel returns the number of actual GPUs associated with the kernel identified by the given ID.
 func (m *GpuManager) GetActualGPUsAssociatedWithKernel(replicaId int32, kernelId string) decimal.Decimal {
 	key := m.getKey(replicaId, kernelId)
 	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
@@ -138,7 +157,7 @@ func (m *GpuManager) GetActualGPUsAssociatedWithKernel(replicaId int32, kernelId
 	return alloc.numGPUs
 }
 
-// Try to allocate the requested number of GPUs for the specified replica of the specified kernel.
+// AllocateGPUs will try to allocate the requested number of GPUs for the specified replica of the specified kernel.
 // This will upgrade an existing Pending GPU request, if one exists. Otherwise, this will create a new GPU request.
 //
 // Returns:
@@ -185,10 +204,13 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 
 	m.log.Debug("Allocated %s committed GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
 
+	// Update Prometheus metrics.
+	m.resourceMetricsCallback()
+
 	return nil
 }
 
-// Try to allocate the requested number of GPUs for the specified replica of the specified kernel.
+// AllocatePendingGPUs tries to allocate the requested number of GPUs for the specified replica of the specified kernel.
 //
 // Returns:
 // - nil on success.
@@ -219,10 +241,13 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 
 	m.log.Debug("Allocated %s pending GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
 
+	// Update Prometheus metrics.
+	m.resourceMetricsCallback()
+
 	return nil
 }
 
-// Demote an existing, non-pending GPU allocation to a pending GPU allocation for the specified kernel replica.
+// ReleaseAllocatedGPUs demotes an existing, non-pending GPU allocation to a pending GPU allocation for the specified kernel replica.
 //
 // Returns nil on success.
 // Returns ErrAllocationNotFound if there is no "actual" GPU allocation (as opposed to a "pending" GPU allocation) for the specified kernel replica.
@@ -263,7 +288,7 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 	return m.__unsafeReleasePendingGPUs(replicaId, kernelId)
 }
 
-// Returns nil on success.
+// __unsafeReleasePendingGPUs returns nil on success.
 // Returns ErrAllocationNotFound if there is no "actual" GPU allocation (as opposed to a "pending" GPU allocation) for the specified kernel replica.
 //
 // NOTE: This function will acquire the mutex; the mutex should not be held when this function is called.
@@ -275,10 +300,13 @@ func (m *GpuManager) __unsafeReleasePendingGPUs(replicaId int32, kernelId string
 		return ErrAllocationNotFound
 	}
 
+	// Update Prometheus metrics.
+	m.resourceMetricsCallback()
+
 	return nil
 }
 
-// Attempt to release pending GPUs from the specified kernel replica.
+// __unsafeTryDeallocatePendingGPUs attempts to release pending GPUs from the specified kernel replica.
 //
 // If there are no pending GPUs assigned to the specified kernel replica, then this simply returns false.
 // True is returned if we found and deallocated pending GPUs for the specified kernel replica.
@@ -306,6 +334,9 @@ func (m *GpuManager) __unsafeTryDeallocatePendingGPUs(replicaId int32, kernelId 
 
 		m.log.Debug("Deallocated %s pending GPU(s) from replica %d of kernel %s.", pendingAllocation.numGPUs.StringFixed(0), replicaId, kernelId)
 
+		// Update Prometheus metrics.
+		m.resourceMetricsCallback()
+
 		return pendingAllocation, true
 	} else {
 		m.log.Warn("Could not find pending GPU allocation for replica %d of kernel %s.", replicaId, kernelId)
@@ -314,13 +345,13 @@ func (m *GpuManager) __unsafeTryDeallocatePendingGPUs(replicaId int32, kernelId 
 	return nil, false
 }
 
-// Create and return a string of the form "<KernelID>-<ReplicaID>".
+// getKey creates and returns a string of the form "<KernelID>-<ReplicaID>".
 // This is used as a key to various maps belonging to the GPU Manager.
 func (m *GpuManager) getKey(replicaId int32, kernelId string) string {
 	return fmt.Sprintf("%s-%d", kernelId, replicaId)
 }
 
-// Return true if the given *gpuAllocation IS pending.
+// assertPending returns true if the given *gpuAllocation IS pending.
 // If the given *gpuAllocation is NOT pending, then this panics.
 func (m *GpuManager) assertPending(allocation *gpuAllocation) bool {
 	if allocation.pending {
@@ -330,7 +361,7 @@ func (m *GpuManager) assertPending(allocation *gpuAllocation) bool {
 	panic(fmt.Sprintf("GPU Allocation is NOT pending: %v", allocation))
 }
 
-// Return true if the given *gpuAllocation is NOT pending.
+// assertNotPending returns true if the given *gpuAllocation is NOT pending.
 // If the given *gpuAllocation IS pending, then this panics.
 func (m *GpuManager) assertNotPending(allocation *gpuAllocation) bool {
 	if !allocation.pending {
@@ -340,12 +371,12 @@ func (m *GpuManager) assertNotPending(allocation *gpuAllocation) bool {
 	panic(fmt.Sprintf("GPU Allocation IS pending: %v", allocation))
 }
 
-// Return the number of active allocations.
+// NumAllocations returns the number of active allocations.
 func (m *GpuManager) NumAllocations() int {
 	return m.allocationIdMap.Len()
 }
 
-// Return the number of pending allocations.
+// NumPendingAllocations returns the number of pending allocations.
 func (m *GpuManager) NumPendingAllocations() int {
 	return m.pendingAllocIdMap.Len()
 }

@@ -152,6 +152,9 @@ type ClusterGatewayImpl struct {
 	kernelIdToKernel hashmap.HashMap[string, *client.DistributedKernelClient] // Map from Kernel ID to  client.DistributedKernelClient.
 	kernelSpecs      hashmap.HashMap[string, *proto.KernelSpec]
 
+	// numActiveKernels is the number of actively-running kernels.
+	numActiveKernels atomic.Int32
+
 	log logger.Logger
 
 	// lifetime
@@ -303,6 +306,9 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		panic(err)
 	}
 	daemon.publishPrometheusMetrics()
+
+	// Initial values for these metrics.
+	daemon.gatewayPrometheusManager.NumActiveKernels.Set(0)
 
 	placer, err := scheduling.NewRandomPlacer(daemon.cluster, daemon.ClusterOptions)
 	if err != nil {
@@ -1638,6 +1644,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	// Tell the Dashboard that the kernel has successfully started running.
 	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running.", kernel.ID()), jupyter.SuccessNotification)
 
+	numActiveKernels := d.numActiveKernels.Add(1)
+	d.gatewayPrometheusManager.NumActiveKernels.Set(float64(numActiveKernels))
+	d.gatewayPrometheusManager.TotalNumKernels.Inc()
+
 	return info, nil
 }
 
@@ -2020,16 +2030,20 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 		err := d.kubeClient.DeleteCloneset(kernel.ID())
 
 		if err != nil {
-			d.log.Error("Error encountered while deleting cloneset for kernel %s: %v", kernel.ID(), err)
+			d.log.Error("Error encountered while deleting k8s CloneSet for kernel %s: %v", kernel.ID(), err)
 		} else {
-			d.log.Debug("Successfully deleted cloneset of deleted kernel %s.", kernel.ID())
+			d.log.Debug("Successfully deleted k8s CloneSet of deleted kernel %s.", kernel.ID())
 		}
 	}
 
 	if err == nil {
-		go d.notifyDashboard("Kernel Stopped", fmt.Sprintf("Kernel %s has been terminated successfully.", kernel.ID()), jupyter.SuccessNotification)
+		go d.notifyDashboard(
+			"Kernel Stopped", fmt.Sprintf("Kernel %s has been terminated successfully.",
+				kernel.ID()), jupyter.SuccessNotification)
+		d.gatewayPrometheusManager.NumActiveKernels.Sub(1)
 	} else {
-		go d.notifyDashboardOfError("Failed to Terminate Kernel", fmt.Sprintf("An error was encountered while trying to terminate kernel %s: %v.", kernel.ID(), err))
+		go d.notifyDashboardOfError("Failed to Terminate Kernel",
+			fmt.Sprintf("An error was encountered while trying to terminate kernel %s: %v.", kernel.ID(), err))
 	}
 
 	return
@@ -2438,6 +2452,8 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 		return err
 	}
 
+	d.gatewayPrometheusManager.NumTrainingEventsCompleted.Inc()
+
 	return nil
 }
 
@@ -2666,17 +2682,19 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel *client.DistributedKernelClie
 		// _, _ /* messageType */, err = d.kernelAndTypeFromMsg(msg)
 	}
 
-	if kernel != nil {
-		connInfo := kernel.ConnectionInfo()
-		if connInfo != nil {
-			msg.SetSignatureSchemeIfNotSet(connInfo.SignatureScheme)
-			msg.SetKeyIfNotSet(connInfo.Key)
-		}
-	}
-
 	if err != nil {
 		d.log.Error("[gid=%d] Failed to extract kernel and/or message type from %v message. Error: %v. Message: %v.", goroutineId, typ, err, msg)
 		return err
+	}
+
+	if kernel == nil {
+		// Should not happen; if the error was nil, then kernel is non-nil.
+		panic("Kernel is nil")
+	}
+
+	if connInfo := kernel.ConnectionInfo(); connInfo != nil {
+		msg.SetSignatureSchemeIfNotSet(connInfo.SignatureScheme)
+		msg.SetKeyIfNotSet(connInfo.Key)
 	}
 
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
@@ -3172,7 +3190,7 @@ func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.
 	}, nil
 }
 
-// RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
+// DecreaseNumNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
 func (d *ClusterGatewayImpl) DecreaseNumNodes(_ context.Context, in *proto.DecreaseNumNodesRequest) (*proto.DecreaseNumNodesResponse, error) {
 	d.dockerNodeMutex.Lock()
 	defer d.dockerNodeMutex.Unlock()
@@ -3246,7 +3264,7 @@ func (d *ClusterGatewayImpl) DecreaseNumNodes(_ context.Context, in *proto.Decre
 
 // ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
 // Modifications include altering the number of GPUs available on the nodes.
-func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, in *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
+func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, _ *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
 	d.dockerNodeMutex.Lock()
 	defer d.dockerNodeMutex.Unlock()
 
@@ -3257,7 +3275,7 @@ func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, in *pro
 	return nil, ErrNotImplemented
 }
 
-// SetNumVirtualDockerNodes is used to scale the number of nodes in the cluster to a specifically value.
+// SetNumVirtualDockerNodes is used to scale the number of nodes in the cluster to a specific value.
 // This function accepts a SetNumVirtualDockerNodesRequest struct, which encodes the target number of nodes.
 func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(_ context.Context, in *proto.SetNumVirtualDockerNodesRequest) (*proto.SetNumVirtualDockerNodesResponse, error) {
 	d.dockerNodeMutex.Lock()
@@ -3287,7 +3305,7 @@ func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(_ context.Context, in *pro
 	// Start the operation.
 	if err := scaleOp.Start(); err != nil {
 		go d.notifyDashboardOfError("Failed to Start Scaling Operation", err.Error())
-		return nil, status.Error(codes.Internal, err.Error()) // This really shouldn't happened.
+		return nil, status.Error(codes.Internal, err.Error()) // This really shouldn't happen.
 	}
 
 	// Use a separate goroutine to execute the shell command to scale the number of Local Daemon nodes.
@@ -3340,28 +3358,26 @@ func (d *ClusterGatewayImpl) getNumLocalDaemonDocker() (int, error) {
 	}
 
 	if d.DockerComposeMode() {
-		app := "docker"
-		argsString := "compose ps daemon | wc -l"
-		args := strings.Split(argsString, " ")
+		cmd := exec.Command("bash", "-c", "USER=root docker compose ps daemon | wc -l")
+		stdoutBytes, err := cmd.Output()
 
-		cmd := exec.Command(app, args...)
-		stdout, err := cmd.Output()
-
+		stdout := strings.TrimSpace(string(stdoutBytes))
 		if err != nil {
 			d.log.Error("Failed to get number of Local Daemon Docker containers because: %v", err)
 			return -1, err
 		}
 
-		numContainers, err := strconv.Atoi(string(stdout))
+		numContainers, err := strconv.Atoi(stdout)
 		if err != nil {
 			d.log.Error("Failed to parse command output for number of Local Daemon Docker containers.")
-			d.log.Error("Command output: \"%s\"", string(stdout))
+			d.log.Error("Command output: \"%s\"", stdout)
 			d.log.Error("Error: %v", err)
 
 			return -1, err
 		}
 
-		return numContainers, nil
+		// Subtract 1 to account for first line.
+		return numContainers - 1, nil
 	} else /* Docker Swarm mode */ {
 		panic("Not implemented.")
 	}

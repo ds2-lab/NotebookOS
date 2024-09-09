@@ -12,16 +12,16 @@ alerting:
 scrape_configs:
 - job_name: prometheus
   honor_timestamps: true
-  scrape_interval: 15s
+  scrape_interval: 10s
   scrape_timeout: 10s
   metrics_path: /prometheus
   scheme: http
   static_configs:
     - targets:
       - localhost:8500
-      - tasks.distributed_cluster_gateway:8089
   dns_sd_configs:
     - names:
-        - tasks.distributed_cluster_daemon  # goes here
+        - tasks.distributed_cluster_daemon
+        - tasks.distributed_cluster_gateway
       type: A
       port: 8089
