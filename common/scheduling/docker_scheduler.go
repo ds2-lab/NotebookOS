@@ -22,12 +22,12 @@ type DockerScheduler struct {
 	dockerModeKernelDebugPort atomic.Int32
 }
 
-func NewDockerScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, opts *ClusterSchedulerOptions) (*DockerScheduler, error) {
+func NewDockerScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, hostSpec types.Spec, opts *ClusterSchedulerOptions) (*DockerScheduler, error) {
 	if !gateway.DockerMode() {
 		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
-	baseScheduler := NewBaseScheduler(gateway, cluster, placer, opts)
+	baseScheduler := NewBaseScheduler(gateway, cluster, placer, hostSpec, opts)
 
 	dockerScheduler := &DockerScheduler{
 		BaseScheduler: baseScheduler,

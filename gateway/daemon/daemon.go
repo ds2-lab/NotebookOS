@@ -73,6 +73,9 @@ const (
 	DefaultPrometheusPort int = 8089
 	// DefaultPrometheusInterval is the default interval on which the Local Daemon will push new Prometheus metrics.
 	DefaultPrometheusInterval = time.Second * 2
+
+	CpusPerHost     = 8000
+	MemoryMbPerHost = 16384
 )
 
 var (
@@ -88,7 +91,6 @@ var (
 	ErrInvalidTargetNumHosts   = status.Error(codes.InvalidArgument, "requested operation would result in an invalid or illegal number of nodes")
 	ErrInvalidSocketType       = status.Error(codes.Internal, "invalid socket type specified")
 	ErrKernelNotFound          = status.Error(codes.InvalidArgument, "kernel not found")
-	ErrHostNotFound            = status.Error(codes.Internal, "host not found")
 	ErrKernelNotReady          = status.Error(codes.Unavailable, "kernel not ready")
 	ErrActiveExecutionNotFound = status.Error(codes.InvalidArgument, "active execution for specified kernel could not be found")
 	ErrKernelSpecNotFound      = status.Error(codes.InvalidArgument, "kernel spec not found")
@@ -404,14 +406,15 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	// Create the Cluster Scheduler.
 	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
+	hostSpec := &types.FullSpec{GPUs: types.GPUSpec(clusterSchedulerOptions.GpusPerHost), CPUs: CpusPerHost, MemoryMb: MemoryMbPerHost}
 	if daemon.KubernetesMode() {
 		daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
 		daemon.containerWatcher = daemon.kubeClient
 
-		daemon.cluster = scheduling.NewKubernetesCluster(daemon, daemon.kubeClient, &clusterSchedulerOptions)
+		daemon.cluster = scheduling.NewKubernetesCluster(daemon, daemon.kubeClient, hostSpec, &clusterSchedulerOptions)
 	} else if daemon.DockerMode() {
 		daemon.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
-		daemon.cluster = scheduling.NewDockerCluster(daemon, &clusterSchedulerOptions)
+		daemon.cluster = scheduling.NewDockerCluster(daemon, hostSpec, &clusterSchedulerOptions)
 	}
 
 	return daemon
@@ -832,7 +835,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), 8000, 16384,
+	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), CpusPerHost, MemoryMbPerHost,
 		d.cluster, gConn, d.localDaemonDisconnected)
 
 	if err != nil {
@@ -2548,10 +2551,10 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 		if !ok {
 			d.log.Error("Could not find host %s on which replica %d of kernel %s is supposedly running...", hostId, replicaClient.ReplicaID(), in.Id)
 			go d.notifyDashboardOfError("'FailNextExecution' Request Failed", fmt.Sprintf("Could not find host %s on which replica %d of kernel %s is supposedly running...", hostId, replicaClient.ReplicaID(), in.Id))
-			return gateway.VOID, ErrHostNotFound
+			return gateway.VOID, scheduling.ErrHostNotFound
 		}
 
-		// Even if there's an error here, we'll just keeping trying. If only some of these succeed, then the system won't explode.
+		// Even if there's an error here, we'll just keep trying. If only some of these succeed, then the system won't explode.
 		// The kernels for which the `YieldNextExecution` succeeded will simply yield.
 		_, err := host.YieldNextExecution(ctx, in)
 		if err != nil {

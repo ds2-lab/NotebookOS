@@ -114,6 +114,18 @@ type Cluster interface {
 
 	// UnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
 	UnlockHosts()
+
+	// BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
+	BusyGPUs() float64
+
+	// DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
+	DemandGPUs() float64
+
+	// SubscriptionRatio returns the SubscriptionRatio of the Cluster.
+	SubscriptionRatio() float64
+
+	// SetSubscriptionRatio sets the SubscriptionRatio of the Cluster.
+	SetSubscriptionRatio(float64)
 }
 
 type BasicCluster struct {
@@ -137,6 +149,8 @@ type BasicCluster struct {
 
 	log logger.Logger
 
+	subscriptionRatio float64
+
 	scalingOpMutex sync.Mutex
 	hostMutex      sync.Mutex
 }
@@ -145,12 +159,21 @@ type BasicCluster struct {
 // This function is for package-internal or file-internal use only.
 func newBaseCluster(gpusPerHost int) *BasicCluster {
 	cluster := &BasicCluster{
-		gpusPerHost: gpusPerHost,
-		hosts:       hashmap.NewConcurrentMap[*Host](256),
-		indexes:     hashmap.NewSyncMap[string, ClusterIndexProvider](),
+		gpusPerHost:       gpusPerHost,
+		subscriptionRatio: 7.0,
+		hosts:             hashmap.NewConcurrentMap[*Host](256),
+		indexes:           hashmap.NewSyncMap[string, ClusterIndexProvider](),
 	}
 	config.InitLogger(&cluster.log, cluster)
 	return cluster
+}
+
+func (c *BasicCluster) SubscriptionRatio() float64 {
+	return c.subscriptionRatio
+}
+
+func (c *BasicCluster) SetSubscriptionRatio(ratio float64) {
+	c.subscriptionRatio = ratio
 }
 
 // NewDockerCluster creates a new BasicCluster struct and returns a pointer to it.
@@ -158,7 +181,7 @@ func newBaseCluster(gpusPerHost int) *BasicCluster {
 // NewDockerCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
-func NewDockerCluster(gatewayDaemon ClusterGateway, opts *ClusterSchedulerOptions) *BasicCluster {
+func NewDockerCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BasicCluster {
 	cluster := newBaseCluster(opts.GpusPerHost)
 
 	placer, err := NewRandomPlacer(cluster, opts)
@@ -168,7 +191,7 @@ func NewDockerCluster(gatewayDaemon ClusterGateway, opts *ClusterSchedulerOption
 	}
 	cluster.placer = placer
 
-	scheduler, err := NewDockerScheduler(gatewayDaemon, cluster, placer, opts)
+	scheduler, err := NewDockerScheduler(gatewayDaemon, cluster, placer, hostSpec, opts)
 	if err != nil {
 		cluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
 		panic(err)
@@ -184,7 +207,7 @@ func NewDockerCluster(gatewayDaemon ClusterGateway, opts *ClusterSchedulerOption
 // NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
 // This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
-func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, opts *ClusterSchedulerOptions) *BasicCluster {
+func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BasicCluster {
 	cluster := newBaseCluster(opts.GpusPerHost)
 
 	placer, err := NewRandomPlacer(cluster, opts)
@@ -194,7 +217,7 @@ func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, o
 	}
 	cluster.placer = placer
 
-	scheduler, err := NewKubernetesScheduler(gatewayDaemon, cluster, placer, kubeClient, opts)
+	scheduler, err := NewKubernetesScheduler(gatewayDaemon, cluster, placer, hostSpec, kubeClient, opts)
 	if err != nil {
 		cluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
 		panic(err)
@@ -393,14 +416,7 @@ func (c *BasicCluster) ValidateCapacity() {
 }
 
 // BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
-//
-// If 'forceUpdate' is true, then the cached/local information is invalidated and updated by querying the
-// Local Daemons.
-func (c *BasicCluster) BusyGPUs(forceUpdate bool) float64 {
-	if forceUpdate {
-		panic("Not supported.")
-	}
-
+func (c *BasicCluster) BusyGPUs() float64 {
 	busyGPUs := 0.0
 	c.hosts.Range(func(_ string, host *Host) (contd bool) {
 		busyGPUs += host.CommittedGPUs()
@@ -408,6 +424,11 @@ func (c *BasicCluster) BusyGPUs(forceUpdate bool) float64 {
 	})
 
 	return busyGPUs
+}
+
+// DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
+func (c *BasicCluster) DemandGPUs() float64 {
+	panic("Not implemented")
 }
 
 ////////////////////////////

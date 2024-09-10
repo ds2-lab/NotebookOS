@@ -176,12 +176,15 @@ type Host struct {
 	pendingGPUs       types.StatFloat64 // PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
 	committedGPUs     types.StatFloat64 // CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
 
+	subscribedRatio types.StatFloat64
+
 	// Cached penalties
 	sip             cache.InlineCache // Scale-in penalty.
 	sipSession      *Session          // Scale-in penalty session.
 	penaltyList     cache.InlineCache
 	penalties       []cachedPenalty
 	penaltyValidity bool
+	idx             int
 }
 
 // NewHost creates and returns a new *Host.
@@ -256,10 +259,16 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 	host.penaltyList.Producer = cache.FormalizeChainedICProducer(host.updatePenaltyList)
 	host.penaltyList.Validator = host.validatePenaltyList
 
+	host.subscribedRatio.Store(0)
+
 	// Start the goroutine that polls for updated GPU info on an interval.
 	//go host.pollForGpuInfo()
 
 	return host, nil
+}
+
+func (h *Host) SubscribedRatio() float64 {
+	return h.subscribedRatio.Load()
 }
 
 // ToVirtualDockerNode converts a Host struct to a proto.VirtualDockerNode struct and
@@ -287,6 +296,11 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		PendingMemory:   float32(h.pendingMemoryMb.Load()),
 		PendingGpu:      float32(h.pendingGPUs.Load()),
 	}
+}
+
+// NumContainers returns the number of Container instances scheduled on the Host.
+func (h *Host) NumContainers() int {
+	return h.containers.Len()
 }
 
 // pollForGpuInfo runs a loop that continuously requests GPU usage statistics from all the host schedulers.
@@ -480,6 +494,10 @@ func (h *Host) updatePenaltyList(cached *PenaltyContainers) *PenaltyContainers {
 	}
 	sort.Sort(cached)
 	return cached
+}
+
+func (h *Host) SetIdx(idx int) {
+	h.idx = idx
 }
 
 func (h *Host) String() string {

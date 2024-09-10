@@ -7,4 +7,5 @@ import (
 
 var (
 	ErrInsufficientHostsAvailable = status.Error(codes.Internal, "insufficient hosts available")
+	ErrHostNotFound               = status.Error(codes.Internal, "host not found")
 )

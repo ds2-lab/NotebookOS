@@ -12,6 +12,10 @@ type ClusterScheduler interface {
 	// need to start immediately after replica started, e.g., preempting a training task.
 	//MigrateKernelReplica(ctx context.Context, in *proto.KernelId, opts ...grpc.CallOption) (*proto.ReplicaId, error)
 
+	// MigrateContainer tries to migrate the given Container from the given host.
+	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
+	MigrateContainer(*Container, *Host, bool) (bool, error)
+
 	// ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
 	// Adjust the Cluster's capacity as directed by scaling policy.
 	//
@@ -28,7 +32,7 @@ type ClusterScheduler interface {
 
 	// RemoveNode removes a new from the kubernetes cluster.
 	// We simulate this using node taints.
-	RemoveNode() error
+	RemoveNode(hostId string) error
 
 	// MinimumCapacity Returns the minimum number of nodes we must have available at any time.
 	MinimumCapacity() int32

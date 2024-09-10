@@ -233,6 +233,17 @@ func NewMovingStat(window int64, n int64, values []float64, last int64, sum [2]f
 	return &MovingStat{window: window, n: n, values: values, last: last, sum: sum, active: active, resetting: resetting}
 }
 
+func NewMovingStatFromWindow(window int64) *MovingStat {
+	return &MovingStat{
+		window:    window,
+		n:         0,
+		values:    make([]float64, window),
+		last:      0,
+		active:    0,
+		resetting: 1,
+	}
+}
+
 func (s *MovingStat) Add(val float64) {
 	// Move forward.
 	s.last = (s.last + 1) % s.window
