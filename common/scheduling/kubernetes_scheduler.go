@@ -57,6 +57,10 @@ func (s *KubernetesScheduler) ScheduleKernelReplica(_ int32, kernelId string, _ 
 	return nil
 }
 
+func (s *KubernetesScheduler) MigrateContainer(container *Container, host *Host, b bool) (bool, error) {
+	panic("Not implemented")
+}
+
 // DeployNewKernel is responsible for creating the necessary infrastructure ot schedule the replicas of a new
 // kernel onto Host instances.
 //

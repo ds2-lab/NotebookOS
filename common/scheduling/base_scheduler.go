@@ -287,6 +287,10 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 	s.invalidated = newRatio - s.lastSubscribedRatio
 }
 
+func (s *BaseScheduler) MigrateContainer(container *Container, host *Host, b bool) (bool, error) {
+	return s.instance.MigrateContainer(container, host, b)
+}
+
 // ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (s *BaseScheduler) ValidateCapacity() {
@@ -462,7 +466,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		if host.NumContainers() > 0 {
 			host.containers.Range(func(containerId string, c *Container) (contd bool) {
 				// TODO: Migrate Container needs to actually migrate replicas.
-				migratedSuccessfully, err := s.instance.MigrateContainer(c, host, true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
+				migratedSuccessfully, err := s.MigrateContainer(c, host, true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
 
 				if !migratedSuccessfully {
 					if err == nil {

@@ -83,6 +83,11 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaId int32, replicaSpe
 	return host, nil
 }
 
+func (s *DockerScheduler) MigrateContainer(container *Container, host *Host, b bool) (bool, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
 // ScheduleKernelReplica schedules a particular replica onto the given Host.
 //
 // Exactly one of replicaSpec and kernelSpec should be non-nil.
