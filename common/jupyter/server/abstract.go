@@ -29,6 +29,9 @@ const (
 	// GolangFrontendRegistrationRequest is a message type sent by our custom Golang Jupyter frontend clients.
 	// These inform us that we should expect the frontend to send ACKs, which does not happen for "regular" Jupyter frontends.
 	GolangFrontendRegistrationRequest = "golang_frontend_registration_request"
+
+	// DefaultMessageQueueCapacity is the default capacity of the "received" messages queue (which is a chan).
+	DefaultMessageQueueCapacity = 64
 )
 
 var (
@@ -54,22 +57,25 @@ type AbstractServer struct {
 	// logger
 	Log logger.Logger
 
-	// Used when sending ACKs. Basically, if this server uses Router sockets, then we need to prepend the ID to the messages.
-	// Some servers use Dealer sockets, whcih don't need to prepend the ID.
+	// PrependId is used when sending ACKs. Basically, if this server uses Router sockets, then we need to prepend the ID to the messages.
+	// Some servers use Dealer sockets, which don't need to prepend the ID.
 	PrependId bool
+
+	// MessageQueueCapacity is the amount that the message queue (which is a chan) is buffered
+	//MessageQueueCapacity int
 
 	// If true, then will ACK messages upon receiving them (for CONTROL and SHELL sockets only).
 	ShouldAckMessages bool
 
-	// Local IPv4, for debugging purposes.
+	// localIpAdderss is the local IPv4, for debugging purposes.
 	localIpAdderss string
 
-	// Unique name of the server, mostly for debugging.
+	// Name is the unique name of the server, mostly for debugging.
 	Name string
 
-	// Keep track of the total number of ACKs we've received.
+	// numAcksReceived keeps track of the total number of ACKs we've received.
 	// Primarily used in unit tests.
-	numAcksReceived int
+	numAcksReceived atomic.Int32
 
 	// If true, then we'll attempt to reconnect to the remote if we fail to receive an ACK from the remote
 	// after `MaxNumRetries` attempts. Some servers dial while others listen; hence, we have this flag to
@@ -100,17 +106,17 @@ func New(ctx context.Context, info *types.ConnectionInfo, init func(server *Abst
 	ctx, cancelCtx = context.WithCancel(ctx)
 
 	server := &AbstractServer{
-		Meta:            info,
-		Ctx:             ctx,
-		CancelCtx:       cancelCtx,
-		Sockets:         &types.JupyterSocket{},
-		numAcksReceived: 0,
+		Meta:      info,
+		Ctx:       ctx,
+		CancelCtx: cancelCtx,
+		Sockets:   &types.JupyterSocket{},
 		// RetrySleepInterval: time.Millisecond * 500,
 		UseJitter:        true,
 		MaxSleepInterval: time.Second * 5,
-		RequestTimeout:   time.Second * 60,
-		acksReceived:     hashmap.NewSyncMap[string, bool](),
-		ackChannels:      hashmap.NewSyncMap[string, chan struct{}](),
+		//MessageQueueCapacity: DefaultMessageQueueCapacity,
+		RequestTimeout: time.Second * 60,
+		acksReceived:   hashmap.NewSyncMap[string, bool](),
+		ackChannels:    hashmap.NewSyncMap[string, chan struct{}](),
 		// Log:       logger.NilLogger, // To be overwritten by init.
 	}
 	init(server)
@@ -147,8 +153,9 @@ func (s *AbstractServer) Server() *BaseServer {
 	return &BaseServer{s}
 }
 
-func (s *AbstractServer) NumAcknowledgementsReceived() int {
-	return s.numAcksReceived
+// NumAcknowledgementsReceived returns the number of ACKs that the server has received.
+func (s *AbstractServer) NumAcknowledgementsReceived() int32 {
+	return s.numAcksReceived.Load()
 }
 
 func (s *AbstractServer) Listen(socket *types.Socket) error {
@@ -174,7 +181,7 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, socket *types.Socket) {
 	goroutineId := goid.Get()
 
-	s.numAcksReceived += 1
+	s.numAcksReceived.Add(1)
 
 	if len(rspId) == 0 {
 		_, rspId, _ = types.ExtractDestFrame(jMsg.Frames) // Redundant, will optimize later.
@@ -206,17 +213,12 @@ func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, soc
 		ackChan <- struct{}{}
 		// s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
 	} else if ackChan == nil { // If ackChan is nil, then that means we weren't expecting an ACK in the first place.
-		s.Log.Error("[gid=%d] [3] Received ACK for %s \"%s\" message %s (JupyerID=\"%s\", Session=\"%s\") via local socket %s [remoteSocket=%s]; however, we were not expecting an ACK for that message...", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), rspId, jMsg.JupyterMessageId(), jMsg.JupyterSession(), socket.Name, socket.RemoteName)
+		s.Log.Error("[gid=%d] [3] Received ACK for %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\") via local socket %s [remoteSocket=%s]; however, we were not expecting an ACK for that message...", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), rspId, jMsg.JupyterMessageId(), jMsg.JupyterSession(), socket.Name, socket.RemoteName)
 	} else if ackReceived {
 		s.Log.Error("[gid=%d] [4] Received ACK for %s message %s via local socket %s [remoteSocket=%s]; however, we already received an ACK for that message...", goroutineId, socket.Type.String(), rspId, socket.Name, socket.RemoteName)
 	} else {
 		panic(fmt.Sprintf("[gid=%d] Unexpected condition.", goroutineId))
 	}
-
-	// Commented out because supposedly unreachable condition:
-	//else if !loaded {
-	//	panic(fmt.Sprintf("[gid=%d] Did not have ACK entry for message %s", goroutineId, rspId))
-	//}
 }
 
 func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket) error {
@@ -291,17 +293,17 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 // Returns a flag where 'true' means to continue calling the normal message handlers, and 'false' means to not forward the message around or do anything else for this message,
 // including sending an ACK. (That is, there is no need to even send an ACK if 'false' is returned.)
 func (s *AbstractServer) tryHandleSpecialMessage(jMsg *types.JupyterMessage, socket *types.Socket) (bool, error) {
-	goroutineId := goid.Get()
-
-	if jMsg.IsAck() {
-		firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %s \"%s\""), goroutineId, socket.Type, jMsg.GetParentHeader().MsgType)
-		secondPart := fmt.Sprintf("%s (JupyterID=%s, ParentJupyterId=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()), utils.LightPurpleStyle.Render(jMsg.GetParentHeader().MsgID))
-		thirdPart := fmt.Sprintf(utils.GreenStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
-		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
-		s.handleAck(jMsg, jMsg.RequestId, socket)
-
-		return false, nil
-	}
+	//goroutineId := goid.Get()
+	//
+	//if jMsg.IsAck() {
+	//	firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %s \"%s\""), goroutineId, socket.Type, jMsg.GetParentHeader().MsgType)
+	//	secondPart := fmt.Sprintf("%s (JupyterID=%s, ParentJupyterId=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()), utils.LightPurpleStyle.Render(jMsg.GetParentHeader().MsgID))
+	//	thirdPart := fmt.Sprintf(utils.GreenStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
+	//	s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+	//	s.handleAck(jMsg, jMsg.RequestId, socket)
+	//
+	//	return false, nil
+	//}
 
 	// This is generally unused for now; we don't do anything special for Golang frontends as of right now.
 	if s.isMessageGolangFrontendRegistrationRequest(jMsg, socket.Type) {
@@ -341,7 +343,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 	}
 	defer atomic.StoreInt32(&socket.Serving, 0)
 
-	chMsg := make(chan interface{})
+	chMsg := make(chan interface{}) // , s.MessageQueueCapacity)
 	var contd chan bool
 	if socket.PendingReq == nil {
 		go s.poll(socket, chMsg, nil)
@@ -917,13 +919,32 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 		got, err := socket.Recv()
 
 		if err == nil {
+			// Deserialize the message now so we can print some debug info + inspect if it is an ACK.
 			jMsg := types.NewJupyterMessage(&got)
 			msg = jMsg
-			s.Log.Debug("[gid=%d] Poller received new %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\").", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), jMsg.JupyterSession())
+
+			// If the message is just an ACK, then we'll spawn another goroutine to handle it and keep polling.
+			if jMsg.IsAck() {
+				goroutineId := goid.Get()
+
+				firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %s \"%s\""), goroutineId, socket.Type, jMsg.GetParentHeader().MsgType)
+				secondPart := fmt.Sprintf("%s (JupyterID=%s, ParentJupyterId=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()), utils.LightPurpleStyle.Render(jMsg.GetParentHeader().MsgID))
+				thirdPart := fmt.Sprintf(utils.GreenStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
+				s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+
+				// Handle the ACK in a separate goroutine and continue.
+				go s.handleAck(jMsg, jMsg.RequestId, socket)
+				continue
+			}
+
+			if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && jMsg.JupyterMessageType() != "stream") {
+				s.Log.Debug("[gid=%d] Poller received new %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\").", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), jMsg.JupyterSession())
+			}
 		} else {
 			msg = err
 			// s.Log.Error("[gid=%d] Received error upon trying to read %v message: %v", goroutineId, socket.Type, err)
 		}
+
 		select {
 		case chMsg <- msg:
 		// Quit on router closed.

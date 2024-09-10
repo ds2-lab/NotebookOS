@@ -28,7 +28,7 @@ type Provisioner struct {
 }
 
 func NewProvisioner(conn net.Conn) (*Provisioner, error) {
-	// Initialize yamux session for bi-directional gRPC calls
+	// Initialize yamux session for bidirectional gRPC calls
 	// At host scheduler side, a connection replacement first made, then we wait for reverse connection by implementing net.Listener
 	srvSession, err := yamux.Server(conn, yamux.DefaultConfig())
 	if err != nil {

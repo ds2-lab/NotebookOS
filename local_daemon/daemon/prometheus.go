@@ -41,8 +41,11 @@ type LocalDaemonPrometheusManager struct {
 	PendingGpuGauge   *prometheus.GaugeVec
 	IdleGpuGauge      *prometheus.GaugeVec
 
-	// NumReplicasGauge is a Prometheus Gauge Vector for how many replicas are scheduled on a particular Local Daemon.
-	NumReplicasGauge *prometheus.GaugeVec
+	// NumActiveKernelReplicasGauge is a Prometheus Gauge Vector for how many replicas are scheduled on a particular Local Daemon.
+	NumActiveKernelReplicasGauge *prometheus.GaugeVec
+	TotalNumKernels              *prometheus.CounterVec
+	// NumTrainingEventsCompleted is the number of training events that have completed successfully.
+	NumTrainingEventsCompleted *prometheus.CounterVec
 }
 
 func NewLocalDaemonPrometheusManager(port int, nodeId string) *LocalDaemonPrometheusManager {
@@ -131,32 +134,44 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	m.IdleGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "idle_gpus",
-		Help:      fmt.Sprintf("Idle GPUs available on Local Daemon %s", m.nodeId),
-	}, []string{"local_daemon_id"})
+		Help:      "Idle GPUs available on a Local Daemon",
+	}, []string{"node_id"})
 
 	m.SpecGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "spec_gpus",
-		Help:      fmt.Sprintf("Total GPUs available for use on Local Daemon %s", m.nodeId),
-	}, []string{"local_daemon_id"})
+		Help:      "Total GPUs available for use on a Local Daemon",
+	}, []string{"node_id"})
 
 	m.CommittedGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "committed_gpus",
-		Help:      fmt.Sprintf("Allocated/committed GPUs on Local Daemon %s", m.nodeId),
-	}, []string{"local_daemon_id"})
+		Help:      "Allocated/committed GPUs on a Local Daemon",
+	}, []string{"node_id"})
 
 	m.PendingGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "pending_gpus",
-		Help:      fmt.Sprintf("Pending GPUs on Local Daemon %s", m.nodeId),
-	}, []string{"local_daemon_id"})
+		Help:      "Pending GPUs on a Local Daemon",
+	}, []string{"node_id"})
 
-	m.NumReplicasGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.NumActiveKernelReplicasGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
-		Name:      "num_replicas",
-		Help:      fmt.Sprintf("Number of kernel replicas scheduled on Local Daemon %s", m.nodeId),
-	}, []string{"local_daemon_id"})
+		Name:      "num_active_kernels",
+		Help:      "Number of kernel replicas scheduled on a Local Daemon",
+	}, []string{"node_id"})
+
+	m.TotalNumKernels = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "total_num_kernels",
+		Help:      "Total number of kernel replicas to have ever been scheduled/created",
+	}, []string{"node_id"})
+
+	m.NumTrainingEventsCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "num_training_events_completed",
+		Help:      "The number of training events that have completed successfully",
+	}, []string{"node_id"})
 
 	if err := prometheus.Register(m.IdleGpuGauge); err != nil {
 		m.log.Error("Failed to register Idle GPUs metric because: %v", err)
@@ -175,6 +190,21 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 
 	if err := prometheus.Register(m.PendingGpuGauge); err != nil {
 		m.log.Error("Failed to register Pending GPUs metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.NumActiveKernelReplicasGauge); err != nil {
+		m.log.Error("Failed to register 'Number of Active Kernel Replicas' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.TotalNumKernels); err != nil {
+		m.log.Error("Failed to register 'Total Number of Kernels' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.NumTrainingEventsCompleted); err != nil {
+		m.log.Error("Failed to register 'Training Events Completed' metric because: %v", err)
 		return err
 	}
 

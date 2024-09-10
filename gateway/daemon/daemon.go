@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"math/rand"
 	"net"
@@ -308,7 +309,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	daemon.publishPrometheusMetrics()
 
 	// Initial values for these metrics.
-	daemon.gatewayPrometheusManager.NumActiveKernels.Set(0)
+	daemon.gatewayPrometheusManager.NumActiveKernelReplicasGauge.
+		With(prometheus.Labels{"node_id": "cluster"}).Set(0)
 
 	placer, err := scheduling.NewRandomPlacer(daemon.cluster, daemon.ClusterOptions)
 	if err != nil {
@@ -1645,8 +1647,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running.", kernel.ID()), jupyter.SuccessNotification)
 
 	numActiveKernels := d.numActiveKernels.Add(1)
-	d.gatewayPrometheusManager.NumActiveKernels.Set(float64(numActiveKernels))
-	d.gatewayPrometheusManager.TotalNumKernels.Inc()
+	d.gatewayPrometheusManager.NumActiveKernelReplicasGauge.
+		With(prometheus.Labels{"node_id": "cluster"}).Set(float64(numActiveKernels))
+	d.gatewayPrometheusManager.TotalNumKernels.
+		With(prometheus.Labels{"node_id": "cluster"}).Inc()
 
 	return info, nil
 }
@@ -2040,7 +2044,8 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 		go d.notifyDashboard(
 			"Kernel Stopped", fmt.Sprintf("Kernel %s has been terminated successfully.",
 				kernel.ID()), jupyter.SuccessNotification)
-		d.gatewayPrometheusManager.NumActiveKernels.Sub(1)
+		d.gatewayPrometheusManager.NumActiveKernelReplicasGauge.
+			With(prometheus.Labels{"node_id": "cluster"}).Sub(1)
 	} else {
 		go d.notifyDashboardOfError("Failed to Terminate Kernel",
 			fmt.Sprintf("An error was encountered while trying to terminate kernel %s: %v.", kernel.ID(), err))
@@ -2452,7 +2457,8 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 		return err
 	}
 
-	d.gatewayPrometheusManager.NumTrainingEventsCompleted.Inc()
+	d.gatewayPrometheusManager.NumTrainingEventsCompleted.
+		With(prometheus.Labels{"node_id": "cluster"}).Inc()
 
 	return nil
 }

@@ -37,14 +37,14 @@ type GatewayPrometheusManager struct {
 	httpServer         *http.Server
 	prometheusHandler  http.Handler
 
-	// NumActiveKernels is the number of actively-running kernels.
-	NumActiveKernels prometheus.Gauge
+	// NumActiveKernelReplicasGauge is the number of actively-running kernels.
+	NumActiveKernelReplicasGauge *prometheus.GaugeVec
 
 	// TotalNumKernels is the total number of kernels that have been created, including kernels that have since stopped.
-	TotalNumKernels prometheus.Counter
+	TotalNumKernels *prometheus.CounterVec
 
 	// NumTrainingEventsCompleted is the number of training events that have completed successfully.
-	NumTrainingEventsCompleted prometheus.Counter
+	NumTrainingEventsCompleted *prometheus.CounterVec
 
 	gatewayDaemon *ClusterGatewayImpl
 }
@@ -135,21 +135,38 @@ func (m *GatewayPrometheusManager) Stop() error {
 
 // InitMetrics creates a Prometheus endpoint and
 func (m *GatewayPrometheusManager) initMetrics() error {
-	m.NumActiveKernels = prometheus.NewGauge(prometheus.GaugeOpts{
+	m.NumActiveKernelReplicasGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "num_active_kernels",
 		Help:      "Number of actively-running kernels within the cluster",
-	})
-	m.TotalNumKernels = prometheus.NewCounter(prometheus.CounterOpts{
+	}, []string{"cluster"})
+
+	m.TotalNumKernels = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
 		Name:      "total_num_kernels",
 		Help:      "Total number of kernels to have ever been created within the cluster",
-	})
-	m.NumTrainingEventsCompleted = prometheus.NewCounter(prometheus.CounterOpts{
+	}, []string{"cluster"})
+
+	m.NumTrainingEventsCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
 		Name:      "num_training_events_completed",
 		Help:      "The number of training events that have completed successfully",
-	})
+	}, []string{"cluster"})
+
+	if err := prometheus.Register(m.NumActiveKernelReplicasGauge); err != nil {
+		m.log.Error("Failed to register 'Number of Active Kernel Replicas' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.TotalNumKernels); err != nil {
+		m.log.Error("Failed to register 'Total Number of Kernels' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.NumTrainingEventsCompleted); err != nil {
+		m.log.Error("Failed to register 'Training Events Completed' metric because: %v", err)
+		return err
+	}
 
 	m.metricsInitialized = true
 	return nil

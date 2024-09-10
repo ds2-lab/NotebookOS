@@ -356,7 +356,7 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 		}
 
 		d.prometheusManager.SpecGpuGauge.
-			With(prometheus.Labels{"local_daemon_id": d.id}).
+			With(prometheus.Labels{"node_id": d.id}).
 			Set(d.gpuManager.SpecGPUs().InexactFloat64())
 
 		// We only call Done if we're creating the LocalDaemonPrometheusManager for the first time.
@@ -383,16 +383,16 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 			time.Sleep(d.prometheusInterval)
 
 			d.prometheusManager.IdleGpuGauge.
-				With(prometheus.Labels{"local_daemon_id": d.id}).
+				With(prometheus.Labels{"node_id": d.id}).
 				Set(d.gpuManager.IdleGPUs().InexactFloat64())
 			d.prometheusManager.PendingGpuGauge.
-				With(prometheus.Labels{"local_daemon_id": d.id}).
+				With(prometheus.Labels{"node_id": d.id}).
 				Set(d.gpuManager.PendingGPUs().InexactFloat64())
 			d.prometheusManager.CommittedGpuGauge.
-				With(prometheus.Labels{"local_daemon_id": d.id}).
+				With(prometheus.Labels{"node_id": d.id}).
 				Set(d.gpuManager.CommittedGPUs().InexactFloat64())
 			d.prometheusManager.SpecGpuGauge.
-				With(prometheus.Labels{"local_daemon_id": d.id}).
+				With(prometheus.Labels{"node_id": d.id}).
 				Set(d.gpuManager.SpecGPUs().InexactFloat64())
 		}
 	}()
@@ -402,13 +402,13 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 // updatePrometheusResourceMetrics is used as a callback by the GPU/Resource Manager.
 func (d *SchedulerDaemonImpl) updatePrometheusResourceMetrics(idleGpus float64, pendingGpus float64, committedGpus float64) {
 	d.prometheusManager.IdleGpuGauge.
-		With(prometheus.Labels{"local_daemon_id": d.id}).
+		With(prometheus.Labels{"node_id": d.id}).
 		Set(idleGpus)
 	d.prometheusManager.PendingGpuGauge.
-		With(prometheus.Labels{"local_daemon_id": d.id}).
+		With(prometheus.Labels{"node_id": d.id}).
 		Set(pendingGpus)
 	d.prometheusManager.CommittedGpuGauge.
-		With(prometheus.Labels{"local_daemon_id": d.id}).
+		With(prometheus.Labels{"node_id": d.id}).
 		Set(committedGpus)
 }
 
@@ -1227,6 +1227,9 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	// Notify that the kernel client has been set up successfully.
 	kernelClientCreationChannel <- info
 
+	d.prometheusManager.TotalNumKernels.
+		With(prometheus.Labels{"node_id": d.id}).Inc()
+
 	return info, nil
 }
 
@@ -1283,6 +1286,9 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 	if err != nil {
 		return nil, d.errorf(err)
 	}
+
+	d.prometheusManager.NumActiveKernelReplicasGauge.
+		With(prometheus.Labels{"node_id": d.id}).Sub(1)
 
 	return gateway.VOID, nil
 }
@@ -1521,6 +1527,9 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		if err != nil {
 			d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.ID(), err)
 		}
+
+		d.prometheusManager.NumTrainingEventsCompleted.
+			With(prometheus.Labels{"node_id": d.id}).Inc()
 	}
 
 	return nil /* will be nil on success */
