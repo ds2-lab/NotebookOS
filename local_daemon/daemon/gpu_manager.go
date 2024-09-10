@@ -367,10 +367,11 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 	m.pendingAllocKernelReplicaMap.Store(key, allocation)
 	m.pendingAllocIdMap.Store(allocation.id, allocation)
 
-	pending := m.pendingGPUs.InexactFloat64()
-	idle := m.idleGPUs.InexactFloat64()
-	m.log.Debug("Deallocated %s committed GPU(s) from replica %d of kernel %s. Idle GPUs: %s. Pending GPUs: %d",
-		allocation.numGPUs.StringFixed(0), replicaId, kernelId, idle, pending)
+	pending := m.pendingGPUs.StringFixed(0)
+	idle := m.idleGPUs.StringFixed(0)
+	committed := m.committedGPUs.StringFixed(0)
+	m.log.Debug("Deallocated %s committed GPU(s) from replica %d of kernel %s. Total idle GPUs = %s, pending GPUs = %d, committed GPUs = %s",
+		allocation.numGPUs.StringFixed(0), replicaId, kernelId, idle, pending, committed)
 
 	// Now, release the pending GPUs.
 	// This will increment the number of idle GPUs available.

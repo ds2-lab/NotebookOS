@@ -1,10 +1,14 @@
 package scheduling
 
 import (
+	"context"
 	"fmt"
 	"github.com/gin-gonic/contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	kubeSchedulerApi "k8s.io/kube-scheduler/extender/v1"
 	"net/http"
@@ -20,12 +24,12 @@ type KubernetesScheduler struct {
 	kubeClient KubeClient // Kubernetes client.
 }
 
-func NewKubernetesScheduler(gateway ClusterGateway, cluster Cluster, kubeClient KubeClient, opts *ClusterSchedulerOptions) (*KubernetesScheduler, error) {
+func NewKubernetesScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, kubeClient KubeClient, opts *ClusterSchedulerOptions) (*KubernetesScheduler, error) {
 	if !gateway.KubernetesMode() {
 		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
-	baseScheduler := NewClusterScheduler(gateway, cluster, opts)
+	baseScheduler := NewBaseScheduler(gateway, cluster, placer, opts)
 
 	kubernetesScheduler := &KubernetesScheduler{
 		BaseScheduler:            baseScheduler,
@@ -41,6 +45,31 @@ func NewKubernetesScheduler(gateway ClusterGateway, cluster Cluster, kubeClient 
 	}
 
 	return kubernetesScheduler, nil
+}
+
+func (s *KubernetesScheduler) ScheduleKernelReplica(_ int32, kernelId string, _ *proto.KernelReplicaSpec,
+	_ *proto.KernelSpec, _ *Host) error {
+	if err := s.kubeClient.ScaleOutCloneSet(kernelId); err != nil {
+		s.log.Error("Failed to add replica to kernel %s. Could not scale-up CloneSet because: %v", kernelId, err)
+		return err
+	}
+
+	return nil
+}
+
+// DeployNewKernel is responsible for creating the necessary infrastructure ot schedule the replicas of a new
+// kernel onto Host instances.
+//
+// In the case of KubernetesScheduler, DeployNewKernel uses the Kubernetes API to deploy the necessary Kubernetes
+// resources to create the new Kernel replicas.
+func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec) error {
+	_, err := s.kubeClient.DeployDistributedKernels(ctx, in)
+	if err != nil {
+		s.log.Error("Error encountered while attempting to create the Kubernetes resources for Session %s: %v", in.Id, err)
+		return status.Errorf(codes.Internal, "Failed to start kernel")
+	}
+
+	return nil
 }
 
 // RefreshClusterNodes updates the cached list of Kubernetes nodes.

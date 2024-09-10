@@ -281,7 +281,7 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 
 // RefreshResourceInformation queries the remote host via gRPC to request update-to-date resource usage information.
 func (h *Host) RefreshResourceInformation() error {
-	h.log.Debug("Refreshing resource information from remote.")
+	//h.log.Debug("Refreshing resource information from remote.")
 	resp, err := h.LocalGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
 	if err != nil {
 		h.log.Error("Failed to refresh resource information from remote: %v", err)

@@ -1,6 +1,10 @@
 package scheduling
 
-import "github.com/gin-gonic/gin"
+import (
+	"context"
+	"github.com/gin-gonic/gin"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
+)
 
 type ClusterScheduler interface {
 	// MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
@@ -47,6 +51,17 @@ type ClusterScheduler interface {
 	// Return a slice of any errors that occurred. If an error occurs while refreshing a particular piece of information,
 	// then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).
 	RefreshAll() []error
+
+	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
+	DeployNewKernel(context.Context, *proto.KernelSpec) error
+
+	// ScheduleKernelReplica schedules a particular replica onto the given Host.
+	//
+	// Exactly one of replicaSpec and kernelSpec should be non-nil.
+	// That is, both cannot be nil, and both cannot be non-nil.
+	//
+	// If targetHost is nil, then a candidate host is identified automatically by the ClusterScheduler.
+	ScheduleKernelReplica(replicaId int32, kernelId string, replicaSpec *proto.KernelReplicaSpec, kernelSpec *proto.KernelSpec, host *Host) error
 }
 
 type KubernetesClusterScheduler interface {

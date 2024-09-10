@@ -136,7 +136,9 @@ type BasicCluster struct {
 	hostMutex      sync.Mutex
 }
 
-func NewCluster(gpusPerHost int) *BasicCluster {
+// newBaseCluster creates a new BasicCluster struct and returns a pointer to it.
+// This function is for package-internal or file-internal use only.
+func newBaseCluster(gpusPerHost int) *BasicCluster {
 	cluster := &BasicCluster{
 		gpusPerHost: gpusPerHost,
 		hosts:       hashmap.NewConcurrentMap[*Host](256),
@@ -146,19 +148,15 @@ func NewCluster(gpusPerHost int) *BasicCluster {
 	return cluster
 }
 
-// NewKubernetesCluster creates a new BasicCluster struct and returns a pointer to it.
+// NewDockerCluster creates a new BasicCluster struct and returns a pointer to it.
 //
-// NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
-// This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
-// by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
-func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, opts *ClusterSchedulerOptions) *BasicCluster {
-	cluster := &BasicCluster{
-		gpusPerHost: opts.GpusPerHost,
-		hosts:       hashmap.NewConcurrentMap[*Host](256),
-		indexes:     hashmap.NewSyncMap[string, ClusterIndexProvider](),
-	}
+// NewDockerCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
+// This function accepts parameters that are used to construct a DockerScheduler to be used internally
+// by the Cluster for scheduling decisions.
+func NewDockerCluster(gatewayDaemon ClusterGateway, placer Placer, opts *ClusterSchedulerOptions) *BasicCluster {
+	cluster := newBaseCluster(opts.GpusPerHost)
 
-	scheduler, err := NewKubernetesScheduler(gatewayDaemon, cluster, kubeClient, opts)
+	scheduler, err := NewDockerScheduler(gatewayDaemon, cluster, placer, opts)
 	if err != nil {
 		cluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
 		panic(err)
@@ -166,7 +164,25 @@ func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, o
 
 	cluster.scheduler = scheduler
 
-	config.InitLogger(&cluster.log, cluster)
+	return cluster
+}
+
+// NewKubernetesCluster creates a new BasicCluster struct and returns a pointer to it.
+//
+// NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
+// This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
+// by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
+func NewKubernetesCluster(gatewayDaemon ClusterGateway, placer Placer, kubeClient KubeClient, opts *ClusterSchedulerOptions) *BasicCluster {
+	cluster := newBaseCluster(opts.GpusPerHost)
+
+	scheduler, err := NewKubernetesScheduler(gatewayDaemon, cluster, placer, kubeClient, opts)
+	if err != nil {
+		cluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
+		panic(err)
+	}
+
+	cluster.scheduler = scheduler
+
 	return cluster
 }
 

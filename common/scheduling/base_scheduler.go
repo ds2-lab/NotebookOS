@@ -30,6 +30,7 @@ type BaseScheduler struct {
 
 	instance ClusterScheduler
 	cluster  Cluster
+	placer   Placer
 
 	gpuInfo                *aggregateGpuInfo // The current "actual" GPU usage within the cluster.
 	lastGpuInfoRefresh     time.Time         // The time at which the 'actual' GPU info was last refreshed.
@@ -41,22 +42,23 @@ type BaseScheduler struct {
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
 	//-//-//-//-//-//-//-//-//-//
-	gpusPerHost                 float64 // The number of actual GPUs that are available for use on each node/host.
-	virtualGpusPerHost          int32   // The number of virtual GPUs per host.
-	scalingFactor               float64 // scalingFactor defines how many hosts the cluster will provision based on busy resources.
-	maximumHostsToReleaseAtOnce int32   // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	scalingInterval             int32   // How often to call ValidateCapacity()
-	scalingLimit                float64 // scalingLimit defines how many hosts the cluster will provision at maximum based on busy resources.
-	canScalingIn                bool    // Can the Cluster/Placer scale-in?
-	shouldUpdateRatio           bool    // Should the Placer update its subscription ratio?
-	scalingOutEnabled           bool    // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation. If disabled, then the Cluster will exclusively scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges.
-	scalingBufferSize           int32   // How many extra hosts we provision so that we can quickly scale if needed.
-	minimumCapacity             int32   // The minimum number of nodes we must have available at any time.
+	gpusPerHost                 float64                  // The number of actual GPUs that are available for use on each node/host.
+	virtualGpusPerHost          int32                    // The number of virtual GPUs per host.
+	scalingFactor               float64                  // scalingFactor defines how many hosts the cluster will provision based on busy resources.
+	maximumHostsToReleaseAtOnce int32                    // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	scalingInterval             int32                    // How often to call ValidateCapacity()
+	scalingLimit                float64                  // scalingLimit defines how many hosts the cluster will provision at maximum based on busy resources.
+	canScalingIn                bool                     // Can the Cluster/Placer scale-in?
+	shouldUpdateRatio           bool                     // Should the Placer update its subscription ratio?
+	scalingOutEnabled           bool                     // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation. If disabled, then the Cluster will exclusively scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges.
+	scalingBufferSize           int32                    // How many extra hosts we provision so that we can quickly scale if needed.
+	minimumCapacity             int32                    // The minimum number of nodes we must have available at any time.
+	opts                        *ClusterSchedulerOptions // Configuration options.
 
 	log logger.Logger
 }
 
-func NewClusterScheduler(gateway ClusterGateway, cluster Cluster, opts *ClusterSchedulerOptions) *BaseScheduler {
+func NewBaseScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, opts *ClusterSchedulerOptions) *BaseScheduler {
 	clusterScheduler := &BaseScheduler{
 		gateway:                     gateway,
 		cluster:                     cluster,
@@ -69,9 +71,15 @@ func NewClusterScheduler(gateway ClusterGateway, cluster Cluster, opts *ClusterS
 		scalingOutEnabled:           opts.ScalingOutEnabled,
 		scalingBufferSize:           int32(opts.ScalingBufferSize),
 		minimumCapacity:             int32(opts.MinimumNumNodes),
+		opts:                        opts,
 		gpuInfoRefreshInterval:      time.Second * time.Duration(opts.GpuPollIntervalSeconds),
+		placer:                      placer,
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
+
+	if opts.GpuPollIntervalSeconds <= 0 {
+		clusterScheduler.gpuInfoRefreshInterval = time.Second * 5
+	}
 
 	if clusterScheduler.log.GetLevel() == logger.LOG_LEVEL_ALL {
 		clusterScheduler.log.Debug("Scheduling Configuration:")
@@ -83,9 +91,15 @@ func NewClusterScheduler(gateway ClusterGateway, cluster Cluster, opts *ClusterS
 		clusterScheduler.log.Debug("ScalingInterval: %d", clusterScheduler.scalingInterval)
 		clusterScheduler.log.Debug("ScalingOutEnabled: %v", clusterScheduler.scalingOutEnabled)
 		clusterScheduler.log.Debug("ScalingBufferSize: %d", clusterScheduler.scalingBufferSize)
+		clusterScheduler.log.Debug("GPU Refresh Interval: %v", clusterScheduler.gpuInfoRefreshInterval)
 	}
 
 	return clusterScheduler
+}
+
+// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
+func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec) error {
+	return s.instance.DeployNewKernel(ctx, in)
 }
 
 // ClusterGateway returns the associated ClusterGateway.
@@ -194,7 +208,8 @@ func (s *BaseScheduler) RefreshClusterNodes() error {
 func (s *BaseScheduler) ValidateCapacity() {
 	load := s.gpuInfo.TotalCommittedGPUs
 
-	minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                         // The minimum number of hosts required to satisfy the cluster's current committed GPUs.
+	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                         // The minimum number of hosts required to satisfy the cluster's current committed GPUs.
+	minNumHosts := int32(s.opts.NumReplicas)
 	scaledOutNumHosts := int32(math.Ceil(float64(load) * s.scalingFactor / s.gpusPerHost)) // The number of hosts we would scale-out to based on the configured scaling factor.
 	limit := int32(math.Ceil(float64(load) * s.scalingLimit / s.gpusPerHost))              // The maximum number of hosts we're permitted to scale-out to.
 
@@ -203,7 +218,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 	// TODO(Ben): Is the minimum capacity of the host pool the right value to use here?
 	// Jingyuan's code uses the "min buffer size" (which is set within the `StaticPlacerBufferSize` constant in his code),
 	// so the minimum capacity of the host pool is the analogous value to use in my code. I'm just not sure if it will
-	// result in the intended behavior as I set the minimum capacity of the host pool moreso from an economic standpoint
+	// result in the intended behavior as I set the minimum capacity of the host pool more so from an economic standpoint
 	// to take advantage of reserved pricing.
 	if scaledOutNumHosts < (minNumHosts + s.scalingBufferSize) {
 		scaledOutNumHosts = minNumHosts + s.scalingBufferSize

@@ -29,4 +29,7 @@ type ClusterGateway interface {
 
 	// DockerComposeMode returns true if we're running in "docker compose" mode.
 	DockerComposeMode() bool
+
+	// GetHostsOfKernel returns the Host instances on which replicas of the specified kernel are scheduled.
+	GetHostsOfKernel(kernelId string) ([]*Host, error)
 }

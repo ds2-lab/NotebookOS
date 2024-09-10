@@ -64,8 +64,6 @@ const (
 	TargetReplicaArg  = "target_replica"
 	ForceReprocessArg = "force_reprocess"
 
-	DockerKernelDebugPortDefault int32 = 32000
-
 	SchedulingPolicyLocal     SchedulingPolicy = "local"
 	SchedulingPolicyStatic    SchedulingPolicy = "static"
 	SchedulingPolicyDynamicV3 SchedulingPolicy = "dynamic-v3"
@@ -87,21 +85,19 @@ var (
 
 	// Internal errors
 
-	ErrInvalidTargetNumHosts      = status.Error(codes.InvalidArgument, "requested operation would result in an invalid or illegal number of nodes")
-	ErrInvalidSocketType          = status.Error(codes.Internal, "invalid socket type specified")
-	ErrKernelNotFound             = status.Error(codes.InvalidArgument, "kernel not found")
-	ErrHostNotFound               = status.Error(codes.Internal, "host not found")
-	ErrKernelNotReady             = status.Error(codes.Unavailable, "kernel not ready")
-	ErrActiveExecutionNotFound    = status.Error(codes.InvalidArgument, "active execution for specified kernel could not be found")
-	ErrKernelSpecNotFound         = status.Error(codes.InvalidArgument, "kernel spec not found")
-	ErrResourceSpecNotFound       = status.Error(codes.InvalidArgument, "the kernel does not have a resource spec included with its kernel spec")
-	ErrKernelIDRequired           = status.Error(codes.InvalidArgument, "kernel id frame is required for kernel_info_request")
-	ErrDaemonNotFoundOnNode       = status.Error(codes.InvalidArgument, "could not find a local daemon on the specified kubernetes node")
-	ErrFailedToVerifyMessage      = status.Error(codes.Internal, "failed to verify ZMQ message after (re)encoding it with modified contents")
-	ErrRequestTimedOut            = status.Error(codes.Unavailable, "request timed out")
-	ErrSessionNotTraining         = status.Error(codes.Internal, "expected session to be training")
-	ErrSessionNotFound            = status.Error(codes.InvalidArgument, "could not locate scheduling.Session instance")
-	ErrInsufficientHostsAvailable = status.Error(codes.Internal, "insufficient hosts available")
+	ErrInvalidTargetNumHosts   = status.Error(codes.InvalidArgument, "requested operation would result in an invalid or illegal number of nodes")
+	ErrInvalidSocketType       = status.Error(codes.Internal, "invalid socket type specified")
+	ErrKernelNotFound          = status.Error(codes.InvalidArgument, "kernel not found")
+	ErrHostNotFound            = status.Error(codes.Internal, "host not found")
+	ErrKernelNotReady          = status.Error(codes.Unavailable, "kernel not ready")
+	ErrActiveExecutionNotFound = status.Error(codes.InvalidArgument, "active execution for specified kernel could not be found")
+	ErrKernelSpecNotFound      = status.Error(codes.InvalidArgument, "kernel spec not found")
+	ErrResourceSpecNotFound    = status.Error(codes.InvalidArgument, "the kernel does not have a resource spec included with its kernel spec")
+	ErrKernelIDRequired        = status.Error(codes.InvalidArgument, "kernel id frame is required for kernel_info_request")
+	ErrDaemonNotFoundOnNode    = status.Error(codes.InvalidArgument, "could not find a local daemon on the specified kubernetes node")
+	ErrFailedToVerifyMessage   = status.Error(codes.Internal, "failed to verify ZMQ message after (re)encoding it with modified contents")
+	ErrSessionNotTraining      = status.Error(codes.Internal, "expected session to be training")
+	ErrSessionNotFound         = status.Error(codes.InvalidArgument, "could not locate scheduling.Session instance")
 )
 
 // SchedulingPolicy indicates the scheduling policy/methodology/algorithm that the Cluster Gateway is configured to use.
@@ -233,9 +229,6 @@ type ClusterGatewayImpl struct {
 	// Run via Docker on a single system rather than using the Kubernetes-based deployment.
 	deploymentMode types.DeploymentMode
 
-	// Used in Docker mode. Assigned to individual kernel replicas, incremented after each assignment.
-	dockerModeKernelDebugPort atomic.Int32
-
 	// Docker client.
 	dockerApiClient *dockerClient.Client
 
@@ -281,7 +274,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, "ClusterGatewayRouter", false)
-	daemon.cluster = scheduling.NewCluster(clusterDaemonOptions.GpusPerHost)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -303,14 +295,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	// Initial values for these metrics.
 	daemon.gatewayPrometheusManager.NumActiveKernelReplicasGauge.
 		With(prometheus.Labels{"node_id": "cluster"}).Set(0)
-
-	placer, err := scheduling.NewRandomPlacer(daemon.cluster, daemon.ClusterOptions)
-	if err != nil {
-		daemon.log.Error("Failed to create new placer because: %v", err)
-		panic(err)
-	}
-
-	daemon.placer = placer
 
 	if daemon.ip == "" {
 		ip, err := utils.GetIP()
@@ -388,7 +372,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			}
 
 			daemon.dockerApiClient = apiClient
-			daemon.dockerModeKernelDebugPort.Store(DockerKernelDebugPortDefault)
 		}
 	case "docker-swarm":
 		{
@@ -401,13 +384,11 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			}
 
 			daemon.dockerApiClient = apiClient
-			daemon.dockerModeKernelDebugPort.Store(DockerKernelDebugPortDefault)
 		}
 	case "kubernetes":
 		{
 			daemon.log.Info("Running in KUBERNETES mode.")
 			daemon.deploymentMode = types.KubernetesMode
-			daemon.dockerModeKernelDebugPort.Store(-1)
 		}
 	default:
 		{
@@ -421,11 +402,25 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
+	// Create the Placer.
+	placer, err := scheduling.NewRandomPlacer(daemon.cluster, daemon.ClusterOptions)
+	if err != nil {
+		daemon.log.Error("Failed to create new placer because: %v", err)
+		panic(err)
+	}
+
+	daemon.placer = placer
+
+	// Create the Cluster Scheduler.
+	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
 	if daemon.KubernetesMode() {
 		daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
 		daemon.containerWatcher = daemon.kubeClient
+
+		daemon.cluster = scheduling.NewKubernetesCluster(daemon, placer, daemon.kubeClient, &clusterSchedulerOptions)
 	} else if daemon.DockerMode() {
 		daemon.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
+		daemon.cluster = scheduling.NewDockerCluster(daemon, placer, &clusterSchedulerOptions)
 	}
 
 	return daemon
@@ -662,7 +657,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 					Id:      kernelId,
 					Success: false,
 					Msg:     errorMessage,
-				}, ErrRequestTimedOut
+				}, types.ErrRequestTimedOut
 			}
 		}
 	case <-doneChan:
@@ -707,6 +702,21 @@ func (d *ClusterGatewayImpl) publishPrometheusMetrics() {
 		//	time.Sleep(d.prometheusInterval)
 		//}
 	}()
+}
+
+// GetHostsOfKernel returns the Host instances on which replicas of the specified kernel are scheduled.
+func (d *ClusterGatewayImpl) GetHostsOfKernel(kernelId string) ([]*scheduling.Host, error) {
+	kernel, ok := d.kernels.Load(kernelId)
+	if !ok {
+		return nil, ErrKernelNotFound
+	}
+	
+	hosts := make([]*scheduling.Host, 0, len(kernel.Replicas()))
+	for _, replica := range kernel.Replicas() {
+		hosts = append(hosts, replica.GetHost())
+	}
+
+	return hosts, nil
 }
 
 // Listen listens on the TCP network address addr and returns a net.Listener that intercepts incoming connections.
@@ -1341,56 +1351,56 @@ func (d *ClusterGatewayImpl) KubernetesMode() bool {
 }
 
 // Important: exactly ONE of `kernelSpec` and `replicaSpec` must be non-nil. That is, they cannot both be nil, and they cannot both be non-nil.
-func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host *scheduling.Host, numReplicas int32, kernelSpec *proto.KernelSpec, replicaSpec *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
-	var err error
-
-	if host == nil {
-		d.log.Error("Target host cannot be nil when launching kernel replica via Docker")
-		return nil, scheduling.ErrNilHost
-	}
-
-	if kernelSpec == nil && replicaSpec == nil {
-		panic("Both `kernelSpec` and `replicaSpec` cannot be nil; exactly one of these two arguments must be non-nil.")
-	}
-
-	if kernelSpec != nil && replicaSpec != nil {
-		panic("Both `kernelSpec` and `replicaSpec` cannot be non-nil; exactly one of these two arguments must be non-nil.")
-	}
-
-	var kernelId string
-	if kernelSpec != nil {
-		kernelId = kernelSpec.Id
-		d.log.Debug("Launching replica %d of kernel %s on host %v now.", replicaId, kernelId, host)
-		replicaSpec = &proto.KernelReplicaSpec{
-			Kernel:                    kernelSpec,
-			ReplicaId:                 int32(replicaId),
-			NumReplicas:               numReplicas,
-			DockerModeKernelDebugPort: d.dockerModeKernelDebugPort.Add(1),
-		}
-	} else {
-		kernelId = replicaSpec.Kernel.Id
-
-		// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
-		if replicaSpec.DockerModeKernelDebugPort <= 1023 {
-			replicaSpec.DockerModeKernelDebugPort = d.dockerModeKernelDebugPort.Add(1)
-		}
-
-		d.log.Debug("Launching replica %d of kernel %s on host %v now.", replicaSpec.ReplicaId, kernelId, host)
-	}
-
-	replicaConnInfo, err := d.placer.Place(host, replicaSpec)
-	if err != nil {
-		if kernelSpec != nil {
-			d.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
-		} else {
-			d.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
-		}
-		return nil, err
-	}
-
-	d.log.Debug("Received replica connection info after calling placer.Place: %v", replicaConnInfo)
-	return replicaConnInfo, nil
-}
+// func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host *scheduling.Host, numReplicas int32, kernelSpec *proto.KernelSpec, replicaSpec *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+//	var err error
+//
+//	if host == nil {
+//		d.log.Error("Target host cannot be nil when launching kernel replica via Docker")
+//		return nil, scheduling.ErrNilHost
+//	}
+//
+//	if kernelSpec == nil && replicaSpec == nil {
+//		panic("Both `kernelSpec` and `replicaSpec` cannot be nil; exactly one of these two arguments must be non-nil.")
+//	}
+//
+//	if kernelSpec != nil && replicaSpec != nil {
+//		panic("Both `kernelSpec` and `replicaSpec` cannot be non-nil; exactly one of these two arguments must be non-nil.")
+//	}
+//
+//	var kernelId string
+//	if kernelSpec != nil {
+//		kernelId = kernelSpec.Id
+//		d.log.Debug("Launching replica %d of kernel %s on host %v now.", replicaId, kernelId, host)
+//		replicaSpec = &proto.KernelReplicaSpec{
+//			Kernel:                    kernelSpec,
+//			ReplicaId:                 int32(replicaId),
+//			NumReplicas:               numReplicas,
+//			DockerModeKernelDebugPort: d.dockerModeKernelDebugPort.Add(1),
+//		}
+//	} else {
+//		kernelId = replicaSpec.Kernel.Id
+//
+//		// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
+//		if replicaSpec.DockerModeKernelDebugPort <= 1023 {
+//			replicaSpec.DockerModeKernelDebugPort = d.dockerModeKernelDebugPort.Add(1)
+//		}
+//
+//		d.log.Debug("Launching replica %d of kernel %s on host %v now.", replicaSpec.ReplicaId, kernelId, host)
+//	}
+//
+//	replicaConnInfo, err := d.placer.Place(host, replicaSpec)
+//	if err != nil {
+//		if kernelSpec != nil {
+//			d.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
+//		} else {
+//			d.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
+//		}
+//		return nil, err
+//	}
+//
+//	d.log.Debug("Received replica connection info after calling placer.Place: %v", replicaConnInfo)
+//	return replicaConnInfo, nil
+//}
 
 // startNewKernel is called by StartKernel when creating a brand-new kernel, rather than restarting an existing kernel.
 func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.DistributedKernelClient, error) {
@@ -1442,73 +1452,73 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 //
 // This function initiates the scheduling and provisioning process before waiting for the replicas to register
 // with the Cluster Gateway (via their Local Daemons).
-func (d *ClusterGatewayImpl) handleNewDockerKernel(ctx context.Context, in *proto.KernelSpec) error {
-	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
-	// or errors that occurred when launching a replica.
-	resultChan := make(chan interface{}, 3)
-
-	d.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", d.ClusterOptions.NumReplicas, in.Id, in.ResourceSpec.String())
-
-	// Identify the hosts onto which we will place replicas of the kernel.
-	hosts := d.placer.FindHosts(types.FullSpecFromKernelSpec(in))
-
-	if len(hosts) < d.ClusterOptions.NumReplicas {
-		d.log.Error("Found %d/%d hosts to serve replicas of kernel %s.", len(hosts), d.ClusterOptions.NumReplicas, in.Id)
-		return fmt.Errorf("%w: found %d/%d required hosts to serve replicas of kernel %s", ErrInsufficientHostsAvailable, len(hosts), d.ClusterOptions.NumReplicas, in.Id)
-	}
-
-	d.log.Debug("Found %d hosts to serve replicas of kernel %s: %v", d.ClusterOptions.NumReplicas, in.Id, hosts)
-
-	// For each host, launch a Docker replica on that host.
-	for i, host := range hosts {
-		// Launch replicas in parallel.
-		go func(replicaId int, targetHost *scheduling.Host) {
-			_, err := d.launchReplicaDocker(replicaId, targetHost, int32(len(hosts)), in, nil) /* Only 1 of arguments 3 and 4 can be non-nil */
-
-			if err != nil {
-				// An error occurred. Send it over the channel.
-				resultChan <- err
-			} else {
-				// Send a notification that a replica was launched successfully.
-				resultChan <- struct{}{}
-			}
-		}(i+1, host)
-	}
-
-	// Keep looping until we've received all responses or the context times-out.
-	responsesReceived := 0
-	responsesRequired := len(hosts)
-	for responsesReceived < responsesRequired {
-		select {
-		// Context time-out, meaning the operation itself has timed-out or been cancelled.
-		case <-ctx.Done():
-			{
-				err := ctx.Err()
-				if err != nil {
-					d.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. Error extracted from now-cancelled context: %v", in.Id, err)
-					return err
-				} else {
-					d.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. No error extracted from now-cancelled context.", in.Id, err)
-					return ErrRequestTimedOut // Return generic error if we can't get one from the Context for some reason.
-				}
-			}
-		// Received response.
-		case val := <-resultChan:
-			{
-				if err, ok := val.(error); ok {
-					d.log.Error("Error while launching at least one of the replicas of kernel %s: %v", in.Id, err)
-					return err
-				}
-
-				responsesReceived += 1
-
-				d.log.Debug("Launched %d/%d replica(s) of kernel %s.", responsesReceived, responsesRequired, in.Id)
-			}
-		}
-	}
-
-	return nil
-}
+//func (d *ClusterGatewayImpl) handleNewDockerKernel(ctx context.Context, in *proto.KernelSpec) error {
+//	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
+//	// or errors that occurred when launching a replica.
+//	resultChan := make(chan interface{}, 3)
+//
+//	d.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", d.ClusterOptions.NumReplicas, in.Id, in.ResourceSpec.String())
+//
+//	// Identify the hosts onto which we will place replicas of the kernel.
+//	hosts := d.placer.FindHosts(types.FullSpecFromKernelSpec(in))
+//
+//	if len(hosts) < d.ClusterOptions.NumReplicas {
+//		d.log.Error("Found %d/%d hosts to serve replicas of kernel %s.", len(hosts), d.ClusterOptions.NumReplicas, in.Id)
+//		return fmt.Errorf("%w: found %d/%d required hosts to serve replicas of kernel %s", scheduling.ErrInsufficientHostsAvailable, len(hosts), d.ClusterOptions.NumReplicas, in.Id)
+//	}
+//
+//	d.log.Debug("Found %d hosts to serve replicas of kernel %s: %v", d.ClusterOptions.NumReplicas, in.Id, hosts)
+//
+//	// For each host, launch a Docker replica on that host.
+//	for i, host := range hosts {
+//		// Launch replicas in parallel.
+//		go func(replicaId int, targetHost *scheduling.Host) {
+//			_, err := d.launchReplicaDocker(replicaId, targetHost, int32(len(hosts)), in, nil) /* Only 1 of arguments 3 and 4 can be non-nil */
+//
+//			if err != nil {
+//				// An error occurred. Send it over the channel.
+//				resultChan <- err
+//			} else {
+//				// Send a notification that a replica was launched successfully.
+//				resultChan <- struct{}{}
+//			}
+//		}(i+1, host)
+//	}
+//
+//	// Keep looping until we've received all responses or the context times-out.
+//	responsesReceived := 0
+//	responsesRequired := len(hosts)
+//	for responsesReceived < responsesRequired {
+//		select {
+//		// Context time-out, meaning the operation itself has timed-out or been cancelled.
+//		case <-ctx.Done():
+//			{
+//				err := ctx.Err()
+//				if err != nil {
+//					d.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. Error extracted from now-cancelled context: %v", in.Id, err)
+//					return err
+//				} else {
+//					d.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. No error extracted from now-cancelled context.", in.Id, err)
+//					return types.ErrRequestTimedOut // Return generic error if we can't get one from the Context for some reason.
+//				}
+//			}
+//		// Received response.
+//		case val := <-resultChan:
+//			{
+//				if err, ok := val.(error); ok {
+//					d.log.Error("Error while launching at least one of the replicas of kernel %s: %v", in.Id, err)
+//					return err
+//				}
+//
+//				responsesReceived += 1
+//
+//				d.log.Debug("Launched %d/%d replica(s) of kernel %s.", responsesReceived, responsesRequired, in.Id)
+//			}
+//		}
+//	}
+//
+//	return nil
+//}
 
 // StartKernel launches a new kernel.
 func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
@@ -1546,19 +1556,25 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	d.log.Debug("Created and stored new DistributedKernel %s.", in.Id)
 
 	// If we're in KubeMode, then
-	if d.KubernetesMode() {
-		_, err = d.kubeClient.DeployDistributedKernels(ctx, in)
-		if err != nil {
-			d.log.Error("Error encountered while attempting to create the Kubernetes resources for Session %s", in.Id)
-			d.log.Error("%v", err)
-			return nil, status.Errorf(codes.Internal, "Failed to start kernel")
-		}
-	} else if d.DockerMode() {
-		err = d.handleNewDockerKernel(ctx, in)
-		if err != nil {
-			d.log.Error("Error while handling Docker-specific initiation steps for new kernel %s: %v", in.Id, err)
-			return nil, status.Error(codes.Internal, err.Error())
-		}
+	//if d.KubernetesMode() {
+	//	_, err = d.kubeClient.DeployDistributedKernels(ctx, in)
+	//	if err != nil {
+	//		d.log.Error("Error encountered while attempting to create the Kubernetes resources for Session %s", in.Id)
+	//		d.log.Error("%v", err)
+	//		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
+	//	}
+	//} else if d.DockerMode() {
+	//	err = d.handleNewDockerKernel(ctx, in)
+	//	if err != nil {
+	//		d.log.Error("Error while handling Docker-specific initiation steps for new kernel %s: %v", in.Id, err)
+	//		return nil, status.Error(codes.Internal, err.Error())
+	//	}
+	//}
+
+	err = d.cluster.ClusterScheduler().DeployNewKernel(ctx, in)
+	if err != nil {
+		d.log.Error("Error while deploying infrastructure for new kernel %s's: %v", in.Id, err)
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	// Wait for all replicas to be created.
@@ -2819,49 +2835,19 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 
 	d.containerWatcher.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
 
+	if err := d.cluster.ClusterScheduler().ScheduleKernelReplica(newReplicaSpec.ReplicaId, kernelId, newReplicaSpec, nil, nil); err != nil {
+		return addReplicaOp, err
+	}
+
 	var newReplicaName string
 	if d.KubernetesMode() {
-		err := d.kubeClient.ScaleOutCloneSet(kernelId)
-		if err != nil {
-			d.log.Error("Failed to add replica to kernel %s. Could not scale-up CloneSet because: %v", kernelId, err)
-			return addReplicaOp, err
-		}
-
 		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
 
 		// Always wait for the scale-out operation to complete and the new replica to be created.
 		newReplicaName = <-addReplicaOp.ReplicaStartedChannel()
 	} else {
-		blacklist := make([]interface{}, 0)
-
-		// We "blacklist" all the hosts for which other replicas of this kernel are scheduled.
-		// That way, we'll necessarily select a host on which no other replicas of this kernel are running.
-		for _, replica := range kernel.Replicas() {
-			host := replica.GetHost()
-			if host == nil {
-				// This shouldn't happen as far as I know, but if it does, then we can't really identify the proper host to migrate to.
-				d.log.Error("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID())
-
-				go d.notifyDashboard("No Host Assigned to Kernel", fmt.Sprintf("Replica %d of kernel %s does NOT have a host...", replica.ReplicaID(), replica.ID()), jupyter.WarningNotification)
-				continue
-			}
-
-			d.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", replica.GetHost().ID(), replica.GetHost().NodeName(), replica.ID(), replica.ReplicaID())
-			blacklist = append(blacklist, replica.GetHost().GetMeta(scheduling.HostMetaRandomIndex))
-		}
-
-		host := d.placer.FindHost(blacklist, types.FullSpecFromKernelReplicaSpec(newReplicaSpec))
-		d.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.", host.ID(), kernelId, in.ReplicaId, host.ID())
-
-		connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaId), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
+		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaId), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
 		// connInfo, err := d.placer.Place(host, newReplicaSpec)
-
-		if err != nil {
-			d.log.Error("Failed to add replica to kernel %s. Exception encountered by Placer: %v.", kernelId, err)
-			return addReplicaOp, err
-		} else {
-			d.log.Debug("Received replica connection info after calling placer.Place: %v", connInfo)
-		}
 
 		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
 

@@ -49,3 +49,4 @@ execution-time-sampling-window: 10
 migration-time-sampling-window: 10
 prometheus_interval: 2
 prometheus_port: 8089
+gpu_poll_interval: 5
