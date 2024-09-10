@@ -402,25 +402,16 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
-	// Create the Placer.
-	placer, err := scheduling.NewRandomPlacer(daemon.cluster, daemon.ClusterOptions)
-	if err != nil {
-		daemon.log.Error("Failed to create new placer because: %v", err)
-		panic(err)
-	}
-
-	daemon.placer = placer
-
 	// Create the Cluster Scheduler.
 	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
 	if daemon.KubernetesMode() {
 		daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
 		daemon.containerWatcher = daemon.kubeClient
 
-		daemon.cluster = scheduling.NewKubernetesCluster(daemon, placer, daemon.kubeClient, &clusterSchedulerOptions)
+		daemon.cluster = scheduling.NewKubernetesCluster(daemon, daemon.kubeClient, &clusterSchedulerOptions)
 	} else if daemon.DockerMode() {
 		daemon.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
-		daemon.cluster = scheduling.NewDockerCluster(daemon, placer, &clusterSchedulerOptions)
+		daemon.cluster = scheduling.NewDockerCluster(daemon, &clusterSchedulerOptions)
 	}
 
 	return daemon
@@ -710,7 +701,7 @@ func (d *ClusterGatewayImpl) GetHostsOfKernel(kernelId string) ([]*scheduling.Ho
 	if !ok {
 		return nil, ErrKernelNotFound
 	}
-	
+
 	hosts := make([]*scheduling.Host, 0, len(kernel.Replicas()))
 	for _, replica := range kernel.Replicas() {
 		hosts = append(hosts, replica.GetHost())
@@ -1999,7 +1990,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 	wg.Add(1)
 
 	go func() {
-		err = d.errorf(kernel.Shutdown(d.placer.Reclaim, restart))
+		err = d.errorf(kernel.Shutdown(d.cluster.Placer().Reclaim, restart))
 		if err != nil {
 			d.log.Warn("Failed to close kernel: %s", err.Error())
 			return
@@ -2938,7 +2929,7 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) err
 	// d.smrNodeRemovedNotifications.Store(channelMapKey, nodeRemovedNotificationChannel)
 
 	// First, stop the kernel on the replica we'd like to remove.
-	_, err = kernelClient.RemoveReplicaByID(smrNodeId, d.placer.Reclaim, false)
+	_, err = kernelClient.RemoveReplicaByID(smrNodeId, d.cluster.Placer().Reclaim, false)
 	if err != nil {
 		d.log.Error("Error while stopping replica %d of kernel %s: %v", smrNodeId, kernelId, err)
 		return err

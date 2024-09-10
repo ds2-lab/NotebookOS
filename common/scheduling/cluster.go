@@ -106,6 +106,9 @@ type Cluster interface {
 	// ClusterScheduler returns the ClusterScheduler used by the Cluster.
 	ClusterScheduler() ClusterScheduler
 
+	// Placer returns the Placer used by the Cluster.
+	Placer() Placer
+
 	// LockHosts locks the underlying host manager such that no Host instances can be added or removed.
 	LockHosts()
 
@@ -130,6 +133,8 @@ type BasicCluster struct {
 
 	scheduler ClusterScheduler
 
+	placer Placer
+
 	log logger.Logger
 
 	scalingOpMutex sync.Mutex
@@ -153,8 +158,15 @@ func newBaseCluster(gpusPerHost int) *BasicCluster {
 // NewDockerCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
-func NewDockerCluster(gatewayDaemon ClusterGateway, placer Placer, opts *ClusterSchedulerOptions) *BasicCluster {
+func NewDockerCluster(gatewayDaemon ClusterGateway, opts *ClusterSchedulerOptions) *BasicCluster {
 	cluster := newBaseCluster(opts.GpusPerHost)
+
+	placer, err := NewRandomPlacer(cluster, opts)
+	if err != nil {
+		cluster.log.Error("Failed to create Random Placer: %v", err)
+		panic(err)
+	}
+	cluster.placer = placer
 
 	scheduler, err := NewDockerScheduler(gatewayDaemon, cluster, placer, opts)
 	if err != nil {
@@ -172,8 +184,15 @@ func NewDockerCluster(gatewayDaemon ClusterGateway, placer Placer, opts *Cluster
 // NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
 // This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
-func NewKubernetesCluster(gatewayDaemon ClusterGateway, placer Placer, kubeClient KubeClient, opts *ClusterSchedulerOptions) *BasicCluster {
+func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, opts *ClusterSchedulerOptions) *BasicCluster {
 	cluster := newBaseCluster(opts.GpusPerHost)
+
+	placer, err := NewRandomPlacer(cluster, opts)
+	if err != nil {
+		cluster.log.Error("Failed to create Random Placer: %v", err)
+		panic(err)
+	}
+	cluster.placer = placer
 
 	scheduler, err := NewKubernetesScheduler(gatewayDaemon, cluster, placer, kubeClient, opts)
 	if err != nil {
@@ -184,6 +203,11 @@ func NewKubernetesCluster(gatewayDaemon ClusterGateway, placer Placer, kubeClien
 	cluster.scheduler = scheduler
 
 	return cluster
+}
+
+// Placer returns the Placer used by the Cluster.
+func (c *BasicCluster) Placer() Placer {
+	return c.placer
 }
 
 // LockHosts locks the underlying host manager such that no Host instances can be added or removed.

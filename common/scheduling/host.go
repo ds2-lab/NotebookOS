@@ -239,6 +239,10 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		createdAt:          time.Now(),
 	}
 
+	host.idleGPUs.Store(0)
+	host.pendingGPUs.Store(0)
+	host.committedGPUs.Store(0)
+
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
 	host.sip.Validator = GetClockTimeCacheValidator()
 	host.penaltyList.Producer = cache.FormalizeChainedICProducer(host.updatePenaltyList)
@@ -297,39 +301,37 @@ func (h *Host) RefreshResourceInformation() error {
 func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
 	h.gpuInfoMutex.Lock()
 
-	h.log.Debug("Updating local GPU usage info with data from remote now...")
+	//h.log.Debug("Updating local GPU usage info with data from remote now...")
 	numDifferences := 0
 
 	localIdleGpus := h.Stats().IdleGPUsStat().Load()
 	if localIdleGpus != float64(remoteInfo.IdleGPUs) {
-		h.log.Warn("Local idle GPUs (%.0f) do not match latest remote update (%.0f). Updating local info now...", localIdleGpus, remoteInfo.SpecGPUs)
+		h.log.Warn("Local idle GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", localIdleGpus, remoteInfo.IdleGPUs)
 		h.Stats().IdleGPUsStat().Store(float64(remoteInfo.IdleGPUs))
 		numDifferences += 1
 	}
 
 	localPendingGPUs := h.Stats().PendingGPUsStat().Load()
 	if localPendingGPUs != float64(remoteInfo.PendingGPUs) {
-		h.log.Warn("Local pending GPUs (%.0f) do not match latest remote update (%.0f). Updating local info now...", localPendingGPUs, remoteInfo.SpecGPUs)
+		h.log.Warn("Local pending GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", localPendingGPUs, remoteInfo.PendingGPUs)
 		h.Stats().PendingGPUsStat().Store(float64(remoteInfo.PendingGPUs))
 		numDifferences += 1
 	}
 
 	localCommittedGPUs := h.Stats().CommittedGPUsStat().Load()
 	if localCommittedGPUs != float64(remoteInfo.CommittedGPUs) {
-		h.log.Warn("Local committed GPUs (%.0f) do not match latest remote update (%.0f). Updating local info now...", localCommittedGPUs, remoteInfo.SpecGPUs)
+		h.log.Warn("Local committed GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", localCommittedGPUs, remoteInfo.CommittedGPUs)
 		h.Stats().CommittedGPUsStat().Store(float64(remoteInfo.CommittedGPUs))
 		numDifferences += 1
 	}
 
 	if h.ResourceSpec().GPU() != float64(remoteInfo.SpecGPUs) {
-		h.log.Warn("Local spec GPUs (%.0f) do not match latest remote update (%.0f). Updating local info now...", h.ResourceSpec().GPU(), remoteInfo.SpecGPUs)
+		h.log.Warn("Local spec GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", h.ResourceSpec().GPU(), remoteInfo.SpecGPUs)
 		h.ResourceSpec().UpdateSpecGPUs(float64(remoteInfo.SpecGPUs))
 		numDifferences += 1
 	}
 
-	if numDifferences == 0 {
-		h.log.Debug("Finished remote-to-local GPU update. Number of differences: %d.", numDifferences)
-	} else {
+	if numDifferences > 0 {
 		h.log.Warn("Finished remote-to-local GPU update. Number of differences: %d.", numDifferences)
 	}
 
