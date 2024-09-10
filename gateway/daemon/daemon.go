@@ -45,7 +45,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
-	"github.com/zhangjyr/distributed-notebook/gateway/scheduler"
 )
 
 const (
@@ -103,13 +102,12 @@ var (
 	ErrSessionNotTraining         = status.Error(codes.Internal, "expected session to be training")
 	ErrSessionNotFound            = status.Error(codes.InvalidArgument, "could not locate scheduling.Session instance")
 	ErrInsufficientHostsAvailable = status.Error(codes.Internal, "insufficient hosts available")
-	ErrIncompatibleDeploymentMode = status.Error(codes.FailedPrecondition, "current deployment mode is incompatible with the requested action")
 )
 
 // SchedulingPolicy indicates the scheduling policy/methodology/algorithm that the Cluster Gateway is configured to use.
 type SchedulingPolicy string
 
-type GatewayDaemonConfig func(domain.ClusterGateway)
+type GatewayDaemonConfig func(scheduling.ClusterGateway)
 
 // FailureHandler defines a recovery callback for panics.
 // The primary purpose is simply to send a notification to the dashboard that a panic occurred before exiting.
@@ -138,7 +136,7 @@ type ClusterGatewayImpl struct {
 
 	// Options
 	connectionOptions *jupyter.ConnectionInfo
-	ClusterOptions    *scheduling.CoreOptions
+	ClusterOptions    *scheduling.ClusterSchedulerOptions
 
 	// cluster provisioning related members
 	listener net.Listener
@@ -182,16 +180,13 @@ type ClusterGatewayImpl struct {
 
 	activeExecutions hashmap.HashMap[string, *gateway.ActiveExecution]
 
-	// Responsible for orchestrating and managing migration operations.
-	// migrationManager MigrationManager
-
 	// We configure a pool of available ports through Kubernetes.
 	// This is the pool of ports. We use these ports to create ZMQ sockets for kernels.
 	// If a kernel stops, then its ports are returned to the pool for future reuse.
 	availablePorts *utils.AvailablePorts
 
 	// The IOPub socket that all Jupyter clients subscribe to.
-	// iopub *jupyter.Socket
+	// io pub *jupyter.Socket
 	smrPort int
 
 	// Map of kernels that are starting for the first time.
@@ -212,7 +207,7 @@ type ClusterGatewayImpl struct {
 	addReplicaOperationsByNewPodName *hashmap.CornelkMap[string, domain.AddReplicaOperation]
 
 	// Mapping from NewPodName to chan string.
-	// In theory, it's possible to receive a PodCreated notifcation from Kubernetes AFTER the replica within the new Pod
+	// In theory, it's possible to receive a PodCreated notification from Kubernetes AFTER the replica within the new Pod
 	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
 	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
@@ -225,15 +220,12 @@ type ClusterGatewayImpl struct {
 	hdfsNameNodeEndpoint string
 
 	// Kubernetes client. This is shared with the associated Cluster Gateway.
-	kubeClient domain.KubeClient
+	kubeClient scheduling.KubeClient
 
 	// Watches for new Pods/Containers.
 	//
 	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
-	containerWatcher domain.ContainerWatcher
-
-	// Called by Kubernetes to involve the Cluster Gateway in scheduling decisions.
-	clusterScheduler domain.ClusterScheduler
+	containerWatcher scheduling.ContainerWatcher
 
 	// gRPC connection to the Dashboard.
 	clusterDashboard proto.ClusterDashboardClient
@@ -289,7 +281,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, "ClusterGatewayRouter", false)
-	daemon.cluster = scheduling.NewCluster()
+	daemon.cluster = scheduling.NewCluster(clusterDaemonOptions.GpusPerHost)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -435,8 +427,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	} else if daemon.DockerMode() {
 		daemon.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
 	}
-
-	daemon.clusterScheduler = scheduler.NewClusterScheduler(daemon, daemon.kubeClient, clusterDaemonOptions.ClusterSchedulerOptions)
 
 	return daemon
 }
@@ -687,7 +677,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	}, nil
 }
 
-func (d *ClusterGatewayImpl) SetClusterOptions(opts *scheduling.CoreOptions) {
+func (d *ClusterGatewayImpl) SetClusterOptions(opts *scheduling.ClusterSchedulerOptions) {
 	d.ClusterOptions = opts
 }
 
@@ -842,7 +832,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	// Create a host scheduler client and register it.
 	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), 8000, 16384,
-		time.Second*2, d.cluster, gConn, d.localDaemonDisconnected)
+		d.cluster, gConn, d.localDaemonDisconnected)
 
 	if err != nil {
 		if errors.Is(err, scheduling.ErrRestoreRequired) {
@@ -885,8 +875,8 @@ func (d *ClusterGatewayImpl) Addr() net.Addr {
 }
 
 // ClusterScheduler returns the associated ClusterGateway.
-func (d *ClusterGatewayImpl) ClusterScheduler() domain.ClusterScheduler {
-	return d.clusterScheduler
+func (d *ClusterGatewayImpl) ClusterScheduler() scheduling.ClusterScheduler {
+	return d.cluster.ClusterScheduler()
 }
 
 func (d *ClusterGatewayImpl) SetID(_ context.Context, _ *proto.HostId) (*proto.HostId, error) {
@@ -2234,7 +2224,7 @@ func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo) (*
 
 func (d *ClusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
 	if d.DockerMode() {
-		return make([]corev1.Node, 0), ErrIncompatibleDeploymentMode
+		return make([]corev1.Node, 0), types.ErrIncompatibleDeploymentMode
 	}
 
 	return d.kubeClient.GetKubernetesNodes()
@@ -2278,8 +2268,10 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 func (d *ClusterGatewayImpl) Start() error {
 	d.log.Info("Starting router...")
 
-	// Start the HTTP Kubernetes Scheduler service.
-	go d.ClusterScheduler().StartHttpKubernetesSchedulerService()
+	if d.KubernetesMode() {
+		// Start the HTTP Kubernetes Scheduler service.
+		go d.cluster.ClusterScheduler().(scheduling.KubernetesClusterScheduler).StartHttpKubernetesSchedulerService()
+	}
 
 	// Start the router. The call will return on error or router.Close() is called.
 	err := d.router.Start()
@@ -2325,7 +2317,8 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.Ju
 	// If this is a shutdown request, then use the RPC pathway instead.
 	if msg.JupyterMessageType() == jupyter.MessageTypeShutdownRequest {
 		sessionId := msg.JupyterSession()
-		d.log.Debug("Intercepting \"%v\" message targeting session \"%s\" and using RPC pathway instead...", jupyter.MessageTypeShutdownRequest, sessionId)
+		d.log.Debug("Intercepting \"%v\" message targeting session \"%s\" and using RPC pathway instead...",
+			jupyter.MessageTypeShutdownRequest, sessionId)
 
 		// Stop the kernel. If we get an error, print it here, and then we'll return it.
 		var err error
@@ -2334,6 +2327,19 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.Ju
 
 			// Spawn a separate goroutine to send an error notification to the dashboard.
 			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Session %s", sessionId), err.Error())
+		}
+
+		session, ok := d.sessions.Load(sessionId)
+		if !ok || session == nil {
+			d.log.Error("Could not find scheduling.Session associated with kernel being shutdown \"%s\"", sessionId)
+			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find scheduling.Session of Terminating Kernel \"%s\"", sessionId), "Failed to Find scheduling.Session of Terminating Kernel \"%s\"")
+		} else {
+			p := session.SessionStopped()
+			err := p.Error()
+			if err != nil {
+				d.log.Error("Error while descheduling Session \"%s\"", sessionId)
+				go d.notifyDashboardOfError(fmt.Sprintf("Error while Descheduling Session \"%s\"", sessionId), err.Error())
+			}
 		}
 
 		// TODO: This doesn't actually send an error response back to the client/Jupyter server.
@@ -3046,7 +3052,7 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 	// Eventually, Docker Swarm mode will ~only~ support Docker Swarm nodes, which correspond to real machines or VMs.
 	// Virtual Docker nodes correspond to each Local Daemon container, and are primarily used for development or small, local simulations.
 	if !d.DockerMode() {
-		return nil, ErrIncompatibleDeploymentMode
+		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
 	hostManager := d.cluster.GetHostManager()
@@ -3082,7 +3088,7 @@ func (d *ClusterGatewayImpl) GetLocalDaemonNodeIDs(_ context.Context, _ *proto.V
 	// Eventually, Docker Swarm mode will ~only~ support Docker Swarm nodes, which correspond to real machines or VMs.
 	// Virtual Docker nodes correspond to each Local Daemon container, and are primarily used for development or small, local simulations.
 	if !d.DockerMode() {
-		return nil, ErrIncompatibleDeploymentMode
+		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
 	hostManager := d.cluster.GetHostManager()
@@ -3123,7 +3129,7 @@ func (d *ClusterGatewayImpl) GetDockerSwarmNodes(_ context.Context, _ *proto.Voi
 
 	// We can only get Docker Swarm nodes if we're running in Docker Swarm.
 	if !d.DockerSwarmMode() {
-		return nil, ErrIncompatibleDeploymentMode
+		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
 	return nil, status.Errorf(codes.Unimplemented, "method GetDockerSwarmNodes not implemented")
@@ -3135,7 +3141,7 @@ func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.
 	defer d.dockerNodeMutex.Unlock()
 
 	if !d.DockerMode() {
-		return nil, ErrIncompatibleDeploymentMode
+		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
 	currentNumNodes := int32(d.cluster.GetHostManager().Len())
@@ -3202,7 +3208,7 @@ func (d *ClusterGatewayImpl) DecreaseNumNodes(_ context.Context, in *proto.Decre
 	defer d.dockerNodeMutex.Unlock()
 
 	if !d.DockerMode() {
-		return nil, ErrIncompatibleDeploymentMode
+		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
 	currentNumNodes := int32(d.cluster.GetHostManager().Len())
@@ -3275,7 +3281,7 @@ func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, _ *prot
 	defer d.dockerNodeMutex.Unlock()
 
 	if !d.DockerMode() {
-		return nil, ErrIncompatibleDeploymentMode
+		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
 	return nil, ErrNotImplemented
@@ -3288,7 +3294,7 @@ func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(_ context.Context, in *pro
 	defer d.dockerNodeMutex.Unlock()
 
 	if !d.DockerMode() {
-		return nil, ErrIncompatibleDeploymentMode
+		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
 	currentNumNodes := int32(d.cluster.GetHostManager().Len())
@@ -3360,7 +3366,7 @@ func (d *ClusterGatewayImpl) getNumLocalDaemonDocker() (int, error) {
 	defer d.dockerNodeMutex.Unlock()
 
 	if !d.DockerMode() {
-		return -1, ErrIncompatibleDeploymentMode
+		return -1, types.ErrIncompatibleDeploymentMode
 	}
 
 	if d.DockerComposeMode() {

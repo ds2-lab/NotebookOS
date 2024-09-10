@@ -47,3 +47,5 @@ debug_port: 9996
 docker_network_name: distributed_cluster_default
 execution-time-sampling-window: 10
 migration-time-sampling-window: 10
+prometheus_interval: 2
+prometheus_port: 8089

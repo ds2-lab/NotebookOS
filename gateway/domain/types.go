@@ -1,24 +1,18 @@
 package domain
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 
-	"github.com/gin-gonic/gin"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/kubernetes"
 )
 
 const (
-	FilterRoute = "/filter" // Used by the ClusterScheduler to expose an HTTP endpoint.
-
 	// DockerProjectName is used to monitor only for Docker container-created events corresponding to this particular project.
 	// TODO: Don't hardcode this. If the "name" field in "deploy/docker/docker-compose.yml" is changed,
 	// then the value of this const must be updated so that it matches the "name" field.
@@ -31,13 +25,13 @@ const (
 type MetadataKey string
 
 type ClusterDaemonOptions struct {
-	ClusterSchedulerOptions
+	scheduling.ClusterSchedulerOptions
 	LocalDaemonServiceName        string `name:"local-daemon-service-name" description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
 	LocalDaemonServicePort        int    `name:"local-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
 	GlobalDaemonServiceName       string `name:"global-daemon-service-name" description:"Name of the Kubernetes service that manages the global networking of local daemons."`
 	GlobalDaemonServicePort       int    `name:"global-daemon-service-port" description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
 	SMRPort                       int    `name:"smr-port" description:"Port used by the state machine replication (SMR) protocol."`
-	KubeNamespace                 string `name:"kube-namespace" description:"Kubernetes namespace that all of these components reside in."`
+	KubeNamespace                 string `name:"kubernetes-namespace" description:"Kubernetes namespace that all of these components reside in."`
 	UseStatefulSet                bool   `name:"use-stateful-set" description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
 	HdfsNameNodeEndpoint          string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
 	SchedulingPolicy              string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
@@ -76,20 +70,6 @@ func (o ClusterDaemonOptions) IsKubernetesMode() bool {
 	return o.DeploymentMode == string(types.KubernetesMode)
 }
 
-type ClusterSchedulerOptions struct {
-	SchedulerHttpPort             int     `name:"scheduler-http-port" description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
-	GpusPerHost                   int     `name:"gpus-per-host" description:"The number of actual GPUs that are available for use on each node/host."`
-	VirtualGpusPerHost            int     `name:"num-virtual-gpus-per-node" description:"The number of virtual GPUs per host."`
-	SubscribedRatioUpdateInterval float64 `name:"subscribed-ratio-update-interval" description:"The interval to update the subscribed ratio."`
-	ScalingFactor                 float64 `name:"scaling-factor" description:"Defines how many hosts the cluster will provision based on busy resources"`
-	ScalingInterval               int     `name:"scaling-interval" description:"Interval to call validateCapacity, 0 to disable routing scaling."`
-	ScalingLimit                  float64 `name:"scaling-limit" description:"Defines how many hosts the cluster will provision at maximum based on busy resources"`
-	MaximumHostsToReleaseAtOnce   int     `name:"scaling-in-limit" description:"Sort of the inverse of the ScalingLimit parameter (maybe?)"`
-	ScalingOutEnaled              bool    `name:"scaling-out-enabled" description:"If enabled, the scaling manager will attempt to over-provision hosts slightly so as to leave room for fluctation. If disabled, then the Cluster will exclusivel scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges."`
-	ScalingBufferSize             int     `name:"scaling-buffer-size" description:"Buffer size is how many extra hosts we provision so that we can quickly scale if needed."`
-	MinimumNumNodes               int     `name:"min-kubernetes-nodes" description:"The minimum number of kubernetes nodes we must have available at any time."`
-}
-
 func (o ClusterDaemonOptions) String() string {
 	return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HdfsNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HdfsNameNodeEndpoint)
 }
@@ -97,7 +77,7 @@ func (o ClusterDaemonOptions) String() string {
 type ClusterGatewayOptions struct {
 	config.LoggerOptions
 	jupyter.ConnectionInfo
-	scheduling.CoreOptions
+	scheduling.ClusterSchedulerOptions
 	ClusterDaemonOptions
 
 	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
@@ -107,122 +87,6 @@ type ClusterGatewayOptions struct {
 	DebugMode       bool   `name:"debug_mode" description:"Enable the debug HTTP server."`
 	DebugPort       int    `name:"debug_port" description:"The port for the debug HTTP server."`
 	// DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
-}
-
-type ClusterGateway interface {
-	proto.ClusterGatewayServer
-
-	SetClusterOptions(*scheduling.CoreOptions)
-	ConnectionOptions() *jupyter.ConnectionInfo
-	ClusterScheduler() ClusterScheduler                                                               // Return the associated ClusterScheduler.
-	GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error) // Return the current GPU resource metrics on the node.
-	KubernetesMode() bool                                                                             // Return true if we're running in a Kubernetes cluster (rather than as a docker-compose application).
-}
-
-// ClusterScheduler performs scheduling of kernels across the cluster.
-type ClusterScheduler interface {
-	// ClusterGateway returns the associated ClusterGateway.
-	ClusterGateway() ClusterGateway
-
-	// HandleKubeSchedulerFilterRequest handles a 'filter' request from the kubernetes scheduler.
-	HandleKubeSchedulerFilterRequest(ctx *gin.Context)
-
-	// StartHttpKubernetesSchedulerService starts the HTTP HTTP service used to make scheduling decisions.
-	// This should be called from its own goroutine.
-	StartHttpKubernetesSchedulerService()
-
-	// ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
-	// Adjust the Cluster's capacity as directed by scaling policy.
-	ValidateCapacity()
-
-	// AddNode adds a new node to the kubernetes cluster.
-	// We simulate this using node taints.
-	AddNode() error
-
-	// RemoveNode removes a new from the kubernetes cluster.
-	// We simulate this using node taints.
-	RemoveNode() error
-
-	// MinimumCapacity Returns the minimum number of nodes we must have available at any time.
-	MinimumCapacity() int32
-
-	// ReleaseIdleHosts Tries to release n idle hosts. Return the number of hosts that were actually released.
-	// Error will be nil on success and non-nil if some sort of failure is encountered.
-	ReleaseIdleHosts(n int32) (int, error)
-
-	// RefreshActualGpuInfo Refreshes the actual GPU usage information.
-	// Returns nil on success; returns an error on failure.
-	RefreshActualGpuInfo() error
-
-	// RefreshKubernetesNodes Updates the cached list of Kubernetes nodes.
-	// Returns nil on success; returns an error on failure.
-	RefreshKubernetesNodes() error
-
-	// RefreshAll refreshes all metrics maintained/cached/required by the Cluster Scheduler,
-	// including the list of current kubernetes nodes, actual and virtual GPU usage information, etc.
-	//
-	// Return a slice of any errors that occurred. If an error occurs while refreshing a particular piece of information,
-	// then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).
-	RefreshAll() []error
-}
-
-// ContainerWatcher watches for new Pods/Containers.
-//
-// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
-type ContainerWatcher interface {
-	// RegisterChannel registers a channel that is used to notify waiting goroutines that the Pod/Container has started.
-	//
-	// Accepts as a parameter a chan string that can be used to wait until the new Container has been created.
-	// The ID of the new Container will be sent over the channel when the new Container is started.
-	// The error will be nil on success.
-	RegisterChannel(kernelId string, startedChan chan string)
-}
-
-// KubeClient is used by the Cluster Gateway and Cluster Scheduler to interact with Kubernetes.
-type KubeClient interface {
-	ContainerWatcher
-
-	KubeClientset() *kubernetes.Clientset // Get the Kubernetes client.
-	ClusterGateway() ClusterGateway       // Get the associated Gateway daemon.
-
-	// DeployDistributedKernels creates a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
-	DeployDistributedKernels(context.Context, *proto.KernelSpec) (*jupyter.ConnectionInfo, error)
-
-	// DeleteCloneset deletes the CloneSet for the kernel identified by the given ID.
-	DeleteCloneset(kernelId string) error
-
-	// GetKubernetesNodes returns a list of the current kubernetes nodes.
-	GetKubernetesNodes() ([]corev1.Node, error)
-
-	// GetKubernetesNode returns the node with the given name, or nil of that node cannot be found.
-	GetKubernetesNode(string) (*corev1.Node, error)
-
-	// Add the specified label to the specified node.
-	// Returns nil on success; otherwise, returns an error.
-	// AddLabelToNode(nodeId string, labelKey string, labelValue string) error
-
-	// Remove the specified label from the specified node.
-	// Returns nil on success; otherwise, returns an error.
-	// RemoveLabelFromNode(nodeId string, labelKey string, labelValue string) error
-
-	// ScaleOutCloneSet scales up a CloneSet by increasing its number of replicas by 1.
-	// Important: RegisterChannel() should be called FIRST, before this function is called.
-	//
-	// Parameters:
-	// - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale-out.
-	// - podStartedChannel (chan string): Used to notify waiting goroutines that the Pod has started.
-	ScaleOutCloneSet(string) error
-
-	// ScaleInCloneSet scales down a CloneSet by decreasing its number of replicas by 1.
-	// Returns a chan string that can be used to wait until the new Pod has been created.
-	// The name of the new Pod will be sent over the channel when the new Pod is started.
-	// The error will be nil on success.
-	//
-	// Parameters:
-	// - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale in
-	// - oldPodName (string): The name of the Pod that we'd like to delete during the scale-in operation.
-	// - podStoppedChannel (chan struct{}): Used to notify waiting goroutines that the Pod has stopped.
-	ScaleInCloneSet(string, string, chan struct{}) error
 }
 
 type AddReplicaOperation interface {

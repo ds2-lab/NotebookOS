@@ -12,13 +12,13 @@ type StaticPlacer struct {
 
 	cluster Cluster
 	index   *StaticClusterIndex
-	opts    *CoreOptions
+	opts    *ClusterSchedulerOptions
 
 	mu sync.Mutex
 }
 
 // NewStaticPlacer creates a new StaticPlacer.
-func NewStaticPlacer(cluster Cluster, opts *CoreOptions) (*StaticPlacer, error) {
+func NewStaticPlacer(cluster Cluster, opts *ClusterSchedulerOptions) (*StaticPlacer, error) {
 	placer := &StaticPlacer{
 		cluster: cluster,
 		index:   NewStaticClusterIndex(),

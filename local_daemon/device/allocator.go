@@ -50,7 +50,7 @@ type virtualGpuAllocatorImpl struct {
 func NewVirtualGpuAllocatorForTesting(opts *domain.VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
 	var kubeconfig string
 	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = filepath.Join(home, ".kube", "config")
+		kubeconfig = filepath.Join(home, ".kubernetes", "config")
 	} else {
 		panic("Cannot find Kubernetes config!")
 	}

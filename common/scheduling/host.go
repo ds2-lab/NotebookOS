@@ -16,7 +16,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -148,23 +147,22 @@ type Host struct {
 
 	log logger.Logger
 
-	latestGpuInfo          *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
-	gpuInfoMutex           sync.Mutex                           // gpuInfoMutex controls access to the latest GPU info.
-	gpuInfoRefreshInterval time.Duration                        // gpuInfoRefreshInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
-	meta                   hashmap.HashMap[string, interface{}] // meta is a map of metadata.
-	conn                   *grpc.ClientConn                     // conn is the gRPC connection to the Host.
-	addr                   string                               // addr is the Host's address.
-	nodeName               string                               // nodeName is the Host's name (for printing/logging).
-	cluster                Cluster                              // cluster is a reference to the Cluster interface that manages this Host.
-	id                     string                               // id is the unique ID of this host.
-	containers             hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
-	trainingContainers     []*Container                         // trainingContainers are the actively-training kernel replicas.
-	seenSessions           []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec           types.Spec                           // resourceSpec is the spec describing the total resources available on the Host, not impacted by allocations.
-	lastReschedule         types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	errorCallback          ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
-	pendingContainers      types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
-	createdAt              time.Time                            // createdAt is the time at which the Host was created.
+	latestGpuInfo      *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
+	gpuInfoMutex       sync.Mutex                           // gpuInfoMutex controls access to the latest GPU info.
+	meta               hashmap.HashMap[string, interface{}] // meta is a map of metadata.
+	conn               *grpc.ClientConn                     // conn is the gRPC connection to the Host.
+	addr               string                               // addr is the Host's address.
+	nodeName           string                               // nodeName is the Host's name (for printing/logging).
+	cluster            Cluster                              // cluster is a reference to the Cluster interface that manages this Host.
+	id                 string                               // id is the unique ID of this host.
+	containers         hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
+	trainingContainers []*Container                         // trainingContainers are the actively-training kernel replicas.
+	seenSessions       []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
+	resourceSpec       types.Spec                           // resourceSpec is the spec describing the total resources available on the Host, not impacted by allocations.
+	lastReschedule     types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	errorCallback      ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
+	pendingContainers  types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
+	createdAt          time.Time                            // createdAt is the time at which the Host was created.
 
 	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
 
@@ -187,7 +185,7 @@ type Host struct {
 }
 
 // NewHost creates and returns a new *Host.
-func NewHost(id string, addr string, millicpus int32, memMb int32, gpuInfoRefreshInterval time.Duration, cluster Cluster, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
+func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Cluster, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
@@ -223,23 +221,22 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, gpuInfoRefres
 	}
 
 	host := &Host{
-		LocalGatewayClient:     localGatewayClient,
-		gpuInfoRefreshInterval: gpuInfoRefreshInterval,
-		latestGpuInfo:          gpuInfoResp,
-		id:                     id,
-		nodeName:               confirmedId.NodeName,
-		addr:                   addr,
-		resourceSpec:           resourceSpec,
-		cluster:                cluster,
-		conn:                   conn,
-		log:                    config.GetLogger(fmt.Sprintf("Host %s ", id)),
-		containers:             hashmap.NewCornelkMap[string, *Container](5),
-		trainingContainers:     make([]*Container, 0, int(resourceSpec.GPU())),
-		penalties:              make([]cachedPenalty, int(resourceSpec.GPU())),
-		seenSessions:           make([]string, int(resourceSpec.GPU())),
-		meta:                   hashmap.NewCornelkMap[string, interface{}](64),
-		errorCallback:          errorCallback,
-		createdAt:              time.Now(),
+		LocalGatewayClient: localGatewayClient,
+		latestGpuInfo:      gpuInfoResp,
+		id:                 id,
+		nodeName:           confirmedId.NodeName,
+		addr:               addr,
+		resourceSpec:       resourceSpec,
+		cluster:            cluster,
+		conn:               conn,
+		log:                config.GetLogger(fmt.Sprintf("Host %s ", id)),
+		containers:         hashmap.NewCornelkMap[string, *Container](5),
+		trainingContainers: make([]*Container, 0, int(resourceSpec.GPU())),
+		penalties:          make([]cachedPenalty, int(resourceSpec.GPU())),
+		seenSessions:       make([]string, int(resourceSpec.GPU())),
+		meta:               hashmap.NewCornelkMap[string, interface{}](64),
+		errorCallback:      errorCallback,
+		createdAt:          time.Now(),
 	}
 
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
@@ -248,7 +245,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, gpuInfoRefres
 	host.penaltyList.Validator = host.validatePenaltyList
 
 	// Start the goroutine that polls for updated GPU info on an interval.
-	go host.pollForGpuInfo()
+	//go host.pollForGpuInfo()
 
 	return host, nil
 }
@@ -281,57 +278,61 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 }
 
 // pollForGpuInfo runs a loop that continuously requests GPU usage statistics from all the host schedulers.
-func (h *Host) pollForGpuInfo() {
-	numConsecutiveFailures := 0
-	for {
-		resp, err := h.LocalGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
-		if err != nil {
-			h.log.Error("Failed to refresh GPU info from Scheduler %s on Node %s: %v", h.ID(), h.NodeName(), err)
-			numConsecutiveFailures += 1
 
-			// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
-			if numConsecutiveFailures >= ConsecutiveFailuresWarning {
-				// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
-				if h.Conn().GetState() == connectivity.TransientFailure || h.Conn().GetState() == connectivity.Shutdown {
-					errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.", numConsecutiveFailures, h.ID(), h.NodeName(), h.Conn().GetState().String(), h.ID())
-					h.log.Error(errorMessage)
-					_ = h.ErrorCallback()(h.ID(), h.NodeName(), "Local Daemon Connectivity Error", errorMessage)
-					return
-				} else if numConsecutiveFailures >= ConsecutiveFailuresBad { // If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
-					errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.", numConsecutiveFailures, h.ID(), h.NodeName(), h.Conn().GetState().String(), h.ID())
-					h.log.Error(errorMessage)
-					_ = h.ErrorCallback()(h.ID(), h.NodeName(), "Local Daemon Connectivity Error", errorMessage)
-					return
-				} else { // Otherwise, we won't assume it is dead yet...
-					h.log.Warn("Failed %d consecutive times to retrieve GPU info from scheduler %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...", numConsecutiveFailures, h.ID(), h.NodeName(), h.Conn().GetState().String())
-				}
-			}
-
-			// Sleep for a shorter period of time in order to detect failure more quickly.
-			// We'll sleep for longer depending on the number of consecutive failures we've encountered.
-			// We clamp the maximum sleep to the standard refresh interval.
-			shortenedSleepInterval := time.Duration(math.Max(float64(h.gpuInfoRefreshInterval), float64((time.Second*2)*time.Duration(numConsecutiveFailures))))
-			time.Sleep(shortenedSleepInterval)
-		} else {
-			h.gpuInfoMutex.Lock()
-			h.latestGpuInfo = resp
-
-			// TODO: This is overwriting the manual adjustments from the scheduling stuff.
-			// How best to handle this?
-			h.Stats().IdleGPUsStat().Store(float64(resp.IdleGPUs))
-			h.Stats().PendingGPUsStat().Store(float64(resp.PendingGPUs))
-			h.Stats().CommittedGPUsStat().Store(float64(resp.CommittedGPUs))
-			if h.ResourceSpec().GPU() != float64(resp.SpecGPUs) {
-				h.log.Warn("Current spec GPUs (%.0f) do not match latest result from polling (%.0f). Updating spec now...", h.ResourceSpec().GPU(), resp.SpecGPUs)
-				h.ResourceSpec().UpdateSpecGPUs(float64(resp.SpecGPUs))
-			}
-
-			h.gpuInfoMutex.Unlock()
-
-			numConsecutiveFailures = 0
-			time.Sleep(h.gpuInfoRefreshInterval)
-		}
+// RefreshResourceInformation queries the remote host via gRPC to request update-to-date resource usage information.
+func (h *Host) RefreshResourceInformation() error {
+	resp, err := h.LocalGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
+	if err != nil {
+		return err
 	}
+
+	h.updateLocalGpuInfoFromRemote(resp)
+	return nil
+}
+
+// updateLocalGpuInfoFromRemote updates the local info pertaining to GPU usage information
+// with the "actual" GPU usage retrieved from the remote host associated with this Host struct.
+func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
+	h.gpuInfoMutex.Lock()
+
+	h.log.Debug("Updating local GPU usage info with data from remote now...")
+	numDifferences := 0
+
+	localIdleGpus := h.Stats().IdleGPUsStat().Load()
+	if localIdleGpus != float64(remoteInfo.IdleGPUs) {
+		h.log.Warn("Local idle GPUs (%.0f) do not match latest remote update (%.0f). Updating local info now...", localIdleGpus, remoteInfo.SpecGPUs)
+		h.Stats().IdleGPUsStat().Store(float64(remoteInfo.IdleGPUs))
+		numDifferences += 1
+	}
+
+	localPendingGPUs := h.Stats().PendingGPUsStat().Load()
+	if localPendingGPUs != float64(remoteInfo.PendingGPUs) {
+		h.log.Warn("Local pending GPUs (%.0f) do not match latest remote update (%.0f). Updating local info now...", localPendingGPUs, remoteInfo.SpecGPUs)
+		h.Stats().PendingGPUsStat().Store(float64(remoteInfo.PendingGPUs))
+		numDifferences += 1
+	}
+
+	localCommittedGPUs := h.Stats().CommittedGPUsStat().Load()
+	if localCommittedGPUs != float64(remoteInfo.CommittedGPUs) {
+		h.log.Warn("Local committed GPUs (%.0f) do not match latest remote update (%.0f). Updating local info now...", localCommittedGPUs, remoteInfo.SpecGPUs)
+		h.Stats().CommittedGPUsStat().Store(float64(remoteInfo.CommittedGPUs))
+		numDifferences += 1
+	}
+
+	if h.ResourceSpec().GPU() != float64(remoteInfo.SpecGPUs) {
+		h.log.Warn("Local spec GPUs (%.0f) do not match latest remote update (%.0f). Updating local info now...", h.ResourceSpec().GPU(), remoteInfo.SpecGPUs)
+		h.ResourceSpec().UpdateSpecGPUs(float64(remoteInfo.SpecGPUs))
+		numDifferences += 1
+	}
+
+	if numDifferences == 0 {
+		h.log.Debug("Finished remote-to-local GPU update. Number of differences: %d.", numDifferences)
+	} else {
+		h.log.Warn("Finished remote-to-local GPU update. Number of differences: %d.", numDifferences)
+	}
+
+	h.latestGpuInfo = remoteInfo
+	h.gpuInfoMutex.Unlock()
 }
 
 // ContainerScheduled is to be called when a Container is scheduled onto the Host.
@@ -356,16 +357,20 @@ func (h *Host) Restore(restored *Host, callback ErrorCallback) error {
 	h.nodeName = restored.nodeName
 	h.LocalGatewayClient = restored.LocalGatewayClient
 	h.latestGpuInfo = restored.latestGpuInfo
-	h.gpuInfoRefreshInterval = restored.gpuInfoRefreshInterval
 
 	// TODO: Make sure the other goroutine is no longer active.
-	go h.pollForGpuInfo()
+	//go h.pollForGpuInfo()
 
 	return nil
 }
 
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.
-func (h *Host) ContainerRemoved(container *Container) {
+func (h *Host) ContainerRemoved(container *Container) error {
+	if _, ok := h.containers.Load(container.ContainerID()); !ok {
+		h.log.Error("Cannot remove specified Container from Host. Container is not on specified Host.")
+		return ErrInvalidContainer
+	}
+
 	h.containers.Delete(container.ContainerID())
 
 	h.pendingContainers.Sub(1)
@@ -375,6 +380,8 @@ func (h *Host) ContainerRemoved(container *Container) {
 	h.pendingGPUs.Sub(container.OutstandingResources().GPU())
 
 	h.log.Debug("Container %s was removed from Host %s.", container.String(), h.ID())
+
+	return nil
 }
 
 // ErrorCallback returns the Host's ErrorCallback field.

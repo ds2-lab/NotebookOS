@@ -111,7 +111,7 @@ type Session struct {
 	log logger.Logger
 }
 
-func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelSpec, resourceUtilization *ResourceUtilization, cluster Cluster, opts *CoreOptions) *Session {
+func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelSpec, resourceUtilization *ResourceUtilization, cluster Cluster, opts *ClusterSchedulerOptions) *Session {
 	session := &Session{
 		kernelSpec:          kernelSpec,
 		resourceSpec:        types.FullSpecFromKernelSpec(kernelSpec),
@@ -344,6 +344,10 @@ func (s *Session) SessionStopped() promise.Promise {
 	if err := s.transition(SessionStateStopped); err != nil {
 		s.log.Warn("Failed to terminate session because: %v", err)
 		return promise.Resolved(s.instance, err)
+	}
+
+	for _, container := range s.containers {
+		container.IsStopped()
 	}
 
 	return promise.Resolved(s.instance)

@@ -156,6 +156,46 @@ func (m *GpuManager) PendingGPUs() decimal.Decimal {
 	return m.pendingGPUs
 }
 
+// HasPendingGPUs returns true if the specified kernel replica has pending GPUs.
+func (m *GpuManager) HasPendingGPUs(replicaId int32, kernelId string) bool {
+	m.Lock()
+	defer m.Unlock()
+
+	key := m.getKey(replicaId, kernelId)
+	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
+	if !ok {
+		return false
+	}
+
+	// If it is a pending GPU allocation, then we may return true.
+	if alloc.pending {
+		return alloc.numGPUs.GreaterThan(ZeroDecimal)
+	}
+
+	// It is an "actual" GPU allocation, not a pending GPU allocation, so return false.
+	return false
+}
+
+// HasActualGPUs returns true if the specified kernel replica has GPUs committed to it.
+func (m *GpuManager) HasActualGPUs(replicaId int32, kernelId string) bool {
+	m.Lock()
+	defer m.Unlock()
+
+	key := m.getKey(replicaId, kernelId)
+	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
+	if !ok {
+		return false
+	}
+
+	// If it is just a pending GPU allocation, then return false.
+	if alloc.pending {
+		return false
+	}
+
+	// It is an "actual" GPU allocation.
+	return alloc.numGPUs.GreaterThan(ZeroDecimal)
+}
+
 // GetPendingGPUsAssociatedWithKernel returns the number of pending GPUs associated with the kernel identified by the given ID.
 func (m *GpuManager) GetPendingGPUsAssociatedWithKernel(replicaId int32, kernelId string) decimal.Decimal {
 	key := m.getKey(replicaId, kernelId)
@@ -211,7 +251,7 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 	} else {
 		// Allocation already existed.
 		m.assertPending(allocation)
-		allocation.pending = false
+		allocation.pending = false // Convert to a non-pending GPU allocation.
 	}
 
 	// Update resource counts.
@@ -225,7 +265,8 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 	m.allocationKernelReplicaMap.Store(key, allocation)
 	m.allocationIdMap.Store(allocation.id, allocation)
 
-	m.log.Debug("Allocated %s committed GPU(s) to replica %d of kernel %s.", numGPUs.StringFixed(0), replicaId, kernelId)
+	m.log.Debug("Allocated %s committed GPU(s) to replica %d of kernel %s. Total idle: %s, pending: %s, committed: %s.",
+		numGPUs.StringFixed(0), replicaId, kernelId, m.idleGPUs.StringFixed(0), m.pendingGPUs.StringFixed(0), m.committedGPUs.StringFixed(0))
 
 	// Update Prometheus metrics.
 	m.resourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
@@ -255,7 +296,7 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 
 	// Update resource counts.
 	m.pendingGPUs = m.pendingGPUs.Add(numGPUs)
-	m.idleGPUs = m.idleGPUs.Sub(numGPUs)
+	//m.idleGPUs = m.idleGPUs.Sub(numGPUs)
 
 	// Store allocation in the relevant mappings.
 	key := m.getKey(replicaId, kernelId)
@@ -273,12 +314,28 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 	return nil
 }
 
-// ReleaseAllocatedGPUs demotes an existing, non-pending GPU allocation to a pending GPU allocation for
-// the specified kernel replica.
+// ReleasePendingGPUs releases a pending GPU allocation for the specified kernel replica, if one exists.
+// If no such allocation exists, then ErrAllocationNotFound is returned. Returns nil on success.
 //
+// NOTE: This function will acquire the mutex; the mutex should not be held when this function is called.
+func (m *GpuManager) ReleasePendingGPUs(replicaId int32, kernelId string) error {
+	m.Lock()
+	defer m.Unlock()
+
+	key := m.getKey(replicaId, kernelId)
+	allocation, exists := m.allocationKernelReplicaMap.Load(key)
+
+	// If the allocation either doesn't exist at all, or it is not a pending GPU allocation, then return an error.
+	if !exists || !allocation.pending {
+		return ErrAllocationNotFound
+	}
+
+	return m.__unsafeReleasePendingGPUs(replicaId, kernelId)
+}
+
+// ReleaseAllocatedGPUs demotes an existing, non-pending GPU allocation to a pending GPU allocation for
+// the specified kernel replica, if one exists. If no such allocation exists, then ErrAllocationNotFound is returned.
 // Returns nil on success.
-// Returns ErrAllocationNotFound if there is no "actual" GPU allocation (as opposed to a "pending" GPU allocation)
-// for the specified kernel replica.
 //
 // NOTE: This function will acquire the mutex; the mutex should not be held when this function is called.
 func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) error {
@@ -286,21 +343,22 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 	defer m.Unlock()
 
 	key := m.getKey(replicaId, kernelId)
-
 	allocation, exists := m.allocationKernelReplicaMap.Load(key)
 
-	if !exists {
+	// If the allocation either doesn't exist at all, or it is a pending GPU allocation, then return an error.
+	if !exists || allocation.pending {
 		return ErrAllocationNotFound
 	}
 
-	m.assertNotPending(allocation)
-	allocation.pending = true
+	m.assertNotPending(allocation) /* Sort of unnecessary now, as we already check this above */
+	allocation.pending = true      // Convert to a pending request.
 
 	m.log.Debug("Deallocating %s committed GPU(s) from replica %d of kernel %s.", allocation.numGPUs.StringFixed(0), replicaId, kernelId)
 
 	// Update resource counts. We don't increment idle GPUs until the pending GPU request has been released too.
 	m.committedGPUs = m.committedGPUs.Sub(allocation.numGPUs)
 	m.pendingGPUs = m.pendingGPUs.Add(allocation.numGPUs)
+	m.idleGPUs = m.idleGPUs.Add(allocation.numGPUs)
 
 	// Update mappings.
 	m.allocationKernelReplicaMap.Delete(key)
@@ -316,10 +374,14 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 
 	// Now, release the pending GPUs.
 	// This will increment the number of idle GPUs available.
-	return m.__unsafeReleasePendingGPUs(replicaId, kernelId)
+	//return m.__unsafeReleasePendingGPUs(replicaId, kernelId)
+	return nil
 }
 
 // __unsafeReleasePendingGPUs returns nil on success.
+// This primarily differs from __unsafeTryDeallocatePendingGPUs in how it handles errors (i.e., missing allocations).
+// This function returns an error whereas __unsafeTryDeallocatePendingGPUs returns a boolean.
+//
 // Returns ErrAllocationNotFound if there is no "actual" GPU allocation (as opposed to a "pending" GPU allocation) for the specified kernel replica.
 //
 // NOTE: This function will acquire the mutex; the mutex should not be held when this function is called.
@@ -338,6 +400,8 @@ func (m *GpuManager) __unsafeReleasePendingGPUs(replicaId int32, kernelId string
 }
 
 // __unsafeTryDeallocatePendingGPUs attempts to release pending GPUs from the specified kernel replica.
+// This primarily differs from __unsafeReleasePendingGPUs in how it handles errors (i.e., missing allocations).
+// This function returns a boolean whereas __unsafeReleasePendingGPUs returns an error.
 //
 // If there are no pending GPUs assigned to the specified kernel replica, then this simply returns false.
 // True is returned if we found and deallocated pending GPUs for the specified kernel replica.
@@ -361,7 +425,7 @@ func (m *GpuManager) __unsafeTryDeallocatePendingGPUs(replicaId int32, kernelId 
 
 		// Decrement the pending GPU count by the number of GPUs specified in the allocation.
 		m.pendingGPUs = m.pendingGPUs.Sub(pendingAllocation.numGPUs)
-		m.idleGPUs = m.idleGPUs.Add(pendingAllocation.numGPUs)
+		//m.idleGPUs = m.idleGPUs.Add(pendingAllocation.numGPUs)
 
 		m.log.Debug("Deallocated %s pending GPU(s) from replica %d of kernel %s.", pendingAllocation.numGPUs.StringFixed(0), replicaId, kernelId)
 

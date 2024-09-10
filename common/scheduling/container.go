@@ -296,7 +296,7 @@ func (c *Container) TrainingStarted() error {
 // TrainingStopped should be called when the Container stops training.
 func (c *Container) TrainingStopped() error {
 	if err := c.transition(ContainerStateIdle); err != nil {
-		c.log.Error("Failed to transition to state %v because: %v", ContainerStateIdle, err)
+		c.log.Error("Failed to transition Container to state %v because: %v", ContainerStateIdle, err)
 		return err
 	}
 
@@ -307,8 +307,38 @@ func (c *Container) TrainingStopped() error {
 	}
 	c.spec = c.lastSpec
 
+	c.host.Stats().PendingCPUsStat().Add(c.outstandingResources.CPU())
+	c.host.Stats().PendingMemoryMbStat().Add(c.outstandingResources.MemoryMB())
 	c.host.Stats().PendingGPUsStat().Add(c.outstandingResources.GPU())
+
+	c.host.Stats().IdleCPUsStat().Add(c.outstandingResources.CPU())
+	c.host.Stats().IdleMemoryMbStat().Add(c.outstandingResources.MemoryMB())
 	c.host.Stats().IdleGPUsStat().Add(c.outstandingResources.GPU())
+
+	c.host.Stats().CommittedCPUsStat().Sub(c.outstandingResources.CPU())
+	c.host.Stats().CommittedMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
+	c.host.Stats().CommittedGPUsStat().Sub(c.outstandingResources.GPU())
+
+	return nil
+}
+
+// ContainedStopped should be called when the Container is stopped, such as when its Session is stopped.
+func (c *Container) ContainedStopped() error {
+	if err := c.transition(ContainerStateStopped); err != nil {
+		c.log.Error("Failed to transition Container to state %v because: %v", ContainerStateStopped, err)
+		return err
+	}
+
+	if c.host == nil {
+		c.log.Error("Failed to cleanly stop Container as its host is nil...")
+		return ErrNilHost
+	}
+
+	err := c.host.ContainerRemoved(c)
+	if err != nil {
+		c.log.Error("Failed to cleanly stop Container due to error during removal-from-host: %v", err)
+		return err
+	}
 
 	return nil
 }

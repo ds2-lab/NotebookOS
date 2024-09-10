@@ -1257,6 +1257,11 @@ func (d *SchedulerDaemonImpl) KillKernel(_ context.Context, in *proto.KernelId) 
 
 	ret = gateway.VOID
 	err = d.errorf(d.getInvoker(kernel).Close())
+
+	// Release any GPUs allocated to the kernel.
+	_ = d.gpuManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
+	_ = d.gpuManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
+
 	return
 }
 
@@ -1289,6 +1294,10 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 
 	d.prometheusManager.NumActiveKernelReplicasGauge.
 		With(prometheus.Labels{"node_id": d.id}).Sub(1)
+
+	// Release any GPUs allocated to the kernel.
+	_ = d.gpuManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
+	_ = d.gpuManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
 
 	return gateway.VOID, nil
 }
@@ -1523,14 +1532,18 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	}
 
 	if msgErr.Status == jupyter.MessageStatusOK {
-		err := d.gpuManager.ReleaseAllocatedGPUs(kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.ID())
-		if err != nil {
-			d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.ID(), err)
-		}
-
-		d.prometheusManager.NumTrainingEventsCompleted.
-			With(prometheus.Labels{"node_id": d.id}).Inc()
+		d.log.Debug("Status of \"execute_reply\" message from replica %d of kernel %s is OK.", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.(*client.KernelReplicaClient).ID())
+	} else {
+		d.log.Warn("Status of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.(*client.KernelReplicaClient).ID(), msgErr.Status, msgErr.String())
 	}
+
+	err = d.gpuManager.ReleaseAllocatedGPUs(kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.ID())
+	if err != nil {
+		d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.ID(), err)
+	}
+
+	d.prometheusManager.NumTrainingEventsCompleted.
+		With(prometheus.Labels{"node_id": d.id}).Inc()
 
 	return nil /* will be nil on success */
 }

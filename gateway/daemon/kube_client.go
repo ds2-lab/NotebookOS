@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +65,7 @@ var (
 type BasicKubeClient struct {
 	kubeClientset          *kubernetes.Clientset                      // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
 	dynamicClient          *dynamic.DynamicClient                     // Dynamic client for working with unstructured components. We use this for the custom CloneSet.
-	gatewayDaemon          domain.ClusterGateway                      // Associated Gateway daemon.
+	gatewayDaemon          scheduling.ClusterGateway                  // Associated Gateway daemon.
 	configDir              string                                     // Where to write config files. This is also where they'll be found on the kernel nodes.
 	ipythonConfigPath      string                                     // Where the IPython config is located.
 	nodeLocalMountPoint    string                                     // The mount of the shared PVC for all kernel nodes.
@@ -84,7 +85,7 @@ type BasicKubeClient struct {
 	log                    logger.Logger
 }
 
-func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *domain.ClusterDaemonOptions) *BasicKubeClient {
+func NewKubeClient(gatewayDaemon scheduling.ClusterGateway, clusterDaemonOptions *domain.ClusterDaemonOptions) *BasicKubeClient {
 	scaleUpChannels := cmap.New[[]chan string]()
 	scaleDownChannels := cmap.New[chan struct{}]()
 
@@ -113,16 +114,16 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 	config.InitLogger(&client.log, client)
 
 	if clusterDaemonOptions.IsLocalMode() {
-		var kubeconfig_path string
+		var kubeconfigPath string
 		home := homedir.HomeDir()
 		if home != "" {
-			kubeconfig_path = filepath.Join(home, ".kube", "config")
+			kubeconfigPath = filepath.Join(home, ".kubernetes", "config")
 		} else {
 			panic("Cannot find kubernetes configuration; cannot resolve home directory.")
 		}
 
 		// use the current context in kubeconfig
-		kubeConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfig_path)
+		kubeConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 		if err != nil {
 			panic(err.Error())
 		}
@@ -133,7 +134,7 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 			panic(err.Error())
 		}
 
-		dynamicConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfig_path)
+		dynamicConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 		if err != nil {
 			panic(err.Error())
 		}
@@ -219,8 +220,8 @@ func NewKubeClient(gatewayDaemon domain.ClusterGateway, clusterDaemonOptions *do
 	return client
 }
 
-// Add 'NoExecute' and 'NoSchedule' taints to the specified node to prevent Pods from being scheduled onto it,
-// and to evict any existing pods that are already scheduled onto it.
+// AddSchedulingTaintsToNode adds 'NoExecute' and 'NoSchedule' taints to the specified node to prevent Pods from
+// being scheduled onto it, and to evict any existing pods that are already scheduled onto it.
 func (c *BasicKubeClient) AddSchedulingTaintsToNode(nodeName string) error {
 	var patchData = `{
 		"spec": {
@@ -250,7 +251,7 @@ func (c *BasicKubeClient) AddSchedulingTaintsToNode(nodeName string) error {
 	return nil
 }
 
-// Remove all taints from the specified Kubernetes node.
+// RemoveAllTaintsFromNode removes all taints from the specified Kubernetes node.
 func (c *BasicKubeClient) RemoveAllTaintsFromNode(nodeName string) error {
 	var patchData = `{
 		"spec": {
@@ -269,7 +270,7 @@ func (c *BasicKubeClient) RemoveAllTaintsFromNode(nodeName string) error {
 	return nil
 }
 
-// Function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
+// PodCreated is a function to be used as the `AddFunc` handler for a Kubernetes SharedInformer.
 func (c *BasicKubeClient) PodCreated(obj interface{}) {
 	pod := obj.(*corev1.Pod)
 	c.log.Debug("Pod created: %s/%s", pod.Namespace, pod.Name)
@@ -303,7 +304,7 @@ func (c *BasicKubeClient) PodCreated(obj interface{}) {
 	c.scaleUpChannels.Set(kernelId, channels)
 }
 
-// Return a list of the current kubernetes nodes.
+// GetKubernetesNodes returns a list of the current kubernetes nodes.
 func (c *BasicKubeClient) GetKubernetesNodes() ([]corev1.Node, error) {
 	st := time.Now()
 	nodes, err := c.kubeClientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
@@ -319,7 +320,7 @@ func (c *BasicKubeClient) GetKubernetesNodes() ([]corev1.Node, error) {
 	return nodes.Items, nil
 }
 
-// Return the node with the given name, or nil of that node cannot be found.
+// GetKubernetesNode returns the node with the given name, or nil of that node cannot be found.
 func (c *BasicKubeClient) GetKubernetesNode(nodeName string) (*corev1.Node, error) {
 	nodes, err := c.kubeClientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", nodeName),
@@ -340,7 +341,7 @@ func (c *BasicKubeClient) GetKubernetesNode(nodeName string) (*corev1.Node, erro
 	return &nodes.Items[0], nil
 }
 
-// Function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
+// PodDeleted is a function to be used as the `DeleteFunc` handler for a Kubernetes SharedInformer.
 func (c *BasicKubeClient) PodDeleted(obj interface{}) {
 	pod := obj.(*corev1.Pod)
 	c.log.Debug("Pod deleted: %s/%s", pod.Namespace, pod.Name)
@@ -359,7 +360,7 @@ func (c *BasicKubeClient) PodDeleted(obj interface{}) {
 	channel <- struct{}{}
 }
 
-// Function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
+// PodUpdated is a function to be used as the `UpdateFunc` handler for a Kubernetes SharedInformer.
 func (c *BasicKubeClient) PodUpdated(oldObj interface{}, newObj interface{}) {
 	oldPod := oldObj.(*corev1.Pod)
 	newPod := newObj.(*corev1.Pod)
@@ -374,7 +375,7 @@ func (c *BasicKubeClient) PodUpdated(oldObj interface{}, newObj interface{}) {
 // 	return c.migrationManager.GetMigrationOperationByNewPod(newPodName)
 // }
 
-// Get the Kubernetes client.
+// KubeClientset returns the Kubernetes client.
 func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
 	return c.kubeClientset
 }
@@ -385,12 +386,12 @@ func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
 // 	return c.migrationManager.CheckIfMigrationCompleted(op)
 // }
 
-// Get the associated Gateway daemon.
-func (c *BasicKubeClient) ClusterGateway() domain.ClusterGateway {
+// ClusterGateway returns the associated Gateway daemon.
+func (c *BasicKubeClient) ClusterGateway() scheduling.ClusterGateway {
 	return c.gatewayDaemon
 }
 
-// Delete the Cloneset for the kernel identified by the given ID.
+// DeleteCloneset deletes the Cloneset for the kernel identified by the given ID.
 func (c *BasicKubeClient) DeleteCloneset(kernelId string) error {
 	clonesetId := fmt.Sprintf("kernel-%s", kernelId)
 	c.log.Debug("Deleting Cloneset '%s' now.", clonesetId)
@@ -405,7 +406,7 @@ func (c *BasicKubeClient) DeleteCloneset(kernelId string) error {
 	return nil
 }
 
-// Create a new Kubernetes StatefulSet for the given Session.
+// DeployDistributedKernels creates a new Kubernetes StatefulSet for the given Session.
 // Returns a tuple containing the connection info returned by the `prepareConnectionFileContents` function and an error,
 // which will be nil if there were no errors encountered while creating the StatefulSet and related components.
 func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *proto.KernelSpec) (*jupyter.ConnectionInfo, error) {
@@ -512,7 +513,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 // 	return nil
 // }
 
-// Register a channel that is used to notify waiting goroutines that the Pod/Container has started.
+// RegisterChannel registers a channel that is used to notify waiting goroutines that the Pod/Container has started.
 func (c *BasicKubeClient) RegisterChannel(kernelId string, startedChan chan string) {
 	// Store the new channel in the mapping.
 	channels, ok := c.scaleUpChannels.Get(kernelId)
@@ -523,7 +524,7 @@ func (c *BasicKubeClient) RegisterChannel(kernelId string, startedChan chan stri
 	c.scaleUpChannels.Set(kernelId, channels)
 }
 
-// Scale-up a CloneSet by increasing its number of replicas by 1.
+// ScaleOutCloneSet scales-up a CloneSet by increasing its number of replicas by 1.
 //
 // Accepts as a parameter a chan string that can be used to wait until the new Pod has been created.
 // The name of the new Pod will be sent over the channel when the new Pod is started.
@@ -537,7 +538,7 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string) error {
 	defer c.mutex.Unlock()
 
 	// The CloneSet resources for distributed kernels are named "kernel-<kernel ID>".
-	cloneset_id := fmt.Sprintf("kernel-%s", kernelId)
+	clonesetId := fmt.Sprintf("kernel-%s", kernelId)
 
 	// This is the same as retry.DefaultRetry according to:
 	// https://pkg.go.dev/k8s.io/client-go/util/retry#pkg-variables
@@ -552,33 +553,33 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string) error {
 
 	// Increase the number of replicas.
 	retryErr := retry.RetryOnConflict(retryParameters, func() error {
-		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
+		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), clonesetId, metav1.GetOptions{})
 
 		if getErr != nil {
-			panic(fmt.Errorf("failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
+			panic(fmt.Errorf("failed to get latest version of CloneSet \"%s\": %v", clonesetId, getErr))
 		}
 
-		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
+		currentNumReplicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
 
 		if err != nil || !found {
-			c.log.Error("Replicas not found for CloneSet %s: error=%s", cloneset_id, err)
+			c.log.Error("Replicas not found for CloneSet %s: error=%s", clonesetId, err)
 			return err
 		}
 
-		c.log.Debug("Attempting to INCREASE the number of replicas of CloneSet \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, current_num_replicas)
-		new_num_replicas := current_num_replicas + 1
+		c.log.Debug("Attempting to INCREASE the number of replicas of CloneSet \"%s\". Currently, it is configured to have %d replicas.", clonesetId, currentNumReplicas)
+		newNumReplicas := currentNumReplicas + 1
 
 		// Increase the number of replicas.
-		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
-			panic(fmt.Errorf("failed to set replica value for CloneSet \"%s\": %v", cloneset_id, err))
+		if err := unstructured.SetNestedField(result.Object, newNumReplicas, "spec", "replicas"); err != nil {
+			panic(fmt.Errorf("failed to set replica value for CloneSet \"%s\": %v", clonesetId, err))
 		}
 
 		_, updateErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
 
 		if updateErr != nil {
-			c.log.Error("Failed to apply update to CloneSet \"%s\": error=%s", cloneset_id, err)
+			c.log.Error("Failed to apply update to CloneSet \"%s\": error=%s", clonesetId, err)
 		} else {
-			c.log.Debug("Successfully increased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
+			c.log.Debug("Successfully increased number of replicas of CloneSet \"%s\" to %d.", clonesetId, newNumReplicas)
 		}
 
 		return updateErr
@@ -594,13 +595,13 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string) error {
 		channels = channels[:len(channels)-1]
 		c.scaleUpChannels.Set(kernelId, channels)
 
-		return errors.Wrapf(retryErr, "Error when attempting to scale-up CloneSet %s", cloneset_id)
+		return errors.Wrapf(retryErr, "Error when attempting to scale-up CloneSet %s", clonesetId)
 	}
 
 	return nil
 }
 
-// Scale-down a CloneSet by decreasing its number of replicas by 1.
+// ScaleInCloneSet scales-down a CloneSet by decreasing its number of replicas by 1.
 //
 // Parameters:
 // - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale in
@@ -610,19 +611,19 @@ func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, po
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	cloneset_id := fmt.Sprintf("kernel-%s", kernelId)
-	c.log.Debug("Scaling-in CloneSet %s by deleting Pod %s.", cloneset_id, oldPodName)
+	clonesetId := fmt.Sprintf("kernel-%s", kernelId)
+	c.log.Debug("Scaling-in CloneSet %s by deleting Pod %s.", clonesetId, oldPodName)
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), cloneset_id, metav1.GetOptions{})
+		result, getErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Get(context.TODO(), clonesetId, metav1.GetOptions{})
 
 		if getErr != nil {
-			panic(fmt.Errorf("failed to get latest version of CloneSet \"%s\": %v", cloneset_id, getErr))
+			panic(fmt.Errorf("failed to get latest version of CloneSet \"%s\": %v", clonesetId, getErr))
 		}
 
-		current_num_replicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
+		currentNumReplicas, found, err := unstructured.NestedInt64(result.Object, "spec", "replicas")
 
 		if err != nil || !found {
-			c.log.Error("Replicas not found for CloneSet %s: error=%v", cloneset_id, err)
+			c.log.Error("Replicas not found for CloneSet %s: error=%v", clonesetId, err)
 			return err
 		}
 
@@ -635,24 +636,24 @@ func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, po
 		// 	panic(err)
 		// }
 
-		c.log.Debug("Attempting to DECREASE the number of replicas of CloneSet \"%s\" by deleting pod \"%s\". Currently, it is configured to have %d replicas.", cloneset_id, oldPodName, current_num_replicas)
-		new_num_replicas := current_num_replicas - 1
+		c.log.Debug("Attempting to DECREASE the number of replicas of CloneSet \"%s\" by deleting pod \"%s\". Currently, it is configured to have %d replicas.", clonesetId, oldPodName, currentNumReplicas)
+		newNumReplicas := currentNumReplicas - 1
 
 		// Decrease the number of replicas.
-		if err := unstructured.SetNestedField(result.Object, new_num_replicas, "spec", "replicas"); err != nil {
-			panic(fmt.Errorf("failed to set spec.replicas value for CloneSet \"%s\": %v", cloneset_id, err))
+		if err := unstructured.SetNestedField(result.Object, newNumReplicas, "spec", "replicas"); err != nil {
+			panic(fmt.Errorf("failed to set spec.replicas value for CloneSet \"%s\": %v", clonesetId, err))
 		}
 
 		if err := unstructured.SetNestedField(result.Object, []interface{}{oldPodName}, "spec", "scaleStrategy", "podsToDelete"); err != nil {
-			panic(fmt.Errorf("failed to set spec.scaleStrategy.podsToDelete value for CloneSet \"%s\": %v", cloneset_id, err))
+			panic(fmt.Errorf("failed to set spec.scaleStrategy.podsToDelete value for CloneSet \"%s\": %v", clonesetId, err))
 		}
 
 		_, updateErr := c.dynamicClient.Resource(clonesetRes).Namespace(corev1.NamespaceDefault).Update(context.TODO(), result, metav1.UpdateOptions{})
 
 		if updateErr != nil {
-			c.log.Error("Failed to apply update to CloneSet \"%s\": error=%v", cloneset_id, updateErr)
+			c.log.Error("Failed to apply update to CloneSet \"%s\": error=%v", clonesetId, updateErr)
 		} else {
-			c.log.Debug("Successfully decreased number of replicas of CloneSet \"%s\" to %d.", cloneset_id, new_num_replicas)
+			c.log.Debug("Successfully decreased number of replicas of CloneSet \"%s\" to %d.", clonesetId, newNumReplicas)
 		}
 
 		return updateErr // Will be nil if the operation was successful.
@@ -661,7 +662,7 @@ func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, po
 	c.scaleDownChannels.Set(oldPodName, podStoppedChannel)
 
 	if retryErr != nil {
-		c.log.Error("Failed to scale-in CloneSet %s: %v", cloneset_id, retryErr)
+		c.log.Error("Failed to scale-in CloneSet %s: %v", clonesetId, retryErr)
 	}
 
 	// Store the channel in the mapping.
@@ -675,7 +676,7 @@ func (c *BasicKubeClient) ScaleInCloneSet(kernelId string, oldPodName string, po
 	return retryErr
 }
 
-// Create a SharedInformer that watches for Pod-creation and Pod-deletion events within the given namespace.
+// createPodWatcher creates a SharedInformer that watches for Pod-creation and Pod-deletion events within the given namespace.
 // In general, namespace should be "default" until we make the namespace configurable (for the Helm k8s deployment).
 // This is expected to be used in conjunction with the Migration Orchestrator, as the Migration Orchestrator exposes
 // an API that is registered with the SharedInformer to handle Pod-started and Pod-stopped events.
@@ -699,7 +700,7 @@ func (c *BasicKubeClient) createPodWatcher(namespace string) {
 	})
 }
 
-// Create a StatefulSet for a particular distributed kernel.
+// createKernelStatefulSet creates a StatefulSet for a particular distributed kernel.
 //
 // Parameters:
 // - ctx (context.Context): Context object.
@@ -743,7 +744,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *p
 		},
 	}
 
-	storage_resource, err := resource.ParseQuantity("128Mi")
+	storageResource, err := resource.ParseQuantity("128Mi")
 	if err != nil {
 		panic(err)
 	}
@@ -959,7 +960,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *p
 						StorageClassName: &storageClassName,
 						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
-								corev1.ResourceStorage: storage_resource,
+								corev1.ResourceStorage: storageResource,
 							},
 						},
 					},
@@ -1474,13 +1475,13 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *proto.KernelReplicaSpe
 	// This cannot be done with a CloneSet (as far as I am aware).
 	if c.useStatefulSet {
 		// Fully-qualified domain name.
-		fqdn_format := fmt.Sprintf("kernel-%%s-%%d.%s.%s.svc.cluster.local:%%d", headlessServiceName, c.kubeNamespace)
+		fqdnFormat := fmt.Sprintf("kernel-%%s-%%d.%s.%s.svc.cluster.local:%%d", headlessServiceName, c.kubeNamespace)
 
 		// Generate the hostnames for the Pods of the StatefulSet.
 		// We can determine them deterministically due to the convention/properties of the StatefulSet.
 		for i := 0; i < 3; i++ {
 			// We use i+1 here, as SMR IDs are expected to begin at 1, and we configured the StatefulSet of kernel replicas to begin ordinals at 1 rather than 0.
-			fqdn := fmt.Sprintf(fqdn_format, spec.ID(), i+1, c.smrPort)
+			fqdn := fmt.Sprintf(fqdnFormat, spec.ID(), i+1, c.smrPort)
 			c.log.Debug("Generated peer fully-qualified domain name: \"%s\"", fqdn)
 			replicas = append(replicas, fqdn)
 		}

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"log"
@@ -85,6 +86,15 @@ type MessageError struct {
 	Status   string `json:"status"`
 	ErrName  string `json:"ename"`
 	ErrValue string `json:"evalue"`
+}
+
+func (m *MessageError) String() string {
+	out, err := json.Marshal(m)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(out)
 }
 
 const (

@@ -37,7 +37,7 @@ type LabelPatch struct {
 func getKubeClientset() *kubernetes.Clientset {
 	var kubeconfig *string
 	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kubernetes", "config"), "(optional) absolute path to the kubeconfig file")
 	} else {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
@@ -61,7 +61,7 @@ func getKubeClientset() *kubernetes.Clientset {
 func getKubeDynamicClient() *dynamic.DynamicClient {
 	var kubeconfig *string
 	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kubernetes", "config"), "(optional) absolute path to the kubeconfig file")
 	} else {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}

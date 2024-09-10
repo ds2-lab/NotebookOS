@@ -1,21 +1,14 @@
-package scheduler
+package scheduling
 
 import (
 	"context"
 	"errors"
-	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"math"
-	"net/http"
-	"time"
-
-	"github.com/gin-gonic/contrib/cors"
-	"github.com/gin-gonic/gin"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/gateway/domain"
-	corev1 "k8s.io/api/core/v1"
-	scheduler "k8s.io/kube-scheduler/extender/v1"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
+	v1 "k8s.io/api/core/v1"
+	"math"
+	"time"
 )
 
 var (
@@ -25,7 +18,7 @@ var (
 type aggregateGpuInfo struct {
 	*proto.ClusterActualGpuInfo
 
-	TotalSpecGPUs              int32 `json:"specGPUs,omitempty"`              // The total number of GPUs c onfigured/present on this node.
+	TotalSpecGPUs              int32 `json:"specGPUs,omitempty"`              // The total number of GPUs configured/present on this node.
 	TotalIdleGPUs              int32 `json:"idleGPUs,omitempty"`              // The number of GPUs that are uncommitted and therefore available on this node. This quantity is equal to specGPUs - committedGPUs.
 	TotalCommittedGPUs         int32 `json:"committedGPUs,omitempty"`         // The number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
 	TotalPendingGPUs           int32 `json:"pendingGPUs,omitempty"`           // The sum of the outstanding GPUs of all replicas scheduled onto this node. Pending GPUs are not allocated or committed to a particular replica yet. The time at which resources are actually committed to a replica depends upon the policy being used. In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
@@ -33,15 +26,18 @@ type aggregateGpuInfo struct {
 	TotalNumAllocations        int32 `json:"numAllocations,omitempty"`        // Number of individual allocations such that the GPUs have been committed to a container.
 }
 
-type clusterSchedulerImpl struct {
-	gateway domain.ClusterGateway
+type BaseScheduler struct {
+	gateway ClusterGateway
 
-	kubeSchedulerServicePort int               // Port that the Cluster Gateway's HTTP server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
-	kubeClient               domain.KubeClient // Kubernetes client.
-	gpuInfo                  *aggregateGpuInfo // The current "actual" GPU usage within the cluster.
-	lastGpuInfoRefresh       time.Time         // The time at which the 'actual' GPU info was last refreshed.
-	nodes                    []corev1.Node     // Cached list of nodes within the Kubernetes cluster. This is NOT necessarily up-to-date; it is refreshed on an interval.
-	lastNodeRefreshTime      time.Time         // The time at which the Kubernetes nodes were last refreshed.
+	instance ClusterScheduler
+	cluster  Cluster
+
+	gpuInfo                *aggregateGpuInfo // The current "actual" GPU usage within the cluster.
+	lastGpuInfoRefresh     time.Time         // The time at which the 'actual' GPU info was last refreshed.
+	gpuInfoRefreshInterval time.Duration     // gpuInfoRefreshInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
+	nodes                  []Host            // Cached list of nodes within the cluster. This is NOT necessarily up-to-date; it is refreshed on an interval.
+	kubeNodes              []v1.Node
+	lastNodeRefreshTime    time.Time // The time at which the nodes were last refreshed.
 
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
@@ -49,32 +45,32 @@ type clusterSchedulerImpl struct {
 	gpusPerHost                 float64 // The number of actual GPUs that are available for use on each node/host.
 	virtualGpusPerHost          int32   // The number of virtual GPUs per host.
 	scalingFactor               float64 // scalingFactor defines how many hosts the cluster will provision based on busy resources.
-	maximumHostsToReleaseAtOnce int32   // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can deprovision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	maximumHostsToReleaseAtOnce int32   // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
 	scalingInterval             int32   // How often to call ValidateCapacity()
 	scalingLimit                float64 // scalingLimit defines how many hosts the cluster will provision at maximum based on busy resources.
 	canScalingIn                bool    // Can the Cluster/Placer scale-in?
 	shouldUpdateRatio           bool    // Should the Placer update its subscription ratio?
-	scalingOutEnaled            bool    // If enabled, the scaling manager will attempt to over-provision hosts slightly so as to leave room for fluctation. If disabled, then the Cluster will exclusivel scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges.
+	scalingOutEnaled            bool    // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation. If disabled, then the Cluster will exclusively scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges.
 	scalingBufferSize           int32   // How many extra hosts we provision so that we can quickly scale if needed.
-	minimumCapacity             int32   // The minimum number of kubernetes nodes we must have available at any time.
+	minimumCapacity             int32   // The minimum number of nodes we must have available at any time.
 
 	log logger.Logger
 }
 
-func NewClusterScheduler(gateway domain.ClusterGateway, kubeClient domain.KubeClient, opts domain.ClusterSchedulerOptions) domain.ClusterScheduler {
-	clusterScheduler := &clusterSchedulerImpl{
+func NewClusterScheduler(gateway ClusterGateway, cluster Cluster, opts *ClusterSchedulerOptions) *BaseScheduler {
+	clusterScheduler := &BaseScheduler{
 		gateway:                     gateway,
-		kubeClient:                  kubeClient,
-		kubeSchedulerServicePort:    opts.SchedulerHttpPort,
+		cluster:                     cluster,
 		gpusPerHost:                 float64(opts.GpusPerHost),
 		virtualGpusPerHost:          int32(opts.VirtualGpusPerHost),
 		scalingFactor:               opts.ScalingFactor,
 		scalingLimit:                opts.ScalingLimit,
 		maximumHostsToReleaseAtOnce: int32(opts.MaximumHostsToReleaseAtOnce),
 		scalingInterval:             int32(opts.ScalingInterval),
-		scalingOutEnaled:            opts.ScalingOutEnaled,
+		scalingOutEnaled:            opts.ScalingOutEnabled,
 		scalingBufferSize:           int32(opts.ScalingBufferSize),
 		minimumCapacity:             int32(opts.MinimumNumNodes),
+		gpuInfoRefreshInterval:      time.Second * time.Duration(opts.GpuPollIntervalSeconds),
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 
@@ -86,109 +82,83 @@ func NewClusterScheduler(gateway domain.ClusterGateway, kubeClient domain.KubeCl
 		clusterScheduler.log.Debug("ScalingLimit: %.2f", clusterScheduler.scalingLimit)
 		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d", clusterScheduler.maximumHostsToReleaseAtOnce)
 		clusterScheduler.log.Debug("ScalingInterval: %d", clusterScheduler.scalingInterval)
-		clusterScheduler.log.Debug("ScalingOutEnaled: %v", clusterScheduler.scalingOutEnaled)
+		clusterScheduler.log.Debug("ScalingOutEnabled: %v", clusterScheduler.scalingOutEnaled)
 		clusterScheduler.log.Debug("ScalingBufferSize: %d", clusterScheduler.scalingBufferSize)
-	}
-
-	if gateway.KubernetesMode() {
-		err := clusterScheduler.RefreshKubernetesNodes()
-		if err != nil {
-			clusterScheduler.log.Error("Initial retrieval of Kubernetes nodes failed: %v", err)
-		}
 	}
 
 	return clusterScheduler
 }
 
-// Return the associated ClusterGateway.
-func (s *clusterSchedulerImpl) ClusterGateway() domain.ClusterGateway {
+// ClusterGateway returns the associated ClusterGateway.
+func (s *BaseScheduler) ClusterGateway() ClusterGateway {
 	return s.gateway
 }
 
-// Return the minimum number of nodes we must have available at any time.
-func (s *clusterSchedulerImpl) MinimumCapacity() int32 {
+// MinimumCapacity returns the minimum number of nodes we must have available at any time.
+func (s *BaseScheduler) MinimumCapacity() int32 {
 	return s.minimumCapacity
 }
 
-// This should be called from its own goroutine.
-// Start the HTTP HTTP service used to make scheduling decisions.
-func (s *clusterSchedulerImpl) StartHttpKubernetesSchedulerService() {
-	s.log.Debug("Starting the Cluster Scheduler's HTTP Kubernetes Scheduler service.")
-
-	app := gin.New()
-
-	app.Use(gin.Logger())
-	app.Use(cors.Default())
-
-	app.POST(domain.FilterRoute, s.HandleKubeSchedulerFilterRequest)
-
-	s.log.Debug("Cluster Scheduler's HTTP Kubernetes Scheduler service is listening on port %d", s.kubeSchedulerServicePort)
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", s.kubeSchedulerServicePort), app); err != nil {
-		s.log.Error("Cluster Scheduler's HTTP Kubernetes Scheduler service failed because: %v", err)
-		panic(err)
-	}
-}
-
-// Add a new node to the kubernetes cluster.
+// AddNode adds a new node to the kubernetes cluster.
 // We simulate this using node taints.
-func (s *clusterSchedulerImpl) AddNode() error {
+func (s *BaseScheduler) AddNode() error {
 	return ErrNotImplementedYet
 }
 
-// Remove a new from the kubernetes cluster.
+// RemoveNode removes a new from the kubernetes cluster.
 // We simulate this using node taints.
-func (s *clusterSchedulerImpl) RemoveNode() error {
+func (s *BaseScheduler) RemoveNode() error {
 	return ErrNotImplementedYet
 }
 
-// Return the current number of nodes in the kubernetes cluster.
+// currentSize returns the current number of nodes in the kubernetes cluster.
 // This includes both nodes that are already running and nodes that are being provisioned.
 // TODO(Ben): Implement "node provisioning" (i.e., simulating the time it takes to spin-up a new node).
-func (s *clusterSchedulerImpl) currentSize() int32 {
+func (s *BaseScheduler) currentSize() int32 {
 	return int32(len(s.nodes))
 }
 
-// The number of active/already-running/already-provisioned hosts within the Cluster.
-func (s *clusterSchedulerImpl) activeSize() int32 {
+// activeSize returns the number of active/already-running/already-provisioned hosts within the Cluster.
+func (s *BaseScheduler) activeSize() int32 {
 	return int32(len(s.nodes))
 }
 
-// The number of hosts currently being provisioned within the Cluster.
-func (s *clusterSchedulerImpl) pendingSize() int32 {
+// pendingSize returns the number of hosts currently being provisioned within the Cluster.
+func (s *BaseScheduler) pendingSize() int32 {
 	panic("Not implemented yet.")
 }
 
-// Refresh all metrics maintained/cached/required by the Cluster Scheduler,
+// RefreshAll refreshes all metrics maintained/cached/required by the Cluster Scheduler,
 // including the list of current kubernetes nodes, actual and virtual GPU usage information, etc.
 //
 // Return a slice of any errors that occurred. If an error occurs while refreshing a particular piece of information,
 // then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).
-func (s *clusterSchedulerImpl) RefreshAll() []error {
-	errors := make([]error, 0)
+func (s *BaseScheduler) RefreshAll() []error {
+	errs := make([]error, 0)
 	var err error
 
 	if s.ClusterGateway().KubernetesMode() {
-		err = s.RefreshKubernetesNodes()
+		err = s.RefreshClusterNodes()
 		if err != nil {
-			errors = append(errors, err)
+			errs = append(errs, err)
 		}
 	}
 
 	err = s.RefreshActualGpuInfo()
 	if err != nil {
-		errors = append(errors, err)
+		errs = append(errs, err)
 	}
 
-	if len(errors) > 0 {
-		s.log.Error("%d error(s) occurred while refreshing all metrics.", len(errors))
+	if len(errs) > 0 {
+		s.log.Error("%d error(s) occurred while refreshing all metrics.", len(errs))
 	}
 
-	return errors
+	return errs
 }
 
-// Refresh the actual GPU usage information.
+// RefreshActualGpuInfo refreshes the actual GPU usage information.
 // Returns nil on success; returns an error on failure.
-func (s *clusterSchedulerImpl) RefreshActualGpuInfo() error {
+func (s *BaseScheduler) RefreshActualGpuInfo() error {
 	clusterGpuInfo, err := s.gateway.GetClusterActualGpuInfo(context.TODO(), &proto.Void{})
 	if err != nil {
 		s.log.Error("Error while to retrieving 'actual' GPU info: %v", err)
@@ -214,57 +184,15 @@ func (s *clusterSchedulerImpl) RefreshActualGpuInfo() error {
 	return err // Will be nil if there was no error.
 }
 
-// Update the cached list of Kubernetes nodes.
+// RefreshClusterNodes updates the cached list of Kubernetes nodes.
 // Returns nil on success; returns an error on failure.
-func (s *clusterSchedulerImpl) RefreshKubernetesNodes() error {
-	if !s.gateway.KubernetesMode() {
-		// Don't return an error; simply do nothing.
-		return nil
-	}
-
-	nodes, err := s.kubeClient.GetKubernetesNodes()
-	if err != nil {
-		s.log.Error("Failed to refresh Kubernetes nodes.") // The error is printed by the KubeClient. We don't need to print it again here.
-	} else {
-		s.nodes = nodes
-		s.lastNodeRefreshTime = time.Now()
-	}
-
-	return err // Will be nil if no error occurred.
+func (s *BaseScheduler) RefreshClusterNodes() error {
+	return s.instance.RefreshClusterNodes()
 }
 
-// Handle a 'filter' request from the kubernetes scheduler.
-func (s *clusterSchedulerImpl) HandleKubeSchedulerFilterRequest(ctx *gin.Context) {
-	var (
-		extenderArgs         scheduler.ExtenderArgs
-		extenderFilterResult *scheduler.ExtenderFilterResult
-		err                  error
-	)
-
-	err = ctx.BindJSON(&extenderArgs)
-	if err != nil {
-		s.log.Error("Received FILTER request; however, failed to extract ExtenderArgs because: %v", err)
-		ctx.Error(err)
-		extenderFilterResult = &scheduler.ExtenderFilterResult{
-			Nodes:       nil,
-			FailedNodes: nil,
-			Error:       err.Error(),
-		}
-	}
-
-	s.log.Debug("Received FILTER request for Pod \"%s\" with %d node(s).", extenderArgs.Pod.Name, len(extenderArgs.Nodes.Items))
-
-	extenderFilterResult = &scheduler.ExtenderFilterResult{
-		Nodes: extenderArgs.Nodes,
-	}
-
-	s.log.Debug("Returning %d node(s) without any processing.", len(extenderArgs.Nodes.Items))
-	ctx.JSON(http.StatusOK, extenderFilterResult)
-}
-
-// Validate the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
+// ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
 // Adjust the Cluster's capacity as directed by scaling policy.
-func (s *clusterSchedulerImpl) ValidateCapacity() {
+func (s *BaseScheduler) ValidateCapacity() {
 	load := s.gpuInfo.TotalCommittedGPUs
 
 	minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                         // The minimum number of hosts required to satisfy the cluster's current committed GPUs.
@@ -290,14 +218,14 @@ func (s *clusterSchedulerImpl) ValidateCapacity() {
 	if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
 		s.log.Debug("Load (CommittedGPUs): %s. Current #Hosts: %s. Minimum #Hosts to Satisfy Load: %s. Target #Hosts: %s. Max Scaled-Out #Hosts: %s.", load, s.currentSize(), minNumHosts, scaledOutNumHosts, limit)
 	}
-	old_num_hosts := int32(s.currentSize())
+	oldNumHosts := s.currentSize()
 	// Only scale-out if that feature is enabled.
-	if s.scalingOutEnaled && old_num_hosts < scaledOutNumHosts {
+	if s.scalingOutEnaled && oldNumHosts < scaledOutNumHosts {
 		// Scaling out
 		var numProvisioned = 0
 
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Scaling-out by %d hosts (from %d to %d).", scaledOutNumHosts-old_num_hosts, old_num_hosts, scaledOutNumHosts)
+			s.log.Debug("Scaling-out by %d hosts (from %d to %d).", scaledOutNumHosts-oldNumHosts, oldNumHosts, scaledOutNumHosts)
 		}
 
 		// This is such a minor optimization, but we cache the size of the active host pool locally so that we don't have to grab it everytime.
@@ -316,7 +244,7 @@ func (s *clusterSchedulerImpl) ValidateCapacity() {
 		}
 
 		if numProvisioned > 0 && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %s. New #hosts: %s.", numProvisioned, load, old_num_hosts, s.currentSize())
+			s.log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %s. New #hosts: %s.", numProvisioned, load, oldNumHosts, s.currentSize())
 		}
 	}
 
@@ -331,32 +259,32 @@ func (s *clusterSchedulerImpl) ValidateCapacity() {
 		limit = s.MinimumCapacity()
 	}
 
-	num_to_release := s.currentSize() - limit
-	if num_to_release > 0 {
-		if num_to_release > s.maximumHostsToReleaseAtOnce {
+	numToRelease := s.currentSize() - limit
+	if numToRelease > 0 {
+		if numToRelease > s.maximumHostsToReleaseAtOnce {
 			if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-				s.log.Debug("Decreased the number of idle hosts to release from %d to the maximum allowed value of %s.", num_to_release, s.maximumHostsToReleaseAtOnce)
+				s.log.Debug("Decreased the number of idle hosts to release from %d to the maximum allowed value of %s.", numToRelease, s.maximumHostsToReleaseAtOnce)
 			}
-			num_to_release = s.maximumHostsToReleaseAtOnce
+			numToRelease = s.maximumHostsToReleaseAtOnce
 		}
 
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Scaling in %d hosts", num_to_release)
+			s.log.Debug("Scaling in %d hosts", numToRelease)
 		}
 
-		num_released, err := s.ReleaseIdleHosts(num_to_release)
+		numReleased, err := s.ReleaseIdleHosts(numToRelease)
 		if err != nil {
 			s.log.Error("Error while releasing idle hosts: %v", err)
 		}
 
-		if num_released > 0 && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Released %d idle hosts based on #CommittedGPUs (%d). Prev #hosts: %s. New #hosts: %s.", num_released, load, old_num_hosts, s.currentSize())
+		if numReleased > 0 && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
+			s.log.Debug("Released %d idle hosts based on #CommittedGPUs (%d). Prev #hosts: %s. New #hosts: %s.", numReleased, load, oldNumHosts, s.currentSize())
 		}
 	}
 }
 
-// Try to release n idle hosts. Return the number of hosts that were actually released.
+// ReleaseIdleHosts tries to release n idle hosts. Return the number of hosts that were actually released.
 // Error will be nil on success and non-nil if some sort of failure is encountered.
-func (s *clusterSchedulerImpl) ReleaseIdleHosts(n int32) (int, error) {
+func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	return 0, ErrNotImplementedYet
 }

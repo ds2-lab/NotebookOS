@@ -89,7 +89,7 @@ type Cluster interface {
 	// When the operation completes, a notification is sent on the channel associated with the ScaleOperation.
 	RegisterScaleOutOperation(string, int32) (*ScaleOperation, error)
 
-	// RegisterScaleOutOperation registers a scale-in operation.
+	// RegisterScaleInOperation registers a scale-in operation.
 	// When the operation completes, a notification is sent on the channel associated with the ScaleOperation.
 	RegisterScaleInOperation(string, int32) (*ScaleOperation, error)
 
@@ -102,13 +102,16 @@ type Cluster interface {
 
 	// IsThereAnActiveScaleOperation returns true if there is an active scaling operation taking place right now.
 	IsThereAnActiveScaleOperation() bool
+
+	// ClusterScheduler returns the ClusterScheduler used by the Cluster.
+	ClusterScheduler() ClusterScheduler
 }
 
 type BasicCluster struct {
-	// hosts is a map from host ID to *Host containing all of the Host instances provisioned within the Cluster.
+	// hosts is a map from host ID to *Host containing all the Host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, *Host]
 
-	// indexes is a map from index key to ClusterIndexProvider containing all of the indexes in the cluster.
+	// indexes is a map from index key to ClusterIndexProvider containing all the indexes in the cluster.
 	indexes hashmap.BaseHashMap[string, ClusterIndexProvider]
 
 	// activeScaleOperation is a reference to the currently-active scale-out/scale-in operation.
@@ -116,19 +119,53 @@ type BasicCluster struct {
 	// If activeScaleOperation is nil, then there is no active scale-out or scale-in operation.
 	activeScaleOperation *ScaleOperation
 
+	// gpusPerHost is the number of GPUs available on each host.
+	gpusPerHost int
+
+	scheduler ClusterScheduler
+
 	log logger.Logger
 
 	mu sync.Mutex
 }
 
-func NewCluster() Cluster {
+func NewCluster(gpusPerHost int) *BasicCluster {
 	cluster := &BasicCluster{
-		hosts:   hashmap.NewConcurrentMap[*Host](256),
-		indexes: hashmap.NewSyncMap[string, ClusterIndexProvider](),
-		// scaleOperations: hashmap.NewSyncMap[string, *ScaleOperation](),
+		gpusPerHost: gpusPerHost,
+		hosts:       hashmap.NewConcurrentMap[*Host](256),
+		indexes:     hashmap.NewSyncMap[string, ClusterIndexProvider](),
 	}
 	config.InitLogger(&cluster.log, cluster)
 	return cluster
+}
+
+// NewKubernetesCluster creates a new BasicCluster struct and returns a pointer to it.
+//
+// NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
+// This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
+// by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
+func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, opts *ClusterSchedulerOptions) *BasicCluster {
+	cluster := &BasicCluster{
+		gpusPerHost: opts.GpusPerHost,
+		hosts:       hashmap.NewConcurrentMap[*Host](256),
+		indexes:     hashmap.NewSyncMap[string, ClusterIndexProvider](),
+	}
+
+	scheduler, err := NewKubernetesScheduler(gatewayDaemon, cluster, kubeClient, opts)
+	if err != nil {
+		cluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
+		panic(err)
+	}
+
+	cluster.scheduler = scheduler
+
+	config.InitLogger(&cluster.log, cluster)
+	return cluster
+}
+
+// ClusterScheduler returns the ClusterScheduler used by the Cluster.
+func (c *BasicCluster) ClusterScheduler() ClusterScheduler {
+	return c.scheduler
 }
 
 // ActiveScaleOperation returns the active scaling operation, if one exists.
@@ -178,7 +215,7 @@ func (c *BasicCluster) RegisterScaleOutOperation(operationId string, targetClust
 	return scaleOperation, nil
 }
 
-// RegisterScaleOutOperation registers a scale-in operation.
+// RegisterScaleInOperation registers a scale-in operation.
 // When the operation completes, a notification is sent on the channel passed to this function.
 //
 // If there already exists a scale operation with the same ID, then the existing scale operation is returned along with an error.
@@ -243,7 +280,10 @@ func (c *BasicCluster) checkIfScalingComplete() {
 
 	if int32(c.hosts.Len()) == c.activeScaleOperation.TargetScale {
 		c.log.Debug("%s %s has completed (target scale = %d).", c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, c.activeScaleOperation.TargetScale)
-		c.activeScaleOperation.SetOperationFinished()
+		err := c.activeScaleOperation.SetOperationFinished()
+		if err != nil {
+			c.log.Error("Failed to mark active %s %s as finished because: %v", c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, err)
+		}
 		c.activeScaleOperation.NotificationChan <- struct{}{}
 		c.activeScaleOperation = nil
 	} else {
@@ -254,13 +294,13 @@ func (c *BasicCluster) checkIfScalingComplete() {
 // onHostAdded is called when a host is added to the BasicCluster.
 func (c *BasicCluster) onHostAdded(host *Host) {
 	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
-		if _, status := index.IsQualified(host); status == ClusterIndexNewQualified {
+		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == ClusterIndexNewQualified {
 			c.log.Debug("Adding new host to index: %v", host)
 			index.Add(host)
-		} else if status == ClusterIndexQualified {
+		} else if qualificationStatus == ClusterIndexQualified {
 			c.log.Debug("Updating existing host within index: %v", host)
 			index.Update(host)
-		} else if status == ClusterIndexDisqualified {
+		} else if qualificationStatus == ClusterIndexDisqualified {
 			c.log.Debug("Removing existing host from index in onHostAdded: %v", host)
 			index.Remove(host)
 		} // else unqualified
@@ -282,7 +322,38 @@ func (c *BasicCluster) onHostRemoved(host *Host) {
 	c.checkIfScalingComplete()
 }
 
-// Hashmap implementation
+// ValidateCapacity ensures that the Cluster has the "right" amount of Host instances provisioned.
+//
+// If ValidateCapacity detects that there are too few Host instances provisioned to satisfy demand,
+// then additional Host instances will be created.
+//
+// Alternatively, if ValidateCapacity determines that there are more Host instances provisioned than
+// are truly needed, then some Host instances will be terminated to reduce unnecessary resource usage.
+func (c *BasicCluster) ValidateCapacity() {
+	c.scheduler.ValidateCapacity()
+}
+
+// BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
+//
+// If 'forceUpdate' is true, then the cached/local information is invalidated and updated by querying the
+// Local Daemons.
+func (c *BasicCluster) BusyGPUs(forceUpdate bool) float64 {
+	if forceUpdate {
+		panic("Not supported.")
+	}
+
+	busyGPUs := 0.0
+	c.hosts.Range(func(_ string, host *Host) (contd bool) {
+		busyGPUs += host.CommittedGPUs()
+		return true
+	})
+
+	return busyGPUs
+}
+
+////////////////////////////
+// Hashmap implementation //
+////////////////////////////
 
 // Len returns the number of *Host instances in the Cluster.
 func (c *BasicCluster) Len() int {

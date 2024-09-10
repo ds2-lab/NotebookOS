@@ -14,13 +14,13 @@ type RandomPlacer struct {
 
 	cluster Cluster
 	index   *RandomClusterIndex
-	opts    *CoreOptions
+	opts    *ClusterSchedulerOptions
 
 	mu sync.Mutex
 }
 
 // NewRandomPlacer creates a new RandomPlacer.
-func NewRandomPlacer(cluster Cluster, opts *CoreOptions) (*RandomPlacer, error) {
+func NewRandomPlacer(cluster Cluster, opts *ClusterSchedulerOptions) (*RandomPlacer, error) {
 	placer := &RandomPlacer{
 		cluster: cluster,
 		index:   NewRandomClusterIndex(100),

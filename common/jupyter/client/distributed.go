@@ -452,7 +452,22 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 	// c.replicas[r.ReplicaID()-1] = nil
 	// c.size--
 
-	host.ContainerRemoved(r.Container())
+	container := r.Container()
+
+	// If the Container is actively-training, then we need to call TrainingStopped
+	// before removing it so that the resources are all returned appropriately.
+	if container.IsTraining() {
+		err := container.TrainingStopped()
+		if err != nil {
+			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v", r.ID(), r.ReplicaID(), err)
+		}
+	}
+
+	err = host.ContainerRemoved(r.Container())
+	if err != nil {
+		c.log.Error("Failed to remove scheduling.Container %s-%d from Host %s because: %v", r.ID(), r.ReplicaID(), host.ID(), err)
+	}
+
 	r.Container().SetHost(nil) // Set the Host to nil...
 	return host, nil
 }
@@ -861,7 +876,7 @@ func (c *DistributedKernelClient) stopReplicaLocked(r scheduling.KernelReplica, 
 }
 
 func (c *DistributedKernelClient) clearReplicasLocked() {
-	c.log.Debug("Clearing replicas now.", c.id)
+	c.log.Debug("Clearing replicas now.")
 	toRemove := make([]int32, len(c.replicas))
 	for id, kernel := range c.replicas {
 		if kernel != nil {
