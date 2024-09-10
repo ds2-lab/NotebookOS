@@ -239,7 +239,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		createdAt:          time.Now(),
 	}
 
-	host.idleGPUs.Store(0)
+	host.idleGPUs.Store(float64(gpuInfoResp.SpecGPUs))
 	host.pendingGPUs.Store(0)
 	host.committedGPUs.Store(0)
 

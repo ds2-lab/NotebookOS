@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"net"
 	"net/http"
 	"sync"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	cmap "github.com/orcaman/concurrent-map/v2"
 )
 
 const (
@@ -28,7 +28,7 @@ type DockerContainerStartedNotification struct {
 // the Docker socket and listening for events that are emitted.
 type DockerContainerWatcher struct {
 	// Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
-	channels *cmap.ConcurrentMap[string, []chan string]
+	channels hashmap.BaseHashMap[string, []chan string]
 
 	// Mapping from Kernel ID to []*DockerContainerStartedNotification structs for which there was no channel registered
 	// when the notification was received. This exists so the Docker container ID can be retrieved for the initial
@@ -36,7 +36,7 @@ type DockerContainerWatcher struct {
 	//
 	// Note that we use a slice of *DockerContainerStartedNotification here because there will be N unwatched
 	// notifications for a kernel, where N is the number of replicas of that kernel.
-	unwatchedNotifications *cmap.ConcurrentMap[string, []*DockerContainerStartedNotification]
+	unwatchedNotifications hashmap.BaseHashMap[string, []*DockerContainerStartedNotification]
 
 	// Docker Swarm / Docker Compose project name.
 	projectName string
@@ -49,15 +49,12 @@ type DockerContainerWatcher struct {
 }
 
 func NewDockerContainerWatcher(projectName string) *DockerContainerWatcher {
-	channels := cmap.New[[]chan string]()
-	unwatchedNotifications := cmap.New[[]*DockerContainerStartedNotification]()
-
 	networkName := fmt.Sprintf("%s_default", projectName)
 	watcher := &DockerContainerWatcher{
 		projectName:            projectName,
 		networkName:            networkName,
-		channels:               &channels,
-		unwatchedNotifications: &unwatchedNotifications,
+		channels:               hashmap.NewCornelkMap[string, []chan string](64),
+		unwatchedNotifications: hashmap.NewCornelkMap[string, []*DockerContainerStartedNotification](64),
 	}
 
 	config.InitLogger(&watcher.log, watcher)
@@ -73,12 +70,12 @@ func (w *DockerContainerWatcher) RegisterChannel(kernelId string, startedChan ch
 	defer w.mu.Unlock()
 
 	// Store the new channel in the mapping.
-	channels, ok := w.channels.Get(kernelId)
+	channels, ok := w.channels.Load(kernelId)
 	if !ok {
 		channels = make([]chan string, 0, 4)
 	}
 	channels = append(channels, startedChan)
-	w.channels.Set(kernelId, channels)
+	w.channels.Store(kernelId, channels)
 }
 
 // LoadAndDeleteUnwatchedNotifications attempts to load a slice of *DockerContainerStartedNotification structs for
@@ -97,7 +94,7 @@ func (w *DockerContainerWatcher) LoadAndDeleteUnwatchedNotifications(kernelId st
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	notifications, loaded := w.unwatchedNotifications.Get(kernelId)
+	notifications, loaded := w.unwatchedNotifications.Load(kernelId)
 	if !loaded {
 		// Entry for specified kernel does not exist --> return nil.
 		return nil
@@ -111,7 +108,7 @@ func (w *DockerContainerWatcher) LoadAndDeleteUnwatchedNotifications(kernelId st
 		panic(fmt.Sprintf("Expected %d notification(s) for kernel \"%s\", but we have %d.", expected, kernelId, len(notifications)))
 	} else {
 		// Exists and contains at least `expected` entries --> delete entry and return slice.
-		w.unwatchedNotifications.Remove(kernelId)
+		w.unwatchedNotifications.Delete(kernelId)
 		return notifications
 	}
 }
@@ -183,14 +180,14 @@ func (w *DockerContainerWatcher) monitor() {
 			////////////////////////////
 			w.mu.Lock()
 
-			channels, ok := w.channels.Get(kernelId)
+			channels, ok := w.channels.Load(kernelId)
 
 			if !ok || len(channels) == 0 {
 				w.log.Debug("No scale-up waiters for kernel %s", kernelId)
 
 				var unwatchedNotificationsForKernel []*DockerContainerStartedNotification
 				// Check if we already have an entry for unwatched notifications for this kernel.
-				if unwatchedNotificationsForKernel, ok = w.unwatchedNotifications.Get(kernelId); !ok {
+				if unwatchedNotificationsForKernel, ok = w.unwatchedNotifications.Load(kernelId); !ok {
 					// If we do not have such an entry, then we'll create one. First, instantiate the slice.
 					unwatchedNotificationsForKernel = make([]*DockerContainerStartedNotification, 0, 3)
 				}
@@ -199,7 +196,7 @@ func (w *DockerContainerWatcher) monitor() {
 				unwatchedNotificationsForKernel = append(unwatchedNotificationsForKernel, notification)
 
 				// Store the slice back to the unwatched notifications map.
-				w.unwatchedNotifications.Set(kernelId, unwatchedNotificationsForKernel)
+				w.unwatchedNotifications.Store(kernelId, unwatchedNotificationsForKernel)
 
 				w.mu.Unlock()
 				continue
@@ -215,7 +212,7 @@ func (w *DockerContainerWatcher) monitor() {
 			channel, channels = channels[0], channels[1:]
 
 			// Add the remaining channels back.
-			w.channels.Set(kernelId, channels)
+			w.channels.Store(kernelId, channels)
 
 			//////////////////////////
 			// End Critical Section //

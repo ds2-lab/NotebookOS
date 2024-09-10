@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"sync"
 	"testing"
 
@@ -119,7 +120,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 	Context("End-to-End Tests", func() {
 		It("Will transmit messages correctly, with ACKs", func() {
-			cluster_gateway := New(&types.ConnectionInfo{
+			clusterGateway := New(&types.ConnectionInfo{
 				IP:                   "127.0.0.1",
 				ControlPort:          11000,
 				ShellPort:            11001,
@@ -134,7 +135,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				StartingResourcePort: 11007,
 				NumResourcePorts:     64,
 			}, &domain.ClusterDaemonOptions{
-				ClusterSchedulerOptions: domain.ClusterSchedulerOptions{
+				ClusterSchedulerOptions: scheduling.ClusterSchedulerOptions{
 					SchedulerHttpPort:             8076,
 					GpusPerHost:                   8,
 					VirtualGpusPerHost:            72,
@@ -161,7 +162,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				DistributedClusterServicePort: 8077,
 				DeploymentMode:                "local",
 			})
-			local_daemon := localdaemon.New(&types.ConnectionInfo{
+			localDaemon := localdaemon.New(&types.ConnectionInfo{
 				IP:                   "127.0.0.1",
 				ControlPort:          10000,
 				ShellPort:            10001,
@@ -188,13 +189,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			wg.Add(2)
 
 			go func() {
-				err := cluster_gateway.Start()
+				err := clusterGateway.Start()
 				Expect(err).To(BeNil())
 				wg.Done()
 			}()
 
 			go func() {
-				err := local_daemon.Start()
+				err := localDaemon.Start()
 				Expect(err).To(BeNil())
 				wg.Done()
 			}()

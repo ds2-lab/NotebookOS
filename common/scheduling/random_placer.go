@@ -56,7 +56,6 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
 		host  *Host
 		hosts = make([]*Host, 0, numReplicas)
 	)
-	placer.log.Debug("Inital length of hosts: %d", len(hosts))
 	for i := 0; i < numReplicas; i++ {
 		// TODO: Is this implementation really correct?
 		// placer.log.Debug("Seeking viable host from position %d...", pos)

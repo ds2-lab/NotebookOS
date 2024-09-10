@@ -115,6 +115,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	// Initialize daemon
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv scheduling.ClusterGateway) {
+		globalLogger.Info("Initializing Cluster Daemon with options: %s", options.ClusterDaemonOptions.String())
 		srv.SetClusterOptions(&options.ClusterSchedulerOptions)
 	})
 
@@ -133,7 +134,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	}
 	globalLogger.Info("Provisioning server listening at %v", lisHost.Addr())
 
-	// Initialize internel gRPC server
+	// Initialize internal gRPC server
 	provisioner := grpc.NewServer(GetGrpcOptions("Provisioner gRPC Server", tracer, distributedCluster)...)
 	proto.RegisterClusterGatewayServer(provisioner, srv)
 
