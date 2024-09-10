@@ -195,6 +195,11 @@ func (s *Session) ResourceUtilization() *ResourceUtilization {
 	return s.resourceUtilization
 }
 
+// SetResourceUtilization sets the value of the Session's resourceUtilization field to the given value.
+func (s *Session) SetResourceUtilization(util *ResourceUtilization) {
+	s.resourceUtilization = util
+}
+
 func (s *Session) KernelSpec() *proto.KernelSpec {
 	return s.kernelSpec
 }
@@ -287,7 +292,7 @@ func (s *Session) TrainingStopped() promise.Promise {
 	latestInteractivePriority := s.updateInteractivePriority("training stopped")
 	s.interactivePriorityHistory.AddValue(latestInteractivePriority)
 
-	s.log.Debug("Container %s has stopped training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().ID())
+	s.log.Debug("%s has stopped training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().ID())
 	return promise.Resolved(s.instance)
 }
 
@@ -380,7 +385,7 @@ func (s *Session) transition(targetState SessionState) error {
 	}
 
 	originalState := s.sessionState
-	s.log.Debug("Attempting to transition from state \"%v\" to state \"%v\"", originalState, targetState)
+	//s.log.Debug("Attempting to transition from state \"%v\" to state \"%v\"", originalState, targetState)
 	s.sessionState = targetState
 	s.log.Debug("Successfully transitioned from state \"%v\" to state \"%v\"", originalState, targetState)
 	return nil

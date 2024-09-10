@@ -18,6 +18,12 @@ type Spec interface {
 	// UpdateSpecGPUs can be used to update the number of GPUs.
 	UpdateSpecGPUs(float64)
 
+	// UpdateSpecCPUs can be used to update the number of CPUs.
+	UpdateSpecCPUs(float64)
+
+	// UpdateSpecMemoryMB can be used to update the amount of memory (in MB).
+	UpdateSpecMemoryMB(float64)
+
 	// CPU returns the number of vCPUs in milliCPUs, where 1000 mCPU = 1 vCPU, which may be fractional.
 	CPU() float64
 
@@ -105,6 +111,16 @@ func (s *FullSpec) MemoryMB() float64 {
 // UpdateSpecGPUs can be used to update the number of GPUs.
 func (s *FullSpec) UpdateSpecGPUs(gpus float64) {
 	s.GPUs = GPUSpec(gpus)
+}
+
+// UpdateSpecCPUs can be used to update the number of CPUs.
+func (s *FullSpec) UpdateSpecCPUs(cpus float64) {
+	s.CPUs = cpus
+}
+
+// UpdateSpecMemoryMB can be used to update the amount of memory (in MB).
+func (s *FullSpec) UpdateSpecMemoryMB(memory float64) {
+	s.MemoryMb = memory
 }
 
 func (s *FullSpec) String() string {

@@ -1425,7 +1425,10 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 	}
 
 	// Create a new Session for scheduling purposes.
-	resourceUtil := scheduling.NewEmptyResourceUtilization().WithCpuUtilization(0).WithMemoryUsageMb(0).WithNGpuUtilizationValues(in.ResourceSpec.Gpu, 0)
+	resourceUtil := scheduling.NewEmptyResourceUtilization().
+		WithCpuUtilization(in.ResourceSpec.CPU()).
+		WithMemoryUsageMb(in.ResourceSpec.MemoryMB()).
+		WithNGpuUtilizationValues(in.ResourceSpec.Gpu, 0)
 	session := scheduling.NewUserSession(context.Background(), kernel.ID(), in, resourceUtil, d.cluster, d.ClusterOptions)
 	d.sessions.Store(kernel.ID(), session)
 
@@ -2327,25 +2330,38 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.Ju
 		d.log.Debug("Intercepting \"%v\" message targeting session \"%s\" and using RPC pathway instead...",
 			jupyter.MessageTypeShutdownRequest, sessionId)
 
-		// Stop the kernel. If we get an error, print it here, and then we'll return it.
-		var err error
-		if _, err = d.stopKernelImpl(&proto.KernelId{Id: sessionId}); err != nil {
-			d.log.Error("Failed to (cleanly) terminate session/kernel \"%s\" because: %v", sessionId, err)
-
+		kernel, ok := d.kernels.Load(sessionId)
+		if !ok {
+			errorMessage := fmt.Sprintf("Could not find Kernel \"%s\"; cannot stop kernel.", sessionId)
+			d.log.Error(errorMessage)
 			// Spawn a separate goroutine to send an error notification to the dashboard.
-			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Session %s", sessionId), err.Error())
+			go d.notifyDashboardOfError(errorMessage, errorMessage)
+
+			return ErrKernelNotFound
 		}
 
-		session, ok := d.sessions.Load(sessionId)
+		// Stop the kernel. If we get an error, print it here, and then we'll return it.
+		var err error
+		if _, err = d.stopKernelImpl(&proto.KernelId{Id: kernel.ID()}); err != nil {
+			d.log.Error("Failed to (cleanly) terminate session \"%s\", kernel \"%s\" because: %v", sessionId, kernel.ID(), err)
+
+			// Spawn a separate goroutine to send an error notification to the dashboard.
+			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate Kernel %s, Session %s", kernel.ID(), sessionId), err.Error())
+			return err
+		}
+
+		session, ok := d.sessions.Load(kernel.ID())
 		if !ok || session == nil {
-			d.log.Error("Could not find scheduling.Session associated with kernel being shutdown \"%s\"", sessionId)
-			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find scheduling.Session of Terminating Kernel \"%s\"", sessionId), "Failed to Find scheduling.Session of Terminating Kernel \"%s\"")
+			errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", sessionId, kernel.ID())
+			d.log.Error(errorMessage)
+			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find scheduling.Session of Terminating Kernel \"%s\", Session ID=%s", kernel.ID(), sessionId), errorMessage)
 		} else {
 			p := session.SessionStopped()
 			err := p.Error()
 			if err != nil {
-				d.log.Error("Error while descheduling Session \"%s\"", sessionId)
-				go d.notifyDashboardOfError(fmt.Sprintf("Error while Descheduling Session \"%s\"", sessionId), err.Error())
+				d.log.Error("Error while descheduling kernel \"%s\" associated with session \"%s\"", kernel.ID(), sessionId)
+				go d.notifyDashboardOfError(fmt.Sprintf("Error while Descheduling Session \"%s\"", kernel.ID()), err.Error())
+				return err
 			}
 		}
 

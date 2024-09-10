@@ -25,6 +25,16 @@ func (s *ResourceSpec) UpdateSpecGPUs(gpus float64) {
 	s.Gpu = int32(gpus)
 }
 
+// UpdateSpecCPUs can be used to update the number of CPUs.
+func (s *ResourceSpec) UpdateSpecCPUs(cpus float64) {
+	s.Cpu = int32(cpus)
+}
+
+// UpdateSpecMemoryMB can be used to update the amount of memory (in MB).
+func (s *ResourceSpec) UpdateSpecMemoryMB(memory float64) {
+	s.Memory = float32(memory)
+}
+
 // Mem returns the amount of memory in megabytes.
 // Mem is simply an alias for MemoryMB.
 func (s *ResourceSpec) Mem() float64 {

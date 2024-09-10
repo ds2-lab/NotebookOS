@@ -274,6 +274,8 @@ func (c *Container) TrainingStarted() error {
 	c.host.Stats().CommittedGPUsStat().Add(c.outstandingResources.GPU())
 
 	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().NumGpus))
+	c.spec.UpdateSpecCPUs(c.Session().ResourceUtilization().CpuUtilization)
+	c.spec.UpdateSpecMemoryMB(c.Session().ResourceUtilization().MemoryUsageMb)
 	c.outstandingResources = &types.FullSpec{
 		GPUs:     types.GPUSpec(0),
 		CPUs:     0,
@@ -300,10 +302,16 @@ func (c *Container) TrainingStopped() error {
 		return err
 	}
 
+	c.log.Debug("Training stopping. Outputting resources before training officially stops.")
+	c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
+	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().PendingCPUsStat().Load(), c.host.Stats().PendingMemoryMbStat().Load(), c.host.Stats().PendingGPUsStat().Load())
+	c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().IdleCPUsStat().Load(), c.host.Stats().IdleMemoryMbStat().Load(), c.host.Stats().IdleGPUsStat().Load())
+	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().CommittedCPUsStat().Load(), c.host.Stats().CommittedMemoryMbStat().Load(), c.host.Stats().CommittedGPUsStat().Load())
+
 	c.outstandingResources = &types.FullSpec{
-		GPUs:     types.GPUSpec(c.spec.GPU() - c.lastSpec.GPU()),
-		CPUs:     c.spec.CPU() - c.lastSpec.CPU(),
-		MemoryMb: c.spec.MemoryMB() - c.lastSpec.MemoryMB(),
+		GPUs:     types.GPUSpec(c.spec.GPU()),
+		CPUs:     c.spec.CPU(),
+		MemoryMb: c.spec.MemoryMB(),
 	}
 	c.spec = c.lastSpec
 
@@ -318,6 +326,12 @@ func (c *Container) TrainingStopped() error {
 	c.host.Stats().CommittedCPUsStat().Sub(c.outstandingResources.CPU())
 	c.host.Stats().CommittedMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
 	c.host.Stats().CommittedGPUsStat().Sub(c.outstandingResources.GPU())
+
+	c.log.Debug("Training stopped. Outputting resources now that training has officially stopped.")
+	c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
+	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().PendingCPUsStat().Load(), c.host.Stats().PendingMemoryMbStat().Load(), c.host.Stats().PendingGPUsStat().Load())
+	c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().IdleCPUsStat().Load(), c.host.Stats().IdleMemoryMbStat().Load(), c.host.Stats().IdleGPUsStat().Load())
+	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().CommittedCPUsStat().Load(), c.host.Stats().CommittedMemoryMbStat().Load(), c.host.Stats().CommittedGPUsStat().Load())
 
 	return nil
 }

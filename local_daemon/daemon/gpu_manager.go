@@ -327,6 +327,7 @@ func (m *GpuManager) ReleasePendingGPUs(replicaId int32, kernelId string) error 
 
 	// If the allocation either doesn't exist at all, or it is not a pending GPU allocation, then return an error.
 	if !exists || !allocation.pending {
+		m.log.Warn("Could not release any pending GPUs for replica %d of kernel %s as there are no pending GPUs associated with it.", replicaId, kernelId)
 		return ErrAllocationNotFound
 	}
 
@@ -347,6 +348,7 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 
 	// If the allocation either doesn't exist at all, or it is a pending GPU allocation, then return an error.
 	if !exists || allocation.pending {
+		m.log.Warn("Could not release any allocated GPUs for replica %d of kernel %s as there are no GPUs allocated to it.", replicaId, kernelId)
 		return ErrAllocationNotFound
 	}
 
@@ -370,7 +372,7 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 	pending := m.pendingGPUs.StringFixed(0)
 	idle := m.idleGPUs.StringFixed(0)
 	committed := m.committedGPUs.StringFixed(0)
-	m.log.Debug("Deallocated %s committed GPU(s) from replica %d of kernel %s. Total idle GPUs = %s, pending GPUs = %d, committed GPUs = %s",
+	m.log.Debug("Deallocated %s committed GPU(s) from replica %d of kernel %s. Total idle GPUs = %s, pending GPUs = %s, committed GPUs = %s",
 		allocation.numGPUs.StringFixed(0), replicaId, kernelId, idle, pending, committed)
 
 	// Now, release the pending GPUs.

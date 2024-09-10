@@ -243,6 +243,14 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 	host.pendingGPUs.Store(0)
 	host.committedGPUs.Store(0)
 
+	host.idleCPUs.Store(resourceSpec.CPUs)
+	host.pendingCPUs.Store(0)
+	host.committedCPUs.Store(0)
+
+	host.idleMemoryMb.Store(resourceSpec.MemoryMb)
+	host.pendingMemoryMb.Store(0)
+	host.committedMemoryMb.Store(0)
+
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
 	host.sip.Validator = GetClockTimeCacheValidator()
 	host.penaltyList.Producer = cache.FormalizeChainedICProducer(host.updatePenaltyList)
