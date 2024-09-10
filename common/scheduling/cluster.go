@@ -105,6 +105,12 @@ type Cluster interface {
 
 	// ClusterScheduler returns the ClusterScheduler used by the Cluster.
 	ClusterScheduler() ClusterScheduler
+
+	// LockHosts locks the underlying host manager such that no Host instances can be added or removed.
+	LockHosts()
+
+	// UnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
+	UnlockHosts()
 }
 
 type BasicCluster struct {
@@ -126,7 +132,8 @@ type BasicCluster struct {
 
 	log logger.Logger
 
-	mu sync.Mutex
+	scalingOpMutex sync.Mutex
+	hostMutex      sync.Mutex
 }
 
 func NewCluster(gpusPerHost int) *BasicCluster {
@@ -163,6 +170,18 @@ func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, o
 	return cluster
 }
 
+// LockHosts locks the underlying host manager such that no Host instances can be added or removed.
+func (c *BasicCluster) LockHosts() {
+	c.hostMutex.Lock()
+}
+
+// UnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
+//
+// The caller must have already acquired the hostMutex or this function will fail panic.
+func (c *BasicCluster) UnlockHosts() {
+	c.hostMutex.Unlock()
+}
+
 // ClusterScheduler returns the ClusterScheduler used by the Cluster.
 func (c *BasicCluster) ClusterScheduler() ClusterScheduler {
 	return c.scheduler
@@ -171,16 +190,16 @@ func (c *BasicCluster) ClusterScheduler() ClusterScheduler {
 // ActiveScaleOperation returns the active scaling operation, if one exists.
 // If there is no active scaling operation, then ActiveScaleOperation returns nil.
 func (c *BasicCluster) ActiveScaleOperation() *ScaleOperation {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
 
 	return c.activeScaleOperation
 }
 
 // IsThereAnActiveScaleOperation returns true if there is an active scaling operation taking place right now.
 func (c *BasicCluster) IsThereAnActiveScaleOperation() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
 
 	return c.activeScaleOperation != nil
 }
@@ -190,8 +209,8 @@ func (c *BasicCluster) IsThereAnActiveScaleOperation() bool {
 //
 // If there is already an active scaling operation taking place, then an error is returned.
 func (c *BasicCluster) RegisterScaleOutOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
 
 	if c.activeScaleOperation != nil {
 		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
@@ -220,8 +239,8 @@ func (c *BasicCluster) RegisterScaleOutOperation(operationId string, targetClust
 //
 // If there already exists a scale operation with the same ID, then the existing scale operation is returned along with an error.
 func (c *BasicCluster) RegisterScaleInOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
 
 	if c.activeScaleOperation != nil {
 		c.log.Error("Cannot register new ScaleInOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
@@ -271,8 +290,8 @@ func (c *BasicCluster) AddIndex(index ClusterIndexProvider) error {
 // checkIfScalingComplete is used to check if there is an active scaling operation and, if there is, then to check
 // if that operation is complete.
 func (c *BasicCluster) checkIfScalingComplete() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
 
 	if c.activeScaleOperation == nil {
 		return
@@ -361,15 +380,24 @@ func (c *BasicCluster) Len() int {
 }
 
 func (c *BasicCluster) Load(key string) (*Host, bool) {
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
+
 	return c.hosts.Load(key)
 }
 
 func (c *BasicCluster) Store(key string, value *Host) {
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
+
 	c.hosts.Store(key, value)
 	c.onHostAdded(value)
 }
 
 func (c *BasicCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
+
 	host, ok := c.hosts.LoadOrStore(key, value)
 	if !ok {
 		c.onHostAdded(value)
@@ -379,10 +407,16 @@ func (c *BasicCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
 
 // CompareAndSwap is not supported in host provisioning and will always return false.
 func (c *BasicCluster) CompareAndSwap(_ string, oldValue, _ *Host) (*Host, bool) {
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
+
 	return oldValue, false
 }
 
 func (c *BasicCluster) LoadAndDelete(key string) (*Host, bool) {
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
+
 	host, ok := c.hosts.LoadAndDelete(key)
 	if ok {
 		c.onHostRemoved(host)
@@ -391,9 +425,33 @@ func (c *BasicCluster) LoadAndDelete(key string) (*Host, bool) {
 }
 
 func (c *BasicCluster) Delete(key string) {
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
+
 	c.hosts.LoadAndDelete(key)
 }
 
+// Range executes the provided function on each Host in the Cluster.
+//
+// Importantly, this function does NOT lock the hostsMutex.
 func (c *BasicCluster) Range(f func(key string, value *Host) bool) {
+	c.hosts.Range(f)
+}
+
+// RangeUnsafe executes the provided function on each Host in the Cluster.
+// This is an alias for the Range function.
+//
+// Importantly, this function does NOT lock the hostsMutex.
+func (c *BasicCluster) RangeUnsafe(f func(key string, value *Host) bool) {
+	c.hosts.Range(f)
+}
+
+// RangeLocked executes the provided function on each Host in the Cluster.
+//
+// Importantly, this function DOES lock the hostsMutex.
+func (c *BasicCluster) RangeLocked(f func(key string, value *Host) bool) {
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
+
 	c.hosts.Range(f)
 }

@@ -6,7 +6,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	v1 "k8s.io/api/core/v1"
 	"math"
 	"time"
 )
@@ -36,8 +35,8 @@ type BaseScheduler struct {
 	lastGpuInfoRefresh     time.Time         // The time at which the 'actual' GPU info was last refreshed.
 	gpuInfoRefreshInterval time.Duration     // gpuInfoRefreshInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
 	nodes                  []Host            // Cached list of nodes within the cluster. This is NOT necessarily up-to-date; it is refreshed on an interval.
-	kubeNodes              []v1.Node
-	lastNodeRefreshTime    time.Time // The time at which the nodes were last refreshed.
+
+	lastNodeRefreshTime time.Time // The time at which the nodes were last refreshed.
 
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
@@ -50,7 +49,7 @@ type BaseScheduler struct {
 	scalingLimit                float64 // scalingLimit defines how many hosts the cluster will provision at maximum based on busy resources.
 	canScalingIn                bool    // Can the Cluster/Placer scale-in?
 	shouldUpdateRatio           bool    // Should the Placer update its subscription ratio?
-	scalingOutEnaled            bool    // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation. If disabled, then the Cluster will exclusively scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges.
+	scalingOutEnabled           bool    // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation. If disabled, then the Cluster will exclusively scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges.
 	scalingBufferSize           int32   // How many extra hosts we provision so that we can quickly scale if needed.
 	minimumCapacity             int32   // The minimum number of nodes we must have available at any time.
 
@@ -67,7 +66,7 @@ func NewClusterScheduler(gateway ClusterGateway, cluster Cluster, opts *ClusterS
 		scalingLimit:                opts.ScalingLimit,
 		maximumHostsToReleaseAtOnce: int32(opts.MaximumHostsToReleaseAtOnce),
 		scalingInterval:             int32(opts.ScalingInterval),
-		scalingOutEnaled:            opts.ScalingOutEnabled,
+		scalingOutEnabled:           opts.ScalingOutEnabled,
 		scalingBufferSize:           int32(opts.ScalingBufferSize),
 		minimumCapacity:             int32(opts.MinimumNumNodes),
 		gpuInfoRefreshInterval:      time.Second * time.Duration(opts.GpuPollIntervalSeconds),
@@ -82,7 +81,7 @@ func NewClusterScheduler(gateway ClusterGateway, cluster Cluster, opts *ClusterS
 		clusterScheduler.log.Debug("ScalingLimit: %.2f", clusterScheduler.scalingLimit)
 		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d", clusterScheduler.maximumHostsToReleaseAtOnce)
 		clusterScheduler.log.Debug("ScalingInterval: %d", clusterScheduler.scalingInterval)
-		clusterScheduler.log.Debug("ScalingOutEnabled: %v", clusterScheduler.scalingOutEnaled)
+		clusterScheduler.log.Debug("ScalingOutEnabled: %v", clusterScheduler.scalingOutEnabled)
 		clusterScheduler.log.Debug("ScalingBufferSize: %d", clusterScheduler.scalingBufferSize)
 	}
 
@@ -220,7 +219,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 	}
 	oldNumHosts := s.currentSize()
 	// Only scale-out if that feature is enabled.
-	if s.scalingOutEnaled && oldNumHosts < scaledOutNumHosts {
+	if s.scalingOutEnabled && oldNumHosts < scaledOutNumHosts {
 		// Scaling out
 		var numProvisioned = 0
 

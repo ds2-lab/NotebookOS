@@ -5,7 +5,8 @@ import (
 	"github.com/gin-gonic/contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/zhangjyr/distributed-notebook/common/types"
-	scheduler "k8s.io/kube-scheduler/extender/v1"
+	v1 "k8s.io/api/core/v1"
+	kubeSchedulerApi "k8s.io/kube-scheduler/extender/v1"
 	"net/http"
 	"time"
 )
@@ -13,8 +14,10 @@ import (
 type KubernetesScheduler struct {
 	*BaseScheduler
 
-	kubeSchedulerServicePort int        // Port that the Cluster Gateway's HTTP server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
-	kubeClient               KubeClient // Kubernetes client.
+	kubeSchedulerServicePort int // Port that the Cluster Gateway's HTTP server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
+	// TODO: There is a gap between the Host interface and the Kubernetes nodes returned by Kube API.
+	kubeNodes  []v1.Node
+	kubeClient KubeClient // Kubernetes client.
 }
 
 func NewKubernetesScheduler(gateway ClusterGateway, cluster Cluster, kubeClient KubeClient, opts *ClusterSchedulerOptions) (*KubernetesScheduler, error) {
@@ -52,6 +55,7 @@ func (s *KubernetesScheduler) RefreshClusterNodes() error {
 	if err != nil {
 		s.log.Error("Failed to refresh Kubernetes nodes.") // The error is printed by the KubeClient. We don't need to print it again here.
 	} else {
+		// TODO: There is a gap between the Host interface and the Kubernetes nodes returned by Kube API.
 		s.kubeNodes = nodes
 		s.lastNodeRefreshTime = time.Now()
 	}
@@ -62,8 +66,8 @@ func (s *KubernetesScheduler) RefreshClusterNodes() error {
 // HandleKubeSchedulerFilterRequest handles a 'filter' request from the kubernetes scheduler.
 func (s *KubernetesScheduler) HandleKubeSchedulerFilterRequest(ctx *gin.Context) {
 	var (
-		extenderArgs         scheduler.ExtenderArgs
-		extenderFilterResult *scheduler.ExtenderFilterResult
+		extenderArgs         kubeSchedulerApi.ExtenderArgs
+		extenderFilterResult *kubeSchedulerApi.ExtenderFilterResult
 		err                  error
 	)
 
@@ -71,7 +75,7 @@ func (s *KubernetesScheduler) HandleKubeSchedulerFilterRequest(ctx *gin.Context)
 	if err != nil {
 		s.log.Error("Received FILTER request; however, failed to extract ExtenderArgs because: %v", err)
 		_ = ctx.Error(err)
-		extenderFilterResult = &scheduler.ExtenderFilterResult{
+		extenderFilterResult = &kubeSchedulerApi.ExtenderFilterResult{
 			Nodes:       nil,
 			FailedNodes: nil,
 			Error:       err.Error(),
@@ -80,7 +84,7 @@ func (s *KubernetesScheduler) HandleKubeSchedulerFilterRequest(ctx *gin.Context)
 
 	s.log.Debug("Received FILTER request for Pod \"%s\" with %d node(s).", extenderArgs.Pod.Name, len(extenderArgs.Nodes.Items))
 
-	extenderFilterResult = &scheduler.ExtenderFilterResult{
+	extenderFilterResult = &kubeSchedulerApi.ExtenderFilterResult{
 		Nodes: extenderArgs.Nodes,
 	}
 

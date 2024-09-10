@@ -1,6 +1,7 @@
 package scheduling
 
 import (
+	"errors"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"google.golang.org/grpc/connectivity"
@@ -42,13 +43,20 @@ func (s *DockerScheduler) pollForResourceData() {
 	numConsecutiveFailuresPerHost := make(map[string]int)
 
 	for {
-		hosts := s.cluster.GetHostManager()
+		s.cluster.LockHosts()
+		hostManager := s.cluster.GetHostManager()
 
-		hosts.Range(func(hostId string, host *Host) (contd bool) {
+		hosts := make([]*Host, 0, hostManager.Len())
+		hostManager.Range(func(_ string, host *Host) (contd bool) {
+			hosts = append(hosts, host)
+			return true
+		})
+		s.cluster.UnlockHosts()
+
+		for _, host := range hosts {
+			hostId := host.ID()
 			err := host.RefreshResourceInformation()
 			if err != nil {
-				s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s: %v", hostId, host.NodeName(), err)
-
 				var (
 					numConsecutiveFailures int
 					ok                     bool
@@ -60,6 +68,8 @@ func (s *DockerScheduler) pollForResourceData() {
 				numConsecutiveFailures += 1
 				numConsecutiveFailuresPerHost[hostId] = numConsecutiveFailures
 
+				s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s (consecutive: %d): %v", hostId, host.NodeName(), numConsecutiveFailures, err)
+
 				// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
 				if numConsecutiveFailures >= ConsecutiveFailuresWarning {
 					// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
@@ -67,12 +77,10 @@ func (s *DockerScheduler) pollForResourceData() {
 						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.", numConsecutiveFailures, host.ID(), host.NodeName(), host.Conn().GetState().String(), host.ID())
 						s.log.Error(errorMessage)
 						_ = host.ErrorCallback()(host.ID(), host.NodeName(), "Local Daemon Connectivity Error", errorMessage)
-						return true
 					} else if numConsecutiveFailures >= ConsecutiveFailuresBad { // If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
 						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.", numConsecutiveFailures, host.ID(), host.NodeName(), host.Conn().GetState().String(), host.ID())
 						s.log.Error(errorMessage)
 						_ = host.ErrorCallback()(host.ID(), host.NodeName(), "Local Daemon Connectivity Error", errorMessage)
-						return true
 					} else { // Otherwise, we won't assume it is dead yet...
 						s.log.Warn("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...", numConsecutiveFailures, host.ID(), host.NodeName(), host.Conn().GetState().String())
 					}
@@ -81,16 +89,40 @@ func (s *DockerScheduler) pollForResourceData() {
 				// We succeeded, so reset the consecutive failure counter, in case it is non-zero.
 				numConsecutiveFailuresPerHost[hostId] = 0
 			}
-
-			return true
-		})
+		}
 
 		time.Sleep(s.gpuInfoRefreshInterval)
 	}
 }
 
-// RefreshClusterNodes updates the cached list of Kubernetes nodes.
-// Returns nil on success; returns an error on failure.
+// RefreshClusterNodes updates the cached list of Host nodes.
+// Returns nil on success; returns an error on one or more failures.
+// If there are multiple failures, then their associated errors will be joined together via errors.Join(...).
 func (s *DockerScheduler) RefreshClusterNodes() error {
+	s.cluster.LockHosts()
+	hostManager := s.cluster.GetHostManager()
+
+	hosts := make([]*Host, 0, hostManager.Len())
+	hostManager.Range(func(_ string, host *Host) (contd bool) {
+		hosts = append(hosts, host)
+		return true
+	})
+	s.cluster.UnlockHosts()
+
+	errs := make([]error, 0)
+	for _, host := range hosts {
+		hostId := host.ID()
+		err := host.RefreshResourceInformation()
+		if err != nil {
+			s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s: %v",
+				hostId, host.NodeName(), err)
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 1 {
+		return errors.Join(errs...)
+	}
+
 	return nil
 }
