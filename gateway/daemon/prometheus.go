@@ -139,19 +139,19 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 		Namespace: "distributed_cluster",
 		Name:      "num_active_kernels",
 		Help:      "Number of actively-running kernels within the cluster",
-	}, []string{"cluster"})
+	}, []string{"node_id"})
 
 	m.TotalNumKernels = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
 		Name:      "total_num_kernels",
 		Help:      "Total number of kernels to have ever been created within the cluster",
-	}, []string{"cluster"})
+	}, []string{"node_id"})
 
 	m.NumTrainingEventsCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
 		Name:      "num_training_events_completed",
 		Help:      "The number of training events that have completed successfully",
-	}, []string{"cluster"})
+	}, []string{"node_id"})
 
 	if err := prometheus.Register(m.NumActiveKernelReplicasGauge); err != nil {
 		m.log.Error("Failed to register 'Number of Active Kernel Replicas' metric because: %v", err)
