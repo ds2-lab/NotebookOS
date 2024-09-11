@@ -25,7 +25,7 @@ var (
 // This to be used by Local Daemons. The Cluster Gateway uses the ClusterGatewayPrometheusManager struct.
 type LocalDaemonPrometheusManager struct {
 	log    logger.Logger
-	nodeId string
+	nodeId string // nodeId is the ID of the Local Daemon running on this node.
 
 	// serving indicates whether the manager has been started and is serving requests.
 	serving            bool
@@ -36,26 +36,44 @@ type LocalDaemonPrometheusManager struct {
 	httpServer         *http.Server
 	prometheusHandler  http.Handler
 
-	SpecGpuGauge      *prometheus.GaugeVec
-	CommittedGpuGauge *prometheus.GaugeVec
-	PendingGpuGauge   *prometheus.GaugeVec
-	IdleGpuGauge      *prometheus.GaugeVec
+	SpecGpuGaugeVec      *prometheus.GaugeVec
+	CommittedGpuGaugeVec *prometheus.GaugeVec
+	PendingGpuGaugeVec   *prometheus.GaugeVec
+	IdleGpuGaugeVec      *prometheus.GaugeVec
 
-	SpecCpuGauge      *prometheus.GaugeVec
-	CommittedCpuGauge *prometheus.GaugeVec
-	PendingCpuGauge   *prometheus.GaugeVec
-	IdleCpuGauge      *prometheus.GaugeVec
+	SpecCpuGaugeVec      *prometheus.GaugeVec
+	CommittedCpuGaugeVec *prometheus.GaugeVec
+	PendingCpuGaugeVec   *prometheus.GaugeVec
+	IdleCpuGaugeVec      *prometheus.GaugeVec
 
-	SpecMemoryGauge      *prometheus.GaugeVec
-	CommittedMemoryGauge *prometheus.GaugeVec
-	PendingMemoryGauge   *prometheus.GaugeVec
-	IdleMemoryGauge      *prometheus.GaugeVec
+	SpecMemoryGaugeVec      *prometheus.GaugeVec
+	CommittedMemoryGaugeVec *prometheus.GaugeVec
+	PendingMemoryGaugeVec   *prometheus.GaugeVec
+	IdleMemoryGaugeVec      *prometheus.GaugeVec
 
-	// NumActiveKernelReplicasGauge is a Prometheus Gauge Vector for how many replicas are scheduled on a particular Local Daemon.
-	NumActiveKernelReplicasGauge *prometheus.GaugeVec
-	TotalNumKernels              *prometheus.CounterVec
-	// NumTrainingEventsCompleted is the number of training events that have completed successfully.
-	NumTrainingEventsCompleted *prometheus.CounterVec
+	SpecGpuGauge      prometheus.Gauge // SpecGpuGauge is a cached return of SpecGpuGaugeVec.With(<label for the local daemon on this node>)
+	CommittedGpuGauge prometheus.Gauge // CommittedGpuGauge is a cached return of CommittedGpuGaugeVec.With(<label for the local daemon on this node>)
+	PendingGpuGauge   prometheus.Gauge // PendingGpuGauge is a cached return of PendingGpuGaugeVec.With(<label for the local daemon on this node>)
+	IdleGpuGauge      prometheus.Gauge // IdleGpuGauge is a cached return of IdleGpuGaugeVec.With(<label for the local daemon on this node>)
+
+	SpecCpuGauge      prometheus.Gauge // SpecCpuGauge is a cached return of SpecCpuGaugeVec.With(<label for the local daemon on this node>)
+	CommittedCpuGauge prometheus.Gauge // CommittedCpuGauge is a cached return of CommittedCpuGaugeVec.With(<label for the local daemon on this node>)
+	PendingCpuGauge   prometheus.Gauge // PendingCpuGauge is a cached return of PendingCpuGaugeVec.With(<label for the local daemon on this node>)
+	IdleCpuGauge      prometheus.Gauge // IdleCpuGauge is a cached return of IdleCpuGaugeVec.With(<label for the local daemon on this node>)
+
+	SpecMemoryGauge      prometheus.Gauge // SpecMemoryGauge is a cached return of SpecMemoryGaugeVec.With(<label for the local daemon on this node>)
+	CommittedMemoryGauge prometheus.Gauge // CommittedMemoryGauge is a cached return of CommittedMemoryGaugeVec.With(<label for the local daemon on this node>)
+	PendingMemoryGauge   prometheus.Gauge // PendingMemoryGauge is a cached return of PendingMemoryGaugeVec.With(<label for the local daemon on this node>)
+	IdleMemoryGauge      prometheus.Gauge // IdleMemoryGauge is a cached return of IdleMemoryGaugeVec.With(<label for the local daemon on this node>)
+
+	NumActiveKernelReplicasGaugeVec *prometheus.GaugeVec // NumActiveKernelReplicasGaugeVec is a Prometheus Gauge Vector for how many replicas are scheduled on a particular Local Daemon.
+	NumActiveKernelReplicasGauge    prometheus.Gauge     // NumActiveKernelReplicasGauge is a cached return of NumActiveKernelReplicasGaugeVec.With(<label for the local daemon on this node>)
+
+	TotalNumKernelsCounterVec *prometheus.CounterVec
+	TotalNumKernelsCounter    prometheus.Counter // TotalNumKernelsCounter is a cached return of TotalNumKernelsCounterVec.With(<label for the local daemon on this node>)
+
+	NumTrainingEventsCompletedCounterVec *prometheus.CounterVec // NumTrainingEventsCompletedCounterVec is the number of training events that have completed successfully.
+	NumTrainingEventsCompletedCounter    prometheus.Counter     // NumTrainingEventsCompletedCounter is a cached return of NumTrainingEventsCompletedCounterVec.With(<label for the local daemon on this node>)
 }
 
 func NewLocalDaemonPrometheusManager(port int, nodeId string) *LocalDaemonPrometheusManager {
@@ -142,122 +160,143 @@ func (m *LocalDaemonPrometheusManager) Stop() error {
 // InitMetrics creates a Prometheus endpoint and
 func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	// CPU resource metrics.
-	m.IdleCpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.IdleCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "idle_millicpus_total",
 		Help:      "Idle CPUs available on a Local Daemon",
 	}, []string{"node_id"})
-	m.SpecCpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.SpecCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "spec_millicpus",
 		Help:      "Total CPUs available for use on a Local Daemon",
 	}, []string{"node_id"})
-	m.CommittedCpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.CommittedCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "committed_millicpus",
 		Help:      "Allocated/committed CPUs on a Local Daemon",
 	}, []string{"node_id"})
-	m.PendingCpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.PendingCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "pending_millicpus",
 		Help:      "Pending CPUs on a Local Daemon",
 	}, []string{"node_id"})
 
 	// Memory resource metrics.
-	m.IdleMemoryGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.IdleMemoryGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "idle_memory_megabytes",
 		Help:      "Idle memory available on a Local Daemon in megabytes",
 	}, []string{"node_id"})
-	m.SpecMemoryGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.SpecMemoryGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "spec_memory_megabytes",
 		Help:      "Total memory available for use on a Local Daemon in megabytes",
 	}, []string{"node_id"})
-	m.CommittedMemoryGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.CommittedMemoryGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "committed_memory_megabytes",
 		Help:      "Allocated/committed memory on a Local Daemon in megabytes",
 	}, []string{"node_id"})
-	m.PendingMemoryGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.PendingMemoryGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "pending_memory_megabytes",
 		Help:      "Pending memory on a Local Daemon in megabytes",
 	}, []string{"node_id"})
 
 	// GPU resource metrics.
-	m.IdleGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.IdleGpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "idle_gpus",
 		Help:      "Idle GPUs available on a Local Daemon",
 	}, []string{"node_id"})
-	m.SpecGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.SpecGpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "spec_gpus",
 		Help:      "Total GPUs available for use on a Local Daemon",
 	}, []string{"node_id"})
-	m.CommittedGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.CommittedGpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "committed_gpus",
 		Help:      "Allocated/committed GPUs on a Local Daemon",
 	}, []string{"node_id"})
-	m.PendingGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.PendingGpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "pending_gpus",
 		Help:      "Pending GPUs on a Local Daemon",
 	}, []string{"node_id"})
 
 	// Miscellaneous metrics.
-	m.NumActiveKernelReplicasGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	m.NumActiveKernelReplicasGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "num_active_kernels",
 		Help:      "Number of kernel replicas scheduled on a Local Daemon",
 	}, []string{"node_id"})
-	m.TotalNumKernels = prometheus.NewCounterVec(prometheus.CounterOpts{
+	m.TotalNumKernelsCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
 		Name:      "num_kernels_total",
 		Help:      "Total number of kernel replicas to have ever been scheduled/created",
 	}, []string{"node_id"})
-	m.NumTrainingEventsCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{
+	m.NumTrainingEventsCompletedCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
 		Name:      "num_training_events_completed_total",
 		Help:      "The number of training events that have completed successfully",
 	}, []string{"node_id"})
 
-	if err := prometheus.Register(m.IdleGpuGauge); err != nil {
+	if err := prometheus.Register(m.IdleGpuGaugeVec); err != nil {
 		m.log.Error("Failed to register Idle GPUs metric because: %v", err)
 		return err
 	}
 
-	if err := prometheus.Register(m.SpecGpuGauge); err != nil {
+	if err := prometheus.Register(m.SpecGpuGaugeVec); err != nil {
 		m.log.Error("Failed to register Spec GPUs metric because: %v", err)
 		return err
 	}
 
-	if err := prometheus.Register(m.CommittedGpuGauge); err != nil {
+	if err := prometheus.Register(m.CommittedGpuGaugeVec); err != nil {
 		m.log.Error("Failed to register Committed GPUs metric because: %v", err)
 		return err
 	}
 
-	if err := prometheus.Register(m.PendingGpuGauge); err != nil {
+	if err := prometheus.Register(m.PendingGpuGaugeVec); err != nil {
 		m.log.Error("Failed to register Pending GPUs metric because: %v", err)
 		return err
 	}
 
-	if err := prometheus.Register(m.NumActiveKernelReplicasGauge); err != nil {
+	if err := prometheus.Register(m.NumActiveKernelReplicasGaugeVec); err != nil {
 		m.log.Error("Failed to register 'Number of Active Kernel Replicas' metric because: %v", err)
 		return err
 	}
 
-	if err := prometheus.Register(m.TotalNumKernels); err != nil {
+	if err := prometheus.Register(m.TotalNumKernelsCounterVec); err != nil {
 		m.log.Error("Failed to register 'Total Number of Kernels' metric because: %v", err)
 		return err
 	}
 
-	if err := prometheus.Register(m.NumTrainingEventsCompleted); err != nil {
+	if err := prometheus.Register(m.NumTrainingEventsCompletedCounterVec); err != nil {
 		m.log.Error("Failed to register 'Training Events Completed' metric because: %v", err)
 		return err
 	}
+
+	// We'll be publishing these metrics with the same label every single time on this node.
+	// So, we can just cache the Gauge returned when calling <GaugeVec>.With(...).
+	m.SpecGpuGauge = m.SpecGpuGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.CommittedGpuGauge = m.CommittedGpuGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.PendingGpuGauge = m.PendingGpuGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.IdleGpuGauge = m.IdleGpuGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+
+	m.SpecCpuGauge = m.SpecCpuGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.CommittedCpuGauge = m.CommittedCpuGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.PendingCpuGauge = m.PendingCpuGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.IdleCpuGauge = m.IdleCpuGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+
+	m.SpecMemoryGauge = m.SpecMemoryGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.CommittedMemoryGauge = m.CommittedMemoryGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.PendingMemoryGauge = m.PendingMemoryGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.IdleMemoryGauge = m.IdleMemoryGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+
+	m.NumActiveKernelReplicasGauge = m.NumActiveKernelReplicasGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.TotalNumKernelsCounter = m.TotalNumKernelsCounterVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.NumTrainingEventsCompletedCounter = m.NumTrainingEventsCompletedCounterVec.With(prometheus.Labels{"node_id": m.nodeId})
 
 	m.metricsInitialized = true
 	return nil
