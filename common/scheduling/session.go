@@ -346,16 +346,39 @@ func (s *Session) SessionStarted() promise.Promise {
 
 // SessionStopped should be called when the Session is terminated.
 func (s *Session) SessionStopped() promise.Promise {
+	s.log.Debug("Stopping scheduling.Session now.")
+
+	// If the Session is training, then we need to first call TrainingStopped to ensure that our local view(s) of
+	// resource usage on the Host on which the Session's active replica is training are consistent/correct.
+	if s.IsTraining() {
+		s.log.Debug("scheduling.Session %s is training. Stopping training before stopping scheduling.Session.")
+		s.TrainingStopped()
+	}
+
+	// Transition to the 'SessionStateStopped' state.
 	if err := s.transition(SessionStateStopped); err != nil {
 		s.log.Warn("Failed to terminate session because: %v", err)
 		return promise.Resolved(s.instance, err)
 	}
 
-	for _, container := range s.containers {
-		container.IsStopped()
+	// Stop each replica of the Session, collecting any errors that we encounter.
+	errs := make([]error, 0)
+	for i, container := range s.containers {
+		s.log.Debug("Stopping replica scheduling.Container %d/%d of scheduling.Session.", i+1, len(s.containers))
+		if err := container.ContainedStopped(); err != nil {
+			s.log.Error("Failed to stop scheduling.Container %s (%d/%d) because: %v",
+				container.ContainerID(), i+1, len(s.containers), err)
+			errs = append(errs, err)
+		}
 	}
 
-	return promise.Resolved(s.instance)
+	// Return all the errors joined together via errors.Join if there were 1 or more errors.
+	if len(errs) > 0 {
+		s.log.Error("Encountered %d error(s) while stopping replica scheduling.Containers.", len(errs))
+		return promise.Resolved(s.instance, errors.Join(errs...))
+	} else {
+		return promise.Resolved(s.instance)
+	}
 }
 
 // IsStopped returns true if the Session has been terminated.
