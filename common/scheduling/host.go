@@ -158,7 +158,7 @@ type Host struct {
 	containers         hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
 	trainingContainers []*Container                         // trainingContainers are the actively-training kernel replicas.
 	seenSessions       []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec       types.Spec                           // resourceSpec is the spec describing the total resources available on the Host, not impacted by allocations.
+	resourceSpec       types.ValidatableResourceSpec        // resourceSpec is the spec describing the total resources available on the Host, not impacted by allocations.
 	lastReschedule     types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
 	errorCallback      ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
 	pendingContainers  types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
@@ -217,7 +217,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 	}
 
 	// Create the ResourceSpec defining the resources available on the Host.
-	resourceSpec := &types.FullSpec{
+	resourceSpec := &types.Float64Spec{
 		GPUs:     types.GPUSpec(gpuInfoResp.SpecGPUs),
 		CPUs:     float64(millicpus),
 		MemoryMb: float64(memMb),
@@ -632,7 +632,7 @@ func (h *Host) CommittedMemoryMbStat() types.StatFloat64Field {
 }
 
 // ResourceSpec the types.Spec defining the resources available on the Host.
-func (h *Host) ResourceSpec() types.Spec {
+func (h *Host) ResourceSpec() types.ValidatableResourceSpec {
 	return h.resourceSpec
 }
 

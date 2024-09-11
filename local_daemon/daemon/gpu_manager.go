@@ -15,10 +15,10 @@ import (
 
 var (
 	ErrIllegalGpuAdjustment        = errors.New("requested gpu adjustment is illegal")
-	ErrInsufficientGPUs            = errors.New("there are insufficient GPUs available to satisfy the allocation request")
 	ErrAllocationNotFound          = errors.New("could not find the requested GPU allocation")
 	ErrAllocationPartiallyNotFound = errors.New("the requested GPU allocation was found only in one of the various internal mappings (rather than within all of the mappings)")
 	ErrNoPendingAllocationFound    = errors.New("a pending allocation could not be found when allocating actual GPUs")
+	//ErrInsufficientGPUs            = errors.New("there are insufficient GPUs available to satisfy the allocation request")
 
 	ZeroDecimal = decimal.NewFromFloat(0.0)
 )

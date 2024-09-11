@@ -370,7 +370,7 @@ func (c *KernelReplicaClient) PersistentID() string {
 }
 
 // ResourceSpec returns the resource spec
-func (c *KernelReplicaClient) ResourceSpec() *commonTypes.FullSpec {
+func (c *KernelReplicaClient) ResourceSpec() *commonTypes.Float64Spec {
 	return commonTypes.FullSpecFromKernelSpec(c.spec)
 }
 

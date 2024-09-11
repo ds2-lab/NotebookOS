@@ -18,7 +18,6 @@ import (
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -184,7 +183,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
-	daemon.resourceManager = NewResourceManager(&types.FullSpec{GPUs: types.GPUSpec(schedulerDaemonOptions.NumGPUs), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}, daemon.updatePrometheusResourceMetrics)
+	daemon.resourceManager = NewResourceManager(&types.Float64Spec{GPUs: types.GPUSpec(schedulerDaemonOptions.NumGPUs), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}, daemon.updatePrometheusResourceMetrics)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -1197,7 +1196,8 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, ErrExistingReplicaAlreadyRunning
 	}
 
-	err := d.resourceManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
+	err := d.resourceManager.KernelReplicaScheduled(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
+	// err := d.resourceManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
 	if err != nil {
 		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
 			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, err)
@@ -1272,7 +1272,7 @@ func (d *SchedulerDaemonImpl) GetKernelStatus(_ context.Context, in *proto.Kerne
 }
 
 // KillKernel kills a kernel.
-func (d *SchedulerDaemonImpl) KillKernel(_ context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
+func (d *SchedulerDaemonImpl) KillKernel(_ context.Context, in *proto.KernelId) (*proto.Void, error) {
 	d.log.Debug("KillKernel RPC called for kernel %s.", in.Id)
 
 	kernel, ok := d.kernels.Load(in.Id)
@@ -1281,14 +1281,21 @@ func (d *SchedulerDaemonImpl) KillKernel(_ context.Context, in *proto.KernelId) 
 		return nil, domain.ErrKernelNotFound
 	}
 
-	ret = gateway.VOID
-	err = d.errorf(d.getInvoker(kernel).Close())
+	if err := d.errorf(d.getInvoker(kernel).Close()); err != nil {
+		d.log.Error("Error while killing replica %d of kernel %s: %v", kernel.ReplicaID(), in.Id, err)
+		return nil, err
+	}
 
-	// Release any GPUs allocated to the kernel.
-	_ = d.resourceManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
-	_ = d.resourceManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
+	// Release any resources allocated to the kernel.
+	if err := d.resourceManager.ReplicaEvicted(kernel.ReplicaID(), in.Id); err != nil {
+		d.log.Error("ResourceManager encountered error while evicting replica %d of kernel %s: %v",
+			kernel.ReplicaID(), in.Id, err)
+		return nil, err
+	}
+	//_ = d.resourceManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
+	//_ = d.resourceManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
 
-	return
+	return gateway.VOID, nil
 }
 
 // StopKernel stops a kernel.
@@ -1320,9 +1327,14 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 
 	d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
 
-	// Release any GPUs allocated to the kernel.
-	_ = d.resourceManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
-	_ = d.resourceManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
+	// Release any resources allocated to the kernel.
+	if err := d.resourceManager.ReplicaEvicted(kernel.ReplicaID(), in.Id); err != nil {
+		d.log.Error("ResourceManager encountered error while evicting replica %d of kernel %s: %v",
+			kernel.ReplicaID(), in.Id, err)
+		return nil, err
+	}
+	//_ = d.resourceManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
+	//_ = d.resourceManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
 
 	return gateway.VOID, nil
 }
@@ -1545,6 +1557,7 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 
 // Deallocate the GPU resources associated with the kernel.
 func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, kernel scheduling.KernelInfo /*, offset int */) error {
+	kernelClient := kernel.(*client.KernelReplicaClient)
 	// Check if we need to release allocated GPUs.
 	// We only release allocated GPUs if this kernel replica executed the code.
 	// If this replica yielded, then there will be no GPUs to release.
@@ -1552,19 +1565,22 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	var msgErr jupyter.MessageError
 	err := json.Unmarshal(jFrames[jupyter.JupyterFrameContent], &msgErr)
 	if err != nil {
-		d.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.(*client.KernelReplicaClient).ID(), err)
+		d.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", kernelClient.ReplicaID(), kernelClient.ID(), err)
 		return err
 	}
 
 	if msgErr.Status == jupyter.MessageStatusOK {
-		d.log.Debug("Status of \"execute_reply\" message from replica %d of kernel %s is OK.", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.(*client.KernelReplicaClient).ID())
+		d.log.Debug("Status of \"execute_reply\" message from replica %d of kernel %s is OK.", kernelClient.ReplicaID(), kernelClient.ID())
 	} else {
-		d.log.Warn("Status of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.(*client.KernelReplicaClient).ID(), msgErr.Status, msgErr.String())
+		d.log.Warn("Status of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status, msgErr.String())
 	}
 
-	err = d.resourceManager.ReleaseAllocatedGPUs(kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.ID())
-	if err != nil {
-		d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.ID(), err)
+	//err = d.resourceManager.ReleaseAllocatedGPUs(kernelClient.ReplicaID(), kernel.ID())
+
+	// Release any resources committed to the kernel replica, as it is done training and does not need the resources
+	// to be actively-bound/committed to it anymore.
+	if err := d.resourceManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil {
+		d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernelClient.ReplicaID(), kernel.ID(), err)
 	}
 
 	d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
@@ -2043,8 +2059,8 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 		kernelReplicaClient := kernel.(*client.KernelReplicaClient)
 
 		d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
-		err := d.resourceManager.AllocateGPUs(decimal.NewFromFloat(kernelReplicaClient.ResourceSpec().GPU()), kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID())
-		if err != nil {
+		// err := d.resourceManager.AllocateGPUs(decimal.NewFromFloat(kernelReplicaClient.ResourceSpec().GPU()), kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID())
+		if err := d.resourceManager.CommitResources(kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID()); err != nil {
 			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
 			panic(err) // TODO(Ben): Handle gracefully.
 		}

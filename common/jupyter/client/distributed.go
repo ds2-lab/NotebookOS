@@ -223,7 +223,7 @@ func (c *DistributedKernelClient) SourceKernelID() string {
 	return c.id
 }
 
-func (c *DistributedKernelClient) ResourceSpec() *commonTypes.FullSpec {
+func (c *DistributedKernelClient) ResourceSpec() *commonTypes.Float64Spec {
 	return commonTypes.FullSpecFromKernelSpec(c.spec)
 }
 

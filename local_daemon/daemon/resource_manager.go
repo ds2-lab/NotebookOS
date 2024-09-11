@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -8,8 +10,32 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"log"
 	"sync"
 	"time"
+)
+
+var (
+	// ErrInvalidAllocationRequest indicates that a ResourceAllocation could not be created/satisfied due to an issue
+	// with the request itself.
+	//
+	// The issue is not something of the nature that there are just insufficient resources available to satisfy the
+	// request. Instead, ErrInvalidAllocationRequest indicates that the request itself was illegal or issued under
+	// invalid circumstances, such as there being no existing ResourceAllocation of type PendingAllocation when
+	// attempting to commit resources to a particular kernel replica.
+	ErrInvalidAllocationRequest = errors.New("the resource allocation could not be completed due to the request being invalid")
+
+	// ErrInsufficientMemory indicates that there was insufficient memory resources available to validate/support/serve
+	// the given resource request/types.Spec.
+	ErrInsufficientMemory = errors.New("insufficient memory resources available")
+
+	// ErrInsufficientCPUs indicates that there was insufficient CPU resources available to validate/support/serve
+	// the given resource request/types.Spec.
+	ErrInsufficientCPUs = errors.New("insufficient CPU resources available")
+
+	// ErrInsufficientGPUs indicates that there was insufficient GPU resources available to validate/support/serve
+	// the given resource request/types.Spec.
+	ErrInsufficientGPUs = errors.New("insufficient GPU resources available")
 )
 
 const (
@@ -43,6 +69,12 @@ const (
 	// SpecResources are a static, fixed quantity. They do not change in response to resource (de)allocations.
 	SpecResources ResourceType = "spec"
 )
+
+// getKey creates and returns a string of the form "<KernelID>-<ReplicaID>".
+// This is used as a key to various maps belonging to the ResourceManager.
+func getKey(replicaId int32, kernelId string) string {
+	return fmt.Sprintf("%s-%d", kernelId, replicaId)
+}
 
 // ResourceStateWrapper defines a public interface for accessing (i.e., reading) but not mutating (i.e., writing)
 // the current state of a ResourceStateWrapper.
@@ -90,12 +122,12 @@ type ResourceState interface {
 	// by this ResourceState instance.
 	ResourceType() ResourceType
 
-	// CPUs returns the gpus as a float64.
+	// Millicpus returns the gpus as a float64.
 	// The units are millicpus, or 1/1000th of a CPU core.
-	CPUs() float64
-	// CPUsAsDecimal returns a copy of the decimal.Decimal that precisely & accurately encodes the number of cpus.
+	Millicpus() float64
+	// MillicpusAsDecimal returns a copy of the decimal.Decimal that precisely & accurately encodes the number of cpus.
 	// The units are millicpus, or 1/1000th of a CPU core.
-	CPUsAsDecimal() decimal.Decimal
+	MillicpusAsDecimal() decimal.Decimal
 
 	// MemoryMB returns the amount of memory as a float64.
 	// The units are megabytes (MB).
@@ -167,6 +199,48 @@ type ResourceAllocation struct {
 	// That is, the GPUs, CPUs, and Memory specified in the allocation are actively committed and bound to the
 	// associated kernel replica. These resources are not available for use by other kernel replicas.
 	AllocationType AllocationType `json:"allocation_type"`
+
+	// cachedAllocationKey is the cached return value of getKey(ResourceAllocation.ReplicaId, ResourceAllocation.KernelId).
+	cachedAllocationKey string
+}
+
+// String returns a string representation of the ResourceAllocation suitable for logging.
+func (a *ResourceAllocation) String() string {
+	o, err := json.Marshal(a)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(o)
+}
+
+// ToSpecString returns a string representation of the ResourceAllocation (suitable for logging) in the format
+// of the String() methods of types.Spec implementations.
+func (a *ResourceAllocation) ToSpecString() string {
+	return fmt.Sprintf("ResourceSpec[CPUs: %s, Memory: %s MB, GPUs: %s]",
+		a.Millicpus.StringFixed(0), a.MemoryMB.StringFixed(4), a.GPUs.StringFixed(0))
+}
+
+// ToSpec converts the ResourceAllocation to a types.Spec instance with the same resource values as the
+// ResourceAllocation's resource values.
+//
+// Specifically, a new types.DecimalSpec is created using copies of the ResourceAllocation's internal
+// decimal.Decimal fields, and a pointer to this new types.DecimalSpec is returned.
+//
+// This is, in some sense, an alias for the ToDecimalSpec method, though ToSpec returns a types.Spec interface,
+// whereas ToDecimalSpec returns a pointer to a types.DecimalSpec struct.
+func (a *ResourceAllocation) ToSpec() types.Spec {
+	return a.ToDecimalSpec()
+}
+
+// ToDecimalSpec converts the ResourceAllocation to a types.DecimalSpec struct with the same resource values as the
+// ResourceAllocation's resource values and returns a pointer to it (the newly-created types.DecimalSpec).
+func (a *ResourceAllocation) ToDecimalSpec() *types.DecimalSpec {
+	return &types.DecimalSpec{
+		GPUs:      a.GPUs.Copy(),
+		Millicpus: a.Millicpus.Copy(),
+		MemoryMb:  a.MemoryMB.Copy(),
+	}
 }
 
 // IsNonZero returns true if any of the resources (cpu, gpu, memory) encapsulated by the ResourceAllocation are > 0.
@@ -236,105 +310,157 @@ func (b *ResourceAllocationBuilder) WithMemoryMB(memoryMb float64) *ResourceAllo
 // BuildResourceAllocation constructs the ResourceAllocation with the values specified to the ResourceAllocationBuilder.
 func (b *ResourceAllocationBuilder) BuildResourceAllocation() *ResourceAllocation {
 	return &ResourceAllocation{
-		AllocationId:   b.allocationId,
-		GPUs:           b.gpus,
-		Millicpus:      b.millicpus,
-		MemoryMB:       b.memoryMb,
-		ReplicaId:      b.replicaId,
-		KernelId:       b.kernelId,
-		AllocationType: b.allocationType,
-		Timestamp:      time.Now(),
+		AllocationId:        b.allocationId,
+		GPUs:                b.gpus,
+		Millicpus:           b.millicpus,
+		MemoryMB:            b.memoryMb,
+		ReplicaId:           b.replicaId,
+		KernelId:            b.kernelId,
+		AllocationType:      b.allocationType,
+		Timestamp:           time.Now(),
+		cachedAllocationKey: getKey(b.replicaId, b.kernelId),
 	}
 }
 
 // resources is a struct used by the ResourceManager to track its total idle, pending, committed, and spec resources
 // of each type (CPU, GPU, and Memory).
 type resources struct {
-	mu sync.Mutex // Enables atomic access to each individual field.
+	sync.Mutex // Enables atomic access to each individual field.
 
-	resourceType ResourceType    // resourceType is the ResourceType represented/encoded by this resources struct.
+	resourceType ResourceType    // resourceType is the ResourceType represented/encoded by this struct.
 	millicpus    decimal.Decimal // millicpus is CPU in 1/1000th of CPU core.
 	gpus         decimal.Decimal // gpus is the number of GPUs.
 	memoryMB     decimal.Decimal // memoryMB is the amount of memory in MB.
 }
 
-func (r *resources) String() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (res *resources) String() string {
+	res.Lock()
+	defer res.Unlock()
 
 	return fmt.Sprintf("[%s resources: millicpus=%s,gpus=%s,memoryMB=%s]",
-		r.resourceType.String(), r.millicpus.StringFixed(0),
-		r.gpus.StringFixed(0), r.memoryMB.StringFixed(4))
+		res.resourceType.String(), res.millicpus.StringFixed(0),
+		res.gpus.StringFixed(0), res.memoryMB.StringFixed(4))
 }
 
-func (r *resources) ResourceType() ResourceType {
-	return r.resourceType
+func (res *resources) ResourceType() ResourceType {
+	return res.resourceType
 }
 
-func (r *resources) MemoryMB() float64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (res *resources) MemoryMB() float64 {
+	res.Lock()
+	defer res.Unlock()
 
-	return r.memoryMB.InexactFloat64()
+	return res.memoryMB.InexactFloat64()
 }
 
-func (r *resources) MemoryMbAsDecimal() decimal.Decimal {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (res *resources) MemoryMbAsDecimal() decimal.Decimal {
+	res.Lock()
+	defer res.Unlock()
 
-	return r.memoryMB.Copy()
+	return res.memoryMB.Copy()
 }
 
 // SetMemoryMB sets the amount of memory to a copy of the specified decimal.Decimal value.
-func (r *resources) SetMemoryMB(memoryMB decimal.Decimal) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (res *resources) SetMemoryMB(memoryMB decimal.Decimal) {
+	res.Lock()
+	defer res.Unlock()
 
-	r.memoryMB = memoryMB
+	res.memoryMB = memoryMB
 }
 
-func (r *resources) GPUs() float64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (res *resources) GPUs() float64 {
+	res.Lock()
+	defer res.Unlock()
 
-	return r.gpus.InexactFloat64()
+	return res.gpus.InexactFloat64()
 }
 
-func (r *resources) GPUsAsDecimal() decimal.Decimal {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (res *resources) GPUsAsDecimal() decimal.Decimal {
+	res.Lock()
+	defer res.Unlock()
 
-	return r.gpus.Copy()
+	return res.gpus.Copy()
 }
 
 // SetGpus sets the number of GPUs to a copy of the specified decimal.Decimal value.
-func (r *resources) SetGpus(gpus decimal.Decimal) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (res *resources) SetGpus(gpus decimal.Decimal) {
+	res.Lock()
+	defer res.Unlock()
 
-	r.gpus = gpus.Copy()
+	res.gpus = gpus.Copy()
 }
 
-func (r *resources) Millicpus() float64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (res *resources) Millicpus() float64 {
+	res.Lock()
+	defer res.Unlock()
 
-	return r.millicpus.InexactFloat64()
+	return res.millicpus.InexactFloat64()
 }
 
-func (r *resources) MillicpusAsDecimal() decimal.Decimal {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (res *resources) MillicpusAsDecimal() decimal.Decimal {
+	res.Lock()
+	defer res.Unlock()
 
-	return r.millicpus.Copy()
+	return res.millicpus.Copy()
 }
 
 // SetMillicpus sets the number of CPUs to a copy of the specified decimal.Decimal value.
-func (r *resources) SetMillicpus(millicpus decimal.Decimal) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (res *resources) SetMillicpus(millicpus decimal.Decimal) {
+	res.Lock()
+	defer res.Unlock()
 
-	r.millicpus = millicpus
+	res.millicpus = millicpus
+}
+
+// Validate returns true if each of the resources' cpu, gpu, and memory are greater than or equal to the respective
+// resource of the given types.DecimalSpec.
+func (res *resources) Validate(spec *types.DecimalSpec) bool {
+	res.Lock()
+	defer res.Unlock()
+
+	return res.gpus.GreaterThanOrEqual(spec.GPUs) &&
+		res.millicpus.GreaterThanOrEqual(spec.Millicpus) &&
+		res.memoryMB.GreaterThanOrEqual(spec.MemoryMb)
+}
+
+// ValidateWithError returns nil if each of the resources' cpu, gpu, and memory are greater than or equal to the
+// respective resource of the given types.DecimalSpec. That is, if the given types.DecimalSpec is validated, so to
+// speak, then ValidateWithError will return nil.
+//
+// If the specified types.DecimalSpec is NOT validated, then an error is returned.
+// This error indicates which of the resources' cpu, gpu, and/or memory were insufficient to validate the given spec.
+func (res *resources) ValidateWithError(spec *types.DecimalSpec) error {
+	res.Lock()
+	defer res.Unlock()
+
+	sufficientGPUsAvailable := res.gpus.GreaterThanOrEqual(spec.GPUs)
+	sufficientCPUsAvailable := res.millicpus.GreaterThanOrEqual(spec.Millicpus)
+	sufficientMemoryAvailable := res.memoryMB.GreaterThanOrEqual(spec.MemoryMb)
+
+	errs := make([]error, 0)
+	if !sufficientGPUsAvailable {
+		err := fmt.Errorf("%w: available=%s,required=%s",
+			ErrInsufficientGPUs, res.gpus.StringFixed(0), spec.GPUs.StringFixed(0))
+		errs = append(errs, err)
+	}
+
+	if !sufficientCPUsAvailable {
+		err := fmt.Errorf("%w: available=%s,required=%s",
+			ErrInsufficientCPUs, res.millicpus.StringFixed(0), spec.Millicpus.StringFixed(0))
+		errs = append(errs, err)
+	}
+
+	if !sufficientMemoryAvailable {
+		err := fmt.Errorf("%w: available=%s,required=%s",
+			ErrInsufficientMemory, res.memoryMB.StringFixed(0), spec.MemoryMb.StringFixed(0))
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	} else {
+		return nil
+	}
 }
 
 // resourcesWrapper is a wrapper around several resources structs, each of which corresponds to idle, pending,
@@ -356,28 +482,28 @@ func (r *resourcesWrapper) String() string {
 		r.idleResources.String(), r.pendingResources.String(), r.committedResources.String(), r.specResources.String())
 }
 
-func (r *resourcesWrapper) IdleResources() *resources {
+func (r *resourcesWrapper) IdleResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.idleResources
 }
 
-func (r *resourcesWrapper) PendingResources() *resources {
+func (r *resourcesWrapper) PendingResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.pendingResources
 }
 
-func (r *resourcesWrapper) CommittedResources() *resources {
+func (r *resourcesWrapper) CommittedResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.committedResources
 }
 
-func (r *resourcesWrapper) SpecResources() *resources {
+func (r *resourcesWrapper) SpecResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -387,26 +513,29 @@ func (r *resourcesWrapper) SpecResources() *resources {
 // ResourceManager is responsible for keeping track of resource allocations on behalf of the Local Daemon.
 // The ResourceManager allocates and deallocates resources to/from kernel replicas scheduled to run on the node.
 //
-// ResourceManager is a replacement for ResourceManager.
+// ResourceManager is a replacement for GpuManager.
+//
+// In general, ResourceManager elects to work with *types.DecimalSpec structs internally, rather than arbitrary
+// types.Spec interface instances, as ResourceManager stores its own state in decimal.Decimal structs.
 type ResourceManager struct {
 	mu sync.Mutex
 
 	id  string        // Unique ID of the Resource Manager.
 	log logger.Logger // Logger.
 
-	// allocationIdMap is a map from AllocationID -> *ResourceAllocation.
-	// That is, allocationIdMap is a mapping in which the keys are strings -- the allocation ID --
+	// committedAllocationIdMap is a map from AllocationID -> *ResourceAllocation.
+	// That is, committedAllocationIdMap is a mapping in which the keys are strings -- the allocation ID --
 	// and values are the associated *ResourceAllocation (i.e., the *ResourceAllocation whose ID is the key).
 	//
-	// allocationIdMap contains ResourceAllocation structs of type CommittedAllocation.
-	allocationIdMap hashmap.HashMap[string, *ResourceAllocation]
+	// committedAllocationIdMap contains ResourceAllocation structs of type CommittedAllocation.
+	committedAllocationIdMap hashmap.HashMap[string, *ResourceAllocation]
 
-	// allocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
-	// That is, allocationKernelReplicaMap is a mapping in which keys are strings of the form
+	// committedAllocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
+	// That is, committedAllocationKernelReplicaMap is a mapping in which keys are strings of the form
 	// "<KernelID>-<ReplicaID>" and values are *ResourceAllocation.
 	//
-	// allocationKernelReplicaMap contains ResourceAllocation structs of type CommittedAllocation.
-	allocationKernelReplicaMap hashmap.HashMap[string, *ResourceAllocation]
+	// committedAllocationKernelReplicaMap contains ResourceAllocation structs of type CommittedAllocation.
+	committedAllocationKernelReplicaMap hashmap.HashMap[string, *ResourceAllocation]
 
 	// pendingAllocIdMap is a map from AllocationID -> *ResourceAllocation.
 	// That is, pendingAllocIdMap is a mapping in which keys are strings -- the allocation ID --
@@ -434,12 +563,12 @@ type ResourceManager struct {
 // NewResourceManager creates a new ResourceManager struct and returns a pointer to it.
 func NewResourceManager(resourceSpec types.Spec, resourceMetricsCallback resourceMetricsCallback) *ResourceManager {
 	manager := &ResourceManager{
-		id:                           uuid.NewString(),
-		allocationIdMap:              hashmap.NewCornelkMap[string, *ResourceAllocation](64),
-		allocationKernelReplicaMap:   hashmap.NewCornelkMap[string, *ResourceAllocation](64),
-		pendingAllocIdMap:            hashmap.NewCornelkMap[string, *ResourceAllocation](64),
-		pendingAllocKernelReplicaMap: hashmap.NewCornelkMap[string, *ResourceAllocation](64),
-		resourceMetricsCallback:      resourceMetricsCallback,
+		id:                                  uuid.NewString(),
+		committedAllocationIdMap:            hashmap.NewCornelkMap[string, *ResourceAllocation](64),
+		committedAllocationKernelReplicaMap: hashmap.NewCornelkMap[string, *ResourceAllocation](64),
+		pendingAllocIdMap:                   hashmap.NewCornelkMap[string, *ResourceAllocation](64),
+		pendingAllocKernelReplicaMap:        hashmap.NewCornelkMap[string, *ResourceAllocation](64),
+		resourceMetricsCallback:             resourceMetricsCallback,
 	}
 
 	manager.resourcesWrapper = &resourcesWrapper{
@@ -623,7 +752,7 @@ func (m *ResourceManager) ReplicaHasPendingGPUs(replicaId int32, kernelId string
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	key := m.getKey(replicaId, kernelId)
+	key := getKey(replicaId, kernelId)
 	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
 	if !ok {
 		return false
@@ -643,8 +772,8 @@ func (m *ResourceManager) ReplicaHasCommittedResources(replicaId int32, kernelId
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	key := m.getKey(replicaId, kernelId)
-	alloc, ok := m.allocationKernelReplicaMap.Load(key)
+	key := getKey(replicaId, kernelId)
+	alloc, ok := m.committedAllocationKernelReplicaMap.Load(key)
 	if !ok {
 		return false
 	}
@@ -657,8 +786,8 @@ func (m *ResourceManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId stri
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	key := m.getKey(replicaId, kernelId)
-	alloc, ok := m.allocationKernelReplicaMap.Load(key)
+	key := getKey(replicaId, kernelId)
+	alloc, ok := m.committedAllocationKernelReplicaMap.Load(key)
 	if !ok {
 		return false
 	}
@@ -667,14 +796,8 @@ func (m *ResourceManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId stri
 	return alloc.GPUs.GreaterThan(ZeroDecimal)
 }
 
-// getKey creates and returns a string of the form "<KernelID>-<ReplicaID>".
-// This is used as a key to various maps belonging to the GPU Manager.
-func (m *ResourceManager) getKey(replicaId int32, kernelId string) string {
-	return fmt.Sprintf("%s-%d", kernelId, replicaId)
-}
-
 // assertPending returns true if the given *ResourceAllocation IS pending.
-// If the given *ResourceAllocation is NOT pending, then this panics.
+// If the given *ResourceAllocation is NOT pending, then this function will panic.
 func (m *ResourceManager) assertPending(allocation *ResourceAllocation) bool {
 	if allocation.IsPending() {
 		return true
@@ -684,7 +807,7 @@ func (m *ResourceManager) assertPending(allocation *ResourceAllocation) bool {
 }
 
 // assertNotPending returns true if the given *ResourceAllocation is NOT pending.
-// If the given *ResourceAllocation IS pending, then this panics.
+// If the given *ResourceAllocation IS pending, then this function will panic.
 func (m *ResourceManager) assertNotPending(allocation *ResourceAllocation) bool {
 	if !allocation.IsPending() {
 		return true
@@ -695,7 +818,7 @@ func (m *ResourceManager) assertNotPending(allocation *ResourceAllocation) bool 
 
 // NumAllocations returns the number of active allocations.
 func (m *ResourceManager) NumAllocations() int {
-	return m.allocationIdMap.Len()
+	return m.committedAllocationIdMap.Len()
 }
 
 // NumPendingAllocations returns the number of pending allocations.
@@ -706,22 +829,175 @@ func (m *ResourceManager) NumPendingAllocations() int {
 // CommitResources commits/binds resources to a particular kernel replica, such that the resources are reserved for
 // exclusive use by that kernel replica until the kernel replica releases them (or another entity releases them
 // on behalf of the kernel replica).
-func (m *ResourceManager) CommitResources() error {
-	// TODO: Implement me.
-	panic("Not implemented")
+//
+// Precondition: there must already be a ResourceAllocation of type PendingAllocation associated with the specified
+// kernel replica. If no such ResourceAllocation exists, then ErrInvalidAllocationRequest is returned.
+//
+// If the given types.Spec argument is non-nil, then the existing resource allocation associated with the specified
+// kernel will be adjusted (increased or decreased) according to the given spec. If the ResourceManager finds that
+// there are insufficient resources available to accommodate the requested adjustment, then an error is returned.
+//
+// If the given types.Spec argument is nil, then the pending resource allocation associated with the specified kernel
+// will simply be "promoted" to a "committed" resource request as-is, without adjusting any of the individual resource
+// values.
+//
+// nil is returned on success.
+//
+// This operation is performed atomically by acquiring the ResourceManager::mu sync.Mutex.
+// The sync.Mutex is released before the function returns.
+func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adjustedResourceRequest types.Spec) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var (
+		key              string
+		allocation       *ResourceAllocation
+		allocationExists bool
+	)
+
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.pendingAllocKernelReplicaMap.Load(key); !allocationExists {
+		m.log.Error("Cannot commit resources to replica %d of kernel %s: no no pending resource "+
+			"allocation found for that kernel replica.", replicaId, kernelId)
+		return fmt.Errorf("%w: no pending resource allocation found for replica %d of kernel %s",
+			ErrInvalidAllocationRequest, replicaId, kernelId)
+	}
+
+	var requestedResources *types.DecimalSpec
+	if adjustedResourceRequest == nil {
+		requestedResources = types.ToDecimalSpec(adjustedResourceRequest)
+	} else {
+		requestedResources = allocation.ToDecimalSpec()
+	}
+
+	m.log.Debug("Attempting to commit the following resources to replica %d of kernel %s: %v",
+		replicaId, kernelId, requestedResources.String())
+
+	// First, validate against this scheduling.Host's spec.
+	if err := m.resourcesWrapper.specResources.ValidateWithError(requestedResources); err != nil {
+		m.log.Error("Could not commit resources to replica %d of kernel %s: %v", replicaId, kernelId, err)
+		return err
+	}
+
+	// Next, validate against our actual idle resource capacity.
+	if err := m.resourcesWrapper.idleResources.ValidateWithError(requestedResources); err != nil {
+		m.log.Error("Could not commit resources to replica %d of kernel %s: %v", replicaId, kernelId, err)
+		return err
+	}
+
+	// If we've gotten this far, then we have enough resources available to commit the requested resources
+	// to the specified kernel replica. So, let's do that now. First, we'll decrement the idle resources.
+	m.resourcesWrapper.idleResources.SetMillicpus(m.resourcesWrapper.idleResources.millicpus.Sub(requestedResources.Millicpus))
+	m.resourcesWrapper.idleResources.SetMemoryMB(m.resourcesWrapper.idleResources.memoryMB.Sub(requestedResources.MemoryMb))
+	m.resourcesWrapper.idleResources.SetGpus(m.resourcesWrapper.idleResources.gpus.Sub(requestedResources.GPUs))
+
+	// Next, we'll increment the committed resources.
+	m.resourcesWrapper.committedResources.SetMillicpus(m.resourcesWrapper.committedResources.millicpus.Sub(requestedResources.Millicpus))
+	m.resourcesWrapper.committedResources.SetMemoryMB(m.resourcesWrapper.committedResources.memoryMB.Sub(requestedResources.MemoryMb))
+	m.resourcesWrapper.committedResources.SetGpus(m.resourcesWrapper.committedResources.gpus.Sub(requestedResources.GPUs))
+
+	// Finally, we'll update the ResourceAllocation struct associated with this request.
+	// This involves updating the resource amounts stored in the ResourceAllocation as well as its AllocationType field.
+	// The resource amounts may already match what was allocated, depending on if the adjustedResourceRequest parameter
+	// was nil or not.
+	//
+	// Once updated, we'll remove it from the pending allocation maps and add it to the committed allocation maps.
+	allocation.GPUs = requestedResources.GPUs.Copy()
+	allocation.Millicpus = requestedResources.Millicpus.Copy()
+	allocation.MemoryMB = requestedResources.MemoryMb.Copy()
+	allocation.AllocationType = CommittedAllocation
+
+	m.log.Debug("Successfully committed the following resources to replica %d of kernel %s: %v",
+		replicaId, kernelId, requestedResources.String())
+
+	m.unsafeRemoveAllocationFromPendingMaps(allocation)
+	m.unsafeAddAllocationToCommittedMaps(allocation)
+
+	// Update Prometheus metrics.
+	m.resourceMetricsCallback(m.resourcesWrapper)
+
+	return nil
 }
 
-// UncommitResources uncommits/unbinds resources from a particular kernel replica, such that the resources are made
+// unsafeRemoveAllocationFromPendingMaps is a utility/helper method to remove a given ResourceAllocation struct from the two
+// PendingAllocation maps. This method will panic if the ResourceAllocation is not present in both maps.
+//
+// This function should be called with the ResourceManager's mutex already held.
+func (m *ResourceManager) unsafeRemoveAllocationFromPendingMaps(allocation *ResourceAllocation) {
+	// We'll just retrieve the cached key if it exists. If it doesn't exist, we'll create and cache it first.
+	// But it should already exist, so we'll log a warning message if it doesn't.
+	if len(allocation.cachedAllocationKey) == 0 {
+		m.log.Warn("ResourceAllocation %s did not have its key cached.", allocation.AllocationId)
+		allocation.cachedAllocationKey = getKey(allocation.ReplicaId, allocation.KernelId)
+	}
+	key := allocation.cachedAllocationKey
+
+	// Verify that the ResourceAllocation is in the pendingAllocKernelReplicaMap before deleting it.
+	// If it isn't in the pendingAllocKernelReplicaMap, then we panic.
+	if _, loaded := m.pendingAllocKernelReplicaMap.Load(key); !loaded {
+		log.Fatalf("ResourceAllocation %s not found in pendingAllocKernelReplicaMap: %s",
+			allocation.AllocationId, allocation.String())
+	}
+	m.pendingAllocKernelReplicaMap.Delete(key) // Delete it from the pendingAllocKernelReplicaMap.
+
+	// Verify that the ResourceAllocation is in the pendingAllocIdMap before deleting it.
+	// If it isn't in the pendingAllocIdMap, then we panic.
+	if _, loaded := m.pendingAllocIdMap.Load(allocation.AllocationId); !loaded {
+		log.Fatalf("ResourceAllocation %s not found in pendingAllocKernelReplicaMap: %s",
+			allocation.AllocationId, allocation.String())
+	}
+	m.pendingAllocIdMap.Delete(key) // Delete it from the pendingAllocIdMap.
+}
+
+// unsafeAddAllocationToCommittedMaps is a utility/helper method to add a given ResourceAllocation struct to the two
+// CommittedAllocation maps. This method will panic if the ResourceAllocation is already present in either map.
+//
+// This function should be called with the ResourceManager's mutex already held.
+func (m *ResourceManager) unsafeAddAllocationToCommittedMaps(allocation *ResourceAllocation) {
+	// We'll just retrieve the cached key if it exists. If it doesn't exist, we'll create and cache it first.
+	// But it should already exist, so we'll log a warning message if it doesn't.
+	if len(allocation.cachedAllocationKey) == 0 {
+		m.log.Warn("ResourceAllocation %s did not have its key cached.", allocation.AllocationId)
+		allocation.cachedAllocationKey = getKey(allocation.ReplicaId, allocation.KernelId)
+	}
+	key := allocation.cachedAllocationKey
+
+	// We call LoadOrStore so we can verify that the allocation isn't already stored in the map.
+	// If it is already stored in the map, then we'll panic.
+	if _, loaded := m.committedAllocationKernelReplicaMap.LoadOrStore(key, allocation); loaded {
+		log.Fatalf("ResourceAllocation %s was already stored in committedAllocationKernelReplicaMap: %s",
+			allocation.AllocationId, allocation.String())
+	}
+
+	// We call LoadOrStore so we can verify that the allocation isn't already stored in the map.
+	// If it is already stored in the map, then we'll panic.
+	if _, loaded := m.committedAllocationIdMap.LoadOrStore(allocation.AllocationId, allocation); loaded {
+		log.Fatalf("ResourceAllocation %s was already stored in committedAllocationIdMap: %s",
+			allocation.AllocationId, allocation.String())
+	}
+}
+
+// ReleaseCommittedResources uncommits/unbinds resources from a particular kernel replica, such that the resources are made
 // available for use by other kernel replicas.
-func (m *ResourceManager) UncommitResources() error {
+//
+// This operation is performed atomically by acquiring the ResourceManager::mu sync.Mutex.
+// The sync.Mutex is released before the function returns.
+func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	// TODO: Implement me.
 	panic("Not implemented")
 }
 
-// ReplicaScheduled is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
-// ReplicaScheduled creates a ResourceAllocation of type PendingAllocation that is then associated with the
+// KernelReplicaScheduled is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
+// KernelReplicaScheduled creates a ResourceAllocation of type PendingAllocation that is then associated with the
 // newly-scheduled kernel replica.
-func (m *ResourceManager) ReplicaScheduled() error {
+//
+// This operation is performed atomically by acquiring the ResourceManager::mu sync.Mutex.
+// The sync.Mutex is released before the function returns.
+func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId string, spec types.Spec) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	// TODO: Implement me.
 	panic("Not implemented")
 }
@@ -731,7 +1007,13 @@ func (m *ResourceManager) ReplicaScheduled() error {
 //
 // If there are resources actively bound/committed to the kernel replica, then they are released.
 // Likewise, any ResourceAllocation of type PendingAllocation is released/dissolved.
-func (m *ResourceManager) ReplicaEvicted() error {
+//
+// This operation is performed atomically by acquiring the ResourceManager::mu sync.Mutex.
+// The sync.Mutex is released before the function returns.
+func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	// TODO: Implement me.
 	panic("Not implemented")
 }
