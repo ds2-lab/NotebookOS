@@ -21,7 +21,8 @@ var (
 	// The issue is not something of the nature that there are just insufficient resources available to satisfy the
 	// request. Instead, ErrInvalidAllocationRequest indicates that the request itself was illegal or issued under
 	// invalid circumstances, such as there being no existing ResourceAllocation of type PendingAllocation when
-	// attempting to commit resources to a particular kernel replica.
+	// attempting to commit resources to a particular kernel replica. Alternatively, a kernel replica may be getting
+	// evicted, but no existing ResourceAllocation is found for that particular kernel replica.
 	ErrInvalidAllocationRequest = errors.New("the resource allocation could not be completed due to the request being invalid")
 
 	// ErrInsufficientMemory indicates that there was insufficient memory resources available to validate/support/serve
@@ -455,7 +456,8 @@ func (res *resources) SetMillicpus(millicpus decimal.Decimal) {
 // If performing this operation were to result in any of the resources' internal counts becoming negative, then
 // an error is returned and no changes are made whatsoever.
 //
-// This operation is performed atomically.
+// This operation is performed atomically. It should not be called from a context in which the resources' mutex is
+// already held/acquired, as this will lead to a deadlock.
 func (res *resources) Add(spec *types.DecimalSpec) error {
 	res.Lock()
 	defer res.Unlock()
@@ -489,7 +491,8 @@ func (res *resources) Add(spec *types.DecimalSpec) error {
 // If performing this operation were to result in any of the resources' internal counts becoming negative, then
 // an error is returned and no changes are made whatsoever.
 //
-// This operation is performed atomically.
+// This operation is performed atomically. It should not be called from a context in which the resources' mutex is
+// already held/acquired, as this will lead to a deadlock.
 func (res *resources) Subtract(spec *types.DecimalSpec) error {
 	res.Lock()
 	defer res.Unlock()
@@ -1060,10 +1063,76 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 
 	// Sanity check, essentially. It should not already be pending, since we're supposed to be releasing it right now.
 	allocation.assertIsCommitted()
-	allocatedResources := allocation.ToDecimalSpec()
+
+	// Perform the resource count adjustments, as we've validated that everything is correct/as it should be.
+	// We'll pass nil for the second argument as we don't need the *types.DecimalSpec anywhere else in
+	// the ReleaseCommittedResources method.
+	m.unsafeReleaseCommittedResources(allocation, nil)
 
 	m.log.Debug("Attempting to release the following committed resources from replica %d of kernel %s: %v",
-		replicaId, kernelId, allocatedResources.String())
+		replicaId, kernelId, allocation.ToSpecString())
+
+	// Finally, we'll update the ResourceAllocation struct associated with this request.
+	// This involves updating its AllocationType field to be PendingAllocation.
+	//
+	// We'll also adjust some internal counters that keep track of the number of pending and committed resource
+	// allocations.
+	m.unsafeDemoteCommittedAllocationToPendingAllocation(allocation)
+
+	m.log.Debug("Successfully released the following (previously) committed resources to replica %d of kernel %s: %v",
+		replicaId, kernelId, allocation.ToSpecString())
+
+	// Update Prometheus metrics.
+	m.resourceMetricsCallback(m.resourcesWrapper)
+
+	return nil
+}
+
+// unsafeDemoteCommittedAllocationToPendingAllocation performs any necessary state adjustments to the given
+// ResourceAllocation in order to demote it from a CommittedAllocation to a PendingAllocation.
+//
+// unsafeDemoteCommittedAllocationToPendingAllocation does NOT acquire the ResourceManager's mutex and thus must be
+// called from a context in which said mutex is already held.
+//
+// unsafeDemoteCommittedAllocationToPendingAllocation also does not perform any checks to verify that the given
+// ResourceAllocation is of the correct type (i.e., CommittedAllocation, at the time of being passed to this method).
+//
+// unsafeDemoteCommittedAllocationToPendingAllocation does not perform any resource count modification to the
+// ResourceManager. This is expected to have already been performed prior to calling this method.
+func (m *ResourceManager) unsafeDemoteCommittedAllocationToPendingAllocation(allocation *ResourceAllocation) {
+	// Set the AllocationType of the ResourceAllocation to PendingAllocation.
+	allocation.AllocationType = PendingAllocation
+
+	// Update the pending/committed allocation counters.
+	m.numPendingAllocations.Incr()
+	m.numCommittedAllocations.Decr()
+}
+
+// unsafeReleaseCommittedResources releases committed/bound resources from the kernel replica associated with
+// the given ResourceAllocation.
+//
+// This function does NOT acquire the ResourceManager's mutex, nor does it perform any validation checks whatsoever.
+// It is meant to be called from a context in which the ResourceManager's mutex is held and any appropriate
+// checks are performed before the call to unsafeReleaseCommittedResources and after unsafeReleaseCommittedResources
+// returns.
+//
+// The allocatedResources argument is optional. If it is passed as nil, then it will be assigned a value automatically
+// by calling allocation.ToDecimalSpec(). If allocatedResources is non-nil, then it is necessarily expected to be
+// the return value of allocation.ToDecimalSpec() (generated/called RIGHT before this function is called).
+//
+// If any of the resource modifications performed by this method return an error, then this method will panic.
+//
+// The only check that this method performs is whether the given *ResourceAllocation is nil.
+// If the given *ResourceAllocation is nil, then this method will panic.
+func (m *ResourceManager) unsafeReleaseCommittedResources(allocation *ResourceAllocation, allocatedResources *types.DecimalSpec) {
+	if allocation == nil {
+		panic("The provided ResourceAllocation cannot be nil.")
+	}
+
+	// If allocatedResources is nil, then call allocation.ToDecimalSpec() to populate allocatedResources with a value.
+	if allocatedResources == nil {
+		allocatedResources = allocation.ToDecimalSpec()
+	}
 
 	// If we've gotten this far, then we have enough resources available to commit the requested resources
 	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle resources.
@@ -1086,24 +1155,6 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 		// as we passed all the validation checks up above.
 		panic(err)
 	}
-
-	// Finally, we'll update the ResourceAllocation struct associated with this request.
-	// This involves updating its AllocationType field to be PendingAllocation.
-	//
-	// Once updated, we'll remove it from the pending allocation maps and add it to the committed allocation maps.
-	allocation.AllocationType = PendingAllocation
-
-	// Update the pending/committed allocation counters.
-	m.numPendingAllocations.Incr()
-	m.numCommittedAllocations.Decr()
-
-	m.log.Debug("Successfully released the following (previously) committed resources to replica %d of kernel %s: %v",
-		replicaId, kernelId, allocatedResources.String())
-
-	// Update Prometheus metrics.
-	m.resourceMetricsCallback(m.resourcesWrapper)
-
-	return nil
 }
 
 // KernelReplicaScheduled is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
@@ -1186,8 +1237,41 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	var (
+		key              string
+		allocation       *ResourceAllocation
+		allocationExists bool
+	)
+
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		m.log.Error("Error while evicting kernel replica within ResourceManager. "+
+			"Could not find ResourceAllocation associated with replica %d of kernel %s...", replicaId, kernelId)
+		return fmt.Errorf("%w: no resource allocation found for evicted replica %d of kernel %s",
+			ErrInvalidAllocationRequest, replicaId, kernelId)
+	}
+
+	allocatedResources := allocation.ToDecimalSpec()
+
+	// First, check if the allocation is of type CommittedAllocation.
+	// If so, then we'll first release the committed resources before unsubscribing the pending resources.
+	if allocation.IsCommitted() {
+		// Perform the resource count adjustments associated with releasing committed resources.
+		// We'll pass allocatedResources ourselves (non-nil), as we need the *types.DecimalSpec
+		// later on in the ReplicaEvicted method.
+		m.unsafeReleaseCommittedResources(allocation, allocatedResources)
+
+		// Update the ResourceAllocation's AllocationType field, setting it to PendingAllocation, and adjust the
+		// internal counters that keep track of the number of pending and committed resource allocations.
+		m.unsafeDemoteCommittedAllocationToPendingAllocation(allocation)
+	}
+
+	// Next, unsubscribe the pending resources.
+	if err := m.resourcesWrapper.pendingResources.Subtract(allocatedResources); err != nil {
+		panic(err)
+	}
+
 	m.numPendingAllocations.Decr()
 
-	// TODO: Implement me.
-	panic("Not implemented")
+	return nil
 }
