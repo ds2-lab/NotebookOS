@@ -28,6 +28,8 @@ var (
 type gpuResourceMetricsCallback func(idleGpus float64, pendingGpus float64, committedGpus float64)
 
 // gpuAllocation represents an allocation of GPU resources to a particular replica.
+//
+// Deprecated: this has been superseded by ResourceAllocation.
 type gpuAllocation struct {
 	id          string          // Unique ID of the allocation.
 	numGPUs     decimal.Decimal // Number of GPUs that were allocated.

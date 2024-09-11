@@ -169,6 +169,18 @@ type ResourceAllocation struct {
 	AllocationType AllocationType `json:"allocation_type"`
 }
 
+// IsPending returns true if the ResourceAllocation is of type PendingAllocation.
+// If the ResourceAllocation is instead of type CommittedAllocation, then IsPending returns false.
+func (a *ResourceAllocation) IsPending() bool {
+	return a.AllocationType == PendingAllocation
+}
+
+// IsCommitted returns true if the ResourceAllocation is of type CommittedAllocation.
+// If the ResourceAllocation is instead of type PendingAllocation, then IsCommitted returns false.
+func (a *ResourceAllocation) IsCommitted() bool {
+	return a.AllocationType == CommittedAllocation
+}
+
 // ResourceAllocationBuilder is a utility struct whose purpose is to facilitate the creation of a
 // new ResourceAllocation struct.
 type ResourceAllocationBuilder struct {
@@ -268,6 +280,7 @@ func (r *resources) MemoryMbAsDecimal() decimal.Decimal {
 	return r.memoryMB.Copy()
 }
 
+// SetMemoryMB sets the amount of memory to a copy of the specified decimal.Decimal value.
 func (r *resources) SetMemoryMB(memoryMB decimal.Decimal) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -289,11 +302,12 @@ func (r *resources) GPUsAsDecimal() decimal.Decimal {
 	return r.gpus.Copy()
 }
 
+// SetGpus sets the number of GPUs to a copy of the specified decimal.Decimal value.
 func (r *resources) SetGpus(gpus decimal.Decimal) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.gpus = gpus
+	r.gpus = gpus.Copy()
 }
 
 func (r *resources) Millicpus() float64 {
@@ -310,6 +324,7 @@ func (r *resources) MillicpusAsDecimal() decimal.Decimal {
 	return r.millicpus.Copy()
 }
 
+// SetMillicpus sets the number of CPUs to a copy of the specified decimal.Decimal value.
 func (r *resources) SetMillicpus(millicpus decimal.Decimal) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -367,7 +382,7 @@ func (r *resourcesWrapper) SpecResources() *resources {
 // ResourceManager is responsible for keeping track of resource allocations on behalf of the Local Daemon.
 // The ResourceManager allocates and deallocates resources to/from kernel replicas scheduled to run on the node.
 //
-// ResourceManager is a replacement for GpuManager.
+// ResourceManager is a replacement for ResourceManager.
 type ResourceManager struct {
 	mu sync.Mutex
 
@@ -381,17 +396,17 @@ type ResourceManager struct {
 
 	// allocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
 	// That is, allocationKernelReplicaMap is a mapping in which keys are strings of the form
-	// "<KernelID>-<ReplicaID>" and values are *gpuAllocation.
+	// "<KernelID>-<ReplicaID>" and values are *ResourceAllocation.
 	allocationKernelReplicaMap hashmap.HashMap[string, *ResourceAllocation]
 
 	// pendingAllocIdMap is a map from AllocationID -> *ResourceAllocation.
 	// That is, pendingAllocIdMap is a mapping in which keys are strings -- the allocation ID --
-	// and values are the associated *gpuAllocation (i.e., the *gpuAllocation whose ID is the key).
+	// and values are the associated *ResourceAllocation (i.e., the *ResourceAllocation whose ID is the key).
 	pendingAllocIdMap hashmap.HashMap[string, *ResourceAllocation]
 
 	// pendingAllocKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
 	// That is, pendingAllocKernelReplicaMap is a mapping in which keys are strings of the form
-	// "<KernelID>-<ReplicaID>" and values are *gpuAllocation.
+	// "<KernelID>-<ReplicaID>" and values are *ResourceAllocation.
 	pendingAllocKernelReplicaMap hashmap.HashMap[string, *ResourceAllocation]
 
 	// resourcesWrapper encapsulates the state of all resources (idle, pending, committed, and spec) managed
@@ -446,4 +461,222 @@ func NewResourceManager(resourceSpec types.Spec, resourceMetricsCallback resourc
 	manager.log.Debug("Resource Manager initialized: %v", manager.resourcesWrapper.String())
 
 	return manager
+}
+
+// SpecGPUs returns the total number of GPUs configured/present on this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) SpecGPUs() decimal.Decimal {
+	return m.resourcesWrapper.SpecResources().GPUsAsDecimal().Copy()
+}
+
+// SpecCPUs returns the total number of CPUs configured/present on this node in millicpus.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) SpecCPUs() decimal.Decimal {
+	return m.resourcesWrapper.SpecResources().MillicpusAsDecimal().Copy()
+}
+
+// SpecMemoryMB returns the total amount of memory in megabytes configured/present on this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) SpecMemoryMB() decimal.Decimal {
+	return m.resourcesWrapper.SpecResources().MemoryMbAsDecimal().Copy()
+}
+
+// IdleGPUs returns the number of GPUs that are uncommitted and therefore available on this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) IdleGPUs() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.IdleResources().GPUsAsDecimal().Copy()
+}
+
+// IdleCPUs returns the number of CPUs that are uncommitted and therefore available on this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) IdleCPUs() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.IdleResources().MillicpusAsDecimal().Copy()
+}
+
+// IdleMemoryMB returns the amount of memory (in MB) that is uncommitted and therefore available on this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) IdleMemoryMB() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.IdleResources().MemoryMbAsDecimal().Copy()
+}
+
+// CommittedGPUs returns the number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) CommittedGPUs() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.CommittedResources().GPUsAsDecimal().Copy()
+}
+
+// CommittedCPUs returns the CPUs, in millicpus, that are actively committed and allocated to replicas that are scheduled onto this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) CommittedCPUs() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.CommittedResources().MillicpusAsDecimal().Copy()
+}
+
+// CommittedMemoryMB returns the amount of memory (in MB) that is actively committed and allocated to replicas that are scheduled onto this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) CommittedMemoryMB() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.CommittedResources().MemoryMbAsDecimal().Copy()
+}
+
+// PendingGPUs returns the sum of the outstanding GPUs of all replicas scheduled onto this node.
+// Pending GPUs are not allocated or committed to a particular replica yet.
+// The time at which resources are actually committed to a replica depends upon the policy being used.
+// In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) PendingGPUs() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.PendingResources().GPUsAsDecimal().Copy()
+}
+
+// PendingCPUs returns the sum of the outstanding CPUs of all replicas scheduled onto this node, in millicpus.
+// Pending CPUs are not allocated or committed to a particular replica yet.
+// The time at which resources are actually committed to a replica depends upon the policy being used.
+// In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) PendingCPUs() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.PendingResources().MillicpusAsDecimal().Copy()
+}
+
+// PendingMemoryMB returns the sum of the outstanding memory of all replicas scheduled onto this node, in MB.
+// Pending memory is not allocated or committed to a particular replica yet.
+// The time at which resources are actually committed to a replica depends upon the policy being used.
+// In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) PendingMemoryMB() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.PendingResources().MemoryMbAsDecimal().Copy()
+}
+
+// AdjustSpecGPUs sets the available GPUs to the specified value.
+//
+// Spec GPUs cannot be adjusted to a value < the number of allocated GPUs.
+//
+// For example, if Spec GPUs is currently 8, and 5/8 GPUs are committed, then Spec GPUs cannot be adjusted
+// to a value less than 5.
+func (m *ResourceManager) AdjustSpecGPUs(numGpus float64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	numGpusDecimal := decimal.NewFromFloat(numGpus)
+	if numGpusDecimal.LessThan(m.resourcesWrapper.specResources.gpus) {
+		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s", ErrIllegalGpuAdjustment, m.CommittedGPUs().StringFixed(0), numGpusDecimal.StringFixed(0))
+	}
+
+	oldSpecGPUs := m.SpecGPUs()
+	m.resourcesWrapper.specResources.SetGpus(numGpusDecimal)
+	m.log.Debug("Adjusted Spec GPUs from %s to %s.", oldSpecGPUs.StringFixed(0), numGpusDecimal.StringFixed(0))
+
+	return nil
+}
+
+// HasPendingGPUs returns true if the specified kernel replica has pending GPUs.
+func (m *ResourceManager) HasPendingGPUs(replicaId int32, kernelId string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := m.getKey(replicaId, kernelId)
+	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
+	if !ok {
+		return false
+	}
+
+	// If it is a pending GPU allocation, then we may return true.
+	if alloc.IsPending() {
+		return alloc.GPUs.GreaterThan(ZeroDecimal)
+	}
+
+	// It is an "actual" GPU allocation, not a pending GPU allocation, so return false.
+	return false
+}
+
+// HasActualGPUs returns true if the specified kernel replica has GPUs committed to it.
+func (m *ResourceManager) HasActualGPUs(replicaId int32, kernelId string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := m.getKey(replicaId, kernelId)
+	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
+	if !ok {
+		return false
+	}
+
+	// If it is just a pending GPU allocation, then return false.
+	if alloc.IsPending() {
+		return false
+	}
+
+	// It is an "actual" GPU allocation.
+	return alloc.GPUs.GreaterThan(ZeroDecimal)
+}
+
+// getKey creates and returns a string of the form "<KernelID>-<ReplicaID>".
+// This is used as a key to various maps belonging to the GPU Manager.
+func (m *ResourceManager) getKey(replicaId int32, kernelId string) string {
+	return fmt.Sprintf("%s-%d", kernelId, replicaId)
+}
+
+// assertPending returns true if the given *ResourceAllocation IS pending.
+// If the given *ResourceAllocation is NOT pending, then this panics.
+func (m *ResourceManager) assertPending(allocation *ResourceAllocation) bool {
+	if allocation.IsPending() {
+		return true
+	}
+
+	panic(fmt.Sprintf("GPU Allocation is NOT pending: %v", allocation))
+}
+
+// assertNotPending returns true if the given *ResourceAllocation is NOT pending.
+// If the given *ResourceAllocation IS pending, then this panics.
+func (m *ResourceManager) assertNotPending(allocation *ResourceAllocation) bool {
+	if !allocation.IsPending() {
+		return true
+	}
+
+	panic(fmt.Sprintf("GPU Allocation IS pending: %v", allocation))
+}
+
+// NumAllocations returns the number of active allocations.
+func (m *ResourceManager) NumAllocations() int {
+	return m.allocationIdMap.Len()
+}
+
+// NumPendingAllocations returns the number of pending allocations.
+func (m *ResourceManager) NumPendingAllocations() int {
+	return m.pendingAllocIdMap.Len()
 }
