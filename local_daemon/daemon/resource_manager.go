@@ -35,6 +35,11 @@ var (
 	// ErrInsufficientGPUs indicates that there was insufficient GPU resources available to validate/support/serve
 	// the given resource request/types.Spec.
 	ErrInsufficientGPUs = errors.New("insufficient GPU resources available")
+
+	// ErrInvalidOperation indicates that adding or subtracting the specified resources to/from the internal resource
+	// counts of a resources struct would result in an invalid/illegal resource count within that resources struct,
+	// such as a negative quantity for cpus, gpus, or memory.
+	ErrInvalidOperation = errors.New("the requested resource operation would result in an invalid resource count")
 )
 
 const (
@@ -443,6 +448,75 @@ func (res *resources) SetMillicpus(millicpus decimal.Decimal) {
 	defer res.Unlock()
 
 	res.millicpus = millicpus
+}
+
+// Add adds the resources encapsulated in the given types.DecimalSpec to the resources' internal resource counts.
+//
+// If performing this operation were to result in any of the resources' internal counts becoming negative, then
+// an error is returned and no changes are made whatsoever.
+//
+// This operation is performed atomically.
+func (res *resources) Add(spec *types.DecimalSpec) error {
+	res.Lock()
+	defer res.Unlock()
+
+	updatedGPUs := res.gpus.Add(spec.GPUs)
+	if updatedGPUs.LessThan(decimal.Zero) {
+		return fmt.Errorf("%w: GPUs would be set to %s GPUs", ErrInvalidOperation, updatedGPUs.String())
+	}
+
+	updatedCPUs := res.millicpus.Add(spec.Millicpus)
+	if updatedCPUs.LessThan(decimal.Zero) {
+		return fmt.Errorf("%w: CPUs would be set to %s millicpus", ErrInvalidOperation, updatedCPUs.String())
+	}
+
+	updatedMemory := res.millicpus.Add(spec.MemoryMb)
+	if updatedMemory.LessThan(decimal.Zero) {
+		return fmt.Errorf("%w: memory would be equal to %s megabytes", ErrInvalidOperation, updatedMemory.String())
+	}
+
+	// If we've gotten to this point, then all the updated resource counts are valid, at least with respect
+	// to not being negative. Persist the changes and return nil, indicating that the addition operation was successful.
+	res.gpus = updatedGPUs
+	res.millicpus = updatedCPUs
+	res.memoryMB = updatedMemory
+
+	return nil
+}
+
+// Subtract subtracts the resources encapsulated in the given types.DecimalSpec from the resources' own internal counts.
+//
+// If performing this operation were to result in any of the resources' internal counts becoming negative, then
+// an error is returned and no changes are made whatsoever.
+//
+// This operation is performed atomically.
+func (res *resources) Subtract(spec *types.DecimalSpec) error {
+	res.Lock()
+	defer res.Unlock()
+
+	updatedGPUs := res.gpus.Sub(spec.GPUs)
+	if updatedGPUs.LessThan(decimal.Zero) {
+		return fmt.Errorf("%w: GPUs would be set to %s GPUs", ErrInvalidOperation, updatedGPUs.String())
+	}
+
+	updatedCPUs := res.millicpus.Sub(spec.Millicpus)
+	if updatedCPUs.LessThan(decimal.Zero) {
+		return fmt.Errorf("%w: CPUs would be set to %s millicpus", ErrInvalidOperation, updatedCPUs.String())
+	}
+
+	updatedMemory := res.millicpus.Sub(spec.MemoryMb)
+	if updatedMemory.LessThan(decimal.Zero) {
+		return fmt.Errorf("%w: memory would be equal to %s megabytes", ErrInvalidOperation, updatedMemory.String())
+	}
+
+	// If we've gotten to this point, then all the updated resource counts are valid, at least with respect
+	// to not being negative. Persist the changes and return nil, indicating that the subtract operation was successful.
+	res.gpus = updatedGPUs
+	res.millicpus = updatedCPUs
+	res.memoryMB = updatedMemory
+
+	return nil
+
 }
 
 // Validate returns true if each of the resources' cpu, gpu, and memory are greater than or equal to the respective
@@ -916,19 +990,26 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 
 	// If we've gotten this far, then we have enough resources available to commit the requested resources
 	// to the specified kernel replica. So, let's do that now. First, we'll decrement the idle resources.
-	m.resourcesWrapper.idleResources.SetMillicpus(m.resourcesWrapper.idleResources.millicpus.Sub(requestedResources.Millicpus))
-	m.resourcesWrapper.idleResources.SetMemoryMB(m.resourcesWrapper.idleResources.memoryMB.Sub(requestedResources.MemoryMb))
-	m.resourcesWrapper.idleResources.SetGpus(m.resourcesWrapper.idleResources.gpus.Sub(requestedResources.GPUs))
+	if err := m.resourcesWrapper.idleResources.Subtract(requestedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
 
-	// Next, we'll decrement the pending resources.
-	m.resourcesWrapper.pendingResources.SetMillicpus(m.resourcesWrapper.pendingResources.millicpus.Sub(requestedResources.Millicpus))
-	m.resourcesWrapper.pendingResources.SetMemoryMB(m.resourcesWrapper.pendingResources.memoryMB.Sub(requestedResources.MemoryMb))
-	m.resourcesWrapper.pendingResources.SetGpus(m.resourcesWrapper.pendingResources.gpus.Sub(requestedResources.GPUs))
+	// Next, we'll decrement the pending resources. We decrement because the resources are no longer "pending".
+	// Instead, they are actively bound/committed to the kernel replica.
+	if err := m.resourcesWrapper.pendingResources.Subtract(requestedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
 
 	// Next, we'll increment the committed resources.
-	m.resourcesWrapper.committedResources.SetMillicpus(m.resourcesWrapper.committedResources.millicpus.Add(requestedResources.Millicpus))
-	m.resourcesWrapper.committedResources.SetMemoryMB(m.resourcesWrapper.committedResources.memoryMB.Add(requestedResources.MemoryMb))
-	m.resourcesWrapper.committedResources.SetGpus(m.resourcesWrapper.committedResources.gpus.Add(requestedResources.GPUs))
+	if err := m.resourcesWrapper.committedResources.Add(requestedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
 
 	// Finally, we'll update the ResourceAllocation struct associated with this request.
 	// This involves updating the resource amounts stored in the ResourceAllocation as well as its AllocationType field.
@@ -986,19 +1067,25 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 
 	// If we've gotten this far, then we have enough resources available to commit the requested resources
 	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle resources.
-	m.resourcesWrapper.idleResources.SetMillicpus(m.resourcesWrapper.idleResources.millicpus.Add(allocatedResources.Millicpus))
-	m.resourcesWrapper.idleResources.SetMemoryMB(m.resourcesWrapper.idleResources.memoryMB.Add(allocatedResources.MemoryMb))
-	m.resourcesWrapper.idleResources.SetGpus(m.resourcesWrapper.idleResources.gpus.Add(allocatedResources.GPUs))
+	if err := m.resourcesWrapper.idleResources.Add(allocatedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
 
 	// Next, we'll increment the pending resources (since we're releasing committed resources).
-	m.resourcesWrapper.pendingResources.SetMillicpus(m.resourcesWrapper.pendingResources.millicpus.Add(allocatedResources.Millicpus))
-	m.resourcesWrapper.pendingResources.SetMemoryMB(m.resourcesWrapper.pendingResources.memoryMB.Add(allocatedResources.MemoryMb))
-	m.resourcesWrapper.pendingResources.SetGpus(m.resourcesWrapper.pendingResources.gpus.Add(allocatedResources.GPUs))
+	if err := m.resourcesWrapper.pendingResources.Add(allocatedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
 
 	// Next, we'll decrement the committed resources (since we're releasing committed resources).
-	m.resourcesWrapper.committedResources.SetMillicpus(m.resourcesWrapper.committedResources.millicpus.Sub(allocatedResources.Millicpus))
-	m.resourcesWrapper.committedResources.SetMemoryMB(m.resourcesWrapper.committedResources.memoryMB.Sub(allocatedResources.MemoryMb))
-	m.resourcesWrapper.committedResources.SetGpus(m.resourcesWrapper.committedResources.gpus.Sub(allocatedResources.GPUs))
+	if err := m.resourcesWrapper.committedResources.Subtract(allocatedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
 
 	// Finally, we'll update the ResourceAllocation struct associated with this request.
 	// This involves updating its AllocationType field to be PendingAllocation.
@@ -1069,9 +1156,11 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 
 	// If we've gotten this far, then we have enough resources available to subscribe the requested resources
 	// to the specified kernel replica. So, let's do that now.
-	m.resourcesWrapper.pendingResources.SetMillicpus(m.resourcesWrapper.pendingResources.millicpus.Add(decimalSpec.Millicpus))
-	m.resourcesWrapper.pendingResources.SetMemoryMB(m.resourcesWrapper.pendingResources.memoryMB.Add(decimalSpec.MemoryMb))
-	m.resourcesWrapper.pendingResources.SetGpus(m.resourcesWrapper.pendingResources.gpus.Add(decimalSpec.GPUs))
+	if err := m.resourcesWrapper.pendingResources.Add(decimalSpec); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
 
 	// Update the pending/committed allocation counters.
 	m.numPendingAllocations.Incr()
