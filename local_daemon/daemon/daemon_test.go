@@ -46,7 +46,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			kernels:                hashmap.NewCornelkMap[string, client.KernelReplicaClient](1000),
 			closed:                 make(chan struct{}),
 			cleaned:                make(chan struct{}),
-			gpuManager:             gpuManager,
+			resourceManager:        gpuManager,
 			virtualGpuPluginServer: vgpuPluginServer,
 		}
 		config.InitLogger(&schedulerDaemon.log, schedulerDaemon)
@@ -286,7 +286,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			GinkgoWriter.Printf("NumPendingAllocations: %d\n", gpuManager.NumPendingAllocations())
 			GinkgoWriter.Printf("PendingGPUs: %s\n", gpuManager.PendingGPUs().StringFixed(0))
 			GinkgoWriter.Printf("IdleGPUs: %s\n", gpuManager.IdleGPUs().StringFixed(0))
-			GinkgoWriter.Printf("gpuManager.GetPendingGPUsAssociatedWithKernel(%d, %s): %s\n", kernel.ReplicaID(), kernel.ID(), gpuManager.GetPendingGPUsAssociatedWithKernel(kernel.ReplicaID(), kernel.ID()).StringFixed(0))
+			GinkgoWriter.Printf("resourceManager.GetPendingGPUsAssociatedWithKernel(%d, %s): %s\n", kernel.ReplicaID(), kernel.ID(), gpuManager.GetPendingGPUsAssociatedWithKernel(kernel.ReplicaID(), kernel.ID()).StringFixed(0))
 
 			Expect(gpuManager.NumPendingAllocations()).To(Equal(1))
 			Expect(gpuManager.PendingGPUs()).To(Equal(decimal.NewFromFloat(2)))

@@ -98,7 +98,7 @@ type SchedulerDaemonImpl struct {
 	log logger.Logger
 
 	// The IOPub socket that the Gateway subscribes to.
-	// All pub/sub messages are forwarded from kernels to the gateway (througth us, the local daemon) using this socket.
+	// All pub/sub messages are forwarded from kernels to the gateway (through us, the local daemon) using this socket.
 	// We wrap the messages in another message that just has a header that is the kernel ID.
 	// This enables the Gateway's SUB sockets to filter messages from each kernel.
 	// iopub *jupyter.Socket
@@ -110,8 +110,8 @@ type SchedulerDaemonImpl struct {
 
 	availablePorts *utils.AvailablePorts
 
-	// Manages "actual" GPU allocations.
-	gpuManager *GpuManager
+	// Manages resource allocations on behalf of the Local Daemon.
+	resourceManager *ResourceManager
 
 	// Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
 	hdfsNameNodeEndpoint string
@@ -184,7 +184,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
-	daemon.gpuManager = NewGpuManager(schedulerDaemonOptions.NumGPUs, daemon.updatePrometheusGpuMetrics)
+	daemon.resourceManager = NewResourceManager(&types.FullSpec{GPUs: types.GPUSpec(schedulerDaemonOptions.NumGPUs), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}, daemon.updatePrometheusResourceMetrics)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -357,7 +357,7 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 
 		d.prometheusManager.SpecGpuGaugeVec.
 			With(prometheus.Labels{"node_id": d.id}).
-			Set(d.gpuManager.SpecGPUs().InexactFloat64())
+			Set(d.resourceManager.SpecGPUs().InexactFloat64())
 
 		// We only call Done if we're creating the LocalDaemonPrometheusManager for the first time.
 		d.prometheusStarted.Done()
@@ -384,22 +384,24 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 
 			d.prometheusManager.IdleGpuGaugeVec.
 				With(prometheus.Labels{"node_id": d.id}).
-				Set(d.gpuManager.IdleGPUs().InexactFloat64())
+				Set(d.resourceManager.IdleGPUs().InexactFloat64())
 			d.prometheusManager.PendingGpuGaugeVec.
 				With(prometheus.Labels{"node_id": d.id}).
-				Set(d.gpuManager.PendingGPUs().InexactFloat64())
+				Set(d.resourceManager.PendingGPUs().InexactFloat64())
 			d.prometheusManager.CommittedGpuGaugeVec.
 				With(prometheus.Labels{"node_id": d.id}).
-				Set(d.gpuManager.CommittedGPUs().InexactFloat64())
+				Set(d.resourceManager.CommittedGPUs().InexactFloat64())
 			d.prometheusManager.SpecGpuGaugeVec.
 				With(prometheus.Labels{"node_id": d.id}).
-				Set(d.gpuManager.SpecGPUs().InexactFloat64())
+				Set(d.resourceManager.SpecGPUs().InexactFloat64())
 		}
 	}()
 }
 
 // updatePrometheusGpuMetrics updates all the resource-related Prometheus metrics.
 // updatePrometheusGpuMetrics is used as a callback by the GPU/Resource Manager.
+//
+// Deprecated: superseded by updatePrometheusResourceMetrics.
 func (d *SchedulerDaemonImpl) updatePrometheusGpuMetrics(idleGpus float64, pendingGpus float64, committedGpus float64) {
 	d.prometheusManager.IdleGpuGauge.
 		Set(idleGpus)
@@ -803,13 +805,13 @@ func (d *SchedulerDaemonImpl) smrReadyCallback(kernelClient *client.KernelReplic
 
 func (d *SchedulerDaemonImpl) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.GpuInfo, error) {
 	gpuInfo := &proto.GpuInfo{
-		SpecGPUs:              int32(d.gpuManager.specGPUs.InexactFloat64()),
-		IdleGPUs:              int32(d.gpuManager.idleGPUs.InexactFloat64()),
-		CommittedGPUs:         int32(d.gpuManager.committedGPUs.InexactFloat64()),
-		PendingGPUs:           int32(d.gpuManager.pendingGPUs.InexactFloat64()),
-		NumPendingAllocations: int32(d.gpuManager.NumAllocations()),
-		NumAllocations:        int32(d.gpuManager.NumPendingAllocations()),
-		GpuSchedulerID:        d.gpuManager.id,
+		SpecGPUs:              int32(d.resourceManager.SpecGPUs().InexactFloat64()),
+		IdleGPUs:              int32(d.resourceManager.IdleGPUs().InexactFloat64()),
+		CommittedGPUs:         int32(d.resourceManager.CommittedGPUs().InexactFloat64()),
+		PendingGPUs:           int32(d.resourceManager.PendingGPUs().InexactFloat64()),
+		NumPendingAllocations: int32(d.resourceManager.NumAllocations()),
+		NumAllocations:        int32(d.resourceManager.NumPendingAllocations()),
+		GpuSchedulerID:        d.resourceManager.id,
 		LocalDaemonID:         d.id,
 	}
 
@@ -1195,7 +1197,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, ErrExistingReplicaAlreadyRunning
 	}
 
-	err := d.gpuManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
+	err := d.resourceManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
 	if err != nil {
 		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
 			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, err)
@@ -1283,8 +1285,8 @@ func (d *SchedulerDaemonImpl) KillKernel(_ context.Context, in *proto.KernelId) 
 	err = d.errorf(d.getInvoker(kernel).Close())
 
 	// Release any GPUs allocated to the kernel.
-	_ = d.gpuManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
-	_ = d.gpuManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
+	_ = d.resourceManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
+	_ = d.resourceManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
 
 	return
 }
@@ -1319,8 +1321,8 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 	d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
 
 	// Release any GPUs allocated to the kernel.
-	_ = d.gpuManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
-	_ = d.gpuManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
+	_ = d.resourceManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
+	_ = d.resourceManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
 
 	return gateway.VOID, nil
 }
@@ -1560,7 +1562,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		d.log.Warn("Status of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.(*client.KernelReplicaClient).ID(), msgErr.Status, msgErr.String())
 	}
 
-	err = d.gpuManager.ReleaseAllocatedGPUs(kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.ID())
+	err = d.resourceManager.ReleaseAllocatedGPUs(kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.ID())
 	if err != nil {
 		d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernel.(*client.KernelReplicaClient).ReplicaID(), kernel.ID(), err)
 	}
@@ -1636,11 +1638,11 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	// If the error is non-nil, then there weren't enough idle GPUs available.
 	//if !differentTargetReplicaSpecified {
 	//	// Only bother trying to allocate GPUs if the request isn't explicitly targeting another replica.
-	//	err = d.gpuManager.AllocatePendingGPUs(requiredGPUs, kernel.ReplicaID(), kernel.ID())
+	//	err = d.resourceManager.AllocatePendingGPUs(requiredGPUs, kernel.ReplicaID(), kernel.ID())
 	//}
 
 	// Include the current number of idle GPUs available.
-	idleGPUs := d.gpuManager.IdleGPUs()
+	idleGPUs := d.resourceManager.IdleGPUs()
 	d.log.Debug("Including idle-gpus (%s) in request metadata.", idleGPUs.StringFixed(0))
 	metadataDict["idle-gpus"] = idleGPUs
 
@@ -1651,7 +1653,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 		var reason domain.YieldReason
 		// Log message depends on which condition was true (first).
 		//if err != nil {
-		//	d.log.Debug("Insufficient GPUs available (%s) for replica %d of kernel %s to execute code (%v required).", d.gpuManager.IdleGPUs(), kernel.ReplicaID(), kernel.ID(), 0 /* Placeholder */)
+		//	d.log.Debug("Insufficient GPUs available (%s) for replica %d of kernel %s to execute code (%v required).", d.resourceManager.IdleGPUs(), kernel.ReplicaID(), kernel.ID(), 0 /* Placeholder */)
 		//	reason = domain.YieldInsufficientGPUs
 		//} else
 		if differentTargetReplicaSpecified {
@@ -1759,20 +1761,20 @@ func (d *SchedulerDaemonImpl) SetTotalVirtualGPUs(ctx context.Context, in *proto
 
 // setTotalVirtualGPUsKubernetes is used to change the vGPUs available on this node when running in Docker mode.
 func (d *SchedulerDaemonImpl) setTotalVirtualGPUsDocker(in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
-	err := d.gpuManager.AdjustSpecGPUs(float64(in.GetValue()))
+	err := d.resourceManager.AdjustSpecGPUs(float64(in.GetValue()))
 	if err != nil {
 		response := &proto.VirtualGpuInfo{
-			TotalVirtualGPUs:     int32(d.gpuManager.SpecGPUs().InexactFloat64()),
-			AllocatedVirtualGPUs: int32(d.gpuManager.CommittedGPUs().InexactFloat64()),
-			FreeVirtualGPUs:      int32(d.gpuManager.IdleGPUs().InexactFloat64()),
+			TotalVirtualGPUs:     int32(d.resourceManager.SpecGPUs().InexactFloat64()),
+			AllocatedVirtualGPUs: int32(d.resourceManager.CommittedGPUs().InexactFloat64()),
+			FreeVirtualGPUs:      int32(d.resourceManager.IdleGPUs().InexactFloat64()),
 		}
 		return response, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	response := &proto.VirtualGpuInfo{
-		TotalVirtualGPUs:     int32(d.gpuManager.SpecGPUs().InexactFloat64()),
-		AllocatedVirtualGPUs: int32(d.gpuManager.CommittedGPUs().InexactFloat64()),
-		FreeVirtualGPUs:      int32(d.gpuManager.IdleGPUs().InexactFloat64()),
+		TotalVirtualGPUs:     int32(d.resourceManager.SpecGPUs().InexactFloat64()),
+		AllocatedVirtualGPUs: int32(d.resourceManager.CommittedGPUs().InexactFloat64()),
+		FreeVirtualGPUs:      int32(d.resourceManager.IdleGPUs().InexactFloat64()),
 	}
 	return response, nil
 }
@@ -2041,7 +2043,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 		kernelReplicaClient := kernel.(*client.KernelReplicaClient)
 
 		d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
-		err := d.gpuManager.AllocateGPUs(decimal.NewFromFloat(kernelReplicaClient.ResourceSpec().GPU()), kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID())
+		err := d.resourceManager.AllocateGPUs(decimal.NewFromFloat(kernelReplicaClient.ResourceSpec().GPU()), kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID())
 		if err != nil {
 			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
 			panic(err) // TODO(Ben): Handle gracefully.

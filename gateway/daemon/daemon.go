@@ -73,9 +73,6 @@ const (
 	DefaultPrometheusPort int = 8089
 	// DefaultPrometheusInterval is the default interval on which the Local Daemon will push new Prometheus metrics.
 	DefaultPrometheusInterval = time.Second * 2
-
-	CpusPerHost     = 8000
-	MemoryMbPerHost = 16384
 )
 
 var (
@@ -406,7 +403,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	// Create the Cluster Scheduler.
 	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
-	hostSpec := &types.FullSpec{GPUs: types.GPUSpec(clusterSchedulerOptions.GpusPerHost), CPUs: CpusPerHost, MemoryMb: MemoryMbPerHost}
+	hostSpec := &types.FullSpec{GPUs: types.GPUSpec(clusterSchedulerOptions.GpusPerHost), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}
 	if daemon.KubernetesMode() {
 		daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
 		daemon.containerWatcher = daemon.kubeClient
@@ -835,7 +832,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), CpusPerHost, MemoryMbPerHost,
+	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost, scheduling.MemoryMbPerHost,
 		d.cluster, gConn, d.localDaemonDisconnected)
 
 	if err != nil {

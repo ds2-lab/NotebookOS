@@ -169,6 +169,11 @@ type ResourceAllocation struct {
 	AllocationType AllocationType `json:"allocation_type"`
 }
 
+// IsNonZero returns true if any of the resources (cpu, gpu, memory) encapsulated by the ResourceAllocation are > 0.
+func (a *ResourceAllocation) IsNonZero() bool {
+	return a.GPUs.GreaterThan(decimal.Zero) || a.Millicpus.GreaterThan(decimal.Zero) || a.MemoryMB.GreaterThan(decimal.Zero)
+}
+
 // IsPending returns true if the ResourceAllocation is of type PendingAllocation.
 // If the ResourceAllocation is instead of type CommittedAllocation, then IsPending returns false.
 func (a *ResourceAllocation) IsPending() bool {
@@ -392,21 +397,29 @@ type ResourceManager struct {
 	// allocationIdMap is a map from AllocationID -> *ResourceAllocation.
 	// That is, allocationIdMap is a mapping in which the keys are strings -- the allocation ID --
 	// and values are the associated *ResourceAllocation (i.e., the *ResourceAllocation whose ID is the key).
+	//
+	// allocationIdMap contains ResourceAllocation structs of type CommittedAllocation.
 	allocationIdMap hashmap.HashMap[string, *ResourceAllocation]
 
 	// allocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
 	// That is, allocationKernelReplicaMap is a mapping in which keys are strings of the form
 	// "<KernelID>-<ReplicaID>" and values are *ResourceAllocation.
+	//
+	// allocationKernelReplicaMap contains ResourceAllocation structs of type CommittedAllocation.
 	allocationKernelReplicaMap hashmap.HashMap[string, *ResourceAllocation]
 
 	// pendingAllocIdMap is a map from AllocationID -> *ResourceAllocation.
 	// That is, pendingAllocIdMap is a mapping in which keys are strings -- the allocation ID --
 	// and values are the associated *ResourceAllocation (i.e., the *ResourceAllocation whose ID is the key).
+	//
+	// pendingAllocIdMap contains ResourceAllocation structs of type PendingAllocation.
 	pendingAllocIdMap hashmap.HashMap[string, *ResourceAllocation]
 
 	// pendingAllocKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
 	// That is, pendingAllocKernelReplicaMap is a mapping in which keys are strings of the form
 	// "<KernelID>-<ReplicaID>" and values are *ResourceAllocation.
+	//
+	// pendingAllocKernelReplicaMap contains ResourceAllocation structs of type PendingAllocation.
 	pendingAllocKernelReplicaMap hashmap.HashMap[string, *ResourceAllocation]
 
 	// resourcesWrapper encapsulates the state of all resources (idle, pending, committed, and spec) managed
@@ -605,8 +618,8 @@ func (m *ResourceManager) AdjustSpecGPUs(numGpus float64) error {
 	return nil
 }
 
-// HasPendingGPUs returns true if the specified kernel replica has pending GPUs.
-func (m *ResourceManager) HasPendingGPUs(replicaId int32, kernelId string) bool {
+// ReplicaHasPendingGPUs returns true if the specified kernel replica has pending GPUs.
+func (m *ResourceManager) ReplicaHasPendingGPUs(replicaId int32, kernelId string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -625,19 +638,28 @@ func (m *ResourceManager) HasPendingGPUs(replicaId int32, kernelId string) bool 
 	return false
 }
 
-// HasActualGPUs returns true if the specified kernel replica has GPUs committed to it.
-func (m *ResourceManager) HasActualGPUs(replicaId int32, kernelId string) bool {
+// ReplicaHasCommittedResources returns true if the specified kernel replica has any resources committed to it.
+func (m *ResourceManager) ReplicaHasCommittedResources(replicaId int32, kernelId string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	key := m.getKey(replicaId, kernelId)
-	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
+	alloc, ok := m.allocationKernelReplicaMap.Load(key)
 	if !ok {
 		return false
 	}
 
-	// If it is just a pending GPU allocation, then return false.
-	if alloc.IsPending() {
+	return alloc.IsNonZero()
+}
+
+// ReplicaHasCommittedGPUs returns true if the specified kernel replica has GPUs committed to it.
+func (m *ResourceManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := m.getKey(replicaId, kernelId)
+	alloc, ok := m.allocationKernelReplicaMap.Load(key)
+	if !ok {
 		return false
 	}
 
@@ -679,4 +701,37 @@ func (m *ResourceManager) NumAllocations() int {
 // NumPendingAllocations returns the number of pending allocations.
 func (m *ResourceManager) NumPendingAllocations() int {
 	return m.pendingAllocIdMap.Len()
+}
+
+// CommitResources commits/binds resources to a particular kernel replica, such that the resources are reserved for
+// exclusive use by that kernel replica until the kernel replica releases them (or another entity releases them
+// on behalf of the kernel replica).
+func (m *ResourceManager) CommitResources() error {
+	// TODO: Implement me.
+	panic("Not implemented")
+}
+
+// UncommitResources uncommits/unbinds resources from a particular kernel replica, such that the resources are made
+// available for use by other kernel replicas.
+func (m *ResourceManager) UncommitResources() error {
+	// TODO: Implement me.
+	panic("Not implemented")
+}
+
+// ReplicaScheduled is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
+// ReplicaScheduled creates a ResourceAllocation of type PendingAllocation that is then associated with the
+// newly-scheduled kernel replica.
+func (m *ResourceManager) ReplicaScheduled() error {
+	// TODO: Implement me.
+	panic("Not implemented")
+}
+
+// ReplicaEvicted is to be called whenever a kernel replica is stopped/evicted from this scheduling.Host.
+// ReplicaEvicted releases any ResourceAllocation associated with the evicted/stopped kernel replica.
+//
+// If there are resources actively bound/committed to the kernel replica, then they are released.
+// Likewise, any ResourceAllocation of type PendingAllocation is released/dissolved.
+func (m *ResourceManager) ReplicaEvicted() error {
+	// TODO: Implement me.
+	panic("Not implemented")
 }
