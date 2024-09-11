@@ -184,7 +184,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
-	daemon.gpuManager = NewGpuManager(schedulerDaemonOptions.NumGPUs, daemon.updatePrometheusResourceMetrics)
+	daemon.gpuManager = NewGpuManager(schedulerDaemonOptions.NumGPUs, daemon.updatePrometheusGpuMetrics)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -398,9 +398,9 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 	}()
 }
 
-// updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
-// updatePrometheusResourceMetrics is used as a callback by the GPU/Resource Manager.
-func (d *SchedulerDaemonImpl) updatePrometheusResourceMetrics(idleGpus float64, pendingGpus float64, committedGpus float64) {
+// updatePrometheusGpuMetrics updates all the resource-related Prometheus metrics.
+// updatePrometheusGpuMetrics is used as a callback by the GPU/Resource Manager.
+func (d *SchedulerDaemonImpl) updatePrometheusGpuMetrics(idleGpus float64, pendingGpus float64, committedGpus float64) {
 	d.prometheusManager.IdleGpuGauge.
 		With(prometheus.Labels{"node_id": d.id}).
 		Set(idleGpus)
@@ -410,6 +410,43 @@ func (d *SchedulerDaemonImpl) updatePrometheusResourceMetrics(idleGpus float64, 
 	d.prometheusManager.CommittedGpuGauge.
 		With(prometheus.Labels{"node_id": d.id}).
 		Set(committedGpus)
+}
+
+// updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
+// updatePrometheusResourceMetrics is used as a callback by the GPU/Resource Manager.
+func (d *SchedulerDaemonImpl) updatePrometheusResourceMetrics(resources ResourceStateWrapper) {
+	// CPU resource metrics.
+	d.prometheusManager.IdleCpuGauge.
+		With(prometheus.Labels{"node_id": d.id}).
+		Set(resources.IdleResources().CPUs())
+	d.prometheusManager.PendingCpuGauge.
+		With(prometheus.Labels{"node_id": d.id}).
+		Set(resources.PendingResources().CPUs())
+	d.prometheusManager.CommittedCpuGauge.
+		With(prometheus.Labels{"node_id": d.id}).
+		Set(resources.CommittedResources().CPUs())
+
+	// Memory resource metrics.
+	d.prometheusManager.IdleMemoryGauge.
+		With(prometheus.Labels{"node_id": d.id}).
+		Set(resources.IdleResources().MemoryMB())
+	d.prometheusManager.PendingMemoryGauge.
+		With(prometheus.Labels{"node_id": d.id}).
+		Set(resources.PendingResources().MemoryMB())
+	d.prometheusManager.CommittedMemoryGauge.
+		With(prometheus.Labels{"node_id": d.id}).
+		Set(resources.CommittedResources().MemoryMB())
+
+	// GPU resource metrics.
+	d.prometheusManager.IdleGpuGauge.
+		With(prometheus.Labels{"node_id": d.id}).
+		Set(resources.IdleResources().GPUs())
+	d.prometheusManager.PendingGpuGauge.
+		With(prometheus.Labels{"node_id": d.id}).
+		Set(resources.PendingResources().GPUs())
+	d.prometheusManager.CommittedGpuGauge.
+		With(prometheus.Labels{"node_id": d.id}).
+		Set(resources.CommittedResources().GPUs())
 }
 
 // StartKernel starts a single kernel.

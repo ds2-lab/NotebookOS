@@ -41,6 +41,16 @@ type LocalDaemonPrometheusManager struct {
 	PendingGpuGauge   *prometheus.GaugeVec
 	IdleGpuGauge      *prometheus.GaugeVec
 
+	SpecCpuGauge      *prometheus.GaugeVec
+	CommittedCpuGauge *prometheus.GaugeVec
+	PendingCpuGauge   *prometheus.GaugeVec
+	IdleCpuGauge      *prometheus.GaugeVec
+
+	SpecMemoryGauge      *prometheus.GaugeVec
+	CommittedMemoryGauge *prometheus.GaugeVec
+	PendingMemoryGauge   *prometheus.GaugeVec
+	IdleMemoryGauge      *prometheus.GaugeVec
+
 	// NumActiveKernelReplicasGauge is a Prometheus Gauge Vector for how many replicas are scheduled on a particular Local Daemon.
 	NumActiveKernelReplicasGauge *prometheus.GaugeVec
 	TotalNumKernels              *prometheus.CounterVec
@@ -131,45 +141,86 @@ func (m *LocalDaemonPrometheusManager) Stop() error {
 
 // InitMetrics creates a Prometheus endpoint and
 func (m *LocalDaemonPrometheusManager) initMetrics() error {
+	// CPU resource metrics.
+	m.IdleCpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "idle_millicpus_total",
+		Help:      "Idle CPUs available on a Local Daemon",
+	}, []string{"node_id"})
+	m.SpecCpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "spec_millicpus",
+		Help:      "Total CPUs available for use on a Local Daemon",
+	}, []string{"node_id"})
+	m.CommittedCpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "committed_millicpus",
+		Help:      "Allocated/committed CPUs on a Local Daemon",
+	}, []string{"node_id"})
+	m.PendingCpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "pending_millicpus",
+		Help:      "Pending CPUs on a Local Daemon",
+	}, []string{"node_id"})
+
+	// Memory resource metrics.
+	m.IdleMemoryGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "idle_memory_megabytes",
+		Help:      "Idle memory available on a Local Daemon in megabytes",
+	}, []string{"node_id"})
+	m.SpecMemoryGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "spec_memory_megabytes",
+		Help:      "Total memory available for use on a Local Daemon in megabytes",
+	}, []string{"node_id"})
+	m.CommittedMemoryGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "committed_memory_megabytes",
+		Help:      "Allocated/committed memory on a Local Daemon in megabytes",
+	}, []string{"node_id"})
+	m.PendingMemoryGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "pending_memory_megabytes",
+		Help:      "Pending memory on a Local Daemon in megabytes",
+	}, []string{"node_id"})
+
+	// GPU resource metrics.
 	m.IdleGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "idle_gpus",
 		Help:      "Idle GPUs available on a Local Daemon",
 	}, []string{"node_id"})
-
 	m.SpecGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "spec_gpus",
 		Help:      "Total GPUs available for use on a Local Daemon",
 	}, []string{"node_id"})
-
 	m.CommittedGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "committed_gpus",
 		Help:      "Allocated/committed GPUs on a Local Daemon",
 	}, []string{"node_id"})
-
 	m.PendingGpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "pending_gpus",
 		Help:      "Pending GPUs on a Local Daemon",
 	}, []string{"node_id"})
 
+	// Miscellaneous metrics.
 	m.NumActiveKernelReplicasGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "num_active_kernels",
 		Help:      "Number of kernel replicas scheduled on a Local Daemon",
 	}, []string{"node_id"})
-
 	m.TotalNumKernels = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
-		Name:      "total_num_kernels",
+		Name:      "num_kernels_total",
 		Help:      "Total number of kernel replicas to have ever been scheduled/created",
 	}, []string{"node_id"})
-
 	m.NumTrainingEventsCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
-		Name:      "num_training_events_completed",
+		Name:      "num_training_events_completed_total",
 		Help:      "The number of training events that have completed successfully",
 	}, []string{"node_id"})
 

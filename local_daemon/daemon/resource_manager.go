@@ -366,6 +366,8 @@ func (r *resourcesWrapper) SpecResources() *resources {
 
 // ResourceManager is responsible for keeping track of resource allocations on behalf of the Local Daemon.
 // The ResourceManager allocates and deallocates resources to/from kernel replicas scheduled to run on the node.
+//
+// ResourceManager is a replacement for GpuManager.
 type ResourceManager struct {
 	mu sync.Mutex
 

@@ -53,6 +53,8 @@ func (a *gpuAllocation) String() string {
 }
 
 // GpuManager manages the "actual" GPUs that are allocated to kernel replicas at training-time.
+//
+// Deprecated: use ResourceManager instead.
 type GpuManager struct {
 	sync.Mutex
 
@@ -77,6 +79,8 @@ type GpuManager struct {
 }
 
 // NewGpuManager creates and return a new GPU Manager.
+//
+// Deprecated: use ResourceManager (and NewResourceManager) instead.
 func NewGpuManager(gpus int64, gpuResourceMetricsCallback gpuResourceMetricsCallback) *GpuManager {
 	manager := &GpuManager{
 		id:                           uuid.NewString(),
