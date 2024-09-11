@@ -165,6 +165,14 @@ func (i *StatInt32) Add(j int32) int32 {
 	return atomic.AddInt32((*int32)(i), j)
 }
 
+func (i *StatInt32) Incr() int32 {
+	return atomic.AddInt32((*int32)(i), 1)
+}
+
+func (i *StatInt32) Decr() int32 {
+	return atomic.AddInt32((*int32)(i), -1)
+}
+
 func (i *StatInt32) Sub(j int32) int32 {
 	return atomic.AddInt32((*int32)(i), ^(j - 1))
 }

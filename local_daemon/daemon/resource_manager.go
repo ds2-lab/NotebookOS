@@ -10,7 +10,6 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
-	"log"
 	"sync"
 	"time"
 )
@@ -204,6 +203,26 @@ type ResourceAllocation struct {
 	cachedAllocationKey string
 }
 
+// assertIsPending returns true if the target *ResourceAllocation has AllocationType equal to PendingAllocation.
+// If the target *ResourceAllocation has CommittedAllocation equal to PendingAllocation, then this function will panic.
+func (a *ResourceAllocation) assertIsPending() bool {
+	if a.IsPending() {
+		return true
+	}
+
+	panic(fmt.Sprintf("GPU Allocation is NOT pending: %s", a.String()))
+}
+
+// assertIsCommitted returns true if the target *ResourceAllocation has AllocationType equal to CommittedAllocation
+// If the target *ResourceAllocation has AllocationType equal to PendingAllocation, then this function will panic.
+func (a *ResourceAllocation) assertIsCommitted() bool {
+	if !a.IsPending() {
+		return true
+	}
+
+	panic(fmt.Sprintf("GPU Allocation IS pending: %s", a.String()))
+}
+
 // String returns a string representation of the ResourceAllocation suitable for logging.
 func (a *ResourceAllocation) String() string {
 	o, err := json.Marshal(a)
@@ -273,15 +292,29 @@ type ResourceAllocationBuilder struct {
 }
 
 // NewResourceAllocationBuilder creates a new ResourceAllocationBuilder and returns a pointer to it.
-func NewResourceAllocationBuilder(allocationType AllocationType) *ResourceAllocationBuilder {
+// The AllocationID of the ResourceAllocation being constructed is randomly generated at this point.
+func NewResourceAllocationBuilder() *ResourceAllocationBuilder {
 	return &ResourceAllocationBuilder{
-		allocationId:   uuid.NewString(),
-		allocationType: allocationType,
+		allocationId: uuid.NewString(),
 	}
 }
 
+// WithIdOverride enables the specification of a specific ID to be used as the Allocation ID of the ResourceAllocation
+// that is being created. This is entirely optional. If no ID is specified explicitly, then a random UUID is
+// generated to be used as the Allocation ID of the ResourceAllocation that is under construction.
+func (b *ResourceAllocationBuilder) WithIdOverride(id string) *ResourceAllocationBuilder {
+	b.allocationId = id
+	return b
+}
+
+// WithAllocationType enables the specification of the AllocationType of the ResourceAllocation that is being created.
+func (b *ResourceAllocationBuilder) WithAllocationType(allocationType AllocationType) *ResourceAllocationBuilder {
+	b.allocationType = allocationType
+	return b
+}
+
 // WithKernelReplica enables the specification of the target of the ResourceAllocation (i.e., the kernel replica).
-func (b *ResourceAllocationBuilder) WithKernelReplica(kernelId string, replicaId int32) *ResourceAllocationBuilder {
+func (b *ResourceAllocationBuilder) WithKernelReplica(replicaId int32, kernelId string) *ResourceAllocationBuilder {
 	b.kernelId = kernelId
 	b.replicaId = replicaId
 	return b
@@ -523,33 +556,12 @@ type ResourceManager struct {
 	id  string        // Unique ID of the Resource Manager.
 	log logger.Logger // Logger.
 
-	// committedAllocationIdMap is a map from AllocationID -> *ResourceAllocation.
-	// That is, committedAllocationIdMap is a mapping in which the keys are strings -- the allocation ID --
-	// and values are the associated *ResourceAllocation (i.e., the *ResourceAllocation whose ID is the key).
-	//
-	// committedAllocationIdMap contains ResourceAllocation structs of type CommittedAllocation.
-	committedAllocationIdMap hashmap.HashMap[string, *ResourceAllocation]
-
-	// committedAllocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
-	// That is, committedAllocationKernelReplicaMap is a mapping in which keys are strings of the form
+	// allocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
+	// That is, allocationKernelReplicaMap is a mapping in which keys are strings of the form
 	// "<KernelID>-<ReplicaID>" and values are *ResourceAllocation.
 	//
-	// committedAllocationKernelReplicaMap contains ResourceAllocation structs of type CommittedAllocation.
-	committedAllocationKernelReplicaMap hashmap.HashMap[string, *ResourceAllocation]
-
-	// pendingAllocIdMap is a map from AllocationID -> *ResourceAllocation.
-	// That is, pendingAllocIdMap is a mapping in which keys are strings -- the allocation ID --
-	// and values are the associated *ResourceAllocation (i.e., the *ResourceAllocation whose ID is the key).
-	//
-	// pendingAllocIdMap contains ResourceAllocation structs of type PendingAllocation.
-	pendingAllocIdMap hashmap.HashMap[string, *ResourceAllocation]
-
-	// pendingAllocKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
-	// That is, pendingAllocKernelReplicaMap is a mapping in which keys are strings of the form
-	// "<KernelID>-<ReplicaID>" and values are *ResourceAllocation.
-	//
-	// pendingAllocKernelReplicaMap contains ResourceAllocation structs of type PendingAllocation.
-	pendingAllocKernelReplicaMap hashmap.HashMap[string, *ResourceAllocation]
+	// allocationIdMap contains ResourceAllocation structs of both types (CommittedAllocation and PendingAllocation).
+	allocationKernelReplicaMap hashmap.HashMap[string, *ResourceAllocation]
 
 	// resourcesWrapper encapsulates the state of all resources (idle, pending, committed, and spec) managed
 	// by this ResourceManager.
@@ -558,17 +570,19 @@ type ResourceManager struct {
 	// resourceMetricsCallback is a callback function that is supposed to be triggered whenever resources
 	// are allocated or deallocated so that the associated Prometheus metrics can be updated accordingly.
 	resourceMetricsCallback resourceMetricsCallback
+
+	// numPendingAllocations is the number of active ResourceAllocation instances of type PendingAllocation.
+	numPendingAllocations types.StatInt32
+	// numCommittedAllocations is the number of active ResourceAllocation instances of type CommittedAllocation.
+	numCommittedAllocations types.StatInt32
 }
 
 // NewResourceManager creates a new ResourceManager struct and returns a pointer to it.
 func NewResourceManager(resourceSpec types.Spec, resourceMetricsCallback resourceMetricsCallback) *ResourceManager {
 	manager := &ResourceManager{
-		id:                                  uuid.NewString(),
-		committedAllocationIdMap:            hashmap.NewCornelkMap[string, *ResourceAllocation](64),
-		committedAllocationKernelReplicaMap: hashmap.NewCornelkMap[string, *ResourceAllocation](64),
-		pendingAllocIdMap:                   hashmap.NewCornelkMap[string, *ResourceAllocation](64),
-		pendingAllocKernelReplicaMap:        hashmap.NewCornelkMap[string, *ResourceAllocation](64),
-		resourceMetricsCallback:             resourceMetricsCallback,
+		id:                         uuid.NewString(),
+		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, *ResourceAllocation](128),
+		resourceMetricsCallback:    resourceMetricsCallback,
 	}
 
 	manager.resourcesWrapper = &resourcesWrapper{
@@ -597,6 +611,9 @@ func NewResourceManager(resourceSpec types.Spec, resourceMetricsCallback resourc
 			gpus:         decimal.NewFromFloat(resourceSpec.GPU()),
 		},
 	}
+
+	manager.numPendingAllocations.Store(0)
+	manager.numCommittedAllocations.Store(0)
 
 	config.InitLogger(&manager.log, manager)
 
@@ -753,7 +770,7 @@ func (m *ResourceManager) ReplicaHasPendingGPUs(replicaId int32, kernelId string
 	defer m.mu.Unlock()
 
 	key := getKey(replicaId, kernelId)
-	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
+	alloc, ok := m.allocationKernelReplicaMap.Load(key)
 	if !ok {
 		return false
 	}
@@ -773,7 +790,7 @@ func (m *ResourceManager) ReplicaHasCommittedResources(replicaId int32, kernelId
 	defer m.mu.Unlock()
 
 	key := getKey(replicaId, kernelId)
-	alloc, ok := m.committedAllocationKernelReplicaMap.Load(key)
+	alloc, ok := m.allocationKernelReplicaMap.Load(key)
 	if !ok {
 		return false
 	}
@@ -787,7 +804,7 @@ func (m *ResourceManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId stri
 	defer m.mu.Unlock()
 
 	key := getKey(replicaId, kernelId)
-	alloc, ok := m.committedAllocationKernelReplicaMap.Load(key)
+	alloc, ok := m.allocationKernelReplicaMap.Load(key)
 	if !ok {
 		return false
 	}
@@ -796,34 +813,40 @@ func (m *ResourceManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId stri
 	return alloc.GPUs.GreaterThan(ZeroDecimal)
 }
 
-// assertPending returns true if the given *ResourceAllocation IS pending.
+// AssertAllocationIsPending returns true if the given *ResourceAllocation IS pending.
 // If the given *ResourceAllocation is NOT pending, then this function will panic.
-func (m *ResourceManager) assertPending(allocation *ResourceAllocation) bool {
+func (m *ResourceManager) AssertAllocationIsPending(allocation *ResourceAllocation) bool {
 	if allocation.IsPending() {
 		return true
 	}
 
-	panic(fmt.Sprintf("GPU Allocation is NOT pending: %v", allocation))
+	panic(fmt.Sprintf("GPU Allocation is NOT pending: %s", allocation.String()))
 }
 
-// assertNotPending returns true if the given *ResourceAllocation is NOT pending.
+// AssertAllocationIsCommitted returns true if the given *ResourceAllocation is NOT pending.
 // If the given *ResourceAllocation IS pending, then this function will panic.
-func (m *ResourceManager) assertNotPending(allocation *ResourceAllocation) bool {
-	if !allocation.IsPending() {
+func (m *ResourceManager) AssertAllocationIsCommitted(allocation *ResourceAllocation) bool {
+	if allocation.IsCommitted() {
 		return true
 	}
 
-	panic(fmt.Sprintf("GPU Allocation IS pending: %v", allocation))
+	panic(fmt.Sprintf("GPU Allocation IS pending: %s", allocation.String()))
 }
 
-// NumAllocations returns the number of active allocations.
+// NumAllocations returns the number of active ResourceAllocation instances of either AllocationType (i.e.,
+// PendingAllocation or CommittedAllocation).
 func (m *ResourceManager) NumAllocations() int {
-	return m.committedAllocationIdMap.Len()
+	return m.allocationKernelReplicaMap.Len()
 }
 
-// NumPendingAllocations returns the number of pending allocations.
+// NumCommittedAllocations returns the ResourceAllocation instances whose AllocationType is CommittedAllocation.
+func (m *ResourceManager) NumCommittedAllocations() int {
+	return m.numCommittedAllocations.LoadInt()
+}
+
+// NumPendingAllocations returns the ResourceAllocation instances whose AllocationType is PendingAllocation.
 func (m *ResourceManager) NumPendingAllocations() int {
-	return m.pendingAllocIdMap.Len()
+	return m.numPendingAllocations.LoadInt()
 }
 
 // CommitResources commits/binds resources to a particular kernel replica, such that the resources are reserved for
@@ -856,12 +879,15 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 	)
 
 	key = getKey(replicaId, kernelId)
-	if allocation, allocationExists = m.pendingAllocKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Error("Cannot commit resources to replica %d of kernel %s: no no pending resource "+
-			"allocation found for that kernel replica.", replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		m.log.Error("Cannot commit resources to replica %d of kernel %s: no existing resource allocation "+
+			"found for that kernel replica.", replicaId, kernelId)
 		return fmt.Errorf("%w: no pending resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
 	}
+
+	// Sanity check, essentially. It should not already be committed.
+	allocation.assertIsPending()
 
 	var requestedResources *types.DecimalSpec
 	if adjustedResourceRequest == nil {
@@ -875,13 +901,16 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 
 	// First, validate against this scheduling.Host's spec.
 	if err := m.resourcesWrapper.specResources.ValidateWithError(requestedResources); err != nil {
-		m.log.Error("Could not commit resources to replica %d of kernel %s: %v", replicaId, kernelId, err)
+		m.log.Error("Could not commit the following resources to replica %d of kernel %s due "+
+			"to insufficient host spec: %s. Specific reason for commitment failure: %v.",
+			replicaId, kernelId, requestedResources.String(), err)
 		return err
 	}
 
 	// Next, validate against our actual idle resource capacity.
 	if err := m.resourcesWrapper.idleResources.ValidateWithError(requestedResources); err != nil {
-		m.log.Error("Could not commit resources to replica %d of kernel %s: %v", replicaId, kernelId, err)
+		m.log.Error("Could not commit resources to replica %d of kernel %s: %s. "+
+			"Reason for commitment failure: %v.", replicaId, kernelId, requestedResources.String(), err)
 		return err
 	}
 
@@ -891,10 +920,15 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 	m.resourcesWrapper.idleResources.SetMemoryMB(m.resourcesWrapper.idleResources.memoryMB.Sub(requestedResources.MemoryMb))
 	m.resourcesWrapper.idleResources.SetGpus(m.resourcesWrapper.idleResources.gpus.Sub(requestedResources.GPUs))
 
+	// Next, we'll decrement the pending resources.
+	m.resourcesWrapper.pendingResources.SetMillicpus(m.resourcesWrapper.pendingResources.millicpus.Sub(requestedResources.Millicpus))
+	m.resourcesWrapper.pendingResources.SetMemoryMB(m.resourcesWrapper.pendingResources.memoryMB.Sub(requestedResources.MemoryMb))
+	m.resourcesWrapper.pendingResources.SetGpus(m.resourcesWrapper.pendingResources.gpus.Sub(requestedResources.GPUs))
+
 	// Next, we'll increment the committed resources.
-	m.resourcesWrapper.committedResources.SetMillicpus(m.resourcesWrapper.committedResources.millicpus.Sub(requestedResources.Millicpus))
-	m.resourcesWrapper.committedResources.SetMemoryMB(m.resourcesWrapper.committedResources.memoryMB.Sub(requestedResources.MemoryMb))
-	m.resourcesWrapper.committedResources.SetGpus(m.resourcesWrapper.committedResources.gpus.Sub(requestedResources.GPUs))
+	m.resourcesWrapper.committedResources.SetMillicpus(m.resourcesWrapper.committedResources.millicpus.Add(requestedResources.Millicpus))
+	m.resourcesWrapper.committedResources.SetMemoryMB(m.resourcesWrapper.committedResources.memoryMB.Add(requestedResources.MemoryMb))
+	m.resourcesWrapper.committedResources.SetGpus(m.resourcesWrapper.committedResources.gpus.Add(requestedResources.GPUs))
 
 	// Finally, we'll update the ResourceAllocation struct associated with this request.
 	// This involves updating the resource amounts stored in the ResourceAllocation as well as its AllocationType field.
@@ -907,74 +941,17 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 	allocation.MemoryMB = requestedResources.MemoryMb.Copy()
 	allocation.AllocationType = CommittedAllocation
 
+	// Update the pending/committed allocation counters.
+	m.numPendingAllocations.Decr()
+	m.numCommittedAllocations.Incr()
+
 	m.log.Debug("Successfully committed the following resources to replica %d of kernel %s: %v",
 		replicaId, kernelId, requestedResources.String())
-
-	m.unsafeRemoveAllocationFromPendingMaps(allocation)
-	m.unsafeAddAllocationToCommittedMaps(allocation)
 
 	// Update Prometheus metrics.
 	m.resourceMetricsCallback(m.resourcesWrapper)
 
 	return nil
-}
-
-// unsafeRemoveAllocationFromPendingMaps is a utility/helper method to remove a given ResourceAllocation struct from the two
-// PendingAllocation maps. This method will panic if the ResourceAllocation is not present in both maps.
-//
-// This function should be called with the ResourceManager's mutex already held.
-func (m *ResourceManager) unsafeRemoveAllocationFromPendingMaps(allocation *ResourceAllocation) {
-	// We'll just retrieve the cached key if it exists. If it doesn't exist, we'll create and cache it first.
-	// But it should already exist, so we'll log a warning message if it doesn't.
-	if len(allocation.cachedAllocationKey) == 0 {
-		m.log.Warn("ResourceAllocation %s did not have its key cached.", allocation.AllocationId)
-		allocation.cachedAllocationKey = getKey(allocation.ReplicaId, allocation.KernelId)
-	}
-	key := allocation.cachedAllocationKey
-
-	// Verify that the ResourceAllocation is in the pendingAllocKernelReplicaMap before deleting it.
-	// If it isn't in the pendingAllocKernelReplicaMap, then we panic.
-	if _, loaded := m.pendingAllocKernelReplicaMap.Load(key); !loaded {
-		log.Fatalf("ResourceAllocation %s not found in pendingAllocKernelReplicaMap: %s",
-			allocation.AllocationId, allocation.String())
-	}
-	m.pendingAllocKernelReplicaMap.Delete(key) // Delete it from the pendingAllocKernelReplicaMap.
-
-	// Verify that the ResourceAllocation is in the pendingAllocIdMap before deleting it.
-	// If it isn't in the pendingAllocIdMap, then we panic.
-	if _, loaded := m.pendingAllocIdMap.Load(allocation.AllocationId); !loaded {
-		log.Fatalf("ResourceAllocation %s not found in pendingAllocKernelReplicaMap: %s",
-			allocation.AllocationId, allocation.String())
-	}
-	m.pendingAllocIdMap.Delete(key) // Delete it from the pendingAllocIdMap.
-}
-
-// unsafeAddAllocationToCommittedMaps is a utility/helper method to add a given ResourceAllocation struct to the two
-// CommittedAllocation maps. This method will panic if the ResourceAllocation is already present in either map.
-//
-// This function should be called with the ResourceManager's mutex already held.
-func (m *ResourceManager) unsafeAddAllocationToCommittedMaps(allocation *ResourceAllocation) {
-	// We'll just retrieve the cached key if it exists. If it doesn't exist, we'll create and cache it first.
-	// But it should already exist, so we'll log a warning message if it doesn't.
-	if len(allocation.cachedAllocationKey) == 0 {
-		m.log.Warn("ResourceAllocation %s did not have its key cached.", allocation.AllocationId)
-		allocation.cachedAllocationKey = getKey(allocation.ReplicaId, allocation.KernelId)
-	}
-	key := allocation.cachedAllocationKey
-
-	// We call LoadOrStore so we can verify that the allocation isn't already stored in the map.
-	// If it is already stored in the map, then we'll panic.
-	if _, loaded := m.committedAllocationKernelReplicaMap.LoadOrStore(key, allocation); loaded {
-		log.Fatalf("ResourceAllocation %s was already stored in committedAllocationKernelReplicaMap: %s",
-			allocation.AllocationId, allocation.String())
-	}
-
-	// We call LoadOrStore so we can verify that the allocation isn't already stored in the map.
-	// If it is already stored in the map, then we'll panic.
-	if _, loaded := m.committedAllocationIdMap.LoadOrStore(allocation.AllocationId, allocation); loaded {
-		log.Fatalf("ResourceAllocation %s was already stored in committedAllocationIdMap: %s",
-			allocation.AllocationId, allocation.String())
-	}
 }
 
 // ReleaseCommittedResources uncommits/unbinds resources from a particular kernel replica, such that the resources are made
@@ -985,8 +962,61 @@ func (m *ResourceManager) unsafeAddAllocationToCommittedMaps(allocation *Resourc
 func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// TODO: Implement me.
-	panic("Not implemented")
+
+	var (
+		key              string
+		allocation       *ResourceAllocation
+		allocationExists bool
+	)
+
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		m.log.Error("Cannot release committed resources bound to replica %d of kernel %s: no existing resource "+
+			"allocation found for that kernel replica.", replicaId, kernelId)
+		return fmt.Errorf("%w: no pending resource allocation found for replica %d of kernel %s",
+			ErrInvalidAllocationRequest, replicaId, kernelId)
+	}
+
+	// Sanity check, essentially. It should not already be pending, since we're supposed to be releasing it right now.
+	allocation.assertIsCommitted()
+	allocatedResources := allocation.ToDecimalSpec()
+
+	m.log.Debug("Attempting to release the following committed resources from replica %d of kernel %s: %v",
+		replicaId, kernelId, allocatedResources.String())
+
+	// If we've gotten this far, then we have enough resources available to commit the requested resources
+	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle resources.
+	m.resourcesWrapper.idleResources.SetMillicpus(m.resourcesWrapper.idleResources.millicpus.Add(allocatedResources.Millicpus))
+	m.resourcesWrapper.idleResources.SetMemoryMB(m.resourcesWrapper.idleResources.memoryMB.Add(allocatedResources.MemoryMb))
+	m.resourcesWrapper.idleResources.SetGpus(m.resourcesWrapper.idleResources.gpus.Add(allocatedResources.GPUs))
+
+	// Next, we'll increment the pending resources (since we're releasing committed resources).
+	m.resourcesWrapper.pendingResources.SetMillicpus(m.resourcesWrapper.pendingResources.millicpus.Add(allocatedResources.Millicpus))
+	m.resourcesWrapper.pendingResources.SetMemoryMB(m.resourcesWrapper.pendingResources.memoryMB.Add(allocatedResources.MemoryMb))
+	m.resourcesWrapper.pendingResources.SetGpus(m.resourcesWrapper.pendingResources.gpus.Add(allocatedResources.GPUs))
+
+	// Next, we'll decrement the committed resources (since we're releasing committed resources).
+	m.resourcesWrapper.committedResources.SetMillicpus(m.resourcesWrapper.committedResources.millicpus.Sub(allocatedResources.Millicpus))
+	m.resourcesWrapper.committedResources.SetMemoryMB(m.resourcesWrapper.committedResources.memoryMB.Sub(allocatedResources.MemoryMb))
+	m.resourcesWrapper.committedResources.SetGpus(m.resourcesWrapper.committedResources.gpus.Sub(allocatedResources.GPUs))
+
+	// Finally, we'll update the ResourceAllocation struct associated with this request.
+	// This involves updating its AllocationType field to be PendingAllocation.
+	//
+	// Once updated, we'll remove it from the pending allocation maps and add it to the committed allocation maps.
+	allocation.AllocationType = PendingAllocation
+
+	// Update the pending/committed allocation counters.
+	m.numPendingAllocations.Incr()
+	m.numCommittedAllocations.Decr()
+
+	m.log.Debug("Successfully released the following (previously) committed resources to replica %d of kernel %s: %v",
+		replicaId, kernelId, allocatedResources.String())
+
+	// Update Prometheus metrics.
+	m.resourceMetricsCallback(m.resourcesWrapper)
+
+	return nil
 }
 
 // KernelReplicaScheduled is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
@@ -998,8 +1028,61 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId string, spec types.Spec) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// TODO: Implement me.
-	panic("Not implemented")
+
+	var (
+		key              string
+		allocation       *ResourceAllocation
+		allocationExists bool
+	)
+
+	// Verify that there does not already exist an allocation associated with the specified kernel replica.
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); allocationExists {
+		m.log.Error("Cannot subscribe pending resources to replica %d of kernel %s: found existing resource "+
+			"allocation associated to that kernel replica: %s", replicaId, kernelId, allocation.String())
+		return fmt.Errorf("%w: existing resource allocation found for replica %d of kernel %s",
+			ErrInvalidAllocationRequest, replicaId, kernelId)
+	}
+
+	// Construct the new ResourceAllocation using the resource quantities specified in the spec argument.
+	builder := NewResourceAllocationBuilder().
+		WithAllocationType(PendingAllocation).
+		WithKernelReplica(replicaId, kernelId).
+		WithMillicpus(spec.CPU()).
+		WithMillicpus(spec.MemoryMB()).
+		WithGPUs(spec.GPU())
+	allocation = builder.BuildResourceAllocation()
+
+	m.log.Debug("Attempting to subscribe the following pending resources to replica %d of kernel %s: %v",
+		replicaId, kernelId, spec.String())
+
+	// Convert the given types.Spec argument to a *types.DecimalSpec struct.
+	decimalSpec := types.ToDecimalSpec(spec)
+
+	// First, validate against this scheduling.Host's spec.
+	if err := m.resourcesWrapper.specResources.ValidateWithError(decimalSpec); err != nil {
+		m.log.Error("Could not subscribe the following pending resources to replica %d of kernel %s due "+
+			"to insufficient host spec: %s. Specific reason for subscription failure: %v.",
+			replicaId, kernelId, decimalSpec.String(), err)
+		return err
+	}
+
+	// If we've gotten this far, then we have enough resources available to subscribe the requested resources
+	// to the specified kernel replica. So, let's do that now.
+	m.resourcesWrapper.pendingResources.SetMillicpus(m.resourcesWrapper.pendingResources.millicpus.Add(decimalSpec.Millicpus))
+	m.resourcesWrapper.pendingResources.SetMemoryMB(m.resourcesWrapper.pendingResources.memoryMB.Add(decimalSpec.MemoryMb))
+	m.resourcesWrapper.pendingResources.SetGpus(m.resourcesWrapper.pendingResources.gpus.Add(decimalSpec.GPUs))
+
+	// Update the pending/committed allocation counters.
+	m.numPendingAllocations.Incr()
+
+	m.log.Debug("Successfully subscribed the following pending resources to replica %d of kernel %s: %v",
+		replicaId, kernelId, decimalSpec.String())
+
+	// Update Prometheus metrics.
+	m.resourceMetricsCallback(m.resourcesWrapper)
+
+	return nil
 }
 
 // ReplicaEvicted is to be called whenever a kernel replica is stopped/evicted from this scheduling.Host.
@@ -1013,6 +1096,8 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.numPendingAllocations.Decr()
 
 	// TODO: Implement me.
 	panic("Not implemented")
