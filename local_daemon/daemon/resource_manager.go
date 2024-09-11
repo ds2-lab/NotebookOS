@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/shopspring/decimal"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"sync"
 	"time"
@@ -20,6 +22,26 @@ const (
 	//That is, the GPUs, CPUs, and Memory specified in the allocation are actively committed and bound to the
 	//associated kernel replica. These resources are not available for use by other kernel replicas.
 	CommittedAllocation AllocationType = "committed"
+
+	// IdleResources can overlap with pending resources. These are resources that are not actively bound
+	// to any containers/replicas. They are available for use by a locally-running container/replica.
+	IdleResources ResourceType = "idle"
+
+	// PendingResources are "subscribed to" by a locally-running container/replica; however, they are not
+	// bound to that container/replica, and thus are available for use by any of the locally-running replicas.
+	//
+	// Pending resources indicate the presence of locally-running replicas that are not actively training.
+	// The sum of all pending resources on a node is the amount of resources that would be required if all
+	// locally-scheduled replicas began training at the same time.
+	PendingResources ResourceType = "pending"
+
+	// CommittedResources are actively bound/committed to a particular, locally-running container.
+	// As such, they are unavailable for use by any other locally-running replicas.
+	CommittedResources ResourceType = "committed"
+
+	// SpecResources are the total allocatable resources available on the Host.
+	// SpecResources are a static, fixed quantity. They do not change in response to resource (de)allocations.
+	SpecResources ResourceType = "spec"
 )
 
 // ResourceStateWrapper defines a public interface for accessing (i.e., reading) but not mutating (i.e., writing)
@@ -52,6 +74,9 @@ type ResourceStateWrapper interface {
 	// These are the total allocatable resources available on the Host.
 	// Spec resources are a static, fixed quantity. They do not change in response to resource (de)allocations.
 	SpecResources() ResourceState
+
+	// String returns a string representation of the ResourceStateWrapper suitable for logging.
+	String() string
 }
 
 // ResourceState defines a public interface for getting (i.e., reading) but not mutating (i.e., writing)
@@ -77,7 +102,7 @@ type ResourceState interface {
 	MemoryMB() float64
 	// MemoryMbAsDecimal returns a copy of the decimal.Decimal that precisely & accurately encodes the amount of memory.
 	// The units are megabytes (MB).
-	MemoryMbAsDecimal() float64
+	MemoryMbAsDecimal() decimal.Decimal
 
 	// GPUs returns the gpus as a float64.
 	// The units are vGPUs, where 1 vGPU = 1 GPU.
@@ -85,6 +110,9 @@ type ResourceState interface {
 	// GPUsAsDecimal returns a copy of the decimal.Decimal that precisely & accurately encodes the number of gpus.
 	// The units are vGPUs, where 1 vGPU = 1 GPU.
 	GPUsAsDecimal() decimal.Decimal
+
+	// String returns a string representation of the ResourceState suitable for logging.
+	String() string
 }
 
 // resourceMetricsCallback is a callback function that is supposed to be triggered whenever resources
@@ -94,8 +122,16 @@ type resourceMetricsCallback func(resources ResourceStateWrapper)
 // ResourceType differentiates between idle, pending, committed, and spec resources.
 type ResourceType string
 
+func (t ResourceType) String() string {
+	return string(t)
+}
+
 // AllocationType differentiates between "pending" and "committed" resource allocations.
 type AllocationType string
+
+func (t AllocationType) String() string {
+	return string(t)
+}
 
 // ResourceAllocation encapsulates an allocation of resources to a kernel replica.
 // Each ResourceAllocation encapsulates an allocation of GPU, CPU, and Memory resources.
@@ -199,16 +235,37 @@ func (b *ResourceAllocationBuilder) BuildResourceAllocation() *ResourceAllocatio
 type resources struct {
 	mu sync.Mutex // Enables atomic access to each individual field.
 
-	millicpus decimal.Decimal // Millicpus is CPU in 1/1000th of CPU core.
-	gpus      decimal.Decimal // GPUs is the number of GPUs.
-	memoryMB  decimal.Decimal // MemoryMB is the amount of memory in MB.
+	resourceType ResourceType    // resourceType is the ResourceType represented/encoded by this resources struct.
+	millicpus    decimal.Decimal // millicpus is CPU in 1/1000th of CPU core.
+	gpus         decimal.Decimal // gpus is the number of GPUs.
+	memoryMB     decimal.Decimal // memoryMB is the amount of memory in MB.
 }
 
-func (r *resources) MemoryMB() decimal.Decimal {
+func (r *resources) String() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.memoryMB
+	return fmt.Sprintf("[%s resources: millicpus=%s,gpus=%s,memoryMB=%s]",
+		r.resourceType.String(), r.millicpus.StringFixed(0),
+		r.gpus.StringFixed(0), r.memoryMB.StringFixed(4))
+}
+
+func (r *resources) ResourceType() ResourceType {
+	return r.resourceType
+}
+
+func (r *resources) MemoryMB() float64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.memoryMB.InexactFloat64()
+}
+
+func (r *resources) MemoryMbAsDecimal() decimal.Decimal {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.memoryMB.Copy()
 }
 
 func (r *resources) SetMemoryMB(memoryMB decimal.Decimal) {
@@ -218,11 +275,18 @@ func (r *resources) SetMemoryMB(memoryMB decimal.Decimal) {
 	r.memoryMB = memoryMB
 }
 
-func (r *resources) Gpus() decimal.Decimal {
+func (r *resources) GPUs() float64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.gpus
+	return r.gpus.InexactFloat64()
+}
+
+func (r *resources) GPUsAsDecimal() decimal.Decimal {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.gpus.Copy()
 }
 
 func (r *resources) SetGpus(gpus decimal.Decimal) {
@@ -232,11 +296,18 @@ func (r *resources) SetGpus(gpus decimal.Decimal) {
 	r.gpus = gpus
 }
 
-func (r *resources) Millicpus() decimal.Decimal {
+func (r *resources) Millicpus() float64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.millicpus
+	return r.millicpus.InexactFloat64()
+}
+
+func (r *resources) MillicpusAsDecimal() decimal.Decimal {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.millicpus.Copy()
 }
 
 func (r *resources) SetMillicpus(millicpus decimal.Decimal) {
@@ -255,6 +326,14 @@ type resourcesWrapper struct {
 	pendingResources   *resources
 	committedResources *resources
 	specResources      *resources
+}
+
+func (r *resourcesWrapper) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return fmt.Sprintf("resourcesWrapper{%s, %s, %s, %s}",
+		r.idleResources.String(), r.pendingResources.String(), r.committedResources.String(), r.specResources.String())
 }
 
 func (r *resourcesWrapper) IdleResources() *resources {
@@ -323,23 +402,46 @@ type ResourceManager struct {
 }
 
 // NewResourceManager creates a new ResourceManager struct and returns a pointer to it.
-func NewResourceManager(resourceMetricsCallback resourceMetricsCallback) *ResourceManager {
+func NewResourceManager(resourceSpec types.Spec, resourceMetricsCallback resourceMetricsCallback) *ResourceManager {
 	manager := &ResourceManager{
 		id:                           uuid.NewString(),
-		allocationIdMap:              hashmap.NewCornelkMap[string, *gpuAllocation](16),
-		allocationKernelReplicaMap:   hashmap.NewCornelkMap[string, *gpuAllocation](16),
-		pendingAllocIdMap:            hashmap.NewCornelkMap[string, *gpuAllocation](16),
-		pendingAllocKernelReplicaMap: hashmap.NewCornelkMap[string, *gpuAllocation](16),
-		specGPUs:                     decimal.NewFromInt(gpus),
-		idleGPUs:                     decimal.NewFromInt(gpus), // Initially, all GPUs are idle.
-		committedGPUs:                ZeroDecimal.Copy(),       // Initially, there are 0 committed GPUs.
-		pendingGPUs:                  ZeroDecimal.Copy(),       // Initially, there are 0 pending GPUs.
+		allocationIdMap:              hashmap.NewCornelkMap[string, *ResourceAllocation](64),
+		allocationKernelReplicaMap:   hashmap.NewCornelkMap[string, *ResourceAllocation](64),
+		pendingAllocIdMap:            hashmap.NewCornelkMap[string, *ResourceAllocation](64),
+		pendingAllocKernelReplicaMap: hashmap.NewCornelkMap[string, *ResourceAllocation](64),
 		resourceMetricsCallback:      resourceMetricsCallback,
+	}
+
+	manager.resourcesWrapper = &resourcesWrapper{
+		idleResources: &resources{
+			resourceType: IdleResources,
+			millicpus:    decimal.NewFromFloat(resourceSpec.CPU()),
+			memoryMB:     decimal.NewFromFloat(resourceSpec.MemoryMB()),
+			gpus:         decimal.NewFromFloat(resourceSpec.GPU()),
+		},
+		pendingResources: &resources{
+			resourceType: PendingResources,
+			millicpus:    decimal.Zero.Copy(),
+			memoryMB:     decimal.Zero.Copy(),
+			gpus:         decimal.Zero.Copy(),
+		},
+		committedResources: &resources{
+			resourceType: CommittedResources,
+			millicpus:    decimal.Zero.Copy(),
+			memoryMB:     decimal.Zero.Copy(),
+			gpus:         decimal.Zero.Copy(),
+		},
+		specResources: &resources{
+			resourceType: SpecResources,
+			millicpus:    decimal.NewFromFloat(resourceSpec.CPU()),
+			memoryMB:     decimal.NewFromFloat(resourceSpec.MemoryMB()),
+			gpus:         decimal.NewFromFloat(resourceSpec.GPU()),
+		},
 	}
 
 	config.InitLogger(&manager.log, manager)
 
-	manager.log.Debug("GPU Manager initialized with %s GPUs.", manager.specGPUs.StringFixed(0))
+	manager.log.Debug("Resource Manager initialized: %v", manager.resourcesWrapper.String())
 
 	return manager
 }
