@@ -228,7 +228,7 @@ func (s *Float64Spec) Validate(requirement Spec) bool {
 	return s.GPU() >= requirement.GPU() && s.CPU() >= requirement.CPU() && s.MemoryMB() > requirement.MemoryMB()
 }
 
-func (s *Float64Spec) Clone() Spec {
+func (s *Float64Spec) Clone() CloneableSpec {
 	return &Float64Spec{
 		GPUs:     s.GPUs,
 		CPUs:     s.CPUs,

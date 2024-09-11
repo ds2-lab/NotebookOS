@@ -79,15 +79,15 @@ type SessionStatistics interface {
 type Session struct {
 	instance *Session
 
-	cluster           Cluster         // The Cluster in which this Session exists.
-	ctx               context.Context // The Session's context.
-	id                string          // Session/kernel ID.
-	sessionState      SessionState    // The current state of the Session.
-	trainingStart     time.Time       // Time at which the current training began.
-	migrationStart    time.Time       // Time at which the migration began.
-	containers        []*Container    // The kernel replicas belonging to this Session.
-	trainingContainer *Container      // The Container that is actively training.
-	resourceSpec      types.Spec      // The (current) resource requirements of the Session.
+	cluster           Cluster             // The Cluster in which this Session exists.
+	ctx               context.Context     // The Session's context.
+	id                string              // Session/kernel ID.
+	sessionState      SessionState        // The current state of the Session.
+	trainingStart     time.Time           // Time at which the current training began.
+	migrationStart    time.Time           // Time at which the migration began.
+	containers        []*Container        // The kernel replicas belonging to this Session.
+	trainingContainer *Container          // The Container that is actively training.
+	resourceSpec      types.CloneableSpec // The (current) resource requirements of the Session.
 
 	////////////////////////
 	// Session Statistics //
@@ -169,7 +169,7 @@ func (s *Session) AddReplica(container *Container) error {
 	return nil
 }
 
-func (s *Session) ResourceSpec() types.Spec {
+func (s *Session) ResourceSpec() types.CloneableSpec {
 	return s.resourceSpec
 }
 
