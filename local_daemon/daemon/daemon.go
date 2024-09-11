@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"net"
 	"os"
@@ -354,9 +353,38 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 			return in, status.Error(codes.Internal, err.Error())
 		}
 
-		d.prometheusManager.SpecGpuGaugeVec.
-			With(prometheus.Labels{"node_id": d.id}).
+		// Publish GPU resource metrics.
+		d.prometheusManager.IdleGpuGauge.
+			Set(d.resourceManager.IdleGPUs().InexactFloat64())
+		d.prometheusManager.PendingGpuGauge.
+			Set(d.resourceManager.PendingGPUs().InexactFloat64())
+		d.prometheusManager.CommittedGpuGauge.
+			Set(d.resourceManager.CommittedGPUs().InexactFloat64())
+		d.prometheusManager.SpecGpuGauge.
 			Set(d.resourceManager.SpecGPUs().InexactFloat64())
+
+		// Publish CPU resource metrics.
+		d.prometheusManager.IdleCpuGauge.
+			Set(d.resourceManager.IdleCPUs().InexactFloat64())
+		d.prometheusManager.PendingCpuGauge.
+			Set(d.resourceManager.PendingCPUs().InexactFloat64())
+		d.prometheusManager.CommittedCpuGauge.
+			Set(d.resourceManager.CommittedCPUs().InexactFloat64())
+		d.prometheusManager.SpecCpuGauge.
+			Set(d.resourceManager.SpecCPUs().InexactFloat64())
+
+		// Publish memory resource metrics.
+		d.prometheusManager.IdleMemoryGauge.
+			Set(d.resourceManager.IdleMemoryMB().InexactFloat64())
+		d.prometheusManager.PendingMemoryGauge.
+			Set(d.resourceManager.PendingMemoryMB().InexactFloat64())
+		d.prometheusManager.CommittedMemoryGauge.
+			Set(d.resourceManager.CommittedMemoryMB().InexactFloat64())
+		d.prometheusManager.SpecMemoryGauge.
+			Set(d.resourceManager.SpecMemoryMB().InexactFloat64())
+
+		d.prometheusManager.NumActiveKernelReplicasGauge.
+			Set(float64(d.kernels.Len()))
 
 		// We only call Done if we're creating the LocalDaemonPrometheusManager for the first time.
 		d.prometheusStarted.Done()
@@ -378,22 +406,39 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 
 		d.log.Debug("Beginning to publish metrics to Prometheus now. Interval: %v", d.prometheusInterval)
 
-		for {
-			time.Sleep(d.prometheusInterval)
-
-			d.prometheusManager.IdleGpuGaugeVec.
-				With(prometheus.Labels{"node_id": d.id}).
-				Set(d.resourceManager.IdleGPUs().InexactFloat64())
-			d.prometheusManager.PendingGpuGaugeVec.
-				With(prometheus.Labels{"node_id": d.id}).
-				Set(d.resourceManager.PendingGPUs().InexactFloat64())
-			d.prometheusManager.CommittedGpuGaugeVec.
-				With(prometheus.Labels{"node_id": d.id}).
-				Set(d.resourceManager.CommittedGPUs().InexactFloat64())
-			d.prometheusManager.SpecGpuGaugeVec.
-				With(prometheus.Labels{"node_id": d.id}).
-				Set(d.resourceManager.SpecGPUs().InexactFloat64())
-		}
+		//for {
+		//	time.Sleep(d.prometheusInterval)
+		//
+		//	// Publish GPU resource metrics.
+		//	d.prometheusManager.IdleGpuGauge.
+		//		Set(d.resourceManager.IdleGPUs().InexactFloat64())
+		//	d.prometheusManager.PendingGpuGauge.
+		//		Set(d.resourceManager.PendingGPUs().InexactFloat64())
+		//	d.prometheusManager.CommittedGpuGauge.
+		//		Set(d.resourceManager.CommittedGPUs().InexactFloat64())
+		//	d.prometheusManager.SpecGpuGauge.
+		//		Set(d.resourceManager.SpecGPUs().InexactFloat64())
+		//
+		//	// Publish CPU resource metrics.
+		//	d.prometheusManager.IdleCpuGauge.
+		//		Set(d.resourceManager.IdleCPUs().InexactFloat64())
+		//	d.prometheusManager.PendingCpuGauge.
+		//		Set(d.resourceManager.PendingCPUs().InexactFloat64())
+		//	d.prometheusManager.CommittedCpuGauge.
+		//		Set(d.resourceManager.CommittedCPUs().InexactFloat64())
+		//	d.prometheusManager.SpecCpuGauge.
+		//		Set(d.resourceManager.SpecCPUs().InexactFloat64())
+		//
+		//	// Publish memory resource metrics.
+		//	d.prometheusManager.IdleMemoryGauge.
+		//		Set(d.resourceManager.IdleMemoryMB().InexactFloat64())
+		//	d.prometheusManager.PendingMemoryGauge.
+		//		Set(d.resourceManager.PendingMemoryMB().InexactFloat64())
+		//	d.prometheusManager.CommittedMemoryGauge.
+		//		Set(d.resourceManager.CommittedMemoryMB().InexactFloat64())
+		//	d.prometheusManager.SpecMemoryGauge.
+		//		Set(d.resourceManager.SpecMemoryMB().InexactFloat64())
+		//}
 	}()
 }
 
@@ -1255,6 +1300,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	kernelClientCreationChannel <- info
 
 	d.prometheusManager.TotalNumKernelsCounter.Inc()
+	d.prometheusManager.NumActiveKernelReplicasGauge.Add(1)
 
 	return info, nil
 }

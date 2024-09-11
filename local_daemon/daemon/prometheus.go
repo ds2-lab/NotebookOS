@@ -162,7 +162,7 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	// CPU resource metrics.
 	m.IdleCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
-		Name:      "idle_millicpus_total",
+		Name:      "idle_millicpus",
 		Help:      "Idle CPUs available on a Local Daemon",
 	}, []string{"node_id"})
 	m.SpecCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -228,50 +228,83 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	// Miscellaneous metrics.
 	m.NumActiveKernelReplicasGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
-		Name:      "num_active_kernels",
+		Name:      "active_sessions",
 		Help:      "Number of kernel replicas scheduled on a Local Daemon",
 	}, []string{"node_id"})
 	m.TotalNumKernelsCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
-		Name:      "num_kernels_total",
+		Name:      "sessions_total",
 		Help:      "Total number of kernel replicas to have ever been scheduled/created",
 	}, []string{"node_id"})
 	m.NumTrainingEventsCompletedCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
-		Name:      "num_training_events_completed_total",
+		Name:      "training_events_completed_total",
 		Help:      "The number of training events that have completed successfully",
 	}, []string{"node_id"})
 
+	// Register GPU resource metrics.
 	if err := prometheus.Register(m.IdleGpuGaugeVec); err != nil {
 		m.log.Error("Failed to register Idle GPUs metric because: %v", err)
 		return err
 	}
-
 	if err := prometheus.Register(m.SpecGpuGaugeVec); err != nil {
 		m.log.Error("Failed to register Spec GPUs metric because: %v", err)
 		return err
 	}
-
 	if err := prometheus.Register(m.CommittedGpuGaugeVec); err != nil {
 		m.log.Error("Failed to register Committed GPUs metric because: %v", err)
 		return err
 	}
-
 	if err := prometheus.Register(m.PendingGpuGaugeVec); err != nil {
 		m.log.Error("Failed to register Pending GPUs metric because: %v", err)
 		return err
 	}
 
+	// Register CPU resource metrics.
+	if err := prometheus.Register(m.IdleCpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Idle GPUs metric because: %v", err)
+		return err
+	}
+	if err := prometheus.Register(m.SpecCpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Spec GPUs metric because: %v", err)
+		return err
+	}
+	if err := prometheus.Register(m.CommittedCpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Committed GPUs metric because: %v", err)
+		return err
+	}
+	if err := prometheus.Register(m.PendingCpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Pending GPUs metric because: %v", err)
+		return err
+	}
+
+	// Register memory resource metrics.
+	if err := prometheus.Register(m.IdleMemoryGaugeVec); err != nil {
+		m.log.Error("Failed to register Idle GPUs metric because: %v", err)
+		return err
+	}
+	if err := prometheus.Register(m.SpecMemoryGaugeVec); err != nil {
+		m.log.Error("Failed to register Spec GPUs metric because: %v", err)
+		return err
+	}
+	if err := prometheus.Register(m.CommittedMemoryGaugeVec); err != nil {
+		m.log.Error("Failed to register Committed GPUs metric because: %v", err)
+		return err
+	}
+	if err := prometheus.Register(m.PendingMemoryGaugeVec); err != nil {
+		m.log.Error("Failed to register Pending GPUs metric because: %v", err)
+		return err
+	}
+
+	// Register miscellaneous metrics.
 	if err := prometheus.Register(m.NumActiveKernelReplicasGaugeVec); err != nil {
 		m.log.Error("Failed to register 'Number of Active Kernel Replicas' metric because: %v", err)
 		return err
 	}
-
 	if err := prometheus.Register(m.TotalNumKernelsCounterVec); err != nil {
 		m.log.Error("Failed to register 'Total Number of Kernels' metric because: %v", err)
 		return err
 	}
-
 	if err := prometheus.Register(m.NumTrainingEventsCompletedCounterVec); err != nil {
 		m.log.Error("Failed to register 'Training Events Completed' metric because: %v", err)
 		return err

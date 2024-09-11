@@ -137,19 +137,19 @@ func (m *GatewayPrometheusManager) Stop() error {
 func (m *GatewayPrometheusManager) initMetrics() error {
 	m.NumActiveKernelReplicasGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
-		Name:      "num_active_kernels",
+		Name:      "active_sessions",
 		Help:      "Number of actively-running kernels within the cluster",
 	}, []string{"node_id"})
 
 	m.TotalNumKernels = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
-		Name:      "total_num_kernels",
+		Name:      "sessions_total",
 		Help:      "Total number of kernels to have ever been created within the cluster",
 	}, []string{"node_id"})
 
 	m.NumTrainingEventsCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
-		Name:      "num_training_events_completed",
+		Name:      "training_events_completed_total",
 		Help:      "The number of training events that have completed successfully",
 	}, []string{"node_id"})
 

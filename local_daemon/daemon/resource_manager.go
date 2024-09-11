@@ -1216,6 +1216,9 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 		panic(err)
 	}
 
+	// Store the allocation in the mapping.
+	m.allocationKernelReplicaMap.Store(key, allocation)
+
 	// Update the pending/committed allocation counters.
 	m.numPendingAllocations.Incr()
 
