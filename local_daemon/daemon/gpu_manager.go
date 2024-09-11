@@ -23,9 +23,9 @@ var (
 	ZeroDecimal = decimal.NewFromFloat(0.0)
 )
 
-// resourceMetricsCallback is a callback function that is supposed to be triggered whenever resources
+// gpuResourceMetricsCallback is a callback function that is supposed to be triggered whenever resources
 // are allocated or deallocated so that the associated Prometheus metrics can be updated accordingly.
-type resourceMetricsCallback func(idleGpus float64, pendingGpus float64, committedGpus float64)
+type gpuResourceMetricsCallback func(idleGpus float64, pendingGpus float64, committedGpus float64)
 
 // gpuAllocation represents an allocation of GPU resources to a particular replica.
 type gpuAllocation struct {
@@ -73,11 +73,11 @@ type GpuManager struct {
 	committedGPUs decimal.Decimal // The number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
 	pendingGPUs   decimal.Decimal // GPUs that have been reserved for a replica that may or may not win its election. These cannot be allocated to another replica until the replica in question loses its election.
 
-	resourceMetricsCallback resourceMetricsCallback
+	gpuResourceMetricsCallback gpuResourceMetricsCallback
 }
 
 // NewGpuManager creates and return a new GPU Manager.
-func NewGpuManager(gpus int64, resourceMetricsCallback resourceMetricsCallback) *GpuManager {
+func NewGpuManager(gpus int64, gpuResourceMetricsCallback gpuResourceMetricsCallback) *GpuManager {
 	manager := &GpuManager{
 		id:                           uuid.NewString(),
 		allocationIdMap:              hashmap.NewCornelkMap[string, *gpuAllocation](16),
@@ -88,7 +88,7 @@ func NewGpuManager(gpus int64, resourceMetricsCallback resourceMetricsCallback) 
 		idleGPUs:                     decimal.NewFromInt(gpus), // Initially, all GPUs are idle.
 		committedGPUs:                ZeroDecimal.Copy(),       // Initially, there are 0 committed GPUs.
 		pendingGPUs:                  ZeroDecimal.Copy(),       // Initially, there are 0 pending GPUs.
-		resourceMetricsCallback:      resourceMetricsCallback,
+		gpuResourceMetricsCallback:   gpuResourceMetricsCallback,
 	}
 
 	config.InitLogger(&manager.log, manager)
@@ -269,7 +269,7 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 		numGPUs.StringFixed(0), replicaId, kernelId, m.idleGPUs.StringFixed(0), m.pendingGPUs.StringFixed(0), m.committedGPUs.StringFixed(0))
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
+	m.gpuResourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
 
 	return nil
 }
@@ -309,7 +309,7 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 		numGPUs.StringFixed(0), replicaId, kernelId, idle, pending)
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback(idle, pending, m.committedGPUs.InexactFloat64())
+	m.gpuResourceMetricsCallback(idle, pending, m.committedGPUs.InexactFloat64())
 
 	return nil
 }
@@ -397,7 +397,7 @@ func (m *GpuManager) __unsafeReleasePendingGPUs(replicaId int32, kernelId string
 	}
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
+	m.gpuResourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
 
 	return nil
 }
@@ -433,7 +433,7 @@ func (m *GpuManager) __unsafeTryDeallocatePendingGPUs(replicaId int32, kernelId 
 		m.log.Debug("Deallocated %s pending GPU(s) from replica %d of kernel %s.", pendingAllocation.numGPUs.StringFixed(0), replicaId, kernelId)
 
 		// Update Prometheus metrics.
-		m.resourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
+		m.gpuResourceMetricsCallback(m.idleGPUs.InexactFloat64(), m.pendingGPUs.InexactFloat64(), m.committedGPUs.InexactFloat64())
 
 		return pendingAllocation, true
 	} else {
