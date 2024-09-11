@@ -415,11 +415,11 @@ func (d *SchedulerDaemonImpl) updatePrometheusGpuMetrics(idleGpus float64, pendi
 func (d *SchedulerDaemonImpl) updatePrometheusResourceMetrics(resources ResourceStateWrapper) {
 	// CPU resource metrics.
 	d.prometheusManager.IdleCpuGauge.
-		Set(resources.IdleResources().CPUs())
+		Set(resources.IdleResources().Millicpus())
 	d.prometheusManager.PendingCpuGauge.
-		Set(resources.PendingResources().CPUs())
+		Set(resources.PendingResources().Millicpus())
 	d.prometheusManager.CommittedCpuGauge.
-		Set(resources.CommittedResources().CPUs())
+		Set(resources.CommittedResources().Millicpus())
 
 	// Memory resource metrics.
 	d.prometheusManager.IdleMemoryGauge.
@@ -2060,7 +2060,15 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 
 		d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
 		// err := d.resourceManager.AllocateGPUs(decimal.NewFromFloat(kernelReplicaClient.ResourceSpec().GPU()), kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID())
-		if err := d.resourceManager.CommitResources(kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID()); err != nil {
+
+		// We pass the ResourceSpec, which for now should be identical to the resource request already stored within the ResourceManager.
+		// However, we may eventually submit updated resource requests on a per-training-event basis, so we just want the API to
+		// support being able to adjust the resource requests dynamically.
+		//
+		// TODO: Verify that all the cases in which the ResourceManager panics are legitimately panic-worthy, rather than scenarios
+		// that could arise during regular operation and should just be handled using the failure handler of whatever
+		// scheduling procedure we have in place.
+		if err := d.resourceManager.CommitResources(kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), kernelReplicaClient.ResourceSpec()); err != nil {
 			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
 			panic(err) // TODO(Ben): Handle gracefully.
 		}

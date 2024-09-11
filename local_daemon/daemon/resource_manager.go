@@ -627,6 +627,9 @@ func (r *resourcesWrapper) SpecResources() ResourceState {
 //
 // In general, ResourceManager elects to work with *types.DecimalSpec structs internally, rather than arbitrary
 // types.Spec interface instances, as ResourceManager stores its own state in decimal.Decimal structs.
+// TODO: Verify that all the cases in which the ResourceManager panics are legitimately panic-worthy, rather than scenarios
+// that could arise during regular operation and should just be handled using the failure handler of whatever
+// scheduling procedure we have in place.
 type ResourceManager struct {
 	mu sync.Mutex
 
