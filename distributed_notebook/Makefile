@@ -37,7 +37,7 @@ prepare-smr-linux-amd64: prepare-smr_linux_amd64.go
 	@echo "PYTHON3_LIB_PATH_ESCAPED: $(PYTHON3_LIB_PATH_ESCAPED)"
 # We don't use -i because it may cause permission problem with created temporary file.
 	sed -Ei 's/^#cgo CFLAGS:(.*)/#cgo CFLAGS: -I$(PYTHON3_INCLUDES_PATH_ESCAPED) -ggdb3 -Wall -O0 -Wno-error -Wno-implicit-function-declaration -Wno-int-conversion/' smr/smr_linux_amd64.go
-	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_LIB_PATH_ESCAPED) -ggdb3 -lpython3.11d -lcrypt -lpthread -ldl -lutil -lm/' smr/smr_linux_amd64.go
+	sed -Ei 's/^#cgo LDFLAGS:(.*)/#cgo LDFLAGS: -L$(PYTHON3_LIB_PATH_ESCAPED) -ggdb3 -lpython3.12d -lcrypt -lpthread -ldl -lutil -lm/' smr/smr_linux_amd64.go
 	sed -i -e 's/\(CFLAGS = "[^"]*\)"/\1 -ggdb3 -Wall -O0"/' ../distributed_notebook/smr/Makefile
 
 build-init:

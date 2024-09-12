@@ -7,28 +7,28 @@ _GOPATH=$(shell go env GOPATH)
 all: build
 
 replica:
-	python3.11 -X faulthandler -m distributed_notebook.demo_replica $(PARAMS)
+	$PYTHON -X faulthandler -m distributed_notebook.demo_replica $(PARAMS)
 
 debug-training-all:
-	python3.11 -m distributed_notebook.demo distributed_notebook/demo/script/training.py distributed_notebook/demo/script/training1.py
+	$PYTHON -m distributed_notebook.demo distributed_notebook/demo/script/training.py distributed_notebook/demo/script/training1.py
 
 debug-training:
-	python3.11 -X faulthandler -m distributed_notebook.demo $(PARAMS) distributed_notebook/demo/script/training.py
+	$PYTHON -X faulthandler -m distributed_notebook.demo $(PARAMS) distributed_notebook/demo/script/training.py
 
 debug-training1:
-	python3.11 -X faulthandler -m distributed_notebook.demo --resume $(PARAMS) distributed_notebook/demo/script/training1.py
+	$PYTHON -X faulthandler -m distributed_notebook.demo --resume $(PARAMS) distributed_notebook/demo/script/training1.py
 
 python-demo-all:
-	python3.11 -m distributed_notebook.demo distributed_notebook/demo/script/script.py distributed_notebook/demo/script/script2.py
+	$PYTHON -m distributed_notebook.demo distributed_notebook/demo/script/script.py distributed_notebook/demo/script/script2.py
 
 python-demo-step1:
-	python3.11 -m distributed_notebook.demo distributed_notebook/demo/script/script.py
+	$PYTHON -m distributed_notebook.demo distributed_notebook/demo/script/script.py
 
 python-demo-step2:
-	python3.11 -m distributed_notebook.demo --resume distributed_notebook/demo/script/script2.py
+	$PYTHON -m distributed_notebook.demo --resume distributed_notebook/demo/script/script2.py
 
 python-demo-step3:
-	python3.11 -m distributed_notebook.demo --resume distributed_notebook/demo/script/script3.py
+	$PYTHON -m distributed_notebook.demo --resume distributed_notebook/demo/script/script3.py
 
 build: build-darwin
 
@@ -77,7 +77,7 @@ build-grpc-go:
 # common/driver/driver.proto 
 
 build-grpc-python:
-	python3.11 -m grpc_tools.protoc -Icommon/proto \
+	$PYTHON -m grpc_tools.protoc -Icommon/proto \
   	--python_out=distributed_notebook/gateway \
 		--grpc_python_out=distributed_notebook/gateway \
     common/proto/gateway.proto
@@ -88,7 +88,7 @@ else
 endif 
 
 # We probably don't need the Python gRPC bindings.
-# 	python3.11 -m grpc_tools.protoc -Icommon/driver \
+# 	$PYTHON -m grpc_tools.protoc -Icommon/driver \
 #   	--python_out=distributed_notebook/driver \
 # 		--grpc_python_out=distributed_notebook/driver \
 #     common/driver/driver.proto

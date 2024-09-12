@@ -46,6 +46,13 @@ type GatewayPrometheusManager struct {
 	// NumTrainingEventsCompleted is the number of training events that have completed successfully.
 	NumTrainingEventsCompleted *prometheus.CounterVec
 
+	// JupyterTrainingStartLatency is a metric tracking the latency between when an
+	// "execute_request" message is sent and when the first "execute_reply" is received.
+	//
+	// The latency is observed from the Golang-based Jupyter client, and the units
+	// of the metric are seconds.
+	JupyterTrainingStartLatency *prometheus.HistogramVec
+
 	gatewayDaemon *ClusterGatewayImpl
 }
 
@@ -151,7 +158,13 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 		Namespace: "distributed_cluster",
 		Name:      "training_events_completed_total",
 		Help:      "The number of training events that have completed successfully",
-	}, []string{"node_id"})
+	}, []string{"node_id", "workload_id"})
+
+	m.JupyterTrainingStartLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Subsystem: "jupyter",
+		Name:      "session_training_start_latency_seconds",
+	}, []string{"workload_id"})
 
 	if err := prometheus.Register(m.NumActiveKernelReplicasGauge); err != nil {
 		m.log.Error("Failed to register 'Number of Active Kernel Replicas' metric because: %v", err)
@@ -165,6 +178,11 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 
 	if err := prometheus.Register(m.NumTrainingEventsCompleted); err != nil {
 		m.log.Error("Failed to register 'Training Events Completed' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.JupyterTrainingStartLatency); err != nil {
+		m.log.Error("Failed to register 'Jupyter Training Start Latency' metric because: %v", err)
 		return err
 	}
 

@@ -56,7 +56,7 @@ const (
 
 	// IdleResources can overlap with pending resources. These are resources that are not actively bound
 	// to any containers/replicas. They are available for use by a locally-running container/replica.
-	IdleResources ResourceType = "idle"
+	IdleResources ResourceStatus = "idle"
 
 	// PendingResources are "subscribed to" by a locally-running container/replica; however, they are not
 	// bound to that container/replica, and thus are available for use by any of the locally-running replicas.
@@ -64,16 +64,39 @@ const (
 	// Pending resources indicate the presence of locally-running replicas that are not actively training.
 	// The sum of all pending resources on a node is the amount of resources that would be required if all
 	// locally-scheduled replicas began training at the same time.
-	PendingResources ResourceType = "pending"
+	PendingResources ResourceStatus = "pending"
 
 	// CommittedResources are actively bound/committed to a particular, locally-running container.
 	// As such, they are unavailable for use by any other locally-running replicas.
-	CommittedResources ResourceType = "committed"
+	CommittedResources ResourceStatus = "committed"
 
 	// SpecResources are the total allocatable resources available on the Host.
 	// SpecResources are a static, fixed quantity. They do not change in response to resource (de)allocations.
-	SpecResources ResourceType = "spec"
+	SpecResources ResourceStatus = "spec"
+
+	// NoResource is a sort of default value for ResourceKind.
+	NoResource ResourceKind = "N/A"
+	CPU        ResourceKind = "CPU"
+	GPU        ResourceKind = "GPU"
+	Memory     ResourceKind = "Memory"
+
+	// NegativeResourceQuantity indicates that the inconsistent/invalid resource is
+	// inconsistent/invalid because its quantity is negative.
+	NegativeResourceQuantity ResourceInconsistency = "negative_quantity"
+
+	// ResourceQuantityGreaterThanSpec indicates that the inconsistent/invalid resource
+	// is inconsistent/invalid because its quantity is greater than that of the scheduling.Host
+	// instances types.Spec quantity.
+	ResourceQuantityGreaterThanSpec ResourceInconsistency = "quantity_greater_than_spec"
 )
+
+// ResourceKind can be one of CPU, GPU, or Memory
+type ResourceKind string
+
+// ResourceInconsistency defines the various ways in which resources can be in an inconsistent or illegal state.
+// Examples include a resource being negative, a resource quantity being larger than the total available resources
+// of that kind on the node, and so on.
+type ResourceInconsistency string
 
 // getKey creates and returns a string of the form "<KernelID>-<ReplicaID>".
 // This is used as a key to various maps belonging to the ResourceManager.
@@ -123,9 +146,9 @@ type ResourceStateWrapper interface {
 // Meanwhile, ResourceStateWrapper exposes a collection of several ResourceState instances to provide a convenient
 // type for reading all the relevant state of a ResourceManager.
 type ResourceState interface {
-	// ResourceType returns the ResourceType of the resources encapsulated/made available for reading
+	// ResourceStatus returns the ResourceStatus of the resources encapsulated/made available for reading
 	// by this ResourceState instance.
-	ResourceType() ResourceType
+	ResourceStatus() ResourceStatus
 
 	// Millicpus returns the gpus as a float64.
 	// The units are millicpus, or 1/1000th of a CPU core.
@@ -156,10 +179,10 @@ type ResourceState interface {
 // are allocated or deallocated so that the associated Prometheus metrics can be updated accordingly.
 type resourceMetricsCallback func(resources ResourceStateWrapper)
 
-// ResourceType differentiates between idle, pending, committed, and spec resources.
-type ResourceType string
+// ResourceStatus differentiates between idle, pending, committed, and spec resources.
+type ResourceStatus string
 
-func (t ResourceType) String() string {
+func (t ResourceStatus) String() string {
 	return string(t)
 }
 
@@ -366,10 +389,123 @@ func (b *ResourceAllocationBuilder) BuildResourceAllocation() *ResourceAllocatio
 type resources struct {
 	sync.Mutex // Enables atomic access to each individual field.
 
-	resourceType ResourceType    // resourceType is the ResourceType represented/encoded by this struct.
+	resourceType ResourceStatus  // resourceType is the ResourceType represented/encoded by this struct.
 	millicpus    decimal.Decimal // millicpus is CPU in 1/1000th of CPU core.
 	gpus         decimal.Decimal // gpus is the number of GPUs.
 	memoryMB     decimal.Decimal // memoryMB is the amount of memory in MB.
+}
+
+// LessThan returns true if each field of the target 'resources' struct is strictly less than the corresponding field
+// of the other 'resources' struct.
+//
+// This method locks both 'resources' instances, beginning with the target instance.
+//
+// If any field of the target 'resources' struct is not less than the corresponding field of the other 'resources'
+// struct, then false is returned.
+//
+// The ResourceKind are checked in the following order: CPU, Memory, GPU.
+// The ResourceKind of the first offending quantity will be returned, along with false, based on that order.
+func (res *resources) LessThan(other *resources) (bool, ResourceKind) {
+	res.Lock()
+	defer res.Unlock()
+
+	other.Lock()
+	defer other.Unlock()
+
+	if !res.millicpus.LessThan(other.millicpus) {
+		return false, CPU
+	}
+
+	if !res.memoryMB.LessThan(other.memoryMB) {
+		return false, Memory
+	}
+
+	if !res.gpus.LessThan(other.gpus) {
+		return false, GPU
+	}
+
+	return true, NoResource
+}
+
+// LessThanOrEqual returns true if each field of the target 'resources' struct is less than or equal to the
+// corresponding field of the other 'resources' struct.
+//
+// This method locks both 'resources' instances, beginning with the target instance.
+//
+// If any field of the target 'resources' struct is not less than or equal to the corresponding field of the
+// other 'resources' struct, then false is returned.
+func (res *resources) LessThanOrEqual(other *resources) (bool, ResourceKind) {
+	res.Lock()
+	defer res.Unlock()
+
+	other.Lock()
+	defer other.Unlock()
+
+	if !res.millicpus.LessThanOrEqual(other.millicpus) {
+		return false, CPU
+	}
+
+	if !res.memoryMB.LessThanOrEqual(other.memoryMB) {
+		return false, Memory
+	}
+
+	if !res.gpus.LessThanOrEqual(other.gpus) {
+		return false, GPU
+	}
+
+	return true, NoResource
+}
+
+// GetResource returns a copy of the decimal.Decimal corresponding with the specified ResourceKind.
+//
+// This method is thread-safe.
+//
+// If kind is equal to NoResource, then this method will panic.
+func (res *resources) GetResource(kind ResourceKind) decimal.Decimal {
+	res.Lock()
+	defer res.Unlock()
+
+	if kind == CPU {
+		return res.millicpus.Copy()
+	}
+
+	if kind == Memory {
+		return res.memoryMB.Copy()
+	}
+
+	if kind == GPU {
+		return res.gpus.Copy()
+	}
+
+	panic(fmt.Sprintf("Invalid ResourceKind specified: \"%s\"", kind))
+}
+
+// HasNegativeField returns true if millicpus, gpus, or memoryMB is negative.
+// It also returns the ResourceKind of the negative field.
+//
+// This method is thread-safe.
+//
+// The resources are checked in the following order: CPU, Memory, GPU.
+// This method will return true and the associated ResourceKind for the first negative ResourceKind encountered.
+//
+// If no resources are negative, then this method returns false and NoResource.
+func (res *resources) HasNegativeField() (bool, ResourceKind) {
+	res.Lock()
+	defer res.Unlock()
+
+	if res.millicpus.IsNegative() {
+		return true, CPU
+	}
+
+	if res.memoryMB.IsNegative() {
+		return true, Memory
+	}
+
+	if res.gpus.IsNegative() {
+		return true, GPU
+	}
+
+	return false, NoResource
 }
 
 func (res *resources) String() string {
@@ -381,7 +517,7 @@ func (res *resources) String() string {
 		res.gpus.StringFixed(0), res.memoryMB.StringFixed(4))
 }
 
-func (res *resources) ResourceType() ResourceType {
+func (res *resources) ResourceStatus() ResourceStatus {
 	return res.resourceType
 }
 
@@ -472,7 +608,7 @@ func (res *resources) Add(spec *types.DecimalSpec) error {
 		return fmt.Errorf("%w: CPUs would be set to %s millicpus", ErrInvalidOperation, updatedCPUs.String())
 	}
 
-	updatedMemory := res.millicpus.Add(spec.MemoryMb)
+	updatedMemory := res.memoryMB.Add(spec.MemoryMb)
 	if updatedMemory.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: memory would be equal to %s megabytes", ErrInvalidOperation, updatedMemory.String())
 	}
@@ -1038,6 +1174,13 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 	// Update Prometheus metrics.
 	m.resourceMetricsCallback(m.resourcesWrapper)
 
+	// Make sure everything is OK with respect to our internal state/bookkeeping.
+	err := m.unsafePerformConsistencyCheck()
+	if err != nil {
+		m.log.Error("Discovered an inconsistency: %v", err)
+		return err
+	}
+
 	return nil
 }
 
@@ -1087,6 +1230,13 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 
 	// Update Prometheus metrics.
 	m.resourceMetricsCallback(m.resourcesWrapper)
+
+	// Make sure everything is OK with respect to our internal state/bookkeeping.
+	err := m.unsafePerformConsistencyCheck()
+	if err != nil {
+		m.log.Error("Discovered an inconsistency: %v", err)
+		return err
+	}
 
 	return nil
 }
@@ -1228,6 +1378,13 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 	// Update Prometheus metrics.
 	m.resourceMetricsCallback(m.resourcesWrapper)
 
+	// Make sure everything is OK with respect to our internal state/bookkeeping.
+	err := m.unsafePerformConsistencyCheck()
+	if err != nil {
+		m.log.Error("Discovered an inconsistency: %v", err)
+		return err
+	}
+
 	return nil
 }
 
@@ -1278,6 +1435,160 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 	}
 
 	m.numPendingAllocations.Decr()
+
+	// Make sure everything is OK with respect to our internal state/bookkeeping.
+	err := m.unsafePerformConsistencyCheck()
+	if err != nil {
+		m.log.Error("Discovered an inconsistency: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// InconsistentResourcesError is a custom error type used to indicate that some resource quantity within
+// the ResourceManager is in an inconsistent or invalid/illegal state.
+//
+// A InconsistentResourcesError contains the information to describe exactly what is wrong, in terms of which
+// quantity or quantities or involved, what the nature of the inconsistency or illegal state is, etc.
+type InconsistentResourcesError struct {
+	// ResourceKind indicates which kind of resource is in an inconsistent or invalid state.
+	ResourceKind ResourceKind
+
+	// ResourceStatus indicates which status of resource is in an inconsistent or invalid state.
+	ResourceStatus ResourceStatus
+
+	// ResourceInconsistency defines the various ways in which resources can be in an inconsistent or illegal state.
+	// Examples include a resource being negative, a resource quantity being larger than the total available resources
+	// of that kind on the node, and so on.
+	ResourceInconsistency ResourceInconsistency
+
+	// Quantity is the value of the inconsistent/invalid resource.
+	Quantity decimal.Decimal
+
+	// ReferenceQuantity is the value against which Quantity is being compared and, as a result, is in
+	// an invalid or inconsistent state.
+	//
+	// For example, if the CPU resource is in an invalid or inconsistent state with the ResourceInconsistency
+	// specified as ResourceQuantityGreaterThanSpec, then the ReferenceQuantity will be set to the appropriate
+	// Quantity of the associated scheduling.Host instance's types.Spec.
+	ReferenceQuantity decimal.Decimal
+
+	// ReferenceQuantityIsMeaningful indicates that the value of ReferenceQuantity is meaningful, and not just
+	// a default value used in cases where there is no ReferenceQuantity, such as when the Quantity is simply
+	// a negative number.
+	ReferenceQuantityIsMeaningful bool
+}
+
+// NewInconsistentResourcesError creates a new InconsistentResourcesError struct and returns a pointer to it.
+//
+// This function sets the ReferenceQuantityIsMeaningful field to false.
+func NewInconsistentResourcesError(kind ResourceKind, inconsistency ResourceInconsistency, status ResourceStatus,
+	quantity decimal.Decimal) *InconsistentResourcesError {
+
+	return &InconsistentResourcesError{
+		ResourceKind:                  kind,
+		ResourceInconsistency:         inconsistency,
+		Quantity:                      quantity,
+		ResourceStatus:                status,
+		ReferenceQuantity:             decimal.Zero.Copy(),
+		ReferenceQuantityIsMeaningful: false,
+	}
+}
+
+// NewInconsistentResourcesErrorWithResourceQuantity creates a new InconsistentResourcesError struct and
+// returns a pointer to it.
+//
+// This function sets the ReferenceQuantityIsMeaningful field to true.
+func NewInconsistentResourcesErrorWithResourceQuantity(kind ResourceKind, inconsistency ResourceInconsistency,
+	status ResourceStatus, quantity decimal.Decimal, referenceQuantity decimal.Decimal) *InconsistentResourcesError {
+
+	return &InconsistentResourcesError{
+		ResourceKind:                  kind,
+		ResourceInconsistency:         inconsistency,
+		Quantity:                      quantity,
+		ResourceStatus:                status,
+		ReferenceQuantity:             referenceQuantity,
+		ReferenceQuantityIsMeaningful: true,
+	}
+}
+
+// AsError returns the InconsistentResourcesError as an error.
+func (e *InconsistentResourcesError) AsError() error {
+	return e
+}
+
+func (e *InconsistentResourcesError) Error() string {
+	if e.ReferenceQuantityIsMeaningful {
+		return fmt.Sprintf("resource \"%s\" is an inconsistent or invalid state: \"%s\" (quantity=%s, referenceQuantity=%s)",
+			e.ResourceKind, e.ResourceInconsistency, e.Quantity, e.ReferenceQuantity)
+	} else {
+		return fmt.Sprintf("resource \"%s\" is an inconsistent or invalid state: \"%s\" (quantity=%s)",
+			e.ResourceKind, e.ResourceInconsistency, e.Quantity)
+	}
+}
+
+// unsafePerformConsistencyCheck validates that all the internal resource counters have valid values with respect
+// to one another. For example, this function ensures that the pending, idle, and committed resource counts for
+// cpu, memory, and gpus do not exceed the spec resource amounts, and that no values are negative.
+//
+// The resource quantities are checked in the following order: CPU, Memory, GPU.
+// If any resource is found to be inconsistent, then a InconsistentResourcesError will be returned.
+// The InconsistentResourcesError will be in reference to the first inconsistent quantity encountered when
+// checking the resource quantities in the aforementioned order.
+//
+// Important: unsafePerformConsistencyCheck does not acquire the main mutex of the ResourceManager and thus
+// must be called from a context in which the main mutex has already been acquired.
+//
+// If no resource quantities are inconsistent, then this method will return nil.
+func (m *ResourceManager) unsafePerformConsistencyCheck() error {
+	////////////////////////////////////////////
+	// Check that everything is non-negative. //
+	////////////////////////////////////////////
+
+	// Idle resources.
+	hasNegative, kind := m.resourcesWrapper.idleResources.HasNegativeField()
+	if hasNegative {
+		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, IdleResources, m.resourcesWrapper.idleResources.GetResource(kind))
+	}
+
+	// Pending resources.
+	hasNegative, kind = m.resourcesWrapper.pendingResources.HasNegativeField()
+	if hasNegative {
+		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, PendingResources, m.resourcesWrapper.idleResources.GetResource(kind))
+	}
+
+	// Committed resources.
+	hasNegative, kind = m.resourcesWrapper.committedResources.HasNegativeField()
+	if hasNegative {
+		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, CommittedResources, m.resourcesWrapper.idleResources.GetResource(kind))
+	}
+
+	// Spec resources.
+	hasNegative, kind = m.resourcesWrapper.specResources.HasNegativeField()
+	if hasNegative {
+		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, SpecResources, m.resourcesWrapper.idleResources.GetResource(kind))
+	}
+
+	////////////////////////////////////////////////////////////////////////////////////////
+	// Check that the idle and committed resources are no larger than the spec resources. //
+	////////////////////////////////////////////////////////////////////////////////////////
+
+	// Idle resources <= Spec resources.
+	isOkay, offendingKind := m.resourcesWrapper.idleResources.LessThanOrEqual(m.resourcesWrapper.specResources)
+	if !isOkay {
+		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, ResourceQuantityGreaterThanSpec,
+			SpecResources, m.resourcesWrapper.idleResources.GetResource(offendingKind),
+			m.resourcesWrapper.specResources.GetResource(offendingKind))
+	}
+
+	// Committed resources <= spec resources.
+	isOkay, offendingKind = m.resourcesWrapper.committedResources.LessThanOrEqual(m.resourcesWrapper.specResources)
+	if !isOkay {
+		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, ResourceQuantityGreaterThanSpec,
+			SpecResources, m.resourcesWrapper.committedResources.GetResource(offendingKind),
+			m.resourcesWrapper.specResources.GetResource(offendingKind))
+	}
 
 	return nil
 }

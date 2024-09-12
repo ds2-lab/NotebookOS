@@ -27,7 +27,7 @@ num-resource-ports: 16
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter
-notebook-image-tag: latest
+notebook-image-tag: python3.12.6
 scheduler-http-port: 8078
 scheduling-policy: static
 subscribed-ratio-update-interval: 1

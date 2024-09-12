@@ -19,7 +19,7 @@ services:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: scusemua/jupyter-debug:latest
+    image: scusemua/jupyter-debug:python3.12.6
     labels:
       app: "distributed_cluster"
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
@@ -90,6 +90,8 @@ services:
     container_name: prometheus
     restart: unless-stopped
     user: "1000:1000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # depends_on:
     #   init-prometheus:
     #     condition: service_completed_successfully
@@ -98,7 +100,7 @@ services:
     image: grafana/grafana-enterprise:latest
     container_name: grafana
     ports:
-      - 3000:3000
+      - "3000:3000"
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=scusemua

@@ -16,10 +16,9 @@ scrape_configs:
   scrape_timeout: 5s
   metrics_path: /prometheus
   scheme: http
-#  static_configs:
-#    - targets:
-#      - localhost:8500
-#      - gateway:8089
+  static_configs:
+    - targets:
+      - host.docker.internal:8000
   dns_sd_configs:
     - names:
         - gateway

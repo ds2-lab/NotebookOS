@@ -1615,18 +1615,31 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		return err
 	}
 
+	var shouldReleaseResources bool
 	if msgErr.Status == jupyter.MessageStatusOK {
 		d.log.Debug("Status of \"execute_reply\" message from replica %d of kernel %s is OK.", kernelClient.ReplicaID(), kernelClient.ID())
-	} else {
+		shouldReleaseResources = true // Replica was leader and is done executing.
+	} else if msgErr.Status == jupyter.MessageStatusError {
 		d.log.Warn("Status of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status, msgErr.String())
+
+		// Since there was an error, we should only release resources if the error occurred while
+		// executing the user-submitted Python code.
+		//
+		// If the returned error is ExecutionYieldError, then the replica did not lead the execution,
+		// and therefore it will not have any resources committed to it.
+		shouldReleaseResources = msgErr.ErrName != jupyter.MessageErrYieldExecution
+	} else {
+		d.log.Error("Unexpected message status in \"execute_reply\" message from replica %d of kernel %s: \"%s\"", kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status)
 	}
 
 	//err = d.resourceManager.ReleaseAllocatedGPUs(kernelClient.ReplicaID(), kernel.ID())
 
 	// Release any resources committed to the kernel replica, as it is done training and does not need the resources
 	// to be actively-bound/committed to it anymore.
-	if err := d.resourceManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil {
-		d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernelClient.ReplicaID(), kernel.ID(), err)
+	if shouldReleaseResources {
+		if err = d.resourceManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil {
+			d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernelClient.ReplicaID(), kernel.ID(), err)
+		}
 	}
 
 	d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()

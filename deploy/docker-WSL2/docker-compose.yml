@@ -123,13 +123,15 @@ services:
     depends_on:
       init-prometheus:
         condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   grafana:
     platform: linux/amd64
     image: grafana/grafana-enterprise:latest
     container_name: grafana
     ports:
-      - 3000:3000
+      - "3000:3000"
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=scusemua
