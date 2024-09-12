@@ -1000,7 +1000,25 @@ func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ
 
 				if c.activeExecution != nil {
 					if c.activeExecution.HasValidOriginalSentTimestamp() {
-						latency := time.Since(c.activeExecution.OriginalSentTimestamp())
+						var (
+							leadMessage types.MessageSMRLeadTask
+							latency     time.Duration
+						)
+
+						frames := types.JupyterFrames(msg.Frames[msg.Offset:])
+						if err := frames.DecodeContent(&leadMessage); err != nil {
+							c.log.Error("Failed to decode content of SMR Lead ZMQ message: %v", err)
+
+							// Since we can't get the exact value, we'll approximate it using the current timestamp.
+							latency = time.Since(c.activeExecution.OriginalSentTimestamp())
+						} else {
+							startedProcessingAt := time.UnixMilli(leadMessage.UnixMilliseconds)
+
+							// Difference between when the code began executing in the kernel and when the
+							// associated "execute_request" message was actually sent.
+							latency = startedProcessingAt.Sub(c.activeExecution.OriginalSentTimestamp())
+						}
+
 						c.log.Debug("Time elapsed between submission and starting to execute user's code: %v", latency)
 
 						if !c.activeExecution.HasValidWorkloadId() {

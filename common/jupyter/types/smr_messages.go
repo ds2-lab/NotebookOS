@@ -49,6 +49,11 @@ func (m MessageSMRNodeUpdated) String() string {
 
 type MessageSMRLeadTask struct {
 	GPURequired bool `json:"gpu"`
+
+	// UnixMilliseconds is the Unix epoch time in milliseconds at which the "smr_lead_task" notification
+	// message was created (and thus approximates when it was sent and when the kernel began executing
+	// the user's code).
+	UnixMilliseconds int64 `json:"unix_milliseconds"`
 }
 
 type MessageSMRLeadAfterYield struct {

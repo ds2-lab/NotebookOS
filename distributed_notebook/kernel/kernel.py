@@ -1030,7 +1030,7 @@ class DistributedKernel(IPythonKernel):
             # Notify the client that we will lead the execution.
             # TODO: Eventually, we could pass "gpu" as True or False depending on whether we really
             #       do need GPUs for this training task, assuming we'd know about that here.
-            self.session.send(self.iopub_socket, "smr_lead_task", {"gpu": True}, ident=self._topic("smr_lead_task"))  # type: ignore
+            self.session.send(self.iopub_socket, "smr_lead_task", {"gpu": True, "unix_milliseconds": time.time_ns() // 1_000_000}, ident=self._topic("smr_lead_task"))  # type: ignore
 
             self.log.debug("Executing the following code now: %s" % code)
 
