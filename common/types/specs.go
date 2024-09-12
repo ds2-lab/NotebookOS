@@ -110,9 +110,9 @@ func ToDecimalSpec(spec Spec) *DecimalSpec {
 	}
 
 	return &DecimalSpec{
-		GPUs:      decimal.NewFromFloat(spec.GPU()),
 		Millicpus: decimal.NewFromFloat(spec.CPU()),
 		MemoryMb:  decimal.NewFromFloat(spec.MemoryMB()),
+		GPUs:      decimal.NewFromFloat(spec.GPU()),
 	}
 }
 
@@ -240,9 +240,9 @@ func (s *Float64Spec) Clone() CloneableSpec {
 // *proto.KernelReplicaSpec to a *Float64Spec and returns the resulting *Float64Spec.
 func FullSpecFromKernelReplicaSpec(in *proto.KernelReplicaSpec) *Float64Spec {
 	return &Float64Spec{
-		GPUs:     GPUSpec(in.Kernel.ResourceSpec.Gpu),
 		CPUs:     float64(in.Kernel.ResourceSpec.Cpu),
 		MemoryMb: float64(in.Kernel.ResourceSpec.Memory),
+		GPUs:     GPUSpec(in.Kernel.ResourceSpec.Gpu),
 	}
 }
 
@@ -250,8 +250,8 @@ func FullSpecFromKernelReplicaSpec(in *proto.KernelReplicaSpec) *Float64Spec {
 // *proto.KernelSpec to a *Float64Spec and returns the resulting *Float64Spec.
 func FullSpecFromKernelSpec(in *proto.KernelSpec) *Float64Spec {
 	return &Float64Spec{
-		GPUs:     GPUSpec(in.ResourceSpec.Gpu),
 		CPUs:     float64(in.ResourceSpec.Cpu),
 		MemoryMb: float64(in.ResourceSpec.Memory),
+		GPUs:     GPUSpec(in.ResourceSpec.Gpu),
 	}
 }

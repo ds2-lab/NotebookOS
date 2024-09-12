@@ -1728,10 +1728,10 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		container.SetDockerContainerID(dockerContainerId.(string))
 	}
 
-	d.log.Debug("Adding replica for kernel %s, replica %d on host %s.", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID())
+	d.log.Debug("Adding replica for kernel %s, replica %d on host %s. Resource spec: %v", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID(), replicaSpec.Kernel.ResourceSpec)
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
-		panic(fmt.Sprintf("interactivePriorityBase::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("KernelReplicaClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaId, in.KernelId, waitGroup.NumReplicas())
@@ -1893,16 +1893,16 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 		panic(err)
 	}
 
-	d.log.Debug("Validating new interactivePriorityBase for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("Validating new KernelReplicaClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := replica.Validate()
 	if err != nil {
-		panic(fmt.Sprintf("interactivePriorityBase::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("KernelReplicaClient::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
-	d.log.Debug("Adding Replica interactivePriorityBase for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("Adding Replica replica for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
-		panic(fmt.Sprintf("interactivePriorityBase::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("KernelReplicaClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// The replica is fully operational at this point, so record that it is ready.
@@ -1912,7 +1912,8 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	waitGroup.SetReplica(replicaId, kernelIp)
 
 	waitGroup.Register()
-	d.log.Debug("Done registering interactivePriorityBase for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("Done registering KernelReplicaClient for kernel %s, replica %d on host %s. Resource spec: %v",
+		kernelId, replicaId, hostId, kernelSpec.ResourceSpec)
 	d.log.Debug("WaitGroup for Kernel \"%s\": %s", kernelId, waitGroup.String())
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
 	waitGroup.WaitRegistered()
@@ -2792,7 +2793,7 @@ func (d *ClusterGatewayImpl) cleanUp() {
 	close(d.cleaned)
 }
 
-// func (d *ClusterGatewayImpl) closeReplica(host *scheduling.Host, kernel *client.DistributedKernelClient, replica *client.interactivePriorityBase, replicaId int, reason string) {
+// func (d *ClusterGatewayImpl) closeReplica(host *scheduling.Host, kernel *client.DistributedKernelClient, replica *client.KernelReplicaClient, replicaId int, reason string) {
 // 	defer replica.Close()
 
 // 	if err := d.placer.Reclaim(host, kernel, false); err != nil {

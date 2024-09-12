@@ -600,21 +600,21 @@ func (res *resources) Add(spec *types.DecimalSpec) error {
 
 	updatedCPUs := res.millicpus.Add(spec.Millicpus)
 	if updatedCPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s CPUs would be set to %s millicpus after addition (current=%s, addend =%s)",
+		return fmt.Errorf("%w: %s CPUs would be set to %s millicpus after addition (current=%s,addend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
 			res.millicpus.StringFixed(0), spec.Millicpus.StringFixed(0))
 	}
 
 	updatedMemory := res.memoryMB.Add(spec.MemoryMb)
 	if updatedMemory.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after addition (current=%s, addend =%s)",
+		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after addition (current=%s,addend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedMemory.String(),
 			res.memoryMB.StringFixed(4), spec.MemoryMb.StringFixed(4))
 	}
 
 	updatedGPUs := res.gpus.Add(spec.GPUs)
 	if updatedGPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after addition (current=%s, addend =%s)",
+		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after addition (current=%s,addend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedGPUs.String(),
 			res.gpus.StringFixed(0), spec.GPUs.StringFixed(0))
 	}
@@ -641,21 +641,21 @@ func (res *resources) Subtract(spec *types.DecimalSpec) error {
 
 	updatedCPUs := res.millicpus.Sub(spec.Millicpus)
 	if updatedCPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s CPUs would be set to %s millicpus after subtraction (current=%s, addend =%s)",
+		return fmt.Errorf("%w: %s CPUs would be set to %s millicpus after subtraction (current=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
 			res.millicpus.StringFixed(0), spec.Millicpus.StringFixed(0))
 	}
 
 	updatedMemory := res.memoryMB.Sub(spec.MemoryMb)
 	if updatedMemory.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after subtraction (current=%s, addend =%s)",
+		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after subtraction (current=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedMemory.String(),
 			res.memoryMB.StringFixed(4), spec.MemoryMb.StringFixed(4))
 	}
 
 	updatedGPUs := res.gpus.Sub(spec.GPUs)
 	if updatedGPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after subtraction (current=%s, addend =%s)",
+		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after subtraction (current=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedGPUs.String(),
 			res.gpus.StringFixed(0), spec.GPUs.StringFixed(0))
 	}
@@ -1118,10 +1118,13 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 	allocation.assertIsPending()
 
 	var requestedResources *types.DecimalSpec
-	if adjustedResourceRequest == nil {
+	if adjustedResourceRequest != nil {
+		m.log.Debug("Converting adjusted resource request to a decimal spec. Request: %s", adjustedResourceRequest.String())
 		requestedResources = types.ToDecimalSpec(adjustedResourceRequest)
+		m.log.Debug("Converted decimal spec: %s", requestedResources.String())
 	} else {
 		requestedResources = allocation.ToDecimalSpec()
+		m.log.Debug("Pending allocation for kernel %s-%d pre-commitment: %s", kernelId, replicaId, allocation.ToSpec())
 	}
 
 	m.log.Debug("Attempting to commit the following resources to replica %d of kernel %s: %v",
@@ -1352,7 +1355,7 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 		WithAllocationType(PendingAllocation).
 		WithKernelReplica(replicaId, kernelId).
 		WithMillicpus(spec.CPU()).
-		WithMillicpus(spec.MemoryMB()).
+		WithMemoryMB(spec.MemoryMB()).
 		WithGPUs(spec.GPU())
 	allocation = builder.BuildResourceAllocation()
 

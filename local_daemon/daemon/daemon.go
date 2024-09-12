@@ -619,47 +619,6 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		}
 	}
 
-	// shell := d.router.Socket(jupyter.ShellMessage)
-	// if d.schedulerDaemonOptions.DirectServer {
-	// 	d.log.Debug("Initializing shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
-	// 	var err error
-	// 	shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
-	// 	if err != nil {
-	// 		d.log.Error("Failed to initialize shell forwarder (ZMQ shell socket) for kernel %s because: %v", kernelReplicaSpec.Kernel.Id, err)
-	// 		d.closeKernel(kernel, fmt.Sprintf("failed to initialize shell forwarder for kernel \"%s\". Error: %v", kernelReplicaSpec.Kernel.Id, err))
-	// 		return // nil, status.Errorf(codes.Internal, err.Error())
-	// 	}
-	// 	d.log.Debug("Successfully initialized shell forwarder for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
-	// }
-
-	// iopub, err := kernel.InitializeIOForwarder()
-	// if err != nil {
-	// 	d.log.Error("Failed to initialize IO forwarder (ZMQ IOPUB socket) for kernel %s because: %v", kernelReplicaSpec.Kernel.Id, err)
-	// 	d.closeKernel(kernel, fmt.Sprintf("failed to initialize io forwarder (IO PUB socket) for kernel \"%s\". Error: %v", kernelReplicaSpec.Kernel.Id, err))
-	// 	return // nil, status.Errorf(codes.Internal, err.Error())
-	// }
-
-	// Though named IOPub, it is a sub socket for a client.
-	// Subscribe to all messages.
-	// Dial our self if the client is running and serving heartbeat.
-	// Try dial, ignore failure.
-	// The function will default to `BasicKernelReplicaClient::handleMsg` if the provided handler is null.
-	// iosub, err := kernel.InitializeIOSub(nil, "")
-	// if err != nil {
-	// 	d.log.Error("Failed to initialize IO SUB socket. Error: %v", err)
-	// 	d.closeKernel(kernel, fmt.Sprintf("Failed to initialize IO SUB socket. Error: %v", err))
-	// 	return
-	// }
-
-	// if err := kernel.Validate(); err != nil {
-	// 	d.log.Error("Failed to validate connection with new kernel %s because: %v", kernelReplicaSpec.Kernel.Id, err)
-	// 	d.closeKernel(kernel, "validation error")
-	// 	return // nil, status.Errorf(codes.Internal, err.Error())
-	// }
-
-	// Register kernel.
-	// d.kernels.Store(kernel.ID(), kernel)
-
 	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
 	for _, session := range kernel.Sessions() {
 		d.kernels.Store(session, kernel)
@@ -2117,8 +2076,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 
 		kernelReplicaClient := kernel.(*client.KernelReplicaClient)
 
-		d.log.Debug("%v leads the task, GPU required (%v), notify the scheduler.", kernel, leadMessage.GPURequired)
-		// err := d.resourceManager.AllocateGPUs(decimal.NewFromFloat(kernelReplicaClient.ResourceSpec().GPU()), kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID())
+		d.log.Debug("%v leads the task, GPU required (%v), notify the scheduler. Resources required: %v.", kernel, leadMessage.GPURequired, kernelReplicaClient.ResourceSpec())
 
 		// We pass the ResourceSpec, which for now should be identical to the resource request already stored within the ResourceManager.
 		// However, we may eventually submit updated resource requests on a per-training-event basis, so we just want the API to
