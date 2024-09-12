@@ -2117,7 +2117,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 
 		kernelReplicaClient := kernel.(*client.KernelReplicaClient)
 
-		d.log.Debug("%v leads the task, GPU required(%v), notify the scheduler.", kernel, leadMessage.GPURequired)
+		d.log.Debug("%v leads the task, GPU required (%v), notify the scheduler.", kernel, leadMessage.GPURequired)
 		// err := d.resourceManager.AllocateGPUs(decimal.NewFromFloat(kernelReplicaClient.ResourceSpec().GPU()), kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID())
 
 		// We pass the ResourceSpec, which for now should be identical to the resource request already stored within the ResourceManager.

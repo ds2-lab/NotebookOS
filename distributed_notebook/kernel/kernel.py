@@ -1026,9 +1026,11 @@ class DistributedKernel(IPythonKernel):
 
             self.log.debug("I WILL lead this execution (%d)." %
                            self.shell.execution_count)
-            
+
             # Notify the client that we will lead the execution.
-            self.session.send(self.iopub_socket, "smr_lead_task", {"gpu": False}, ident=self._topic("smr_lead_task"))  # type: ignore
+            # TODO: Eventually, we could pass "gpu" as True or False depending on whether we really
+            #       do need GPUs for this training task, assuming we'd know about that here.
+            self.session.send(self.iopub_socket, "smr_lead_task", {"gpu": True}, ident=self._topic("smr_lead_task"))  # type: ignore
 
             self.log.debug("Executing the following code now: %s" % code)
 

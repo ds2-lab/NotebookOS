@@ -143,6 +143,7 @@ type JupyterMessage struct {
 
 	header       *MessageHeader
 	parentHeader *MessageHeader
+	metadata     map[string]interface{}
 
 	// signatureScheme is the signature scheme of the associated kernel.
 	// This has to be populated manually.
@@ -158,6 +159,7 @@ type JupyterMessage struct {
 
 	parentHeaderDecoded bool
 	headerDecoded       bool
+	metadataDecoded     bool
 }
 
 // NewJupyterMessage creates and returns a new JupyterMessage from a ZMQ4 message.
@@ -201,6 +203,21 @@ func (m *JupyterMessage) SetSignatureSchemeIfNotSet(signatureScheme string) {
 	if !m.signatureSchemeSet {
 		m.SetSignatureScheme(signatureScheme)
 	}
+}
+
+// DecodeMetadata decodes the metadata frame and returns the resulting map[string]interface{},
+// or an error if the metadata frame could not be decoded successfully.
+func (m *JupyterMessage) DecodeMetadata() (map[string]interface{}, error) {
+	if m.metadataDecoded {
+		return m.metadata, nil
+	}
+
+	err := json.Unmarshal(m.Frames[m.Offset+JupyterFrameMetadata], &m.metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	return m.metadata, nil
 }
 
 // SignatureScheme returns the signature scheme of the JupyterMessage

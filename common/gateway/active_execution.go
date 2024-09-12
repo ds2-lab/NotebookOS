@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -39,6 +40,18 @@ type ActiveExecution struct {
 	numLeadProposals  int // Number of 'LEAD' proposals issued.
 	numYieldProposals int // Number of 'YIELD' proposals issued.
 
+	// originallySentAt is the time at which the "execute_request" message associated with this ActiveExecution
+	// was actually sent by the Jupyter client. We can only recover this if the client is an instance of our
+	// Go-implemented Jupyter client, as those clients embed the unix milliseconds at which the message was
+	// created and subsequently sent within the metadata field of the message.
+	originallySentAt        time.Time
+	originallySentAtDecoded bool
+
+	// workloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
+	// was a Golang Jupyter client.
+	workloadId    string
+	workloadIdSet bool
+
 	proposals map[int32]string // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
 
 	nextAttempt     *ActiveExecution // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
@@ -49,18 +62,71 @@ type ActiveExecution struct {
 	executed bool
 }
 
-func NewActiveExecution(kernelId string, sessionId string, attemptId int, numReplicas int, msg *types.JupyterMessage) *ActiveExecution {
-	return &ActiveExecution{
-		executionId:     uuid.NewString(),
-		sessionId:       sessionId,
-		attemptId:       attemptId,
-		proposals:       make(map[int32]string, 3),
-		kernelId:        kernelId,
-		numReplicas:     numReplicas,
-		nextAttempt:     nil,
-		previousAttempt: nil,
-		msg:             msg,
+func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *types.JupyterMessage) *ActiveExecution {
+	activeExecution := &ActiveExecution{
+		executionId:             uuid.NewString(),
+		sessionId:               msg.JupyterSession(),
+		attemptId:               attemptId,
+		proposals:               make(map[int32]string, 3),
+		kernelId:                kernelId,
+		numReplicas:             numReplicas,
+		nextAttempt:             nil,
+		previousAttempt:         nil,
+		msg:                     msg,
+		originallySentAtDecoded: false,
 	}
+
+	metadata, err := msg.DecodeMetadata()
+	if err == nil {
+		sentAtVal, ok := metadata["send-timestamp-unix-milli"]
+		if ok {
+			unixTimestamp := sentAtVal.(int64)
+			activeExecution.originallySentAt = time.UnixMilli(unixTimestamp)
+			activeExecution.originallySentAtDecoded = true
+		}
+
+		workloadIdVal, ok := metadata["workload_id"]
+		if ok {
+			workloadId := workloadIdVal.(string)
+			activeExecution.workloadId = workloadId
+			activeExecution.workloadIdSet = true
+		}
+	}
+
+	return activeExecution
+}
+
+// WorkloadId returns the workload ID that we possibly extracted from the metadata of the "execute_request" message
+// that submitted the code associated with this ActiveExecution struct.
+//
+// To determine if this ActiveExecution has a valid workload ID to return, use the HasValidWorkloadId method.
+// If the workload ID is "invalid", then the WorkloadId method simply returns the empty string.
+func (e *ActiveExecution) WorkloadId() string {
+	return e.workloadId
+}
+
+// HasValidWorkloadId returns true if we were able to extract the associated workload ID from the metadata
+// of the "execute_request" message that submitted the code associated with this ActiveExecution struct.
+func (e *ActiveExecution) HasValidWorkloadId() bool {
+	return e.workloadIdSet
+}
+
+// HasValidOriginalSentTimestamp returns true if we were able to decode the timestamp at which the
+// associated "execute_request" message was sent when we first created the ActiveExecution struct.
+func (e *ActiveExecution) HasValidOriginalSentTimestamp() bool {
+	return e.originallySentAtDecoded
+}
+
+// OriginalSentTimestamp returns the time at which the associated "execute_request" message was sent
+// by the Jupyter client that initiated the execution request. If we were able to decode/retrieve this
+// value when we first created the ActiveExecution struct, then the value returned by OriginalSentTimestamp
+// will be meaningless.
+//
+// To check if we were able to decode/retrieve the "send timestamp", use the HasValidOriginalSentTimestamp method.
+// If the "sent at" timestamp is "invalid", then the OriginalSentTimestamp method simply returns the default
+// value of a time.Time struct.
+func (e *ActiveExecution) OriginalSentTimestamp() time.Time {
+	return e.originallySentAt
 }
 
 func (e *ActiveExecution) Msg() *types.JupyterMessage {
@@ -113,7 +179,7 @@ func (e *ActiveExecution) ReceivedYieldProposal(smrNodeId int32) error {
 	return nil
 }
 
-// This does not count duplicate proposals received multiple times from the same node.
+// NumProposalsReceived does not count duplicate proposals received multiple times from the same node.
 // It's more like the number of unique replicas from which we've received a proposal.
 func (e *ActiveExecution) NumProposalsReceived() int {
 	return e.numLeadProposals + e.numYieldProposals

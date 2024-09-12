@@ -1075,7 +1075,7 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 	d.notifyDashboardOfError("Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
 }
 
-func (d *ClusterGatewayImpl) ExecutionFailed(c *client.DistributedKernelClient) error {
+func (d *ClusterGatewayImpl) executionFailed(c *client.DistributedKernelClient) error {
 	execution := c.ActiveExecution()
 	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.", execution.ExecutionId(), execution.AttemptId(), c.ID())
 
@@ -1204,7 +1204,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	}()
 
 	// We'll need this if the migration operation completes successfully.
-	nextExecutionAttempt := gateway.NewActiveExecution(c.ID(), msg.JupyterSession(), activeExecution.AttemptId()+1, c.Size(), msg)
+	nextExecutionAttempt := gateway.NewActiveExecution(c.ID(), activeExecution.AttemptId()+1, c.Size(), msg)
 
 	// Next, let's update the message so that we target the new replica.
 	_, _, offset := jupyter.ExtractDestFrame(msg.Frames)
@@ -1404,7 +1404,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 
 	// Initialize kernel with new context.
 	kernel := client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions,
-		listenPorts[0], listenPorts[1], uuid.NewString(), d.ExecutionFailed)
+		listenPorts[0], listenPorts[1], uuid.NewString(), d.executionFailed, d.executionLatencyCallback)
 	d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 	_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
 	if err != nil {
@@ -2492,11 +2492,17 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	return nil
 }
 
+func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, workloadId string) {
+	d.gatewayPrometheusManager.JupyterTrainingStartLatency.
+		With(prometheus.Labels{"workload_id": workloadId}).
+		Observe(latency.Seconds())
+}
+
 func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.DistributedKernelClient) {
 	kernelId := kernel.ID()
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernelId, msg)
 
-	activeExecution := gateway.NewActiveExecution(kernelId, msg.JupyterSession(), 1, kernel.Size(), msg)
+	activeExecution := gateway.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
 	d.activeExecutions.Store(kernelId, activeExecution)
 	kernel.SetActiveExecution(activeExecution)
 

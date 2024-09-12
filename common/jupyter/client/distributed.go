@@ -10,6 +10,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -40,6 +41,14 @@ type SessionManager interface {
 	UnbindSession(sess string) // UnbindSession unbinds a session ID from the client.
 	ClearSessions()            // ClearSessions clears all sessions.
 }
+
+// ExecutionLatencyCallback is provided by the Cluster Gateway to each DistributedKernelClient.
+// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
+// the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
+// of the original "execute_request". If it does, then it can calculate the latency between submission and when
+// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
+// so that a relevant Prometheus metric can be updated.
+type ExecutionLatencyCallback func(latency time.Duration, workloadId string)
 
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
 type ExecutionFailedCallback func(c *DistributedKernelClient) error
@@ -92,6 +101,14 @@ type DistributedKernelClient struct {
 	// Callback for when execution fails (such as all replicas proposing 'YIELD').
 	executionFailedCallback ExecutionFailedCallback
 
+	// ExecutionLatencyCallback is provided by the Cluster Gateway to each DistributedKernelClient.
+	// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
+	// the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
+	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
+	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
+	// so that a relevant Prometheus metric can be updated.
+	executionLatencyCallback ExecutionLatencyCallback
+
 	session *scheduling.Session
 
 	log     logger.Logger
@@ -102,7 +119,7 @@ type DistributedKernelClient struct {
 
 func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplicas int,
 	connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-	executionFailedCallback ExecutionFailedCallback) *DistributedKernelClient {
+	executionFailedCallback ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback) *DistributedKernelClient {
 
 	kernel := &DistributedKernelClient{
 		id:           spec.Id,
@@ -117,16 +134,17 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
-		status:                  types.KernelStatusInitializing,
-		spec:                    spec,
-		replicas:                make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.KernelReplica, numReplicas),
-		cleaned:                 make(chan struct{}),
-		connectionInfo:          connectionInfo,
-		shellListenPort:         shellListenPort,
-		iopubListenPort:         iopubListenPort,
-		numActiveAddOperations:  0,
-		executionFailedCallback: executionFailedCallback,
-		nextNodeId:              int32(numReplicas + 1),
+		status:                   types.KernelStatusInitializing,
+		spec:                     spec,
+		replicas:                 make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.KernelReplica, numReplicas),
+		cleaned:                  make(chan struct{}),
+		connectionInfo:           connectionInfo,
+		shellListenPort:          shellListenPort,
+		iopubListenPort:          iopubListenPort,
+		numActiveAddOperations:   0,
+		executionFailedCallback:  executionFailedCallback,
+		executionLatencyCallback: executionLatencyCallback,
+		nextNodeId:               int32(numReplicas + 1),
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)
@@ -662,7 +680,12 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.Ker
 
 func (c *DistributedKernelClient) executionFinished(replicaId int32) error {
 	if c.activeExecution != nil {
-		c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d.", c.activeExecution.ExecutionId(), c.id, replicaId)
+		if c.activeExecution.HasValidOriginalSentTimestamp() {
+			latency := time.Since(c.activeExecution.OriginalSentTimestamp())
+			c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d. Total time elapsed since submission: %v.", c.activeExecution.ExecutionId(), c.id, replicaId, latency)
+		} else {
+			c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d.", c.activeExecution.ExecutionId(), c.id, replicaId)
+		}
 
 		err := c.activeExecution.ReceivedLeadProposal(replicaId)
 		if err != nil {
@@ -973,6 +996,21 @@ func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ
 				if err != nil {
 					c.log.Error("Failed to start training for session %s: %v", session.ID(), err)
 					panic(err)
+				}
+
+				if c.activeExecution != nil {
+					if c.activeExecution.HasValidOriginalSentTimestamp() {
+						latency := time.Since(c.activeExecution.OriginalSentTimestamp())
+						c.log.Debug("Time elapsed between submission and starting to execute user's code: %v", latency)
+
+						if !c.activeExecution.HasValidWorkloadId() {
+							c.log.Warn("ActiveExecution had \"sent-at\" timestamp, but no workload ID...")
+						}
+
+						c.executionLatencyCallback(latency, c.activeExecution.WorkloadId())
+					} else {
+						c.log.Debug("ActiveExecution did not have original \"send\" timestamp available.")
+					}
 				}
 
 				c.log.Debug("Session \"%s\" has successfully started training on replica %d.", c.id, kernelReplica.ReplicaID())
