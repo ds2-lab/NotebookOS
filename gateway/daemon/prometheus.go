@@ -158,7 +158,7 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 		Namespace: "distributed_cluster",
 		Name:      "training_events_completed_total",
 		Help:      "The number of training events that have completed successfully",
-	}, []string{"node_id", "workload_id"})
+	}, []string{"node_id"})
 
 	m.JupyterTrainingStartLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
