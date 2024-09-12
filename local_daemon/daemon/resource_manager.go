@@ -389,10 +389,10 @@ func (b *ResourceAllocationBuilder) BuildResourceAllocation() *ResourceAllocatio
 type resources struct {
 	sync.Mutex // Enables atomic access to each individual field.
 
-	resourceType ResourceStatus  // resourceType is the ResourceType represented/encoded by this struct.
-	millicpus    decimal.Decimal // millicpus is CPU in 1/1000th of CPU core.
-	gpus         decimal.Decimal // gpus is the number of GPUs.
-	memoryMB     decimal.Decimal // memoryMB is the amount of memory in MB.
+	resourceStatus ResourceStatus  // resourceStatus is the ResourceStatus represented/encoded by this struct.
+	millicpus      decimal.Decimal // millicpus is CPU in 1/1000th of CPU core.
+	gpus           decimal.Decimal // gpus is the number of GPUs.
+	memoryMB       decimal.Decimal // memoryMB is the amount of memory in MB.
 }
 
 // LessThan returns true if each field of the target 'resources' struct is strictly less than the corresponding field
@@ -513,12 +513,12 @@ func (res *resources) String() string {
 	defer res.Unlock()
 
 	return fmt.Sprintf("[%s resources: millicpus=%s,gpus=%s,memoryMB=%s]",
-		res.resourceType.String(), res.millicpus.StringFixed(0),
+		res.resourceStatus.String(), res.millicpus.StringFixed(0),
 		res.gpus.StringFixed(0), res.memoryMB.StringFixed(4))
 }
 
 func (res *resources) ResourceStatus() ResourceStatus {
-	return res.resourceType
+	return res.resourceStatus
 }
 
 func (res *resources) MemoryMB() float64 {
@@ -598,19 +598,25 @@ func (res *resources) Add(spec *types.DecimalSpec) error {
 	res.Lock()
 	defer res.Unlock()
 
-	updatedGPUs := res.gpus.Add(spec.GPUs)
-	if updatedGPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: GPUs would be set to %s GPUs", ErrInvalidOperation, updatedGPUs.String())
-	}
-
 	updatedCPUs := res.millicpus.Add(spec.Millicpus)
 	if updatedCPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: CPUs would be set to %s millicpus", ErrInvalidOperation, updatedCPUs.String())
+		return fmt.Errorf("%w: %s CPUs would be set to %s millicpus (current=%s, addend =%s)",
+			ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
+			res.millicpus.StringFixed(0), spec.Millicpus.StringFixed(0))
 	}
 
 	updatedMemory := res.memoryMB.Add(spec.MemoryMb)
 	if updatedMemory.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: memory would be equal to %s megabytes", ErrInvalidOperation, updatedMemory.String())
+		return fmt.Errorf("%w: %s memory would be equal to %s megabytes (current=%s, addend =%s)",
+			ErrInvalidOperation, res.resourceStatus.String(), updatedMemory.String(),
+			res.memoryMB.StringFixed(4), spec.MemoryMb.StringFixed(4))
+	}
+
+	updatedGPUs := res.gpus.Add(spec.GPUs)
+	if updatedGPUs.LessThan(decimal.Zero) {
+		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs (current=%s, addend =%s)",
+			ErrInvalidOperation, res.resourceStatus.String(), updatedGPUs.String(),
+			res.gpus.StringFixed(0), spec.GPUs.StringFixed(0))
 	}
 
 	// If we've gotten to this point, then all the updated resource counts are valid, at least with respect
@@ -803,28 +809,28 @@ func NewResourceManager(resourceSpec types.Spec, resourceMetricsCallback resourc
 
 	manager.resourcesWrapper = &resourcesWrapper{
 		idleResources: &resources{
-			resourceType: IdleResources,
-			millicpus:    decimal.NewFromFloat(resourceSpec.CPU()),
-			memoryMB:     decimal.NewFromFloat(resourceSpec.MemoryMB()),
-			gpus:         decimal.NewFromFloat(resourceSpec.GPU()),
+			resourceStatus: IdleResources,
+			millicpus:      decimal.NewFromFloat(resourceSpec.CPU()),
+			memoryMB:       decimal.NewFromFloat(resourceSpec.MemoryMB()),
+			gpus:           decimal.NewFromFloat(resourceSpec.GPU()),
 		},
 		pendingResources: &resources{
-			resourceType: PendingResources,
-			millicpus:    decimal.Zero.Copy(),
-			memoryMB:     decimal.Zero.Copy(),
-			gpus:         decimal.Zero.Copy(),
+			resourceStatus: PendingResources,
+			millicpus:      decimal.Zero.Copy(),
+			memoryMB:       decimal.Zero.Copy(),
+			gpus:           decimal.Zero.Copy(),
 		},
 		committedResources: &resources{
-			resourceType: CommittedResources,
-			millicpus:    decimal.Zero.Copy(),
-			memoryMB:     decimal.Zero.Copy(),
-			gpus:         decimal.Zero.Copy(),
+			resourceStatus: CommittedResources,
+			millicpus:      decimal.Zero.Copy(),
+			memoryMB:       decimal.Zero.Copy(),
+			gpus:           decimal.Zero.Copy(),
 		},
 		specResources: &resources{
-			resourceType: SpecResources,
-			millicpus:    decimal.NewFromFloat(resourceSpec.CPU()),
-			memoryMB:     decimal.NewFromFloat(resourceSpec.MemoryMB()),
-			gpus:         decimal.NewFromFloat(resourceSpec.GPU()),
+			resourceStatus: SpecResources,
+			millicpus:      decimal.NewFromFloat(resourceSpec.CPU()),
+			memoryMB:       decimal.NewFromFloat(resourceSpec.MemoryMB()),
+			gpus:           decimal.NewFromFloat(resourceSpec.GPU()),
 		},
 	}
 
