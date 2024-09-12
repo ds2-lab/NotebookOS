@@ -229,7 +229,7 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	m.NumActiveKernelReplicasGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "active_sessions",
-		Help:      "Number of kernel replicas scheduled on a Local Daemon",
+		Help:      "Number of actively-running kernels",
 	}, []string{"node_id"})
 	m.TotalNumKernelsCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",

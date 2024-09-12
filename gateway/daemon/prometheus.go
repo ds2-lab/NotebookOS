@@ -145,7 +145,7 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 	m.NumActiveKernelReplicasGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "active_sessions",
-		Help:      "Number of actively-running kernels within the cluster",
+		Help:      "Number of actively-running kernels",
 	}, []string{"node_id"})
 
 	m.TotalNumKernels = prometheus.NewCounterVec(prometheus.CounterOpts{
