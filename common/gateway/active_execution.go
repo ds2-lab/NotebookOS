@@ -80,8 +80,8 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 	if err == nil {
 		sentAtVal, ok := metadata["send-timestamp-unix-milli"]
 		if ok {
-			unixTimestamp := sentAtVal.(int64)
-			activeExecution.originallySentAt = time.UnixMilli(unixTimestamp)
+			unixTimestamp := sentAtVal.(float64)
+			activeExecution.originallySentAt = time.UnixMilli(int64(unixTimestamp))
 			activeExecution.originallySentAtDecoded = true
 		}
 

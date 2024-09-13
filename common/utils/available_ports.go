@@ -119,7 +119,6 @@ func (p *AvailablePorts) RequestPorts() ([]int, error) {
 
 		p.portAvailability[port] = false
 	}
-
 	return allocation, nil
 }
 

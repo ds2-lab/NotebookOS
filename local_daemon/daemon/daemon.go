@@ -567,6 +567,9 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		panic(err)
 	}
 
+	d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
+		registrationPayload.ReplicaId, registrationPayload.Kernel.Id, listenPorts)
+
 	// If we're running in Kubernetes mode, then we need to create a new kernel client here (as well as a new DockerInvoker).
 	// If we're running in Docker mode, then we'll already have created the kernel client for this kernel.
 	// We create the kernel client in Docker mode when we launch the kernel (using a DockerInvoker).
@@ -1245,6 +1248,9 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	}
 
 	kernel := client.NewKernelClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+
+	d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
+		in.ReplicaId, kernel.ID(), listenPorts)
 
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
