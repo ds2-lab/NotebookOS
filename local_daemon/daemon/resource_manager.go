@@ -1481,7 +1481,7 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 		allocationExists bool
 	)
 
-	m.log.Debug("Attempting to evict replica %d of kernel %s.")
+	m.log.Debug("Attempting to evict replica %d of kernel %s.", replicaId, kernelId)
 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
@@ -1523,8 +1523,12 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 		return err
 	}
 
-	m.log.Debug("Evicted replica %d of kernel %s, releasing the following pending resources: %v",
+	m.log.Debug("Evicted replica %d of kernel %s, releasing the following pending resources: %v.",
 		replicaId, kernelId, allocation.ToSpecString())
+	m.log.Debug("After removal: %s.", m.resourcesWrapper.pendingResources.String())
+
+	// Update Prometheus metrics.
+	m.resourceMetricsCallback(m.resourcesWrapper)
 
 	return nil
 }

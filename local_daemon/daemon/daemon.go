@@ -37,7 +37,7 @@ const (
 	// DefaultPrometheusPort is the default port on which the Local Daemon will serve Prometheus metrics.
 	DefaultPrometheusPort int = 8089
 	// DefaultPrometheusInterval is the default interval on which the Local Daemon will push new Prometheus metrics.
-	DefaultPrometheusInterval = time.Second * 2
+	DefaultPrometheusInterval = time.Second * 5
 )
 
 var (
@@ -406,39 +406,39 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 
 		d.log.Debug("Beginning to publish metrics to Prometheus now. Interval: %v", d.prometheusInterval)
 
-		//for {
-		//	time.Sleep(d.prometheusInterval)
-		//
-		//	// Publish GPU resource metrics.
-		//	d.prometheusManager.IdleGpuGauge.
-		//		Set(d.resourceManager.IdleGPUs().InexactFloat64())
-		//	d.prometheusManager.PendingGpuGauge.
-		//		Set(d.resourceManager.PendingGPUs().InexactFloat64())
-		//	d.prometheusManager.CommittedGpuGauge.
-		//		Set(d.resourceManager.CommittedGPUs().InexactFloat64())
-		//	d.prometheusManager.SpecGpuGauge.
-		//		Set(d.resourceManager.SpecGPUs().InexactFloat64())
-		//
-		//	// Publish CPU resource metrics.
-		//	d.prometheusManager.IdleCpuGauge.
-		//		Set(d.resourceManager.IdleCPUs().InexactFloat64())
-		//	d.prometheusManager.PendingCpuGauge.
-		//		Set(d.resourceManager.PendingCPUs().InexactFloat64())
-		//	d.prometheusManager.CommittedCpuGauge.
-		//		Set(d.resourceManager.CommittedCPUs().InexactFloat64())
-		//	d.prometheusManager.SpecCpuGauge.
-		//		Set(d.resourceManager.SpecCPUs().InexactFloat64())
-		//
-		//	// Publish memory resource metrics.
-		//	d.prometheusManager.IdleMemoryGauge.
-		//		Set(d.resourceManager.IdleMemoryMB().InexactFloat64())
-		//	d.prometheusManager.PendingMemoryGauge.
-		//		Set(d.resourceManager.PendingMemoryMB().InexactFloat64())
-		//	d.prometheusManager.CommittedMemoryGauge.
-		//		Set(d.resourceManager.CommittedMemoryMB().InexactFloat64())
-		//	d.prometheusManager.SpecMemoryGauge.
-		//		Set(d.resourceManager.SpecMemoryMB().InexactFloat64())
-		//}
+		for {
+			time.Sleep(d.prometheusInterval)
+
+			// Publish GPU resource metrics.
+			d.prometheusManager.IdleGpuGauge.
+				Set(d.resourceManager.IdleGPUs().InexactFloat64())
+			d.prometheusManager.PendingGpuGauge.
+				Set(d.resourceManager.PendingGPUs().InexactFloat64())
+			d.prometheusManager.CommittedGpuGauge.
+				Set(d.resourceManager.CommittedGPUs().InexactFloat64())
+			d.prometheusManager.SpecGpuGauge.
+				Set(d.resourceManager.SpecGPUs().InexactFloat64())
+
+			// Publish CPU resource metrics.
+			d.prometheusManager.IdleCpuGauge.
+				Set(d.resourceManager.IdleCPUs().InexactFloat64())
+			d.prometheusManager.PendingCpuGauge.
+				Set(d.resourceManager.PendingCPUs().InexactFloat64())
+			d.prometheusManager.CommittedCpuGauge.
+				Set(d.resourceManager.CommittedCPUs().InexactFloat64())
+			d.prometheusManager.SpecCpuGauge.
+				Set(d.resourceManager.SpecCPUs().InexactFloat64())
+
+			// Publish memory resource metrics.
+			d.prometheusManager.IdleMemoryGauge.
+				Set(d.resourceManager.IdleMemoryMB().InexactFloat64())
+			d.prometheusManager.PendingMemoryGauge.
+				Set(d.resourceManager.PendingMemoryMB().InexactFloat64())
+			d.prometheusManager.CommittedMemoryGauge.
+				Set(d.resourceManager.CommittedMemoryMB().InexactFloat64())
+			d.prometheusManager.SpecMemoryGauge.
+				Set(d.resourceManager.SpecMemoryMB().InexactFloat64())
+		}
 	}()
 }
 

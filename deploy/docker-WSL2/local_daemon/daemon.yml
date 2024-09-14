@@ -45,5 +45,5 @@ deployment_mode: "docker-compose"
 debug_port: 9996
 docker-storage-base: "/storage"
 using-wsl: true 
-prometheus_interval: 2
+prometheus_interval: 15
 prometheus_port: 8089
