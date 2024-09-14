@@ -857,20 +857,21 @@ type ResourceManager struct {
 
 	// resourceMetricsCallback is a callback function that is supposed to be triggered whenever resources
 	// are allocated or deallocated so that the associated Prometheus metrics can be updated accordingly.
-	resourceMetricsCallback resourceMetricsCallback
+	//resourceMetricsCallback resourceMetricsCallback
 
 	// numPendingAllocations is the number of active ResourceAllocation instances of type PendingAllocation.
 	numPendingAllocations types.StatInt32
 	// numCommittedAllocations is the number of active ResourceAllocation instances of type CommittedAllocation.
 	numCommittedAllocations types.StatInt32
+
+	metricsManager *LocalDaemonPrometheusManager
 }
 
 // NewResourceManager creates a new ResourceManager struct and returns a pointer to it.
-func NewResourceManager(resourceSpec types.Spec, resourceMetricsCallback resourceMetricsCallback) *ResourceManager {
+func NewResourceManager(resourceSpec types.Spec) *ResourceManager {
 	manager := &ResourceManager{
 		id:                         uuid.NewString(),
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, *ResourceAllocation](128),
-		resourceMetricsCallback:    resourceMetricsCallback,
 	}
 
 	manager.resourcesWrapper = &resourcesWrapper{
@@ -908,6 +909,47 @@ func NewResourceManager(resourceSpec types.Spec, resourceMetricsCallback resourc
 	manager.log.Debug("Resource Manager initialized: %v", manager.resourcesWrapper.String())
 
 	return manager
+}
+
+// updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
+// updatePrometheusResourceMetrics is used as a callback by the GPU/Resource Manager.
+func (m *ResourceManager) unsafeUpdatePrometheusResourceMetrics() {
+	if m.metricsManager == nil {
+		m.log.Warn("Cannot update Prometheus resource metrics; manager has not been registered yet.")
+		return
+	}
+
+	// CPU resource metrics.
+	m.metricsManager.IdleCpuGauge.
+		Set(m.resourcesWrapper.idleResources.Millicpus())
+	m.metricsManager.PendingCpuGauge.
+		Set(m.resourcesWrapper.pendingResources.Millicpus())
+	m.metricsManager.CommittedCpuGauge.
+		Set(m.resourcesWrapper.committedResources.Millicpus())
+
+	// Memory resource metrics.
+	m.metricsManager.IdleMemoryGauge.
+		Set(m.resourcesWrapper.idleResources.MemoryMB())
+	m.metricsManager.PendingMemoryGauge.
+		Set(m.resourcesWrapper.pendingResources.MemoryMB())
+	m.metricsManager.CommittedMemoryGauge.
+		Set(m.resourcesWrapper.committedResources.MemoryMB())
+
+	// GPU resource metrics.
+	m.metricsManager.IdleGpuGauge.
+		Set(m.resourcesWrapper.idleResources.GPUs())
+	m.metricsManager.PendingGpuGauge.
+		Set(m.resourcesWrapper.pendingResources.GPUs())
+	m.metricsManager.CommittedGpuGauge.
+		Set(m.resourcesWrapper.committedResources.GPUs())
+}
+
+// RegisterMetricsManager is used to set the metricsManager field of the ResourceManager.
+func (m *ResourceManager) RegisterMetricsManager(metricsManager *LocalDaemonPrometheusManager) {
+	if m.metricsManager != nil {
+		m.log.Warn("ResourceManager already has metrics manager assigned... will replace existing metrics manager.")
+	}
+	m.metricsManager = metricsManager
 }
 
 // SpecGPUs returns the total number of GPUs configured/present on this node.
@@ -1247,7 +1289,8 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 		replicaId, kernelId, requestedResources.String())
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback(m.resourcesWrapper)
+	// m.resourceMetricsCallback(m.resourcesWrapper)
+	m.unsafeUpdatePrometheusResourceMetrics()
 
 	// Make sure everything is OK with respect to our internal state/bookkeeping.
 	err := m.unsafePerformConsistencyCheck()
@@ -1304,7 +1347,8 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 		replicaId, kernelId, allocation.ToSpecString())
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback(m.resourcesWrapper)
+	// m.resourceMetricsCallback(m.resourcesWrapper)
+	m.unsafeUpdatePrometheusResourceMetrics()
 
 	// Make sure everything is OK with respect to our internal state/bookkeeping.
 	err := m.unsafePerformConsistencyCheck()
@@ -1451,7 +1495,8 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 		replicaId, kernelId, decimalSpec.String())
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback(m.resourcesWrapper)
+	// m.resourceMetricsCallback(m.resourcesWrapper)
+	m.unsafeUpdatePrometheusResourceMetrics()
 
 	// Make sure everything is OK with respect to our internal state/bookkeeping.
 	err := m.unsafePerformConsistencyCheck()
@@ -1528,7 +1573,8 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 	m.log.Debug("After removal: %s.", m.resourcesWrapper.pendingResources.String())
 
 	// Update Prometheus metrics.
-	m.resourceMetricsCallback(m.resourcesWrapper)
+	// m.resourceMetricsCallback(m.resourcesWrapper)
+	m.unsafeUpdatePrometheusResourceMetrics()
 
 	return nil
 }

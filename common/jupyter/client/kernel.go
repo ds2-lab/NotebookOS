@@ -62,25 +62,30 @@ type KernelReplicaClient struct {
 	client *server.AbstractServer
 
 	// destMutex                 sync.Mutex
-	id                        string
-	replicaId                 int32
-	persistentId              string
-	spec                      *proto.KernelSpec
-	status                    types.KernelStatus
-	busyStatus                string
-	lastBStatusMsg            *types.JupyterMessage
-	iobroker                  *MessageBroker[scheduling.Kernel, *types.JupyterMessage, types.JupyterFrames]
-	shell                     *types.Socket    // Listener.
-	iopub                     *types.Socket    // Listener.
-	addSourceKernelFrames     bool             // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelReplicaClient's kernel ID.
-	shellListenPort           int              // Port that the KernelReplicaClient::shell socket listens on.
-	iopubListenPort           int              // Port that the KernelReplicaClient::iopub socket listens on.
-	kernelPodName             string           // Name of the Pod housing the associated distributed kernel replica container.
-	kubernetesNodeName        string           // Name of the node that the Pod is running on.
-	ready                     bool             // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
-	yieldNextExecutionRequest bool             // If true, then we will yield the next 'execute_request'.
-	hostId                    string           // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
-	host                      *scheduling.Host // The host that the kernel replica is running on.
+	id                               string
+	replicaId                        int32
+	persistentId                     string
+	spec                             *proto.KernelSpec
+	status                           types.KernelStatus
+	busyStatus                       string
+	lastBStatusMsg                   *types.JupyterMessage
+	iobroker                         *MessageBroker[scheduling.Kernel, *types.JupyterMessage, types.JupyterFrames]
+	shell                            *types.Socket    // Listener.
+	iopub                            *types.Socket    // Listener.
+	addSourceKernelFrames            bool             // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelReplicaClient's kernel ID.
+	shellListenPort                  int              // Port that the KernelReplicaClient::shell socket listens on.
+	iopubListenPort                  int              // Port that the KernelReplicaClient::iopub socket listens on.
+	kernelPodName                    string           // Name of the Pod housing the associated distributed kernel replica container.
+	kubernetesNodeName               string           // Name of the node that the Pod is running on.
+	ready                            bool             // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
+	yieldNextExecutionRequest        bool             // If true, then we will yield the next 'execute_request'.
+	hostId                           string           // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
+	host                             *scheduling.Host // The host that the kernel replica is running on.
+	workloadId                       string           // workloadId is the ID of the workload associated with this kernel, if this kernel was created within a workload. This is populated after extracting the ID from the metadata frame of a Jupyter message.
+	workloadIdSet                    bool             // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
+	isTraining                       bool             // isTraining indicates whether the kernel associated with this client is actively training.
+	trainingStartedAt                time.Time        // trainingStartedAt is the time at which the kernel associated with this client began actively training.
+	lastTrainingTimePrometheusUpdate time.Time        // lastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated training time metric to Prometheus. We use this to determine how much more to increment the training time Prometheus metric when we stop training, since any additional training time since the last scheduled publish won't be pushed to Prometheus automatically by the publisher-goroutine.
 
 	// Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
 	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback
@@ -172,6 +177,55 @@ func (c *KernelReplicaClient) SetContainer(container *scheduling.Container) {
 	c.container = container
 }
 
+// IsTraining returns a bool indicating whether the kernel associated with this client is actively training.
+func (c *KernelReplicaClient) IsTraining() bool {
+	return c.isTraining
+}
+
+// SetLastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated
+// training time metric to Prometheus. We use this to determine how much more to increment the training time Prom
+// metric when we stop training, since any additional training time since the last scheduled publish won't be pushed
+// to Prometheus automatically by the publisher-goroutine.
+func (c *KernelReplicaClient) SetLastTrainingTimePrometheusUpdate() {
+	c.lastTrainingTimePrometheusUpdate = time.Now()
+}
+
+// LastTrainingTimePrometheusUpdate returns the last instant in which we published an updated training time metric to
+// Prometheus. We use this to determine how much more to increment the training time Prometheus metric when we stop
+// training, since any additional training time since the last scheduled publish won't be pushed to Prometheus
+// automatically by the publisher-goroutine.
+func (c *KernelReplicaClient) LastTrainingTimePrometheusUpdate() time.Time {
+	return c.lastTrainingTimePrometheusUpdate
+}
+
+// TrainingStarted should be called when the kernel associated with this client begins actively training.
+func (c *KernelReplicaClient) TrainingStarted() error {
+	if c.isTraining {
+		c.log.Error("Cannot begin training; already training as of %v.", c.trainingStartedAt)
+		return fmt.Errorf("cannot start training; replica %d of kernel %s is already training as of %v", c.replicaId, c.id, c.trainingStartedAt)
+	}
+
+	c.isTraining = true
+	c.trainingStartedAt = time.Now()
+	return nil
+}
+
+// TrainingStopped should be called when the kernel associated with this client stops actively training.
+func (c *KernelReplicaClient) TrainingStopped() error {
+	if !c.isTraining {
+		c.log.Error("Cannot stop training; already not training.")
+		return fmt.Errorf("cannot stop training; replica %d of kernel %s is already not training", c.replicaId, c.id)
+	}
+
+	c.isTraining = false
+	return nil
+}
+
+// TrainingStartedAt returns the time at which the kernel associated with this client began actively training.
+func (c *KernelReplicaClient) TrainingStartedAt() time.Time {
+	return c.trainingStartedAt
+}
+
 // Recreate and return the kernel's control socket.
 // This reuses the handler on the existing/previous control socket.
 func (c *KernelReplicaClient) recreateControlSocket() *types.Socket {
@@ -193,6 +247,26 @@ func (c *KernelReplicaClient) recreateControlSocket() *types.Socket {
 	c.client.Sockets.Control = newSocket
 	c.client.Sockets.All[types.ControlMessage] = newSocket
 	return newSocket
+}
+
+// WorkloadId returns the ID of the workload associated with this kernel, if this kernel was created within a workload.
+// This is populated after extracting the ID from the metadata frame of a Jupyter message.
+func (c *KernelReplicaClient) WorkloadId() string {
+	return c.workloadId
+}
+
+// SetWorkloadId sets the WorkloadId of the KernelReplicaClient.
+func (c *KernelReplicaClient) SetWorkloadId(workloadId string) {
+	if c.workloadIdSet {
+		c.log.Warn("Workload ID has already been set to \"%s\". Will replace it with (possibly identical) new ID: \"%s\"", c.workloadId, workloadId)
+	}
+
+	c.workloadId = workloadId
+}
+
+// WorkloadIdSet returns a flag indicating whether the KernelReplicaClient's workloadId has been assigned a "meaningful" value or not.
+func (c *KernelReplicaClient) WorkloadIdSet() bool {
+	return c.workloadIdSet
 }
 
 // Recreate and return the kernel's shell socket.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"net"
 	"os"
@@ -182,7 +183,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
-	daemon.resourceManager = NewResourceManager(&types.Float64Spec{GPUs: types.GPUSpec(schedulerDaemonOptions.NumGPUs), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}, daemon.updatePrometheusResourceMetrics)
+	daemon.resourceManager = NewResourceManager(&types.Float64Spec{GPUs: types.GPUSpec(schedulerDaemonOptions.NumGPUs), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost})
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -388,6 +389,9 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 
 		// We only call Done if we're creating the LocalDaemonPrometheusManager for the first time.
 		d.prometheusStarted.Done()
+
+		// Register the Prometheus metrics manager with the ResourceManager.
+		d.resourceManager.RegisterMetricsManager(d.prometheusManager)
 	}
 
 	return in, nil
@@ -438,6 +442,32 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 				Set(d.resourceManager.CommittedMemoryMB().InexactFloat64())
 			d.prometheusManager.SpecMemoryGauge.
 				Set(d.resourceManager.SpecMemoryMB().InexactFloat64())
+
+			// TODO: This is somewhat imprecise insofar if we stop training RIGHT before this goroutine runs again,
+			// then we'll not add any of that training time.
+			d.kernels.Range(func(_ string, replicaClient *client.KernelReplicaClient) (contd bool) {
+				if replicaClient.IsTraining() {
+					trainingTimeSeconds := time.Since(replicaClient.TrainingStartedAt()).Seconds()
+
+					// If we've been training for at least one interval, then we're safe to just add another interval's
+					// worth of seconds to the Prometheus counter.
+					if trainingTimeSeconds > d.prometheusInterval.Seconds() {
+						d.prometheusManager.TrainingTimeGaugeVec.
+							With(prometheus.Labels{"workload_id": replicaClient.WorkloadId(), "kernel_id": replicaClient.ID()}).
+							Add(d.prometheusInterval.Seconds())
+					} else {
+						// If we started training within the last interval, then we should only increment the Prometheus
+						// counter by the exact amount of time that we've been training.
+						d.prometheusManager.TrainingTimeGaugeVec.
+							With(prometheus.Labels{"workload_id": replicaClient.WorkloadId(), "kernel_id": replicaClient.ID(), "node_id": d.id}).
+							Add(trainingTimeSeconds) // trainingTimeSeconds is < 1.
+					}
+
+					replicaClient.SetLastTrainingTimePrometheusUpdate()
+				}
+
+				return true
+			})
 		}
 	}()
 }
@@ -1481,6 +1511,18 @@ func (d *SchedulerDaemonImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.J
 		msg.SetKeyIfNotSet(connInfo.Key)
 	}
 
+	// Extract the workload ID (which may or may not be included in the metadata of the request),
+	// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
+	metadataDict, err := msg.DecodeMetadata()
+	if err == nil {
+		if workloadId, loaded := metadataDict["workload_id"]; loaded && !kernel.WorkloadIdSet() {
+			kernel.SetWorkloadId(workloadId.(string))
+		}
+	} else {
+		d.log.Warn("Could not decode metadata dictionary of %s \"%s\" message %s (JupyterID=\"%s\").",
+			jupyter.ShellMessage, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+	}
+
 	if err := d.forwardRequest(context.Background(), kernel, jupyter.ControlMessage, msg, nil); err != nil {
 		return err
 	}
@@ -1553,6 +1595,18 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 		d.log.Debug("Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
 	} else { // Print a message about forwarding generic shell message.
 		d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
+
+		// Extract the workload ID (which may or may not be included in the metadata of the request),
+		// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
+		metadataDict, err := msg.DecodeMetadata()
+		if err == nil {
+			if workloadId, loaded := metadataDict["workload_id"]; loaded && !kernel.WorkloadIdSet() {
+				kernel.SetWorkloadId(workloadId.(string))
+			}
+		} else {
+			d.log.Warn("Could not decode metadata dictionary of %s \"%s\" message %s (JupyterID=\"%s\").",
+				jupyter.ShellMessage, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1580,6 +1634,8 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		return err
 	}
 
+	// shouldReleaseResources basically indicates whether this kernel replica was leading the execution and thus
+	// actively training / running user-submitted code. If it was, then we'll now need to release its resources.
 	var shouldReleaseResources bool
 	if msgErr.Status == jupyter.MessageStatusOK {
 		d.log.Debug("Status of \"execute_reply\" message from replica %d of kernel %s is OK.", kernelClient.ReplicaID(), kernelClient.ID())
@@ -1605,6 +1661,11 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		if err = d.resourceManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil {
 			d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernelClient.ReplicaID(), kernel.ID(), err)
 		}
+
+		_ = kernelClient.TrainingStopped()
+		d.prometheusManager.TrainingTimeGaugeVec.
+			With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID()}).
+			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
 	}
 
 	d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
@@ -1651,6 +1712,12 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	} else {
 		// If we're not retrieving the map from the message, then we'll create a new map here.
 		metadataDict = make(map[string]interface{})
+	}
+
+	// Extract the workload ID (which may or may not be included in the metadata of the request),
+	// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
+	if workloadId, loaded := metadataDict["workload_id"]; loaded && !kernel.WorkloadIdSet() {
+		kernel.SetWorkloadId(workloadId.(string))
 	}
 
 	var (
@@ -2095,6 +2162,8 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
 			panic(err) // TODO(Ben): Handle gracefully.
 		}
+
+		_ = kernelReplicaClient.TrainingStarted()
 
 		// Don't return here -- we want his to be forwarded to the Cluster Gateway.
 		// return commonTypes.ErrStopPropagation

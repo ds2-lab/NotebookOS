@@ -66,6 +66,8 @@ type LocalDaemonPrometheusManager struct {
 	PendingMemoryGauge   prometheus.Gauge // PendingMemoryGauge is a cached return of PendingMemoryGaugeVec.With(<label for the local daemon on this node>)
 	IdleMemoryGauge      prometheus.Gauge // IdleMemoryGauge is a cached return of IdleMemoryGaugeVec.With(<label for the local daemon on this node>)
 
+	TrainingTimeGaugeVec *prometheus.GaugeVec // TrainingTimeGaugeVec is the total, collective time that all kernels have spent executing user-submitted code.
+	
 	NumActiveKernelReplicasGaugeVec *prometheus.GaugeVec // NumActiveKernelReplicasGaugeVec is a Prometheus Gauge Vector for how many replicas are scheduled on a particular Local Daemon.
 	NumActiveKernelReplicasGauge    prometheus.Gauge     // NumActiveKernelReplicasGauge is a cached return of NumActiveKernelReplicasGaugeVec.With(<label for the local daemon on this node>)
 
@@ -231,6 +233,11 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 		Name:      "active_sessions",
 		Help:      "Number of actively-running kernels",
 	}, []string{"node_id"})
+	m.TrainingTimeGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "training_time_seconds",
+		Help:      "The total, collective time that all kernels have spent executing user-submitted code.",
+	}, []string{"node_id", "kernel_id", "workload_id"})
 	m.TotalNumKernelsCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
 		Name:      "sessions_total",
@@ -299,6 +306,10 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	// Register miscellaneous metrics.
 	if err := prometheus.Register(m.NumActiveKernelReplicasGaugeVec); err != nil {
 		m.log.Error("Failed to register 'Number of Active Kernel Replicas' metric because: %v", err)
+		return err
+	}
+	if err := prometheus.Register(m.TrainingTimeGaugeVec); err != nil {
+		m.log.Error("Failed to register 'Training Time' metric because: %v", err)
 		return err
 	}
 	if err := prometheus.Register(m.TotalNumKernelsCounterVec); err != nil {
