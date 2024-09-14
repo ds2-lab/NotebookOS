@@ -88,6 +88,13 @@ const (
 	// is inconsistent/invalid because its quantity is greater than that of the scheduling.Host
 	// instances types.Spec quantity.
 	ResourceQuantityGreaterThanSpec ResourceInconsistency = "quantity_greater_than_spec"
+
+	// IdleSpecUnequal indicates that our IdleResources and SpecResources are unequal despite having no kernel
+	// replicas scheduled locally on the node. (When the ndoe is empty, all our resources should be idle.)
+	IdleSpecUnequal ResourceInconsistency = "idle_and_spec_resources_unequal"
+
+	// PendingNonzero indicates that our PendingResources are non-zero despite having no replicas scheduled locally.
+	PendingNonzero ResourceInconsistency = "pending_nonzero"
 )
 
 // ResourceKind can be one of CPU, GPU, or Memory
@@ -450,6 +457,59 @@ func (res *resources) LessThanOrEqual(other *resources) (bool, ResourceKind) {
 	}
 
 	if !res.gpus.LessThanOrEqual(other.gpus) {
+		return false, GPU
+	}
+
+	return true, NoResource
+}
+
+// EqualTo returns true if each field of the target 'resources' struct is exactly equal to the corresponding field of
+// the other 'resources' struct.
+//
+// This method locks both 'resources' instances, beginning with the target instance.
+//
+// If any field of the target 'resources' struct is not equal to the corresponding field of the other 'resources'
+// struct, then false is returned.
+func (res *resources) EqualTo(other *resources) (bool, ResourceKind) {
+	res.Lock()
+	defer res.Unlock()
+
+	other.Lock()
+	defer other.Unlock()
+
+	if !res.millicpus.Equals(other.millicpus) {
+		return false, CPU
+	}
+
+	if !res.memoryMB.Equals(other.memoryMB) {
+		return false, Memory
+	}
+
+	if !res.gpus.Equals(other.gpus) {
+		return false, GPU
+	}
+
+	return true, NoResource
+}
+
+// IsZero returns true if each field of the target 'resources' struct is exactly equal to 0.
+//
+// This method locks both 'resources' instances, beginning with the target instance.
+//
+// If any field of the target 'resources' struct is not equal to 0, then false is returned.
+func (res *resources) IsZero() (bool, ResourceKind) {
+	res.Lock()
+	defer res.Unlock()
+
+	if !res.millicpus.Equals(decimal.Zero) {
+		return false, CPU
+	}
+
+	if !res.memoryMB.Equals(decimal.Zero) {
+		return false, Memory
+	}
+
+	if !res.gpus.Equals(decimal.Zero) {
 		return false, GPU
 	}
 
@@ -1451,6 +1511,9 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 
 	m.numPendingAllocations.Decr()
 
+	// Delete the allocation, since the replica was evicted.
+	m.allocationKernelReplicaMap.Delete(key)
+
 	// Make sure everything is OK with respect to our internal state/bookkeeping.
 	err := m.unsafePerformConsistencyCheck()
 	if err != nil {
@@ -1593,7 +1656,7 @@ func (m *ResourceManager) unsafePerformConsistencyCheck() error {
 	isOkay, offendingKind := m.resourcesWrapper.idleResources.LessThanOrEqual(m.resourcesWrapper.specResources)
 	if !isOkay {
 		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, ResourceQuantityGreaterThanSpec,
-			SpecResources, m.resourcesWrapper.idleResources.GetResource(offendingKind),
+			IdleResources, m.resourcesWrapper.idleResources.GetResource(offendingKind),
 			m.resourcesWrapper.specResources.GetResource(offendingKind))
 	}
 
@@ -1601,8 +1664,32 @@ func (m *ResourceManager) unsafePerformConsistencyCheck() error {
 	isOkay, offendingKind = m.resourcesWrapper.committedResources.LessThanOrEqual(m.resourcesWrapper.specResources)
 	if !isOkay {
 		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, ResourceQuantityGreaterThanSpec,
-			SpecResources, m.resourcesWrapper.committedResources.GetResource(offendingKind),
+			CommittedResources, m.resourcesWrapper.committedResources.GetResource(offendingKind),
 			m.resourcesWrapper.specResources.GetResource(offendingKind))
+	}
+
+	//
+	// Some additional checks.
+	//
+	numKernelReplicasScheduledOnNode := m.allocationKernelReplicaMap.Len()
+	if numKernelReplicasScheduledOnNode == 0 {
+		// If there are no kernel replicas scheduled on this node, then our pending and committed
+		// resource counts should be 0 and our idle resource count should be max (equal to spec).
+
+		// First, check that our idle resources are equal to our spec resources.
+		areEqual, offendingKind := m.resourcesWrapper.idleResources.EqualTo(m.resourcesWrapper.specResources)
+		if !areEqual {
+			return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, IdleSpecUnequal,
+				IdleResources, m.resourcesWrapper.idleResources.GetResource(offendingKind),
+				m.resourcesWrapper.specResources.GetResource(offendingKind))
+		}
+
+		// Next, check that our pending resources are equal to zero.
+		isZero, offendingKind := m.resourcesWrapper.pendingResources.IsZero()
+		if !isZero {
+			return NewInconsistentResourcesError(offendingKind, PendingNonzero,
+				PendingResources, m.resourcesWrapper.pendingResources.GetResource(offendingKind))
+		}
 	}
 
 	return nil
