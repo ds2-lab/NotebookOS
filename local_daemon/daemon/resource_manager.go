@@ -1481,6 +1481,8 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 		allocationExists bool
 	)
 
+	m.log.Debug("Attempting to evict replica %d of kernel %s.")
+
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
 		m.log.Error("Error while evicting kernel replica within ResourceManager. "+
@@ -1520,6 +1522,9 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 		m.log.Error("Discovered an inconsistency: %v", err)
 		return err
 	}
+
+	m.log.Debug("Evicted replica %d of kernel %s, releasing the following pending resources: %v",
+		replicaId, kernelId, allocation.ToSpecString())
 
 	return nil
 }
