@@ -335,7 +335,7 @@ func (c *BasicCluster) RegisterScaleOutOperation(operationId string, targetClust
 		return nil, ErrScalingActive
 	}
 
-	currentClusterSize := c.Len()
+	currentClusterSize := int32(c.Len())
 	scaleOperation, err := NewScaleOperation(operationId, currentClusterSize, targetClusterSize)
 	if err != nil {
 		return nil, err
@@ -365,7 +365,7 @@ func (c *BasicCluster) RegisterScaleInOperation(operationId string, targetCluste
 		return nil, ErrScalingActive
 	}
 
-	currentClusterSize := c.Len()
+	currentClusterSize := int32(c.Len())
 	scaleOperation, err := NewScaleOperation(operationId, currentClusterSize, targetClusterSize)
 	if err != nil {
 		return nil, err
