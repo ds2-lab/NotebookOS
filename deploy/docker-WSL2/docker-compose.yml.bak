@@ -51,9 +51,10 @@ services:
       app: "distributed_cluster"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/gateway/gateway.yml:/gateway.yml
-      - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/local_daemon/daemon.yml:/local_daemon/daemon.yml
-      - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/docker-compose.yml:/docker-compose.yml
+      - ./gateway/gateway.yml:/gateway.yml
+      - ./local_daemon/daemon.yml:/local_daemon/daemon.yml
+      - ./docker-compose.yml:/docker-compose.yml
+      - /home/$USER/kernel_base:/home/$USER/kernel_base
     container_name: "gateway"
     restart: unless-stopped
     expose:
@@ -76,9 +77,9 @@ services:
     environment:
       - KERNEL_TEMP_BASE=/kernel_base
       - KERNEL_IMAGE=scusemua/jupyter-debug:latest
-      - HOST_MOUNT_DIR=/home/scusemua/kernel_base
+      - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
-      - STORAGE=/home/scusemua/kernel_storage
+      - STORAGE=/home/$USER/kernel_storage
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
     image: scusemua/daemon:latest
@@ -86,8 +87,8 @@ services:
       app: "distributed_cluster"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/scusemua/kernel_base:/kernel_base
-      - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/local_daemon/daemon.yml:/daemon.yml
+      - /home/$USER/kernel_base:/kernel_base
+      - ./local_daemon/daemon.yml:/daemon.yml
         # - ./local_daemon/daemon.yml:/daemon.yml
       # - storage:/home/$USER/kernel_storage
     depends_on:

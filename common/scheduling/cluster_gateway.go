@@ -6,6 +6,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 )
 
+// ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook cluster.
 type ClusterGateway interface {
 	proto.ClusterGatewayServer
 

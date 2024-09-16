@@ -3045,7 +3045,11 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 //
 // If the Cluster is not running in Docker mode, then this will return an error.
 func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
+	d.log.Debug("Received request for the cluster's virtual docker nodes.")
+
 	expectedNumNodes, _ := d.getNumLocalDaemonDocker()
+
+	d.log.Debug("Expected number of Docker nodes: %d", expectedNumNodes)
 
 	d.dockerNodeMutex.Lock()
 	defer d.dockerNodeMutex.Unlock()
@@ -3254,6 +3258,7 @@ func (d *ClusterGatewayImpl) DecreaseNumNodes(_ context.Context, in *proto.Decre
 			// return nil, status.Errorf(codes.Internal, err.Error())
 		} else {
 			d.log.Debug("Output from removing %d Local Daemon Docker node(s):\n%s", in.NumNodesToRemove, string(stdout))
+			resultChan <- struct{}{}
 		}
 	}()
 
@@ -3291,16 +3296,17 @@ func (d *ClusterGatewayImpl) ModifyVirtualDockerNodes(_ context.Context, _ *prot
 
 // SetNumVirtualDockerNodes is used to scale the number of nodes in the cluster to a specific value.
 // This function accepts a SetNumVirtualDockerNodesRequest struct, which encodes the target number of nodes.
-func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(_ context.Context, in *proto.SetNumVirtualDockerNodesRequest) (*proto.SetNumVirtualDockerNodesResponse, error) {
+func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(parentContext context.Context, in *proto.SetNumVirtualDockerNodesRequest) (*proto.SetNumVirtualDockerNodesResponse, error) {
 	d.dockerNodeMutex.Lock()
 	defer d.dockerNodeMutex.Unlock()
+
+	d.log.Debug("Received request \"%s\" to set number of virtual Docker nodes to %d.", in.RequestId, in.TargetNumNodes)
 
 	if !d.DockerMode() {
 		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
 	currentNumNodes := int32(d.cluster.GetHostManager().Len())
-
 	if in.TargetNumNodes < int32(d.ClusterOptions.NumReplicas) {
 		d.log.Error("Cannot set number of Local Daemon Docker nodes to %d. Minimum: %d.", in.TargetNumNodes, d.ClusterOptions.NumReplicas)
 		return nil, ErrInvalidTargetNumHosts
@@ -3316,41 +3322,66 @@ func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(_ context.Context, in *pro
 		return nil, err // This error should already be gRPC compatible...
 	}
 
+	d.log.Debug("Registered %s. Starting operation now.", scaleOp.String())
+
 	// Start the operation.
 	if err := scaleOp.Start(); err != nil {
 		go d.notifyDashboardOfError("Failed to Start Scaling Operation", err.Error())
 		return nil, status.Error(codes.Internal, err.Error()) // This really shouldn't happen.
 	}
 
+	timeoutInterval := time.Second * 20
+	childContext, cancel := context.WithTimeout(parentContext, timeoutInterval)
+	defer cancel()
+
 	// Use a separate goroutine to execute the shell command to scale the number of Local Daemon nodes.
 	resultChan := make(chan interface{})
 	go func() {
+		d.log.Debug("Executing shell command: \"docker compose up -d --scale daemon=%d --no-deps --no-recreate\"", in.TargetNumNodes)
 		app := "docker"
 		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", in.TargetNumNodes)
 		args := strings.Split(argString, " ")
 
 		cmd := exec.Command(app, args...)
-		stdout, err := cmd.Output()
+		stdoutAndStderr, err := cmd.CombinedOutput()
 
 		if err != nil {
 			d.log.Error("Failed to set number of Local Daemon Docker nodes to %d because: %v", in.TargetNumNodes, err)
+			d.log.Error("Output from setting number of Local Daemon Docker nodes to %d:\n%s", in.TargetNumNodes, string(stdoutAndStderr))
 			resultChan <- err
 			// return nil, status.Errorf(codes.Internal, err.Error())
 		} else {
-			d.log.Debug("Output from setting number of Local Daemon Docker nodes to %d:\n%s", in.TargetNumNodes, string(stdout))
+			d.log.Debug("Output from setting number of Local Daemon Docker nodes to %d:\n%s", in.TargetNumNodes, string(stdoutAndStderr))
+			resultChan <- struct{}{} // Send notification that operation completed.
 		}
 	}()
 
-	// Wait for the shell command above to finish.
-	res := <-resultChan
-	if err, ok := res.(error); ok {
-		// If there was an error, then we'll return the error.
-		return nil, status.Errorf(codes.Internal, err.Error())
+	select {
+	case <-childContext.Done():
+		{
+			d.log.Error("Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+			if err := childContext.Err(); err != nil {
+				d.log.Error("Additional error information regarding failed adjustment of virtual Docker nodes: %v", err)
+				return nil, status.Error(codes.Internal, err.Error())
+			} else {
+				return nil, status.Errorf(codes.Internal, "Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+			}
+		}
+	case res := <-resultChan: // Wait for the shell command above to finish.
+		{
+			if err, ok := res.(error); ok {
+				d.log.Error("Failed to adjust scale of virtual Docker nodes because: %v", err)
+				// If there was an error, then we'll return the error.
+				return nil, status.Errorf(codes.Internal, err.Error())
+			}
+		}
 	}
 
 	// Now wait for the scale operation to complete.
 	// If it has already completed by the time we call Wait, then Wait just returns immediately.
 	scaleOp.Wait()
+
+	d.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d.", currentNumNodes, in.TargetNumNodes)
 
 	return &proto.SetNumVirtualDockerNodesResponse{
 		RequestId:   in.RequestId,
@@ -3372,10 +3403,12 @@ func (d *ClusterGatewayImpl) getNumLocalDaemonDocker() (int, error) {
 	}
 
 	if d.DockerComposeMode() {
+		d.log.Debug("Executing command: \"bash -c USER=root docker compose ps daemon | wc -l\"")
 		cmd := exec.Command("bash", "-c", "USER=root docker compose ps daemon | wc -l")
-		stdoutBytes, err := cmd.Output()
+		stdoutBytes, err := cmd.CombinedOutput()
 
 		stdout := strings.TrimSpace(string(stdoutBytes))
+		d.log.Debug("Command output: \"%s\"", stdout)
 		if err != nil {
 			d.log.Error("Failed to get number of Local Daemon Docker containers because: %v", err)
 			return -1, err
@@ -3384,7 +3417,6 @@ func (d *ClusterGatewayImpl) getNumLocalDaemonDocker() (int, error) {
 		numContainers, err := strconv.Atoi(stdout)
 		if err != nil {
 			d.log.Error("Failed to parse command output for number of Local Daemon Docker containers.")
-			d.log.Error("Command output: \"%s\"", stdout)
 			d.log.Error("Error: %v", err)
 
 			return -1, err

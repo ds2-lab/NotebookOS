@@ -1,7 +1,6 @@
 package scheduling
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -24,14 +23,27 @@ const (
 )
 
 var (
-	ErrInvalidTargetScale error = errors.New("invalid target scale specified")
-	ErrInvalidOperation   error = errors.New("scale operation is in invalid state for requested operation")
+	ErrInvalidTargetScale = status.Error(codes.InvalidArgument, "invalid target scale specified")
+	ErrInvalidOperation   = status.Error(codes.Internal, "scale operation is in invalid state for requested operation")
 )
 
 type ScaleOperationType string
 
+func (s ScaleOperationType) String() string {
+	return string(s)
+}
+
 type ScaleOperationStatus string
 
+func (s ScaleOperationStatus) String() string {
+	return string(s)
+}
+
+// ScaleOperation encapsulates the bookkeeping required for adjusting the scale of the cluster.
+// As of right now, the actual business logic required for performing the scale operation (i.e., adding or removing
+// nodes from the cluster) is not implemented, referenced by, or contained within a ScaleOperation struct.
+//
+// Instead, the associated business logic is implemented directly within the ClusterGateway.
 type ScaleOperation struct {
 	OperationId      string               `json:"request_id"`
 	InitialScale     int                  `json:"initial_scale"`
@@ -50,6 +62,11 @@ type ScaleOperation struct {
 	mu sync.Mutex
 }
 
+// NewScaleOperation creates a new ScaleOperation struct and returns a pointer to it.
+//
+// Specifically, a tuple is returned, where the first element is a pointer to a new ScaleOperation struct, and
+// the second element is an error, if one occurred. If an error did occur, then the pointer to the ScaleOperation
+// struct will presumably be a null pointer.
 func NewScaleOperation(operationId string, initialScale int, targetScale int32) (*ScaleOperation, error) {
 	scaleOperation := &ScaleOperation{
 		OperationId:      operationId,
@@ -57,6 +74,7 @@ func NewScaleOperation(operationId string, initialScale int, targetScale int32) 
 		InitialScale:     initialScale,
 		TargetScale:      targetScale,
 		RegistrationTime: time.Now(),
+		Status:           ScaleOperationAwaitingStart,
 	}
 
 	scaleOperation.cond = sync.NewCond(&scaleOperation.condMu)
@@ -71,6 +89,12 @@ func NewScaleOperation(operationId string, initialScale int, targetScale int32) 
 	}
 
 	return scaleOperation, nil
+}
+
+// String returns a string representation of the target ScaleOperation struct that is suitable for printing/logging.
+func (op *ScaleOperation) String() string {
+	return fmt.Sprintf("%s[Initial: %d, Target: %d, State: %s, ID: %s]",
+		op.OperationType, op.InitialScale, op.TargetScale, op.Status.String(), op.OperationId)
 }
 
 // IsComplete returns true if the ScaleOperation has either completed successfully or stopped due to an error.
