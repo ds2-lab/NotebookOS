@@ -23,6 +23,10 @@ const (
 
 type MetadataKey string
 
+func (k MetadataKey) String() string {
+	return string(k)
+}
+
 type ClusterDaemonOptions struct {
 	scheduling.ClusterSchedulerOptions `yaml:",inline"`
 	LocalDaemonServiceName             string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
