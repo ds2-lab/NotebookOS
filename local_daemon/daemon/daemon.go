@@ -1664,7 +1664,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 
 		_ = kernelClient.TrainingStopped()
 		d.prometheusManager.TrainingTimeGaugeVec.
-			With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID()}).
+			With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id", d.id}).
 			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
 	}
 
