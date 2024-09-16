@@ -198,8 +198,8 @@ type ClusterGatewayImpl struct {
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
 	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, domain.AddReplicaOperation]]
 
-	// Mapping from new pod name to AddReplicaOperation.
-	addReplicaOperationsByNewPodName *hashmap.CornelkMap[string, domain.AddReplicaOperation]
+	// Mapping from new kernel-replica key (i.e., <kernel-id>-<replica-id>) to AddReplicaOperation.
+	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, domain.AddReplicaOperation]
 
 	// Mapping from NewPodName to chan string.
 	// In theory, it's possible to receive a PodCreated notification from Kubernetes AFTER the replica within the new Pod
@@ -247,26 +247,26 @@ type ClusterGatewayImpl struct {
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
 	daemon := &ClusterGatewayImpl{
-		id:                               uuid.New().String(),
-		connectionOptions:                opts,
-		transport:                        "tcp",
-		ip:                               opts.IP,
-		availablePorts:                   utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
-		sessions:                         hashmap.NewCornelkMap[string, *scheduling.Session](128),
-		kernels:                          hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
-		kernelIdToKernel:                 hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
-		kernelSpecs:                      hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
-		waitGroups:                       hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
-		cleaned:                          make(chan struct{}),
-		smrPort:                          clusterDaemonOptions.SMRPort,
-		addReplicaOperations:             hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
-		activeAddReplicaOpsPerKernel:     hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, domain.AddReplicaOperation]](64),
-		addReplicaOperationsByNewPodName: hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
-		kernelsStarting:                  hashmap.NewCornelkMap[string, chan struct{}](64),
-		addReplicaNewPodNotifications:    hashmap.NewCornelkMap[string, chan domain.AddReplicaOperation](64),
-		activeExecutions:                 hashmap.NewCornelkMap[string, *gateway.ActiveExecution](64),
-		hdfsNameNodeEndpoint:             clusterDaemonOptions.HdfsNameNodeEndpoint,
-		dockerNetworkName:                clusterDaemonOptions.DockerNetworkName,
+		id:                                    uuid.New().String(),
+		connectionOptions:                     opts,
+		transport:                             "tcp",
+		ip:                                    opts.IP,
+		availablePorts:                        utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
+		sessions:                              hashmap.NewCornelkMap[string, *scheduling.Session](128),
+		kernels:                               hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
+		kernelIdToKernel:                      hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
+		kernelSpecs:                           hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
+		waitGroups:                            hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
+		cleaned:                               make(chan struct{}),
+		smrPort:                               clusterDaemonOptions.SMRPort,
+		addReplicaOperations:                  hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
+		activeAddReplicaOpsPerKernel:          hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, domain.AddReplicaOperation]](64),
+		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
+		kernelsStarting:                       hashmap.NewCornelkMap[string, chan struct{}](64),
+		addReplicaNewPodNotifications:         hashmap.NewCornelkMap[string, chan domain.AddReplicaOperation](64),
+		activeExecutions:                      hashmap.NewCornelkMap[string, *gateway.ActiveExecution](64),
+		hdfsNameNodeEndpoint:                  clusterDaemonOptions.HdfsNameNodeEndpoint,
+		dockerNetworkName:                     clusterDaemonOptions.DockerNetworkName,
 	}
 	for _, configFunc := range configs {
 		configFunc(daemon)
@@ -1658,11 +1658,14 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 }
 
 // Handle a registration notification from a new kernel replica that was created during an add-replica/migration operation.
-// TODO(Ben): Do I really need the main lock for this function?
-// IMPORTANT: This must be called with the main mutex held.
+//
+// IMPORTANT: This must be called with the main mutex held. Otherwise, there are race conditions with the
+// addReplicaNewPodNotifications field.
+//
 // IMPORTANT: This will release the main mutex before returning.
 func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegistrationNotification, kernel *client.DistributedKernelClient, waitGroup *registrationWaitGroups) (*proto.KernelRegistrationNotificationResponse, error) {
-	addReplicaOp, ok := d.addReplicaOperationsByNewPodName.Load(in.PodName)
+	key := fmt.Sprintf("%s-%d", in.KernelId, in.ReplicaId)
+	addReplicaOp, ok := d.addReplicaOperationsByKernelReplicaId.Load(key)
 
 	// If we cannot find the migration operation, then we have an unlikely race here.
 	// Basically, the new replica Pod was created, started running, and contacted its Local Daemon, which then contacted us,
@@ -1674,17 +1677,17 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// but I've not yet enforced this.
 	if !ok {
 		channel := make(chan domain.AddReplicaOperation, 1)
-		d.addReplicaNewPodNotifications.Store(in.PodName, channel)
+		d.addReplicaNewPodNotifications.Store(key, channel)
 
 		d.Unlock()
-		d.log.Debug("Waiting to receive AddReplicaNotification on NewPodNotification channel. NewPodName: %s.", in.PodName)
+		d.log.Debug("Waiting to receive AddReplicaNotification on NewPodNotification channel. Key: %s.", key)
 		// Just need to provide a mechanism to wait until we receive the pod-created notification, and get the migration operation that way.
 		addReplicaOp = <-channel
-		d.log.Debug("Received AddReplicaNotification on NewPodNotification channel. NewPodName: %s.", in.PodName)
+		d.log.Debug("Received AddReplicaNotification on NewPodNotification channel. Key: %s.", key)
 		d.Lock()
 
 		// Clean up mapping. Don't need it anymore.
-		d.addReplicaNewPodNotifications.Delete(in.PodName)
+		d.addReplicaNewPodNotifications.Delete(key)
 	}
 
 	host, loaded := d.cluster.GetHostManager().Load(in.HostId)
@@ -1703,9 +1706,9 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
 	}
 
-	session, ok := d.sessions.Load(in.PodName)
+	session, ok := d.sessions.Load(in.KernelId)
 	if !ok {
-		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", in.PodName)
+		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", in.SessionId)
 		d.log.Error(errorMessage)
 		d.notifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
 		panic(errorMessage)
@@ -2855,12 +2858,12 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		return addReplicaOp, err
 	}
 
-	var newReplicaName string
+	var key string
 	if d.KubernetesMode() {
 		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
 
 		// Always wait for the scale-out operation to complete and the new replica to be created.
-		newReplicaName = <-addReplicaOp.ReplicaStartedChannel()
+		key = <-addReplicaOp.ReplicaStartedChannel()
 	} else {
 		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaId), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
 		// connInfo, err := d.placer.Place(host, newReplicaSpec)
@@ -2885,19 +2888,21 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 
 		addReplicaOp.SetMetadata(domain.DockerContainerFullId, notification.FullContainerId)
 		addReplicaOp.SetMetadata(domain.DockerContainerShortId, notification.ShortContainerId)
-		newReplicaName = notification.KernelId
+		key = fmt.Sprintf("%s-%d", notification.KernelId, addReplicaOp.ReplicaId())
 	}
 
-	d.log.Debug("New replica %s has been created for kernel %s.", newReplicaName, kernelId)
-	addReplicaOp.SetPodName(newReplicaName)
-	d.addReplicaOperationsByNewPodName.Store(newReplicaName, addReplicaOp)
-
+	d.log.Debug("New replica %s has been created for kernel %s.", addReplicaOp.ReplicaId(), kernelId)
+	// addReplicaOp.SetPodName(in)
 	d.Lock()
+	d.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
 
-	channel, ok := d.addReplicaNewPodNotifications.Load(newReplicaName)
-
-	if ok {
+	if channel, ok := d.addReplicaNewPodNotifications.Load(key); ok {
+		d.log.Debug("Sending AddReplicaOperation for replica %d of kernel %s over channel.",
+			addReplicaOp.ReplicaId(), addReplicaOp.KernelId())
 		channel <- addReplicaOp
+	} else {
+		d.log.Debug("Skipping the sending of AddReplicaOperation for replica %d of kernel %s over channel.",
+			addReplicaOp.ReplicaId(), addReplicaOp.KernelId())
 	}
 
 	d.Unlock()
