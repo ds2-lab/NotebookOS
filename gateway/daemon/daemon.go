@@ -3142,7 +3142,7 @@ func (d *ClusterGatewayImpl) GetDockerSwarmNodes(_ context.Context, _ *proto.Voi
 }
 
 // AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
-func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
+func (d *ClusterGatewayImpl) AddVirtualDockerNodes(parentContext context.Context, in *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
 	d.dockerNodeMutex.Lock()
 	defer d.dockerNodeMutex.Unlock()
 
@@ -3171,7 +3171,7 @@ func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.
 
 	// Use a separate goroutine to execute the shell command to scale the number of Local Daemon nodes.
 	resultChan := make(chan interface{})
-	go func() {
+	execScaleOp := func() {
 		app := "docker"
 		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetNumNodes)
 		args := strings.Split(argString, " ")
@@ -3187,18 +3187,13 @@ func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.
 			d.log.Debug("Output from adding %d new Local Daemon Docker node(s):\n%s", in.NumNodes, string(stdout))
 			resultChan <- struct{}{}
 		}
-	}()
-
-	// Wait for the shell command above to finish.
-	res := <-resultChan
-	if err, ok := res.(error); ok {
-		// If there was an error, then we'll return the error.
-		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
-	// Now wait for the scale operation to complete.
-	// If it has already completed by the time we call Wait, then Wait just returns immediately.
-	scaleOp.Wait()
+	// Wait for the shell command above to finish.
+	err = d.handleScaleOperation(parentContext, scaleOp, execScaleOp, resultChan)
+	if err != nil {
+		return nil, err
+	}
 
 	return &proto.AddVirtualDockerNodesResponse{
 		RequestId:         in.RequestId,
@@ -3209,7 +3204,7 @@ func (d *ClusterGatewayImpl) AddVirtualDockerNodes(_ context.Context, in *proto.
 }
 
 // DecreaseNumNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
-func (d *ClusterGatewayImpl) DecreaseNumNodes(_ context.Context, in *proto.DecreaseNumNodesRequest) (*proto.DecreaseNumNodesResponse, error) {
+func (d *ClusterGatewayImpl) DecreaseNumNodes(parentContext context.Context, in *proto.DecreaseNumNodesRequest) (*proto.DecreaseNumNodesResponse, error) {
 	d.dockerNodeMutex.Lock()
 	defer d.dockerNodeMutex.Unlock()
 
@@ -3244,7 +3239,7 @@ func (d *ClusterGatewayImpl) DecreaseNumNodes(_ context.Context, in *proto.Decre
 
 	// Use a separate goroutine to execute the shell command to scale the number of Local Daemon nodes.
 	resultChan := make(chan interface{})
-	go func() {
+	execScaleOp := func() {
 		app := "docker"
 		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetNumNodes)
 		args := strings.Split(argString, " ")
@@ -3260,18 +3255,13 @@ func (d *ClusterGatewayImpl) DecreaseNumNodes(_ context.Context, in *proto.Decre
 			d.log.Debug("Output from removing %d Local Daemon Docker node(s):\n%s", in.NumNodesToRemove, string(stdout))
 			resultChan <- struct{}{}
 		}
-	}()
-
-	// Wait for the shell command above to finish.
-	res := <-resultChan
-	if err, ok := res.(error); ok {
-		// If there was an error, then we'll return the error.
-		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
-	// Now wait for the scale operation to complete.
-	// If it has already completed by the time we call Wait, then Wait just returns immediately.
-	scaleOp.Wait()
+	// Wait for the shell command above to finish.
+	err = d.handleScaleOperation(parentContext, scaleOp, execScaleOp, resultChan)
+	if err != nil {
+		return nil, err
+	}
 
 	return &proto.DecreaseNumNodesResponse{
 		RequestId:       in.RequestId,
@@ -3306,17 +3296,15 @@ func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(parentContext context.Cont
 		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
-	currentNumNodes := int32(d.cluster.GetHostManager().Len())
 	if in.TargetNumNodes < int32(d.ClusterOptions.NumReplicas) {
 		d.log.Error("Cannot set number of Local Daemon Docker nodes to %d. Minimum: %d.", in.TargetNumNodes, d.ClusterOptions.NumReplicas)
 		return nil, ErrInvalidTargetNumHosts
 	}
 
 	// Register a new scaling operation.
-	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
-	// on the current and target cluster size).
-	opId := uuid.NewString()
-	scaleOp, err := d.cluster.RegisterScaleOutOperation(opId, in.TargetNumNodes)
+	// The registration process validates that the requested operation makes sense
+	// (i.e., we would indeed scale-out based on the current and target cluster size).
+	scaleOp, err := d.cluster.RegisterScaleOutOperation(in.RequestId, in.TargetNumNodes)
 	if err != nil {
 		d.log.Error("Could not register new scale-out operation to %d nodes because: %v", in.TargetNumNodes, err)
 		return nil, err // This error should already be gRPC compatible...
@@ -3330,13 +3318,9 @@ func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(parentContext context.Cont
 		return nil, status.Error(codes.Internal, err.Error()) // This really shouldn't happen.
 	}
 
-	timeoutInterval := time.Second * 20
-	childContext, cancel := context.WithTimeout(parentContext, timeoutInterval)
-	defer cancel()
-
 	// Use a separate goroutine to execute the shell command to scale the number of Local Daemon nodes.
 	resultChan := make(chan interface{})
-	go func() {
+	execScaleOp := func() {
 		d.log.Debug("Executing shell command: \"docker compose up -d --scale daemon=%d --no-deps --no-recreate\"", in.TargetNumNodes)
 		app := "docker"
 		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", in.TargetNumNodes)
@@ -3354,17 +3338,78 @@ func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(parentContext context.Cont
 			d.log.Debug("Output from setting number of Local Daemon Docker nodes to %d:\n%s", in.TargetNumNodes, string(stdoutAndStderr))
 			resultChan <- struct{}{} // Send notification that operation completed.
 		}
+	}
+
+	err = d.handleScaleOperation(parentContext, scaleOp, execScaleOp, resultChan)
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.SetNumVirtualDockerNodesResponse{
+		RequestId:   scaleOp.OperationId,
+		OldNumNodes: int32(scaleOp.InitialScale),
+		NewNumNodes: scaleOp.TargetScale,
+	}, err
+}
+
+// handleScaleOperation orchestrates the given scheduling.ScaleOperation.
+//
+// This function creates a child context from the given parent context. The child context has a timeout of 15 seconds.
+//
+// The resultChan is the channel used in the execScaleOp function to notify that the operation has either finished
+// or resulted in an error.
+//
+// handleScaleOperation returns nil on success.
+func (d *ClusterGatewayImpl) handleScaleOperation(parentContext context.Context, scaleOp *scheduling.ScaleOperation, execScaleOp func(), resultChan <-chan interface{}) error {
+	timeoutInterval := time.Second * 15
+	childContext, cancel := context.WithTimeout(parentContext, timeoutInterval)
+	defer cancel()
+
+	go execScaleOp()
+
+	// Spawn a goroutine to monitor the cluster size.
+	//
+	// If the cluster size equals the target size of the scale operation,
+	// then we'll mark the scale operation as complete.
+	//
+	// If the operation times-out, then we'll mark the operation as having reached an error state.
+	go func() {
+		select {
+		case <-childContext.Done():
+			ctxErr := childContext.Err()
+			if ctxErr != nil {
+				_ = scaleOp.SetOperationErred(ctxErr, false)
+			} else {
+				_ = scaleOp.SetOperationErred(fmt.Errorf(""), false)
+			}
+			return
+		default:
+			{
+				currSize := int32(d.cluster.GetHostManager().Len())
+				if currSize == scaleOp.TargetScale {
+					err := scaleOp.SetOperationFinished()
+					if err != nil {
+						d.log.Error("Failed to set scale-operation %s to 'complete' state because: %v",
+							scaleOp.OperationId, err)
+					}
+
+					return
+				}
+
+				time.Sleep(time.Millisecond * 500)
+			}
+		}
 	}()
 
 	select {
 	case <-childContext.Done():
 		{
 			d.log.Error("Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
-			if err := childContext.Err(); err != nil {
-				d.log.Error("Additional error information regarding failed adjustment of virtual Docker nodes: %v", err)
-				return nil, status.Error(codes.Internal, err.Error())
+			if ctxErr := childContext.Err(); ctxErr != nil {
+				d.log.Error("Additional error information regarding failed adjustment of virtual Docker nodes: %v", ctxErr)
+				return status.Error(codes.Internal, ctxErr.Error())
 			} else {
-				return nil, status.Errorf(codes.Internal, "Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+				return status.Errorf(codes.Internal, "Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
 			}
 		}
 	case res := <-resultChan: // Wait for the shell command above to finish.
@@ -3372,22 +3417,34 @@ func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(parentContext context.Cont
 			if err, ok := res.(error); ok {
 				d.log.Error("Failed to adjust scale of virtual Docker nodes because: %v", err)
 				// If there was an error, then we'll return the error.
-				return nil, status.Errorf(codes.Internal, err.Error())
+				return status.Errorf(codes.Internal, err.Error())
 			}
 		}
+	}
+
+	if err := scaleOp.SetOperationFinished(); err != nil {
+		d.log.Error("Failed to transition scale operation \"%s\" to 'complete' state because: %v", scaleOp.OperationId, err)
+		return status.Error(codes.Internal, err.Error())
 	}
 
 	// Now wait for the scale operation to complete.
 	// If it has already completed by the time we call Wait, then Wait just returns immediately.
 	scaleOp.Wait()
 
-	d.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d.", currentNumNodes, in.TargetNumNodes)
+	if scaleOp.CompletedSuccessfully() {
+		d.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d.", scaleOp.InitialScale, scaleOp.TargetScale)
 
-	return &proto.SetNumVirtualDockerNodesResponse{
-		RequestId:   in.RequestId,
-		OldNumNodes: currentNumNodes,
-		NewNumNodes: in.TargetNumNodes,
-	}, nil
+		return nil
+	} else {
+		d.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d.", scaleOp.InitialScale, scaleOp.TargetScale)
+
+		if scaleOp.Error == nil {
+			log.Fatalf("ScaleOperation \"%s\" is in '%s' state, but its Error field is nil...",
+				scaleOp.OperationId, scheduling.ScaleOperationErred.String())
+		}
+
+		return status.Error(codes.Internal, scaleOp.Error.Error())
+	}
 }
 
 // getNumLocalDaemonDocker returns the number of Local Daemon Docker containers.

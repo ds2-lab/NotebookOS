@@ -53,6 +53,7 @@ type ScaleOperation struct {
 	StartTime        time.Time            `json:"start_time"`
 	EndTime          time.Time            `json:"end_time"`
 	Status           ScaleOperationStatus `json:"status"`
+	Error            error                `json:"error"` // Error is the error that caused ScaleOperation to enter the ScaleOperationErred state/status.
 	NotificationChan chan struct{}        `json:"-"`
 
 	// cond exists so that goroutines can wait for the scale operation to complete.
@@ -107,6 +108,21 @@ func (op *ScaleOperation) IsComplete() bool {
 	return op.Status == ScaleOperationComplete || op.Status == ScaleOperationErred
 }
 
+// CompletedSuccessfully returns true if the ScaleOperation completed successfully.
+//
+// If the ScaleOperation exited with an error, then CompletedSuccessfully will return false.
+func (op *ScaleOperation) CompletedSuccessfully() bool {
+	op.mu.Lock()
+	defer op.mu.Unlock()
+
+	return op.Status == ScaleOperationComplete
+}
+
+// IsErred returns true if the ScaleOperation exited due to an error state.
+func (op *ScaleOperation) IsErred() bool {
+	return op.Status == ScaleOperationErred
+}
+
 // Wait blocks the caller until the ScaleOperation has either completed successfully or terminates due to an error.
 // If the operation has already completed, then this just returns immediately.
 //
@@ -143,6 +159,7 @@ func (op *ScaleOperation) Start() error {
 }
 
 // SetOperationFinished records that the ScaleOperation has completed successfully.
+// This transitions the ScaleOperation to the ScaleOperationComplete state/status.
 //
 // Note: this acquires the "main" mutex of the ScaleOperation.
 func (op *ScaleOperation) SetOperationFinished() error {
@@ -155,6 +172,35 @@ func (op *ScaleOperation) SetOperationFinished() error {
 
 	op.EndTime = time.Now()
 	op.Status = ScaleOperationComplete
+
+	// Wake up anybody waiting for the operation to complete.
+	// Note: it is allowed but not required for the caller to hold cond.L during the call.
+	op.cond.Broadcast()
+
+	return nil
+}
+
+// SetOperationErred transitions the ScaleOperation to the ScaleOperationErred state/status.
+//
+// If the ScaleOperation has already been designated as having completed successfully, then this will not
+// transition the ScaleOperation to the ScaleOperationErred unless the override parameter is true.
+func (op *ScaleOperation) SetOperationErred(err error, override bool) error {
+	op.mu.Lock()
+	defer op.mu.Unlock()
+
+	// If we've already completed successfully and override is false, then we'll return an error.
+	if op.Status == ScaleOperationComplete && !override {
+		return fmt.Errorf("%w: \"%s\"", ErrInvalidOperation, op.Status)
+	}
+
+	// If we're already in an error state, then we'll return an error.
+	if op.Status == ScaleOperationErred {
+		return fmt.Errorf("%w: \"%s\"", ErrInvalidOperation, op.Status)
+	}
+
+	op.EndTime = time.Now()
+	op.Status = ScaleOperationErred
+	op.Error = err
 
 	// Wake up anybody waiting for the operation to complete.
 	// Note: it is allowed but not required for the caller to hold cond.L during the call.
