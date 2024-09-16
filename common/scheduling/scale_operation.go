@@ -46,7 +46,7 @@ func (s ScaleOperationStatus) String() string {
 // Instead, the associated business logic is implemented directly within the ClusterGateway.
 type ScaleOperation struct {
 	OperationId      string               `json:"request_id"`
-	InitialScale     int                  `json:"initial_scale"`
+	InitialScale     int32                `json:"initial_scale"`
 	TargetScale      int32                `json:"target_scale"`
 	OperationType    ScaleOperationType   `json:"scale_operation_type"`
 	RegistrationTime time.Time            `json:"registration_time"`
@@ -68,7 +68,7 @@ type ScaleOperation struct {
 // Specifically, a tuple is returned, where the first element is a pointer to a new ScaleOperation struct, and
 // the second element is an error, if one occurred. If an error did occur, then the pointer to the ScaleOperation
 // struct will presumably be a null pointer.
-func NewScaleOperation(operationId string, initialScale int, targetScale int32) (*ScaleOperation, error) {
+func NewScaleOperation(operationId string, initialScale int32, targetScale int32) (*ScaleOperation, error) {
 	scaleOperation := &ScaleOperation{
 		OperationId:      operationId,
 		NotificationChan: make(chan struct{}, 1),
@@ -80,9 +80,9 @@ func NewScaleOperation(operationId string, initialScale int, targetScale int32) 
 
 	scaleOperation.cond = sync.NewCond(&scaleOperation.condMu)
 
-	if targetScale < int32(initialScale) {
+	if targetScale < initialScale {
 		scaleOperation.OperationType = ScaleInOperation
-	} else if targetScale > int32(initialScale) {
+	} else if targetScale > initialScale {
 		scaleOperation.OperationType = ScaleOutOperation
 	} else /* targetScale == initialScale */ {
 		wrappedErr := fmt.Errorf("%w: current scale and initial scale are equal (%d)", ErrInvalidTargetScale, targetScale)

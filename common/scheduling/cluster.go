@@ -85,6 +85,17 @@ type Cluster interface {
 	// GetHostManager returns the host manager of the BasicCluster.
 	GetHostManager() hashmap.HashMap[string, *Host]
 
+	// RegisterScaleOperation registers a non-specific type of ScaleOperation.
+	// Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
+	// depends on how the target node count compares to the current node count.
+	//
+	// If the target node count is greater than the current node count, then a ScaleOutOperation is created,
+	// registered, and returned.
+	//
+	// Alternatively, if the target node count is less than the current node count, then a ScaleInOperation is created,
+	// registered, and returned.
+	RegisterScaleOperation(string, int32) (*ScaleOperation, error)
+
 	// RegisterScaleOutOperation registers a scale-out operation.
 	// When the operation completes, a notification is sent on the channel associated with the ScaleOperation.
 	RegisterScaleOutOperation(string, int32) (*ScaleOperation, error)
@@ -265,6 +276,50 @@ func (c *BasicCluster) IsThereAnActiveScaleOperation() bool {
 	defer c.scalingOpMutex.Unlock()
 
 	return c.activeScaleOperation != nil
+}
+
+// RegisterScaleOperation registers a non-specific type of ScaleOperation.
+// Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
+// depends on how the target node count compares to the current node count.
+//
+// If the target node count is greater than the current node count, then a ScaleOutOperation is created,
+// registered, and returned.
+//
+// Alternatively, if the target node count is less than the current node count, then a ScaleInOperation is created,
+// registered, and returned.
+func (c *BasicCluster) RegisterScaleOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
+
+	if c.activeScaleOperation != nil {
+		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
+		return nil, ErrScalingActive
+	}
+
+	var (
+		currentClusterSize = int32(c.Len())
+		scaleOperation     *ScaleOperation
+		err                error
+	)
+	if targetClusterSize > currentClusterSize {
+		scaleOperation, err = NewScaleOperation(operationId, currentClusterSize, targetClusterSize)
+	} else {
+		scaleOperation, err = NewScaleOperation(operationId, currentClusterSize, targetClusterSize)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if scaleOperation.OperationType != ScaleOutOperation {
+		return nil, fmt.Errorf("%w: cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
+	}
+
+	// if existingScaleOperation, loaded := c.scaleOperations.LoadOrStore(operationId, scaleOperation); loaded {
+	// 	return existingScaleOperation, ErrDuplicateScaleOperation
+	// }
+
+	return scaleOperation, nil
 }
 
 // RegisterScaleOutOperation registers a scale-out operation.

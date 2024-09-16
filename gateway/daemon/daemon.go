@@ -3302,11 +3302,24 @@ func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(parentContext context.Cont
 	}
 
 	// Register a new scaling operation.
-	// The registration process validates that the requested operation makes sense
-	// (i.e., we would indeed scale-out based on the current and target cluster size).
-	scaleOp, err := d.cluster.RegisterScaleOutOperation(in.RequestId, in.TargetNumNodes)
+	var (
+		scaleOp         *scheduling.ScaleOperation
+		currentNumNodes = int32(d.cluster.GetHostManager().Len())
+		err             error
+	)
+	if in.TargetNumNodes > currentNumNodes {
+		// The registration process validates that the requested operation makes sense
+		// (i.e., we would indeed scale-out based on the current and target cluster size).
+		scaleOp, err = d.cluster.RegisterScaleOutOperation(in.RequestId, in.TargetNumNodes)
+	} else {
+		// The registration process validates that the requested operation makes sense
+		// (i.e., we would indeed scale-out based on the current and target cluster size).
+		scaleOp, err = d.cluster.RegisterScaleInOperation(in.RequestId, in.TargetNumNodes)
+	}
+
+	// Check if we registered successfully.
 	if err != nil {
-		d.log.Error("Could not register new scale-out operation to %d nodes because: %v", in.TargetNumNodes, err)
+		d.log.Error("Could not register new scaling operation from %d to %d nodes because: %v", currentNumNodes, in.TargetNumNodes, err)
 		return nil, err // This error should already be gRPC compatible...
 	}
 
