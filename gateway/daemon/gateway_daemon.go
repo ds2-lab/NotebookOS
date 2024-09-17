@@ -1890,7 +1890,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 		NumReplicas: int32(d.ClusterOptions.NumReplicas),
 	}
 
-	if nodeName == "" {
+	if nodeName == "" || nodeName == types.DockerNode {
 		if !d.DockerMode() {
 			log.Fatalf("Replica %d of kernel %s does not have a valid node name.\n", replicaSpec.ReplicaId, in.KernelId)
 		}
@@ -2231,10 +2231,60 @@ func (d *ClusterGatewayImpl) setTotalVirtualGPUs(ctx context.Context, in *proto.
 	return resp, err
 }
 
-func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo) (*proto.MigrateKernelResponse, error) {
+// migrateReplicaRemoveFirst migrates a kernel replica from its current node to another node.
+//
+// If the targetNodeId parameter contains a valid node ID, then the replica is migrated to the specified node if
+// possible. If not, then the migration operation will be aborted.
+func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo, targetNodeId string) (*proto.MigrateKernelResponse, error) {
 	// We pass 'false' for `wait` here, as we don't really need to wait for the CloneSet to scale-down.
 	// As long as the replica is stopped, we can continue.
 	dataDirectory := d.issuePrepareMigrateRequest(in.KernelId, in.ReplicaId)
+
+	// Check if the specified node is viable. If not, we'll abort the operation before removing the replica.
+	if len(targetNodeId) > 0 {
+		hostManager := d.cluster.GetHostManager()
+
+		host, hostExists := hostManager.Load(targetNodeId)
+		if !hostExists {
+			d.log.Error("Cannot migrate replica %d of kernel %s to node %s, as that node does not exist within the cluster.",
+				in.ReplicaId, in.KernelId, targetNodeId)
+			return nil, fmt.Errorf("%w: no host with ID \"%s\" found in cluster",
+				scheduling.ErrHostNotFound, targetNodeId)
+		}
+
+		container := host.GetAnyReplicaOfKernel(in.KernelId)
+		if container != nil {
+			// If the host has ANY replica of the kernel whose replica we're trying to migrate, then the host is not
+			// viable.
+			//
+			// This is because the host either already has another replica of that same kernel on it, or the host is
+			// hosting the replica we're presently trying to migrate.
+			if container.ReplicaID() != in.ReplicaId {
+				d.log.Error("Cannot migrate replica %d of kernel %s to node %s, as that node is already hosting another replica of that kernel (replica %d)",
+					in.ReplicaId, in.KernelId, targetNodeId, container.ReplicaID())
+				return nil, fmt.Errorf("%w: host %s is currently hosting another replica (%d) of the same kernel",
+					scheduling.ErrHostNotViable, targetNodeId, container.ReplicaID())
+			} else {
+				d.log.Error("Cannot migrate replica %d of kernel %s to node %s, as the replica we're migrating is currently scheduled on that node",
+					in.ReplicaId, in.KernelId, targetNodeId, container.ReplicaID())
+				return nil, fmt.Errorf("%w: replica being migrated (%d) is already running on host %s",
+					scheduling.ErrHostNotViable, in.ReplicaId, targetNodeId)
+			}
+		}
+
+		kernel, loaded := d.kernels.Load(in.KernelId)
+		if !loaded {
+			d.log.Error("Cannot find client for kernel %s during migration of one of kernel %s's replicas...",
+				in.KernelId, in.KernelId)
+			return nil, ErrKernelNotFound
+		}
+
+		if !host.ResourceSpec().Validate(kernel.ResourceSpec()) {
+			d.log.Error("Cannot migrate replica %d of kernel %s to host %s, as host does not have sufficiently-many allocatable resources to accommodate the replica.",
+				in.ReplicaId, in.KernelId, targetNodeId)
+			return nil, fmt.Errorf("%w: host lacks sufficiently-many allocatable resourecs", scheduling.ErrHostNotViable)
+		}
+	}
 
 	err := d.removeReplica(in.ReplicaId, in.KernelId)
 	if err != nil {
@@ -2277,7 +2327,7 @@ func (d *ClusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
 
 func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error) {
 	replicaInfo := in.TargetReplica
-	targetNode := in.GetTargetNodeId()
+	targetNodeId := in.GetTargetNodeId()
 
 	if replicaInfo.GetPersistentId() == "" {
 		// Automatically populate the persistent ID field.
@@ -2292,17 +2342,21 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 		d.log.Debug("Automatically populated PersistentID field of migration request of replica %d of kernel %s: '%s'", replicaInfo.ReplicaId, replicaInfo.KernelId, replicaInfo.PersistentId)
 	}
 
-	if targetNode != "" {
-		d.log.Warn("Ignoring specified target node of \"%s\" for now.")
+	if targetNodeId != "" {
+		d.log.Debug("Migrating replica %d of kernel %s to target node %s now.",
+			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId)
+	} else {
+		d.log.Debug("Migrating replica %d of kernel %s to unspecified node now.",
+			replicaInfo.ReplicaId, replicaInfo.KernelId)
 	}
 
-	d.log.Debug("Migrating replica %d of kernel %s now.", replicaInfo.ReplicaId, replicaInfo.KernelId)
-
-	resp, err := d.migrateReplicaRemoveFirst(replicaInfo)
+	resp, err := d.migrateReplicaRemoveFirst(replicaInfo, targetNodeId)
 	if err != nil {
-		d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed because: %s", replicaInfo.ReplicaId, replicaInfo.KernelId, targetNode, err.Error())
+		d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed because: %s",
+			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, err.Error())
 	} else {
-		d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully.", replicaInfo.ReplicaId, replicaInfo.KernelId, targetNode)
+		d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully.",
+			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId)
 	}
 
 	// If there was an error, then err will be non-nil.

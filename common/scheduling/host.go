@@ -496,6 +496,70 @@ func (h *Host) updatePenaltyList(cached *PenaltyContainers) *PenaltyContainers {
 	return cached
 }
 
+// HasAnyReplicaOfKernel returns true if the Host currently has a Container (i.e., a kernel replica) of the
+// specified kernel.
+func (h *Host) HasAnyReplicaOfKernel(kernelId string) bool {
+	found := false
+	h.containers.Range(func(_ string, container *Container) (contd bool) {
+		if container.KernelID() == kernelId {
+			found = true
+			return false // Stop iterating.
+		}
+
+		return true // Continue iterating.
+	})
+
+	return found
+}
+
+// HasSpecificReplicaOfKernel returns true if the Host currently has the Container corresponding
+// to the given replica of the given kernel.
+func (h *Host) HasSpecificReplicaOfKernel(kernelId string, replicaId int32) bool {
+	found := false
+	h.containers.Range(func(_ string, container *Container) (contd bool) {
+		if container.KernelID() == kernelId && container.ReplicaID() == replicaId {
+			found = true
+			return false // Stop iterating.
+		}
+
+		return true // Continue iterating.
+	})
+
+	return found
+}
+
+// GetAnyReplicaOfKernel returns the *Container corresponding to any replica of the specified kernel if such a
+// Container is currently scheduled/provisioned on this Host. If not, then nil is returned.
+func (h *Host) GetAnyReplicaOfKernel(kernelId string) *Container {
+	var targetContainer *Container
+	h.containers.Range(func(_ string, container *Container) (contd bool) {
+		if container.KernelID() == kernelId {
+			targetContainer = container
+			return false // Stop iterating.
+		}
+
+		return true // Continue iterating.
+	})
+
+	return targetContainer
+}
+
+// GetSpecificReplicaOfKernel returns the *Container corresponding to the specified replica of the specified kernel,
+// if that Container is currently scheduled/provisioned on this Host. If not, then nil is returned.
+func (h *Host) GetSpecificReplicaOfKernel(kernelId string, replicaId int32) *Container {
+	var targetContainer *Container
+	h.containers.Range(func(_ string, container *Container) (contd bool) {
+		if container.KernelID() == kernelId && container.ReplicaID() == replicaId {
+			targetContainer = container
+			return false // Stop iterating.
+		}
+
+		return true // Continue iterating.
+	})
+
+	return targetContainer
+}
+
 func (h *Host) SetIdx(idx int) {
 	h.idx = idx
 }

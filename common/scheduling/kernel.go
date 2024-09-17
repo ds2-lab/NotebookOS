@@ -15,7 +15,7 @@ type KernelInfo interface {
 	// RouterInfo provides kernel specific routing information.
 	router.RouterInfo
 
-	// ID returns kernel id.
+	// ID returns kernel ID.
 	ID() string
 
 	// ResourceSpec returns resource resourceSpec, which defines the resource requirements of the kernel.
@@ -69,7 +69,7 @@ type Kernel interface {
 type KernelReplica interface {
 	Kernel
 
-	// ReplicaID returns the replica id.
+	// ReplicaID returns the replica ID.
 	ReplicaID() int32
 
 	// PodName returns the name of the Kubernetes Pod hosting the replica.

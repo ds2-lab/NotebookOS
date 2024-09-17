@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"os"
 	"time"
 
@@ -86,7 +87,7 @@ func NewPodCache(nodeName string) PodCache {
 		return nil
 	}
 
-	podCache.informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err = podCache.informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			pod, ok := obj.(*corev1.Pod)
 			if ok {
@@ -105,7 +106,10 @@ func NewPodCache(nodeName string) PodCache {
 				podCache.log.Debug("Pod deleted: %s/%s", pod.Namespace, pod.Name)
 			}
 		},
-	})
+	}); err != nil {
+		podCache.log.Error("Failed to add event handler to pod cache's informer because: %v", err)
+		return nil
+	}
 
 	podCache.log.Debug("Informer has synchronized successfully. PodCache WatchDog is now running.")
 	klog.V(2).Infof("PodCache WatchDog is now running.")
@@ -185,11 +189,11 @@ func (c *podCacheImpl) Informer() informersCore.PodInformer {
 	return c.informer
 }
 
-// Return the Pods running on the specified node.
+// GetPodsRunningOnNode returns the Pods running on the specified node.
 // Optionally return only the Pods in a particular phase by passing a pod phase via the `podPhase` parameter.
 // If you do not want to restrict the Pods to any particular phase, then pass the empty string for the `podPhase` parameter.
 func (c *podCacheImpl) GetPodsRunningOnNode(nodeName string, podPhase string) ([]corev1.Pod, error) {
-	if nodeName == "" {
+	if nodeName == "" || nodeName == types.DockerNode {
 		nodeName, _ = os.Hostname()
 	}
 

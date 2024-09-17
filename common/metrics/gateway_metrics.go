@@ -7,9 +7,16 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"net/http"
 )
+
+type LocalDaemonNodeProvider interface {
+	// GetLocalDaemonNodeIDs returns the IDs of the active Local Daemon nodes.
+	GetLocalDaemonNodeIDs(_ context.Context, _ *proto.Void) (*proto.GetLocalDaemonNodeIDsResponse, error)
+
+	// GetId returns the node ID of the entity providing the local daemon nodes.
+	GetId() string
+}
 
 // GatewayPrometheusManager is responsible for registering metrics with Prometheus and serving them via HTTP.
 // This is to be used by the Cluster Gateway. Local Daemons use the LocalDaemonPrometheusManager struct.
@@ -23,16 +30,16 @@ type GatewayPrometheusManager struct {
 	// of the metric are seconds.
 	JupyterTrainingStartLatency *prometheus.HistogramVec
 
-	gatewayDaemon scheduling.ClusterGateway
+	localDaemonNodeProvider LocalDaemonNodeProvider
 }
 
-func NewGatewayPrometheusManager(port int, gatewayDaemon scheduling.ClusterGateway) *GatewayPrometheusManager {
-	baseManager := newBasePrometheusManager(port, gatewayDaemon.GetId())
+func NewGatewayPrometheusManager(port int, localDaemonNodeProvider LocalDaemonNodeProvider) *GatewayPrometheusManager {
+	baseManager := newBasePrometheusManager(port, localDaemonNodeProvider.GetId())
 	config.InitLogger(&baseManager.log, baseManager)
 
 	manager := &GatewayPrometheusManager{
-		basePrometheusManager: baseManager,
-		gatewayDaemon:         gatewayDaemon,
+		basePrometheusManager:   baseManager,
+		localDaemonNodeProvider: localDaemonNodeProvider,
 	}
 	baseManager.instance = manager
 	baseManager.initializeInstanceMetrics = manager.initMetrics
@@ -112,7 +119,7 @@ func (m *GatewayPrometheusManager) HandleVariablesRequest(c *gin.Context) {
 	case "num_nodes":
 		{
 			// Call the GetLocalDaemonNodeIDs gRPC handler directly. This is a local call.
-			resp, err := m.gatewayDaemon.GetLocalDaemonNodeIDs(context.Background(), &proto.Void{})
+			resp, err := m.localDaemonNodeProvider.GetLocalDaemonNodeIDs(context.Background(), &proto.Void{})
 			if err != nil {
 				m.log.Error("Failed to retrieve Local Daemon IDs because: %v", err)
 				_ = c.AbortWithError(http.StatusInternalServerError, err)
@@ -125,7 +132,7 @@ func (m *GatewayPrometheusManager) HandleVariablesRequest(c *gin.Context) {
 	case "local_daemon_ids":
 		{
 			// Call the GetLocalDaemonNodeIDs gRPC handler directly. This is a local call.
-			resp, err := m.gatewayDaemon.GetLocalDaemonNodeIDs(context.Background(), &proto.Void{})
+			resp, err := m.localDaemonNodeProvider.GetLocalDaemonNodeIDs(context.Background(), &proto.Void{})
 			if err != nil {
 				m.log.Error("Failed to retrieve Local Daemon IDs because: %v", err)
 				_ = c.AbortWithError(http.StatusInternalServerError, err)

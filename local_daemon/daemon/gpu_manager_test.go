@@ -6,6 +6,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/shopspring/decimal"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/local_daemon/daemon"
 )
 
@@ -48,7 +49,7 @@ var _ = Describe("GPU Manager Tests", func() {
 
 			err := manager.AllocateGPUs(tooManyGPUsDecimal, 1, kernel1)
 			Expect(err).ToNot(BeNil())
-			Expect(err).To(Equal(daemon.ErrInsufficientGPUs))
+			Expect(err).To(Equal(scheduling.ErrInsufficientGPUs))
 		})
 
 		It("should return an error when deallocating GPUs that were never allocated in the first place", func() {

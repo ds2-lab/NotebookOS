@@ -111,7 +111,7 @@ type SchedulerDaemonImpl struct {
 	availablePorts *utils.AvailablePorts
 
 	// Manages resource allocations on behalf of the Local Daemon.
-	resourceManager *ResourceManager
+	resourceManager *scheduling.ResourceManager
 
 	// Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
 	hdfsNameNodeEndpoint string
@@ -184,7 +184,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 	config.InitLogger(&daemon.log, daemon)
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
-	daemon.resourceManager = NewResourceManager(&types.Float64Spec{GPUs: types.GPUSpec(schedulerDaemonOptions.NumGPUs), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost})
+	daemon.resourceManager = scheduling.NewResourceManager(&types.Float64Spec{GPUs: types.GPUSpec(schedulerDaemonOptions.NumGPUs), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost})
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -488,7 +488,7 @@ func (d *SchedulerDaemonImpl) updatePrometheusGpuMetrics(idleGpus float64, pendi
 
 // updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
 // updatePrometheusResourceMetrics is used as a callback by the GPU/Resource Manager.
-func (d *SchedulerDaemonImpl) updatePrometheusResourceMetrics(resources ResourceStateWrapper) {
+func (d *SchedulerDaemonImpl) updatePrometheusResourceMetrics(resources scheduling.ResourceStateWrapper) {
 	// CPU resource metrics.
 	d.prometheusManager.IdleCpuGauge.
 		Set(resources.IdleResources().Millicpus())
@@ -882,7 +882,7 @@ func (d *SchedulerDaemonImpl) GetActualGpuInfo(_ context.Context, _ *proto.Void)
 		PendingGPUs:           int32(d.resourceManager.PendingGPUs().InexactFloat64()),
 		NumPendingAllocations: int32(d.resourceManager.NumAllocations()),
 		NumAllocations:        int32(d.resourceManager.NumPendingAllocations()),
-		GpuSchedulerID:        d.resourceManager.id,
+		GpuSchedulerID:        d.resourceManager.ID,
 		LocalDaemonID:         d.id,
 	}
 
