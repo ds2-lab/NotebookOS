@@ -250,6 +250,11 @@ func (dc *DistributedCluster) GetDockerSwarmNodes(ctx context.Context, in *proto
 	return dc.gatewayDaemon.GetDockerSwarmNodes(ctx, in)
 }
 
+// DecreaseNumNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
+func (dc *DistributedCluster) DecreaseNumNodes(parentContext context.Context, in *proto.DecreaseNumNodesRequest) (*proto.DecreaseNumNodesResponse, error) {
+	return dc.gatewayDaemon.DecreaseNumNodes(parentContext, in)
+}
+
 // AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
 func (dc *DistributedCluster) AddVirtualDockerNodes(ctx context.Context, in *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
 	return dc.gatewayDaemon.AddVirtualDockerNodes(ctx, in)
