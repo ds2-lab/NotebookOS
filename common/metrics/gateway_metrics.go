@@ -16,35 +16,12 @@ import (
 type GatewayPrometheusManager struct {
 	*basePrometheusManager
 
-	// NumActiveKernelReplicasGauge is the number of actively-running kernels.
-	NumActiveKernelReplicasGauge *prometheus.GaugeVec
-
-	// TotalNumKernels is the total number of kernels that have been created, including kernels that have since stopped.
-	TotalNumKernels *prometheus.CounterVec
-
-	// NumTrainingEventsCompleted is the number of training events that have completed successfully.
-	NumTrainingEventsCompleted *prometheus.CounterVec
-
 	// JupyterTrainingStartLatency is a metric tracking the latency between when an
 	// "execute_request" message is sent and when the first "execute_reply" is received.
 	//
 	// The latency is observed from the Golang-based Jupyter client, and the units
 	// of the metric are seconds.
 	JupyterTrainingStartLatency *prometheus.HistogramVec
-
-	/////////////////////////////
-	// Message latency metrics //
-	/////////////////////////////
-
-	// GatewayShellMessageLatency is the end-to-end latency of Shell messages forwarded by the Cluster Gateway.
-	// The end-to-end latency is measured from the time the message is forwarded by the Gateway to the time
-	// at which the Gateway receives the associated response.
-	GatewayShellMessageLatency *prometheus.HistogramVec
-
-	// GatewayControlMessageLatency is the end-to-end latency of Shell messages forwarded by the Cluster Gateway.
-	// The end-to-end latency is measured from the time the message is forwarded by the Gateway to the time
-	// at which the Gateway receives the associated response.
-	GatewayControlMessageLatency *prometheus.HistogramVec
 
 	gatewayDaemon scheduling.ClusterGateway
 }
@@ -58,7 +35,7 @@ func NewGatewayPrometheusManager(port int, gatewayDaemon scheduling.ClusterGatew
 		gatewayDaemon:         gatewayDaemon,
 	}
 	baseManager.instance = manager
-	baseManager.initMetrics = manager.initMetrics
+	baseManager.initializeInstanceMetrics = manager.initMetrics
 
 	return manager
 }
@@ -109,23 +86,6 @@ func NewGatewayPrometheusManager(port int, gatewayDaemon scheduling.ClusterGatew
 
 // InitMetrics creates a Prometheus endpoint and
 func (m *GatewayPrometheusManager) initMetrics() error {
-	m.NumActiveKernelReplicasGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "distributed_cluster",
-		Name:      "active_sessions",
-		Help:      "Number of actively-running kernels",
-	}, []string{"node_id"})
-
-	m.TotalNumKernels = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "distributed_cluster",
-		Name:      "sessions_total",
-		Help:      "Total number of kernels to have ever been created within the cluster",
-	}, []string{"node_id"})
-
-	m.NumTrainingEventsCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "distributed_cluster",
-		Name:      "training_events_completed_total",
-		Help:      "The number of training events that have completed successfully",
-	}, []string{"node_id"})
 
 	m.JupyterTrainingStartLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
@@ -133,45 +93,8 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 		Name:      "session_training_start_latency_seconds",
 	}, []string{"workload_id"})
 
-	m.GatewayShellMessageLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "distributed_cluster",
-		Name:      "shell_message_latency_milliseconds",
-		Help:      "End-to-end latency of Shell messages. The end-to-end latency is measured from the time the message is forwarded by the node to the time at which the node receives the associated response.",
-	}, []string{"node_id"})
-
-	m.GatewayControlMessageLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "distributed_cluster",
-		Name:      "control_message_latency_milliseconds",
-		Help:      "End-to-end latency of Control messages. The end-to-end latency is measured from the time the message is forwarded by the node to the time at which the node receives the associated response.",
-	}, []string{"node_id"})
-
-	if err := prometheus.Register(m.NumActiveKernelReplicasGauge); err != nil {
-		m.log.Error("Failed to register 'Number of Active Kernel Replicas' metric because: %v", err)
-		return err
-	}
-
-	if err := prometheus.Register(m.TotalNumKernels); err != nil {
-		m.log.Error("Failed to register 'Total Number of Kernels' metric because: %v", err)
-		return err
-	}
-
-	if err := prometheus.Register(m.NumTrainingEventsCompleted); err != nil {
-		m.log.Error("Failed to register 'Training Events Completed' metric because: %v", err)
-		return err
-	}
-
 	if err := prometheus.Register(m.JupyterTrainingStartLatency); err != nil {
 		m.log.Error("Failed to register 'Jupyter Training Start Latency' metric because: %v", err)
-		return err
-	}
-
-	if err := prometheus.Register(m.GatewayShellMessageLatency); err != nil {
-		m.log.Error("Failed to register 'Gateway Shell Message Latency' metric because: %v", err)
-		return err
-	}
-
-	if err := prometheus.Register(m.GatewayControlMessageLatency); err != nil {
-		m.log.Error("Failed to register 'Gateway Control Message Latency' metric because: %v", err)
 		return err
 	}
 

@@ -293,7 +293,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	daemon.publishPrometheusMetrics()
 
 	// Initial values for these metrics.
-	daemon.gatewayPrometheusManager.NumActiveKernelReplicasGauge.
+	daemon.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
 		With(prometheus.Labels{"node_id": "cluster"}).Set(0)
 
 	if daemon.ip == "" {
@@ -1650,9 +1650,9 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running.", kernel.ID()), jupyter.SuccessNotification)
 
 	numActiveKernels := d.numActiveKernels.Add(1)
-	d.gatewayPrometheusManager.NumActiveKernelReplicasGauge.
+	d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
 		With(prometheus.Labels{"node_id": "cluster"}).Set(float64(numActiveKernels))
-	d.gatewayPrometheusManager.TotalNumKernels.
+	d.gatewayPrometheusManager.TotalNumKernelsCounterVec.
 		With(prometheus.Labels{"node_id": "cluster"}).Inc()
 
 	return info, nil
@@ -2079,7 +2079,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 		go d.notifyDashboard(
 			"Kernel Stopped", fmt.Sprintf("Kernel %s has been terminated successfully.",
 				kernel.ID()), jupyter.SuccessNotification)
-		d.gatewayPrometheusManager.NumActiveKernelReplicasGauge.
+		d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
 			With(prometheus.Labels{"node_id": "cluster"}).Sub(1)
 	} else {
 		go d.notifyDashboardOfError("Failed to Terminate Kernel",
@@ -2521,7 +2521,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 		return err
 	}
 
-	d.gatewayPrometheusManager.NumTrainingEventsCompleted.
+	d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
 		With(prometheus.Labels{"node_id": "cluster"}).Inc()
 
 	return nil

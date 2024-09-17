@@ -51,30 +51,17 @@ type LocalDaemonPrometheusManager struct {
 
 	TrainingTimeGaugeVec *prometheus.GaugeVec // TrainingTimeGaugeVec is the total, collective time that all kernels have spent executing user-submitted code.
 
-	NumActiveKernelReplicasGaugeVec *prometheus.GaugeVec // NumActiveKernelReplicasGaugeVec is a Prometheus Gauge Vector for how many replicas are scheduled on a particular Local Daemon.
-	NumActiveKernelReplicasGauge    prometheus.Gauge     // NumActiveKernelReplicasGauge is a cached return of NumActiveKernelReplicasGaugeVec.With(<label for the local daemon on this node>)
+	NumActiveKernelReplicasGauge prometheus.Gauge // NumActiveKernelReplicasGauge is a cached return of NumActiveKernelReplicasGaugeVec.With(<label for the local daemon on this node>)
 
-	TotalNumKernelsCounterVec *prometheus.CounterVec
-	TotalNumKernelsCounter    prometheus.Counter // TotalNumKernelsCounter is a cached return of TotalNumKernelsCounterVec.With(<label for the local daemon on this node>)
+	TotalNumKernelsCounter prometheus.Counter // TotalNumKernelsCounter is a cached return of TotalNumKernelsCounterVec.With(<label for the local daemon on this node>)
 
-	NumTrainingEventsCompletedCounterVec *prometheus.CounterVec // NumTrainingEventsCompletedCounterVec is the number of training events that have completed successfully.
-	NumTrainingEventsCompletedCounter    prometheus.Counter     // NumTrainingEventsCompletedCounter is a cached return of NumTrainingEventsCompletedCounterVec.With(<label for the local daemon on this node>)
+	NumTrainingEventsCompletedCounter prometheus.Counter // NumTrainingEventsCompletedCounter is a cached return of NumTrainingEventsCompletedCounterVec.With(<label for the local daemon on this node>)
 
 	/////////////////////////////
 	// Message latency metrics //
 	/////////////////////////////
-
-	// DaemonShellMessageLatencyVec is the end-to-end latency of Shell messages forwarded by the Local Daemon.
-	// The end-to-end latency is measured from the time the message is forwarded by the Local Daemon to the time
-	// at which the Gateway receives the associated response.
-	DaemonShellMessageLatencyVec *prometheus.HistogramVec
-	DaemonShellMessageLatency    prometheus.Observer
-
-	// DaemonControlMessageLatencyVec is the end-to-end latency of Shell messages forwarded by the Local Daemon.
-	// The end-to-end latency is measured from the time the message is forwarded by the Local Daemon to the time
-	// at which the Gateway receives the associated response.
-	DaemonControlMessageLatencyVec *prometheus.HistogramVec
-	DaemonControlMessageLatency    prometheus.Observer
+	DaemonShellMessageLatency   prometheus.Observer
+	DaemonControlMessageLatency prometheus.Observer
 }
 
 // NewLocalDaemonPrometheusManager creates a new LocalDaemonPrometheusManager struct and returns a pointer to it.
@@ -86,7 +73,7 @@ func NewLocalDaemonPrometheusManager(port int, nodeId string) *LocalDaemonPromet
 		basePrometheusManager: baseManager,
 	}
 	baseManager.instance = manager
-	baseManager.initMetrics = manager.initMetrics
+	baseManager.initializeInstanceMetrics = manager.initMetrics
 
 	return manager
 }
@@ -208,40 +195,11 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 		Help:      "Pending GPUs on a Local Daemon",
 	}, []string{"node_id"})
 
-	// Miscellaneous metrics.
-	m.NumActiveKernelReplicasGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "distributed_cluster",
-		Name:      "active_sessions",
-		Help:      "Number of actively-running kernels",
-	}, []string{"node_id"})
 	m.TrainingTimeGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "training_time_seconds",
 		Help:      "The total, collective time that all kernels have spent executing user-submitted code.",
 	}, []string{"node_id", "kernel_id", "workload_id"})
-	m.TotalNumKernelsCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "distributed_cluster",
-		Name:      "sessions_total",
-		Help:      "Total number of kernel replicas to have ever been scheduled/created",
-	}, []string{"node_id"})
-	m.NumTrainingEventsCompletedCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "distributed_cluster",
-		Name:      "training_events_completed_total",
-		Help:      "The number of training events that have completed successfully",
-	}, []string{"node_id"})
-
-	// Message latency metrics.
-	m.DaemonShellMessageLatencyVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "distributed_cluster",
-		Name:      "shell_message_latency_milliseconds",
-		Help:      "End-to-end latency of Shell messages. The end-to-end latency is measured from the time the message is forwarded by the node to the time at which the node receives the associated response.",
-	}, []string{"node_id"})
-
-	m.DaemonControlMessageLatencyVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "distributed_cluster",
-		Name:      "control_message_latency_milliseconds",
-		Help:      "End-to-end latency of Control messages. The end-to-end latency is measured from the time the message is forwarded by the node to the time at which the node receives the associated response.",
-	}, []string{"node_id"})
 
 	// Register GPU resource metrics.
 	if err := prometheus.Register(m.IdleGpuGaugeVec); err != nil {
@@ -296,33 +254,9 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 		m.log.Error("Failed to register Pending GPUs metric because: %v", err)
 		return err
 	}
-
-	// Register miscellaneous metrics.
-	if err := prometheus.Register(m.NumActiveKernelReplicasGaugeVec); err != nil {
-		m.log.Error("Failed to register 'Number of Active Kernel Replicas' metric because: %v", err)
-		return err
-	}
+	
 	if err := prometheus.Register(m.TrainingTimeGaugeVec); err != nil {
 		m.log.Error("Failed to register 'Training Time' metric because: %v", err)
-		return err
-	}
-	if err := prometheus.Register(m.TotalNumKernelsCounterVec); err != nil {
-		m.log.Error("Failed to register 'Total Number of Kernels' metric because: %v", err)
-		return err
-	}
-	if err := prometheus.Register(m.NumTrainingEventsCompletedCounterVec); err != nil {
-		m.log.Error("Failed to register 'Training Events Completed' metric because: %v", err)
-		return err
-	}
-
-	// Message latency metrics.
-	if err := prometheus.Register(m.NumTrainingEventsCompletedCounterVec); err != nil {
-		m.log.Error("Failed to register 'Daemon Shell Message Latency' metric because: %v", err)
-		return err
-	}
-
-	if err := prometheus.Register(m.DaemonControlMessageLatencyVec); err != nil {
-		m.log.Error("Failed to register 'Daemon Control Message Latency' metric because: %v", err)
 		return err
 	}
 
@@ -347,8 +281,8 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	m.TotalNumKernelsCounter = m.TotalNumKernelsCounterVec.With(prometheus.Labels{"node_id": m.nodeId})
 	m.NumTrainingEventsCompletedCounter = m.NumTrainingEventsCompletedCounterVec.With(prometheus.Labels{"node_id": m.nodeId})
 
-	m.DaemonShellMessageLatency = m.DaemonShellMessageLatencyVec.With(prometheus.Labels{"node_id": m.nodeId})
-	m.DaemonControlMessageLatency = m.DaemonControlMessageLatencyVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.DaemonShellMessageLatency = m.ShellMessageLatencyVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.DaemonControlMessageLatency = m.ControlMessageLatencyVec.With(prometheus.Labels{"node_id": m.nodeId})
 
 	m.metricsInitialized = true
 	return nil
