@@ -2473,7 +2473,10 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 	}
 
 	if msg.JupyterMessageType() == ShellExecuteRequest {
-		d.processExecuteRequest(msg, kernel) // , header)
+		err := d.processExecuteRequest(msg, kernel)
+		if err != nil {
+			return err
+		}
 	} else {
 		d.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg)
 	}
@@ -2533,7 +2536,7 @@ func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, wor
 		Observe(latency.Seconds())
 }
 
-func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.DistributedKernelClient) {
+func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.DistributedKernelClient) error {
 	kernelId := kernel.ID()
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernelId, msg)
 
@@ -2547,13 +2550,16 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 		err := p.Error()
 		if err != nil {
 			d.notifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
-			panic(err)
+			// panic(err)
+			return err
 		}
 	} else {
 		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
+		return fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
 	}
 
 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernelId, activeExecution)
+	return nil
 }
 
 func (d *ClusterGatewayImpl) StdinHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
