@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"log"
 	"math/rand"
 	"net"
@@ -236,7 +237,7 @@ type ClusterGatewayImpl struct {
 
 	// gatewayPrometheusManager serves Prometheus metrics and responds to HTTP GET queries
 	// issued by Grafana to create Grafana Variables for use in creating Grafana Dashboards.
-	gatewayPrometheusManager *GatewayPrometheusManager
+	gatewayPrometheusManager *metrics.GatewayPrometheusManager
 	// Indicates that a goroutine has been started to publish metrics to Prometheus.
 	servingPrometheus atomic.Int32
 	// prometheusInterval is how often we publish metrics to Prometheus.
@@ -284,7 +285,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		daemon.prometheusPort = DefaultPrometheusPort
 	}
 
-	daemon.gatewayPrometheusManager = NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, daemon)
+	daemon.gatewayPrometheusManager = metrics.NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, daemon)
 	err := daemon.gatewayPrometheusManager.Start()
 	if err != nil {
 		panic(err)
@@ -1699,8 +1700,21 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	replicaSpec := addReplicaOp.KernelSpec()
 	addReplicaOp.SetReplicaHostname(in.KernelIp)
 
+	if in.NodeName == "" {
+		if !d.DockerMode() {
+			log.Fatalf("Replica %d of kernel %s does not have a valid node name.\n", replicaSpec.ReplicaId, in.KernelId)
+		}
+
+		// In Docker mode, we'll just use the Host ID as the node name.
+		in.NodeName = host.ID()
+	}
+
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(), false, -1, -1, in.PodName, in.NodeName, nil, nil, kernel.PersistentID(), in.HostId, host, true, true, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(),
+		false, -1, -1, in.PodName, in.NodeName, nil, nil,
+		kernel.PersistentID(), in.HostId, host, true, true, d.kernelReconnectionFailed,
+		d.kernelRequestResubmissionFailedAfterReconnection)
+
 	err := replica.Validate()
 	if err != nil {
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
@@ -1753,6 +1767,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		Replicas:               updatedReplicas,
 		PersistentId:           &persistentId,
 		ShouldReadDataFromHdfs: true,
+		ResourceSpec:           replicaSpec.Kernel.ResourceSpec,
 		// DataDirectory: &dataDirectory,
 		SmrPort: int32(d.smrPort),
 	}
@@ -1875,8 +1890,17 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 		NumReplicas: int32(d.ClusterOptions.NumReplicas),
 	}
 
+	if nodeName == "" {
+		if !d.DockerMode() {
+			log.Fatalf("Replica %d of kernel %s does not have a valid node name.\n", replicaSpec.ReplicaId, in.KernelId)
+		}
+
+		// In Docker mode, we'll just use the Host ID as the node name.
+		nodeName = host.ID()
+	}
+
 	// Initialize kernel client
-	replica := client.NewKernelClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, host, true, true, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, host, true, true, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 	session, ok := d.sessions.Load(kernelId)
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", kernelId)
@@ -1979,6 +2003,11 @@ func (d *ClusterGatewayImpl) KillKernel(_ context.Context, in *proto.KernelId) (
 
 	// Call the impl rather than the RPC stub.
 	return d.stopKernelImpl(in)
+}
+
+// GetId returns the ID of the ClusterGatewayImpl.
+func (d *ClusterGatewayImpl) GetId() string {
+	return d.id
 }
 
 func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void, err error) {
@@ -2891,7 +2920,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		key = fmt.Sprintf("%s-%d", notification.KernelId, addReplicaOp.ReplicaId())
 	}
 
-	d.log.Debug("New replica %s has been created for kernel %s.", addReplicaOp.ReplicaId(), kernelId)
+	d.log.Debug("New replica %d has been created for kernel %s.", addReplicaOp.ReplicaId(), kernelId)
 	// addReplicaOp.SetPodName(in)
 	d.Lock()
 	d.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
@@ -3488,7 +3517,7 @@ func (d *ClusterGatewayImpl) getNumLocalDaemonDocker() (int, error) {
 	}
 
 	if d.DockerComposeMode() {
-		d.log.Debug("Executing command: \"bash -c USER=root docker compose ps daemon | wc -l\"")
+		//d.log.Debug("Executing command: \"bash -c USER=root docker compose ps daemon | wc -l\"")
 		cmd := exec.Command("bash", "-c", "USER=root docker compose ps daemon | wc -l")
 		stdoutBytes, err := cmd.CombinedOutput()
 

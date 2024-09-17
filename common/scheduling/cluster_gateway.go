@@ -33,4 +33,10 @@ type ClusterGateway interface {
 
 	// GetHostsOfKernel returns the Host instances on which replicas of the specified kernel are scheduled.
 	GetHostsOfKernel(kernelId string) ([]*Host, error)
+
+	// GetId returns the ID of the ClusterGateway.
+	GetId() string
+
+	// GetLocalDaemonNodeIDs returns the IDs of the active Local Daemon nodes.
+	GetLocalDaemonNodeIDs(_ context.Context, _ *proto.Void) (*proto.GetLocalDaemonNodeIDsResponse, error)
 }

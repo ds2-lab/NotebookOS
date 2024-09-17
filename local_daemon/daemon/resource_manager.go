@@ -8,6 +8,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/shopspring/decimal"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"sync"
@@ -855,16 +856,12 @@ type ResourceManager struct {
 	// by this ResourceManager.
 	resourcesWrapper *resourcesWrapper
 
-	// resourceMetricsCallback is a callback function that is supposed to be triggered whenever resources
-	// are allocated or deallocated so that the associated Prometheus metrics can be updated accordingly.
-	//resourceMetricsCallback resourceMetricsCallback
-
 	// numPendingAllocations is the number of active ResourceAllocation instances of type PendingAllocation.
 	numPendingAllocations types.StatInt32
 	// numCommittedAllocations is the number of active ResourceAllocation instances of type CommittedAllocation.
 	numCommittedAllocations types.StatInt32
 
-	metricsManager *LocalDaemonPrometheusManager
+	metricsManager *metrics.LocalDaemonPrometheusManager
 }
 
 // NewResourceManager creates a new ResourceManager struct and returns a pointer to it.
@@ -945,7 +942,7 @@ func (m *ResourceManager) unsafeUpdatePrometheusResourceMetrics() {
 }
 
 // RegisterMetricsManager is used to set the metricsManager field of the ResourceManager.
-func (m *ResourceManager) RegisterMetricsManager(metricsManager *LocalDaemonPrometheusManager) {
+func (m *ResourceManager) RegisterMetricsManager(metricsManager *metrics.LocalDaemonPrometheusManager) {
 	if m.metricsManager != nil {
 		m.log.Warn("ResourceManager already has metrics manager assigned... will replace existing metrics manager.")
 	}

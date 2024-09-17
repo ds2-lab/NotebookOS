@@ -248,7 +248,13 @@ func FullSpecFromKernelReplicaSpec(in *proto.KernelReplicaSpec) *Float64Spec {
 
 // FullSpecFromKernelSpec converts the *proto.ResourceSpec contained within the given
 // *proto.KernelSpec to a *Float64Spec and returns the resulting *Float64Spec.
+//
+// If the proto.KernelSpec argument is nil, then FullSpecFromKernelSpec will return nil.
 func FullSpecFromKernelSpec(in *proto.KernelSpec) *Float64Spec {
+	if in == nil {
+		return nil
+	}
+
 	return &Float64Spec{
 		CPUs:     float64(in.ResourceSpec.Cpu),
 		MemoryMb: float64(in.ResourceSpec.Memory),

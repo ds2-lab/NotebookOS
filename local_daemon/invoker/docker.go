@@ -440,7 +440,7 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 		ivk.log.Debug("Failed to launch container/kernel %s: %v", name, err)
 		ivk.log.Error("STDOUT: %s", outb.String())
 		ivk.log.Error("STDERR: %s", errb.String())
-		return err
+		return fmt.Errorf("%w: %s", err, errb.String())
 	}
 
 	ivk.log.Debug("Successfully launched container/kernel %s. [DockerInvoker ID = \"%s\"]", name, ivk.id)

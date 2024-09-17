@@ -285,6 +285,11 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 		return err
 	}
 
+	firstPart = fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Successfully sent ACK for %v \"%v\""), goroutineId, socket.Type, messageHeader.MsgType)
+	secondPart = fmt.Sprintf("(MsgId=%v, ReqId=%v)", utils.PurpleStyle.Render(msg.RequestId), utils.LightPurpleStyle.Render(messageHeader.MsgID))
+	thirdPart = fmt.Sprintf(utils.LightBlueStyle.Render("message via %s."), socket.Name)
+	s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+
 	return nil
 }
 
@@ -422,12 +427,18 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					}
 				}
 
+				handlerStart := time.Now()
 				err = handler(server, socket.Type, jMsg)
 				if err != nil && !errors.Is(err, errServeOnce) {
-					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Handler for %s message \"%v\" has returned with an error: %v."), goroutineId, socket.Type.String(), jMsg.JupyterMessageId(), err)
+					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Handler for %s \"%s\" message \"%s\" (JupyterID=\"%s\") has returned with an error after %v: %v."), goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart), err)
 
 					// Send an error message of some sort back to the original sender, in Jupyter format.
 					_ = s.replyWithError(jMsg, socket, err)
+				} else if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && jMsg.JupyterMessageType() != "stream") {
+					// Only print this next bit for Shell, Control, and non-stream IOPub messages.
+					// That's all we care about here.
+					s.Log.Debug(utils.LightGreenStyle.Render("[gid=%d] Finished handling %s \"%s\" message \"%s\" (JupyterID=\"%s\") in %v."),
+						goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart))
 				}
 			}
 

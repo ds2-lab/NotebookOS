@@ -1,19 +1,12 @@
-package daemon
+package metrics
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"sync"
-
-	"github.com/gin-gonic/contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"net/http"
 )
 
 var (
@@ -24,17 +17,7 @@ var (
 // LocalDaemonPrometheusManager is responsible for registering metrics with Prometheus and serving them via HTTP.
 // This to be used by Local Daemons. The Cluster Gateway uses the ClusterGatewayPrometheusManager struct.
 type LocalDaemonPrometheusManager struct {
-	log    logger.Logger
-	nodeId string // nodeId is the ID of the Local Daemon running on this node.
-
-	// serving indicates whether the manager has been started and is serving requests.
-	serving            bool
-	metricsInitialized bool
-	mu                 sync.Mutex
-	port               int
-	engine             *gin.Engine
-	httpServer         *http.Server
-	prometheusHandler  http.Handler
+	*basePrometheusManager
 
 	SpecGpuGaugeVec      *prometheus.GaugeVec
 	CommittedGpuGaugeVec *prometheus.GaugeVec
@@ -67,7 +50,7 @@ type LocalDaemonPrometheusManager struct {
 	IdleMemoryGauge      prometheus.Gauge // IdleMemoryGauge is a cached return of IdleMemoryGaugeVec.With(<label for the local daemon on this node>)
 
 	TrainingTimeGaugeVec *prometheus.GaugeVec // TrainingTimeGaugeVec is the total, collective time that all kernels have spent executing user-submitted code.
-	
+
 	NumActiveKernelReplicasGaugeVec *prometheus.GaugeVec // NumActiveKernelReplicasGaugeVec is a Prometheus Gauge Vector for how many replicas are scheduled on a particular Local Daemon.
 	NumActiveKernelReplicasGauge    prometheus.Gauge     // NumActiveKernelReplicasGauge is a cached return of NumActiveKernelReplicasGaugeVec.With(<label for the local daemon on this node>)
 
@@ -76,88 +59,86 @@ type LocalDaemonPrometheusManager struct {
 
 	NumTrainingEventsCompletedCounterVec *prometheus.CounterVec // NumTrainingEventsCompletedCounterVec is the number of training events that have completed successfully.
 	NumTrainingEventsCompletedCounter    prometheus.Counter     // NumTrainingEventsCompletedCounter is a cached return of NumTrainingEventsCompletedCounterVec.With(<label for the local daemon on this node>)
+
+	/////////////////////////////
+	// Message latency metrics //
+	/////////////////////////////
+
+	// DaemonShellMessageLatencyVec is the end-to-end latency of Shell messages forwarded by the Local Daemon.
+	// The end-to-end latency is measured from the time the message is forwarded by the Local Daemon to the time
+	// at which the Gateway receives the associated response.
+	DaemonShellMessageLatencyVec *prometheus.HistogramVec
+	DaemonShellMessageLatency    prometheus.Observer
+
+	// DaemonControlMessageLatencyVec is the end-to-end latency of Shell messages forwarded by the Local Daemon.
+	// The end-to-end latency is measured from the time the message is forwarded by the Local Daemon to the time
+	// at which the Gateway receives the associated response.
+	DaemonControlMessageLatencyVec *prometheus.HistogramVec
+	DaemonControlMessageLatency    prometheus.Observer
 }
 
+// NewLocalDaemonPrometheusManager creates a new LocalDaemonPrometheusManager struct and returns a pointer to it.
 func NewLocalDaemonPrometheusManager(port int, nodeId string) *LocalDaemonPrometheusManager {
+	baseManager := newBasePrometheusManager(port, nodeId)
+	config.InitLogger(&baseManager.log, baseManager)
+
 	manager := &LocalDaemonPrometheusManager{
-		port:              port,
-		prometheusHandler: promhttp.Handler(),
-		nodeId:            nodeId,
+		basePrometheusManager: baseManager,
 	}
-	config.InitLogger(&manager.log, manager)
+	baseManager.instance = manager
+	baseManager.initMetrics = manager.initMetrics
+
 	return manager
 }
 
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
+// HandleVariablesRequest handles query requests from Grafana for variables that are required to create Dashboards.
+func (m *LocalDaemonPrometheusManager) HandleVariablesRequest(c *gin.Context) {
+	m.log.Error("LocalDaemonPrometheusManager is not supposed to receive 'variables' requests.")
 
-func NewResponseWriter(w http.ResponseWriter) *responseWriter {
-	return &responseWriter{w, http.StatusOK}
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	rw.statusCode = code
-	rw.ResponseWriter.WriteHeader(code)
+	_ = c.AbortWithError(http.StatusNotFound, fmt.Errorf("LocalDaemon nodes cannot serve 'variables' requests"))
 }
 
 // Start registers metrics with Prometheus and begins serving the metrics via an HTTP endpoint.
-func (m *LocalDaemonPrometheusManager) Start() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.serving {
-		m.log.Warn("LocalDaemonPrometheusManager for Local Daemon %s is already running.", m.nodeId)
-		return ErrLocalDaemonPrometheusManagerAlreadyRunning
-	}
-
-	if !m.metricsInitialized {
-		err := m.initMetrics()
-		if err != nil {
-			return err
-		}
-	}
-	m.initializeHttpServer()
-
-	return nil
-}
-
-// IsRunning returns true if the LocalDaemonPrometheusManager has been started and is serving metrics.
-func (m *LocalDaemonPrometheusManager) IsRunning() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	return m.isRunningUnsafe()
-}
-
-// isRunningUnsafe returns true if the LocalDaemonPrometheusManager has been started and is serving metrics.
-// This does not acquire the mutex and is intended for file-internal use only.
-func (m *LocalDaemonPrometheusManager) isRunningUnsafe() bool {
-	return m.serving
-}
+//func (m *LocalDaemonPrometheusManager) Start() error {
+//	m.mu.Lock()
+//	defer m.mu.Unlock()
+//
+//	if m.serving {
+//		m.log.Warn("LocalDaemonPrometheusManager for Local Daemon %s is already running.", m.nodeId)
+//		return ErrLocalDaemonPrometheusManagerAlreadyRunning
+//	}
+//
+//	if !m.metricsInitialized {
+//		err := m.initMetrics()
+//		if err != nil {
+//			return err
+//		}
+//	}
+//
+//	return nil
+//}
 
 // Stop instructs the LocalDaemonPrometheusManager to shut down its HTTP server.
-func (m *LocalDaemonPrometheusManager) Stop() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if !m.isRunningUnsafe() /* we already have the lock */ {
-		m.log.Warn("LocalDaemonPrometheusManager for Local Daemon %s is already running.", m.nodeId)
-		return ErrLocalDaemonPrometheusManagerNotRunning
-	}
-
-	m.serving = false
-	if err := m.httpServer.Shutdown(context.Background()); err != nil {
-		m.log.Error("Failed to cleanly shutdown the HTTP server: %v", err)
-
-		// TODO: Can we safely assume that we're no longer serving at this point?
-		// We already set 'serving' to false.
-		return err
-	}
-
-	return nil
-}
+//func (m *LocalDaemonPrometheusManager) Stop() error {
+//	m.mu.Lock()
+//	defer m.mu.Unlock()
+//
+//	if !m.isRunningUnsafe() /* we already have the lock */ {
+//		m.log.Warn("LocalDaemonPrometheusManager for Local Daemon %s is already running.", m.nodeId)
+//		return ErrLocalDaemonPrometheusManagerNotRunning
+//	}
+//
+//	m.serving = false
+//	if err := m.httpServer.Shutdown(context.Background()); err != nil {
+//		m.log.Error("Failed to cleanly shutdown the HTTP server: %v", err)
+//
+//		// TODO: Can we safely assume that we're no longer serving at this point?
+//		// We already set 'serving' to false.
+//		return err
+//	}
+//
+//	return nil
+//}
 
 // InitMetrics creates a Prometheus endpoint and
 func (m *LocalDaemonPrometheusManager) initMetrics() error {
@@ -249,6 +230,19 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 		Help:      "The number of training events that have completed successfully",
 	}, []string{"node_id"})
 
+	// Message latency metrics.
+	m.DaemonShellMessageLatencyVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "shell_message_latency_milliseconds",
+		Help:      "End-to-end latency of Shell messages. The end-to-end latency is measured from the time the message is forwarded by the node to the time at which the node receives the associated response.",
+	}, []string{"node_id"})
+
+	m.DaemonControlMessageLatencyVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "control_message_latency_milliseconds",
+		Help:      "End-to-end latency of Control messages. The end-to-end latency is measured from the time the message is forwarded by the node to the time at which the node receives the associated response.",
+	}, []string{"node_id"})
+
 	// Register GPU resource metrics.
 	if err := prometheus.Register(m.IdleGpuGaugeVec); err != nil {
 		m.log.Error("Failed to register Idle GPUs metric because: %v", err)
@@ -321,6 +315,17 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 		return err
 	}
 
+	// Message latency metrics.
+	if err := prometheus.Register(m.NumTrainingEventsCompletedCounterVec); err != nil {
+		m.log.Error("Failed to register 'Daemon Shell Message Latency' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.DaemonControlMessageLatencyVec); err != nil {
+		m.log.Error("Failed to register 'Daemon Control Message Latency' metric because: %v", err)
+		return err
+	}
+
 	// We'll be publishing these metrics with the same label every single time on this node.
 	// So, we can just cache the Gauge returned when calling <GaugeVec>.With(...).
 	m.SpecGpuGauge = m.SpecGpuGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
@@ -342,33 +347,9 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	m.TotalNumKernelsCounter = m.TotalNumKernelsCounterVec.With(prometheus.Labels{"node_id": m.nodeId})
 	m.NumTrainingEventsCompletedCounter = m.NumTrainingEventsCompletedCounterVec.With(prometheus.Labels{"node_id": m.nodeId})
 
+	m.DaemonShellMessageLatency = m.DaemonShellMessageLatencyVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.DaemonControlMessageLatency = m.DaemonControlMessageLatencyVec.With(prometheus.Labels{"node_id": m.nodeId})
+
 	m.metricsInitialized = true
 	return nil
-}
-
-func (m *LocalDaemonPrometheusManager) HandleRequest(c *gin.Context) {
-	m.prometheusHandler.ServeHTTP(c.Writer, c.Request)
-}
-
-func (m *LocalDaemonPrometheusManager) initializeHttpServer() {
-	m.engine = gin.New()
-
-	m.engine.Use(gin.Logger())
-	m.engine.Use(cors.Default())
-
-	m.engine.GET("/prometheus", m.HandleRequest)
-
-	address := fmt.Sprintf("0.0.0.0:%d", m.port)
-	m.httpServer = &http.Server{
-		Addr:    address,
-		Handler: m.engine,
-	}
-
-	go func() {
-		m.log.Debug("Serving Prometheus metrics at %s", address)
-		if err := m.httpServer.ListenAndServe(); err != nil {
-			m.log.Error(utils.RedStyle.Render("HTTP Server failed to listen on '%s'. Error: %v"), address, err)
-			panic(err)
-		}
-	}()
 }

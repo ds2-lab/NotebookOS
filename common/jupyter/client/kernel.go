@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -75,8 +76,8 @@ type KernelReplicaClient struct {
 	addSourceKernelFrames            bool             // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelReplicaClient's kernel ID.
 	shellListenPort                  int              // Port that the KernelReplicaClient::shell socket listens on.
 	iopubListenPort                  int              // Port that the KernelReplicaClient::iopub socket listens on.
-	kernelPodName                    string           // Name of the Pod housing the associated distributed kernel replica container.
-	kubernetesNodeName               string           // Name of the node that the Pod is running on.
+	podOrContainerName               string           // Name of the Pod or Container housing the associated distributed kernel replica container.
+	nodeName                         string           // Name of the node that the Pod or Container is running on.
 	ready                            bool             // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
 	yieldNextExecutionRequest        bool             // If true, then we will yield the next 'execute_request'.
 	hostId                           string           // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
@@ -110,9 +111,30 @@ type KernelReplicaClient struct {
 	mu  sync.Mutex
 }
 
-// NewKernelClient creates a new KernelReplicaClient.
+// NewKernelReplicaClient creates a new KernelReplicaClient.
 // The client will initialize all sockets except IOPub. Call InitializeIOForwarder() to add IOPub support.
-func NewKernelClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *types.ConnectionInfo, addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, kernelPodName string, kubernetesNodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, persistentId string, hostId string, host *scheduling.Host, shouldAckMessages bool, isGatewayClient bool, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback, resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *KernelReplicaClient {
+//
+// If the proto.KernelReplicaSpec argument is nil, or the proto.KernelSpec field of the proto.KernelReplicaSpec
+// argument is nil, then NewKernelReplicaClient will panic.
+func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *types.ConnectionInfo,
+	addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
+	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback,
+	persistentId string, hostId string, host *scheduling.Host, shouldAckMessages bool, isGatewayClient bool,
+	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback,
+	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *KernelReplicaClient {
+
+	// Validate that the `spec` argument is non-nil.
+	if spec == nil {
+		log.Fatalf(utils.RedStyle.Render("Cannot create new KernelClient, as spec is nil.\n"))
+	}
+
+	// Validate that the `Kernel` field of the `spec` argument is non-nil.
+	if spec.Kernel == nil {
+		log.Fatalf(utils.RedStyle.Render(
+			"Cannot create new KernelClient for replica %d of unknown kernel, as spec.Kernel is nil.\n"),
+			spec.ReplicaId)
+	}
+
 	client := &KernelReplicaClient{
 		id:                                   spec.Kernel.Id,
 		persistentId:                         persistentId,
@@ -121,8 +143,8 @@ func NewKernelClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *t
 		addSourceKernelFrames:                addSourceKernelFrames,
 		shellListenPort:                      shellListenPort,
 		iopubListenPort:                      iopubListenPort,
-		kernelPodName:                        kernelPodName,
-		kubernetesNodeName:                   kubernetesNodeName,
+		podOrContainerName:                   podOrContainerName,
+		nodeName:                             nodeName,
 		smrNodeReadyCallback:                 smrNodeReadyCallback,
 		smrNodeAddedCallback:                 smrNodeAddedCallback,
 		yieldNextExecutionRequest:            false,
@@ -377,12 +399,12 @@ func (c *KernelReplicaClient) updateLogPrefix() {
 
 // PodName returns the name of the Kubernetes Pod hosting the replica.
 func (c *KernelReplicaClient) PodName() string {
-	return c.kernelPodName
+	return c.podOrContainerName
 }
 
 // NodeName returns the name of the node that the Pod is running on.
 func (c *KernelReplicaClient) NodeName() string {
-	return c.kubernetesNodeName
+	return c.nodeName
 }
 
 func (c *KernelReplicaClient) ShellListenPort() int {
@@ -445,6 +467,11 @@ func (c *KernelReplicaClient) PersistentID() string {
 
 // ResourceSpec returns the resource spec
 func (c *KernelReplicaClient) ResourceSpec() *commonTypes.Float64Spec {
+	if c.spec == nil {
+		log.Fatalf(utils.RedStyle.Render("Replica %d of kernel %s does not have a valid (i.e., non-nil) spec...\n"),
+			c.replicaId, c.id)
+	}
+
 	return commonTypes.FullSpecFromKernelSpec(c.spec)
 }
 

@@ -177,6 +177,7 @@ class DistributedKernel(IPythonKernel):
     smr_nodes_map: dict
 
     def __init__(self, **kwargs):
+        self.daemon_registration_socket = None
         faulthandler.enable()
         if super().log is not None:
             super().log.setLevel(logging.DEBUG)
@@ -213,13 +214,13 @@ class DistributedKernel(IPythonKernel):
             
             assert self.debugger != None 
         else:
-            self.log.warn("The Debugger is NOT available/enabled.")
+            self.log.warning("The Debugger is NOT available/enabled.")
         
         # sys.setprofile(tracefunc)
 
         # self.log.info("TEST -- INFO")
         # self.log.debug("TEST -- DEBUG")
-        # self.log.warn("TEST -- WARN")
+        # self.log.warning("TEST -- WARN")
         # self.log.error("TEST -- ERROR")   
         # self.log.critical("TEST -- CRITICAL")     
 
@@ -292,7 +293,7 @@ class DistributedKernel(IPythonKernel):
         self.spec_gpu:str = os.environ.get("SPEC_GPU", "0")
 
         self.log.info("CPU: %s, Memory: %s, GPU: %s." %
-                      (self.spec_cpu, self.spec_mem, self.spec_gpu))
+                      (self.spec_cpu, str(self.spec_mem), self.spec_gpu))
 
         # This should only be accessed from the control IO loop (rather than the main/shell IO loop).
         self.persistent_store_cv = asyncio.Condition()
@@ -317,7 +318,7 @@ class DistributedKernel(IPythonKernel):
             self.register_with_local_daemon(connection_info, session_id)
             self.__init_tcp_server()
         else:
-            self.log.warn("Skipping registration step with local daemon.")
+            self.log.warning("Skipping registration step with local daemon.")
             self.__init_tcp_server()
             self.smr_node_id: int = int(os.environ.get("smr_node_id", "1"))
             self.hostname = os.environ.get("hostname", str(socket.gethostname()))
@@ -437,7 +438,7 @@ class DistributedKernel(IPythonKernel):
         #
         # We also append ":<SMR_PORT>" to each address before storing it in the map.
         replicas: Optional[dict[int, str]] = response_dict["replicas"]
-        if replicas == None or len(replicas) == 0:
+        if replicas is None or len(replicas) == 0:
             self.log.error("No replicas contained in registration response from local daemon.")
             self.log.error("Registration response:")
             for k, v in response_dict.items():
@@ -470,7 +471,7 @@ class DistributedKernel(IPythonKernel):
             self.debug_port = int(response_dict["debug_port"])
             self.log.info(f"Assigned debug port to {self.debug_port}")
         else:
-            self.log.warn("No \"debug_port\" entry found in response from local daemon.")
+            self.log.warning("No \"debug_port\" entry found in response from local daemon.")
             self.debug_port = -1
 
         self.log.info("[SMR-NODE-ID-ASSIGNED]%d" %  self.smr_node_id)
@@ -490,23 +491,25 @@ class DistributedKernel(IPythonKernel):
         debugpy_port:int = self.debug_port + 1000
         self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
         debugpy.listen(("0.0.0.0", debugpy_port))
-        
-        if self.should_read_data_from_hdfs:
+
+        # We use 'should_read_data_from_hdfs' as the criteria here, as only replicas that are started after
+        # a migration will have should_read_data_from_hdfs equal to True.
+        # if self.should_read_data_from_hdfs:
             # self.log.debug("Sleeping for 15 seconds to allow for attaching of a debugger.")
             # time.sleep(15)
             # self.log.debug("Done sleeping.")
-            self.log.debug("Waiting for debugpy client to connect before proceeding.")
-            debugpy.wait_for_client()
-            self.log.debug("Debugpy client has connected. We may now proceed.")
-            debugpy.breakpoint()
-            self.log.debug("Should have broken on the previous line!")
+            # self.log.debug("Waiting for debugpy client to connect before proceeding.")
+            # debugpy.wait_for_client()
+            # self.log.debug("Debugpy client has connected. We may now proceed.")
+            # debugpy.breakpoint()
+            # self.log.debug("Should have broken on the previous line!")
 
         if self.persistent_id != Undefined and self.persistent_id != "":
             assert isinstance(self.persistent_id, str)
 
             asyncio.run_coroutine_threadsafe(self.init_persistent_store_on_start(self.persistent_id), self.control_thread.io_loop.asyncio_loop)
         else:
-            self.log.warn("Will NOT be initializing Persistent Store on start, as persistent ID is not yet available.")
+            self.log.warning("Will NOT be initializing Persistent Store on start, as persistent ID is not yet available.")
                 
     async def init_persistent_store_on_start(self, persistent_id: str):
         self.log.info(f"Initializing Persistent Store on start, as persistent ID is available: \"{persistent_id}\"")
@@ -521,7 +524,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(f"Received SHELL message: {msg}")
         sys.stderr.flush()
         sys.stdout.flush()
-        assert self.session != None 
+        assert self.session is not None
 
         idents, msg_without_idents = self.session.feed_identities(msg, copy=False)
         try:
@@ -572,7 +575,7 @@ class DistributedKernel(IPythonKernel):
         msg_type = msg["header"]["msg_type"]
         if msg_id in self.received_message_ids:
             # Is it safe to assume a msg_id will not be resubmitted?
-            self.log.warn(f"Received duplicate \"{msg_id}\" message with ID={msg_type}.")
+            self.log.warning(f"Received duplicate \"{msg_id}\" message with ID={msg_type}.")
 
             # Check if the message has a "ForceReprocess" field in its metadata frame with a value of "true".
             # If so, then we'll reprocess it anyway -- as these are likely resubmitted 'yield_execute' or 'execute_request' messages.
@@ -1049,7 +1052,7 @@ class DistributedKernel(IPythonKernel):
             self.toggle_outstream(override=True, enable=False)
 
             if self.execution_ast is None:
-                self.log.warn(
+                self.log.warning(
                     "Execution AST is None. Synchronization will likely fail...")
             else:
                 self.log.debug("Synchronizing now. Execution AST is NOT None.")
@@ -1136,7 +1139,7 @@ class DistributedKernel(IPythonKernel):
         self.remove_on_shutdown = False
 
         if not self.synclog:
-            self.log.warn("We do not have a SyncLog. Nothing to do in order to prepare to migrate...")
+            self.log.warning("We do not have a SyncLog. Nothing to do in order to prepare to migrate...")
             return {'status': 'ok', "id": self.smr_node_id, "kernel_id": self.kernel_id}, True # Didn't fail, we just have nothing to migrate.
         #
         # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration

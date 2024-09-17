@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"log"
 	"net"
 	"os"
@@ -75,7 +76,7 @@ type SchedulerDaemonImpl struct {
 	provisioner proto.ClusterGatewayClient
 
 	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
-	prometheusManager *LocalDaemonPrometheusManager
+	prometheusManager *metrics.LocalDaemonPrometheusManager
 	// Indicates that a goroutine has been started to publish metrics to Prometheus.
 	servingPrometheus atomic.Int32
 	// prometheusStarted is a sync.WaitGroup used to signal to the metric-publishing goroutine
@@ -347,7 +348,7 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 	} else {
-		d.prometheusManager = NewLocalDaemonPrometheusManager(8089, in.Id)
+		d.prometheusManager = metrics.NewLocalDaemonPrometheusManager(8089, in.Id)
 		err := d.prometheusManager.Start()
 		if err != nil {
 			d.log.Error("Failed to start Prometheus Manager because: %v", err)
@@ -620,7 +621,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts)
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
-		kernel = client.NewKernelClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 		kernelConnectionInfo, err = d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
 		if err != nil {
@@ -632,6 +633,16 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 				NotificationType: 0,
 				Panicked:         false,
 			})
+
+			// Write an error back to the kernel that registered with us.
+			payload := map[string]interface{}{
+				"status":  "error",
+				"error":   "Failed to Register",
+				"message": fmt.Sprintf("Could not initialize kernel client because: %s", errorMessage),
+			}
+			payloadJson, _ := json.Marshal(payload)
+			_, _ = kernelRegistrationClient.conn.Write(payloadJson)
+
 			// TODO: Handle this more gracefully.
 			return
 		}
@@ -720,6 +731,29 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	}
 
 	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.", response.Id, response.Replicas)
+
+	if response.ResourceSpec == nil {
+		errorMessage := fmt.Sprintf("ResourceSpec for kernel %s is nil.", kernel.ID())
+		d.log.Error(errorMessage)
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Title:            "Null Resource Spec",
+			Message:          errorMessage,
+			NotificationType: 0,
+			Panicked:         false,
+		})
+
+		// Write an error back to the kernel that registered with us.
+		payload := map[string]interface{}{
+			"status":  "error",
+			"error":   "Null Resource Spec",
+			"message": "The ResourceSpec included in the registration payload is nil",
+		}
+		payloadJson, _ := json.Marshal(payload)
+		_, _ = kernelRegistrationClient.conn.Write(payloadJson)
+
+		return
+	}
+
 	d.log.Debug("Resource spec for kernel %s: %v", kernel.ID(), response.ResourceSpec)
 
 	kernel.SetResourceSpec(response.ResourceSpec)
@@ -733,6 +767,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		"hostname":    remoteIp,
 		"replicas":    response.Replicas,
 		"debug_port":  kernelDebugPort,
+		"status":      "ok",
 	}
 
 	if response.PersistentId != nil && response.GetPersistentId() != "" {
@@ -1265,6 +1300,12 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 
 	connInfo, err := kernelInvoker.InvokeWithContext(ctx, in)
 	if err != nil {
+		go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
+			Title:            fmt.Sprintf("Failed to Create Container for Kernel %s-%d", in.Kernel.Id, in.ReplicaId),
+			Message:          err.Error(),
+			NotificationType: 0,
+			Panicked:         false,
+		})
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
@@ -1277,7 +1318,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, err
 	}
 
-	kernel := client.NewKernelClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 	d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
 		in.ReplicaId, kernel.ID(), listenPorts)

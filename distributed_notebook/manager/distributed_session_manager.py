@@ -1,6 +1,7 @@
 from jupyter_server.services.sessions.sessionmanager import SessionManager, KernelSessionRecord, ModelName, KernelName
 from jupyter_core.utils import ensure_async
 from typing import Any, Dict, NewType, Optional, cast
+from tornado import web
 
 class DistributedSessionManager(SessionManager):
     # kernel_manager = Instance("distributed_notebook.manager.distributed_kernel_manager.DistributedKernelManager")
@@ -101,13 +102,17 @@ class DistributedSessionManager(SessionManager):
         kernel_path = await ensure_async(self.contents_manager.get_kernel_path(path=path))
         kernel_env = self.get_kernel_env(path, name)
         
-        returned_kernel_id = await self.kernel_manager.start_kernel(
-            path=kernel_path,
-            kernel_name=kernel_name,
-            env=kernel_env,
-            kernel_id=kernel_id,
-            resource_spec=resource_spec,
-        )
+        try:
+            returned_kernel_id = await self.kernel_manager.start_kernel(
+                path=kernel_path,
+                kernel_name=kernel_name,
+                env=kernel_env,
+                kernel_id=kernel_id,
+                resource_spec=resource_spec,
+            )
+        except RuntimeError as ex:
+            self.log.error(f"Exception encountered while starting kernel \"{kernel_id}\": {ex}")
+            raise web.HTTPError(500, str(ex)) from ex
         
         # If the caller didn't specify a particular kernel ID, then that's fine.
         # If they did, then the returned kernel ID should necessarily be equal to whatever was passed by the caller.
