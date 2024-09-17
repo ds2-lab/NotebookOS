@@ -23,8 +23,8 @@ const (
 )
 
 var (
-	ErrInvalidTargetScale = status.Error(codes.InvalidArgument, "invalid target scale specified")
-	ErrInvalidOperation   = status.Error(codes.Internal, "scale operation is in invalid state for requested operation")
+	ErrInvalidTargetScale      = status.Error(codes.InvalidArgument, "invalid target scale specified")
+	ErrScalingInvalidOperation = status.Error(codes.Internal, "scale operation is in invalid state for requested operation")
 )
 
 type ScaleOperationType string
@@ -149,7 +149,7 @@ func (op *ScaleOperation) Start() error {
 	defer op.mu.Unlock()
 
 	if op.Status != ScaleOperationAwaitingStart {
-		return fmt.Errorf("%w: \"%s\"", ErrInvalidOperation, op.Status)
+		return fmt.Errorf("%w: \"%s\"", ErrScalingInvalidOperation, op.Status)
 	}
 
 	op.StartTime = time.Now()
@@ -167,7 +167,7 @@ func (op *ScaleOperation) SetOperationFinished() error {
 	defer op.mu.Unlock()
 
 	if op.Status != ScaleOperationAwaitingStart && op.Status != ScaleOperationInProgress {
-		return fmt.Errorf("%w: \"%s\"", ErrInvalidOperation, op.Status)
+		return fmt.Errorf("%w: \"%s\"", ErrScalingInvalidOperation, op.Status)
 	}
 
 	op.EndTime = time.Now()
@@ -190,12 +190,12 @@ func (op *ScaleOperation) SetOperationErred(err error, override bool) error {
 
 	// If we've already completed successfully and override is false, then we'll return an error.
 	if op.Status == ScaleOperationComplete && !override {
-		return fmt.Errorf("%w: \"%s\"", ErrInvalidOperation, op.Status)
+		return fmt.Errorf("%w: \"%s\"", ErrScalingInvalidOperation, op.Status)
 	}
 
 	// If we're already in an error state, then we'll return an error.
 	if op.Status == ScaleOperationErred {
-		return fmt.Errorf("%w: \"%s\"", ErrInvalidOperation, op.Status)
+		return fmt.Errorf("%w: \"%s\"", ErrScalingInvalidOperation, op.Status)
 	}
 
 	op.EndTime = time.Now()

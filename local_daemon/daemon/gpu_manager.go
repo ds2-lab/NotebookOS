@@ -1,8 +1,8 @@
 package daemon
 
 import (
-	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"sync"
 	"time"
 
@@ -11,16 +11,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
-)
-
-var (
-	ErrIllegalGpuAdjustment        = errors.New("requested gpu adjustment is illegal")
-	ErrAllocationNotFound          = errors.New("could not find the requested GPU allocation")
-	ErrAllocationPartiallyNotFound = errors.New("the requested GPU allocation was found only in one of the various internal mappings (rather than within all of the mappings)")
-	ErrNoPendingAllocationFound    = errors.New("a pending allocation could not be found when allocating actual GPUs")
-	//ErrInsufficientGPUs            = errors.New("there are insufficient GPUs available to satisfy the allocation request")
-
-	ZeroDecimal = decimal.NewFromFloat(0.0)
 )
 
 // gpuResourceMetricsCallback is a callback function that is supposed to be triggered whenever resources
@@ -92,8 +82,8 @@ func NewGpuManager(gpus int64, gpuResourceMetricsCallback gpuResourceMetricsCall
 		pendingAllocKernelReplicaMap: hashmap.NewCornelkMap[string, *gpuAllocation](16),
 		specGPUs:                     decimal.NewFromInt(gpus),
 		idleGPUs:                     decimal.NewFromInt(gpus), // Initially, all GPUs are idle.
-		committedGPUs:                ZeroDecimal.Copy(),       // Initially, there are 0 committed GPUs.
-		pendingGPUs:                  ZeroDecimal.Copy(),       // Initially, there are 0 pending GPUs.
+		committedGPUs:                decimal.Zero.Copy(),      // Initially, there are 0 committed GPUs.
+		pendingGPUs:                  decimal.Zero.Copy(),      // Initially, there are 0 pending GPUs.
 		gpuResourceMetricsCallback:   gpuResourceMetricsCallback,
 	}
 
@@ -133,7 +123,7 @@ func (m *GpuManager) AdjustSpecGPUs(numGpus float64) error {
 
 	numGpusDecimal := decimal.NewFromFloat(numGpus)
 	if numGpusDecimal.LessThan(m.committedGPUs) {
-		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s", ErrIllegalGpuAdjustment, m.committedGPUs.StringFixed(0), numGpusDecimal.StringFixed(0))
+		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s", scheduling.ErrIllegalGpuAdjustment, m.committedGPUs.StringFixed(0), numGpusDecimal.StringFixed(0))
 	}
 
 	oldSpecGPUs := m.specGPUs.Copy()
@@ -175,7 +165,7 @@ func (m *GpuManager) HasPendingGPUs(replicaId int32, kernelId string) bool {
 
 	// If it is a pending GPU allocation, then we may return true.
 	if alloc.pending {
-		return alloc.numGPUs.GreaterThan(ZeroDecimal)
+		return alloc.numGPUs.GreaterThan(decimal.Zero)
 	}
 
 	// It is an "actual" GPU allocation, not a pending GPU allocation, so return false.
@@ -199,7 +189,7 @@ func (m *GpuManager) HasActualGPUs(replicaId int32, kernelId string) bool {
 	}
 
 	// It is an "actual" GPU allocation.
-	return alloc.numGPUs.GreaterThan(ZeroDecimal)
+	return alloc.numGPUs.GreaterThan(decimal.Zero)
 }
 
 // GetPendingGPUsAssociatedWithKernel returns the number of pending GPUs associated with the kernel identified by the given ID.
@@ -208,7 +198,7 @@ func (m *GpuManager) GetPendingGPUsAssociatedWithKernel(replicaId int32, kernelI
 	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
 	if !ok {
 		m.log.Warn("There is no pending allocation associated with replica %d of kernel %s.", replicaId, kernelId)
-		return ZeroDecimal.Copy()
+		return decimal.Zero.Copy()
 	}
 
 	return alloc.numGPUs
@@ -220,7 +210,7 @@ func (m *GpuManager) GetActualGPUsAssociatedWithKernel(replicaId int32, kernelId
 	alloc, ok := m.pendingAllocKernelReplicaMap.Load(key)
 	if !ok {
 		m.log.Warn("There is no pending allocation associated with replica %d of kernel %s.", replicaId, kernelId)
-		return ZeroDecimal.Copy()
+		return decimal.Zero.Copy()
 	}
 
 	return alloc.numGPUs
@@ -241,7 +231,7 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 
 	// If the request is for more GPUs than we have available (at all or just what isn't already allocated), then we'll return an error indicating that this is the case.
 	if numGPUs.GreaterThan(m.specGPUs) {
-		return ErrInsufficientGPUs
+		return scheduling.ErrInsufficientGPUs
 	}
 
 	// TODO(Ben): Is it strictly the case that there should already be an associated pending allocation?
@@ -253,7 +243,7 @@ func (m *GpuManager) AllocateGPUs(numGPUs decimal.Decimal, replicaId int32, kern
 	// If the allocation does not already exist, then we'll return an ErrNoPendingAllocationFound error.
 	// If it does, then we'll reuse it after first flipping its pending flag to false.
 	if !exists {
-		return ErrNoPendingAllocationFound
+		return scheduling.ErrNoPendingAllocationFound
 	} else {
 		// Allocation already existed.
 		m.assertPending(allocation)
@@ -295,7 +285,7 @@ func (m *GpuManager) AllocatePendingGPUs(numGPUs decimal.Decimal, replicaId int3
 
 	// If the request is for more GPUs than we have available at all, then we'll return an error indicating that this is the case.
 	if numGPUs.GreaterThan(m.specGPUs) || m.idleGPUs.LessThan(numGPUs) {
-		return ErrInsufficientGPUs
+		return scheduling.ErrInsufficientGPUs
 	}
 
 	allocation := newGpuAllocation(numGPUs, replicaId, kernelId, true)
@@ -334,7 +324,7 @@ func (m *GpuManager) ReleasePendingGPUs(replicaId int32, kernelId string) error 
 	// If the allocation either doesn't exist at all, or it is not a pending GPU allocation, then return an error.
 	if !exists || !allocation.pending {
 		m.log.Warn("Could not release any pending GPUs for replica %d of kernel %s as there are no pending GPUs associated with it.", replicaId, kernelId)
-		return ErrAllocationNotFound
+		return scheduling.ErrAllocationNotFound
 	}
 
 	return m.__unsafeReleasePendingGPUs(replicaId, kernelId)
@@ -355,7 +345,7 @@ func (m *GpuManager) ReleaseAllocatedGPUs(replicaId int32, kernelId string) erro
 	// If the allocation either doesn't exist at all, or it is a pending GPU allocation, then return an error.
 	if !exists || allocation.pending {
 		m.log.Warn("Could not release any allocated GPUs for replica %d of kernel %s as there are no GPUs allocated to it.", replicaId, kernelId)
-		return ErrAllocationNotFound
+		return scheduling.ErrAllocationNotFound
 	}
 
 	m.assertNotPending(allocation) /* Sort of unnecessary now, as we already check this above */
@@ -399,7 +389,7 @@ func (m *GpuManager) __unsafeReleasePendingGPUs(replicaId int32, kernelId string
 	_, existed := m.__unsafeTryDeallocatePendingGPUs(replicaId, kernelId)
 
 	if !existed {
-		return ErrAllocationNotFound
+		return scheduling.ErrAllocationNotFound
 	}
 
 	// Update Prometheus metrics.

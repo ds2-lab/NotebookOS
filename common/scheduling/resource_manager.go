@@ -1,4 +1,4 @@
-package daemon
+package scheduling
 
 import (
 	"encoding/json"
@@ -42,6 +42,11 @@ var (
 	// counts of a resources struct would result in an invalid/illegal resource count within that resources struct,
 	// such as a negative quantity for cpus, gpus, or memory.
 	ErrInvalidOperation = errors.New("the requested resource operation would result in an invalid resource count")
+
+	ErrIllegalGpuAdjustment        = errors.New("requested gpu adjustment is illegal")
+	ErrAllocationNotFound          = errors.New("could not find the requested GPU allocation")
+	ErrAllocationPartiallyNotFound = errors.New("the requested GPU allocation was found only in one of the various internal mappings (rather than within all of the mappings)")
+	ErrNoPendingAllocationFound    = errors.New("a pending allocation could not be found when allocating actual GPUs")
 )
 
 const (
@@ -205,7 +210,7 @@ func (t AllocationType) String() string {
 // Each ResourceAllocation encapsulates an allocation of GPU, CPU, and Memory resources.
 type ResourceAllocation struct {
 	// AllocationId is the unique ID of the allocation.
-	AllocationId string `json:"id"`
+	AllocationId string `json:"ID"`
 
 	// GPUs is the number of GPUs in the ResourceAllocation.
 	GPUs decimal.Decimal `json:"gpus"`
@@ -842,7 +847,7 @@ func (r *resourcesWrapper) SpecResources() ResourceState {
 type ResourceManager struct {
 	mu sync.Mutex
 
-	id  string        // Unique ID of the Resource Manager.
+	ID  string        // Unique ID of the Resource Manager.
 	log logger.Logger // Logger.
 
 	// allocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
@@ -867,7 +872,7 @@ type ResourceManager struct {
 // NewResourceManager creates a new ResourceManager struct and returns a pointer to it.
 func NewResourceManager(resourceSpec types.Spec) *ResourceManager {
 	manager := &ResourceManager{
-		id:                         uuid.NewString(),
+		ID:                         uuid.NewString(),
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, *ResourceAllocation](128),
 	}
 
@@ -1104,7 +1109,7 @@ func (m *ResourceManager) ReplicaHasPendingGPUs(replicaId int32, kernelId string
 
 	// If it is a pending GPU allocation, then we may return true.
 	if alloc.IsPending() {
-		return alloc.GPUs.GreaterThan(ZeroDecimal)
+		return alloc.GPUs.GreaterThan(decimal.Zero)
 	}
 
 	// It is an "actual" GPU allocation, not a pending GPU allocation, so return false.
@@ -1137,7 +1142,7 @@ func (m *ResourceManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId stri
 	}
 
 	// It is an "actual" GPU allocation.
-	return alloc.GPUs.GreaterThan(ZeroDecimal)
+	return alloc.GPUs.GreaterThan(decimal.Zero)
 }
 
 // AssertAllocationIsPending returns true if the given *ResourceAllocation IS pending.
