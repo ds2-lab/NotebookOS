@@ -10,7 +10,9 @@ import (
 	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	"log"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -79,15 +81,15 @@ type SessionStatistics interface {
 type Session struct {
 	instance *Session
 
-	cluster           Cluster             // The Cluster in which this Session exists.
-	ctx               context.Context     // The Session's context.
-	id                string              // Session/kernel ID.
-	sessionState      SessionState        // The current state of the Session.
-	trainingStart     time.Time           // Time at which the current training began.
-	migrationStart    time.Time           // Time at which the migration began.
-	containers        []*Container        // The kernel replicas belonging to this Session.
-	trainingContainer *Container          // The Container that is actively training.
-	resourceSpec      types.CloneableSpec // The (current) resource requirements of the Session.
+	cluster           Cluster              // The Cluster in which this Session exists.
+	ctx               context.Context      // The Session's context.
+	id                string               // Session/kernel ID.
+	sessionState      SessionState         // The current state of the Session.
+	trainingStart     time.Time            // Time at which the current training began.
+	migrationStart    time.Time            // Time at which the migration began.
+	containers        map[int32]*Container // The kernel replicas belonging to this Session.
+	trainingContainer *Container           // The Container that is actively training.
+	resourceSpec      types.CloneableSpec  // The (current) resource requirements of the Session.
 
 	////////////////////////
 	// Session Statistics //
@@ -107,6 +109,8 @@ type Session struct {
 	preemptionPriorityHistory  *ValueHistory[float64]
 	trainingTimeHistory        *ValueHistory[time.Duration]
 	migrationTimeHistory       *ValueHistory[time.Duration]
+
+	mu sync.Mutex
 
 	log logger.Logger
 }
@@ -129,7 +133,7 @@ func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelSpec
 		preemptionPriorityHistory:  NewValueHistory[float64]("Preemption Priority", "float64"),
 		trainingTimeHistory:        NewValueHistory[time.Duration]("Training Time", "time.Duration"),
 		migrationTimeHistory:       NewValueHistory[time.Duration]("Migration Time", "time.Duration"),
-		containers:                 make([]*Container, 0, opts.NumReplicas),
+		containers:                 make(map[int32]*Container),
 	}
 
 	initialInteractivePriority := session.updateInteractivePriority("session started")
@@ -149,7 +153,12 @@ func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelSpec
 // same replica ID (i.e., SMR node ID) registered with the Session.
 //
 // On success, AddReplica will return nil.
+//
+// Note: this method is thread-safe.
 func (s *Session) AddReplica(container *Container) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if container == nil {
 		return fmt.Errorf("%w: container is nil", ErrInvalidContainer)
 	}
@@ -158,14 +167,85 @@ func (s *Session) AddReplica(container *Container) error {
 		return fmt.Errorf("%w: ID mismatch (session ID=\"%s\", container ID=\"%s\")", ErrInvalidContainer, s.id, container.KernelID())
 	}
 
-	for _, replica := range s.containers {
-		if replica.ReplicaID() == container.ReplicaID() {
-			return fmt.Errorf("%w: session already has container for replica %d registered", ErrInvalidContainer, container.ReplicaID())
+	// Ensure we don't already have a replica with this SMR Node ID.
+	if _, loaded := s.containers[container.ReplicaID()]; loaded {
+		return fmt.Errorf("%w: session already has container for replica %d registered", ErrInvalidContainer, container.ReplicaID())
+	}
+
+	s.containers[container.ReplicaID()] = container
+
+	//for _, replica := range s.containers {
+	//	if replica.ReplicaID() == container.ReplicaID() {
+	//		return fmt.Errorf("%w: session already has container for replica %d registered", ErrInvalidContainer, container.ReplicaID())
+	//	}
+	//}
+
+	//s.containers = append(s.containers, container)
+
+	return nil
+}
+
+// unsafeRemoveReplica removes the specified Container from the Session's replicas.
+//
+// unsafeRemoveReplica does not perform any sort of safety or validity checks, and no locks are acquired.
+//
+// Important: unsafeRemoveReplica must be called from a context in which the Session's mutex has already been acquired.
+func (s *Session) unsafeRemoveReplica(container *Container) {
+	if container == nil {
+		log.Fatalf("Cannot remove nil Container from Session %s", s.id)
+	}
+
+	delete(s.containers, container.ReplicaID())
+}
+
+// RemoveReplica removes the specified Container from the Session's replicas.
+//
+// RemoveReplica returns an error if the specified Container is not one of the Session's replicas.
+// On success, RemoveReplica returns nil.
+//
+// Note: this method is thread-safe.
+func (s *Session) RemoveReplica(container *Container) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	replicaId := container.ReplicaID()
+	if _, loaded := s.containers[replicaId]; !loaded {
+		s.log.Error("Cannot remove replica %d from Session %s. No replica found with specified SMR node ID.",
+			replicaId, s.id)
+		return fmt.Errorf("%w: session %s does not have a replica with ID=%d",
+			ErrReplicaNotFound, s.id, replicaId)
+	}
+
+	s.unsafeRemoveReplica(container)
+	return nil
+}
+
+// RemoveReplicaById removes the Container with the specified SMR node ID from the Session's replicas.
+//
+// RemoveReplica returns an error if there is no Container with the specified ID within the Session's replicas.
+// On success, RemoveReplica returns nil.
+//
+// Note: this method is thread-safe.
+func (s *Session) RemoveReplicaById(replicaId int32) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var targetContainer *Container
+	for _, container := range s.containers {
+		if container.ReplicaID() == replicaId {
+			targetContainer = container
+			break
 		}
 	}
 
-	s.containers = append(s.containers, container)
+	if targetContainer == nil {
+		s.log.Error("Cannot remove replica %d from Session %s. No replica found with specified SMR node ID.",
+			replicaId, s.id)
+		return fmt.Errorf("%w: session %s does not have a replica with ID=%d",
+			ErrReplicaNotFound, s.id, replicaId)
+	}
 
+	s.unsafeRemoveReplica(targetContainer)
 	return nil
 }
 
@@ -181,7 +261,13 @@ func (s *Session) Context() context.Context {
 	return s.ctx
 }
 
+// SetContext sets the Session's context.Context.
+//
+// Note: this method is thread-safe.
 func (s *Session) SetContext(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.ctx = ctx
 }
 
@@ -196,7 +282,12 @@ func (s *Session) ResourceUtilization() *ResourceUtilization {
 }
 
 // SetResourceUtilization sets the value of the Session's resourceUtilization field to the given value.
+//
+// Note: this method is thread-safe.
 func (s *Session) SetResourceUtilization(util *ResourceUtilization) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.resourceUtilization = util
 }
 
@@ -212,7 +303,12 @@ func (s *Session) String() string {
 //
 // Returns a promise.Promise, which will be resolved with an error if the Session is in any of the following states:
 // SessionStateStopped, SessionStateTraining.
+//
+// Note: this method is thread-safe.
 func (s *Session) SetExpectingTraining() promise.Promise {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.IsTraining() {
 		s.log.Error("Session cannot transition to state \"%s\" -- Session is already training!", SessionStateExpectingTraining)
 		err := fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, s.sessionState, SessionStateExpectingTraining)
@@ -228,7 +324,12 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 }
 
 // TrainingStarted should be called when one of the Session's Kernel replicas begins training.
+//
+// Note: this method is thread-safe.
 func (s *Session) TrainingStarted(container *Container) promise.Promise {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.transition(SessionStateTraining); err != nil {
 		s.log.Warn("Failed to start training because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -269,7 +370,12 @@ func (s *Session) TrainingStarted(container *Container) promise.Promise {
 }
 
 // TrainingStopped should be called when the actively-training Kernel replica of the Session stops training.
+//
+// Note: this method is thread-safe.
 func (s *Session) TrainingStopped() promise.Promise {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.transition(SessionStateIdle); err != nil {
 		s.log.Warn("Failed to stop training because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -298,7 +404,12 @@ func (s *Session) TrainingStopped() promise.Promise {
 
 // MigrationStarted should be called when one of the replicas of the Session begins the
 // process of migrating from its current Host to another Host.
+//
+// Note: this method is thread-safe.
 func (s *Session) MigrationStarted() promise.Promise {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.transition(SessionStateMigrating); err != nil {
 		s.log.Warn("Failed to initiate migration because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -310,7 +421,12 @@ func (s *Session) MigrationStarted() promise.Promise {
 
 // MigrationComplete should be called when the migrating replica of the Session has finished its migration
 // to another host.
+//
+// Note: this method is thread-safe.
 func (s *Session) MigrationComplete() promise.Promise {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.transition(SessionStateIdle); err != nil {
 		s.log.Warn("Failed to conclude migration because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -335,7 +451,12 @@ func (s *Session) GetState() SessionState {
 
 // SessionStarted should be called when the Session is scheduled successfully, meaning that all the Session's
 // replicas (Containers) have successfully been scheduled and started running.
+//
+// Note: this method is thread-safe.
 func (s *Session) SessionStarted() promise.Promise {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.transition(SessionStateIdle); err != nil {
 		s.log.Warn("Failed to terminate session because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -345,7 +466,12 @@ func (s *Session) SessionStarted() promise.Promise {
 }
 
 // SessionStopped should be called when the Session is terminated.
+//
+// Note: this method is thread-safe.
 func (s *Session) SessionStopped() promise.Promise {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.log.Debug("Stopping scheduling.Session now.")
 
 	// If the Session is training, then we need to first call TrainingStopped to ensure that our local view(s) of

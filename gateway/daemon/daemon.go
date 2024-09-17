@@ -2997,6 +2997,17 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) err
 		d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
 	}
 
+	session, loaded := d.sessions.Load(kernelId)
+	if !loaded {
+		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
+		return fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
+	}
+
+	if err = session.RemoveReplicaById(smrNodeId); err != nil {
+		d.log.Error("Failed to remove replica %d from session \"%s\" because: %v", smrNodeId, kernelId, err)
+		return err
+	}
+
 	return nil
 }
 
@@ -3053,8 +3064,7 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 	d.log.Debug("Received request for the cluster's virtual docker nodes.")
 
 	expectedNumNodes, _ := d.getNumLocalDaemonDocker()
-
-	d.log.Debug("Expected number of Docker nodes: %d", expectedNumNodes)
+	// d.log.Debug("Expected number of Docker nodes: %d", expectedNumNodes)
 
 	d.dockerNodeMutex.Lock()
 	defer d.dockerNodeMutex.Unlock()
@@ -3483,9 +3493,9 @@ func (d *ClusterGatewayImpl) getNumLocalDaemonDocker() (int, error) {
 		stdoutBytes, err := cmd.CombinedOutput()
 
 		stdout := strings.TrimSpace(string(stdoutBytes))
-		d.log.Debug("Command output: \"%s\"", stdout)
 		if err != nil {
 			d.log.Error("Failed to get number of Local Daemon Docker containers because: %v", err)
+			d.log.Error("Command output: \"%s\"", stdout)
 			return -1, err
 		}
 
@@ -3493,6 +3503,7 @@ func (d *ClusterGatewayImpl) getNumLocalDaemonDocker() (int, error) {
 		if err != nil {
 			d.log.Error("Failed to parse command output for number of Local Daemon Docker containers.")
 			d.log.Error("Error: %v", err)
+			d.log.Error("Command output: \"%s\"", stdout)
 
 			return -1, err
 		}

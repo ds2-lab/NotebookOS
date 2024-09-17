@@ -27,10 +27,8 @@ const (
 )
 
 var (
-	CtxKernelHost   = utils.ContextKey("host")
-	KernelInfoReply = "kernel_info_reply"
-
-	ErrReplicaNotFound      = fmt.Errorf("replica not found")
+	CtxKernelHost           = utils.ContextKey("host")
+	KernelInfoReply         = "kernel_info_reply"
 	ErrReplicaAlreadyExists = errors.New("cannot replace existing replica, as node IDs cannot be reused")
 	ErrNoActiveExecution    = errors.New("no active execution associated with kernel who sent 'YIELD' notification")
 )
@@ -457,14 +455,14 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 	if c.replicas[r.ReplicaID()] != r {
 		// This is bad and should never happen.
 		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
-		return host, ErrReplicaNotFound
+		return host, scheduling.ErrReplicaNotFound
 	}
 
 	delete(c.replicas, r.ReplicaID())
 
 	// The replica ID starts with 1.
 	// if int(r.ReplicaID()) > len(c.replicas) || c.replicas[r.ReplicaID()-1] != r {
-	// 	return host, ErrReplicaNotFound
+	// 	return host, scheduling.ErrReplicaNotFound
 	// }
 
 	// c.replicas[r.ReplicaID()-1] = nil
@@ -504,7 +502,7 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelRep
 			validIds = append(validIds, validId)
 		}
 		c.log.Warn("Could not retrieve kernel replica with id %d. Valid IDs are %v.", id, validIds)
-		return nil, ErrReplicaNotFound
+		return nil, scheduling.ErrReplicaNotFound
 	}
 
 	return replica, nil
@@ -526,7 +524,7 @@ func (c *DistributedKernelClient) RemoveReplicaByID(id int32, remover ReplicaRem
 			validIds = append(validIds, validId)
 		}
 		c.log.Warn("Could not retrieve kernel replica with id %d. Valid IDs are %v.", id, validIds)
-		return nil, ErrReplicaNotFound
+		return nil, scheduling.ErrReplicaNotFound
 	}
 
 	return c.RemoveReplica(replica, remover, noop)
@@ -605,7 +603,7 @@ func (c *DistributedKernelClient) IsReplicaReady(replicaId int32) (bool, error) 
 
 	replica, ok := c.replicas[replicaId]
 	if !ok {
-		return false, ErrReplicaNotFound
+		return false, scheduling.ErrReplicaNotFound
 	}
 
 	return replica.IsReady(), nil
