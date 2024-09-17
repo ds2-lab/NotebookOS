@@ -1730,12 +1730,19 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 
 	// Create the new Container.
 	container := scheduling.NewContainer(session, replica, host, in.KernelIp)
+
 	// Assign the Container to the KernelReplicaClient.
 	replica.SetContainer(container)
+
 	// Add the Container to the Host.
-	host.ContainerScheduled(container)
+	if err = host.ContainerScheduled(container); err != nil {
+		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
+		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
+		panic(err)
+	}
+
 	// Register the Container with the Session.
-	if err := session.AddReplica(container); err != nil {
+	if err = session.AddReplica(container); err != nil {
 		d.log.Error("Error while registering container %v with session %v: %v", container, session, err)
 		d.notifyDashboardOfError("Failed to Register Container with Session", err.Error())
 		panic(err)
@@ -1911,10 +1918,17 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 
 	// Create the new Container.
 	container := scheduling.NewContainer(session, replica, host, in.KernelIp)
+
 	// Assign the Container to the KernelReplicaClient.
 	replica.SetContainer(container)
+
 	// Add the Container to the Host.
-	host.ContainerScheduled(container)
+	if err := host.ContainerScheduled(container); err != nil {
+		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
+		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
+		panic(err)
+	}
+
 	// Register the Container with the Session.
 	if err := session.AddReplica(container); err != nil {
 		d.log.Error("Error while registering container %v with session %v: %v", container, session, err)

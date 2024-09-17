@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/shopspring/decimal"
 	"math"
 	"sort"
 	"sync"
@@ -69,13 +70,13 @@ type HostStatistics interface {
 	CommittedGPUs() float64
 
 	// IdleGPUsStat returns the StatFloat64 representing the number of GPUs that the host has not allocated to any Containers.
-	IdleGPUsStat() types.StatFloat64Field
+	//IdleGPUsStat() types.StatFloat64Field
 
 	// PendingGPUsStat returns the StatFloat64 representing the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-	PendingGPUsStat() types.StatFloat64Field
+	//PendingGPUsStat() types.StatFloat64Field
 
 	// CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound to Containers scheduled on the Host.
-	CommittedGPUsStat() types.StatFloat64Field
+	//CommittedGPUsStat() types.StatFloat64Field
 
 	// IdleCPUs returns the number of CPUs that the host has not allocated to any Containers.
 	IdleCPUs() float64
@@ -88,13 +89,13 @@ type HostStatistics interface {
 	CommittedCPUs() float64
 
 	// IdleCPUsStat returns the StatFloat64 representing the number of CPUs that the host has not allocated to any Containers.
-	IdleCPUsStat() types.StatFloat64Field
+	//IdleCPUsStat() types.StatFloat64Field
 
 	// PendingCPUsStat returns the StatFloat64 representing the number of CPUs that are oversubscribed by Containers scheduled on the Host.
-	PendingCPUsStat() types.StatFloat64Field
+	//PendingCPUsStat() types.StatFloat64Field
 
 	// CommittedCPUsStat returns the StatFloat64 representing the number of CPUs that are actively bound to Containers scheduled on the Host.
-	CommittedCPUsStat() types.StatFloat64Field
+	//CommittedCPUsStat() types.StatFloat64Field
 
 	// IdleMemoryMb returns the amount of memory, in megabytes (MB), that the host has not allocated to any Containers.
 	IdleMemoryMb() float64
@@ -107,13 +108,13 @@ type HostStatistics interface {
 	CommittedMemoryMb() float64
 
 	// IdleMemoryMbStat returns the StatFloat64 representing the amount of memory, in megabytes (MB), that the host has not allocated to any Containers.
-	IdleMemoryMbStat() types.StatFloat64Field
+	//IdleMemoryMbStat() types.StatFloat64Field
 
 	// PendingMemoryMbStat returns the StatFloat64 representing the amount of memory, in megabytes (MB), that is oversubscribed by Containers scheduled on the Host.
-	PendingMemoryMbStat() types.StatFloat64Field
+	//PendingMemoryMbStat() types.StatFloat64Field
 
 	// CommittedMemoryMbStat returns the StatFloat64 representing the amount of memory, in megabytes (MB), that is actively bound to Containers scheduled on the Host.
-	CommittedMemoryMbStat() types.StatFloat64Field
+	//CommittedMemoryMbStat() types.StatFloat64Field
 
 	// LastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
 	LastReschedule() types.StatFloat64Field
@@ -166,15 +167,18 @@ type Host struct {
 
 	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
 
-	idleCPUs          types.StatFloat64 // IdleCPUs returns the number of CPUs that the host has not allocated to any Containers.
-	pendingCPUs       types.StatFloat64 // PendingCPUs returns the number of CPUs that are oversubscribed by Containers scheduled on the Host.
-	committedCPUs     types.StatFloat64 // CommittedCPUs returns the number of CPUs that are actively bound to Containers scheduled on the Host.
-	idleMemoryMb      types.StatFloat64 // IdleMemoryMb returns the amount of memory (in megabytes) that the host has not allocated to any Containers.
-	pendingMemoryMb   types.StatFloat64 // PendingMemoryMb returns the amount of memory (in megabytes) that is oversubscribed by Containers scheduled on the Host.
-	committedMemoryMb types.StatFloat64 // CommittedMemoryMb returns the amount of memory (in megabytes) that is actively bound to Containers scheduled on the Host.
-	idleGPUs          types.StatFloat64 // IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
-	pendingGPUs       types.StatFloat64 // PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-	committedGPUs     types.StatFloat64 // CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
+	// resourcesWrapper wraps all the Host's resources.
+	resourcesWrapper *resourcesWrapper
+
+	//idleCPUs          types.StatFloat64 // IdleCPUs returns the number of CPUs that the host has not allocated to any Containers.
+	//pendingCPUs       types.StatFloat64 // PendingCPUs returns the number of CPUs that are oversubscribed by Containers scheduled on the Host.
+	//committedCPUs     types.StatFloat64 // CommittedCPUs returns the number of CPUs that are actively bound to Containers scheduled on the Host.
+	//idleMemoryMb      types.StatFloat64 // IdleMemoryMb returns the amount of memory (in megabytes) that the host has not allocated to any Containers.
+	//pendingMemoryMb   types.StatFloat64 // PendingMemoryMb returns the amount of memory (in megabytes) that is oversubscribed by Containers scheduled on the Host.
+	//committedMemoryMb types.StatFloat64 // CommittedMemoryMb returns the amount of memory (in megabytes) that is actively bound to Containers scheduled on the Host.
+	//idleGPUs          types.StatFloat64 // IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
+	//pendingGPUs       types.StatFloat64 // PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
+	//committedGPUs     types.StatFloat64 // CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
 
 	subscribedRatio types.StatFloat64
 
@@ -242,17 +246,44 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		createdAt:          time.Now(),
 	}
 
-	host.idleGPUs.Store(float64(gpuInfoResp.SpecGPUs))
-	host.pendingGPUs.Store(0)
-	host.committedGPUs.Store(0)
+	host.resourcesWrapper = &resourcesWrapper{
+		idleResources: &resources{
+			resourceStatus: IdleResources,
+			millicpus:      decimal.NewFromFloat(resourceSpec.CPU()),
+			memoryMB:       decimal.NewFromFloat(resourceSpec.MemoryMB()),
+			gpus:           decimal.NewFromFloat(resourceSpec.GPU()),
+		},
+		pendingResources: &resources{
+			resourceStatus: PendingResources,
+			millicpus:      decimal.Zero.Copy(),
+			memoryMB:       decimal.Zero.Copy(),
+			gpus:           decimal.Zero.Copy(),
+		},
+		committedResources: &resources{
+			resourceStatus: CommittedResources,
+			millicpus:      decimal.Zero.Copy(),
+			memoryMB:       decimal.Zero.Copy(),
+			gpus:           decimal.Zero.Copy(),
+		},
+		specResources: &resources{
+			resourceStatus: SpecResources,
+			millicpus:      decimal.NewFromFloat(resourceSpec.CPUs),
+			memoryMB:       decimal.NewFromFloat(resourceSpec.MemoryMb),
+			gpus:           decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
+		},
+	}
 
-	host.idleCPUs.Store(resourceSpec.CPUs)
-	host.pendingCPUs.Store(0)
-	host.committedCPUs.Store(0)
-
-	host.idleMemoryMb.Store(resourceSpec.MemoryMb)
-	host.pendingMemoryMb.Store(0)
-	host.committedMemoryMb.Store(0)
+	//host.idleGPUs.Store(float64(gpuInfoResp.SpecGPUs))
+	//host.pendingGPUs.Store(0)
+	//host.committedGPUs.Store(0)
+	//
+	//host.idleCPUs.Store(resourceSpec.CPUs)
+	//host.pendingCPUs.Store(0)
+	//host.committedCPUs.Store(0)
+	//
+	//host.idleMemoryMb.Store(resourceSpec.MemoryMb)
+	//host.pendingMemoryMb.Store(0)
+	//host.committedMemoryMb.Store(0)
 
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
 	host.sip.Validator = GetClockTimeCacheValidator()
@@ -281,20 +312,26 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 	})
 
 	return &proto.VirtualDockerNode{
-		NodeId:          h.id,
-		NodeName:        h.nodeName,
-		Address:         h.addr,
-		CreatedAt:       timestamppb.New(h.createdAt),
-		Containers:      dockerContainers,
-		SpecCpu:         float32(h.resourceSpec.CPU()),
-		SpecMemory:      float32(h.resourceSpec.MemoryMB()),
-		SpecGpu:         float32(h.resourceSpec.GPU()),
-		AllocatedCpu:    float32(h.committedCPUs.Load()),
-		AllocatedGpu:    float32(h.committedGPUs.Load()),
-		AllocatedMemory: float32(h.committedMemoryMb.Load()),
-		PendingCpu:      float32(h.pendingCPUs.Load()),
-		PendingMemory:   float32(h.pendingMemoryMb.Load()),
-		PendingGpu:      float32(h.pendingGPUs.Load()),
+		NodeId:     h.id,
+		NodeName:   h.nodeName,
+		Address:    h.addr,
+		CreatedAt:  timestamppb.New(h.createdAt),
+		Containers: dockerContainers,
+		SpecCpu:    float32(h.resourceSpec.CPU()),
+		SpecMemory: float32(h.resourceSpec.MemoryMB()),
+		SpecGpu:    float32(h.resourceSpec.GPU()),
+		//AllocatedCpu:    float32(h.committedCPUs.Load()),
+		//AllocatedGpu:    float32(h.committedGPUs.Load()),
+		//AllocatedMemory: float32(h.committedMemoryMb.Load()),
+		//PendingCpu:      float32(h.pendingCPUs.Load()),
+		//PendingMemory:   float32(h.pendingMemoryMb.Load()),
+		//PendingGpu:      float32(h.pendingGPUs.Load()),
+		AllocatedCpu:    float32(h.resourcesWrapper.committedResources.millicpus.InexactFloat64()),
+		AllocatedMemory: float32(h.resourcesWrapper.committedResources.memoryMB.InexactFloat64()),
+		AllocatedGpu:    float32(h.resourcesWrapper.committedResources.gpus.InexactFloat64()),
+		PendingCpu:      float32(h.resourcesWrapper.pendingResources.millicpus.InexactFloat64()),
+		PendingMemory:   float32(h.resourcesWrapper.pendingResources.memoryMB.InexactFloat64()),
+		PendingGpu:      float32(h.resourcesWrapper.pendingResources.gpus.InexactFloat64()),
 	}
 }
 
@@ -326,24 +363,24 @@ func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
 	//h.log.Debug("Updating local GPU usage info with data from remote now...")
 	numDifferences := 0
 
-	localIdleGpus := h.Stats().IdleGPUsStat().Load()
+	localIdleGpus := h.resourcesWrapper.idleResources.GPUs()
 	if localIdleGpus != float64(remoteInfo.IdleGPUs) {
 		h.log.Warn("Local idle GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", localIdleGpus, remoteInfo.IdleGPUs)
-		h.Stats().IdleGPUsStat().Store(float64(remoteInfo.IdleGPUs))
+		h.resourcesWrapper.idleResources.gpus = decimal.NewFromFloat(float64(remoteInfo.IdleGPUs))
 		numDifferences += 1
 	}
 
-	localPendingGPUs := h.Stats().PendingGPUsStat().Load()
+	localPendingGPUs := h.resourcesWrapper.pendingResources.GPUs()
 	if localPendingGPUs != float64(remoteInfo.PendingGPUs) {
 		h.log.Warn("Local pending GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", localPendingGPUs, remoteInfo.PendingGPUs)
-		h.Stats().PendingGPUsStat().Store(float64(remoteInfo.PendingGPUs))
+		h.resourcesWrapper.pendingResources.gpus = decimal.NewFromFloat(float64(remoteInfo.PendingGPUs))
 		numDifferences += 1
 	}
 
-	localCommittedGPUs := h.Stats().CommittedGPUsStat().Load()
+	localCommittedGPUs := h.resourcesWrapper.committedResources.GPUs()
 	if localCommittedGPUs != float64(remoteInfo.CommittedGPUs) {
 		h.log.Warn("Local committed GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", localCommittedGPUs, remoteInfo.CommittedGPUs)
-		h.Stats().CommittedGPUsStat().Store(float64(remoteInfo.CommittedGPUs))
+		h.resourcesWrapper.committedResources.gpus = decimal.NewFromFloat(float64(remoteInfo.CommittedGPUs))
 		numDifferences += 1
 	}
 
@@ -362,16 +399,23 @@ func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
 }
 
 // ContainerScheduled is to be called when a Container is scheduled onto the Host.
-func (h *Host) ContainerScheduled(container *Container) {
+func (h *Host) ContainerScheduled(container *Container) error {
 	h.containers.Store(container.ContainerID(), container)
 
 	h.pendingContainers.Add(1)
 
-	h.pendingCPUs.Add(container.OutstandingResources().CPU())
-	h.pendingMemoryMb.Add(container.OutstandingResources().MemoryMB())
-	h.pendingGPUs.Add(container.OutstandingResources().GPU())
+	if err := h.resourcesWrapper.pendingResources.Add(types.ToDecimalSpec(container.outstandingResources)); err != nil {
+		h.log.Error("Could not schedule Container %s onto Host %s due to resource-related issue: %v",
+			container.ContainerID(), h.ID(), err)
+		return err
+	}
+
+	//h.pendingCPUs.Add(container.OutstandingResources().CPU())
+	//h.pendingMemoryMb.Add(container.OutstandingResources().MemoryMB())
+	//h.pendingGPUs.Add(container.OutstandingResources().GPU())
 
 	h.log.Debug("Container %s was scheduled onto Host %s.", container.String(), h.ID())
+	return nil
 }
 
 // Restore restores the state of a Host from another Host.
@@ -401,9 +445,15 @@ func (h *Host) ContainerRemoved(container *Container) error {
 
 	h.pendingContainers.Sub(1)
 
-	h.pendingCPUs.Sub(container.OutstandingResources().CPU())
-	h.pendingMemoryMb.Sub(container.OutstandingResources().MemoryMB())
-	h.pendingGPUs.Sub(container.OutstandingResources().GPU())
+	if err := h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources)); err != nil {
+		h.log.Error("Could not remove Container %s from Host %s due to resource-related issue: %v",
+			container.ContainerID(), h.ID(), err)
+		return err
+	}
+
+	//h.pendingCPUs.Sub(container.OutstandingResources().CPU())
+	//h.pendingMemoryMb.Sub(container.OutstandingResources().MemoryMB())
+	//h.pendingGPUs.Sub(container.OutstandingResources().GPU())
 
 	h.log.Debug("Container %s was removed from Host %s.", container.String(), h.ID())
 
@@ -471,10 +521,12 @@ func (h *Host) getSIP(sess *Session) float64 {
 }
 
 func (h *Host) getRB(sessRB float64, required float64) float64 {
-	idleGPUs := h.idleGPUs.Load()
+	//idleGPUs := h.idleGPUs.Load()
+	idleGPUs := h.resourcesWrapper.idleResources.GPUs()
 	extras := 0.0
 	if idleGPUs > required {
-		extras = idleGPUs / h.pendingGPUs.Load()
+		//extras = idleGPUs / h.pendingGPUs.Load()
+		extras = idleGPUs / h.resourcesWrapper.pendingResources.GPUs()
 	}
 	rb := sessRB * (extras + 1) / float64(h.pendingContainers.Load())
 	h.log.Debug("Calculated RB: %.4f\n", h.id, rb)
@@ -616,83 +668,41 @@ func (h *Host) Priority(session *Session) float64 {
 
 // IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
 func (h *Host) IdleGPUs() float64 {
-	return h.idleGPUs.Load()
+	return h.resourcesWrapper.idleResources.GPUs()
 }
 
 // PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
 func (h *Host) PendingGPUs() float64 {
-	return h.pendingGPUs.Load()
+	return h.resourcesWrapper.pendingResources.GPUs()
 }
 
 // CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
 func (h *Host) CommittedGPUs() float64 {
-	return h.committedGPUs.Load()
-}
-
-// IdleGPUsStat returns the StatFloat64 representing the number of GPUs that the host
-// has not allocated to any Containers.
-func (h *Host) IdleGPUsStat() types.StatFloat64Field {
-	return &h.idleGPUs
-}
-
-// PendingGPUsStat returns the StatFloat64 representing the number of GPUs that are oversubscribed
-// by Containers scheduled on the Host.
-func (h *Host) PendingGPUsStat() types.StatFloat64Field {
-	return &h.pendingGPUs
-}
-
-// CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound
-// to Containers scheduled on the Host.
-func (h *Host) CommittedGPUsStat() types.StatFloat64Field {
-	return &h.committedGPUs
+	return h.resourcesWrapper.committedResources.GPUs()
 }
 
 func (h *Host) IdleCPUs() float64 {
-	return h.idleCPUs.Load()
+	return h.resourcesWrapper.idleResources.Millicpus()
 }
 
 func (h *Host) PendingCPUs() float64 {
-	return h.pendingCPUs.Load()
+	return h.resourcesWrapper.pendingResources.Millicpus()
 }
 
 func (h *Host) CommittedCPUs() float64 {
-	return h.committedCPUs.Load()
-}
-
-func (h *Host) IdleCPUsStat() types.StatFloat64Field {
-	return &h.idleCPUs
-}
-
-func (h *Host) PendingCPUsStat() types.StatFloat64Field {
-	return &h.pendingCPUs
-}
-
-func (h *Host) CommittedCPUsStat() types.StatFloat64Field {
-	return &h.committedCPUs
+	return h.resourcesWrapper.committedResources.Millicpus()
 }
 
 func (h *Host) IdleMemoryMb() float64 {
-	return h.idleMemoryMb.Load()
+	return h.resourcesWrapper.idleResources.MemoryMB()
 }
 
 func (h *Host) PendingMemoryMb() float64 {
-	return h.pendingMemoryMb.Load()
+	return h.resourcesWrapper.pendingResources.MemoryMB()
 }
 
 func (h *Host) CommittedMemoryMb() float64 {
-	return h.committedMemoryMb.Load()
-}
-
-func (h *Host) IdleMemoryMbStat() types.StatFloat64Field {
-	return &h.idleMemoryMb
-}
-
-func (h *Host) PendingMemoryMbStat() types.StatFloat64Field {
-	return &h.pendingMemoryMb
-}
-
-func (h *Host) CommittedMemoryMbStat() types.StatFloat64Field {
-	return &h.committedMemoryMb
+	return h.resourcesWrapper.committedResources.MemoryMB()
 }
 
 // ResourceSpec the types.Spec defining the resources available on the Host.
@@ -703,3 +713,67 @@ func (h *Host) ResourceSpec() types.ValidatableResourceSpec {
 func (h *Host) ScaleInPriority() float64 {
 	return h.sip.Value().(float64)
 }
+
+func (h *Host) AddToPendingResources(spec *types.DecimalSpec) error {
+	return h.resourcesWrapper.pendingResources.Add(spec)
+}
+
+func (h *Host) AddToIdleResources(spec *types.DecimalSpec) error {
+	return h.resourcesWrapper.idleResources.Add(spec)
+}
+func (h *Host) AddToCommittedResources(spec *types.DecimalSpec) error {
+	return h.resourcesWrapper.committedResources.Add(spec)
+}
+
+func (h *Host) SubtractFromPendingResources(spec *types.DecimalSpec) error {
+	return h.resourcesWrapper.pendingResources.Subtract(spec)
+}
+
+func (h *Host) SubtractFromIdleResources(spec *types.DecimalSpec) error {
+	return h.resourcesWrapper.idleResources.Subtract(spec)
+}
+func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
+	return h.resourcesWrapper.committedResources.Subtract(spec)
+}
+
+//func (h *Host) IdleMemoryMbStat() types.StatFloat64Field {
+//	return &h.idleMemoryMb
+//}
+//
+//func (h *Host) PendingMemoryMbStat() types.StatFloat64Field {
+//	return &h.pendingMemoryMb
+//}
+//
+//func (h *Host) CommittedMemoryMbStat() types.StatFloat64Field {
+//	return &h.committedMemoryMb
+//}
+//
+//func (h *Host) IdleCPUsStat() types.StatFloat64Field {
+//	return &h.idleCPUs
+//}
+//
+//func (h *Host) PendingCPUsStat() types.StatFloat64Field {
+//	return &h.pendingCPUs
+//}
+//
+//func (h *Host) CommittedCPUsStat() types.StatFloat64Field {
+//	return &h.committedCPUs
+//}
+//
+//// IdleGPUsStat returns the StatFloat64 representing the number of GPUs that the host
+//// has not allocated to any Containers.
+//func (h *Host) IdleGPUsStat() types.StatFloat64Field {
+//	return &h.idleGPUs
+//}
+//
+//// PendingGPUsStat returns the StatFloat64 representing the number of GPUs that are oversubscribed
+//// by Containers scheduled on the Host.
+//func (h *Host) PendingGPUsStat() types.StatFloat64Field {
+//	return &h.pendingGPUs
+//}
+//
+//// CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound
+//// to Containers scheduled on the Host.
+//func (h *Host) CommittedGPUsStat() types.StatFloat64Field {
+//	return &h.committedGPUs
+//}

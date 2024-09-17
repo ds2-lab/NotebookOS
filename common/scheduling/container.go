@@ -260,18 +260,30 @@ func (c *Container) TrainingStarted() error {
 
 	// Update resource data on the Host.
 	// TODO: Should these just be updated either via "pushes" from the Local Daemon or "pulls" by the Cluster Gateway?
+	outstandingResourcesAsDecimalSpec := types.ToDecimalSpec(c.outstandingResources)
+	if err := c.host.SubtractFromPendingResources(outstandingResourcesAsDecimalSpec); err != nil {
+		return err
+	}
 
-	c.host.Stats().PendingCPUsStat().Sub(c.outstandingResources.CPU())
-	c.host.Stats().PendingMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
-	c.host.Stats().PendingGPUsStat().Sub(c.outstandingResources.GPU())
+	if err := c.host.SubtractFromIdleResources(outstandingResourcesAsDecimalSpec); err != nil {
+		return err
+	}
 
-	c.host.Stats().IdleCPUsStat().Sub(c.outstandingResources.CPU())
-	c.host.Stats().IdleMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
-	c.host.Stats().IdleGPUsStat().Sub(c.outstandingResources.GPU())
+	if err := c.host.AddToCommittedResources(outstandingResourcesAsDecimalSpec); err != nil {
+		return err
+	}
 
-	c.host.Stats().CommittedCPUsStat().Add(c.outstandingResources.CPU())
-	c.host.Stats().CommittedMemoryMbStat().Add(c.outstandingResources.MemoryMB())
-	c.host.Stats().CommittedGPUsStat().Add(c.outstandingResources.GPU())
+	//c.host.Stats().PendingCPUsStat().Sub(c.outstandingResources.CPU())
+	//c.host.Stats().PendingMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
+	//c.host.Stats().PendingGPUsStat().Sub(c.outstandingResources.GPU())
+	//
+	//c.host.Stats().IdleCPUsStat().Sub(c.outstandingResources.CPU())
+	//c.host.Stats().IdleMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
+	//c.host.Stats().IdleGPUsStat().Sub(c.outstandingResources.GPU())
+	//
+	//c.host.Stats().CommittedCPUsStat().Add(c.outstandingResources.CPU())
+	//c.host.Stats().CommittedMemoryMbStat().Add(c.outstandingResources.MemoryMB())
+	//c.host.Stats().CommittedGPUsStat().Add(c.outstandingResources.GPU())
 
 	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().NumGpus))
 	c.spec.UpdateSpecCPUs(c.Session().ResourceUtilization().CpuUtilization)
@@ -304,9 +316,9 @@ func (c *Container) TrainingStopped() error {
 
 	c.log.Debug("Training stopping. Outputting resources before training officially stops.")
 	c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
-	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().PendingCPUsStat().Load(), c.host.Stats().PendingMemoryMbStat().Load(), c.host.Stats().PendingGPUsStat().Load())
-	c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().IdleCPUsStat().Load(), c.host.Stats().IdleMemoryMbStat().Load(), c.host.Stats().IdleGPUsStat().Load())
-	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().CommittedCPUsStat().Load(), c.host.Stats().CommittedMemoryMbStat().Load(), c.host.Stats().CommittedGPUsStat().Load())
+	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs())
+	c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs())
+	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs())
 
 	c.outstandingResources = &types.Float64Spec{
 		GPUs:     types.GPUSpec(c.spec.GPU()),
@@ -315,23 +327,36 @@ func (c *Container) TrainingStopped() error {
 	}
 	c.spec = c.lastSpec
 
-	c.host.Stats().PendingCPUsStat().Add(c.outstandingResources.CPU())
-	c.host.Stats().PendingMemoryMbStat().Add(c.outstandingResources.MemoryMB())
-	c.host.Stats().PendingGPUsStat().Add(c.outstandingResources.GPU())
+	outstandingResourcesAsDecimalSpec := types.ToDecimalSpec(c.outstandingResources)
+	if err := c.host.AddToPendingResources(outstandingResourcesAsDecimalSpec); err != nil {
+		return err
+	}
 
-	c.host.Stats().IdleCPUsStat().Add(c.outstandingResources.CPU())
-	c.host.Stats().IdleMemoryMbStat().Add(c.outstandingResources.MemoryMB())
-	c.host.Stats().IdleGPUsStat().Add(c.outstandingResources.GPU())
+	if err := c.host.AddToIdleResources(outstandingResourcesAsDecimalSpec); err != nil {
+		return err
+	}
 
-	c.host.Stats().CommittedCPUsStat().Sub(c.outstandingResources.CPU())
-	c.host.Stats().CommittedMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
-	c.host.Stats().CommittedGPUsStat().Sub(c.outstandingResources.GPU())
+	if err := c.host.SubtractFromCommittedResources(outstandingResourcesAsDecimalSpec); err != nil {
+		return err
+	}
+
+	//c.host.Stats().PendingCPUsStat().Add(c.outstandingResources.CPU())
+	//c.host.Stats().PendingMemoryMbStat().Add(c.outstandingResources.MemoryMB())
+	//c.host.Stats().PendingGPUsStat().Add(c.outstandingResources.GPU())
+
+	//c.host.Stats().IdleCPUsStat().Add(c.outstandingResources.CPU())
+	//c.host.Stats().IdleMemoryMbStat().Add(c.outstandingResources.MemoryMB())
+	//c.host.Stats().IdleGPUsStat().Add(c.outstandingResources.GPU())
+	//
+	//c.host.Stats().CommittedCPUsStat().Sub(c.outstandingResources.CPU())
+	//c.host.Stats().CommittedMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
+	//c.host.Stats().CommittedGPUsStat().Sub(c.outstandingResources.GPU())
 
 	c.log.Debug("Training stopped. Outputting resources now that training has officially stopped.")
 	c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
-	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().PendingCPUsStat().Load(), c.host.Stats().PendingMemoryMbStat().Load(), c.host.Stats().PendingGPUsStat().Load())
-	c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().IdleCPUsStat().Load(), c.host.Stats().IdleMemoryMbStat().Load(), c.host.Stats().IdleGPUsStat().Load())
-	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().CommittedCPUsStat().Load(), c.host.Stats().CommittedMemoryMbStat().Load(), c.host.Stats().CommittedGPUsStat().Load())
+	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs())
+	c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs())
+	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs())
 
 	return nil
 }
