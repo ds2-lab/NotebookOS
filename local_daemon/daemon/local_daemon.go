@@ -158,6 +158,7 @@ type KernelRegistrationClient struct {
 
 func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *domain.SchedulerDaemonOptions, kernelRegistryPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...domain.SchedulerDaemonConfig) *SchedulerDaemonImpl {
 	ip := os.Getenv("POD_IP")
+
 	daemon := &SchedulerDaemonImpl{
 		connectionOptions:            connectionOptions,
 		transport:                    "tcp",
@@ -179,12 +180,20 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		prometheusInterval:           time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
 		prometheusPort:               schedulerDaemonOptions.PrometheusPort,
 	}
+
 	for _, configFunc := range configs {
 		configFunc(daemon)
 	}
+
 	config.InitLogger(&daemon.log, daemon)
-	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, fmt.Sprintf("LocalDaemon_%s", nodeName), true)
-	daemon.resourceManager = scheduling.NewResourceManager(&types.Float64Spec{GPUs: types.GPUSpec(schedulerDaemonOptions.NumGPUs), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost})
+
+	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon,
+		fmt.Sprintf("LocalDaemon_%s", nodeName), true, metrics.LocalDaemon)
+
+	daemon.resourceManager = scheduling.NewResourceManager(&types.Float64Spec{
+		GPUs:     types.GPUSpec(schedulerDaemonOptions.NumGPUs),
+		CPUs:     scheduling.MillicpusPerHost,
+		MemoryMb: scheduling.MemoryMbPerHost})
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -341,7 +350,15 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 
 	d.log.Debug("Set ID to \"%s\"", d.id)
 
+	// Update the ID field of the router and of any existing kernels.
+	d.router.SetComponentId(in.Id)
+	d.kernels.Range(func(_ string, replicaClient *client.KernelReplicaClient) (contd bool) {
+		replicaClient.SetComponentId(in.Id)
+		return true
+	})
+
 	if d.prometheusManager != nil {
+		// We'll just restart the Local Daemon's Prometheus Manager.
 		_ = d.prometheusManager.Stop()
 		if err := d.prometheusManager.Start(); err != nil {
 			d.log.Error("Failed to start Prometheus Manager because: %v", err)
@@ -391,8 +408,9 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 		// We only call Done if we're creating the LocalDaemonPrometheusManager for the first time.
 		d.prometheusStarted.Done()
 
-		// Register the Prometheus metrics manager with the ResourceManager.
+		// Register the Prometheus metrics manager with the ResourceManager and the Local Daemon's Router.
 		d.resourceManager.RegisterMetricsManager(d.prometheusManager)
+		d.router.AssignPrometheusManager(d.prometheusManager)
 	}
 
 	return in, nil
@@ -621,7 +639,11 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts)
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
-		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, true, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id, true,
+			listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName,
+			d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, metrics.LocalDaemon, false,
+			false, d.prometheusManager, d.kernelReconnectionFailed,
+			d.kernelRequestResubmissionFailedAfterReconnection)
 
 		kernelConnectionInfo, err = d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
 		if err != nil {
@@ -1318,7 +1340,10 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, err
 	}
 
-	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, true, listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, false, false, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, true, listenPorts[0],
+		listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
+		"", d.id, nil, metrics.LocalDaemon, false, false, d.prometheusManager,
+		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 	d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
 		in.ReplicaId, kernel.ID(), listenPorts)

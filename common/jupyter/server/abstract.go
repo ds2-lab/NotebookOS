@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"io"
 	"math"
 	"math/rand"
@@ -47,6 +48,10 @@ type WaitResponseOptionGetter func(key string) interface{}
 type AbstractServer struct {
 	Meta *types.ConnectionInfo
 
+	// PrometheusManager is an interface that enables the recording of metrics observed by the AbstractServer.
+	// This should be assigned a value in the init function passed as a parameter in the "constructor" of the AbstractServer.
+	PrometheusManager metrics.PrometheusManager
+
 	// ctx of this server and a func to cancel it.
 	Ctx       context.Context
 	CancelCtx func()
@@ -66,6 +71,9 @@ type AbstractServer struct {
 
 	// If true, then will ACK messages upon receiving them (for CONTROL and SHELL sockets only).
 	ShouldAckMessages bool
+
+	// The ID of the node/component on which the server resides.
+	ComponentId string
 
 	// localIpAdderss is the local IPv4, for debugging purposes.
 	localIpAdderss string
@@ -91,6 +99,9 @@ type AbstractServer struct {
 	// How long to wait for a request's response before giving up and cancelling the request.
 	RequestTimeout time.Duration
 
+	// The node type of THIS server.
+	nodeType metrics.NodeType
+
 	// If true, use jitter when generating sleep intervals for retransmitted ACKs.
 	UseJitter bool
 
@@ -101,23 +112,21 @@ type AbstractServer struct {
 	ackChannels hashmap.BaseHashMap[string, chan struct{}]
 }
 
-func New(ctx context.Context, info *types.ConnectionInfo, init func(server *AbstractServer)) *AbstractServer {
+func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeType, init func(server *AbstractServer)) *AbstractServer {
 	var cancelCtx func()
 	ctx, cancelCtx = context.WithCancel(ctx)
 
 	server := &AbstractServer{
-		Meta:      info,
-		Ctx:       ctx,
-		CancelCtx: cancelCtx,
-		Sockets:   &types.JupyterSocket{},
-		// RetrySleepInterval: time.Millisecond * 500,
+		Meta:             info,
+		Ctx:              ctx,
+		CancelCtx:        cancelCtx,
+		Sockets:          &types.JupyterSocket{},
 		UseJitter:        true,
 		MaxSleepInterval: time.Second * 5,
-		//MessageQueueCapacity: DefaultMessageQueueCapacity,
-		RequestTimeout: time.Second * 60,
-		acksReceived:   hashmap.NewSyncMap[string, bool](),
-		ackChannels:    hashmap.NewSyncMap[string, chan struct{}](),
-		// Log:       logger.NilLogger, // To be overwritten by init.
+		RequestTimeout:   time.Second * 60,
+		acksReceived:     hashmap.NewSyncMap[string, bool](),
+		ackChannels:      hashmap.NewSyncMap[string, chan struct{}](),
+		nodeType:         nodeType,
 	}
 	init(server)
 	server.Sockets.All = [5]*types.Socket{server.Sockets.HB, server.Sockets.Control, server.Sockets.Shell, server.Sockets.Stdin, server.Sockets.IO}
@@ -847,6 +856,10 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 					panic(fmt.Sprintf("Request transition to 'processing' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
 				}
 
+				if err := s.PrometheusManager.AddNumSendAttemptsRequiredObservation(float64(numTries+1), s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
+					s.Log.Error("Could not record 'NumSendAttemptsRequired' observation because: %v", err)
+				}
+
 				return nil
 			} else {
 				// Just to avoid going through the process of sleeping and updating the header if that was our last try.
@@ -891,6 +904,10 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 				}
 			}
 		}
+	}
+
+	if err := s.PrometheusManager.AddFailedSendAttempt(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
+		s.Log.Error("Could not record 'NumSendAttemptsRequired' observation because: %v", err)
 	}
 
 	if requiresACK {
@@ -1048,6 +1065,19 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDe
 				if pending, exist := pendings.LoadAndDelete(rspId); exist {
 					handler = pending.Handle // Handle will release the pending request once called.
 					request = pending.Request()
+
+					e2eLatency := time.Since(pending.Start)
+					s.Log.Debug("Received response to %s \"%s\" request %s (JupyterID=\"%s\") after %v.",
+						request.MessageType().String(), request.JupyterMessageType(), request.RequestId(),
+						request.JupyterMessageId(), e2eLatency)
+
+					// Record the latency in (microseconds) in Prometheus.
+					if err := s.PrometheusManager.AddMessageE2ELatencyObservation(float64(e2eLatency.Microseconds()),
+						s.ComponentId, s.nodeType, request.MessageType(), request.JupyterMessageType()); err != nil {
+						s.Log.Error("Could not record E2E latency of %v for %s \"%s\" message %s (JupyterID=\"%s\") because: %v",
+							request.MessageType().String(), request.JupyterMessageType(), request.RequestId(),
+							request.JupyterMessageId(), err)
+					}
 				}
 				// Continue serving if there are pending requests.
 				if pendings.Len() > 0 {

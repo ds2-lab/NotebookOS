@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"strings"
 	"time"
 
@@ -27,18 +28,18 @@ type Router struct {
 	*server.BaseServer
 	server *server.AbstractServer
 
-	// destMutex sync.Mutex
-
 	name string // Identifies the router server.
 
 	// handlers
 	handlers []RouterMessageHandler
 }
 
-func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider, name string, shouldAckMessages bool) *Router {
+func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider, name string,
+	shouldAckMessages bool, nodeType metrics.NodeType) *Router {
+
 	router := &Router{
 		name: name,
-		server: server.New(ctx, opts, func(s *server.AbstractServer) {
+		server: server.New(ctx, opts, nodeType, func(s *server.AbstractServer) {
 			var remoteComponentName string
 			if name == ClusterGatewayRouter {
 				remoteComponentName = "JupyterServer"
@@ -71,6 +72,23 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 		router.AddHandler(types.HBMessage, provider.HBHandler)
 	}
 	return router
+}
+
+// AssignPrometheusManager sets the PrometheusManager on the server(s) encapsulated by the Router.
+func (g *Router) AssignPrometheusManager(manager metrics.PrometheusManager) {
+	g.server.PrometheusManager = manager
+
+	// I think this is actually essentially changing the same field, as I think the two structs/fields here
+	// are actually the same variable (via pointers), but nevertheless...
+	g.BaseServer.AssignPrometheusManager(manager)
+}
+
+func (g *Router) SetComponentId(id string) {
+	g.server.ComponentId = id
+
+	// I think this is actually essentially changing the same field, as I think the two structs/fields here
+	// are actually the same variable (via pointers), but nevertheless...
+	g.BaseServer.SetComponentId(id)
 }
 
 func (g *Router) ShouldAckMessages() bool {

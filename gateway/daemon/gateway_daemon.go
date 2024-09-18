@@ -87,7 +87,6 @@ var (
 	// Internal errors
 
 	ErrInvalidTargetNumHosts   = status.Error(codes.InvalidArgument, "requested operation would result in an invalid or illegal number of nodes")
-	ErrInvalidSocketType       = status.Error(codes.Internal, "invalid socket type specified")
 	ErrKernelNotFound          = status.Error(codes.InvalidArgument, "kernel not found")
 	ErrKernelNotReady          = status.Error(codes.Unavailable, "kernel not ready")
 	ErrActiveExecutionNotFound = status.Error(codes.InvalidArgument, "active execution for specified kernel could not be found")
@@ -247,7 +246,7 @@ type ClusterGatewayImpl struct {
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
-	daemon := &ClusterGatewayImpl{
+	clusterGateway := &ClusterGatewayImpl{
 		id:                                    uuid.New().String(),
 		connectionOptions:                     opts,
 		transport:                             "tcp",
@@ -270,38 +269,42 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		dockerNetworkName:                     clusterDaemonOptions.DockerNetworkName,
 	}
 	for _, configFunc := range configs {
-		configFunc(daemon)
+		configFunc(clusterGateway)
 	}
-	config.InitLogger(&daemon.log, daemon)
-	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, "ClusterGatewayRouter", false)
+	config.InitLogger(&clusterGateway.log, clusterGateway)
+	clusterGateway.router = router.New(context.Background(), clusterGateway.connectionOptions, clusterGateway,
+		"ClusterGatewayRouter", false, metrics.ClusterGateway)
 
-	if daemon.prometheusInterval == time.Duration(0) {
-		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
-		daemon.prometheusInterval = DefaultPrometheusInterval
-	}
-
-	if daemon.prometheusPort <= 0 {
-		daemon.log.Debug("Using default Prometheus port: %d.", DefaultPrometheusPort)
-		daemon.prometheusPort = DefaultPrometheusPort
+	if clusterGateway.prometheusInterval == time.Duration(0) {
+		clusterGateway.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
+		clusterGateway.prometheusInterval = DefaultPrometheusInterval
 	}
 
-	daemon.gatewayPrometheusManager = metrics.NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, daemon)
-	err := daemon.gatewayPrometheusManager.Start()
+	if clusterGateway.prometheusPort <= 0 {
+		clusterGateway.log.Debug("Using default Prometheus port: %d.", DefaultPrometheusPort)
+		clusterGateway.prometheusPort = DefaultPrometheusPort
+	}
+
+	clusterGateway.gatewayPrometheusManager = metrics.NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, clusterGateway)
+	err := clusterGateway.gatewayPrometheusManager.Start()
 	if err != nil {
 		panic(err)
 	}
-	daemon.publishPrometheusMetrics()
+
+	clusterGateway.publishPrometheusMetrics()
+	clusterGateway.router.AssignPrometheusManager(clusterGateway.gatewayPrometheusManager)
+	clusterGateway.router.SetComponentId(clusterGateway.id)
 
 	// Initial values for these metrics.
-	daemon.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
+	clusterGateway.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
 		With(prometheus.Labels{"node_id": "cluster"}).Set(0)
 
-	if daemon.ip == "" {
+	if clusterGateway.ip == "" {
 		ip, err := utils.GetIP()
 		if err != nil {
-			daemon.log.Warn("No ip set because of missing configuration and failed to get ip: %v", err)
+			clusterGateway.log.Warn("No ip set because of missing configuration and failed to get ip: %v", err)
 		} else {
-			daemon.ip = ip
+			clusterGateway.ip = ip
 		}
 	}
 
@@ -312,27 +315,27 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	switch clusterDaemonOptions.SchedulingPolicy {
 	case "default":
 		{
-			daemon.schedulingPolicy = "default"
-			daemon.log.Debug("Using the 'DEFAULT' scheduling policy.")
-			daemon.failureHandler = daemon.defaultFailureHandler
+			clusterGateway.schedulingPolicy = "default"
+			clusterGateway.log.Debug("Using the 'DEFAULT' scheduling policy.")
+			clusterGateway.failureHandler = clusterGateway.defaultFailureHandler
 		}
 	case string(SchedulingPolicyStatic):
 		{
-			daemon.schedulingPolicy = SchedulingPolicyStatic
-			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
-			daemon.failureHandler = daemon.staticSchedulingFailureHandler
+			clusterGateway.schedulingPolicy = SchedulingPolicyStatic
+			clusterGateway.log.Debug("Using the 'STATIC' scheduling policy.")
+			clusterGateway.failureHandler = clusterGateway.staticSchedulingFailureHandler
 		}
 	case string(SchedulingPolicyDynamicV3):
 		{
-			daemon.schedulingPolicy = SchedulingPolicyDynamicV3
-			daemon.log.Debug("Using the 'DYNAMIC v3' scheduling policy.")
-			daemon.failureHandler = daemon.dynamicV3FailureHandler
+			clusterGateway.schedulingPolicy = SchedulingPolicyDynamicV3
+			clusterGateway.log.Debug("Using the 'DYNAMIC v3' scheduling policy.")
+			clusterGateway.failureHandler = clusterGateway.dynamicV3FailureHandler
 		}
 	case string(SchedulingPolicyDynamicV4):
 		{
-			daemon.schedulingPolicy = SchedulingPolicyDynamicV4
-			daemon.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
-			daemon.failureHandler = daemon.dynamicV4FailureHandler
+			clusterGateway.schedulingPolicy = SchedulingPolicyDynamicV4
+			clusterGateway.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
+			clusterGateway.failureHandler = clusterGateway.dynamicV4FailureHandler
 		}
 	default:
 		{
@@ -343,61 +346,61 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	switch clusterDaemonOptions.DeploymentMode {
 	case "":
 		{
-			daemon.log.Info("No 'deployment_mode' specified. Running in default mode: LOCAL mode.")
-			daemon.deploymentMode = types.LocalMode
+			clusterGateway.log.Info("No 'deployment_mode' specified. Running in default mode: LOCAL mode.")
+			clusterGateway.deploymentMode = types.LocalMode
 		}
 	case "local":
 		{
-			daemon.log.Info("Running in LOCAL mode.")
-			daemon.deploymentMode = types.LocalMode
+			clusterGateway.log.Info("Running in LOCAL mode.")
+			clusterGateway.deploymentMode = types.LocalMode
 		}
 	case "docker":
 		{
-			daemon.log.Error("\"docker\" mode is no longer a valid deployment mode")
-			daemon.log.Error("The supported deployment modes are: ")
-			daemon.log.Error("- \"docker-swarm\"")
-			daemon.log.Error("- \"docker-compose\"")
-			daemon.log.Error("- \"kubernetes\"")
-			daemon.log.Error("- \"local\"")
+			clusterGateway.log.Error("\"docker\" mode is no longer a valid deployment mode")
+			clusterGateway.log.Error("The supported deployment modes are: ")
+			clusterGateway.log.Error("- \"docker-swarm\"")
+			clusterGateway.log.Error("- \"docker-compose\"")
+			clusterGateway.log.Error("- \"kubernetes\"")
+			clusterGateway.log.Error("- \"local\"")
 			os.Exit(1)
 		}
 	case "docker-compose":
 		{
-			daemon.log.Info("Running in DOCKER COMPOSE mode.")
-			daemon.deploymentMode = types.DockerComposeMode
+			clusterGateway.log.Info("Running in DOCKER COMPOSE mode.")
+			clusterGateway.deploymentMode = types.DockerComposeMode
 
 			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
 			if err != nil {
 				panic(err)
 			}
 
-			daemon.dockerApiClient = apiClient
+			clusterGateway.dockerApiClient = apiClient
 		}
 	case "docker-swarm":
 		{
-			daemon.log.Info("Running in DOCKER SWARM mode.")
-			daemon.deploymentMode = types.DockerSwarmMode
+			clusterGateway.log.Info("Running in DOCKER SWARM mode.")
+			clusterGateway.deploymentMode = types.DockerSwarmMode
 
 			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
 			if err != nil {
 				panic(err)
 			}
 
-			daemon.dockerApiClient = apiClient
+			clusterGateway.dockerApiClient = apiClient
 		}
 	case "kubernetes":
 		{
-			daemon.log.Info("Running in KUBERNETES mode.")
-			daemon.deploymentMode = types.KubernetesMode
+			clusterGateway.log.Info("Running in KUBERNETES mode.")
+			clusterGateway.deploymentMode = types.KubernetesMode
 		}
 	default:
 		{
-			daemon.log.Error("Unknown/unsupported deployment mode: \"%s\"", clusterDaemonOptions.DeploymentMode)
-			daemon.log.Error("The supported deployment modes are: ")
-			daemon.log.Error("- \"kubernetes\"")
-			daemon.log.Error("- \"docker-swarm\"")
-			daemon.log.Error("- \"docker-compose\"")
-			daemon.log.Error("- \"local\"")
+			clusterGateway.log.Error("Unknown/unsupported deployment mode: \"%s\"", clusterDaemonOptions.DeploymentMode)
+			clusterGateway.log.Error("The supported deployment modes are: ")
+			clusterGateway.log.Error("- \"kubernetes\"")
+			clusterGateway.log.Error("- \"docker-swarm\"")
+			clusterGateway.log.Error("- \"docker-compose\"")
+			clusterGateway.log.Error("- \"local\"")
 			os.Exit(1)
 		}
 	}
@@ -405,17 +408,17 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	// Create the Cluster Scheduler.
 	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
 	hostSpec := &types.Float64Spec{GPUs: types.GPUSpec(clusterSchedulerOptions.GpusPerHost), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}
-	if daemon.KubernetesMode() {
-		daemon.kubeClient = NewKubeClient(daemon, clusterDaemonOptions)
-		daemon.containerWatcher = daemon.kubeClient
+	if clusterGateway.KubernetesMode() {
+		clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
+		clusterGateway.containerWatcher = clusterGateway.kubeClient
 
-		daemon.cluster = scheduling.NewKubernetesCluster(daemon, daemon.kubeClient, hostSpec, &clusterSchedulerOptions)
-	} else if daemon.DockerMode() {
-		daemon.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
-		daemon.cluster = scheduling.NewDockerCluster(daemon, hostSpec, &clusterSchedulerOptions)
+		clusterGateway.cluster = scheduling.NewKubernetesCluster(clusterGateway, clusterGateway.kubeClient, hostSpec, &clusterSchedulerOptions)
+	} else if clusterGateway.DockerMode() {
+		clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
+		clusterGateway.cluster = scheduling.NewDockerCluster(clusterGateway, hostSpec, &clusterSchedulerOptions)
 	}
 
-	return daemon
+	return clusterGateway
 }
 
 type registrationWaitGroups struct {
@@ -583,7 +586,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		return &proto.Pong{
 			Id:      kernelId,
 			Success: false,
-		}, ErrInvalidSocketType
+		}, types.ErrInvalidSocketType
 	}
 
 	kernel, loaded := d.kernels.Load(kernelId)
@@ -1404,8 +1407,10 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 	}
 
 	// Initialize kernel with new context.
-	kernel := client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.connectionOptions,
-		listenPorts[0], listenPorts[1], uuid.NewString(), d.executionFailed, d.executionLatencyCallback)
+	kernel := client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.id,
+		d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.executionFailed,
+		d.executionLatencyCallback, d.gatewayPrometheusManager)
+
 	d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 	_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
 	if err != nil {
@@ -1711,9 +1716,9 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(),
-		false, -1, -1, in.PodName, in.NodeName, nil, nil,
-		kernel.PersistentID(), in.HostId, host, true, true, d.kernelReconnectionFailed,
-		d.kernelRequestResubmissionFailedAfterReconnection)
+		d.id, false, -1, -1, in.PodName, in.NodeName, nil, nil,
+		kernel.PersistentID(), in.HostId, host, metrics.ClusterGateway, true, true, d.gatewayPrometheusManager,
+		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 	err := replica.Validate()
 	if err != nil {
@@ -1907,7 +1912,11 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), false, -1, -1, kernelPodName, nodeName, nil, nil, kernel.PersistentID(), hostId, host, true, true, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(),
+		d.id, false, -1, -1, kernelPodName, nodeName, nil,
+		nil, kernel.PersistentID(), hostId, host, metrics.ClusterGateway, true, true,
+		d.gatewayPrometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+
 	session, ok := d.sessions.Load(kernelId)
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", kernelId)

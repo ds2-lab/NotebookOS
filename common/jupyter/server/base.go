@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
@@ -26,6 +27,15 @@ type BaseServer struct {
 
 func (s *BaseServer) SendMessage(request types.Request, socket *types.Socket) error {
 	return s.server.SendMessage(request, socket)
+}
+
+func (s *BaseServer) SetComponentId(id string) {
+	s.server.ComponentId = id
+}
+
+// AssignPrometheusManager sets the PrometheusManager on the AbstractServer encapsulated by the BaseServer.
+func (s *BaseServer) AssignPrometheusManager(manager metrics.PrometheusManager) {
+	s.server.PrometheusManager = manager
 }
 
 // func (s *BaseServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {

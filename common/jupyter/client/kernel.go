@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"sync"
@@ -107,6 +108,9 @@ type KernelReplicaClient struct {
 	// The Container associated with this KernelReplicaClient.
 	container *scheduling.Container
 
+	// prometheusManager is an interface that enables the recording of metrics observed by the KernelReplicaClient.
+	prometheusManager metrics.PrometheusManager
+
 	log logger.Logger
 	mu  sync.Mutex
 }
@@ -116,11 +120,11 @@ type KernelReplicaClient struct {
 //
 // If the proto.KernelReplicaSpec argument is nil, or the proto.KernelSpec field of the proto.KernelReplicaSpec
 // argument is nil, then NewKernelReplicaClient will panic.
-func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *types.ConnectionInfo,
+func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *types.ConnectionInfo, componentId string,
 	addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback,
-	persistentId string, hostId string, host *scheduling.Host, shouldAckMessages bool, isGatewayClient bool,
-	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback,
+	persistentId string, hostId string, host *scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
+	prometheusManager metrics.PrometheusManager, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
@@ -142,6 +146,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		spec:                                 spec.Kernel,
 		addSourceKernelFrames:                addSourceKernelFrames,
 		shellListenPort:                      shellListenPort,
+		prometheusManager:                    prometheusManager,
 		iopubListenPort:                      iopubListenPort,
 		podOrContainerName:                   podOrContainerName,
 		nodeName:                             nodeName,
@@ -153,7 +158,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		isGatewayClient:                      isGatewayClient,
 		connectionRevalidationFailedCallback: connectionRevalidationFailedCallback,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
-		client: server.New(ctx, info, func(s *server.AbstractServer) {
+		client: server.New(ctx, info, nodeType, func(s *server.AbstractServer) {
 			var remoteComponentName string
 			if isGatewayClient {
 				remoteComponentName = "LD"
@@ -168,6 +173,8 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			s.Sockets.HB = types.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx), info.HBPort, types.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-HB[%s]", remoteComponentName, spec.Kernel.Id))
 			s.ReconnectOnAckFailure = true
 			s.PrependId = false
+			s.ComponentId = componentId
+			s.PrometheusManager = prometheusManager
 			s.Name = fmt.Sprintf("KernelReplicaClient-%s", spec.Kernel.Id)
 
 			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/prometheus/client_golang/prometheus"
+	jupyterTypes "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"net/http"
 	"sync"
 
@@ -16,17 +17,71 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 
-var (
-	ErrGatewayPrometheusManagerAlreadyRunning = errors.New("GatewayPrometheusManager is already running")
-	ErrGatewayPrometheusManagerNotRunning     = errors.New("GatewayPrometheusManager is not running")
+const (
+	ClusterGateway NodeType = "cluster_gateway"
+	LocalDaemon    NodeType = "local_daemon"
+	JupyterKernel  NodeType = "jupyter_kernel"
 )
 
-// PrometheusManager defines the general interface of Prometheus metric managers.
-type PrometheusManager interface {
+var (
+	ErrGatewayPrometheusManagerAlreadyRunning = errors.New("GatewayPrometheusManager is already running")
+	ErrMetricsNotInitialized                  = errors.New("the PrometheusManager has not been initialized yet")
+	//ErrGatewayPrometheusManagerNotRunning     = errors.New("GatewayPrometheusManager is not running")
+)
+
+// NodeType indicates whether a node is a Cluster Gateway ("cluster_gateway"), a Local Daemon ("local_daemon"),
+// or a Jupyter Kernel Replica ("jupyter_kernel").
+type NodeType string
+
+func (t NodeType) String() string {
+	return string(t)
+}
+
+// MessagingMetrics is an interface intended to be embedded within the PrometheusManager interface.
+//
+// This interface will allow servers to record observations of metrics like end-to-end latency without knowing
+// the actual names of the fields within concrete structs that implement the PrometheusManager interface.
+type MessagingMetrics interface {
+	// AddMessageE2ELatencyObservation records an observation of end-to-end latency, in microseconds, for a single message.
+	//
+	// If the target Prometheus Manager has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
+	// error is returned.
+	AddMessageE2ELatencyObservation(latency float64, nodeId string, nodeType NodeType,
+		socketType jupyterTypes.MessageType, jupyterMessageType string) error
+
+	// AddNumSendAttemptsRequiredObservation enables the caller to record an observation of the number of times a
+	// message had to be (re)sent before an ACK was received from the recipient.
+	//
+	// If the target Prometheus Manager has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
+	// error is returned.
+	AddNumSendAttemptsRequiredObservation(acksRequired float64, nodeId string, nodeType NodeType,
+		socketType jupyterTypes.MessageType, jupyterMessageType string) error
+
+	// AddFailedSendAttempt records that a message was never acknowledged by the target recipient.
+	//
+	// If the target Prometheus Manager has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
+	// error is returned.
+	AddFailedSendAttempt(nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error
+}
+
+// prometheusHandler is an internal interface that defines important, internal functionality of the
+// Prometheus managers. This functionality is required for their correct operation, but entities that use
+// Prometheus managers need not be concerned with these details, so they're defined in a non-exported interface.
+type prometheusHandler interface {
+	PrometheusManager
+
+	// HandleRequest is an HTTP handler to serve Prometheus metric-scraping requests.
 	HandleRequest(*gin.Context)
 
 	// HandleVariablesRequest handles query requests from Grafana for variables that are required to create Dashboards.
 	HandleVariablesRequest(*gin.Context)
+}
+
+// PrometheusManager defines the general interface of Prometheus metric managers.
+//
+// This interface is designed to be used by external entities who need to store/publish metrics.
+type PrometheusManager interface {
+	MessagingMetrics
 
 	// Start registers metrics with Prometheus and begins serving the metrics via an HTTP endpoint.
 	Start() error
@@ -46,7 +101,7 @@ type PrometheusManager interface {
 type basePrometheusManager struct {
 	log logger.Logger
 
-	instance PrometheusManager
+	instance prometheusHandler
 
 	// serving indicates whether the manager has been started and is serving requests.
 	serving            bool
@@ -62,24 +117,53 @@ type basePrometheusManager struct {
 	// Specifically, this function is assigned by the 'instance' to initialize the instance's metrics.
 	initializeInstanceMetrics func() error
 
-	NumActiveKernelReplicasGaugeVec *prometheus.GaugeVec // NumActiveKernelReplicasGaugeVec is a Prometheus Gauge Vector for how many replicas are scheduled on a particular Local Daemon.
+	// NumActiveKernelReplicasGaugeVec is a Prometheus Gauge Vector for how many replicas are scheduled on
+	// a particular Local Daemon.
+	NumActiveKernelReplicasGaugeVec *prometheus.GaugeVec
 
-	TotalNumKernelsCounterVec            *prometheus.CounterVec
-	NumTrainingEventsCompletedCounterVec *prometheus.CounterVec // NumTrainingEventsCompletedCounterVec is the number of training events that have completed successfully.
+	// TotalNumKernelsCounterVec tracks the total number of kernels ever created. Kernels that have stopped
+	// running are still counted in this metric.
+	TotalNumKernelsCounterVec *prometheus.CounterVec
 
-	/////////////////////////////
-	// Message latency metrics //
-	/////////////////////////////
+	// NumTrainingEventsCompletedCounterVec is the number of training events that have completed successfully.
+	NumTrainingEventsCompletedCounterVec *prometheus.CounterVec
 
-	// ShellMessageLatencyVec is the end-to-end latency of Shell messages forwarded by the Local Daemon.
-	// The end-to-end latency is measured from the time the message is forwarded by the Local Daemon to the time
-	// at which the Gateway receives the associated response.
-	ShellMessageLatencyVec *prometheus.HistogramVec
+	///////////////////////
+	// Messaging metrics //
+	///////////////////////
 
-	// ControlMessageLatencyVec is the end-to-end latency of Shell messages forwarded by the Local Daemon.
-	// The end-to-end latency is measured from the time the message is forwarded by the Local Daemon to the time
-	// at which the Gateway receives the associated response.
-	ControlMessageLatencyVec *prometheus.HistogramVec
+	// NumFailedSendsCounterVec counts the number of messages that were never acknowledged by the target
+	// recipient, thus constituting a "failed send".
+	NumFailedSendsCounterVec *prometheus.CounterVec
+
+	// MessageLatencyVec is the end-to-end latency, in microseconds, of messages forwarded by the Gateway or Local Daemon.
+	// The end-to-end latency is measured from the time the message is forwarded by the Gateway or Local Daemon to the
+	// time at which the Gateway receives the associated response.
+	//
+	// This metric requires the following labels:
+	//
+	// - "node_id": the ID of the node observing the latency.
+	//
+	// - "node_type": the "type" of the node observing the latency (i.e., "local_daemon" or "cluster_gateway").
+	//
+	// - "socket_type": the socket type of the message whose latency is being observed.
+	//
+	// - "jupyter_message_type": the Jupyter message type of the message whose latency is being observed.
+	MessageLatencyVec *prometheus.HistogramVec
+
+	// NumSendsBeforeAckReceived is a prometheus.HistogramVec tracking observations of the number of times a given
+	// message was sent before an ACK was received for that message.
+	//
+	// This metric requires the following labels:
+	//
+	// - "node_id": the ID of the node sending the message and receiving ACKs for the message.
+	//
+	// - "node_type": the "type" of the node sending the message and receiving ACKs for the message.
+	//
+	// - "socket_type": the socket type of the associated message.
+	//
+	// - "jupyter_message_type": the Jupyter message type of the associated message.
+	NumSendsBeforeAckReceived *prometheus.HistogramVec
 }
 
 // newBasePrometheusManager creates a new basePrometheusManager and returns a pointer to it.
@@ -202,49 +286,45 @@ func (m *basePrometheusManager) initializeMetrics() error {
 		Namespace: "distributed_cluster",
 		Name:      "active_sessions",
 		Help:      "Number of actively-running kernels",
-	}, []string{"node_id"})
+	}, []string{"node_type", "node_id"})
 	m.NumTrainingEventsCompletedCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
 		Name:      "training_events_completed_total",
 		Help:      "The number of training events that have completed successfully",
-	}, []string{"node_id"})
+	}, []string{"node_type", "node_id"})
 	m.TotalNumKernelsCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
 		Name:      "sessions_total",
 		Help:      "Total number of kernel replicas to have ever been scheduled/created",
-	}, []string{"node_id"})
+	}, []string{"node_type", "node_id"})
 
 	// Create/define message latency metrics.
 
-	m.ShellMessageLatencyVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+	m.NumFailedSendsCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
-		Name:      "shell_message_latency_milliseconds",
-		Help:      "End-to-end latency of Shell messages. The end-to-end latency is measured from the time the message is forwarded by the node to the time at which the node receives the associated response.",
-	}, []string{"node_id"})
+		Name:      "num_failed_sends_total",
+		Help:      "The number of messages that were never acknowledged by the target  recipient, thus constituting a \"failed send\".",
+	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
 
-	m.ControlMessageLatencyVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+	m.MessageLatencyVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
-		Name:      "control_message_latency_milliseconds",
-		Help:      "End-to-end latency of Control messages. The end-to-end latency is measured from the time the message is forwarded by the node to the time at which the node receives the associated response.",
-	}, []string{"node_id"})
+		Name:      "message_latency_microseconds",
+		Help:      "End-to-end latency in microseconds of messages. The end-to-end latency is measured from the time the message is forwarded by the node to the time at which the node receives the associated response.",
+	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
 
-	if err := prometheus.Register(m.NumTrainingEventsCompletedCounterVec); err != nil {
-		m.log.Error("Failed to register 'Training Events Completed' metric because: %v", err)
-		return err
-	}
-
+	m.NumSendsBeforeAckReceived = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "num_resends_required",
+		Help:      "The number of times a message had to be sent before an acknowledgement was received.",
+		Buckets:   []float64{0, 1, 2, 3, 4, 5},
+	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
 	// Register message latency metrics.
 
-	if err := prometheus.Register(m.ShellMessageLatencyVec); err != nil {
+	if err := prometheus.Register(m.MessageLatencyVec); err != nil {
 		m.log.Error("Failed to register 'Gateway Shell Message Latency' metric because: %v", err)
 		return err
 	}
 
-	if err := prometheus.Register(m.ControlMessageLatencyVec); err != nil {
-		m.log.Error("Failed to register 'Gateway Control Message Latency' metric because: %v", err)
-		return err
-	}
-	
 	// Register miscellaneous metrics.
 
 	if err := prometheus.Register(m.NumActiveKernelReplicasGaugeVec); err != nil {
@@ -257,5 +337,91 @@ func (m *basePrometheusManager) initializeMetrics() error {
 		return err
 	}
 
+	if err := prometheus.Register(m.NumFailedSendsCounterVec); err != nil {
+		m.log.Error("Failed to register 'Training Events Completed' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.NumSendsBeforeAckReceived); err != nil {
+		m.log.Error("Failed to register 'Num Sends Before Ack Received' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.NumTrainingEventsCompletedCounterVec); err != nil {
+		m.log.Error("Failed to register 'Training Events Completed' metric because: %v", err)
+		return err
+	}
+
 	return m.initializeInstanceMetrics()
+}
+
+////////////////////////////////////////////////
+// Messaging Metrics interface implementation //
+////////////////////////////////////////////////
+
+// AddMessageE2ELatencyObservation records an observation of end-to-end latency for a single Shell message.
+//
+// If the target Prometheus Manager has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
+// error is returned.
+func (m *basePrometheusManager) AddMessageE2ELatencyObservation(latency float64, nodeId string, nodeType NodeType,
+	socketType jupyterTypes.MessageType, jupyterMessageType string) error {
+
+	if !m.metricsInitialized {
+		m.log.Error("Cannot record message E2E latency observation as metrics have not yet been initialized...")
+		return ErrMetricsNotInitialized
+	}
+
+	m.MessageLatencyVec.
+		With(prometheus.Labels{
+			"node_id":              nodeId,
+			"node_type":            nodeType.String(),
+			"socket_type":          socketType.String(),
+			"jupyter_message_type": jupyterMessageType,
+		}).Observe(latency)
+
+	return nil
+}
+
+// AddNumSendAttemptsRequiredObservation enables the caller to record an observation of the number of times a
+// message had to be (re)sent before an ACK was received from the recipient.
+//
+// If the target Prometheus Manager has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
+// error is returned.
+func (m *basePrometheusManager) AddNumSendAttemptsRequiredObservation(sendsRequired float64, nodeId string,
+	nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error {
+
+	if !m.metricsInitialized {
+		m.log.Error("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
+		return ErrMetricsNotInitialized
+	}
+
+	m.NumSendsBeforeAckReceived.
+		With(prometheus.Labels{
+			"node_id":              nodeId,
+			"node_type":            nodeType.String(),
+			"socket_type":          socketType.String(),
+			"jupyter_message_type": jupyterMessageType,
+		}).Observe(sendsRequired)
+
+	return nil
+}
+
+// AddFailedSendAttempt records that a message was never acknowledged by the target recipient.
+func (m *basePrometheusManager) AddFailedSendAttempt(nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType,
+	jupyterMessageType string) error {
+
+	if !m.metricsInitialized {
+		m.log.Error("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
+		return ErrMetricsNotInitialized
+	}
+
+	m.NumFailedSendsCounterVec.
+		With(prometheus.Labels{
+			"node_id":              nodeId,
+			"node_type":            nodeType.String(),
+			"socket_type":          socketType.String(),
+			"jupyter_message_type": jupyterMessageType,
+		}).Inc()
+
+	return nil
 }

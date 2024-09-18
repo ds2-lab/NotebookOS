@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -54,6 +55,8 @@ type MessageHandlerWrapper struct {
 	done    MessageDone
 	once    int32
 	request Request
+
+	Start time.Time // The time at which the handler was created/returned
 }
 
 func GetMessageHandlerWrapper(request Request) *MessageHandlerWrapper {
@@ -67,6 +70,7 @@ func GetMessageHandlerWrapper(request Request) *MessageHandlerWrapper {
 	m.done = done
 	m.once = 0
 	m.request = request
+	m.Start = time.Now()
 	return m
 }
 func (m *MessageHandlerWrapper) Request() Request {
