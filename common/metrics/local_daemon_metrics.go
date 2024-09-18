@@ -271,9 +271,12 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	m.PendingMemoryGauge = m.PendingMemoryGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
 	m.IdleMemoryGauge = m.IdleMemoryGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
 
-	m.NumActiveKernelReplicasGauge = m.NumActiveKernelReplicasGaugeVec.With(prometheus.Labels{"node_id": m.nodeId})
-	m.TotalNumKernelsCounter = m.TotalNumKernelsCounterVec.With(prometheus.Labels{"node_id": m.nodeId})
-	m.NumTrainingEventsCompletedCounter = m.NumTrainingEventsCompletedCounterVec.With(prometheus.Labels{"node_id": m.nodeId})
+	m.NumActiveKernelReplicasGauge = m.NumActiveKernelReplicasGaugeVec.With(
+		prometheus.Labels{"node_id": m.nodeId, "node_type": string(LocalDaemon)})
+	m.TotalNumKernelsCounter = m.TotalNumKernelsCounterVec.
+		With(prometheus.Labels{"node_id": m.nodeId, "node_type": string(LocalDaemon)})
+	m.NumTrainingEventsCompletedCounter = m.NumTrainingEventsCompletedCounterVec.
+		With(prometheus.Labels{"node_id": m.nodeId, "node_type": string(LocalDaemon)})
 
 	m.metricsInitialized = true
 	return nil

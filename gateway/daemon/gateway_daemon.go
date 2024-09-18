@@ -297,7 +297,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	// Initial values for these metrics.
 	clusterGateway.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
-		With(prometheus.Labels{"node_id": "cluster"}).Set(0)
+		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Set(0)
 
 	if clusterGateway.ip == "" {
 		ip, err := utils.GetIP()
@@ -1656,9 +1656,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	numActiveKernels := d.numActiveKernels.Add(1)
 	d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
-		With(prometheus.Labels{"node_id": "cluster"}).Set(float64(numActiveKernels))
+		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
+		Set(float64(numActiveKernels))
 	d.gatewayPrometheusManager.TotalNumKernelsCounterVec.
-		With(prometheus.Labels{"node_id": "cluster"}).Inc()
+		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
 
 	return info, nil
 }
@@ -2103,7 +2104,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 			"Kernel Stopped", fmt.Sprintf("Kernel %s has been terminated successfully.",
 				kernel.ID()), jupyter.SuccessNotification)
 		d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
-			With(prometheus.Labels{"node_id": "cluster"}).Sub(1)
+			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Sub(1)
 	} else {
 		go d.notifyDashboardOfError("Failed to Terminate Kernel",
 			fmt.Sprintf("An error was encountered while trying to terminate kernel %s: %v.", kernel.ID(), err))
@@ -2602,7 +2603,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	}
 
 	d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
-		With(prometheus.Labels{"node_id": "cluster"}).Inc()
+		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
 
 	return nil
 }
