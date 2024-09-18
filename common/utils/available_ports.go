@@ -3,6 +3,8 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/mason-leap-lab/go-utils/logger"
 	"sync"
 )
 
@@ -10,6 +12,8 @@ import (
 // Entities can request ports from this data structure, which will then be allocated to the entity for
 // exclusive use until they are returned by the original owner.
 type AvailablePorts struct {
+	log logger.Logger
+
 	startingPort     int          // The lowest-numbered port available.
 	totalNumPorts    int          // The total number of ports available.
 	ports            []int        // List of all the ports managed by this struct. Does not change.
@@ -62,6 +66,7 @@ func NewAvailablePorts(startingPort int, totalNumPorts int, allocationSize int) 
 		ports:            make([]int, 0, totalNumPorts),
 		availablePorts:   make([]int, 0, totalNumPorts),
 	}
+	config.InitLogger(&availablePorts.log, availablePorts)
 
 	if availablePorts.maxPort > 65535 {
 		panic(fmt.Sprintf("Invalid or illegal range of ports specified: %d - %d.", startingPort, startingPort+totalNumPorts))
@@ -92,6 +97,11 @@ func (p *AvailablePorts) NumPortsAvailable() int {
 	return len(p.availablePorts)
 }
 
+// NumPortsAllocated returns the number of ports currently allocated (and thus unavailable).
+func (p *AvailablePorts) NumPortsAllocated() int {
+	return p.totalNumPorts - len(p.availablePorts)
+}
+
 // AllocationSize returns the allocation size.
 func (p *AvailablePorts) AllocationSize() int {
 	return p.allocationSize
@@ -106,6 +116,9 @@ func (p *AvailablePorts) RequestPorts() ([]int, error) {
 	defer p.mu.Unlock()
 
 	if p.allocationSize > len(p.availablePorts) {
+		p.log.Error("Insufficient ports remaining to satisfy request.")
+		p.log.Error("Specifically, %d/%d port(s) are allocated. Cannot satisfy request for %d additional port(s).",
+			p.NumPortsAllocated(), p.totalNumPorts, p.allocationSize)
 		return nil, ErrInsufficientPortsAvailable
 	}
 
@@ -119,6 +132,9 @@ func (p *AvailablePorts) RequestPorts() ([]int, error) {
 
 		p.portAvailability[port] = false
 	}
+
+	p.log.Debug("Returning allocation of %d port(s). Currently %d/%d ports are allocated.",
+		p.allocationSize, p.NumPortsAllocated(), p.totalNumPorts)
 	return allocation, nil
 }
 
@@ -158,6 +174,9 @@ func (p *AvailablePorts) ReturnPorts(ports []int) error {
 		p.portAvailability[port] = true
 		p.availablePorts = append(p.availablePorts, port)
 	}
+
+	p.log.Debug("Returned %d ports. Currently %d/%d ports are allocated.", len(ports), p.NumPortsAllocated(),
+		p.totalNumPorts)
 
 	return nil
 }

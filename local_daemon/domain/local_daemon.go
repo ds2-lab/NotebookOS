@@ -17,15 +17,15 @@ type SchedulerDaemon interface {
 	// StartKernel starts a single kernel.
 	StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error)
 
-	// Return true if we're running in Docker (i.e., the Docker-based deployment).
+	// DockerMode returns true if we're running in Docker (i.e., the Docker-based deployment).
 	// We could technically be running within a Docker container that is managed/orchestrated
 	// by Kubernetes. In this case, this function would return false.
 	DockerMode() bool
 
-	// Return true if we're running in Kubernetes.
+	// KubernetesMode returns true if we're running in Kubernetes.
 	KubernetesMode() bool
 
-	// Return true if we're running in Local mode.
+	// LocalMode returns true if we're running in Local mode.
 	LocalMode() bool
 
 	Start() error
