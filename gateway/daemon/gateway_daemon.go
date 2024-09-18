@@ -2602,6 +2602,11 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	}
 
 	// Record that the Session has stopped training.
+	// TODO: Will there be race conditions here if we've sent multiple "execute_request" messages to the kernel?
+	// TODO: Could we receive a notification that a subsequent training has started before getting the reply that the last train completed?
+	// TODO: If so, how can we handle these out-of-order requests? We can associate trainings with Jupyter message IDs so that, if we get a >>
+	// TODO: >> training stopped notification, then it needs to match up with the current training, maybe in a queue structure, so that out-of-order >>
+	// TODO: >> messages can be handled properly.
 	p := session.TrainingStopped()
 	err := p.Error()
 	if err != nil {
@@ -2632,6 +2637,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 
 	session, ok := d.sessions.Load(kernelId)
 	if ok {
+		// TODO: If Session is already training, then this will fail, and that's okay!
 		p := session.SetExpectingTraining()
 		err := p.Error()
 		if err != nil {
