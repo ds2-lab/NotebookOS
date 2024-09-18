@@ -146,6 +146,16 @@ func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelSpec
 	return session
 }
 
+// Lock locks the Session.
+func (s *Session) Lock() {
+	s.mu.Lock()
+}
+
+// Unlock unlocks the Session.
+func (s *Session) Unlock() {
+	s.mu.Unlock()
+}
+
 // AddReplica adds a given Container to the Session's slice of Containers.
 //
 // AddReplica will return an error if the specified Container is nil, the ID of the Container does not match the Session's

@@ -2633,24 +2633,38 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 
 	activeExecution := gateway.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
 	d.activeExecutions.Store(kernelId, activeExecution)
+
+	// TODO: If the Session is currently training, then we should not replace its ActiveExecution with a new one.
+	// TODO: Instead, we should enqueue the new ActiveExecution instance.
+	// TODO: When the current ActiveExecution resolves, the next enqueued ActiveExecution can be popped off the...
+	// TODO: ...queue and set as the Session's new current ActiveExecution.
 	kernel.SetActiveExecution(activeExecution)
 
+	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernelId, activeExecution)
+
 	session, ok := d.sessions.Load(kernelId)
-	if ok {
-		// TODO: If Session is already training, then this will fail, and that's okay!
-		p := session.SetExpectingTraining()
-		err := p.Error()
-		if err != nil {
-			d.notifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
-			// panic(err)
-			return err
-		}
-	} else {
+	if !ok {
 		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
 		return fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
 	}
 
-	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernelId, activeExecution)
+	session.Lock()
+	defer session.Unlock()
+
+	if session.IsTraining() {
+		d.log.Debug("Session %s is already training.", session.ID())
+		return nil
+	}
+
+	// TODO: If Session is already training, then this will fail, and that's okay!
+	p := session.SetExpectingTraining()
+	err := p.Error()
+	if err != nil {
+		d.notifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
+		// panic(err)
+		return err
+	}
+
 	return nil
 }
 
