@@ -74,13 +74,13 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 	return router
 }
 
-// AssignPrometheusManager sets the PrometheusManager on the server(s) encapsulated by the Router.
-func (g *Router) AssignPrometheusManager(manager metrics.PrometheusManager) {
-	g.server.PrometheusManager = manager
+// AssignPrometheusManager sets the MessagingMetricsProvider on the server(s) encapsulated by the Router.
+func (g *Router) AssignPrometheusManager(messagingMetricsProvider metrics.MessagingMetricsProvider) {
+	g.server.MessagingMetricsProvider = messagingMetricsProvider
 
 	// I think this is actually essentially changing the same field, as I think the two structs/fields here
 	// are actually the same variable (via pointers), but nevertheless...
-	g.BaseServer.AssignPrometheusManager(manager)
+	g.BaseServer.AssignMessagingMetricsProvider(messagingMetricsProvider)
 }
 
 func (g *Router) SetComponentId(id string) {

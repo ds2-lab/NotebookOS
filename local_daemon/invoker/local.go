@@ -42,6 +42,9 @@ type LocalInvoker struct {
 	status        jupyter.KernelStatus
 	statusChanged StatucChangedHandler
 
+	created   bool
+	createdAt time.Time
+
 	log logger.Logger
 }
 
@@ -248,6 +251,9 @@ func (ivk *LocalInvoker) launchKernel(ctx context.Context, id string, argv []str
 		ivk.statusChanged = ivk.defaultStatusChangedHandler
 	}()
 
+	ivk.created = true
+	ivk.createdAt = time.Now()
+
 	return nil
 }
 
@@ -268,4 +274,27 @@ func (ivk *LocalInvoker) setStatus(status jupyter.KernelStatus) {
 	if old != ivk.status {
 		ivk.statusChanged(old, ivk.status)
 	}
+}
+
+// KernelCreatedAt returns the time at which the LocalInvoker created the kernel.
+func (ivk *LocalInvoker) KernelCreatedAt() (time.Time, bool) {
+	if !ivk.created {
+		return time.Time{}, false
+	}
+
+	return ivk.createdAt, true
+}
+
+// KernelCreated returns a bool indicating whether kernel the container has been created.
+func (ivk *LocalInvoker) KernelCreated() bool {
+	return ivk.created
+}
+
+// TimeSinceKernelCreated returns the amount of time that has elapsed since the LocalInvoker created the kernel.
+func (ivk *LocalInvoker) TimeSinceKernelCreated() (time.Duration, bool) {
+	if !ivk.created {
+		return time.Duration(-1), false
+	}
+
+	return time.Since(ivk.createdAt), true
 }

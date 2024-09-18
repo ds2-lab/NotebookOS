@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"net/url"
 	"os"
@@ -71,18 +72,21 @@ var (
 
 type DockerInvoker struct {
 	LocalInvoker
-	connInfo             *jupyter.ConnectionInfo
-	opts                 *DockerInvokerOptions
-	tempBase             string
-	invokerCmd           string // Command used to create the Docker container.
-	containerName        string // Name of the launched container; this is the empty string before the container is launched.
-	dockerNetworkName    string // The name of the Docker network that the Local Daemon container is running within.
-	smrPort              int    // Port used by the SMR cluster.
-	closing              int32  // Indicates whether the container is closing/shutting down.
-	id                   string // Uniquely identifies this Invoker instance.
-	kernelDebugPort      int    // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
-	hdfsNameNodeEndpoint string // Endpoint of the HDFS namenode.
-	dockerStorageBase    string // Base directory in which the persistent store data is stored.
+	connInfo                 *jupyter.ConnectionInfo
+	opts                     *DockerInvokerOptions
+	tempBase                 string
+	invokerCmd               string                           // Command used to create the Docker container.
+	containerName            string                           // Name of the launched container; this is the empty string before the container is launched.
+	dockerNetworkName        string                           // The name of the Docker network that the Local Daemon container is running within.
+	smrPort                  int                              // Port used by the SMR cluster.
+	closing                  int32                            // Indicates whether the container is closing/shutting down.
+	id                       string                           // Uniquely identifies this Invoker instance.
+	kernelDebugPort          int                              // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	hdfsNameNodeEndpoint     string                           // Endpoint of the HDFS NameNode.
+	dockerStorageBase        string                           // Base directory in which the persistent store data is stored.
+	containerCreatedAt       time.Time                        // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
+	containerCreated         bool                             // containerCreated is a bool indicating whether kernel the container has been created.
+	containerMetricsProvider metrics.ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
 }
 
 type DockerInvokerOptions struct {
@@ -101,7 +105,7 @@ type DockerInvokerOptions struct {
 	UsingWSL bool
 }
 
-func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions) *DockerInvoker {
+func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider metrics.ContainerMetricsProvider) *DockerInvoker {
 	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
 	if smrPort == 0 {
 		smrPort = KernelSMRPortDefault
@@ -114,16 +118,18 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	var dockerNetworkName = os.Getenv(DockerNetworkNameEnv)
 
 	invoker := &DockerInvoker{
-		connInfo:             connInfo,
-		opts:                 opts,
-		tempBase:             utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
-		smrPort:              smrPort,
-		hdfsNameNodeEndpoint: opts.HdfsNameNodeEndpoint,
-		id:                   uuid.NewString(),
-		kernelDebugPort:      opts.KernelDebugPort,
-		dockerNetworkName:    dockerNetworkName,
-		dockerStorageBase:    opts.DockerStorageBase,
+		connInfo:                 connInfo,
+		opts:                     opts,
+		tempBase:                 utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
+		smrPort:                  smrPort,
+		hdfsNameNodeEndpoint:     opts.HdfsNameNodeEndpoint,
+		id:                       uuid.NewString(),
+		kernelDebugPort:          opts.KernelDebugPort,
+		dockerNetworkName:        dockerNetworkName,
+		dockerStorageBase:        opts.DockerStorageBase,
+		containerMetricsProvider: containerMetricsProvider,
 	}
+
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkNameEnv, DockerNetworkNameDefault))
@@ -133,6 +139,29 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 
 	// invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarLocalDaemonAddr, localDaemonAddr)
 	return invoker
+}
+
+// KernelCreated returns a bool indicating whether kernel the container has been created.
+func (ivk *DockerInvoker) KernelCreated() bool {
+	return ivk.containerCreated
+}
+
+// KernelCreatedAt returns the time at which the DockerInvoker created the kernel container.
+func (ivk *DockerInvoker) KernelCreatedAt() (time.Time, bool) {
+	if !ivk.containerCreated {
+		return time.Time{}, false
+	}
+
+	return ivk.containerCreatedAt, true
+}
+
+// TimeSinceContainerCreated returns the amount of time that has elapsed since the DockerInvoker created the kernel container.
+func (ivk *DockerInvoker) TimeSinceContainerCreated() (time.Duration, bool) {
+	if !ivk.containerCreated {
+		return time.Duration(-1), false
+	}
+
+	return time.Since(ivk.containerCreatedAt), true
 }
 
 func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.KernelReplicaSpec) (*jupyter.ConnectionInfo, error) {
@@ -242,6 +271,8 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 		return nil, ivk.reportLaunchError(err)
 	}
 
+	ivk.containerCreated = true
+	ivk.containerCreatedAt = time.Now()
 	ivk.setStatus(jupyter.KernelStatusRunning)
 	return connectionInfo, nil
 }
@@ -323,12 +354,12 @@ func (ivk *DockerInvoker) Close() error {
 	// Rename the stopped Container so that we can create a new one with the same name in its place.
 	idx := 0
 	for idx < 50 /* TODO: This is bad/highly inefficient and will also break if a Container is migrated more than 50 times. */ {
-		rename_cmd_str := strings.ReplaceAll(dockerRenameCmd, VarContainerName, ivk.containerName)
+		renameCmdStr := strings.ReplaceAll(dockerRenameCmd, VarContainerName, ivk.containerName)
 		newName := fmt.Sprintf("%s-old-%d", ivk.containerName, idx)
-		rename_cmd_str = strings.ReplaceAll(rename_cmd_str, VarContainerNewName, newName)
-		rename_argv := strings.Split(rename_cmd_str, " ")
-		ivk.log.Debug("Renaming (stopped) container %s via %s.", ivk.containerName, rename_argv)
-		renameCmd := exec.CommandContext(context.Background(), rename_argv[0], rename_argv[1:]...)
+		renameCmdStr = strings.ReplaceAll(renameCmdStr, VarContainerNewName, newName)
+		renameArgv := strings.Split(renameCmdStr, " ")
+		ivk.log.Debug("Renaming (stopped) container %s via %s.", ivk.containerName, renameArgv)
+		renameCmd := exec.CommandContext(context.Background(), renameArgv[0], renameArgv[1:]...)
 
 		var renameOutb, renameErrb bytes.Buffer
 		renameCmd.Stdout = &renameOutb
@@ -436,6 +467,7 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 	cmd.Stdout = &outb
 	cmd.Stderr = &errb
 
+	startTime := time.Now()
 	if err := cmd.Run(); err != nil {
 		ivk.log.Debug("Failed to launch container/kernel %s: %v", name, err)
 		ivk.log.Error("STDOUT: %s", outb.String())
@@ -443,6 +475,13 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 		return fmt.Errorf("%w: %s", err, errb.String())
 	}
 
-	ivk.log.Debug("Successfully launched container/kernel %s. [DockerInvoker ID = \"%s\"]", name, ivk.id)
+	timeElapsed := time.Since(startTime)
+	ivk.log.Debug("Successfully launched container/kernel %s in %v. [DockerInvoker ID = \"%s\"]",
+		name, timeElapsed, ivk.id)
+
+	if err := ivk.containerMetricsProvider.AddContainerCreationLatencyObservation(timeElapsed); err != nil {
+		ivk.log.Error("Failed to persist container creation latency metric because: %v", err)
+	}
+
 	return nil
 }

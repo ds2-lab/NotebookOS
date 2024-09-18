@@ -3496,7 +3496,7 @@ func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(parentContext context.Cont
 
 	return &proto.SetNumVirtualDockerNodesResponse{
 		RequestId:   scaleOp.OperationId,
-		OldNumNodes: int32(scaleOp.InitialScale),
+		OldNumNodes: scaleOp.InitialScale,
 		NewNumNodes: scaleOp.TargetScale,
 	}, err
 }
@@ -3510,7 +3510,7 @@ func (d *ClusterGatewayImpl) SetNumVirtualDockerNodes(parentContext context.Cont
 //
 // handleScaleOperation returns nil on success.
 func (d *ClusterGatewayImpl) handleScaleOperation(parentContext context.Context, scaleOp *scheduling.ScaleOperation, execScaleOp func(), resultChan <-chan interface{}) error {
-	timeoutInterval := time.Second * 15
+	timeoutInterval := time.Second * 30
 	childContext, cancel := context.WithTimeout(parentContext, timeoutInterval)
 	defer cancel()
 
@@ -3581,11 +3581,19 @@ func (d *ClusterGatewayImpl) handleScaleOperation(parentContext context.Context,
 	scaleOp.Wait()
 
 	if scaleOp.CompletedSuccessfully() {
-		d.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d.", scaleOp.InitialScale, scaleOp.TargetScale)
+		timeElapsed, _ := scaleOp.GetDuration()
+		d.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d in %v.", scaleOp.InitialScale, scaleOp.TargetScale, timeElapsed)
+
+		// Record the latency of the scale operation in/with Prometheus.
+		if scaleOp.IsScaleInOperation() {
+			d.gatewayPrometheusManager.ScaleInLatencyMillisecondsHistogram.Observe(float64(timeElapsed.Milliseconds()))
+		} else {
+			d.gatewayPrometheusManager.ScaleOutLatencyMillisecondsHistogram.Observe(float64(timeElapsed.Milliseconds()))
+		}
 
 		return nil
 	} else {
-		d.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d.", scaleOp.InitialScale, scaleOp.TargetScale)
+		d.log.Error("Failed to adjust number of virtual Docker nodes from %d to %d.", scaleOp.InitialScale, scaleOp.TargetScale)
 
 		if scaleOp.Error == nil {
 			log.Fatalf("ScaleOperation \"%s\" is in '%s' state, but its Error field is nil...",

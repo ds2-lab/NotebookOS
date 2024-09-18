@@ -544,6 +544,7 @@ func (d *SchedulerDaemonImpl) StartKernel(ctx context.Context, in *proto.KernelS
 // Register a Kernel that has started running on the same node as we are.
 // This method must be thread-safe.
 func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelRegistrationClient *KernelRegistrationClient) {
+	registeredAt := time.Now()
 	d.log.Debug("Registering Kernel at (remote) address %v", kernelRegistrationClient.conn.RemoteAddr())
 
 	remoteIp, _, err := net.SplitHostPort(kernelRegistrationClient.conn.RemoteAddr().String())
@@ -636,7 +637,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			UsingWSL:             d.usingWSL,
 		}
 
-		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts)
+		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
 		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id, true,
@@ -683,6 +684,15 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		if !loaded {
 			panic(fmt.Sprintf("Failed to load kernel client with ID \"%s\", even though one should have already been created...", kernelReplicaSpec.Kernel.Id))
 		}
+
+		createdAt, ok := d.getInvoker(kernel).KernelCreatedAt()
+		if !ok {
+			panic("Docker Invoker thinks it hasn't created kernel container, but kernel just registered...")
+		}
+
+		timeElapsed := registeredAt.Sub(createdAt)
+		d.log.Debug("Kernel %s-%d is registering %v after its Docker container was created.",
+			kernelReplicaSpec.Kernel.Id, kernelReplicaSpec.ReplicaId, timeElapsed)
 	}
 
 	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
@@ -1306,7 +1316,8 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			DockerStorageBase:    d.dockerStorageBase,
 			UsingWSL:             d.usingWSL,
 		}
-		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts)
+		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
+		// Note that we could pass d.prometheusManager directly in the call above.
 
 		d.kernelDebugPorts.Store(kernelId, int(in.DockerModeKernelDebugPort))
 	} else if d.LocalMode() {

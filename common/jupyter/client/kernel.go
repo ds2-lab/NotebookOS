@@ -109,7 +109,7 @@ type KernelReplicaClient struct {
 	container *scheduling.Container
 
 	// prometheusManager is an interface that enables the recording of metrics observed by the KernelReplicaClient.
-	prometheusManager metrics.PrometheusManager
+	messagingMetricsProvider metrics.MessagingMetricsProvider
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -124,7 +124,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback,
 	persistentId string, hostId string, host *scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
-	prometheusManager metrics.PrometheusManager, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback,
+	messagingMetricsProvider metrics.MessagingMetricsProvider, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
@@ -146,7 +146,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		spec:                                 spec.Kernel,
 		addSourceKernelFrames:                addSourceKernelFrames,
 		shellListenPort:                      shellListenPort,
-		prometheusManager:                    prometheusManager,
+		messagingMetricsProvider:             messagingMetricsProvider,
 		iopubListenPort:                      iopubListenPort,
 		podOrContainerName:                   podOrContainerName,
 		nodeName:                             nodeName,
@@ -174,7 +174,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			s.ReconnectOnAckFailure = true
 			s.PrependId = false
 			s.ComponentId = componentId
-			s.PrometheusManager = prometheusManager
+			s.MessagingMetricsProvider = messagingMetricsProvider
 			s.Name = fmt.Sprintf("KernelReplicaClient-%s", spec.Kernel.Id)
 
 			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */

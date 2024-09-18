@@ -48,9 +48,9 @@ type WaitResponseOptionGetter func(key string) interface{}
 type AbstractServer struct {
 	Meta *types.ConnectionInfo
 
-	// PrometheusManager is an interface that enables the recording of metrics observed by the AbstractServer.
+	// MessagingMetricsProvider is an interface that enables the recording of metrics observed by the AbstractServer.
 	// This should be assigned a value in the init function passed as a parameter in the "constructor" of the AbstractServer.
-	PrometheusManager metrics.PrometheusManager
+	MessagingMetricsProvider metrics.MessagingMetricsProvider
 
 	// ctx of this server and a func to cancel it.
 	Ctx       context.Context
@@ -856,7 +856,7 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 					panic(fmt.Sprintf("Request transition to 'processing' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
 				}
 
-				if err := s.PrometheusManager.AddNumSendAttemptsRequiredObservation(float64(numTries+1), s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
+				if err := s.MessagingMetricsProvider.AddNumSendAttemptsRequiredObservation(float64(numTries+1), s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
 					s.Log.Error("Could not record 'NumSendAttemptsRequired' observation because: %v", err)
 				}
 
@@ -906,7 +906,7 @@ func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket
 		}
 	}
 
-	if err := s.PrometheusManager.AddFailedSendAttempt(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
+	if err := s.MessagingMetricsProvider.AddFailedSendAttempt(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
 		s.Log.Error("Could not record 'NumSendAttemptsRequired' observation because: %v", err)
 	}
 
@@ -1072,7 +1072,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDe
 						request.JupyterMessageId(), e2eLatency)
 
 					// Record the latency in (microseconds) in Prometheus.
-					if err := s.PrometheusManager.AddMessageE2ELatencyObservation(float64(e2eLatency.Microseconds()),
+					if err := s.MessagingMetricsProvider.AddMessageE2ELatencyObservation(e2eLatency,
 						s.ComponentId, s.nodeType, request.MessageType(), request.JupyterMessageType()); err != nil {
 						s.Log.Error("Could not record E2E latency of %v for %s \"%s\" message %s (JupyterID=\"%s\") because: %v",
 							request.MessageType().String(), request.JupyterMessageType(), request.RequestId(),

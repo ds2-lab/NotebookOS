@@ -108,8 +108,8 @@ type DistributedKernelClient struct {
 	// so that a relevant Prometheus metric can be updated.
 	executionLatencyCallback ExecutionLatencyCallback
 
-	// prometheusManager is an interface that enables the recording of metrics observed by the DistributedKernelClient.
-	prometheusManager metrics.PrometheusManager
+	// messagingMetricsProvider is an interface that enables the recording of metrics observed by the DistributedKernelClient.
+	messagingMetricsProvider metrics.MessagingMetricsProvider
 
 	session *scheduling.Session
 
@@ -122,12 +122,12 @@ type DistributedKernelClient struct {
 func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 	connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
 	executionFailedCallback ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
-	prometheusManager metrics.PrometheusManager) *DistributedKernelClient {
+	messagingMetricsProvider metrics.MessagingMetricsProvider) *DistributedKernelClient {
 
 	kernel := &DistributedKernelClient{
-		id:                spec.Id,
-		persistentId:      persistentId,
-		prometheusManager: prometheusManager,
+		id:                       spec.Id,
+		persistentId:             persistentId,
+		messagingMetricsProvider: messagingMetricsProvider,
 		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, metrics.ClusterGateway, func(s *server.AbstractServer) {
 			s.Sockets.Shell = types.NewSocket(zmq4.NewRouter(s.Ctx), shellListenPort, types.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
 			s.Sockets.IO = types.NewSocket(zmq4.NewPub(s.Ctx), iopubListenPort, types.IOMessage, fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)) // connectionInfo.IOSubPort}
@@ -137,7 +137,7 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 			s.ReconnectOnAckFailure = false
 			s.ComponentId = hostId
 			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
-			s.PrometheusManager = prometheusManager
+			s.MessagingMetricsProvider = messagingMetricsProvider
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
 		status:                   types.KernelStatusInitializing,

@@ -46,6 +46,14 @@ type GatewayPrometheusManager struct {
 	// from the perspective of Jupyter Clients.
 	KernelCreationLatencyHistogram prometheus.Histogram
 
+	// ScaleOutLatencyMillisecondsHistogram is a prometheus.Histogram of the latency, in milliseconds, of scaling-out
+	// (i.e., increasing the number of nodes available within the cluster).
+	ScaleOutLatencyMillisecondsHistogram prometheus.Histogram
+
+	// ScaleInLatencyMillisecondsHistogram is a prometheus.Histogram of the latency, in milliseconds, of scaling-in
+	// (i.e., decreasing the number of nodes available within the cluster).
+	ScaleInLatencyMillisecondsHistogram prometheus.Histogram
+
 	localDaemonNodeProvider LocalDaemonNodeProvider
 }
 
@@ -87,6 +95,22 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 		Help:      "The latency of creating a new kernel from the perspective of the Cluster Gateway.",
 		Buckets: []float64{10, 1e3, 2e3, 3e3, 4e3, 5e3, 6e3, 7e3, 8e3, 9e3, 1e4, 1.5e4, 2e4, 3e4, 4.5e4, 6e4, 9e4,
 			1.2e5, 1.8e5, 2.4e5, 3e5},
+	})
+
+	m.ScaleOutLatencyMillisecondsHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "scale_out_latency_milliseconds",
+		Help:      "The latency of scaling-out (i.e., increasing the number of nodes available within the cluster).",
+		Buckets: []float64{1000, 5000, 10000, 15000, 20000, 30000, 45000, 60000, 90000, 120000, 180000, 240000,
+			300000, 450000, 600000, 900000, 1200000, 1800000, 2400000, 3000000},
+	})
+
+	m.ScaleInLatencyMillisecondsHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "scale_out_in_milliseconds",
+		Help:      "The latency of scaling-in (i.e., decreasing the number of nodes available within the cluster).",
+		Buckets: []float64{1000, 5000, 10000, 15000, 20000, 30000, 45000, 60000, 90000, 120000, 180000, 240000,
+			300000, 450000, 600000, 900000, 1200000},
 	})
 
 	m.NumSuccessfulMigrations = prometheus.NewCounter(prometheus.CounterOpts{
@@ -172,6 +196,14 @@ func (m *GatewayPrometheusManager) HandleVariablesRequest(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// GetContainerMetricsProvider returns nil in the case of a GatewayPrometheusManager struct,
+// as GatewayPrometheusManager does not provide/implement this interface.
+func (m *GatewayPrometheusManager) GetContainerMetricsProvider() ContainerMetricsProvider {
+	m.log.Warn("Someone is attempting to retrieve a ContainerMetricsProvider from a GatewayPrometheusManager. " +
+		"GatewayPrometheusManager does not implement the ContainerMetricsProvider interface, so this is going to fail.")
+	return nil
 }
 
 //func (m *GatewayPrometheusManager) HandleRequest(c *gin.Context) {

@@ -7,6 +7,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"net/http"
+	"time"
 )
 
 var (
@@ -51,11 +52,14 @@ type LocalDaemonPrometheusManager struct {
 
 	TrainingTimeGaugeVec *prometheus.GaugeVec // TrainingTimeGaugeVec is the total, collective time that all kernels have spent executing user-submitted code.
 
-	NumActiveKernelReplicasGauge prometheus.Gauge // NumActiveKernelReplicasGauge is a cached return of NumActiveKernelReplicasGaugeVec.With(<label for the local daemon on this node>)
+	// DockerContainerCreationLatencyHistogramVec is a *prometheus.HistogramVec of the latencies of creating kernel replica Containers with Docker.
+	// The units of the observations recorded by DockerContainerCreationLatencyHistogramVec are milliseconds.
+	DockerContainerCreationLatencyHistogramVec *prometheus.HistogramVec
 
-	TotalNumKernelsCounter prometheus.Counter // TotalNumKernelsCounter is a cached return of TotalNumKernelsCounterVec.With(<label for the local daemon on this node>)
-
-	NumTrainingEventsCompletedCounter prometheus.Counter // NumTrainingEventsCompletedCounter is a cached return of NumTrainingEventsCompletedCounterVec.With(<label for the local daemon on this node>)
+	TotalNumKernelsCounter                  prometheus.Counter  // TotalNumKernelsCounter is a cached return of TotalNumKernelsCounterVec.With(<label for the local daemon on this node>)
+	NumTrainingEventsCompletedCounter       prometheus.Counter  // NumTrainingEventsCompletedCounter is a cached return of NumTrainingEventsCompletedCounterVec.With(<label for the local daemon on this node>)
+	NumActiveKernelReplicasGauge            prometheus.Gauge    // NumActiveKernelReplicasGauge is a cached return of NumActiveKernelReplicasGaugeVec.With(<label for the local daemon on this node>)
+	DockerContainerCreationLatencyHistogram prometheus.Observer // DockerContainerCreationLatencyHistogram is a cached return of DockerContainerCreationLatencyHistogramVec.With(<label for the local daemon on this node>)
 }
 
 // NewLocalDaemonPrometheusManager creates a new LocalDaemonPrometheusManager struct and returns a pointer to it.
@@ -72,6 +76,21 @@ func NewLocalDaemonPrometheusManager(port int, nodeId string) *LocalDaemonPromet
 	return manager
 }
 
+// AddContainerCreationLatencyObservation records the latency of a container-creation event.
+//
+// If the target ContainerMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
+// error is returned.
+func (m *LocalDaemonPrometheusManager) AddContainerCreationLatencyObservation(latency time.Duration) error {
+	if !m.metricsInitialized {
+		m.log.Error("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
+		return ErrMetricsNotInitialized
+	}
+
+	m.DockerContainerCreationLatencyHistogram.Observe(float64(latency.Milliseconds()))
+
+	return nil
+}
+
 // HandleVariablesRequest handles query requests from Grafana for variables that are required to create Dashboards.
 func (m *LocalDaemonPrometheusManager) HandleVariablesRequest(c *gin.Context) {
 	m.log.Error("LocalDaemonPrometheusManager is not supposed to receive 'variables' requests.")
@@ -79,47 +98,11 @@ func (m *LocalDaemonPrometheusManager) HandleVariablesRequest(c *gin.Context) {
 	_ = c.AbortWithError(http.StatusNotFound, fmt.Errorf("LocalDaemon nodes cannot serve 'variables' requests"))
 }
 
-// Start registers metrics with Prometheus and begins serving the metrics via an HTTP endpoint.
-//func (m *LocalDaemonPrometheusManager) Start() error {
-//	m.mu.Lock()
-//	defer m.mu.Unlock()
-//
-//	if m.serving {
-//		m.log.Warn("LocalDaemonPrometheusManager for Local Daemon %s is already running.", m.nodeId)
-//		return ErrLocalDaemonPrometheusManagerAlreadyRunning
-//	}
-//
-//	if !m.metricsInitialized {
-//		err := m.initMetrics()
-//		if err != nil {
-//			return err
-//		}
-//	}
-//
-//	return nil
-//}
-
-// Stop instructs the LocalDaemonPrometheusManager to shut down its HTTP server.
-//func (m *LocalDaemonPrometheusManager) Stop() error {
-//	m.mu.Lock()
-//	defer m.mu.Unlock()
-//
-//	if !m.isRunningUnsafe() /* we already have the lock */ {
-//		m.log.Warn("LocalDaemonPrometheusManager for Local Daemon %s is already running.", m.nodeId)
-//		return ErrLocalDaemonPrometheusManagerNotRunning
-//	}
-//
-//	m.serving = false
-//	if err := m.httpServer.Shutdown(context.Background()); err != nil {
-//		m.log.Error("Failed to cleanly shutdown the HTTP server: %v", err)
-//
-//		// TODO: Can we safely assume that we're no longer serving at this point?
-//		// We already set 'serving' to false.
-//		return err
-//	}
-//
-//	return nil
-//}
+// GetContainerMetricsProvider returns a ContainerMetricsProvider, a role that is fulfilled
+// by the LocalDaemonPrometheusManager.
+func (m *LocalDaemonPrometheusManager) GetContainerMetricsProvider() ContainerMetricsProvider {
+	return m
+}
 
 // InitMetrics creates a Prometheus endpoint and
 func (m *LocalDaemonPrometheusManager) initMetrics() error {
@@ -189,11 +172,21 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 		Help:      "Pending GPUs on a Local Daemon",
 	}, []string{"node_id"})
 
+	// Miscellaneous metrics.
+
 	m.TrainingTimeGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "training_time_seconds",
 		Help:      "The total, collective time that all kernels have spent executing user-submitted code.",
 	}, []string{"node_id", "kernel_id", "workload_id"})
+
+	m.DockerContainerCreationLatencyHistogramVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "docker_container_creation_latency_milliseconds",
+		Help:      "The latency, in milliseconds, of creating kernel replica Containers via Docker.",
+		Buckets: []float64{250, 500, 1000, 2500, 5000, 7500, 10000, 12500, 15000, 17500, 20000, 30000, 45000, 60000,
+			90000, 120000, 180000, 240000, 300000, 450000, 600000, 900000},
+	}, []string{"node_id"})
 
 	// Register GPU resource metrics.
 	if err := prometheus.Register(m.IdleGpuGaugeVec); err != nil {
@@ -249,8 +242,14 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 		return err
 	}
 
+	// Register miscellaneous metrics.
 	if err := prometheus.Register(m.TrainingTimeGaugeVec); err != nil {
 		m.log.Error("Failed to register 'Training Time' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.DockerContainerCreationLatencyHistogramVec); err != nil {
+		m.log.Error("Failed to register 'Docker Container Creation Latency' metric because: %v", err)
 		return err
 	}
 
@@ -277,6 +276,8 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 		With(prometheus.Labels{"node_id": m.nodeId, "node_type": string(LocalDaemon)})
 	m.NumTrainingEventsCompletedCounter = m.NumTrainingEventsCompletedCounterVec.
 		With(prometheus.Labels{"node_id": m.nodeId, "node_type": string(LocalDaemon)})
+	m.DockerContainerCreationLatencyHistogram = m.DockerContainerCreationLatencyHistogramVec.With(
+		prometheus.Labels{"node_id": m.nodeId})
 
 	m.metricsInitialized = true
 	return nil

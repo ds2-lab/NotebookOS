@@ -36,4 +36,13 @@ type KernelInvoker interface {
 
 	// GetReplicaAddress returns the address of the replica.
 	GetReplicaAddress(spec *proto.KernelSpec, replicaId int32) string
+
+	// KernelCreatedAt returns the time at which the KernelInvoker created the kernel.
+	KernelCreatedAt() (time.Time, bool)
+
+	// KernelCreated returns a bool indicating whether kernel the container has been created.
+	KernelCreated() bool
+
+	// TimeSinceKernelCreated returns the amount of time that has elapsed since the KernelInvoker created the kernel.
+	TimeSinceKernelCreated() (time.Duration, bool)
 }

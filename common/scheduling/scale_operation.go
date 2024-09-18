@@ -92,6 +92,16 @@ func NewScaleOperation(operationId string, initialScale int32, targetScale int32
 	return scaleOperation, nil
 }
 
+// IsScaleOutOperation returns true if the ScaleOperation is of type ScaleOutOperation.
+func (op *ScaleOperation) IsScaleOutOperation() bool {
+	return op.OperationType == ScaleOutOperation
+}
+
+// IsScaleInOperation returns true if the ScaleOperation is of type ScaleInOperation.
+func (op *ScaleOperation) IsScaleInOperation() bool {
+	return op.OperationType == ScaleInOperation
+}
+
 // String returns a string representation of the target ScaleOperation struct that is suitable for printing/logging.
 func (op *ScaleOperation) String() string {
 	return fmt.Sprintf("%s[Initial: %d, Target: %d, State: %s, ID: %s]",
@@ -207,4 +217,15 @@ func (op *ScaleOperation) SetOperationErred(err error, override bool) error {
 	op.cond.Broadcast()
 
 	return nil
+}
+
+// GetDuration returns the duration of the ScaleOperation, if the ScaleOperation has finished.
+// If the ScaleOperation is not yet complete, then GetDuration returns an error, and the returned
+// time.Duration is meaningless.
+func (op *ScaleOperation) GetDuration() (time.Duration, error) {
+	if !op.IsComplete() {
+		return time.Duration(-1), fmt.Errorf("%w: the scale operation has not yet finished", ErrScalingInvalidOperation)
+	}
+
+	return op.EndTime.Sub(op.StartTime), nil
 }
