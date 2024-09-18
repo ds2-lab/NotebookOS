@@ -9,7 +9,6 @@ import (
 	"github.com/hashicorp/yamux"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -108,6 +107,6 @@ func (p *Provisioner) Validate() error {
 		return ErrProvisionerNotInitialized
 	}
 	// Test the connection
-	_, err := p.ClusterGatewayClient.ID(context.Background(), gateway.VOID)
+	_, err := p.ClusterGatewayClient.ID(context.Background(), proto.VOID)
 	return err
 }

@@ -37,7 +37,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	dockerClient "github.com/docker/docker/client"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
@@ -173,7 +172,7 @@ type ClusterGatewayImpl struct {
 	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
 	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
 
-	activeExecutions hashmap.HashMap[string, *gateway.ActiveExecution]
+	activeExecutions hashmap.HashMap[string, *scheduling.ActiveExecution]
 
 	// We configure a pool of available ports through Kubernetes.
 	// This is the pool of ports. We use these ports to create ZMQ sockets for kernels.
@@ -264,7 +263,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
 		kernelsStarting:                       hashmap.NewCornelkMap[string, chan struct{}](64),
 		addReplicaNewPodNotifications:         hashmap.NewCornelkMap[string, chan domain.AddReplicaOperation](64),
-		activeExecutions:                      hashmap.NewCornelkMap[string, *gateway.ActiveExecution](64),
+		activeExecutions:                      hashmap.NewCornelkMap[string, *scheduling.ActiveExecution](64),
 		hdfsNameNodeEndpoint:                  clusterDaemonOptions.HdfsNameNodeEndpoint,
 		dockerNetworkName:                     clusterDaemonOptions.DockerNetworkName,
 	}
@@ -986,14 +985,14 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 	if ok {
 		d.log.Debug("Received 'SMR-READY' notification for newly-starting kernel %s.", smrReadyNotification.KernelId)
 		kernelStartingChan <- struct{}{}
-		return gateway.VOID, nil
+		return proto.VOID, nil
 	}
 
 	// Check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
 	addReplicaOp, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId, true)
 	if !ok {
 		d.log.Warn("Received 'SMR-READY' notification replica %d, kernel %s; however, no add-replica operation found for specified kernel replica...", smrReadyNotification.ReplicaId, smrReadyNotification.KernelId)
-		return gateway.VOID, nil
+		return proto.VOID, nil
 	}
 
 	if addReplicaOp.Completed() {
@@ -1003,7 +1002,7 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s [AddOperation.OperationID=%v]", smrReadyNotification.ReplicaId, kernelId, addReplicaOp.OperationID())
 	addReplicaOp.ReplicaJoinedSmrChannel() <- struct{}{}
 
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 // func (d *ClusterGatewayImpl) SmrNodeRemoved(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
@@ -1030,7 +1029,7 @@ func (d *ClusterGatewayImpl) SmrNodeAdded(_ context.Context, replicaInfo *proto.
 
 	if !opExists {
 		d.log.Warn("No active add-replica operation found for replica %d, kernel %s.", replicaInfo.ReplicaId, kernelId)
-		return gateway.VOID, nil
+		return proto.VOID, nil
 	}
 
 	if op.Completed() {
@@ -1039,7 +1038,7 @@ func (d *ClusterGatewayImpl) SmrNodeAdded(_ context.Context, replicaInfo *proto.
 
 	op.SetReplicaJoinedSMR()
 
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 // When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
@@ -1208,7 +1207,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	}()
 
 	// We'll need this if the migration operation completes successfully.
-	nextExecutionAttempt := gateway.NewActiveExecution(c.ID(), activeExecution.AttemptId()+1, c.Size(), msg)
+	nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), activeExecution.AttemptId()+1, c.Size(), msg)
 
 	// Next, let's update the message so that we target the new replica.
 	_, _, offset := jupyter.ExtractDestFrame(msg.Frames)
@@ -2048,7 +2047,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 		restart = *in.Restart
 	}
 	d.log.Info("Stopping %v, will restart %v", kernel, restart)
-	ret = gateway.VOID
+	ret = proto.VOID
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -2135,7 +2134,7 @@ func (d *ClusterGatewayImpl) WaitKernel(_ context.Context, in *proto.KernelId) (
 func (d *ClusterGatewayImpl) Notify(_ context.Context, in *proto.Notification) (*proto.Void, error) {
 	d.log.Debug(utils.NotificationStyles[in.NotificationType].Render("Received %s notification \"%s\": %s"), NotificationTypeNames[in.NotificationType], in.Title, in.Message)
 	go d.notifyDashboard(in.Title, in.Message, jupyter.NotificationType(in.NotificationType))
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 func (d *ClusterGatewayImpl) SpoofNotifications(_ context.Context, _ *proto.Void) (*proto.Void, error) {
@@ -2146,7 +2145,7 @@ func (d *ClusterGatewayImpl) SpoofNotifications(_ context.Context, _ *proto.Void
 		d.notifyDashboard("Spoofed Success Notification", "This is a made-up 'success' message sent by the Cluster Gateway.", jupyter.SuccessNotification)
 	}()
 
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 // ClusterGateway implementation.
@@ -2159,7 +2158,7 @@ func (d *ClusterGatewayImpl) ID(_ context.Context, _ *proto.Void) (*proto.Provis
 
 func (d *ClusterGatewayImpl) RemoveHost(_ context.Context, in *proto.HostId) (*proto.Void, error) {
 	d.cluster.GetHostManager().Delete(in.Id)
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 // GetActualGpuInfo is not implemented for the Cluster Gateway.
@@ -2586,6 +2585,15 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	d.log.Debug("Unregistered active execution %s for kernel %s.", activeExecution.ExecutionId(), kernelId)
 	d.activeExecutions.Delete(kernelId)
 
+	kernel, loaded := d.kernels.Load(kernelId)
+	if !loaded {
+		d.log.Error("Failed to load DistributedKernelClient %s while processing \"execute_reply\" message...", kernelId)
+		go d.notifyDashboardOfError("Failed to Load Distributed Kernel Client", fmt.Sprintf("Failed to load DistributedKernelClient %s while processing \"execute_reply\" message...", kernelId))
+		return ErrKernelNotFound
+	}
+
+	kernel.ExecutionComplete()
+
 	// Attempt to load the associated Session.
 	session, ok := d.sessions.Load(kernelId)
 	if !ok {
@@ -2621,24 +2629,18 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	return nil
 }
 
-func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, workloadId string) {
-	d.gatewayPrometheusManager.JupyterTrainingStartLatency.
-		With(prometheus.Labels{"workload_id": workloadId}).
-		Observe(float64(latency.Milliseconds()))
-}
-
 func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.DistributedKernelClient) error {
 	kernelId := kernel.ID()
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernelId, msg)
 
-	activeExecution := gateway.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
+	activeExecution := scheduling.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
 	d.activeExecutions.Store(kernelId, activeExecution)
 
 	// TODO: If the Session is currently training, then we should not replace its ActiveExecution with a new one.
 	// TODO: Instead, we should enqueue the new ActiveExecution instance.
 	// TODO: When the current ActiveExecution resolves, the next enqueued ActiveExecution can be popped off the...
 	// TODO: ...queue and set as the Session's new current ActiveExecution.
-	kernel.SetActiveExecution(activeExecution)
+	_ = kernel.EnqueueActiveExecution(activeExecution)
 
 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernelId, activeExecution)
 
@@ -2668,6 +2670,12 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 	return nil
 }
 
+func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, workloadId string) {
+	d.gatewayPrometheusManager.JupyterTrainingStartLatency.
+		With(prometheus.Labels{"workload_id": workloadId}).
+		Observe(float64(latency.Milliseconds()))
+}
+
 func (d *ClusterGatewayImpl) StdinHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	return d.forwardRequest(nil, jupyter.StdinMessage, msg)
 }
@@ -2689,7 +2697,7 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 	// Ensure that the kernel exists.
 	if kernel, loaded = d.kernels.Load(in.Id); !loaded {
 		d.log.Error("Could not find kernel %s specified in 'FailNextExecution' request...", in.Id)
-		return gateway.VOID, ErrKernelNotFound
+		return proto.VOID, ErrKernelNotFound
 	}
 
 	hostManager := d.cluster.GetHostManager()
@@ -2701,7 +2709,7 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 		if !ok {
 			d.log.Error("Could not find host %s on which replica %d of kernel %s is supposedly running...", hostId, replicaClient.ReplicaID(), in.Id)
 			go d.notifyDashboardOfError("'FailNextExecution' Request Failed", fmt.Sprintf("Could not find host %s on which replica %d of kernel %s is supposedly running...", hostId, replicaClient.ReplicaID(), in.Id))
-			return gateway.VOID, scheduling.ErrHostNotFound
+			return proto.VOID, scheduling.ErrHostNotFound
 		}
 
 		// Even if there's an error here, we'll just keep trying. If only some of these succeed, then the system won't explode.

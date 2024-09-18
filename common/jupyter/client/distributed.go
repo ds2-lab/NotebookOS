@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
@@ -94,8 +93,12 @@ type DistributedKernelClient struct {
 
 	nextNodeId int32
 
-	// The current execution request that is being processed by the kernels.
-	activeExecution *gateway.ActiveExecution
+	// activeExecution is the current execution request that is being processed by the kernels.
+	activeExecution *scheduling.ActiveExecution
+
+	// activeExecutionQueue is a queue of ActiveExecution structs corresponding to
+	// submitted/enqueued execution operations.
+	activeExecutionQueue scheduling.ActiveExecutionQueue
 
 	// Callback for when execution fails (such as all replicas proposing 'YIELD').
 	executionFailedCallback ExecutionFailedCallback
@@ -149,6 +152,7 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 		iopubListenPort:          iopubListenPort,
 		numActiveAddOperations:   0,
 		executionFailedCallback:  executionFailedCallback,
+		activeExecutionQueue:     make(scheduling.ActiveExecutionQueue, 16),
 		executionLatencyCallback: executionLatencyCallback,
 		nextNodeId:               int32(numReplicas + 1),
 	}
@@ -191,7 +195,7 @@ func (c *DistributedKernelClient) IOPubListenPort() int {
 	return c.iopubListenPort
 }
 
-func (c *DistributedKernelClient) ActiveExecution() *gateway.ActiveExecution {
+func (c *DistributedKernelClient) ActiveExecution() *scheduling.ActiveExecution {
 	return c.activeExecution
 }
 
@@ -215,8 +219,61 @@ func (c *DistributedKernelClient) ExecutionFailedCallback() ExecutionFailedCallb
 	return c.executionFailedCallback
 }
 
-func (c *DistributedKernelClient) SetActiveExecution(activeExecution *gateway.ActiveExecution) {
+// SetActiveExecution attempts to set the ActiveExecution of the DistributedKernelClient.
+// SetActiveExecution will replace the current ActiveExecution with the given ActiveExecution,
+// bypassing all other ActiveExecution instances that are already enqueued.
+func (c *DistributedKernelClient) SetActiveExecution(activeExecution *scheduling.ActiveExecution) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.activeExecution = activeExecution
+}
+
+// ExecutionComplete sets the current ActiveExecution to nil.
+//
+// If there are any ActiveExecution structs enqueued, then the next struct is popped off the queue and
+// assigned as the current ActiveExecution for the DistributedKernelClient. If this occurs, then
+// ExecutionComplete returns true.
+//
+// If there are no ActiveExecution structs enqueued, then ExecutionComplete returns false.
+func (c *DistributedKernelClient) ExecutionComplete() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.activeExecutionQueue) > 0 {
+		c.activeExecution = c.activeExecutionQueue.Dequeue()
+		c.log.Debug("Popped next ActiveExecution off of queue and assigned it as current ActiveExecution: %v",
+			c.activeExecution)
+
+		return true
+	} else {
+		c.activeExecution = nil
+		
+		return false
+	}
+}
+
+// EnqueueActiveExecution will set the ActiveExecution of the DistributedKernelClient to the
+// given ActiveExecution if the DistributedKernelClient currently has no ActiveExecution. In this case,
+// EnqueueActiveExecution will return false.
+//
+// If the DistributedKernelClient already has an ActiveExecution, then the ActiveExecution passed
+// as an argument to the SetActiveExecution method will instead be enqueued. In this case,
+// EnqueueActiveExecution will return true.
+func (c *DistributedKernelClient) EnqueueActiveExecution(activeExecution *scheduling.ActiveExecution) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// If there is already an active execution, then enqueue the new one.
+	if c.activeExecution != nil {
+		c.log.Debug("Found non-nil active execution. Enqueuing new active execution.")
+		c.activeExecutionQueue = append(c.activeExecutionQueue, activeExecution)
+		return true
+	}
+
+	// There's no active execution currently, so just set the value.
+	c.activeExecution = activeExecution
+	return false
 }
 
 // ResetID resets the kernel ID.
@@ -1072,7 +1129,7 @@ func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *Ke
 		replicaId := replica.replicaId
 
 		err := c.activeExecution.ReceivedYieldProposal(replicaId)
-		if errors.Is(err, gateway.ErrExecutionFailedAllYielded) {
+		if errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
 			return c.handleFailedExecutionAllYielded()
 		}
 

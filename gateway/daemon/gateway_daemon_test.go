@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"sync"
@@ -40,7 +39,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 	BeforeEach(func() {
 		clusterGateway = &ClusterGatewayImpl{
-			activeExecutions: hashmap.NewCornelkMap[string, *gateway.ActiveExecution](64),
+			activeExecutions: hashmap.NewCornelkMap[string, *scheduling.ActiveExecution](64),
 		}
 		config.InitLogger(&clusterGateway.log, clusterGateway)
 

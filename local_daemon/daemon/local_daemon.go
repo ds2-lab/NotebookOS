@@ -22,7 +22,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
@@ -1027,13 +1026,13 @@ func (d *SchedulerDaemonImpl) YieldNextExecution(_ context.Context, in *proto.Ke
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s specified in 'YieldNextExecution' request.", kernelId)
-		return gateway.VOID, domain.ErrInvalidParameter
+		return proto.VOID, domain.ErrInvalidParameter
 	}
 
 	d.log.Debug("Kernel %s will YIELD its next execution request.", in.Id)
 
 	kernel.YieldNextExecutionRequest()
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
@@ -1044,7 +1043,7 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Re
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
-		return gateway.VOID, domain.ErrInvalidParameter
+		return proto.VOID, domain.ErrInvalidParameter
 	}
 
 	d.log.Debug("Informing replicas of kernel %s to update address of replica %d to %s.", kernelId, replicaId, hostname)
@@ -1054,12 +1053,12 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Re
 		Address: hostname,
 	}); err != nil {
 		d.log.Error("Error occurred while encoding the content frame for update-replica request to kernel %s: %v", kernelId, err)
-		return gateway.VOID, err
+		return proto.VOID, err
 	}
 
 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		d.log.Error("Error occurred while signing frames for update-replica request to kernel %s: %v", kernelId, err)
-		return gateway.VOID, err
+		return proto.VOID, err
 	}
 
 	_msg := &zmq4.Msg{Frames: frames}
@@ -1085,7 +1084,7 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Re
 		}, wg.Done)
 		if err != nil {
 			d.log.Error("Error occurred while issuing update-replica request to kernel %s: %v", kernelId, err)
-			return gateway.VOID, err
+			return proto.VOID, err
 		}
 		wg.Wait()
 
@@ -1105,10 +1104,10 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Re
 	}
 
 	if !success {
-		return gateway.VOID, domain.ErrRequestFailed
+		return proto.VOID, domain.ErrRequestFailed
 	}
 
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
@@ -1119,7 +1118,7 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
-		return gateway.VOID, domain.ErrInvalidParameter
+		return proto.VOID, domain.ErrInvalidParameter
 	}
 
 	d.log.Debug("Now that replica %d of kernel %s (host=%s) has been added, notify the existing members.", replicaId, kernelId, hostname)
@@ -1134,7 +1133,7 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 
 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		d.log.Error("Error occurred while signing frames for add-replica request to kernel %s: %v", kernelId, err)
-		return gateway.VOID, err
+		return proto.VOID, err
 	}
 
 	_msg := &zmq4.Msg{Frames: frames}
@@ -1147,12 +1146,12 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 
 	if err != nil {
 		d.log.Error("Error occurred while issuing add-replica request to kernel %s: %v", kernelId, err)
-		return gateway.VOID, err
+		return proto.VOID, err
 	}
 
 	wg.Wait()
 
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 func (d *SchedulerDaemonImpl) smrNodeAddedCallback(readyMessage *jupyter.MessageSMRNodeUpdated) {
@@ -1413,7 +1412,7 @@ func (d *SchedulerDaemonImpl) KillKernel(_ context.Context, in *proto.KernelId) 
 	//_ = d.resourceManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
 	//_ = d.resourceManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
 
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 // StopKernel stops a kernel.
@@ -1454,7 +1453,7 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 	//_ = d.resourceManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
 	//_ = d.resourceManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
 
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 func (d *SchedulerDaemonImpl) stopKernel(ctx context.Context, kernel *client.KernelReplicaClient, ignoreReply bool) (err error) {
@@ -1514,7 +1513,7 @@ func (d *SchedulerDaemonImpl) WaitKernel(_ context.Context, in *proto.KernelId) 
 
 func (d *SchedulerDaemonImpl) SetClose(_ context.Context, _ *proto.Void) (*proto.Void, error) {
 	_ = d.Close()
-	return gateway.VOID, nil
+	return proto.VOID, nil
 }
 
 func (d *SchedulerDaemonImpl) Start() error {
