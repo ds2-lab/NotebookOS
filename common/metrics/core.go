@@ -310,7 +310,8 @@ func (m *basePrometheusManager) initializeMetrics() error {
 		Namespace: "distributed_cluster",
 		Name:      "message_latency_microseconds",
 		Help:      "End-to-end latency in microseconds of messages. The end-to-end latency is measured from the time the message is forwarded by the node to the time at which the node receives the associated response.",
-		Buckets:   []float64{0, 25000, 50000, 75000, 100000, 125000, 150000, 200000},
+		Buckets: []float64{1, 10, 100, 1e3, 5e3, 10e3, 15e3, 20e3, 30e3, 50e3, 75e3, 100e3, 150e3, 200e3, 300e3,
+			400e3, 500e3, 750e3, 1e6, 1.5e6, 2e6, 3e6, 4.5e6, 6e6, 9e6, 1.2e7, 1.8e7, 2.4e7, 3e7, 4.5e7, 6e7, 9e7, 1.2e8},
 	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
 
 	m.NumSendsBeforeAckReceived = prometheus.NewHistogramVec(prometheus.HistogramOpts{

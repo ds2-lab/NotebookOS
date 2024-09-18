@@ -24,7 +24,7 @@ smr-port: 28080
 kube-namespace: default
 max-actual-gpu-per-node: 8
 starting-resource-port: 29007
-num-resource-ports: 16
+num-resource-ports: 256
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter

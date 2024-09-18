@@ -69,18 +69,24 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 		Namespace: "distributed_cluster",
 		Subsystem: "jupyter",
 		Name:      "session_training_start_latency_milliseconds",
+		Buckets: []float64{1, 5, 10, 15, 20, 30, 50, 75, 100, 150, 200, 300, 400, 500, 750, 1e3, 1.5e3, 2e3, 3e3, 4e3,
+			5e3, 7.5e3, 1e4, 1.5e4, 2e4, 3e4, 4.5e4, 6e4, 9e4, 1.2e5},
 	}, []string{"workload_id"})
 
 	m.KernelMigrationLatencyHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
 		Name:      "kernel_migration_latency_milliseconds",
 		Help:      "The latency of migrating kernel replicas from one node to another.",
+		Buckets: []float64{10, 1e3, 2e3, 3e3, 4e3, 5e3, 6e3, 7e3, 8e3, 9e3, 1e4, 1.5e4, 2e4, 2.5e4, 3e4, 4.5e4, 6e4,
+			9e4, 1.2e5, 1.8e5, 2.4e5, 3e5},
 	})
 
 	m.KernelCreationLatencyHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
 		Name:      "gateway_kernel_creation_latency_milliseconds",
 		Help:      "The latency of creating a new kernel from the perspective of the Cluster Gateway.",
+		Buckets: []float64{10, 1e3, 2e3, 3e3, 4e3, 5e3, 6e3, 7e3, 8e3, 9e3, 1e4, 1.5e4, 2e4, 3e4, 4.5e4, 6e4, 9e4,
+			1.2e5, 1.8e5, 2.4e5, 3e5},
 	})
 
 	m.NumSuccessfulMigrations = prometheus.NewCounter(prometheus.CounterOpts{
