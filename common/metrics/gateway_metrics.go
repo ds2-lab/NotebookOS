@@ -23,12 +23,28 @@ type LocalDaemonNodeProvider interface {
 type GatewayPrometheusManager struct {
 	*basePrometheusManager
 
-	// JupyterTrainingStartLatency is a metric tracking the latency between when an
+	// JupyterTrainingStartLatency is a metric tracking the latency, in milliseconds, between when an
 	// "execute_request" message is sent and when the first "execute_reply" is received.
 	//
 	// The latency is observed from the Golang-based Jupyter client, and the units
 	// of the metric are seconds.
 	JupyterTrainingStartLatency *prometheus.HistogramVec
+
+	// NumSuccessfulMigrations keeps track of the number of times we successfully migrated a kernel from
+	// one node to another.
+	NumSuccessfulMigrations prometheus.Counter
+
+	// NumFailedMigrations keeps track of the number of times we failed to migrate a kernel from one node
+	// to another for any reason.
+	NumFailedMigrations prometheus.Counter
+
+	// KernelMigrationLatencyHistogram records the latencies of migrating kernel replicas from one node to another.
+	KernelMigrationLatencyHistogram prometheus.Histogram
+
+	// KernelCreationLatencyHistogram records the latency of creating a new kernel from the perspective of
+	// the Cluster Gateway. There are separate metrics for tracking how long it takes to create new sessions
+	// from the perspective of Jupyter Clients.
+	KernelCreationLatencyHistogram prometheus.Histogram
 
 	localDaemonNodeProvider LocalDaemonNodeProvider
 }
@@ -47,61 +63,60 @@ func NewGatewayPrometheusManager(port int, localDaemonNodeProvider LocalDaemonNo
 	return manager
 }
 
-// Start registers metrics with Prometheus and begins serving the metrics via an HTTP endpoint.
-//func (m *GatewayPrometheusManager) Start() error {
-//	m.mu.Lock()
-//	defer m.mu.Unlock()
-//
-//	if m.serving {
-//		m.log.Warn("GatewayPrometheusManager for Local Daemon %s is already running.", m.nodeId)
-//		return ErrGatewayPrometheusManagerAlreadyRunning
-//	}
-//
-//	m.serving = true
-//	if !m.metricsInitialized {
-//		err := m.initMetrics()
-//		if err != nil {
-//			return err
-//		}
-//	}
-//	m.initializeHttpServer()
-//
-//	return nil
-//}
-
-// Stop instructs the GatewayPrometheusManager to shut down its HTTP server.
-//func (m *GatewayPrometheusManager) Stop() error {
-//	m.mu.Lock()
-//	defer m.mu.Unlock()
-//
-//	if !m.isRunningUnsafe() /* we already have the lock */ {
-//		m.log.Warn("GatewayPrometheusManager for Local Daemon %s is already running.", m.nodeId)
-//		return ErrGatewayPrometheusManagerNotRunning
-//	}
-//
-//	m.serving = false
-//	if err := m.httpServer.Shutdown(context.Background()); err != nil {
-//		m.log.Error("Failed to cleanly shutdown the HTTP server: %v", err)
-//
-//		// TODO: Can we safely assume that we're no longer serving at this point?
-//		// We already set 'serving' to false.
-//		return err
-//	}
-//
-//	return nil
-//}
-
 // InitMetrics creates a Prometheus endpoint and
 func (m *GatewayPrometheusManager) initMetrics() error {
-
 	m.JupyterTrainingStartLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
 		Subsystem: "jupyter",
-		Name:      "session_training_start_latency_seconds",
+		Name:      "session_training_start_latency_milliseconds",
 	}, []string{"workload_id"})
+
+	m.KernelMigrationLatencyHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "kernel_migration_latency_milliseconds",
+		Help:      "The latency of migrating kernel replicas from one node to another.",
+	})
+
+	m.KernelCreationLatencyHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "gateway_kernel_creation_latency_milliseconds",
+		Help:      "The latency of creating a new kernel from the perspective of the Cluster Gateway.",
+	})
+
+	m.NumSuccessfulMigrations = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "successful_migrations_total",
+		Help:      "The total number of times we've successfully migrated a kernel.",
+	})
+
+	m.NumFailedMigrations = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "failed_migrations_total",
+		Help:      "The total number of times we've failed to migrate a kernel for any reason.",
+	})
 
 	if err := prometheus.Register(m.JupyterTrainingStartLatency); err != nil {
 		m.log.Error("Failed to register 'Jupyter Training Start Latency' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.KernelMigrationLatencyHistogram); err != nil {
+		m.log.Error("Failed to register 'Kernel Migration Latency Histogram' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.KernelCreationLatencyHistogram); err != nil {
+		m.log.Error("Failed to register 'Kernel Creation Latency Histogram' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.NumSuccessfulMigrations); err != nil {
+		m.log.Error("Failed to register 'Num Successful Migrations' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.NumFailedMigrations); err != nil {
+		m.log.Error("Failed to register 'Num Failed Migrations' metric because: %v", err)
 		return err
 	}
 

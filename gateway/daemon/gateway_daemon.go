@@ -1524,6 +1524,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 
 // StartKernel launches a new kernel.
 func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
+	startTime := time.Now()
 	d.log.Info("ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v].", in.Id, in.Session, in.ResourceSpec)
 
 	var (
@@ -1634,7 +1635,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		SignatureScheme: kernel.KernelSpec().SignatureScheme,
 		Key:             kernel.KernelSpec().Key,
 	}
-	d.log.Info("Kernel(%s) started: %v", kernel.ID(), info)
+	d.log.Info("Kernel(%s) started after %v: %v", kernel.ID(), time.Since(startTime), info)
 
 	session, ok := d.sessions.Load(kernel.ID())
 	if ok {
@@ -1660,6 +1661,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		Set(float64(numActiveKernels))
 	d.gatewayPrometheusManager.TotalNumKernelsCounterVec.
 		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
+	d.gatewayPrometheusManager.KernelCreationLatencyHistogram.Observe(float64(time.Since(startTime).Milliseconds()))
 
 	return info, nil
 }
@@ -2350,6 +2352,7 @@ func (d *ClusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
 }
 
 func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error) {
+	startTime := time.Now()
 	replicaInfo := in.TargetReplica
 	targetNodeId := in.GetTargetNodeId()
 
@@ -2375,13 +2378,18 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 	}
 
 	resp, err := d.migrateReplicaRemoveFirst(replicaInfo, targetNodeId)
+	duration := time.Since(startTime)
 	if err != nil {
-		d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed because: %s",
-			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, err.Error())
+		d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
+			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration, err.Error())
+		d.gatewayPrometheusManager.NumFailedMigrations.Inc()
 	} else {
-		d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully.",
-			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId)
+		d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully after %v.",
+			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration)
+		d.gatewayPrometheusManager.NumSuccessfulMigrations.Inc()
 	}
+
+	d.gatewayPrometheusManager.KernelMigrationLatencyHistogram.Observe(float64(duration.Milliseconds()))
 
 	// If there was an error, then err will be non-nil.
 	// If there was no error, then err will be nil.
@@ -2611,7 +2619,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, workloadId string) {
 	d.gatewayPrometheusManager.JupyterTrainingStartLatency.
 		With(prometheus.Labels{"workload_id": workloadId}).
-		Observe(latency.Seconds())
+		Observe(float64(latency.Milliseconds()))
 }
 
 func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.DistributedKernelClient) error {
