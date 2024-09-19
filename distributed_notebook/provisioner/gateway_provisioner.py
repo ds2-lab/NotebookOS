@@ -97,12 +97,15 @@ class GatewayProvisioner(KernelProvisionerBase):
             await self.poll()
             return
         elif signum == signal.SIGKILL:
-            self.log.warn("Received SIGKILL. Unaliving now.")
+            self.log.warn("Received SIGKILL. Un-aliving the kernel now.")
             return await self.kill()
-        elif signum == signal.SIGTERM or signum == signal.SIGINT:
+        elif signum == signal.SIGTERM:
             # Shutdown requested, delay and wait for restart flag.
-            self.log.warn("Received SIGTERM/SIGINT. Shutdown requested.")
+            self.log.warn("Received SIGINT. Kernel shutdown requested.")
             return
+        elif signum == signal.SIGINT:
+            self.log.warn("Received SIGINT. Kernel interruption requested.")
+            return await super().send_signal(signum)
         else:
             self.log.warn("Received signal number %d." % signum)
             return await super().send_signal(signum)

@@ -471,7 +471,11 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 					// worth of seconds to the Prometheus counter.
 					if trainingTimeSeconds > d.prometheusInterval.Seconds() {
 						d.prometheusManager.TrainingTimeGaugeVec.
-							With(prometheus.Labels{"workload_id": replicaClient.WorkloadId(), "kernel_id": replicaClient.ID()}).
+							With(prometheus.Labels{
+								"workload_id": replicaClient.WorkloadId(),
+								"kernel_id":   replicaClient.ID(),
+								"node_id":     d.id,
+							}).
 							Add(d.prometheusInterval.Seconds())
 					} else {
 						// If we started training within the last interval, then we should only increment the Prometheus

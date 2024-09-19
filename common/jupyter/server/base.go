@@ -49,6 +49,12 @@ func (s *BaseServer) RegisterAck(msg *types.JupyterMessage) (chan struct{}, bool
 	return s.server.RegisterAck(msg.RequestId)
 }
 
+// RegisterAckForRequest begins listening for an ACK for a message with the given ID.
+func (s *BaseServer) RegisterAckForRequest(req types.Request) (chan struct{}, bool) {
+	// _, reqId, _ := types.ExtractDestFrame(msg.Frames)
+	return s.server.RegisterAck(req.RequestId())
+}
+
 // Socket returns the zmq socket of the given type.
 func (s *BaseServer) Socket(typ types.MessageType) *types.Socket {
 	return s.server.Sockets.All[typ]

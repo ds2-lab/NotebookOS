@@ -62,6 +62,8 @@ DeploymentMode_Kubernetes:str = "kubernetes"
 DeploymentMode_Docker:str = "docker"
 DeploymentMode_Local:str = "local"
 
+SMR_LEAD_TASK:str = "smr_lead_task"
+
 storage_base_default = os.path.dirname(os.path.realpath(__file__))
 smr_port_default = 10000
 err_wait_persistent_store = RuntimeError(
@@ -100,7 +102,7 @@ class CustomFormatter(logging.Formatter):
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
 
-def tracefunc(frame, event, arg, indent=[0]):
+def tracefunc(frame, event, arg, indent: list[int] =[0]):
       if event == "call":
           indent[0] += 2
           print("-" * indent[0] + "> call function", frame.f_code.co_name, flush = True)
@@ -177,6 +179,8 @@ class DistributedKernel(IPythonKernel):
     smr_nodes_map: dict
 
     def __init__(self, **kwargs):
+        self.next_execute_request_msg_id: Optional[str] = None
+        self.old_run_cell = None
         self.daemon_registration_socket = None
         faulthandler.enable()
         if super().log is not None:
@@ -212,7 +216,7 @@ class DistributedKernel(IPythonKernel):
         if _is_debugpy_available:
             self.log.info("The Debugger IS available/enabled.")
             
-            assert self.debugger != None 
+            assert self.debugger is not None
         else:
             self.log.warning("The Debugger is NOT available/enabled.")
         
@@ -267,8 +271,6 @@ class DistributedKernel(IPythonKernel):
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
             self.docker_container_id:str = "N/A"
         elif self.deployment_mode == DeploymentMode_Docker:
-            import socket 
-            
             self.docker_container_id:str = socket.gethostname()
             self.pod_name = os.environ.get("POD_NAME", default=self.docker_container_id)
             self.node_name = os.environ.get("NODE_NAME", default="DockerNode")
@@ -325,8 +327,7 @@ class DistributedKernel(IPythonKernel):
             self.num_replicas: int = 1
             self.persistent_id = os.environ.get("persistent_id", str(uuid.uuid4()))
             self.smr_nodes_map = {1: str(self.hostname) + ":" + str(self.smr_port)}
-            self.persistent_id
-            self.debug_port = int(os.environ.get("debug_port", "31000"))
+            self.debug_port: int = int(os.environ.get("debug_port", "31000"))
             # self.start()
         
         # TODO: Remove this after finish debugging the ACK stuff.
@@ -468,11 +469,11 @@ class DistributedKernel(IPythonKernel):
             # self.hdfs_data_directory = response_dict["data_directory"]
         
         if "debug_port" in response_dict:
-            self.debug_port = int(response_dict["debug_port"])
+            self.debug_port: int = int(response_dict["debug_port"])
             self.log.info(f"Assigned debug port to {self.debug_port}")
         else:
             self.log.warning("No \"debug_port\" entry found in response from local daemon.")
-            self.debug_port = -1
+            self.debug_port: int = -1
 
         self.log.info("[SMR-NODE-ID-ASSIGNED]%d" %  self.smr_node_id)
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
@@ -786,11 +787,15 @@ class DistributedKernel(IPythonKernel):
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
+        parent_header: dict[str, Any] = extract_header(parent)
+
         self.log.debug(
-            "execute_request called within the Distributed Python Kernel.")
+            f"execute_request with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
+
+        self.next_execute_request_msg_id:str = parent_header["msg_id"]
         
-        print("parent: %s", str(parent))
-        print("ident: %s" % str(ident))
+        self.log.debug("parent: %s", str(parent))
+        self.log.debug("ident: %s" % str(ident))
         
         await super().execute_request(stream, ident, parent)
 
@@ -858,8 +863,8 @@ class DistributedKernel(IPythonKernel):
             dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
-        assert self.shell != None 
-        
+        assert self.shell is not None
+
         reply_content: Dict[str, Any] = {}
         error_occurred: bool = False # Separate flag, since we raise an exception and generate an error response when we yield successfully.
         
@@ -887,7 +892,7 @@ class DistributedKernel(IPythonKernel):
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
         if not silent:
-            assert self.execution_count != None 
+            assert self.execution_count is not None
             self.execution_count += 1
             self._publish_execute_input(code, parent, self.execution_count)
 
@@ -923,7 +928,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error("I've been selected to lead this execution (%d), but I'm supposed to yield!" % self.shell.execution_count)
 
                 # Notify the client that we will lead the execution (which is bad, in this case, as we were supposed to yield.)
-                self.session.send(self.iopub_socket, "smr_lead_after_yield", {"term": self.synchronizer.execution_count+1}, ident=self._topic("smr_lead_task"))
+                self.session.send(self.iopub_socket, "smr_lead_after_yield", {"term": self.synchronizer.execution_count+1}, ident=self._topic(SMR_LEAD_TASK))
         except Exception as e:
             self.log.error("Error while yielding execution for term %d: %s" % (self.synchronizer.execution_count + 1, str(e)))
             reply_content = self.gen_error_response(e)
@@ -1033,7 +1038,12 @@ class DistributedKernel(IPythonKernel):
             # Notify the client that we will lead the execution.
             # TODO: Eventually, we could pass "gpu" as True or False depending on whether we really
             #       do need GPUs for this training task, assuming we'd know about that here.
-            self.session.send(self.iopub_socket, "smr_lead_task", {"gpu": True, "unix_milliseconds": time.time_ns() // 1_000_000}, ident=self._topic("smr_lead_task"))  # type: ignore
+            content: dict[str, str | float | bool] = {
+                "gpu": True,
+                "unix_milliseconds": time.time_ns() // 1_000_000,
+                "execute_request_msg_id": self.next_execute_request_msg_id
+            }
+            self.session.send(self.iopub_socket, SMR_LEAD_TASK, content, ident=self._topic(SMR_LEAD_TASK))  # type: ignore
 
             self.log.debug("Executing the following code now: %s" % code)
 
@@ -1063,7 +1073,7 @@ class DistributedKernel(IPythonKernel):
             self.source = None
             await coro
             
-            assert self.execution_count != None 
+            assert self.execution_count is not None
             self.log.info("Synchronized. End of sync execution {}".format(self.execution_count - 1))
             return reply_content
         except ExecutionYieldError as eye:
@@ -1074,8 +1084,6 @@ class DistributedKernel(IPythonKernel):
             return self.gen_error_response(e)
 
     async def do_shutdown(self, restart):
-        self.send_ack
-        
         self.log.info("Replica %d of kernel %s is shutting down.",
                       self.smr_node_id, self.kernel_id)
 
@@ -1120,9 +1128,9 @@ class DistributedKernel(IPythonKernel):
         # call self.kernel.loop.call_later, but we're presumably running in the control thread's IO loop,
         # so this isn't safe...?
         # TODO: Look into this.
-        if self.io_loop != None:
+        if self.io_loop is not None:
             self.io_loop.asyncio_loop.set_debug(False) # type: ignore
-        if self.control_thread != None and self.control_thread.io_loop != None:
+        if self.control_thread is not None and self.control_thread.io_loop is not None:
             self.control_thread.io_loop.asyncio_loop.set_debug(False)
 
         # Give time for the "smr_node_removed" message to be sent.
@@ -1162,7 +1170,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error(frame)
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error(f"Failed to Close SyncLog for Replica {self.smr_node_id} of Kernel {self.kernel_id}", errorMessage = str(e))
+            self.report_error(f"Failed to Close SyncLog for Replica {self.smr_node_id} of Kernel {self.kernel_id}", error_message= str(e))
 
             # Attempt to close the HDFS client.
             self.synclog.closeHdfsClient()
@@ -1182,7 +1190,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error(frame)
             
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error("Failed to Write HDFS Data Directory", errorMessage = str(e))
+            self.report_error("Failed to Write HDFS Data Directory", error_message= str(e))
 
             # Attempt to close the HDFS client.
             self.synclog.closeHdfsClient()
@@ -1198,7 +1206,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error(frame)
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error(f"Failed to Close HDFS Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}", errorMessage = str(e))
+            self.report_error(f"Failed to Close HDFS Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}", error_message= str(e))
 
             # We don't return an error here, though. 
         
@@ -1208,8 +1216,6 @@ class DistributedKernel(IPythonKernel):
         """
         Set the global `run_training_code` flag to False.
         """
-        global run_training_code
-        
         self.log.info("Received 'stop training' instruction.")
         self.local_tcp_server_queue.put(b"stop", block = True, timeout = None)
         self.log.info("Sent 'stop training' instruction to local TCP server.")
@@ -1358,12 +1364,12 @@ class DistributedKernel(IPythonKernel):
         self.session.send(stream, "update_replica_reply",
                           content, parent, ident=ident)  # type: ignore
 
-    def report_error(self, errorTitle: str = "", errorMessage: str = ""):
+    def report_error(self, error_title: str = "", error_message: str = ""):
         """
         Send an error report/message to our local daemon via our IOPub socket.
         """
-        self.log.debug(f"Sending 'error_report' message for error \"{errorTitle}\" now...")
-        err_msg = self.session.send(self.iopub_socket, "error_report", {"error": errorTitle, "message": errorMessage, "kernel_id": self.kernel_id}, ident=self._topic("error_report"))
+        self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now...")
+        err_msg = self.session.send(self.iopub_socket, "error_report", {"error": error_title, "message": error_message, "kernel_id": self.kernel_id}, ident=self._topic("error_report"))
         self.log.debug(f"Sent 'error_report' message: {str(err_msg)}")
 
     def gen_simple_response(self, execution_count=0):
@@ -1479,7 +1485,7 @@ class DistributedKernel(IPythonKernel):
             for stack_entry in stack:
                 self.log.error(stack_entry)
             
-            self.report_error(errorTitle="Failed to Create RaftLog", errorMessage = str(ex))
+            self.report_error(error_title="Failed to Create RaftLog", error_message= str(ex))
             
             # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting. 
             await asyncio.sleep(10)

@@ -261,7 +261,7 @@ type liveRequestState struct {
 	wasExplicitlyCancelled bool
 }
 
-type basicRequest struct {
+type BasicRequest struct {
 	*liveRequestState
 
 	log logger.Logger
@@ -331,12 +331,12 @@ type basicRequest struct {
 }
 
 // Return a string representation of the request.
-func (r *basicRequest) String() string {
+func (r *BasicRequest) String() string {
 	return fmt.Sprintf("Request[ID=%s, DestID=%s, State=%s, RequiresAck=%v, Timeout=%v, MaxNumAttempts=%d]", r.requestId, r.destinationId, r.requestState, r.requiresAck, r.timeout, r.maxNumAttempts)
 }
 
 // IsBlocking returns a bool indicating whether we should the call to Server::Request block when issuing this request?
-func (r *basicRequest) IsBlocking() bool {
+func (r *BasicRequest) IsBlocking() bool {
 	return r.isBlocking
 }
 
@@ -346,28 +346,28 @@ func (r *basicRequest) IsBlocking() bool {
 //
 // If the returned bool is true, then the timeout is valid.
 // If it is false, then the timeout is invalid, meaning the request does not time out.
-func (r *basicRequest) Timeout() (time.Duration, bool) {
+func (r *BasicRequest) Timeout() (time.Duration, bool) {
 	return r.timeout, r.hasTimeout
 }
 
 // MaxNumAttempts returns the maximum number of attempts allowed before giving up on sending the request.
-func (r *basicRequest) MaxNumAttempts() int {
+func (r *BasicRequest) MaxNumAttempts() int {
 	return r.maxNumAttempts
 }
 
 // RequestId returns a string identifier that uniquely identifies this set of request options.
 // This is not configurable; it is auto-generated when the request is built via RequestBuilder::BuildRequest.
-func (r *basicRequest) RequestId() string {
+func (r *BasicRequest) RequestId() string {
 	return r.requestId
 }
 
 // ShouldDestFrameBeRemoved returns a bool indicating whether we should the destination frame be automatically removed?
-func (r *basicRequest) ShouldDestFrameBeRemoved() bool {
+func (r *BasicRequest) ShouldDestFrameBeRemoved() bool {
 	return r.shouldDestFrameBeRemoved
 }
 
 // RequiresAck returns a bool indicating whether the request require ACKs
-func (r *basicRequest) RequiresAck() bool {
+func (r *BasicRequest) RequiresAck() bool {
 	// Sanity check. If we're set to require ACKs, then just validate that we're either a Control or a Shell message.
 	// If we're not, then that indicates a bug.
 	if r.requiresAck && !ShouldMessageRequireAck(r.messageType) {
@@ -378,47 +378,47 @@ func (r *basicRequest) RequiresAck() bool {
 }
 
 // Payload returns the message itself.
-func (r *basicRequest) Payload() *JupyterMessage {
+func (r *BasicRequest) Payload() *JupyterMessage {
 	return r.payload
 }
 
 // DoneCallback returns the "done" callback for this request.
 // This callback is executed when the response is received and the request is handled.
-func (r *basicRequest) DoneCallback() MessageDone {
+func (r *BasicRequest) DoneCallback() MessageDone {
 	return r.doneCallback
 }
 
 // MessageHandler returns the handler that is called to process the response to this request.
-func (r *basicRequest) MessageHandler() MessageHandler {
+func (r *BasicRequest) MessageHandler() MessageHandler {
 	return r.messageHandler
 }
 
 // SourceID returns the ID associated with the source of the message, which will typically be a kernel ID.
-func (r *basicRequest) SourceID() string {
+func (r *BasicRequest) SourceID() string {
 	return r.sourceId
 }
 
 // DestinationId returns the destination ID extracted from the request payload.
 // It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
 // Destination IDs are typically/always the ID of the target kernel.
-func (r *basicRequest) DestinationId() string {
+func (r *BasicRequest) DestinationId() string {
 	return r.destinationId
 }
 
 // Context returns the associated Context.
-func (r *basicRequest) Context() context.Context {
+func (r *BasicRequest) Context() context.Context {
 	return r.ctx
 }
 
 // GetCancelFunc returns the associated cancel function.
-func (r *basicRequest) GetCancelFunc() context.CancelFunc {
+func (r *BasicRequest) GetCancelFunc() context.CancelFunc {
 	return r.cancel
 }
 
 // Cancel the request and return nil.
 // If the request is not cancellable, then return ErrNoCancelConfigured.
 // If the request has already been completed, then return ErrRequestAlreadyCompleted.
-func (r *basicRequest) Cancel() error {
+func (r *BasicRequest) Cancel() error {
 	if r.cancel != nil {
 		r.cancel()
 		r.liveRequestState.wasExplicitlyCancelled = true
@@ -430,18 +430,18 @@ func (r *basicRequest) Cancel() error {
 }
 
 // ContextAndCancel returns the associated Context and the associated cancel function, if one exists.
-func (r *basicRequest) ContextAndCancel() (context.Context, context.CancelFunc) {
+func (r *BasicRequest) ContextAndCancel() (context.Context, context.CancelFunc) {
 	return r.ctx, r.cancel
 }
 
 // Offset returns the offset/index of start of Jupyter frames within message frames.
-func (r *basicRequest) Offset() (jOffset int) {
+func (r *BasicRequest) Offset() (jOffset int) {
 	_, _, jOffset = ExtractDestFrame(r.payload.Frames)
 	return
 }
 
 // RequestState returns the current state of the request.
-func (r *basicRequest) RequestState() RequestState {
+func (r *BasicRequest) RequestState() RequestState {
 	r.stateMutex.Lock()
 	defer r.stateMutex.Unlock()
 
@@ -449,12 +449,12 @@ func (r *basicRequest) RequestState() RequestState {
 }
 
 // HasBeenAcknowledged returns true if the request has been acknowledged.
-func (r *basicRequest) HasBeenAcknowledged() bool {
+func (r *BasicRequest) HasBeenAcknowledged() bool {
 	return r.liveRequestState.hasBeenAcknowledged
 }
 
 // HasCompleted return true if the request was completed successfully.
-func (r *basicRequest) HasCompleted() bool {
+func (r *BasicRequest) HasCompleted() bool {
 	r.stateMutex.Lock()
 	defer r.stateMutex.Unlock()
 
@@ -463,7 +463,7 @@ func (r *basicRequest) HasCompleted() bool {
 
 // TimedOut returns true if the request ever timed-out.
 // If it timed-out and was later submitted successfully, then this will be true.
-func (r *basicRequest) TimedOut() bool {
+func (r *BasicRequest) TimedOut() bool {
 	r.stateMutex.Lock()
 	defer r.stateMutex.Unlock()
 
@@ -471,7 +471,7 @@ func (r *basicRequest) TimedOut() bool {
 }
 
 // IsTimedOut returns true if the request is currently in the timed-out state.
-func (r *basicRequest) IsTimedOut() bool {
+func (r *BasicRequest) IsTimedOut() bool {
 	r.stateMutex.Lock()
 	defer r.stateMutex.Unlock()
 
@@ -485,7 +485,7 @@ func (r *basicRequest) IsTimedOut() bool {
 //
 // If you want to know if the request is currently in the RequestStateExplicitlyCancelled state,
 // then use the Request::IsExplicitlyCancelled function.
-func (r *basicRequest) WasExplicitlyCancelled() bool {
+func (r *BasicRequest) WasExplicitlyCancelled() bool {
 	r.stateMutex.Lock()
 	defer r.stateMutex.Unlock()
 
@@ -500,7 +500,7 @@ func (r *basicRequest) WasExplicitlyCancelled() bool {
 //
 // If you want to know if the request was ever explicitly cancelled by the user, regardless of its present state,
 // then use the Request::WasExplicitlyCancelled function.
-func (r *basicRequest) IsExplicitlyCancelled() bool {
+func (r *BasicRequest) IsExplicitlyCancelled() bool {
 	r.stateMutex.Lock()
 	defer r.stateMutex.Unlock()
 
@@ -508,17 +508,17 @@ func (r *basicRequest) IsExplicitlyCancelled() bool {
 }
 
 // JupyterMessageId returns the message ID taken from the Jupyter header of the message.
-func (r *basicRequest) JupyterMessageId() string {
+func (r *BasicRequest) JupyterMessageId() string {
 	return r.payload.JupyterMessageId()
 }
 
 // JupyterMessageType returns the message type taken from the Jupyter header of the message.
-func (r *basicRequest) JupyterMessageType() string {
+func (r *BasicRequest) JupyterMessageType() string {
 	return r.payload.JupyterMessageType()
 }
 
 // JupyterTimestamp returns the timestamp taken from the Jupyter header of the message.
-func (r *basicRequest) JupyterTimestamp() (ts time.Time, err error) {
+func (r *BasicRequest) JupyterTimestamp() (ts time.Time, err error) {
 	ts, err = time.Parse(time.RFC3339Nano, r.payload.JupyterMessageDate())
 	if err != nil {
 		return time.Time{}, err
@@ -528,13 +528,13 @@ func (r *basicRequest) JupyterTimestamp() (ts time.Time, err error) {
 }
 
 // SocketProvider returns the entity responsible for providing access to sockets in the request handler.
-func (r *basicRequest) SocketProvider() JupyterServerInfo {
+func (r *BasicRequest) SocketProvider() JupyterServerInfo {
 	return r.socketProvider
 }
 
 // PrepareForResubmission updates the timestamp of the message's header so that it is signed with a different signature.
 // This is used when re-sending unacknowledged (unacknowledged) messages.
-func (r *basicRequest) PrepareForResubmission() error {
+func (r *BasicRequest) PrepareForResubmission() error {
 	// Get the date.
 	date, _ := r.JupyterTimestamp()
 
@@ -591,7 +591,7 @@ func (r *basicRequest) PrepareForResubmission() error {
 }
 
 // The MessageType of the request.
-func (r *basicRequest) MessageType() MessageType {
+func (r *BasicRequest) MessageType() MessageType {
 	return r.messageType
 }
 
@@ -603,7 +603,7 @@ func (r *basicRequest) MessageType() MessageType {
 //
 // If the transition completes successfully, then true is returned with a nil error.
 // If the transition is not completed for any reason, then false will be returned, along with an error if an error occurred.
-func (r *basicRequest) transitionTo(to RequestState, abortStates []RequestState) (bool, error) {
+func (r *BasicRequest) transitionTo(to RequestState, abortStates []RequestState) (bool, error) {
 	r.stateMutex.Lock()
 	defer r.stateMutex.Unlock()
 
@@ -642,7 +642,7 @@ func (r *basicRequest) transitionTo(to RequestState, abortStates []RequestState)
 // If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateSubmitted' is invalid), then this will return an error.
 //
 // Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
-func (r *basicRequest) SetSubmitted() (bool, error) {
+func (r *BasicRequest) SetSubmitted() (bool, error) {
 	// We'll abort the transition if we're already in the 'completed' state or the 'processing' state, meaning we received an ACK or the response before we were able to transition to 'submitted'.
 	return r.transitionTo(RequestStateSubmitted, []RequestState{RequestStateComplete, RequestStateProcessing})
 }
@@ -654,7 +654,7 @@ func (r *basicRequest) SetSubmitted() (bool, error) {
 // This is to account for race conditions between when we elect to set the state to processing, and when a notification that the request has been completed is received.
 //
 // Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
-func (r *basicRequest) SetProcessing() (bool, error) {
+func (r *BasicRequest) SetProcessing() (bool, error) {
 	// We'll abort the transition if we're already in the 'completed' state, meaning we received a response before we were able to transition to 'processing'.
 	return r.transitionTo(RequestStateProcessing, []RequestState{RequestStateComplete})
 }
@@ -663,7 +663,7 @@ func (r *basicRequest) SetProcessing() (bool, error) {
 // If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateTimedOut' is invalid), then this will return an error.
 //
 // Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
-func (r *basicRequest) SetTimedOut() (bool, error) {
+func (r *BasicRequest) SetTimedOut() (bool, error) {
 	return r.transitionTo(RequestStateTimedOut, nil)
 }
 
@@ -671,7 +671,7 @@ func (r *basicRequest) SetTimedOut() (bool, error) {
 // If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateComplete' is invalid), then this will return an error.
 //
 // Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
-func (r *basicRequest) SetComplete() (bool, error) {
+func (r *BasicRequest) SetComplete() (bool, error) {
 	return r.transitionTo(RequestStateComplete, nil)
 }
 
@@ -679,7 +679,7 @@ func (r *basicRequest) SetComplete() (bool, error) {
 // If the proposed transition is illegal (i.e., transitioning from the current state to the 'RequestStateExplicitlyCancelled' is invalid), then this will return an error.
 //
 // Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
-func (r *basicRequest) SetExplicitlyCancelled() (bool, error) {
+func (r *BasicRequest) SetExplicitlyCancelled() (bool, error) {
 	return r.transitionTo(RequestStateExplicitlyCancelled, nil)
 }
 
@@ -689,7 +689,7 @@ func (r *basicRequest) SetExplicitlyCancelled() (bool, error) {
 // Updates the `err` field of the live request state.
 //
 // Return a tuple in which the first element is a flag indicating whether the transition occurred and the second is an error that is non-nil if an error occurred (which prevented the transition from occurring).
-func (r *basicRequest) SetErred(err error) (bool, error) {
+func (r *BasicRequest) SetErred(err error) (bool, error) {
 	r.liveRequestState.err = err
 	return r.transitionTo(RequestStateErred, nil)
 }

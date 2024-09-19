@@ -236,6 +236,18 @@ func (c *KernelReplicaClient) TrainingStarted() error {
 
 	c.isTraining = true
 	c.trainingStartedAt = time.Now()
+
+	// The following code is only executed within the Cluster Gateway.
+	container := c.Container()
+	if container != nil {
+		session := container.Session()
+		p := session.TrainingStarted(container)
+		if err := p.Error(); err != nil {
+			c.log.Error("Failed to start training for session %s: %v", session.ID(), err)
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -247,6 +259,20 @@ func (c *KernelReplicaClient) TrainingStopped() error {
 	}
 
 	c.isTraining = false
+
+	// The following code executes only on the Cluster Gateway.
+	//
+	// If the Container is actively-training, then we need to call TrainingStopped
+	// before removing it so that the resources are all returned appropriately.
+	if container := c.Container(); container != nil {
+		err := container.TrainingStopped()
+		if err != nil {
+			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
+				c.ID(), c.ReplicaID(), err)
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -735,7 +761,20 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 		return err
 	}
 
-	var timeout time.Duration
+	requiresAck := types.ShouldMessageRequireAck(typ)
+	if c.isTraining && typ == types.ShellMessage {
+		// If we're currently training and the message is a Shell message, then we'll just not require an ACK.
+		// Jupyter doesn't normally use ACKs, so it's fine. The message can simply be resubmitted if necessary.
+		requiresAck = false
+
+		c.log.Warn(utils.YellowStyle.Render("Shell '%s' message %s (JupyterID=\"%s\") targeting actively-training kernel %s will NOT require an ACK."),
+			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), c.id)
+	}
+
+	// If the context is merely cancellable (without a specific deadline/timeout), then we'll just use the default request timeout.
+	timeout := types.DefaultRequestTimeout
+
+	// Try to get the deadline from the parent context.
 	if deadline, ok := parentContext.Deadline(); ok {
 		// If there's a deadline associated with the parent context, then we'll use that to compute a timeout for this request (that matches the deadline of the parent).
 		timeout = time.Until(deadline)
@@ -744,14 +783,10 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 			c.log.Error("The deadline of %v for parent context of %v request has already been exceeded (current time = %v): %v", deadline, typ.String(), time.Now(), msg)
 			return ErrDeadlineExceeded
 		}
-	} else {
-		// If the context is merely cancellable (without a specific deadline/timeout),
-		// then we'll just use the default request timeout here.
-		timeout = types.DefaultRequestTimeout
 	}
 
 	builder := types.NewRequestBuilder(parentContext, c.id, c.id, c.client.Meta).
-		WithAckRequired(types.ShouldMessageRequireAck(typ)).
+		WithAckRequired(requiresAck).
 		WithMessageType(typ).
 		WithBlocking(true).
 		WithTimeout(timeout).

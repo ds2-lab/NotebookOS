@@ -1395,7 +1395,7 @@ const (
 // The Jupyter gateway service for host local kernels.
 type LocalGatewayClient interface {
 	// SetID sets the local gateway id and return old id for failure tolerance.
-	// This also instructs the Local Daemon associated with the LocalGateway to create a MessagingMetricsProvider and begin serving metrics.
+	// This also instructs the Local Daemon associated with the LocalGateway to create a PrometheusManager and begin serving metrics.
 	SetID(ctx context.Context, in *HostId, opts ...grpc.CallOption) (*HostId, error)
 	// StartKernel starts a kernel or kernel replica.
 	StartKernel(ctx context.Context, in *KernelSpec, opts ...grpc.CallOption) (*KernelConnectionInfo, error)
@@ -1620,7 +1620,7 @@ func (c *localGatewayClient) YieldNextExecution(ctx context.Context, in *KernelI
 // The Jupyter gateway service for host local kernels.
 type LocalGatewayServer interface {
 	// SetID sets the local gateway id and return old id for failure tolerance.
-	// This also instructs the Local Daemon associated with the LocalGateway to create a MessagingMetricsProvider and begin serving metrics.
+	// This also instructs the Local Daemon associated with the LocalGateway to create a PrometheusManager and begin serving metrics.
 	SetID(context.Context, *HostId) (*HostId, error)
 	// StartKernel starts a kernel or kernel replica.
 	StartKernel(context.Context, *KernelSpec) (*KernelConnectionInfo, error)

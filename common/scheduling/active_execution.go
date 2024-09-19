@@ -13,6 +13,7 @@ const (
 	// Proposal keys:
 
 	//KeyVote  = "VOTE"
+
 	KeyYield = "YIELD"
 	KeyLead  = "LEAD"
 )
@@ -52,7 +53,7 @@ type ActiveExecution struct {
 	sessionId   string // The ID of the Jupyter session that initiated the request.
 	kernelId    string // ID of the associated kernel.
 
-	numReplicas int // The number of replicas that the kernel had with the execution request was originally received.
+	NumReplicas int // The number of replicas that the kernel had with the execution request was originally received.
 
 	numLeadProposals  int // Number of 'LEAD' proposals issued.
 	numYieldProposals int // Number of 'YIELD' proposals issued.
@@ -63,6 +64,10 @@ type ActiveExecution struct {
 	// created and subsequently sent within the metadata field of the message.
 	originallySentAt        time.Time
 	originallySentAtDecoded bool
+
+	// activeReplica is the KernelReplicaClient connected to the replica of the kernel that is actually
+	// executing the user-submitted code.
+	ActiveReplica KernelReplica
 
 	// workloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
 	// was a Golang Jupyter client.
@@ -86,7 +91,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 		attemptId:               attemptId,
 		proposals:               make(map[int32]string, 3),
 		kernelId:                kernelId,
-		numReplicas:             numReplicas,
+		NumReplicas:             numReplicas,
 		nextAttempt:             nil,
 		previousAttempt:         nil,
 		msg:                     msg,
@@ -167,7 +172,7 @@ func (e *ActiveExecution) AttemptId() int {
 }
 
 func (e *ActiveExecution) String() string {
-	return fmt.Sprintf("ActiveExecution[ID=%s,Kernel=%s,Session=%s,Attempt=%d,NumReplicas=%d,NumLeadProposals=%d,NumYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v]", e.executionId, e.kernelId, e.sessionId, e.attemptId, e.numReplicas, e.numLeadProposals, e.numYieldProposals, e.nextAttempt == nil, e.previousAttempt == nil)
+	return fmt.Sprintf("ActiveExecution[ID=%s,Kernel=%s,Session=%s,Attempt=%d,NumReplicas=%d,numLeadProposals=%d,numYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v]", e.executionId, e.kernelId, e.sessionId, e.attemptId, e.NumReplicas, e.numLeadProposals, e.numYieldProposals, e.nextAttempt == nil, e.previousAttempt == nil)
 }
 
 func (e *ActiveExecution) ReceivedLeadProposal(smrNodeId int32) error {
@@ -189,7 +194,7 @@ func (e *ActiveExecution) ReceivedYieldProposal(smrNodeId int32) error {
 	e.proposals[smrNodeId] = KeyYield
 	e.numYieldProposals += 1
 
-	if e.numYieldProposals == e.numReplicas {
+	if e.numYieldProposals == e.NumReplicas {
 		return ErrExecutionFailedAllYielded
 	}
 

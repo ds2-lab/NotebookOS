@@ -8,6 +8,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,15 +23,16 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 
-const (
-	SessionIDUndecided = "undecided"
-)
+//const (
+//	SessionIDUndecided = "undecided"
+//)
 
 var (
-	CtxKernelHost           = utils.ContextKey("host")
-	KernelInfoReply         = "kernel_info_reply"
-	ErrReplicaAlreadyExists = errors.New("cannot replace existing replica, as node IDs cannot be reused")
-	ErrNoActiveExecution    = errors.New("no active execution associated with kernel who sent 'YIELD' notification")
+	CtxKernelHost        = utils.ContextKey("host")
+	ErrNoActiveExecution = errors.New("no active execution associated with kernel who sent 'YIELD' notification")
+
+	//KernelInfoReply         = "kernel_info_reply"
+	//ErrReplicaAlreadyExists = errors.New("cannot replace existing replica, as node IDs cannot be reused")
 )
 
 type SessionManager interface {
@@ -229,27 +231,31 @@ func (c *DistributedKernelClient) SetActiveExecution(activeExecution *scheduling
 	c.activeExecution = activeExecution
 }
 
-// ExecutionComplete sets the current ActiveExecution to nil.
+// ExecutionComplete sets the current ActiveExecution to nil, or possibly to the next ActiveExecution in the queue,
+// if the queue is non-empty. This also calls TrainingStopped on the KernelReplicaClient that was performing the
+// training.
 //
 // If there are any ActiveExecution structs enqueued, then the next struct is popped off the queue and
 // assigned as the current ActiveExecution for the DistributedKernelClient. If this occurs, then
 // ExecutionComplete returns true.
 //
 // If there are no ActiveExecution structs enqueued, then ExecutionComplete returns false.
-func (c *DistributedKernelClient) ExecutionComplete() bool {
+func (c *DistributedKernelClient) ExecutionComplete() (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	err := c.activeExecution.ActiveReplica.TrainingStopped()
 
 	if len(c.activeExecutionQueue) > 0 {
 		c.activeExecution = c.activeExecutionQueue.Dequeue()
 		c.log.Debug("Popped next ActiveExecution off of queue and assigned it as current ActiveExecution: %v",
 			c.activeExecution)
 
-		return true
+		return true, err
 	} else {
 		c.activeExecution = nil
-		
-		return false
+
+		return false, err
 	}
 }
 
@@ -495,7 +501,6 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host *s
 	// c.replicas[r.ReplicaID()-1] = r
 	// Once a replica is available, the kernel is ready.
 	if statusChanged := c.setStatus(types.KernelStatusInitializing, types.KernelStatusRunning); statusChanged {
-		// if atomic.CompareAndSwapInt32((*int32)(&c.status), int32(types.KernelStatusInitializing), int32(types.KernelStatusRunning)) {
 		// Update signature scheme and key.
 		c.server.Meta.SignatureScheme = r.ConnectionInfo().SignatureScheme
 		c.server.Meta.Key = r.ConnectionInfo().Key
@@ -533,16 +538,24 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 	// c.replicas[r.ReplicaID()-1] = nil
 	// c.size--
 
-	container := r.Container()
-
-	// If the Container is actively-training, then we need to call TrainingStopped
-	// before removing it so that the resources are all returned appropriately.
-	if container.IsTraining() {
-		err := container.TrainingStopped()
+	if r.(*KernelReplicaClient).IsTraining() {
+		err := r.(*KernelReplicaClient).TrainingStopped()
 		if err != nil {
-			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v", r.ID(), r.ReplicaID(), err)
+			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
+				r.ReplicaID(), err)
 		}
 	}
+
+	//container := r.Container()
+	//
+	//// If the Container is actively-training, then we need to call TrainingStopped
+	//// before removing it so that the resources are all returned appropriately.
+	//if container.IsTraining() {
+	//	err := container.TrainingStopped()
+	//	if err != nil {
+	//		c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v", r.ID(), r.ReplicaID(), err)
+	//	}
+	//}
 
 	err = host.ContainerRemoved(r.Container())
 	if err != nil {
@@ -850,7 +863,9 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 			// TODO: If the ACKs fail on this and we reconnect and retry, the wg.Done may be called too many times.
 			// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 			// to be cleared after the context ends; we just do it on ACK timeout.
-			kernel.(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jMsg, forwarder, c.getWaitResponseOption, wg.Done)
+			if err := kernel.(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jMsg, forwarder, c.getWaitResponseOption, wg.Done); err != nil {
+				c.log.Debug("Error while issuing %s '%s' request to kernel %s: %v", typ, jMsg.JupyterMessageType(), c.id, err)
+			}
 		}(kernel)
 	}
 	if done != nil {
@@ -997,7 +1012,7 @@ func (c *DistributedKernelClient) closeLocked() error {
 	c.clearReplicasLocked()
 	for _, socket := range c.server.Sockets.All {
 		if socket != nil {
-			socket.Close()
+			_ = socket.Close()
 		}
 	}
 
@@ -1015,11 +1030,14 @@ func (c *DistributedKernelClient) queryCloseLocked() error {
 			continue
 		}
 
-		go func(replica scheduling.Kernel) {
+		go func(kernelReplica scheduling.KernelReplica) {
 			defer stopped.Done()
 
-			host := replica.Context().Value(CtxKernelHost).(scheduling.Host)
-			host.WaitKernel(context.Background(), &proto.KernelId{Id: replica.ID()})
+			host := kernelReplica.Context().Value(CtxKernelHost).(*scheduling.Host)
+			if _, err := host.WaitKernel(context.Background(), &proto.KernelId{Id: kernelReplica.ID()}); err != nil {
+				c.log.Error("Error while waiting on replica %d of kernel %s to stop: %v",
+					kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+			}
 		}(replica)
 	}
 	stopped.Wait()
@@ -1036,6 +1054,68 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 	return nil
 }
 
+// handleSmrLeadTaskMessage handles an types.MessageTypeSMRLeadTask IO Pub message.
+// TODO: This logic is sort of buried away in a very non-obvious place...
+func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *KernelReplicaClient, msg *types.JupyterMessage) error {
+	c.log.Debug("Received \"%s\" message from %v: %s", types.MessageTypeSMRLeadTask, kernelReplica.String(), msg.String())
+
+	if err := kernelReplica.TrainingStarted(); err != nil {
+		c.log.Error("Failed to start training for kernel replica %s-%d: %v", c.id, kernelReplica.ReplicaID(), err)
+		panic(err)
+	}
+
+	//container := kernelReplica.Container()
+	//session := container.Session()
+
+	//p := session.TrainingStarted(container)
+	//err := p.Error()
+	//if err != nil {
+	//	c.log.Error("Failed to start training for session %s: %v", session.ID(), err)
+	//	panic(err)
+	//}
+
+	if c.activeExecution == nil {
+		log.Fatalf("Kernel %s has started training; however, its active execution is nil...", c.id)
+	}
+
+	c.activeExecution.ActiveReplica = kernelReplica
+	if c.activeExecution.HasValidOriginalSentTimestamp() {
+		var (
+			leadMessage types.MessageSMRLeadTask
+			latency     time.Duration
+		)
+
+		frames := types.JupyterFrames(msg.Frames[msg.Offset:])
+		if err := frames.DecodeContent(&leadMessage); err != nil {
+			c.log.Error("Failed to decode content of SMR Lead ZMQ message: %v", err)
+
+			// Since we can't get the exact value, we'll approximate it using the current timestamp.
+			latency = time.Since(c.activeExecution.OriginalSentTimestamp())
+		} else {
+			startedProcessingAt := time.UnixMilli(leadMessage.UnixMilliseconds)
+
+			// Difference between when the code began executing in the kernel and when the
+			// associated "execute_request" message was actually sent.
+			latency = startedProcessingAt.Sub(c.activeExecution.OriginalSentTimestamp())
+		}
+
+		c.log.Debug("Time elapsed between submission and starting to execute user's code: %v", latency)
+
+		if !c.activeExecution.HasValidWorkloadId() {
+			c.log.Warn("ActiveExecution had \"sent-at\" timestamp, but no workload ID...")
+		}
+
+		// Record metrics in Prometheus.
+		c.executionLatencyCallback(latency, c.activeExecution.WorkloadId())
+	} else {
+		c.log.Warn("ActiveExecution did not have original \"send\" timestamp available.")
+	}
+
+	c.log.Debug("Session \"%s\" has successfully started training on replica %d.", c.id, kernelReplica.ReplicaID())
+
+	return nil
+}
+
 func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 	switch typ {
 	case types.IOMessage:
@@ -1047,54 +1127,7 @@ func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ
 			}
 		case types.MessageTypeSMRLeadTask:
 			{
-				// TODO: This logic is sort of buried away in a very non-obvious place...
-				kernelReplica := replica.(*KernelReplicaClient)
-				c.log.Debug("Received \"%s\" message from %v: %s", types.MessageTypeSMRLeadTask, kernelReplica.String(), msg.String())
-
-				container := kernelReplica.Container()
-				session := container.Session()
-
-				p := session.TrainingStarted(container)
-				err := p.Error()
-				if err != nil {
-					c.log.Error("Failed to start training for session %s: %v", session.ID(), err)
-					panic(err)
-				}
-
-				if c.activeExecution != nil {
-					if c.activeExecution.HasValidOriginalSentTimestamp() {
-						var (
-							leadMessage types.MessageSMRLeadTask
-							latency     time.Duration
-						)
-
-						frames := types.JupyterFrames(msg.Frames[msg.Offset:])
-						if err := frames.DecodeContent(&leadMessage); err != nil {
-							c.log.Error("Failed to decode content of SMR Lead ZMQ message: %v", err)
-
-							// Since we can't get the exact value, we'll approximate it using the current timestamp.
-							latency = time.Since(c.activeExecution.OriginalSentTimestamp())
-						} else {
-							startedProcessingAt := time.UnixMilli(leadMessage.UnixMilliseconds)
-
-							// Difference between when the code began executing in the kernel and when the
-							// associated "execute_request" message was actually sent.
-							latency = startedProcessingAt.Sub(c.activeExecution.OriginalSentTimestamp())
-						}
-
-						c.log.Debug("Time elapsed between submission and starting to execute user's code: %v", latency)
-
-						if !c.activeExecution.HasValidWorkloadId() {
-							c.log.Warn("ActiveExecution had \"sent-at\" timestamp, but no workload ID...")
-						}
-
-						c.executionLatencyCallback(latency, c.activeExecution.WorkloadId())
-					} else {
-						c.log.Debug("ActiveExecution did not have original \"send\" timestamp available.")
-					}
-				}
-
-				c.log.Debug("Session \"%s\" has successfully started training on replica %d.", c.id, kernelReplica.ReplicaID())
+				return c.handleSmrLeadTaskMessage(replica.(*KernelReplicaClient), msg)
 			}
 		default:
 			{
@@ -1148,7 +1181,7 @@ func (c *DistributedKernelClient) handleFailedExecutionAllYielded() error {
 	return c.executionFailedCallback(c)
 }
 
-func (c *DistributedKernelClient) pubIOMessage(msg *types.JupyterMessage, status string, how string) error {
+func (c *DistributedKernelClient) pubIOMessage(msg *types.JupyterMessage, status string, _ string) error {
 	// c.log.Debug("Publishing %v status(%s:%s): %v", types.IOMessage, status, how, msg)
 	c.lastBStatusMsg = msg
 	err := c.server.Sockets.IO.Send(*msg.Msg)

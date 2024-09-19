@@ -2592,22 +2592,27 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 		return ErrKernelNotFound
 	}
 
-	kernel.ExecutionComplete()
+	d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
+		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
+
+	if _, err := kernel.ExecutionComplete(); err != nil {
+		return err
+	}
 
 	// Attempt to load the associated Session.
-	session, ok := d.sessions.Load(kernelId)
-	if !ok {
-		errorMessage := fmt.Sprintf("Failed to locate scheduling.Session[ID=\"%s\"] when handling \"execute_reply\" message...", kernelId)
-		d.log.Error(errorMessage)
-		return fmt.Errorf("%w: Kernel ID: \"%s\"", ErrSessionNotFound, kernelId)
-	}
-
-	// Validate that the Session is currently training.
-	if !session.IsTraining() {
-		sessionState := session.GetState()
-		d.log.Error("Session \"%s\" is supposed to be training (as we just received \"execute_reply\"); however, Session \"%s\" is in state '%v'...", kernelId, kernelId, sessionState)
-		return fmt.Errorf("%w: found session in state '%v'", ErrSessionNotTraining, sessionState)
-	}
+	//session, ok := d.sessions.Load(kernelId)
+	//if !ok {
+	//	errorMessage := fmt.Sprintf("Failed to locate scheduling.Session[ID=\"%s\"] when handling \"execute_reply\" message...", kernelId)
+	//	d.log.Error(errorMessage)
+	//	return fmt.Errorf("%w: Kernel ID: \"%s\"", ErrSessionNotFound, kernelId)
+	//}
+	//
+	//// Validate that the Session is currently training.
+	//if !session.IsTraining() {
+	//	sessionState := session.GetState()
+	//	d.log.Error("Session \"%s\" is supposed to be training (as we just received \"execute_reply\"); however, Session \"%s\" is in state '%v'...", kernelId, kernelId, sessionState)
+	//	return fmt.Errorf("%w: found session in state '%v'", ErrSessionNotTraining, sessionState)
+	//}
 
 	// Record that the Session has stopped training.
 	// TODO: Will there be race conditions here if we've sent multiple "execute_request" messages to the kernel?
@@ -2615,16 +2620,13 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	// TODO: If so, how can we handle these out-of-order requests? We can associate trainings with Jupyter message IDs so that, if we get a >>
 	// TODO: >> training stopped notification, then it needs to match up with the current training, maybe in a queue structure, so that out-of-order >>
 	// TODO: >> messages can be handled properly.
-	p := session.TrainingStopped()
-	err := p.Error()
-	if err != nil {
-		d.log.Error("Error when stopping training for Session \"%s\": %v", kernelId, err)
-		d.notifyDashboardOfError(fmt.Sprintf("Failed to Stop Training for Session \"%s\"", kernelId), err.Error())
-		return err
-	}
-
-	d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
-		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
+	//p := session.TrainingStopped()
+	//err := p.Error()
+	//if err != nil {
+	//	d.log.Error("Error when stopping training for Session \"%s\": %v", kernelId, err)
+	//	d.notifyDashboardOfError(fmt.Sprintf("Failed to Stop Training for Session \"%s\"", kernelId), err.Error())
+	//	return err
+	//}
 
 	return nil
 }
@@ -2649,9 +2651,6 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
 		return fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
 	}
-
-	session.Lock()
-	defer session.Unlock()
 
 	if session.IsTraining() {
 		d.log.Debug("Session %s is already training.", session.ID())

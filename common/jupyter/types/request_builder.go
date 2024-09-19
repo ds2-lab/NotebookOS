@@ -116,7 +116,10 @@ type RequestBuilder struct {
 	connectionInfo *ConnectionInfo
 }
 
-// Create a new RequestBuilder, passing in an optional parent context and the ID of the source of the message, which will usually be a kernel.
+// NewRequestBuilder creates a new RequestBuilder struct, passing in an optional parent context and the ID of the
+// source of the message, which will usually be a kernel.
+//
+// NewRequestBuilder returns a pointer to the newly-created RequestBuilder struct.
 func NewRequestBuilder(parentContext context.Context, sourceId string, destId string, connectionInfo *ConnectionInfo) *RequestBuilder {
 	builder := &RequestBuilder{
 		// requiresAck:              true,
@@ -145,7 +148,7 @@ func NewRequestBuilder(parentContext context.Context, sourceId string, destId st
 // Optional //
 //////////////
 
-// Configure whether the request should require an ACK to be sent by the recipient.
+// WithAckRequired configures whether the request should require an ACK to be sent by the recipient.
 //
 // Configuring this option is OPTIONAL. By default, requests will require ACKs.
 func (b *RequestBuilder) WithAckRequired(required bool) *RequestBuilder {
@@ -153,7 +156,7 @@ func (b *RequestBuilder) WithAckRequired(required bool) *RequestBuilder {
 	return b
 }
 
-// Configure the timeout of the request.
+// WithTimeout configures the timeout of the request.
 //
 // Configuring this option is OPTIONAL. By default, requests do not timeout.
 func (b *RequestBuilder) WithTimeout(timeout time.Duration) *RequestBuilder {
@@ -162,7 +165,7 @@ func (b *RequestBuilder) WithTimeout(timeout time.Duration) *RequestBuilder {
 	return b
 }
 
-// Configure whether the request will be issued in a blocking manner.
+// WithBlocking configures whether the request will be issued in a blocking manner.
 //
 // Configuring this option is OPTIONAL. By default, requests are blocking.
 func (b *RequestBuilder) WithBlocking(blocking bool) *RequestBuilder {
@@ -170,7 +173,7 @@ func (b *RequestBuilder) WithBlocking(blocking bool) *RequestBuilder {
 	return b
 }
 
-// Specify the number of "high-level" retries for this request.
+// WithNumAttempts specifies the number of "high-level" retries for this request.
 // These "high-level" retries are distinct from retries related to message ACKs.
 // This is the number of times an ACK'd message will be resubmitted after timing out.
 //
@@ -182,7 +185,7 @@ func (b *RequestBuilder) WithNumAttempts(numRetries int) *RequestBuilder {
 	return b
 }
 
-// Configure whether the request should have the DEST frame automatically removed.
+// WithRemoveDestFrame configures whether the request should have the DEST frame automatically removed.
 //
 // Configuring this option is OPTIONAL. By default, the DEST frame is automatically removed.
 func (b *RequestBuilder) WithRemoveDestFrame(shouldDestFrameBeRemoved bool) *RequestBuilder {
@@ -194,7 +197,7 @@ func (b *RequestBuilder) WithRemoveDestFrame(shouldDestFrameBeRemoved bool) *Req
 // Required //
 //////////////
 
-// Set the payload of the messasge.
+// WithPayload sets the payload of the message.
 //
 // Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
 func (b *RequestBuilder) WithPayload(msg *zmq4.Msg) *RequestBuilder {
@@ -210,7 +213,7 @@ func (b *RequestBuilder) WithPayload(msg *zmq4.Msg) *RequestBuilder {
 	return b
 }
 
-// Set the payload of the messasge.
+// WithJMsgPayload sets the payload of the message.
 //
 // Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
 func (b *RequestBuilder) WithJMsgPayload(msg *JupyterMessage) *RequestBuilder {
@@ -242,19 +245,20 @@ func (b *RequestBuilder) WithJMsgPayload(msg *JupyterMessage) *RequestBuilder {
 	return b
 }
 
-// Configure the message type of the request.
+// WithMessageType configures the message type of the request.
 func (b *RequestBuilder) WithMessageType(messageType MessageType) *RequestBuilder {
 	b.messageType = messageType
 	return b
 }
 
+// WithSocketProvider configures the JupyterServerInfo of the request.
 func (b *RequestBuilder) WithSocketProvider(socketProvider JupyterServerInfo) *RequestBuilder {
 	b.socketProvider = socketProvider
 
 	return b
 }
 
-// Configure the callback that is executed when the response is received and the request is handled.
+// WithDoneCallback configures the callback that is executed when the response is received and the request is handled.
 // TODO: Might be better to turn this into more of a "clean-up"? Or something?
 //
 // Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
@@ -263,7 +267,7 @@ func (b *RequestBuilder) WithDoneCallback(doneCallback MessageDone) *RequestBuil
 	return b
 }
 
-// Configure handler that is called to process the response to this request.
+// WithMessageHandler configures handler that is called to process the response to this request.
 //
 // Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
 func (b *RequestBuilder) WithMessageHandler(handler MessageHandler) *RequestBuilder {
@@ -283,14 +287,14 @@ func (b *RequestBuilder) extractAndAddDestFrame(destId string, msg *zmq4.Msg) (*
 	return msg, reqId, jOffset
 }
 
-// Build the request as configured.
+// BuildRequest builds the request as configured.
 // This will panic if any required fields are missing.
 //
 // Note that the timeout associated with the Context will become "active" as soon as the request is created.
-func (b *RequestBuilder) BuildRequest() (Request, error) {
+func (b *RequestBuilder) BuildRequest() (*BasicRequest, error) {
 	missingConfigurationParameters := make([]any, 0)
 
-	// Verify that all of the required arguments have been specified.
+	// Verify that all the required arguments have been specified.
 	// We'll return an error if one or more of these arguments are left unspecified.
 
 	if b.payload == nil {
@@ -344,12 +348,20 @@ func (b *RequestBuilder) BuildRequest() (Request, error) {
 
 	// Although this is a little complicated, this IS a possibility.
 	// Depending on where this request is originating, we may or may not want to require ACKs for this message.
+	//
+	// A majority of the time, we will want ACKs for Shell and Control messages.
+	// Once exception is when we know the target kernel is training, and we're sending a Shell message.
+	// We don't know how long the kernel will be training for, and the Shell message will be blocked until the
+	// training completes, so we don't want there to be unnecessary time-outs and resubmissions.
+	//
+	// In this case, it's the sender's responsibility to manually/explicitly resubmit the message if they don't
+	// hear back (but the replica may just be training, and that's why the sender isn't hearing back).
 	if (b.messageType == ShellMessage || b.messageType == ControlMessage) && !b.requiresAck {
-		b.log.Error("Request is of type %v; however, requiresACK is false.", b.messageType)
-		return nil, fmt.Errorf("%w: Request is of type %v; however, requiresACK is false", errInvalidParameter, b.messageType)
+		b.log.Warn("Request is of type %v; however, requiresACK is false.", b.messageType)
+		// return nil, fmt.Errorf("%w: Request is of type %v; however, requiresACK is false", errInvalidParameter, b.messageType)
 	}
 
-	req := &basicRequest{
+	req := &BasicRequest{
 		liveRequestState: &liveRequestState{
 			requestState:        RequestStateInit,
 			hasBeenAcknowledged: false,

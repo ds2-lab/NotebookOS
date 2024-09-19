@@ -109,7 +109,13 @@ type AbstractServer struct {
 	// So, a value of false means that the request has not yet been received, whereas a value of true means that it has.
 	acksReceived hashmap.BaseHashMap[string, bool]
 
+	// ackChannels is a mapping from request ID to the channel on which the ACK delivery notification for that
+	// message is to be sent.
 	ackChannels hashmap.BaseHashMap[string, chan struct{}]
+
+	// discardACKs is a map from Request ID to struct{}{} (basically just a set) of messages whose ACKs we
+	// explicitly don't need.
+	discardACKs hashmap.BaseHashMap[string, struct{}]
 }
 
 func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeType, init func(server *AbstractServer)) *AbstractServer {
@@ -126,6 +132,7 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 		RequestTimeout:   time.Second * 60,
 		acksReceived:     hashmap.NewSyncMap[string, bool](),
 		ackChannels:      hashmap.NewSyncMap[string, chan struct{}](),
+		discardACKs:      hashmap.NewSyncMap[string, struct{}](),
 		nodeType:         nodeType,
 	}
 	init(server)
@@ -225,8 +232,18 @@ func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, soc
 		s.Log.Error("[gid=%d] [3] Received ACK for %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\") via local socket %s [remoteSocket=%s]; however, we were not expecting an ACK for that message...", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), rspId, jMsg.JupyterMessageId(), jMsg.JupyterSession(), socket.Name, socket.RemoteName)
 	} else if ackReceived {
 		s.Log.Error("[gid=%d] [4] Received ACK for %s message %s via local socket %s [remoteSocket=%s]; however, we already received an ACK for that message...", goroutineId, socket.Type.String(), rspId, socket.Name, socket.RemoteName)
-	} else {
-		panic(fmt.Sprintf("[gid=%d] Unexpected condition.", goroutineId))
+	} else if _, loaded = s.discardACKs.LoadAndDelete(rspId); !loaded {
+		// For messages that we explicitly indicate do not require an ACK, we make note of this, just for debugging purposes.
+		// If we receive an ACK for a message, and we have no "ack channel" registered for that message, then we just do a sanity
+		// check and look in the `discardACKs` map to see if we know that we didn't want an ACK for this. If we managed to
+		// get an ACK anyway, then that's fine. But if we don't see an associated entry in `discardACKs`, then we *really*
+		// weren't expecting to get this ACK, so we'll print a warning message.
+		//
+		// (Even if we don't need an ACK, components will still send one. It's just that we're adjusting the send protocol
+		// to not wait for an ACK before returning -- and to not resend if no ACKs are received. Not requiring an ACK
+		// does not prevent ACKs from being transmitted. In the future, we could embed a piece of metadata in the request
+		// that says "you don't need to ACK this message" if we really don't want the ACK to be sent for whatever reason.)
+		s.Log.Warn("[gid=%d] Received unexpected ACK for %s \"%s\" message %s (JupyterID=\"%s\").", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), rspId, jMsg.JupyterMessageId())
 	}
 }
 
@@ -683,9 +700,14 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message from %s to %s [remoteSocket=%s].", goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.JupyterMessageType(), request.SourceID(), request.DestinationId(), socket.RemoteName)
 
 	// dest.Unlock()
-	_, alreadyRegistered := s.RegisterAck(request.RequestId())
-	if alreadyRegistered {
-		s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.JupyterMessageType())
+	if request.RequiresAck() {
+		_, alreadyRegistered := s.RegisterAck(request.RequestId())
+		if alreadyRegistered {
+			s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.JupyterMessageType())
+		}
+	} else {
+		// Record that we don't need an ACK for this request.
+		s.discardACKs.Store(request.RequestId(), struct{}{})
 	}
 
 	// Track the pending request.

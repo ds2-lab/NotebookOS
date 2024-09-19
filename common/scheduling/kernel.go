@@ -63,6 +63,12 @@ type Kernel interface {
 	// Including simulator features:
 	// 	entity.Container.Stop(), Stop() will be implemented outside kernel abstraction. Close() cleans up the kernel resource after kernel stopped.
 	Close() error
+
+	// TrainingStopped should be called when the kernel associated with this client stops actively training.
+	TrainingStopped() error
+
+	// TrainingStarted should be called when the kernel associated with this client begins actively training.
+	TrainingStarted() error
 }
 
 // KernelReplica defines the interface for a jupyter kernel replica.

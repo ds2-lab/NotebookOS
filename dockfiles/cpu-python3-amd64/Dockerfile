@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vi
 # RUN chmod -R 777 /home/jovyan/datasets/*
 
 # Add files
-ADD common/gateway /distributed_notebook/common/gateway
+# ADD common/gateway /distributed_notebook/common/gateway
 ADD common/proto /distributed_notebook/common/proto
 ADD distributed_notebook /distributed_notebook/distributed_notebook
 ADD README.md /distributed_notebook/README.md

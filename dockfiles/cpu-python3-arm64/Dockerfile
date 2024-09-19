@@ -17,7 +17,8 @@ USER root:root
 RUN mkdir -p /storage && chown jovyan:users /storage
 
 # Add files
-ADD common/gateway /distributed_notebook/common/gateway
+# ADD common/gateway /distributed_notebook/common/gateway
+ADD common/proto /distributed_notebook/common/proto
 ADD distributed_notebook /distributed_notebook/distributed_notebook
 ADD README.md /distributed_notebook/README.md
 ADD MANIFEST.in /distributed_notebook/MANIFEST.in
