@@ -825,12 +825,25 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("parent: %s", str(parent))
         self.log.debug("ident: %s" % str(ident))
 
-        # TODO: Can we use the current value of shell.execution_count or synchronizer.execution_count to
-        #       create a task to wait until the next election is over here, such that we will block until
-        #       it finishes before ultimately returning from execute_request, thereby ensuring that subsequent
-        #       "execute_request" messages are properly blocked until they're finished being processed by
-        #       ALL replicas?
         await super().execute_request(stream, ident, parent)
+
+        # TODO: Need to figure out what value to pass to wait_for_election_to_end here...
+
+        # Schedule task to wait until this current election either fails (due to all replicas yielding)
+        # or until the leader finishes executing the user-submitted code.
+        task: asyncio.Task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(self.execution_count - 1))
+
+        # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
+        # the set after completion.
+        task.add_done_callback(self.background_tasks.discard)
+
+        # Wait for the task to end. By not returning here, we ensure that we cannot process any additional
+        # "execute_request" messages until all replicas have finished.
+
+        # TODO: Might there still be race conditions where one replica starts processing a future "exectue_request"
+        #       message before the others, and possibly starts a new election and proposes something before the
+        #       others do?
+        await task
 
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
         """ Respond to a 'ping kernel' Control request. """
@@ -1121,34 +1134,9 @@ class DistributedKernel(IPythonKernel):
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
 
-            # TODO: There's no guarantee this task will run before we start processing another "execute_request".
-            # TODO: Perhaps we override the logic of execute_request and send the response back directly in
-            #       do_execute? Or we create this task in the current execute_request defined in kernel.py, if there
-            #       is a way to determine the outcome of do_execute so that we know if we need to block or not.
-            #       Or maybe we don't have to worry about that, since if we do call wait_for_election_to_end as the
-            #       leader, then it should just return immediately?
-            # Schedule task to wait until this current election either fails (due to all replicas yielding)
-            # or until the leader finishes executing the user-submitted code.
-            task: asyncio.Task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(self.execution_count - 1))
-
-            # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
-            # the set after completion.
-            task.add_done_callback(self.background_tasks.discard)
-
             return self.gen_error_response(eye)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
-
-            # Add task to the set. This creates a strong reference.
-            # We don't await this here so that we can go ahead and send the shell response back.
-            # We'll notify our peer replicas in time.
-            #
-            # TODO: Is this okay, or should we await this before returning?
-            task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(self.execution_count - 1))
-
-            # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
-            # the set after completion.
-            task.add_done_callback(self.background_tasks.discard)
 
             return self.gen_error_response(e)
 
