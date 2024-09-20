@@ -527,10 +527,9 @@ class Election(object):
                              f"(current state: {self._election_state}); cannot transition to execution-complete state")
 
         self._election_state = ElectionState.EXECUTION_COMPLETE
-        self.completion_reason = ExecutionCompleted
 
-        async with self.election_finished_condition:
-            self.election_finished_condition.set()
+        self.completion_reason = ExecutionCompleted
+        self.election_finished_condition.set()
 
         self.logger.debug(f"The code execution phase for election {self.term_number} has completed.")
 
