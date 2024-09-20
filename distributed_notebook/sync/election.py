@@ -250,7 +250,10 @@ class Election(object):
         Return a bool indicating whether the voting phase of this election has completed,
         and that a leader was successfully elected.
         """
-        return self._election_state == ElectionState.VOTE_COMPLETE
+
+        # If the election has also finished the code-execution phase, then the voting phase is necessarily done,
+        # so we also need to check on that.
+        return self._election_state == ElectionState.VOTE_COMPLETE or self.code_execution_completed_successfully
 
     @property
     def code_execution_completed_successfully(self)->bool:

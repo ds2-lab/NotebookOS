@@ -955,9 +955,10 @@ class RaftLog(object):
                     f"attempted to create new election with term number smaller than previous election's term number ({term_number} < {self._current_election.term_number})")
             elif self._current_election is not None and not self._current_election.voting_phase_completed_successfully:
                 self.logger.error(
-                    f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet completed successfully.")
+                    f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet finished its voting phase.")
                 raise ValueError(
-                    f"current election (term number: {self._current_election.term_number}) has not yet completed successfully (current state: {self._current_election._election_state})")
+                    f"current election (term number: {self._current_election.term_number}) has not yet finished its voting phase (current state: {self._current_election._election_state})")
+            elif self._current_election is not None and not self._current_election.code_execution_completed_successfully:
             else:
                 # Create a new election. We don't have an existing election to restart/use.
                 election: Election = Election(term_number, self._num_replicas)

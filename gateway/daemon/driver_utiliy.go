@@ -65,7 +65,7 @@ func CreateConsulAndTracer(options *domain.ClusterGatewayOptions) (opentracing.T
 	return tracer, consulClient
 }
 
-// Build grpc options
+// GetGrpcOptions builds gRPC options for use by the Cluster Gateway.
 func GetGrpcOptions(identity string, tracer opentracing.Tracer, distributedCluster *DistributedCluster) []grpc.ServerOption {
 	gOpts := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(
@@ -85,10 +85,13 @@ func GetGrpcOptions(identity string, tracer opentracing.Tracer, distributedClust
 			),
 		),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Timeout: 120 * time.Second,
+			Timeout:           120 * time.Second,
+			MaxConnectionAge:  time.Duration(1<<63 - 1),
+			MaxConnectionIdle: time.Duration(1<<63 - 1),
 		}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			PermitWithoutStream: true,
+			MinTime:             time.Minute * 2,
 		}),
 	}
 
