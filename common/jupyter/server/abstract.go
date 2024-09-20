@@ -151,7 +151,7 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 		ackChannels:            hashmap.NewSyncMap[string, chan struct{}](),
 		discardACKs:            hashmap.NewSyncMap[string, struct{}](),
 		nodeType:               nodeType,
-		PanicOnFirstFailedSend: true,
+		PanicOnFirstFailedSend: false,
 	}
 	init(server)
 	server.Sockets.All = [5]*types.Socket{server.Sockets.HB, server.Sockets.Control, server.Sockets.Shell, server.Sockets.Stdin, server.Sockets.IO}
@@ -643,21 +643,6 @@ func (s *AbstractServer) replyWithError(originalMessage *types.JupyterMessage, s
 		return generationError
 	}
 
-	//builder := types.NewRequestBuilder(
-	//	context.Background(), originalMessage.DestinationId, originalMessage.DestinationId, s.client.Meta).
-	//	WithAckRequired(false).
-	//	WithMessageType(socket.Type).
-	//	WithBlocking(true).
-	//	WithTimeout(time.Second * 30).
-	//	WithDoneCallback(func() {}).
-	//	WithMessageHandler(func(_ types.JupyterServerInfo, _ types.MessageType, _ *types.JupyterMessage) error {}).
-	//	WithNumAttempts(3).
-	//	WithJMsgPayload(errorMessage).
-	//	WithSocketProvider(s).
-	//	WithRemoveDestFrame(getOption(jupyter.WROptionRemoveDestFrame).(bool))
-	//req, err := builder.BuildRequest()
-	//s.SendRequest(req, socket)
-
 	sendStart := time.Now()
 	err = socket.Send(*(errorMessage.Msg))
 	sendDuration := time.Since(sendStart)
@@ -1052,7 +1037,7 @@ func (s *AbstractServer) onNoAcknowledgementReceived(request types.Request, sock
 		if _, transitionErr := request.SetErred(err); transitionErr != nil {
 			s.Log.Error("Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'erred' state: %v", request.MessageType(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), transitionErr)
 		}
-		
+
 		return err
 	}
 

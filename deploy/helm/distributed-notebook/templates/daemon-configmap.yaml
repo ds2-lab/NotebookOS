@@ -51,3 +51,6 @@ data:
     local_mode: {{ .Values.common.local_mode }}
     execution-time-sampling-window: 10
     migration-time-sampling-window: 10
+    prometheus_interval: {{ .Values.prometheus.prometheus_interval }}
+    prometheus_port: {{ .Values.prometheus.prometheus_port }}
+    num_resend_attempts: {{ .Values.common.num_resend_attempts }}

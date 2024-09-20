@@ -74,6 +74,7 @@ type KernelReplicaClient struct {
 	iobroker                         *MessageBroker[scheduling.Kernel, *types.JupyterMessage, types.JupyterFrames]
 	shell                            *types.Socket    // Listener.
 	iopub                            *types.Socket    // Listener.
+	numResendAttempts                int              // Number of times to try resending a message before giving up.
 	addSourceKernelFrames            bool             // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelReplicaClient's kernel ID.
 	shellListenPort                  int              // Port that the KernelReplicaClient::shell socket listens on.
 	iopubListenPort                  int              // Port that the KernelReplicaClient::iopub socket listens on.
@@ -121,7 +122,7 @@ type KernelReplicaClient struct {
 // If the proto.KernelReplicaSpec argument is nil, or the proto.KernelSpec field of the proto.KernelReplicaSpec
 // argument is nil, then NewKernelReplicaClient will panic.
 func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *types.ConnectionInfo, componentId string,
-	addSourceKernelFrames bool, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
+	addSourceKernelFrames bool, numResendAttempts int, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback,
 	persistentId string, hostId string, host *scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
 	messagingMetricsProvider metrics.MessagingMetricsProvider, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback,
@@ -792,7 +793,7 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 		WithTimeout(timeout).
 		WithDoneCallback(done).
 		WithMessageHandler(wrappedHandler).
-		WithNumAttempts(3).
+		WithNumAttempts(c.numResendAttempts).
 		WithJMsgPayload(msg).
 		WithSocketProvider(c).
 		WithRemoveDestFrame(getOption(jupyter.WROptionRemoveDestFrame).(bool))

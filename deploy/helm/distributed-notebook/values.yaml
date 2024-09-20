@@ -94,7 +94,12 @@ common:
   node_local_pvc_mount_point: "node_local"
   use_stateful_set: false # If true, use StatefulSets for the distributed kernel replica pods. If false, use CloneSets.
   debug: true
-  local_mode: false 
+  local_mode: false
+  num_resend_attempts: 1
+
+prometheus:
+  prometheus_interval: 15
+  prometheus_port: 8089
 
 ingress:
   enabled: false

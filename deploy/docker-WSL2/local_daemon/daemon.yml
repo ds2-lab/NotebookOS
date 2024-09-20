@@ -47,3 +47,4 @@ docker-storage-base: "/storage"
 using-wsl: true 
 prometheus_interval: 15
 prometheus_port: 8089
+num_resend_attempts: 1

@@ -46,6 +46,7 @@ type ClusterDaemonOptions struct {
 	DockerNetworkName                  string `name:"docker_network_name"              json:"docker_network_name"               yaml:"docker_network_name"                 description:"The name of the Docker network that the container is running within. Only used in Docker mode."`
 	PrometheusInterval                 int    `name:"prometheus_interval"              json:"prometheus_interval"               yaml:"prometheus_interval"                 description:"Frequency in seconds of how often to publish metrics to Prometheus. So, setting this to 5 means we publish metrics roughly every 5 seconds."`
 	PrometheusPort                     int    `name:"prometheus_port"                  json:"prometheus_port"                   yaml:"prometheus_port"                     description:"The port on which this local daemon will serve Prometheus metrics. Default/suggested: 8089."`
+	NumResendAttempts                  int    `name:"num_resend_attempts"              json:"num_resend_attempts"               yaml:"num_resend_attempts"                 description:"The number of times to attempt to resend a message before giving up."`
 }
 
 // IsLocalMode returns true if the deployment mode is specified as "local".

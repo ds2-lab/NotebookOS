@@ -42,6 +42,7 @@ type SchedulerDaemonOptions struct {
 	UsingWSL             bool   `name:"using-wsl" description:"Flag indicating whether we're running within WSL2 (Windows Subsystem for Linux). Requires additional networking configuring for the Docker containers."`
 	PrometheusInterval   int    `name:"prometheus_interval" description:"Frequency in seconds of how often to publish metrics to Prometheus. So, setting this to 5 means we publish metrics roughly every 5 seconds."`
 	PrometheusPort       int    `name:"prometheus_port" description:"The port on which this local daemon will serve Prometheus metrics. Default/suggested: 8089."`
+	NumResendAttempts    int    `name:"num_resend_attempts" description:"The number of times to attempt to resend a message before giving up."`
 }
 
 // IsKubernetesMode returns true if the deployment mode is specified as "kubernetes".

@@ -107,6 +107,9 @@ type SchedulerDaemonImpl struct {
 	// There's a simple TCP server that listens for kernel registration notifications on this port.
 	kernelRegistryPort int
 
+	// numResendAttempts is the number of times to try resending a message before giving up.
+	numResendAttempts int
+
 	availablePorts *utils.AvailablePorts
 
 	// Manages resource allocations on behalf of the Local Daemon.
@@ -178,6 +181,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		usingWSL:                     schedulerDaemonOptions.UsingWSL,
 		prometheusInterval:           time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
 		prometheusPort:               schedulerDaemonOptions.PrometheusPort,
+		numResendAttempts:            schedulerDaemonOptions.NumResendAttempts,
 	}
 
 	for _, configFunc := range configs {
@@ -644,7 +648,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
 		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id, true,
-			listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName,
+			d.numResendAttempts, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName,
 			d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, metrics.LocalDaemon, false,
 			false, d.prometheusManager, d.kernelReconnectionFailed,
 			d.kernelRequestResubmissionFailedAfterReconnection)
@@ -1350,12 +1354,12 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 
 	listenPorts, err := d.availablePorts.RequestPorts()
 	if err != nil {
-		d.log.Error("Failed to request listen ports for new kerenl %s because: %v", in.ID(), err)
+		d.log.Error("Failed to request listen ports for new kernel %s because: %v", in.ID(), err)
 		return nil, err
 	}
 
-	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, true, listenPorts[0],
-		listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
+	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, true, d.numResendAttempts,
+		listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
 		"", d.id, nil, metrics.LocalDaemon, false, false, d.prometheusManager,
 		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
@@ -2157,7 +2161,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelInfo
 		WithTimeout(jupyter.DefaultRequestTimeout).
 		WithDoneCallback(jupyter.DefaultDoneHandler).
 		WithMessageHandler(jupyter.DefaultMessageHandler).
-		WithNumAttempts(3).
+		WithNumAttempts(d.numResendAttempts).
 		WithSocketProvider(from).
 		WithJMsgPayload(msg)
 	request, err := builder.BuildRequest()

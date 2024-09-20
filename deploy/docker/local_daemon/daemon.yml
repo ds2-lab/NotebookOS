@@ -44,3 +44,4 @@ local_mode: false
 deployment_mode: "docker"
 debug_port: 9996
 docker-storage-base: "/storage"
+num_resend_attempts: 1

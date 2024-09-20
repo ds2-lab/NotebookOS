@@ -172,7 +172,13 @@ type ClusterGatewayImpl struct {
 	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
 	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
 
+	// activeExecutions is a mapping of all the active code executions occurring on kernel replicas right now.
+	// This also includes enqueued executions that may not have started yet due to being stuck behind another
+	// active (or enqueued) execution on a kernel replica.
 	activeExecutions hashmap.HashMap[string, *scheduling.ActiveExecution]
+
+	// numResendAttempts is the number of times to try resending a message before giving up.
+	numResendAttempts int
 
 	// We configure a pool of available ports through Kubernetes.
 	// This is the pool of ports. We use these ports to create ZMQ sockets for kernels.
@@ -266,6 +272,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		activeExecutions:                      hashmap.NewCornelkMap[string, *scheduling.ActiveExecution](64),
 		hdfsNameNodeEndpoint:                  clusterDaemonOptions.HdfsNameNodeEndpoint,
 		dockerNetworkName:                     clusterDaemonOptions.DockerNetworkName,
+		numResendAttempts:                     clusterDaemonOptions.NumResendAttempts,
 	}
 	for _, configFunc := range configs {
 		configFunc(clusterGateway)
@@ -1718,9 +1725,9 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(),
-		d.id, false, -1, -1, in.PodName, in.NodeName, nil, nil,
-		kernel.PersistentID(), in.HostId, host, metrics.ClusterGateway, true, true, d.gatewayPrometheusManager,
-		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		d.id, false, d.numResendAttempts, -1, -1, in.PodName, in.NodeName,
+		nil, nil, kernel.PersistentID(), in.HostId, host, metrics.ClusterGateway, true,
+		true, d.gatewayPrometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 	err := replica.Validate()
 	if err != nil {
@@ -1914,8 +1921,8 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(),
-		d.id, false, -1, -1, kernelPodName, nodeName, nil,
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), d.id,
+		false, d.numResendAttempts, -1, -1, kernelPodName, nodeName, nil,
 		nil, kernel.PersistentID(), hostId, host, metrics.ClusterGateway, true, true,
 		d.gatewayPrometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
