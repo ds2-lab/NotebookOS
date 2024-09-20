@@ -179,6 +179,16 @@ class Synchronizer:
         # Failed to lead the term
         return 0
 
+    @property
+    def current_election(self):
+        """
+        :return: the current election, if one exists.
+        """
+        if self._synclog is None:
+            return None
+
+        return self._synclog.current_election
+
     async def propose_yield(self, execution_count: int) -> int:
         """Propose to yield the next execution to another replica.
 

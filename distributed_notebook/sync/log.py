@@ -285,6 +285,12 @@ class SyncLog(Protocol):
     def term(self) -> int:  # type: ignore
         """Current term."""
 
+    @property
+    def current_election(self):
+        """
+        :return: the current election, if one exists
+        """
+
     def start(self, handler):
         """Register change handler, restore internel states, and start monitoring changes.
           handler will be in the form listerner(key, val: SyncValue)"""
@@ -331,7 +337,6 @@ class SyncLog(Protocol):
 
     def close(self):
         """Ensure all async coroutines end and clean up."""
-
 
 @runtime_checkable
 class Checkpointer(Protocol):

@@ -25,6 +25,7 @@ from traitlets import List, Integer, Unicode, Bool, Undefined
 
 from .util import extract_header
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
+from ..sync.election import Election
 
 
 # from traitlets.traitlets import Set
@@ -831,7 +832,9 @@ class DistributedKernel(IPythonKernel):
 
         # Schedule task to wait until this current election either fails (due to all replicas yielding)
         # or until the leader finishes executing the user-submitted code.
-        task: asyncio.Task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(self.execution_count - 1))
+        current_election: Election = self.synchronizer.current_election
+        term_number: int = current_election.term_number
+        task: asyncio.Task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(term_number))
 
         # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
         # the set after completion.
@@ -843,6 +846,8 @@ class DistributedKernel(IPythonKernel):
         # TODO: Might there still be race conditions where one replica starts processing a future "exectue_request"
         #       message before the others, and possibly starts a new election and proposes something before the
         #       others do?
+        self.log.debug(f"Waiting for election {term_number} "
+                       "to be totally finished before returning from execute_request function.")
         await task
 
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
@@ -1006,12 +1011,16 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Sent the following reply after yield_execute: %s" % reply_msg)
 
-        # Block until the leader finishes executing the code, or until we know that all replicas yielded,
-        # in which case we can just return, as the code will presumably be resubmitted shortly.
-        await self.synchronizer.wait_for_election_to_end(self.synchronizer.execution_count + 1)
-
         if not silent and error_occurred and stop_on_error:  # reply_msg["content"]["status"] == "error"
             self._abort_queues()
+
+        # Block until the leader finishes executing the code, or until we know that all replicas yielded,
+        # in which case we can just return, as the code will presumably be resubmitted shortly.
+        current_election: Election = self.synchronizer.current_election
+        term_number: int = current_election.term_number
+        self.log.debug(f"Waiting for election {term_number} "
+                       "to be totally finished before returning from yield_execute function.")
+        await self.synchronizer.wait_for_election_to_end(term_number)
 
     async def do_execute(self, code: str, silent: bool, store_history: bool = True, user_expressions: dict = None,
                          allow_stdin: bool = False):

@@ -2,7 +2,6 @@ import asyncio
 import datetime
 import logging
 import time
-import threading
 
 from typing import Dict, Optional, List, Type, MutableMapping, Any
 from enum import Enum
@@ -130,6 +129,7 @@ class Election(object):
         # This condition is also marked as complete if a notification is received that all replicas
         # proposed yield.
         self.election_finished_condition = asyncio.Event()
+        self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
         # The completion_reason specifies why notify was called on the election_finished_condition field.
         # The reasons can be that the leader has finished executing the user-submitted code for this election term,
@@ -509,13 +509,32 @@ class Election(object):
         self._election_state = ElectionState.FAILED
 
         self.completion_reason = AllReplicasProposedYield
-        self.election_finished_condition.set()
+
+        if self.election_finished_condition_waiter_loop is None:
+            raise ValueError("Reference to EventLoop on which someone should be waiting on the "
+                             "Election Finished condition is None...")
+
+        # If (somehow) the running event loop is the same as the one in which the waiter is waiting,
+        # then we can call self.election_finished_condition.set() directly.
+        #
+        # Otherwise, we have to use call_soon_threadsafe to call the self.election_finished_condition.set method.
+        current_event_loop: Optional[asyncio.AbstractEventLoop] = None
+        try:
+            current_event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+        if current_event_loop != self.election_finished_condition_waiter_loop:
+            self.election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_condition.set)
+        else:
+            self.election_finished_condition.set()
 
     async def wait_for_election_to_end(self):
         """
         Wait for the election to end (or enter the failed state), either because the elected leader of this election
         successfully finished executing the user-submitted code, or because all replicas proposed YIELD.
         """
+        self.election_finished_condition_waiter_loop = asyncio.get_running_loop()
         await self.election_finished_condition.wait()
 
     def set_execution_complete(self):
@@ -532,7 +551,25 @@ class Election(object):
         self._election_state = ElectionState.EXECUTION_COMPLETE
 
         self.completion_reason = ExecutionCompleted
-        self.election_finished_condition.set()
+
+        if self.election_finished_condition_waiter_loop is None:
+            raise ValueError("Reference to EventLoop on which someone should be waiting on the "
+                             "Election Finished condition is None...")
+
+        current_event_loop: Optional[asyncio.AbstractEventLoop] = None
+        try:
+            current_event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+        # If (somehow) the running event loop is the same as the one in which the waiter is waiting,
+        # then we can call self.election_finished_condition.set() directly.
+        #
+        # Otherwise, we have to use call_soon_threadsafe to call the self.election_finished_condition.set method.
+        if current_event_loop != self.election_finished_condition_waiter_loop:
+            self.election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_condition.set)
+        else:
+            self.election_finished_condition.set()
 
         self.logger.debug(f"The code execution phase for election {self.term_number} has completed.")
 
@@ -657,7 +694,7 @@ class Election(object):
                 raise ValueError(f"new proposal has attempt number {current_attempt_number}, whereas previous/existing proposal has attempt number {prev_attempt_number}")
 
         # TODO: Modified this to only discard proposals if we've received at least one so far. If we haven't received any yet, then we still accept proposals after the delay.
-        if self._discard_after > 0 and received_at > self._discard_after and len(self._vote_proposals) >= 1: # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
+        if 0 < self._discard_after < received_at and len(self._vote_proposals) >= 1: # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
             self._num_discarded_vote_proposals += 1
             self.logger.debug(f"Discarding 'VOTE' proposal from node {vote.proposer_id}, as it was received after deadline. (Deadline: {datetime.datetime.fromtimestamp(self._discard_after).strftime('%Y-%m-%d %H:%M:%S.%f')}, Received at: {datetime.datetime.fromtimestamp(received_at).strftime('%Y-%m-%d %H:%M:%S.%f')})")
             return False

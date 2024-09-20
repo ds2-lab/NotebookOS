@@ -6,6 +6,7 @@ import pickle
 import sys
 import threading
 import time
+import traceback
 from collections import OrderedDict
 from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 
@@ -487,7 +488,9 @@ class RaftLog(object):
             ret = self._valueCommitted(goObject, value_size, value_id)
         except Exception as ex:
             self.logger.error(
-                f"Exception encountered in self._valueCommitted while handling value with ID=\"{value_id}\" of size {value_size} bytes: {str(ex)}")
+                f"Exception encountered in self._valueCommitted while handling synchronized value with "
+                f"ID=\"{value_id}\" of size {value_size} bytes: {str(ex)}. Traceback: "
+                f"{''.join(traceback.format_exception(type(ex), ex, ex.__traceback__, 99))}")
             print_trace(limit=10)
             sys.stderr.flush()
             sys.stdout.flush()
@@ -959,6 +962,10 @@ class RaftLog(object):
                 raise ValueError(
                     f"current election (term number: {self._current_election.term_number}) has not yet finished its voting phase (current state: {self._current_election._election_state})")
             elif self._current_election is not None and not self._current_election.code_execution_completed_successfully:
+                self.logger.error(
+                    f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet finished the execution phase.")
+                raise ValueError(
+                    f"current election (term number: {self._current_election.term_number}) has not yet finished the execution phase (current state: {self._current_election._election_state})")
             else:
                 # Create a new election. We don't have an existing election to restart/use.
                 election: Election = Election(term_number, self._num_replicas)
@@ -1586,8 +1593,12 @@ class RaftLog(object):
 
         notification = ExecutionCompleteNotification(proposer_id=self._node_id, election_term=term_number)
         self.logger.debug("Serializing and appending "
-                          f"ExecutionCompleteNotification[Node={self._node_id},Term={term_number}] now.")
+                          f"ExecutionCompleteNotification[Node={self._node_id},Term={term_number},"
+                          f"ValueID={notification.id}] now.")
         await self._serialize_and_append_value(notification)
+        self.logger.debug("Finished serializing and appending "
+                          f"ExecutionCompleteNotification[Node={self._node_id},Term={term_number},"
+                          f"ValueID={notification.id}].")
 
     async def try_lead_execution(self, term_number: int) -> bool:
         """
