@@ -21,7 +21,7 @@ var (
 type ClusterIndexQualification int
 
 const (
-	CategoryClusterIndex = "BasicCluster"
+	CategoryClusterIndex = "BaseCluster"
 
 	// ClusterIndexDisqualified indicates that the host has been indexed and unqualified now.
 	ClusterIndexDisqualified ClusterIndexQualification = -1
@@ -70,7 +70,7 @@ type ClusterIndex interface {
 	ClusterIndexQuerier
 }
 
-// Cluster defines the interface for a BasicCluster that is responsible for:
+// Cluster defines the interface for a BaseCluster that is responsible for:
 // 1. Launching and terminating hosts.
 // 2. Providing a global view of all hosts with multiple indexes.
 // 3. Providing a statistics of the hosts.
@@ -81,7 +81,7 @@ type Cluster interface {
 	// ReleaseHost terminate a host
 	ReleaseHost(id string) promise.Promise
 
-	// GetHostManager returns the host manager of the BasicCluster.
+	// GetHostManager returns the host manager of the BaseCluster.
 	GetHostManager() hashmap.HashMap[string, *Host]
 
 	// RegisterScaleOperation registers a non-specific type of ScaleOperation.
@@ -103,7 +103,7 @@ type Cluster interface {
 	// When the operation completes, a notification is sent on the channel associated with the ScaleOperation.
 	RegisterScaleInOperation(string, int32) (*ScaleOperation, error)
 
-	// AddIndex adds an index to the BasicCluster. For each category and expected value, there can be only one index.
+	// AddIndex adds an index to the BaseCluster. For each category and expected value, there can be only one index.
 	AddIndex(index ClusterIndexProvider) error
 
 	// ActiveScaleOperation returns the active scaling operation, if one exists.
@@ -136,9 +136,17 @@ type Cluster interface {
 
 	// SetSubscriptionRatio sets the SubscriptionRatio of the Cluster.
 	SetSubscriptionRatio(float64)
+
+	// HandleScaleInOperation handles a scale-in operation, removing the necessary Host instances from the Cluster.
+	HandleScaleInOperation(op *ScaleOperation) promise.Promise
+
+	// HandleScaleOutOperation handles a scale-out operation, adding the necessary Host instances to the Cluster.
+	HandleScaleOutOperation(op *ScaleOperation) promise.Promise
 }
 
-type BasicCluster struct {
+type BaseCluster struct {
+	instance Cluster
+
 	// hosts is a map from host ID to *Host containing all the Host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, *Host]
 
@@ -165,10 +173,10 @@ type BasicCluster struct {
 	hostMutex      sync.Mutex
 }
 
-// newBaseCluster creates a new BasicCluster struct and returns a pointer to it.
+// newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
-func newBaseCluster(gpusPerHost int) *BasicCluster {
-	cluster := &BasicCluster{
+func newBaseCluster(gpusPerHost int) *BaseCluster {
+	cluster := &BaseCluster{
 		gpusPerHost:       gpusPerHost,
 		subscriptionRatio: 7.0,
 		hosts:             hashmap.NewConcurrentMap[*Host](256),
@@ -178,91 +186,39 @@ func newBaseCluster(gpusPerHost int) *BasicCluster {
 	return cluster
 }
 
-func (c *BasicCluster) SubscriptionRatio() float64 {
+func (c *BaseCluster) SubscriptionRatio() float64 {
 	return c.subscriptionRatio
 }
 
-func (c *BasicCluster) SetSubscriptionRatio(ratio float64) {
+func (c *BaseCluster) SetSubscriptionRatio(ratio float64) {
 	c.subscriptionRatio = ratio
 }
 
-// NewDockerCluster creates a new BasicCluster struct and returns a pointer to it.
-//
-// NewDockerCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
-// This function accepts parameters that are used to construct a DockerScheduler to be used internally
-// by the Cluster for scheduling decisions.
-func NewDockerCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BasicCluster {
-	cluster := newBaseCluster(opts.GpusPerHost)
-
-	placer, err := NewRandomPlacer(cluster, opts)
-	if err != nil {
-		cluster.log.Error("Failed to create Random Placer: %v", err)
-		panic(err)
-	}
-	cluster.placer = placer
-
-	scheduler, err := NewDockerScheduler(gatewayDaemon, cluster, placer, hostSpec, opts)
-	if err != nil {
-		cluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
-		panic(err)
-	}
-
-	cluster.scheduler = scheduler
-
-	return cluster
-}
-
-// NewKubernetesCluster creates a new BasicCluster struct and returns a pointer to it.
-//
-// NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
-// This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
-// by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
-func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BasicCluster {
-	cluster := newBaseCluster(opts.GpusPerHost)
-
-	placer, err := NewRandomPlacer(cluster, opts)
-	if err != nil {
-		cluster.log.Error("Failed to create Random Placer: %v", err)
-		panic(err)
-	}
-	cluster.placer = placer
-
-	scheduler, err := NewKubernetesScheduler(gatewayDaemon, cluster, placer, hostSpec, kubeClient, opts)
-	if err != nil {
-		cluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
-		panic(err)
-	}
-
-	cluster.scheduler = scheduler
-
-	return cluster
-}
-
 // Placer returns the Placer used by the Cluster.
-func (c *BasicCluster) Placer() Placer {
+func (c *BaseCluster) Placer() Placer {
 	return c.placer
 }
 
 // LockHosts locks the underlying host manager such that no Host instances can be added or removed.
-func (c *BasicCluster) LockHosts() {
+func (c *BaseCluster) LockHosts() {
 	c.hostMutex.Lock()
 }
 
 // UnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
 //
 // The caller must have already acquired the hostMutex or this function will fail panic.
-func (c *BasicCluster) UnlockHosts() {
+func (c *BaseCluster) UnlockHosts() {
 	c.hostMutex.Unlock()
 }
 
 // ClusterScheduler returns the ClusterScheduler used by the Cluster.
-func (c *BasicCluster) ClusterScheduler() ClusterScheduler {
+func (c *BaseCluster) ClusterScheduler() ClusterScheduler {
 	return c.scheduler
 }
 
 // ActiveScaleOperation returns the active scaling operation, if one exists.
 // If there is no active scaling operation, then ActiveScaleOperation returns nil.
-func (c *BasicCluster) ActiveScaleOperation() *ScaleOperation {
+func (c *BaseCluster) ActiveScaleOperation() *ScaleOperation {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -270,7 +226,7 @@ func (c *BasicCluster) ActiveScaleOperation() *ScaleOperation {
 }
 
 // IsThereAnActiveScaleOperation returns true if there is an active scaling operation taking place right now.
-func (c *BasicCluster) IsThereAnActiveScaleOperation() bool {
+func (c *BaseCluster) IsThereAnActiveScaleOperation() bool {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -286,7 +242,7 @@ func (c *BasicCluster) IsThereAnActiveScaleOperation() bool {
 //
 // Alternatively, if the target node count is less than the current node count, then a ScaleInOperation is created,
 // registered, and returned.
-func (c *BasicCluster) RegisterScaleOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
+func (c *BaseCluster) RegisterScaleOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -325,7 +281,7 @@ func (c *BasicCluster) RegisterScaleOperation(operationId string, targetClusterS
 // When the operation completes, a notification is sent on the channel passed to this function.
 //
 // If there is already an active scaling operation taking place, then an error is returned.
-func (c *BasicCluster) RegisterScaleOutOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
+func (c *BaseCluster) RegisterScaleOutOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -355,7 +311,7 @@ func (c *BasicCluster) RegisterScaleOutOperation(operationId string, targetClust
 // When the operation completes, a notification is sent on the channel passed to this function.
 //
 // If there already exists a scale operation with the same ID, then the existing scale operation is returned along with an error.
-func (c *BasicCluster) RegisterScaleInOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
+func (c *BaseCluster) RegisterScaleInOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -381,19 +337,27 @@ func (c *BasicCluster) RegisterScaleInOperation(operationId string, targetCluste
 	return scaleOperation, nil
 }
 
-func (c *BasicCluster) RequestHost(spec types.Spec) promise.Promise {
-	return promise.Resolved(nil, promise.ErrNotImplemented)
+func (c *BaseCluster) RequestHost(spec types.Spec) promise.Promise {
+	return c.instance.RequestHost(spec)
 }
 
-func (c *BasicCluster) ReleaseHost(id string) promise.Promise {
-	return promise.Resolved(nil, promise.ErrNotImplemented)
+func (c *BaseCluster) ReleaseHost(id string) promise.Promise {
+	return c.instance.ReleaseHost(id)
 }
 
-func (c *BasicCluster) GetHostManager() hashmap.HashMap[string, *Host] {
+func (c *BaseCluster) HandleScaleInOperation(op *ScaleOperation) promise.Promise {
+	return c.instance.HandleScaleInOperation(op)
+}
+
+func (c *BaseCluster) HandleScaleOutOperation(op *ScaleOperation) promise.Promise {
+	return c.instance.HandleScaleOutOperation(op)
+}
+
+func (c *BaseCluster) GetHostManager() hashmap.HashMap[string, *Host] {
 	return c
 }
 
-func (c *BasicCluster) AddIndex(index ClusterIndexProvider) error {
+func (c *BaseCluster) AddIndex(index ClusterIndexProvider) error {
 	category, expected := index.Category()
 	key := fmt.Sprintf("%s:%v", category, expected)
 	if _, ok := c.indexes.Load(key); ok {
@@ -406,7 +370,7 @@ func (c *BasicCluster) AddIndex(index ClusterIndexProvider) error {
 
 // checkIfScalingComplete is used to check if there is an active scaling operation and, if there is, then to check
 // if that operation is complete.
-func (c *BasicCluster) checkIfScalingComplete() {
+func (c *BaseCluster) checkIfScalingComplete() {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -427,8 +391,8 @@ func (c *BasicCluster) checkIfScalingComplete() {
 	}
 }
 
-// onHostAdded is called when a host is added to the BasicCluster.
-func (c *BasicCluster) onHostAdded(host *Host) {
+// onHostAdded is called when a host is added to the BaseCluster.
+func (c *BaseCluster) onHostAdded(host *Host) {
 	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
 		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == ClusterIndexNewQualified {
 			c.log.Debug("Adding new host to index: %v", host)
@@ -446,8 +410,8 @@ func (c *BasicCluster) onHostAdded(host *Host) {
 	c.checkIfScalingComplete()
 }
 
-// onHostRemoved is called when a host is deleted from the BasicCluster.
-func (c *BasicCluster) onHostRemoved(host *Host) {
+// onHostRemoved is called when a host is deleted from the BaseCluster.
+func (c *BaseCluster) onHostRemoved(host *Host) {
 	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
 		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != ClusterIndexUnqualified {
 			index.Remove(host)
@@ -465,12 +429,12 @@ func (c *BasicCluster) onHostRemoved(host *Host) {
 //
 // Alternatively, if ValidateCapacity determines that there are more Host instances provisioned than
 // are truly needed, then some Host instances will be terminated to reduce unnecessary resource usage.
-func (c *BasicCluster) ValidateCapacity() {
+func (c *BaseCluster) ValidateCapacity() {
 	c.scheduler.ValidateCapacity()
 }
 
 // BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
-func (c *BasicCluster) BusyGPUs() float64 {
+func (c *BaseCluster) BusyGPUs() float64 {
 	busyGPUs := 0.0
 	c.hosts.Range(func(_ string, host *Host) (contd bool) {
 		busyGPUs += host.CommittedGPUs()
@@ -481,7 +445,7 @@ func (c *BasicCluster) BusyGPUs() float64 {
 }
 
 // DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
-func (c *BasicCluster) DemandGPUs() float64 {
+func (c *BaseCluster) DemandGPUs() float64 {
 	panic("Not implemented")
 }
 
@@ -490,18 +454,18 @@ func (c *BasicCluster) DemandGPUs() float64 {
 ////////////////////////////
 
 // Len returns the number of *Host instances in the Cluster.
-func (c *BasicCluster) Len() int {
+func (c *BaseCluster) Len() int {
 	return c.hosts.Len()
 }
 
-func (c *BasicCluster) Load(key string) (*Host, bool) {
+func (c *BaseCluster) Load(key string) (*Host, bool) {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
 	return c.hosts.Load(key)
 }
 
-func (c *BasicCluster) Store(key string, value *Host) {
+func (c *BaseCluster) Store(key string, value *Host) {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
@@ -509,7 +473,7 @@ func (c *BasicCluster) Store(key string, value *Host) {
 	c.onHostAdded(value)
 }
 
-func (c *BasicCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
+func (c *BaseCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
@@ -521,14 +485,14 @@ func (c *BasicCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
 }
 
 // CompareAndSwap is not supported in host provisioning and will always return false.
-func (c *BasicCluster) CompareAndSwap(_ string, oldValue, _ *Host) (*Host, bool) {
+func (c *BaseCluster) CompareAndSwap(_ string, oldValue, _ *Host) (*Host, bool) {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
 	return oldValue, false
 }
 
-func (c *BasicCluster) LoadAndDelete(key string) (*Host, bool) {
+func (c *BaseCluster) LoadAndDelete(key string) (*Host, bool) {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
@@ -539,7 +503,7 @@ func (c *BasicCluster) LoadAndDelete(key string) (*Host, bool) {
 	return host, ok
 }
 
-func (c *BasicCluster) Delete(key string) {
+func (c *BaseCluster) Delete(key string) {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
@@ -549,7 +513,7 @@ func (c *BasicCluster) Delete(key string) {
 // Range executes the provided function on each Host in the Cluster.
 //
 // Importantly, this function does NOT lock the hostsMutex.
-func (c *BasicCluster) Range(f func(key string, value *Host) bool) {
+func (c *BaseCluster) Range(f func(key string, value *Host) bool) {
 	c.hosts.Range(f)
 }
 
@@ -557,14 +521,14 @@ func (c *BasicCluster) Range(f func(key string, value *Host) bool) {
 // This is an alias for the Range function.
 //
 // Importantly, this function does NOT lock the hostsMutex.
-func (c *BasicCluster) RangeUnsafe(f func(key string, value *Host) bool) {
+func (c *BaseCluster) RangeUnsafe(f func(key string, value *Host) bool) {
 	c.hosts.Range(f)
 }
 
 // RangeLocked executes the provided function on each Host in the Cluster.
 //
 // Importantly, this function DOES lock the hostsMutex.
-func (c *BasicCluster) RangeLocked(f func(key string, value *Host) bool) {
+func (c *BaseCluster) RangeLocked(f func(key string, value *Host) bool) {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 

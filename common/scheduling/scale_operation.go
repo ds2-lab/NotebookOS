@@ -25,6 +25,7 @@ const (
 var (
 	ErrInvalidTargetScale      = status.Error(codes.InvalidArgument, "invalid target scale specified")
 	ErrScalingInvalidOperation = status.Error(codes.Internal, "scale operation is in invalid state for requested operation")
+	ErrIncorrectScaleOperation = status.Error(codes.Internal, "scale operation is of incorrect type")
 )
 
 type ScaleOperationType string
