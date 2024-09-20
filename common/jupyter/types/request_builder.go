@@ -15,6 +15,7 @@ import (
 
 const (
 	DefaultRequestTimeout = time.Second * 120
+	DefaultAckTimeout     = time.Second * 5
 )
 
 var (
@@ -39,6 +40,12 @@ type RequestBuilder struct {
 	// Should the request require ACKs
 	// Default: true
 	requiresAck bool
+
+	// ackTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
+	// recipient before either resubmitting the Request or returning an error.
+	//
+	// Default: 5 seconds.
+	ackTimeout time.Duration
 
 	// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
 	// Default: infinite.
@@ -71,15 +78,6 @@ type RequestBuilder struct {
 
 	// The handler that is called to process the response to this request.
 	handler MessageHandler
-
-	// The client socket to forward the request.
-	// socket *Socket
-
-	// Entity that implements the SourceKernel interface and thus can add the SourceKernel frame to the message.
-	// sourceKernel SourceKernel
-
-	// The info of request destination that the WaitResponse can use to track individual request.
-	// dest RequestDest
 
 	// The entity responsible for providing access to sockets in the request handler.
 	socketProvider JupyterServerInfo
@@ -131,6 +129,7 @@ func NewRequestBuilder(parentContext context.Context, sourceId string, destId st
 		sourceId:                 sourceId,
 		destinationId:            destId,
 		connectionInfo:           connectionInfo,
+		ackTimeout:               DefaultAckTimeout,
 	}
 
 	if parentContext != nil {
@@ -156,9 +155,17 @@ func (b *RequestBuilder) WithAckRequired(required bool) *RequestBuilder {
 	return b
 }
 
+// WithAckTimeout configures the AckTimeout of the Request.
+//
+// Configuring this option is OPTIONAL. By default, the AckTimeout is set to 5 seconds.
+func (b *RequestBuilder) WithAckTimeout(ackTimeout time.Duration) *RequestBuilder {
+	b.ackTimeout = ackTimeout
+	return b
+}
+
 // WithTimeout configures the timeout of the request.
 //
-// Configuring this option is OPTIONAL. By default, requests do not timeout.
+// Configuring this option is OPTIONAL. By default, requests do not time-out.
 func (b *RequestBuilder) WithTimeout(timeout time.Duration) *RequestBuilder {
 	b.timeout = timeout
 	b.hasTimeout = true
@@ -384,6 +391,7 @@ func (b *RequestBuilder) BuildRequest() (*BasicRequest, error) {
 		socketProvider:           b.socketProvider,
 		messageType:              b.messageType,
 		requiresAck:              b.requiresAck,
+		ackTimeout:               b.ackTimeout,
 	}
 
 	var (

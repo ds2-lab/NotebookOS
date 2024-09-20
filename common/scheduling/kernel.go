@@ -87,7 +87,7 @@ type KernelReplica interface {
 	// InitializeIOSub initializes the io subscriber of the replica with customized handler.
 	InitializeIOSub(handler jupyter.MessageHandler, subscriptionTopic string) (*jupyter.Socket, error)
 
-	// IsReady returns true if the replica has registered and joined its SMR cluster.
+	// IsReady returns true if the replica has registered and joined its SMR Cluster.
 	// Only used by the Cluster Gateway, not by the Local Daemon.
 	IsReady() bool
 

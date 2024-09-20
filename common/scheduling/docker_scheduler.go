@@ -217,21 +217,39 @@ func (s *DockerScheduler) pollForResourceData() {
 	// Keep track of failed gRPC requests.
 	// If too many requests fail in a row, then we'll assume that the Host is dead.
 	numConsecutiveFailuresPerHost := make(map[string]int)
+	lastSync := time.Now()
 
 	for {
 		s.cluster.LockHosts()
 		hostManager := s.cluster.GetHostManager()
 
+		// If we've forcibly synchronized this Host recently (i.e., within half the synchronization interval ago),
+		// then we'll just skip it to save network bandwidth.
+
+		// This should be approximately equal to s.remoteSynchronizationInterval
+		timeSinceLastSync := time.Now().Sub(lastSync)
+
+		// ts is the time exactly "a quarter of the interval since the last synchronization" ago.
+		// So, if we last synchronized 16 min ago, then ts is equal to whatever time it was 4 min ago.
+		ts := time.Now().Add(-1 * time.Duration(float64(timeSinceLastSync)*0.25))
+
 		hosts := make([]*Host, 0, hostManager.Len())
 		hostManager.Range(func(_ string, host *Host) (contd bool) {
-			hosts = append(hosts, host)
+			// If we've not synchronized this host within the last <interval of time since last sync> / 4,
+			// then we'll synchronize it again now.
+			//
+			// So, for example, if the last round of synchronizations was 16 minutes ago, then we'll synchronize
+			// this Host now as long as we've not done so within the last 4 minutes.
+			if host.LastRemoteSync.Before(ts) {
+				hosts = append(hosts, host)
+			}
 			return true
 		})
 		s.cluster.UnlockHosts()
 
 		for _, host := range hosts {
 			hostId := host.ID()
-			err := host.RefreshResourceInformation()
+			err := host.SynchronizeResourceInformation()
 			if err != nil {
 				var (
 					numConsecutiveFailures int
@@ -267,7 +285,8 @@ func (s *DockerScheduler) pollForResourceData() {
 			}
 		}
 
-		time.Sleep(s.gpuInfoRefreshInterval)
+		lastSync = time.Now()
+		time.Sleep(s.remoteSynchronizationInterval)
 	}
 }
 
@@ -288,7 +307,7 @@ func (s *DockerScheduler) RefreshClusterNodes() error {
 	errs := make([]error, 0)
 	for _, host := range hosts {
 		hostId := host.ID()
-		err := host.RefreshResourceInformation()
+		err := host.SynchronizeResourceInformation()
 		if err != nil {
 			s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s: %v",
 				hostId, host.NodeName(), err)

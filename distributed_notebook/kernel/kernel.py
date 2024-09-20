@@ -237,6 +237,9 @@ class DistributedKernel(IPythonKernel):
         self.run_training_code_mutex: Lock = Lock() 
         self.run_training_code: bool = False 
 
+        # The time at which we were created (i.e., the time at which the DistributedKernel object was instantiated)
+        self.created_at: float = time.time()
+
         self.execution_ast = None
         self.smr_nodes_map = {}
         self.synclog_stopped = False
@@ -381,6 +384,7 @@ class DistributedKernel(IPythonKernel):
         self.daemon_registration_socket = socket.socket(
             socket.AF_INET, socket.SOCK_STREAM)
 
+        start_time: float = time.time()
         try:
             self.daemon_registration_socket.connect((local_daemon_service_name, server_port))
         except Exception as ex:
@@ -418,7 +422,8 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Received empty (i.e., 0 bytes in length) response from local daemon during registration...")
             raise ValueError("received empty response from local daemon during registration procedure")
 
-        self.log.info("Received %d byte(s) in response from LocalDaemon: %s", len(response), str(response))
+        self.log.info(f"Received {len(response)} byte(s) in response from LocalDaemon after "
+                      f"{time.time() - start_time} seconds. Response payload: {str(response)}")
 
         response_dict = json.loads(response)
         self.smr_node_id: int = response_dict["smr_node_id"]
@@ -475,7 +480,6 @@ class DistributedKernel(IPythonKernel):
             self.log.warning("No \"debug_port\" entry found in response from local daemon.")
             self.debug_port: int = -1
 
-        self.log.info("[SMR-NODE-ID-ASSIGNED]%d" %  self.smr_node_id)
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
 
@@ -488,10 +492,10 @@ class DistributedKernel(IPythonKernel):
         self.log.info("DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
         
         super().start()
-        
-        debugpy_port:int = self.debug_port + 1000
-        self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
-        debugpy.listen(("0.0.0.0", debugpy_port))
+
+        # debugpy_port:int = self.debug_port + 1000
+        # self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
+        # debugpy.listen(("0.0.0.0", debugpy_port))
 
         # We use 'should_read_data_from_hdfs' as the criteria here, as only replicas that are started after
         # a migration will have should_read_data_from_hdfs equal to True.
@@ -1437,7 +1441,8 @@ class DistributedKernel(IPythonKernel):
         self.session.send(self.iopub_socket, "smr_ready", {
                           "persistent_id": self.persistent_id}, ident=self._topic("smr_ready"))  # type: ignore
 
-        self.log.info("Notified local daemon that SMR is ready.")
+        self.log.info(f"Notified local daemon that SMR is ready. Time elapsed since I was created: "
+                      f"{time.time() - self.created_at} seconds.")
 
     async def get_synclog(self, store_path) -> RaftLog:
         assert isinstance(self.smr_nodes, list)

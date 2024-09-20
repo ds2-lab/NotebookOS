@@ -25,8 +25,8 @@ type BaseServer struct {
 	server *AbstractServer
 }
 
-func (s *BaseServer) SendMessage(request types.Request, socket *types.Socket) error {
-	return s.server.SendMessage(request, socket)
+func (s *BaseServer) SendRequest(request types.Request, socket *types.Socket) error {
+	return s.server.SendRequest(request, socket)
 }
 
 func (s *BaseServer) SetComponentId(id string) {
@@ -38,9 +38,9 @@ func (s *BaseServer) AssignMessagingMetricsProvider(messagingMetricsProvider met
 	s.server.MessagingMetricsProvider = messagingMetricsProvider
 }
 
-// func (s *BaseServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
+// func (s *BaseServer) SendRequest(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
 // 	jMsg := types.NewJupyterMessage(req)
-// 	return s.server.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
+// 	return s.server.SendRequest(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
 // }
 
 // RegisterAck begins listening for an ACK for a message with the given ID.

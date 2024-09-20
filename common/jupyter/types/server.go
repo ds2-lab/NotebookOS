@@ -1,8 +1,10 @@
 package types
 
+// Sender is a single-method interface exposing the ability to send a Request via a particular Socket.
 type Sender interface {
-	// SendMessage sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
-	SendMessage(request Request, socket *Socket) error
-
-	// SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest types.RequestDest, sourceKernel types.SourceKernel, offset int) error
+	// SendRequest sends a types.Request on the given types.Socket.
+	// If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
+	//
+	// SendRequest returns nil on success.
+	SendRequest(request Request, socket *Socket) error
 }

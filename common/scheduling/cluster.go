@@ -2,8 +2,6 @@ package scheduling
 
 import (
 	"fmt"
-	"sync"
-
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/mason-leap-lab/go-utils/promise"
@@ -11,6 +9,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"sync"
 )
 
 var (
@@ -143,7 +142,7 @@ type BasicCluster struct {
 	// hosts is a map from host ID to *Host containing all the Host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, *Host]
 
-	// indexes is a map from index key to ClusterIndexProvider containing all the indexes in the cluster.
+	// indexes is a map from index key to ClusterIndexProvider containing all the indexes in the Cluster.
 	indexes hashmap.BaseHashMap[string, ClusterIndexProvider]
 
 	// activeScaleOperation is a reference to the currently-active scale-out/scale-in operation.
@@ -312,7 +311,7 @@ func (c *BasicCluster) RegisterScaleOperation(operationId string, targetClusterS
 	}
 
 	if scaleOperation.OperationType != ScaleOutOperation {
-		return nil, fmt.Errorf("%w: cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
+		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
 	}
 
 	// if existingScaleOperation, loaded := c.scaleOperations.LoadOrStore(operationId, scaleOperation); loaded {
@@ -342,7 +341,7 @@ func (c *BasicCluster) RegisterScaleOutOperation(operationId string, targetClust
 	}
 
 	if scaleOperation.OperationType != ScaleOutOperation {
-		return nil, fmt.Errorf("%w: cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
+		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
 	}
 
 	// if existingScaleOperation, loaded := c.scaleOperations.LoadOrStore(operationId, scaleOperation); loaded {
@@ -372,7 +371,7 @@ func (c *BasicCluster) RegisterScaleInOperation(operationId string, targetCluste
 	}
 
 	if scaleOperation.OperationType != ScaleInOperation {
-		return nil, fmt.Errorf("%w: cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
+		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
 	}
 
 	// if existingScaleOperation, loaded := c.scaleOperations.LoadOrStore(operationId, scaleOperation); loaded {
@@ -450,7 +449,7 @@ func (c *BasicCluster) onHostAdded(host *Host) {
 // onHostRemoved is called when a host is deleted from the BasicCluster.
 func (c *BasicCluster) onHostRemoved(host *Host) {
 	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
-		if _, status := index.IsQualified(host); status != ClusterIndexUnqualified {
+		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != ClusterIndexUnqualified {
 			index.Remove(host)
 		}
 		return true

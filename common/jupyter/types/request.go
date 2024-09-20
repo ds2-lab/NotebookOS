@@ -18,18 +18,22 @@ const (
 	// RequestStateSubmitted indicates that the request has been created and submitted, but we've not yet received an ACK.
 	RequestStateSubmitted RequestState = "RequestSubmitted"
 
-	// RequestStateProcessing indicates that the request has been created, submitted, and ACK'd.
+	// RequestStateProcessing indicates that the request has been created, submitted, and acknowledged.
 	// We've not yet received a response for the request.
 	RequestStateProcessing RequestState = "RequestProcessing"
 
 	// RequestStateTimedOut is an error state.
 	// The request timed-out, either because no ACK was received in time, or because
-	// no result was received in time (despite the request being ACK'd).
+	// no result was received in time (despite the request being acknowledged).
 	RequestStateTimedOut RequestState = "RequestTimedOut"
 
-	// RequestStateComplete indicates that the request was created, submitted, ACK'd (if ACKs are required), and the result was received.
+	// RequestStateComplete indicates that the request was created, submitted, acknowledged (if ACKs are required),
+	// and the result was received.
+	//
 	// If no result is required, then a request enters the RequestStateComplete state after receiving an ACK.
-	// If no result is required AND no ACK is required, then a request enters the RequestStateComplete state after being sent without an error.
+	//
+	// If no result is required AND no ACK is required, then a request enters the RequestStateComplete state after being
+	// sent without an error.
 	RequestStateComplete RequestState = "RequestComplete"
 
 	// RequestStateExplicitlyCancelled indicates that the request was explicitly cancelled by the client.
@@ -97,17 +101,30 @@ type Request interface {
 
 	// IsBlocking indicates whether the call to Server::Request block when issuing this request
 	// True indicates blocking; false indicates non-blocking (i.e., Server::Request will return immediately, rather than wait for a response for returning)
+	//
 	// Default: true
 	IsBlocking() bool
 
-	// Timeout returns how long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
+	// BeganSendingAt returns the time at which the Sender began submitting the Request.
+	//
+	// If false is also returned, then the Request hasn't started being sent yet,
+	// so the returned time.Time is meaningless.
+	BeganSendingAt() (time.Time, bool)
+
+	// SendStarting should be called when the Sender begins submitting the Request for the first time.
+	SendStarting()
+
+	// Timeout returns how long to wait for the request to complete successfully. Completion is a stronger requirement
+	// than simply being acknowledged.
+	//
 	// Default: infinite.
 	//
 	// If the returned bool is true, then the timeout is valid.
-	// If it is false, then the timeout is invalid, meaning the request does not timeout.
+	// If it is false, then the timeout is invalid, meaning the request does not time-out.
 	Timeout() (time.Duration, bool)
 
 	// MaxNumAttempts returns the maximum number of attempts allowed before giving up on sending the request.
+	//
 	// Default: 3
 	MaxNumAttempts() int
 
@@ -119,11 +136,18 @@ type Request interface {
 	MessageType() MessageType
 
 	// ShouldDestFrameBeRemoved returns a flag indicating whether the destination frame be automatically removed?
+	//
 	// Default: true
 	ShouldDestFrameBeRemoved() bool
 
 	// RequiresAck returns a flag indicating whether the request require ACKs
 	RequiresAck() bool
+
+	// AckTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
+	// recipient before either resubmitting the Request or returning an error.
+	//
+	// Default: 5 seconds.
+	AckTimeout() time.Duration
 
 	// Payload returns the message itself.
 	Payload() *JupyterMessage
@@ -161,7 +185,7 @@ type Request interface {
 	// RequestState returns the current state of the request.
 	RequestState() RequestState
 
-	// HasBeenAcknowledged returns true if the request has been ACK'd.
+	// HasBeenAcknowledged returns true if the request has been acknowledged.
 	HasBeenAcknowledged() bool
 
 	// HasCompleted returns true if the request was completed successfully.
@@ -237,13 +261,19 @@ type Request interface {
 
 	// String returns a string representation of the request.
 	String() string
+
+	// CurrentAttemptNumber returns the current send-attempt number of the Request.
+	CurrentAttemptNumber() int
+
+	// IncrementAttemptNumber increments the Request's send-attempt number and returns the new value.
+	IncrementAttemptNumber() int
 }
 
 // Encapsulates the state of a live, active request.
 type liveRequestState struct {
 	requestState RequestState
 
-	// Flag indicating whether the request was ever ACK'd.
+	// Flag indicating whether the request has been acknowledged.
 	// This allows us to recover this information if the request enters the RequestTimedOut state.
 	hasBeenAcknowledged bool
 
@@ -256,6 +286,12 @@ type liveRequestState struct {
 
 	// The irrecoverable error encountered by the request. This will be nil if no such error was encountered.
 	err error
+
+	// beganSendingAt is the time at which the Sender began sending the Request for the first time.
+	beganSendingAt time.Time
+
+	// sendingHasStarted indicates whether the Sender has started sending the Request.
+	sendingHasStarted bool
 
 	// Flag indicating whether the request was explicitly cancelled by the client.
 	wasExplicitlyCancelled bool
@@ -276,11 +312,17 @@ type BasicRequest struct {
 	// The MessageType of the request.
 	messageType MessageType
 
-	// True indicates that the request must be ACK'd by the recipient.
+	// True indicates that the request must be acknowledged by the recipient.
 	requiresAck bool
 
+	// ackTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
+	// recipient before either resubmitting the Request or returning an error.
+	//
+	// Default: 5 seconds.
+	ackTimeout time.Duration
+
 	// How long to wait for the request to complete successfully.
-	// Completion is a stronger requirement than simply being ACK'd.
+	// Completion is a stronger requirement than simply being acknowledged.
 	timeout time.Duration
 
 	// This is flipped to true when a timeout is explicitly configured within the RequestBuilder.
@@ -291,8 +333,11 @@ type BasicRequest struct {
 	// True if yes; otherwise, false.
 	isBlocking bool
 
-	// The maximum number of attempts allowed before giving up on sending the request.
+	// maxNumAttempts is the maximum number of attempts allowed before giving up on sending the request.
 	maxNumAttempts int
+
+	// currentAttemptNumber is the current send-attempt number.
+	currentAttemptNumber int
 
 	// String that uniquely identifies this set of request options.
 	// This is not configurable; it is auto-generated when the request is built via RequestBuilder::BuildRequest.
@@ -330,6 +375,35 @@ type BasicRequest struct {
 	stateMutex sync.Mutex
 }
 
+// SendStarting should be called when the Sender begins submitting the Request for the first time.
+func (r *BasicRequest) SendStarting() {
+	r.beganSendingAt = time.Now()
+	r.sendingHasStarted = true
+}
+
+// BeganSendingAt returns the time at which the Sender began submitting the Request.
+//
+// If false is also returned, then the Request hasn't started being sent yet,
+// so the returned time.Time is meaningless.
+func (r *BasicRequest) BeganSendingAt() (time.Time, bool) {
+	if r.sendingHasStarted {
+		return r.beganSendingAt, true
+	}
+
+	return time.Time{}, false
+}
+
+// CurrentAttemptNumber returns the current send-attempt number of the Request.
+func (r *BasicRequest) CurrentAttemptNumber() int {
+	return r.currentAttemptNumber
+}
+
+// IncrementAttemptNumber increments the Request's send-attempt number and returns the new value.
+func (r *BasicRequest) IncrementAttemptNumber() int {
+	r.currentAttemptNumber += 1
+	return r.currentAttemptNumber
+}
+
 // Return a string representation of the request.
 func (r *BasicRequest) String() string {
 	return fmt.Sprintf("Request[ID=%s, DestID=%s, State=%s, RequiresAck=%v, Timeout=%v, MaxNumAttempts=%d]", r.requestId, r.destinationId, r.requestState, r.requiresAck, r.timeout, r.maxNumAttempts)
@@ -364,6 +438,14 @@ func (r *BasicRequest) RequestId() string {
 // ShouldDestFrameBeRemoved returns a bool indicating whether we should the destination frame be automatically removed?
 func (r *BasicRequest) ShouldDestFrameBeRemoved() bool {
 	return r.shouldDestFrameBeRemoved
+}
+
+// AckTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
+// recipient before either resubmitting the Request or returning an error.
+//
+// Default: 5 seconds.
+func (r *BasicRequest) AckTimeout() time.Duration {
+	return r.ackTimeout
 }
 
 // RequiresAck returns a bool indicating whether the request require ACKs

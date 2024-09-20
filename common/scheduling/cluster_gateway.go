@@ -6,7 +6,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 )
 
-// ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook cluster.
+// ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
 type ClusterGateway interface {
 	proto.ClusterGatewayServer
 
@@ -19,7 +19,7 @@ type ClusterGateway interface {
 	// GetClusterActualGpuInfo returns the current GPU resource metrics on the node.
 	GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error)
 
-	// KubernetesMode returns true if we're running in a Kubernetes cluster (rather than as a docker-compose application).
+	// KubernetesMode returns true if we're running in a Kubernetes Cluster (rather than as a docker-compose application).
 	KubernetesMode() bool
 
 	// DockerMode returns true if we're running in "docker swarm" mode or "docker compose" mode.

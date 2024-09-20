@@ -39,9 +39,9 @@ type BaseScheduler struct {
 	cluster  Cluster
 	placer   Placer
 
-	gpuInfo                *aggregateGpuInfo // The current "actual" GPU usage within the cluster.
-	lastGpuInfoRefresh     time.Time         // The time at which the 'actual' GPU info was last refreshed.
-	gpuInfoRefreshInterval time.Duration     // gpuInfoRefreshInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
+	gpuInfo                       *aggregateGpuInfo // The current "actual" GPU usage within the cluster.
+	lastGpuInfoRefresh            time.Time         // The time at which the 'actual' GPU info was last refreshed.
+	remoteSynchronizationInterval time.Duration     // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
 
 	lastNodeRefreshTime time.Time // The time at which the nodes were last refreshed.
 
@@ -76,28 +76,28 @@ type BaseScheduler struct {
 
 func NewBaseScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BaseScheduler {
 	clusterScheduler := &BaseScheduler{
-		gateway:                     gateway,
-		cluster:                     cluster,
-		gpusPerHost:                 float64(opts.GpusPerHost),
-		virtualGpusPerHost:          int32(opts.VirtualGpusPerHost),
-		scalingFactor:               opts.ScalingFactor,
-		scalingLimit:                opts.ScalingLimit,
-		maximumHostsToReleaseAtOnce: int32(opts.MaximumHostsToReleaseAtOnce),
-		scalingIntervalSec:          int32(opts.ScalingInterval),
-		scalingOutEnabled:           opts.ScalingOutEnabled,
-		scalingBufferSize:           int32(opts.ScalingBufferSize),
-		minimumCapacity:             int32(opts.MinimumNumNodes),
-		stRatio:                     types.NewMovingStatFromWindow(5),
-		opts:                        opts,
-		gpuInfoRefreshInterval:      time.Second * time.Duration(opts.GpuPollIntervalSeconds),
-		placer:                      placer,
-		hostSpec:                    hostSpec,
-		idleHosts:                   make(container.Heap, 0, 10),
+		gateway:                       gateway,
+		cluster:                       cluster,
+		gpusPerHost:                   float64(opts.GpusPerHost),
+		virtualGpusPerHost:            int32(opts.VirtualGpusPerHost),
+		scalingFactor:                 opts.ScalingFactor,
+		scalingLimit:                  opts.ScalingLimit,
+		maximumHostsToReleaseAtOnce:   int32(opts.MaximumHostsToReleaseAtOnce),
+		scalingIntervalSec:            int32(opts.ScalingInterval),
+		scalingOutEnabled:             opts.ScalingOutEnabled,
+		scalingBufferSize:             int32(opts.ScalingBufferSize),
+		minimumCapacity:               int32(opts.MinimumNumNodes),
+		stRatio:                       types.NewMovingStatFromWindow(5),
+		opts:                          opts,
+		remoteSynchronizationInterval: time.Second * time.Duration(opts.GpuPollIntervalSeconds),
+		placer:                        placer,
+		hostSpec:                      hostSpec,
+		idleHosts:                     make(container.Heap, 0, 10),
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 
 	if opts.GpuPollIntervalSeconds <= 0 {
-		clusterScheduler.gpuInfoRefreshInterval = time.Second * 5
+		clusterScheduler.remoteSynchronizationInterval = time.Second * 5
 	}
 
 	if clusterScheduler.scalingIntervalSec < 0 {
@@ -115,7 +115,7 @@ func NewBaseScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, ho
 		clusterScheduler.log.Debug("ScalingInterval: %d", clusterScheduler.scalingIntervalSec)
 		clusterScheduler.log.Debug("ScalingOutEnabled: %v", clusterScheduler.scalingOutEnabled)
 		clusterScheduler.log.Debug("ScalingBufferSize: %d", clusterScheduler.scalingBufferSize)
-		clusterScheduler.log.Debug("GPU Refresh Interval: %v", clusterScheduler.gpuInfoRefreshInterval)
+		clusterScheduler.log.Debug("GPU Refresh Interval: %v", clusterScheduler.remoteSynchronizationInterval)
 	}
 
 	return clusterScheduler
@@ -130,6 +130,12 @@ func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpe
 	return s.instance.DeployNewKernel(ctx, in)
 }
 
+// RemoteSynchronizationInterval returns the interval at which the ClusterScheduler synchronizes
+// the Host instances within the Cluster with their remote nodes.
+func (s *BaseScheduler) RemoteSynchronizationInterval() time.Duration {
+	return s.remoteSynchronizationInterval
+}
+
 // ClusterGateway returns the associated ClusterGateway.
 func (s *BaseScheduler) ClusterGateway() ClusterGateway {
 	return s.gateway
@@ -140,7 +146,7 @@ func (s *BaseScheduler) MinimumCapacity() int32 {
 	return s.minimumCapacity
 }
 
-// AddNode adds a new node to the kubernetes cluster.
+// AddNode adds a new node to the kubernetes Cluster.
 // We simulate this using node taints.
 func (s *BaseScheduler) AddNode() error {
 	p := s.cluster.RequestHost(s.hostSpec)
@@ -153,7 +159,7 @@ func (s *BaseScheduler) AddNode() error {
 	return nil
 }
 
-// RemoveNode removes a new from the kubernetes cluster.
+// RemoveNode removes a new from the kubernetes Cluster.
 // We simulate this using node taints.
 func (s *BaseScheduler) RemoveNode(hostId string) error {
 	p := s.cluster.ReleaseHost(hostId)
@@ -296,7 +302,7 @@ func (s *BaseScheduler) MigrateContainer(container *Container, host *Host, b boo
 func (s *BaseScheduler) ValidateCapacity() {
 	load := s.gpuInfo.TotalCommittedGPUs
 
-	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the cluster's current committed GPUs.
+	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the Cluster's current committed GPUs.
 	minNumHosts := int32(s.opts.NumReplicas)
 	scaledOutNumHosts := int32(math.Ceil(float64(load) * s.scalingFactor / s.gpusPerHost)) // The number of hosts we would scale-out to based on the configured scaling factor.
 	limit := int32(math.Ceil(float64(load) * s.scalingLimit / s.gpusPerHost))              // The maximum number of hosts we're permitted to scale-out to.
@@ -446,7 +452,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		// TODO: Just mark the Host as un-schedule-able so that we don't try to schedule anything onto it until we're done here.
 		// We should not release the Host until we're sure we want to release it.
-		//p := s.cluster.ReleaseHost(idleHost.Host.ID())
+		//p := s.Cluster.ReleaseHost(idleHost.Host.ID())
 		panic("Not implemented")
 		//err := p.Error()
 		//if errors.Is(err, ErrHostNotFound) {
@@ -484,7 +490,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 							// TODO: Mark the host as schedule-able again.
 							panic("Not implemented")
-							// s.cluster.ActiveServerfulScheduler().AddResource(host, true)
+							// s.Cluster.ActiveServerfulScheduler().AddResource(host, true)
 						}
 						return false
 					}

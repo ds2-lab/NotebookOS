@@ -8,6 +8,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"io"
+	"log"
 	"math"
 	"math/rand"
 	"net"
@@ -32,13 +33,17 @@ const (
 	GolangFrontendRegistrationRequest = "golang_frontend_registration_request"
 
 	// DefaultMessageQueueCapacity is the default capacity of the "received" messages queue (which is a chan).
-	DefaultMessageQueueCapacity = 64
+	//DefaultMessageQueueCapacity = 64
+
+	ACK = "ACK"
 )
 
 var (
 	errServeOnce              = errors.New("break after served once")
 	errMissingSignatureScheme = errors.New("signature scheme has not been set")
 	errMissingKey             = errors.New("key has not been set")
+
+	ErrRequestOutOfAttempts = errors.New("request failed to be acknowledged within configured number of attempts")
 	// errMessageNotFound = errors.New("message not found")
 )
 
@@ -116,6 +121,18 @@ type AbstractServer struct {
 	// discardACKs is a map from Request ID to struct{}{} (basically just a set) of messages whose ACKs we
 	// explicitly don't need.
 	discardACKs hashmap.BaseHashMap[string, struct{}]
+
+	// NumSends is the number of times we've sent a message, including resubmissions.
+	NumSends atomic.Int32
+	// NumUniqueSends is the number of times we've sent a message, excluding resubmissions.
+	NumUniqueSends atomic.Int32
+
+	// PanicOnFirstFailedSend is a flag which directs the AbstractServer to panic the first time a message
+	// is not acknowledged within its configured timeout interval.
+	//
+	// Normally, the message will simply be resubmitted. If PanicOnFirstFailedSend is true, then the server will
+	// instead panic, rather than resend the message.
+	PanicOnFirstFailedSend bool
 }
 
 func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeType, init func(server *AbstractServer)) *AbstractServer {
@@ -123,17 +140,18 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 	ctx, cancelCtx = context.WithCancel(ctx)
 
 	server := &AbstractServer{
-		Meta:             info,
-		Ctx:              ctx,
-		CancelCtx:        cancelCtx,
-		Sockets:          &types.JupyterSocket{},
-		UseJitter:        true,
-		MaxSleepInterval: time.Second * 5,
-		RequestTimeout:   time.Second * 60,
-		acksReceived:     hashmap.NewSyncMap[string, bool](),
-		ackChannels:      hashmap.NewSyncMap[string, chan struct{}](),
-		discardACKs:      hashmap.NewSyncMap[string, struct{}](),
-		nodeType:         nodeType,
+		Meta:                   info,
+		Ctx:                    ctx,
+		CancelCtx:              cancelCtx,
+		Sockets:                &types.JupyterSocket{},
+		UseJitter:              true,
+		MaxSleepInterval:       time.Second * 5,
+		RequestTimeout:         time.Second * 60,
+		acksReceived:           hashmap.NewSyncMap[string, bool](),
+		ackChannels:            hashmap.NewSyncMap[string, chan struct{}](),
+		discardACKs:            hashmap.NewSyncMap[string, struct{}](),
+		nodeType:               nodeType,
+		PanicOnFirstFailedSend: true,
 	}
 	init(server)
 	server.Sockets.All = [5]*types.Socket{server.Sockets.HB, server.Sockets.Control, server.Sockets.Shell, server.Sockets.Stdin, server.Sockets.IO}
@@ -270,7 +288,7 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 	headerMap := make(map[string]string)
 	headerMap["msg_id"] = uuid.NewString()
 	headerMap["date"] = time.Now().UTC().Format(time.RFC3339Nano)
-	headerMap["msg_type"] = "ACK"
+	headerMap["msg_type"] = ACK
 	header, _ := json.Marshal(&headerMap)
 
 	var ackMsg zmq4.Msg
@@ -305,16 +323,31 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 	thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("message via %s: %v"), socket.Name, ackMsg)
 	s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 
+	sendStart := time.Now()
 	err = socket.Send(ackMsg)
 	if err != nil {
 		s.Log.Error("[gid=%d] Error while sending ACK message: %v", goroutineId, err)
 		return err
 	}
+	sendDuration := time.Since(sendStart)
 
-	firstPart = fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Successfully sent ACK for %v \"%v\""), goroutineId, socket.Type, messageHeader.MsgType)
+	firstPart = fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Successfully sent ACK for %s \"%s\""), goroutineId, socket.Type.String(), messageHeader.MsgType.String())
 	secondPart = fmt.Sprintf("(MsgId=%v, ReqId=%v)", utils.PurpleStyle.Render(msg.RequestId), utils.LightPurpleStyle.Render(messageHeader.MsgID))
-	thirdPart = fmt.Sprintf(utils.LightBlueStyle.Render("message via %s."), socket.Name)
+	thirdPart = fmt.Sprintf(utils.LightBlueStyle.Render("message via %s in %v."), socket.Name, sendDuration)
 	s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+
+	s.printSendLatencyWarning(time.Since(sendStart), messageHeader.MsgType.String(), msg.RequestId)
+
+	s.NumSends.Add(1)
+	s.NumUniqueSends.Add(1)
+
+	if metricError := s.MessagingMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, ACK); metricError != nil {
+		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+	}
+
+	if metricError := s.MessagingMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, ACK); metricError != nil {
+		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+	}
 
 	return nil
 }
@@ -505,19 +538,6 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 					contd <- true
 				}
 				continue
-
-				// if errors.Is(err, context.Canceled) {
-				// 	if contd != nil {
-				// 		contd <- false
-				// 	}
-				// 	return
-				// } else {
-				// 	s.Log.Error("Will NOT abort serving for now.")
-				// 	if contd != nil {
-				// 		contd <- true
-				// 	}
-				// 	continue
-				// }
 			}
 		}
 
@@ -528,7 +548,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 	}
 }
 
-func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMessage, err error) (*zmq4.Msg, error) {
+func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMessage, err error) (*types.JupyterMessage, error) {
 	// We need the signature scheme and key in order to sign the error message that we create here.
 	// If those haven't been populated yet (they must be populated manually), then we cannot send the error message.
 	var (
@@ -610,7 +630,7 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMess
 	jMsg := types.NewJupyterMessage(&msg)
 	jMsg.AddDestinationId(originalMessage.DestinationId)
 
-	return jMsg.Msg, nil
+	return jMsg, nil
 }
 
 // replyWithError replies to the sender with a message encoding the provided error.
@@ -636,9 +656,24 @@ func (s *AbstractServer) replyWithError(originalMessage *types.JupyterMessage, s
 	//	WithSocketProvider(s).
 	//	WithRemoveDestFrame(getOption(jupyter.WROptionRemoveDestFrame).(bool))
 	//req, err := builder.BuildRequest()
-	//s.SendMessage(req, socket)
+	//s.SendRequest(req, socket)
 
-	return socket.Send(*errorMessage)
+	sendStart := time.Now()
+	err = socket.Send(*(errorMessage.Msg))
+	sendDuration := time.Since(sendStart)
+
+	s.NumSends.Add(1)
+	s.NumUniqueSends.Add(1)
+
+	if metricError := s.MessagingMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
+		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+	}
+
+	if metricError := s.MessagingMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
+		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+	}
+
+	return err
 }
 
 // RegisterAck instructs the Server to begin listening for an ACK for a message with the given ID.
@@ -734,7 +769,7 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 		// race in which we clean up the pending request after we've already started resubmitting it.
 		//
 		// If the goroutine waiting on <-ctx.Done() gets here first, then it's fine.
-		// If the goroutine executing the AbstractServer::SendMessage method gets here first,
+		// If the goroutine executing the AbstractServer::SendRequest method gets here first,
 		// then the pending request will be claimed and cleaned-up, and we can safely begin
 		// to resubmit the pending request without fear that the <-ctx.Done() thread will
 		// attempt to clean up while we're resubmitting.
@@ -783,7 +818,7 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 		cleanUpRequest(err)
 	}()
 
-	if err := s.SendMessage(request, socket); err != nil {
+	if err := s.SendRequest(request, socket); err != nil {
 		s.Log.Debug("Error while sending %s \"%s\" message %s (Jupyter ID: %s): %v", socket.Type.String(), jMsg.JupyterMessageType(), reqId, jMsg.JupyterMessageId(), err)
 		if cancel != nil {
 			cancel()
@@ -802,142 +837,251 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 	return nil
 }
 
-// Wait for an ACK on the given channel, or time-out after the specified timeout.
-func (s *AbstractServer) waitForAck(ackChan chan struct{}, timeout time.Duration) bool {
+// Wait for an ACK on the given channel, or time-out after the Request's configured timeout.
+//
+// If the Request does not actually require an acknowledgement, then this returns true immediately, indicating success.
+func (s *AbstractServer) waitForAck(request types.Request) bool {
+	// If there's no ACK required, then just return immediately.
+	if !request.RequiresAck() {
+		return true
+	}
+
+	var (
+		ackChan <-chan struct{}
+		loaded  bool
+	)
+	if ackChan, loaded = s.ackChannels.Load(request.RequestId()); !loaded {
+		panic(fmt.Sprintf("We need an ACK for %v message %s; however, the ACK channel is nil.",
+			request.MessageType(), request.RequestId()))
+	}
+
 	select {
 	case <-ackChan:
 		{
 			return true
 		}
-	case <-time.After(timeout):
+	case <-time.After(request.AckTimeout()):
 		{
 			return false
 		}
 	}
 }
 
-// SendMessage sends a message. If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
-func (s *AbstractServer) SendMessage(request types.Request, socket *types.Socket) error {
-	goroutineId := goid.Get()
-	reqId := request.RequestId()
-	maxNumTries := request.MaxNumAttempts()
-	numTries := 0
-	requiresACK := request.RequiresAck()
+// printSendLatencyWarning prints a warning if the latency of a send operation was long enough to warrant
+// printing a warning.
+func (s *AbstractServer) printSendLatencyWarning(sendDuration time.Duration, msgType string, msgId string) {
+	if sendDuration >= time.Millisecond*50 {
+		style := utils.YellowStyle
 
-	// If the message requires an ACK, then we'll try sending it multiple times.
-	// Otherwise, we'll just send it the one time.
-	ackChan, _ := s.ackChannels.Load(reqId)
-	if requiresACK {
-		s.acksReceived.Store(reqId, false)
-
-		if ackChan == nil {
-			panic(fmt.Sprintf("We need an ACK for %v message %s; however, the ACK channel is nil.", socket.Type, reqId))
+		// If it took over 100ms, then we'll use orange-colored text instead of yellow.
+		if sendDuration >= time.Millisecond*100 {
+			style = utils.OrangeStyle
 		}
+
+		s.Log.Warn(style.Render("Sending %s \"%s\" message %s took %v."), msgType, msgId, sendDuration)
+	}
+}
+
+// sendRequest sends the zmq4.Msg encapsulated by the types.Request on the given types.Socket.
+//
+// If the send operation is successful, then sendRequest returns nil.
+//
+// If the send operation fails, then the types.Request is transitioned to an error state, and the associated
+// error is returned.
+func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket) error {
+	// Send the request.
+	sendStart := time.Now()
+	err := socket.Send(*request.Payload().Msg)
+	sendDuration := time.Since(sendStart)
+
+	if err != nil {
+		// If there was an error sending the request, then print an error message and transition the request to the 'erred' state.
+		if _, transitionErr := request.SetErred(err); transitionErr != nil {
+			s.Log.Error("Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'erred' state: %v", request.MessageType(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), transitionErr)
+		}
+
+		return err
 	}
 
-	for numTries < maxNumTries {
-		// Send request.
-		if err := socket.Send(*request.Payload().Msg); err != nil {
-			s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to send %v \"%s\" message on attempt %d/%d via %s because: %v"), goroutineId, socket.Type, request.JupyterMessageType(), numTries+1, maxNumTries, socket.Name, err.Error())
-			if _, transitionErr := request.SetErred(err); transitionErr != nil {
-				s.Log.Error(
-					"Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'erred' state: %v",
-					request.MessageType(), request.JupyterMessageType(),
-					request.RequestId(), request.JupyterMessageId(), transitionErr)
-			}
+	// Display a warning if the send operation took a while.
+	s.printSendLatencyWarning(sendDuration, request.JupyterMessageType(), request.RequestId())
 
-			return err
-		}
-
-		_, err := request.SetSubmitted()
-		if err != nil {
-			panic(fmt.Sprintf("Request transition to 'submitted' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
-		}
-
-		if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-			firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sent %s \"%s\" message with"), goroutineId, socket.Type.String(), request.JupyterMessageType())
-			secondPart := fmt.Sprintf("reqID=%v (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
-			thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("via %s. Attempt %d/%d. Message: %v"), socket.Name, numTries+1, maxNumTries, request.Payload().Msg)
-			s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
-		}
-
-		// If an ACK is required, then we'll block until the ACK is received, or until timing out, at which point we'll try sending the message again.
-		if requiresACK {
-			success := s.waitForAck(ackChan, time.Second*5)
-
-			if success {
-				if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-					firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message"), goroutineId, socket.Type, request.JupyterMessageType())
-					secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
-					thirdPart := fmt.Sprintf(utils.GreenStyle.Render("has successfully been ACK'd on attempt %d/%d."), numTries+1, maxNumTries)
-					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
-				}
-
-				_, err = request.SetProcessing()
-				if err != nil {
-					panic(fmt.Sprintf("Request transition to 'processing' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
-				}
-
-				if err := s.MessagingMetricsProvider.AddNumSendAttemptsRequiredObservation(float64(numTries+1), s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
-					s.Log.Error("Could not record 'NumSendAttemptsRequired' observation because: %v", err)
-				}
-
-				return nil
-			} else {
-				// Just to avoid going through the process of sleeping and updating the header if that was our last try.
-				if (numTries + 1) >= maxNumTries {
-					s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Giving up."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, numTries+1, maxNumTries)
-
-					_, err := request.SetTimedOut()
-					if err != nil {
-						panic(fmt.Sprintf("Request transition to 'timed-out' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
-					}
-
-					break
-				}
-
-				// Sleep for an amount of time proportional to the number of attempts with some random jitter added.
-				nextSleepInterval := s.getSleepInterval(numTries)
-				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Serving: %d. Will sleep for %v before trying again."), goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), reqId, request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, numTries+1, maxNumTries, nextSleepInterval, atomic.LoadInt32(&socket.Serving))
-
-				pprofErr := pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
-				if pprofErr != nil {
-					s.Log.Error(
-						"Error encountered when calling pprof.Lookup(\"goroutine\").WriteTo(os.Stderr, 1): %v",
-						pprofErr)
-				}
-
-				panic("Failed to receive ACK (after just one try).")
-
-				time.Sleep(nextSleepInterval)
-				numTries += 1
-
-				// err := s.UpdateMessageHeader(req, offset, sourceKernel)
-				err := request.PrepareForResubmission()
-				if err != nil {
-					s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to update message header for %v \"%s\" message %v: %v"), goroutineId, request.JupyterMessageType(), socket.Type, reqId, err)
-					if _, transitionErr := request.SetErred(err); transitionErr != nil {
-						s.Log.Error(
-							"Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'erred' state: %v",
-							request.MessageType(), request.JupyterMessageType(),
-							request.RequestId(), request.JupyterMessageId(), transitionErr)
-					}
-					return err
-				}
-			}
-		}
+	// Record metrics.
+	s.NumSends.Add(1)
+	if metricError := s.MessagingMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, request.JupyterMessageType()); metricError != nil {
+		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 	}
 
-	if err := s.MessagingMetricsProvider.AddFailedSendAttempt(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
-		s.Log.Error("Could not record 'NumSendAttemptsRequired' observation because: %v", err)
+	// Print a fairly verbose log message when debug logging is enabled.
+	if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
+		goroutineId := goid.Get()
+		reqId := request.RequestId()
+
+		firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sent %s \"%s\" message with"), goroutineId, socket.Type.String(), request.JupyterMessageType())
+		secondPart := fmt.Sprintf("reqID=%v (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
+		thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("via %s. Attempt %d/%d. NumSends: %d. NumUniqueSends: %d. Message: %v"), socket.Name, request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), s.NumSends.Load(), s.NumUniqueSends.Load(), request.Payload().Msg)
+		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 	}
 
-	if requiresACK {
-		s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to receive ACK for %v \"%s\" message %v (src: %v, dest: %v) from remote socket %s after %d attempt(s)."), goroutineId, request.JupyterMessageType(), socket.Type, reqId, request.SourceID(), request.DestinationId(), socket.RemoteName, maxNumTries)
-		return jupyter.ErrNoAck
+	// Record that the request has been submitted.
+	if _, err := request.SetSubmitted(); err != nil {
+		panic(fmt.Sprintf("Request transition to 'submitted' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
 	}
 
 	return nil
+}
+
+// sendRequestWithRetries encapsulates the logic of sending the given types.Request using the given types.Socket
+// in a reliable way; that is, sendRequestWithRetries will resubmit the given types.Request if an ACK is not received
+// within the types.Request's configured timeout window, up to the types.Request's configured maximum number of attempts.
+//
+// sendRequestWithRetries will return nil on success.
+func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *types.Socket) error {
+	goroutineId := goid.Get()
+
+	// We only want to record the "unique send" metric once per message sent (i.e., don't include resubmissions).
+	recordedUniqueSend := false
+	request.SendStarting()
+
+	// We'll loop until the send operation is successful, or until we run out of attempts.
+	// The logic for stopping the loop is implemented in onNoAcknowledgementReceived.
+	for /* request.CurrentAttemptNumber() < request.MaxNumAttempts() */ {
+		if err := s.sendRequest(request, socket); err != nil {
+			// If there was an error sending the request, then print an error message and transition the request to the 'erred' state.
+			s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to send %v \"%s\" message on attempt %d/%d via %s because: %v"),
+				goroutineId, socket.Type, request.JupyterMessageType(), request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), socket.Name, err.Error())
+
+			// If there's a send error, then we won't retry -- this indicates that there's a big issue here,
+			// such as the Socket losing connection entirely.
+			return err
+		}
+
+		// Record metrics.
+		// We only want to record the "unique send" metric once per message sent (i.e., don't include resubmissions).
+		if !recordedUniqueSend {
+			// We only increment the unique "sent messages" counter here.
+			// We increment the other one earlier, before knowing if the send operation was ultimately "successful" or not.
+			s.NumUniqueSends.Add(1)
+			if metricError := s.MessagingMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); metricError != nil {
+				s.Log.Error("Could not record 'SentMessageUnique' Prometheus metric because: %v", metricError)
+			}
+
+			recordedUniqueSend = true
+		}
+
+		// If the request requires an acknowledgement to be sent, then we'll wait for that acknowledgement.
+		// Otherwise, we'll return immediately.
+		if s.waitForAck(request) {
+			// We were successful!
+			s.onAcknowledgementReceived(request, socket)
+			s.onSuccessfullySentMessage(request, socket, request.CurrentAttemptNumber())
+			return nil
+		}
+
+		// This will return an error if we're supposed to stop looping at this point.
+		if err := s.onNoAcknowledgementReceived(request, socket); err != nil {
+			return err
+		}
+	}
+}
+
+// onAcknowledgementReceived is to be called when an acknowledgement is received for the given Request within
+// the Request's configured time-out window.
+func (s *AbstractServer) onAcknowledgementReceived(request types.Request, socket *types.Socket) {
+	goroutineId := goid.Get()
+
+	if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
+		startTime, _ := request.BeganSendingAt()
+
+		firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message"), goroutineId, socket.Type, request.JupyterMessageType())
+		secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(request.RequestId()), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
+		thirdPart := fmt.Sprintf(utils.GreenStyle.Render("has successfully been acknowledged on attempt %d/%d after %v."), request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), time.Since(startTime))
+		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+	}
+}
+
+// onNoAcknowledgementReceived is to be called when no acknowledgement is received for the given Request
+// within the Request's configured time-out window.
+func (s *AbstractServer) onNoAcknowledgementReceived(request types.Request, socket *types.Socket) error {
+	goroutineId := goid.Get()
+
+	// Just to avoid going through the process of sleeping and updating the header if that was our last try.
+	if (request.CurrentAttemptNumber() + 1) >= request.MaxNumAttempts() {
+		s.Log.Error(utils.RedStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Giving up."),
+			goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), request.RequestId(),
+			request.DestinationId(), request.JupyterMessageId(), socket.RemoteName, request.CurrentAttemptNumber()+1, request.MaxNumAttempts())
+		s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to receive ACK for %v \"%s\" message %v (dest: %v) from remote socket %s after %d attempt(s)."),
+			goroutineId, request.JupyterMessageType(), socket.Type, request.RequestId(), request.DestinationId(), socket.RemoteName, request.MaxNumAttempts())
+
+		if _, err := request.SetTimedOut(); err != nil {
+			panic(fmt.Sprintf("Request transition to 'timed-out' state failed for %s \"%s\" request %s (JupyterID=%s): %v",
+				socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
+		}
+
+		// Record metric.
+		_ = s.MessagingMetricsProvider.AddFailedSendAttempt(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType())
+		return ErrRequestOutOfAttempts
+	}
+
+	// If we're supposed to panic on the first failed send attempt (i.e., no acknowledgement received), then panic.
+	if s.PanicOnFirstFailedSend {
+		if pprofErr := pprof.Lookup("goroutine").WriteTo(os.Stderr, 1); pprofErr != nil {
+			s.Log.Error("Error encountered when calling pprof.Lookup(\"goroutine\").WriteTo(os.Stderr, 1): %v", pprofErr)
+		}
+
+		log.Fatalf(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s."),
+			goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), request.RequestId(),
+			request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName)
+	}
+
+	// Sleep for an amount of time proportional to the number of attempts with some random jitter added.
+	nextSleepInterval := s.getSleepInterval(request.CurrentAttemptNumber())
+	s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Socket %v (%v) timed-out waiting for ACK for %s \"%s\" message %v (src: %v, dest: %v, jupyter ID: %v) from remote socket %s during attempt %d/%d. Serving: %d. Will sleep for %v before trying again."),
+		goroutineId, socket.Name, socket.Addr(), socket.Type.String(), request.JupyterMessageType(), request.RequestId(),
+		request.SourceID(), request.DestinationId(), request.JupyterMessageId(), socket.RemoteName,
+		request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), nextSleepInterval, atomic.LoadInt32(&socket.Serving))
+
+	// Sleep for a bit.
+	time.Sleep(nextSleepInterval)
+	request.IncrementAttemptNumber()
+
+	// Update the request's header and whatnot so we can resend it without Jupyter complaining about
+	// a duplicate request signature, in the event that the last message was actually/eventually received.
+	if err := request.PrepareForResubmission(); err != nil {
+		s.Log.Error(utils.RedStyle.Render("[gid=%d] Failed to update message header for %v \"%s\" message %v: %v"), goroutineId, request.JupyterMessageType(), socket.Type, request.RequestId(), err)
+		if _, transitionErr := request.SetErred(err); transitionErr != nil {
+			s.Log.Error("Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'erred' state: %v", request.MessageType(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), transitionErr)
+		}
+		
+		return err
+	}
+
+	return nil
+}
+
+// SendRequest sends a types.Request on the given types.Socket.
+// If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
+//
+// SendRequest returns nil on success.
+func (s *AbstractServer) SendRequest(request types.Request, socket *types.Socket) error {
+	// If the message requires an ACK, then we'll try sending it multiple times.
+	// Otherwise, we'll just send it the one time.
+	if request.RequiresAck() {
+		s.acksReceived.Store(request.RequestId(), false)
+	}
+
+	return s.sendRequestWithRetries(request, socket)
+}
+
+// onSuccessfullySentMessage is to be called when a message is sent successfully.
+func (s *AbstractServer) onSuccessfullySentMessage(request types.Request, socket *types.Socket, numTries int) {
+	if _, err := request.SetProcessing(); err != nil {
+		panic(fmt.Sprintf("Request transition to 'processing' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
+	}
+
+	if err := s.MessagingMetricsProvider.AddNumSendAttemptsRequiredObservation(float64(numTries+1), s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
+		s.Log.Error("Could not record 'NumSendAttemptsRequired' observation because: %v", err)
+	}
 }
 
 // Get the next sleep interval for a request, optionally including jitter.

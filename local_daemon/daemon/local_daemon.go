@@ -2168,9 +2168,9 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelInfo
 
 	// d.log.Debug("Forwarding %v response from %v via %s: %v", typ, from, socket.Name, msg)
 	// We should only use the router here if that's where the socket came from...
-	// err := sender.SendMessage(true, socket, "" /* will be auto-resolved */, msg, sender, from.(*client.KernelReplicaClient), -1 /* will be auto-resolved */)
+	// err := sender.SendRequest(true, socket, "" /* will be auto-resolved */, msg, sender, from.(*client.KernelReplicaClient), -1 /* will be auto-resolved */)
 	// err := socket.Send(*msg)
-	err = sender.SendMessage(request, socket)
+	err = sender.SendRequest(request, socket)
 	if err != nil {
 		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
 	}

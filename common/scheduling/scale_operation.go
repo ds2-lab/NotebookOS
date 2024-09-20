@@ -39,9 +39,9 @@ func (s ScaleOperationStatus) String() string {
 	return string(s)
 }
 
-// ScaleOperation encapsulates the bookkeeping required for adjusting the scale of the cluster.
+// ScaleOperation encapsulates the bookkeeping required for adjusting the scale of the Cluster.
 // As of right now, the actual business logic required for performing the scale operation (i.e., adding or removing
-// nodes from the cluster) is not implemented, referenced by, or contained within a ScaleOperation struct.
+// nodes from the Cluster) is not implemented, referenced by, or contained within a ScaleOperation struct.
 //
 // Instead, the associated business logic is implemented directly within the ClusterGateway.
 type ScaleOperation struct {

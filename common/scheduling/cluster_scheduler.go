@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/gin-gonic/gin"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"time"
 )
 
 type ClusterScheduler interface {
@@ -26,11 +27,11 @@ type ClusterScheduler interface {
 	// are truly needed, then some Host instances will be terminated to reduce unnecessary resource usage.
 	ValidateCapacity()
 
-	// AddNode adds a new node to the kubernetes cluster.
+	// AddNode adds a new node to the kubernetes Cluster.
 	// We simulate this using node taints.
 	AddNode() error
 
-	// RemoveNode removes a new from the kubernetes cluster.
+	// RemoveNode removes a new from the kubernetes Cluster.
 	// We simulate this using node taints.
 	RemoveNode(hostId string) error
 
@@ -44,6 +45,10 @@ type ClusterScheduler interface {
 	// RefreshActualGpuInfo Refreshes the actual GPU usage information.
 	// Returns nil on success; returns an error on failure.
 	RefreshActualGpuInfo() error
+
+	// RemoteSynchronizationInterval returns the interval at which the ClusterScheduler synchronizes
+	// the Host instances within the Cluster with their remote nodes.
+	RemoteSynchronizationInterval() time.Duration
 
 	// RefreshClusterNodes Updates the cached list of Kubernetes nodes.
 	// Returns nil on success; returns an error on failure.

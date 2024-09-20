@@ -106,6 +106,8 @@ type Socket struct {
 	StopServingChan  chan struct{}                                   // Used to tell a goroutine serving this socket to stop (such as if we're recreating+reconnecting due to no ACKs)
 	IsGolangFrontend bool                                            // If true, then this Socket is connected to a Golang Jupyter frontend.
 	mu               sync.Mutex                                      // Synchronizes access to the underlying ZMQ socket, only for sends.
+	MessagesSent     int                                             // Number of messages sent via this Socket.
+	//MessagesReceived int                                             // Number of messages received via this Socket.
 }
 
 // NewSocket creates a new Socket, without specifying the message handler.
@@ -158,10 +160,26 @@ func NewSocketWithHandlerAndRemoteName(socket zmq4.Socket, port int, typ Message
 	}
 }
 
+//func (s *Socket) Recv() (zmq4.Msg, error) {
+//	msg, err := s.Socket.Recv()
+//
+//	if err != nil {
+//		s.mu.Lock()
+//		s.MessagesReceived += 1
+//		s.mu.Unlock()
+//	}
+//
+//	return msg, err
+//}
+
 func (s *Socket) Send(msg zmq4.Msg) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	err := s.Socket.Send(msg)
+
+	if err != nil {
+		s.MessagesSent += 1
+	}
 
 	return err
 }

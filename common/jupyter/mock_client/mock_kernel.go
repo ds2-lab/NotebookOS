@@ -354,9 +354,9 @@ func (mr *MockKernelReplicaClientMockRecorder) ResourceSpec() *gomock.Call {
 }
 
 // SendMessage mocks base method.
-func (m *MockKernelReplicaClient) SendMessage(request types.Request, socket *types.Socket) error {
+func (m *MockKernelReplicaClient) SendRequest(request types.Request, socket *types.Socket) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SendMessage", request, socket)
+	ret := m.ctrl.Call(m, "SendRequest", request, socket)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -364,7 +364,7 @@ func (m *MockKernelReplicaClient) SendMessage(request types.Request, socket *typ
 // SendMessage indicates an expected call of SendMessage.
 func (mr *MockKernelReplicaClientMockRecorder) SendMessage(request, socket any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendMessage", reflect.TypeOf((*MockKernelReplicaClient)(nil).SendMessage), request, socket)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendRequest", reflect.TypeOf((*MockKernelReplicaClient)(nil).SendRequest), request, socket)
 }
 
 // Sessions mocks base method.

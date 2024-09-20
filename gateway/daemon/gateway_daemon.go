@@ -1652,7 +1652,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	}
 
 	// Tell the Dashboard that the kernel has successfully started running.
-	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running.", kernel.ID()), jupyter.SuccessNotification)
+	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running. Launch took approximately %v.", kernel.ID(), time.Since(startTime)), jupyter.SuccessNotification)
 
 	numActiveKernels := d.numActiveKernels.Add(1)
 	d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
@@ -2917,7 +2917,29 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 	}
 
 	d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
+	sendStart := time.Now()
 	err := socket.Send(*msg.Msg)
+	sendDuration := time.Since(sendStart)
+
+	// Display a warning if the send operation took a while.
+	if sendDuration >= time.Millisecond*50 {
+		style := utils.YellowStyle
+
+		// If it took over 100ms, then we'll use orange-colored text instead of yellow.
+		if sendDuration >= time.Millisecond*100 {
+			style = utils.OrangeStyle
+		}
+
+		d.log.Warn(style.Render("Sending %s \"%s\" message %s took %v."), msg.JupyterMessageType(), msg.RequestId, sendDuration)
+	}
+
+	if metricError := d.gatewayPrometheusManager.SentMessage(d.id, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
+		d.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+	}
+
+	if metricError := d.gatewayPrometheusManager.SentMessageUnique(d.id, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
+		d.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+	}
 
 	if err != nil {
 		d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())

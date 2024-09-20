@@ -15,7 +15,7 @@ const (
 	randomIndexGCThreshold             = 10
 )
 
-// RandomClusterIndex is a simple cluster that seeks hosts randomly.
+// RandomClusterIndex is a simple Cluster that seeks hosts randomly.
 // RandomClusterIndex uses CategoryClusterIndex and all hosts are qualified.
 type RandomClusterIndex struct {
 	hosts     []*Host

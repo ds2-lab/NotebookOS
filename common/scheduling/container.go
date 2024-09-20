@@ -327,17 +327,36 @@ func (c *Container) TrainingStopped() error {
 	}
 	c.spec = c.lastSpec
 
+	// If we encounter errors while updating our Host's resources, then we'll force a synchronization of the Host's
+	// resources with its remote node now.
+	var errorEncountered bool
+
 	outstandingResourcesAsDecimalSpec := types.ToDecimalSpec(c.outstandingResources)
 	if err := c.host.AddToPendingResources(outstandingResourcesAsDecimalSpec); err != nil {
-		return err
+		c.log.Warn("Could not increment pending resources while stopping training because: %v", err)
+		errorEncountered = true
 	}
 
 	if err := c.host.AddToIdleResources(outstandingResourcesAsDecimalSpec); err != nil {
-		return err
+		c.log.Warn("Could not increment idle resources while stopping training because: %v", err)
+		errorEncountered = true
 	}
 
 	if err := c.host.SubtractFromCommittedResources(outstandingResourcesAsDecimalSpec); err != nil {
-		return err
+		c.log.Warn("Could not decrement committed resources while stopping training because: %v", err)
+		errorEncountered = true
+	}
+
+	if errorEncountered {
+		c.log.Debug("Host's resource info is too out-of-date. Forcibly refreshing now.")
+
+		err := c.host.SynchronizeResourceInformation()
+		if err != nil {
+			c.log.Error("Failed to forcibly synchronize Host's resource info because: %v", err)
+			return err
+		}
+
+		c.log.Debug("Successfully forced synchronization of Host's resource info.")
 	}
 
 	//c.host.Stats().PendingCPUsStat().Add(c.outstandingResources.CPU())

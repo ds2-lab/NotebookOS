@@ -76,6 +76,13 @@ type MessagingMetricsProvider interface {
 	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
 	// error is returned.
 	AddFailedSendAttempt(nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error
+
+	// SentMessage record that a message was sent (including cases where the message sent was resubmitted and not
+	// sent for the very first time).
+	SentMessage(nodeId string, sendLatency time.Duration, nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error
+
+	// SentMessageUnique records that a message was sent. This should not be incremented for resubmitted messages.
+	SentMessageUnique(nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error
 }
 
 // ContainerMetricsProvider is an exported interface that exposes an API for publishing container-related metrics.
@@ -167,6 +174,9 @@ type basePrometheusManager struct {
 	// - "jupyter_message_type": the Jupyter message type of the message whose latency is being observed.
 	MessageLatencyMicrosecondsVec *prometheus.HistogramVec
 
+	// MessageSendLatencyMicrosecondsVec is a histogram if the time taken to send a ZMQ message in microseconds.
+	MessageSendLatencyMicrosecondsVec *prometheus.HistogramVec
+
 	// NumSendsBeforeAckReceived is a prometheus.HistogramVec tracking observations of the number of times a given
 	// message was sent before an ACK was received for that message.
 	//
@@ -180,6 +190,12 @@ type basePrometheusManager struct {
 	//
 	// - "jupyter_message_type": the Jupyter message type of the associated message.
 	NumSendsBeforeAckReceived *prometheus.HistogramVec
+
+	// MessagesSent simply counts the number of Jupyter messages that are sent, including resubmissions.
+	JupyterMessagesSent *prometheus.CounterVec
+
+	// MessagesSent simply counts the number of Jupyter messages that are sent, NOT including resubmission
+	JupyterUniqueMessagesSent *prometheus.CounterVec
 }
 
 // newBasePrometheusManager creates a new basePrometheusManager and returns a pointer to it.
@@ -326,7 +342,7 @@ func (m *basePrometheusManager) initializeMetrics() error {
 		Help:      "Total number of kernel replicas to have ever been scheduled/created",
 	}, []string{"node_type", "node_id"})
 
-	// Create/define message latency metrics.
+	// Create/define message-related metrics.
 
 	m.NumFailedSendsCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "distributed_cluster",
@@ -342,16 +358,52 @@ func (m *basePrometheusManager) initializeMetrics() error {
 			400e3, 500e3, 750e3, 1e6, 1.5e6, 2e6, 3e6, 4.5e6, 6e6, 9e6, 1.2e7, 1.8e7, 2.4e7, 3e7, 4.5e7, 6e7, 9e7, 1.2e8},
 	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
 
+	m.MessageSendLatencyMicrosecondsVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "message_send_latency_microseconds",
+		Help:      "The latency, in microseconds, to send a ZMQ message. This does not include receiving an explicit ACK or a response.",
+		Buckets: []float64{1, 10, 100, 1e3, 5e3, 10e3, 15e3, 20e3, 30e3, 50e3, 75e3, 100e3, 150e3, 200e3, 300e3,
+			400e3, 500e3, 750e3, 1e6, 1.5e6, 2e6, 3e6, 4.5e6, 6e6, 9e6, 1.2e7, 1.8e7, 2.4e7, 3e7, 4.5e7, 6e7, 9e7, 1.2e8},
+	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
+
 	m.NumSendsBeforeAckReceived = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
 		Name:      "num_resends_required",
 		Help:      "The number of times a message had to be sent before an acknowledgement was received.",
 		Buckets:   []float64{0, 1, 2, 3, 4, 5},
 	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
-	// Register message latency metrics.
+
+	m.JupyterMessagesSent = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "messages_sent_total",
+		Help:      "The number of times a message was sent, including resubmissions.",
+	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
+
+	m.JupyterUniqueMessagesSent = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "unique_messages_sent_total",
+		Help:      "The number of times a message was sent, not including resubmissions.",
+	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
+
+	// Register message-related metrics.
 
 	if err := prometheus.Register(m.MessageLatencyMicrosecondsVec); err != nil {
 		m.log.Error("Failed to register 'Gateway Shell Message Latency' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.JupyterMessagesSent); err != nil {
+		m.log.Error("Failed to register 'Jupyter Messages Sent' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.JupyterUniqueMessagesSent); err != nil {
+		m.log.Error("Failed to register 'Jupyter Unique Messages Sent' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.MessageSendLatencyMicrosecondsVec); err != nil {
+		m.log.Error("Failed to register 'Message Send Latency Microseconds' metric because: %v", err)
 		return err
 	}
 
@@ -446,6 +498,55 @@ func (m *basePrometheusManager) AddFailedSendAttempt(nodeId string, nodeType Nod
 	}
 
 	m.NumFailedSendsCounterVec.
+		With(prometheus.Labels{
+			"node_id":              nodeId,
+			"node_type":            nodeType.String(),
+			"socket_type":          socketType.String(),
+			"jupyter_message_type": jupyterMessageType,
+		}).Inc()
+
+	return nil
+}
+
+// SentMessage record that a message was sent (including cases where the message sent was resubmitted and not
+// sent for the very first time).
+func (m *basePrometheusManager) SentMessage(nodeId string, sendLatency time.Duration, nodeType NodeType, socketType jupyterTypes.MessageType,
+	jupyterMessageType string) error {
+
+	if !m.metricsInitialized {
+		m.log.Error("Cannot record \"JupyterMessagesSent\" observation as metrics have not yet been initialized...")
+		return ErrMetricsNotInitialized
+	}
+
+	m.JupyterMessagesSent.
+		With(prometheus.Labels{
+			"node_id":              nodeId,
+			"node_type":            nodeType.String(),
+			"socket_type":          socketType.String(),
+			"jupyter_message_type": jupyterMessageType,
+		}).Inc()
+
+	m.MessageSendLatencyMicrosecondsVec.
+		With(prometheus.Labels{
+			"node_id":              nodeId,
+			"node_type":            nodeType.String(),
+			"socket_type":          socketType.String(),
+			"jupyter_message_type": jupyterMessageType,
+		}).Observe(float64(sendLatency.Microseconds()))
+
+	return nil
+}
+
+// SentMessageUnique records that a message was sent. This should not be incremented for resubmitted messages.
+func (m *basePrometheusManager) SentMessageUnique(nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType,
+	jupyterMessageType string) error {
+
+	if !m.metricsInitialized {
+		m.log.Error("Cannot record \"JupyterUniqueMessagesSent\" observation as metrics have not yet been initialized...")
+		return ErrMetricsNotInitialized
+	}
+
+	m.JupyterUniqueMessagesSent.
 		With(prometheus.Labels{
 			"node_id":              nodeId,
 			"node_type":            nodeType.String(),

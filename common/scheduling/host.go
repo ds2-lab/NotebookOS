@@ -149,12 +149,13 @@ type Host struct {
 	log logger.Logger
 
 	latestGpuInfo      *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
-	gpuInfoMutex       sync.Mutex                           // gpuInfoMutex controls access to the latest GPU info.
+	resourceMutex      sync.Mutex                           // resourceMutex controls access to the latest GPU info.
+	syncMutex          sync.Mutex                           // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
 	meta               hashmap.HashMap[string, interface{}] // meta is a map of metadata.
 	conn               *grpc.ClientConn                     // conn is the gRPC connection to the Host.
 	addr               string                               // addr is the Host's address.
 	nodeName           string                               // nodeName is the Host's name (for printing/logging).
-	cluster            Cluster                              // cluster is a reference to the Cluster interface that manages this Host.
+	Cluster            Cluster                              // Cluster is a reference to the Cluster interface that manages this Host.
 	id                 string                               // id is the unique ID of this host.
 	containers         hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
 	trainingContainers []*Container                         // trainingContainers are the actively-training kernel replicas.
@@ -164,27 +165,14 @@ type Host struct {
 	errorCallback      ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
 	pendingContainers  types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
 	createdAt          time.Time                            // createdAt is the time at which the Host was created.
+	resourcesWrapper   *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
 
-	// TODO: Synchronize these values what what the ClusterDaemon retrieves periodically.
-
-	// resourcesWrapper wraps all the Host's resources.
-	resourcesWrapper *resourcesWrapper
-
-	//idleCPUs          types.StatFloat64 // IdleCPUs returns the number of CPUs that the host has not allocated to any Containers.
-	//pendingCPUs       types.StatFloat64 // PendingCPUs returns the number of CPUs that are oversubscribed by Containers scheduled on the Host.
-	//committedCPUs     types.StatFloat64 // CommittedCPUs returns the number of CPUs that are actively bound to Containers scheduled on the Host.
-	//idleMemoryMb      types.StatFloat64 // IdleMemoryMb returns the amount of memory (in megabytes) that the host has not allocated to any Containers.
-	//pendingMemoryMb   types.StatFloat64 // PendingMemoryMb returns the amount of memory (in megabytes) that is oversubscribed by Containers scheduled on the Host.
-	//committedMemoryMb types.StatFloat64 // CommittedMemoryMb returns the amount of memory (in megabytes) that is actively bound to Containers scheduled on the Host.
-	//idleGPUs          types.StatFloat64 // IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
-	//pendingGPUs       types.StatFloat64 // PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-	//committedGPUs     types.StatFloat64 // CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
-
-	subscribedRatio types.StatFloat64
+	LastRemoteSync time.Time // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 
 	// Cached penalties
 	sip             cache.InlineCache // Scale-in penalty.
 	sipSession      *Session          // Scale-in penalty session.
+	subscribedRatio types.StatFloat64
 	penaltyList     cache.InlineCache
 	penalties       []cachedPenalty
 	penaltyValidity bool
@@ -234,7 +222,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		nodeName:           confirmedId.NodeName,
 		addr:               addr,
 		resourceSpec:       resourceSpec,
-		cluster:            cluster,
+		Cluster:            cluster,
 		conn:               conn,
 		log:                config.GetLogger(fmt.Sprintf("Host %s ", id)),
 		containers:         hashmap.NewCornelkMap[string, *Container](5),
@@ -292,9 +280,6 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 
 	host.subscribedRatio.Store(0)
 
-	// Start the goroutine that polls for updated GPU info on an interval.
-	//go host.pollForGpuInfo()
-
 	return host, nil
 }
 
@@ -334,10 +319,13 @@ func (h *Host) NumContainers() int {
 	return h.containers.Len()
 }
 
-// pollForGpuInfo runs a loop that continuously requests GPU usage statistics from all the host schedulers.
+// SynchronizeResourceInformation queries the remote host via gRPC to request update-to-date resource usage information.
+//
+// This method is thread-safe. Only one goroutine at a time may execute this method.
+func (h *Host) SynchronizeResourceInformation() error {
+	h.syncMutex.Lock()
+	defer h.syncMutex.Unlock()
 
-// RefreshResourceInformation queries the remote host via gRPC to request update-to-date resource usage information.
-func (h *Host) RefreshResourceInformation() error {
 	//h.log.Debug("Refreshing resource information from remote.")
 	resp, err := h.LocalGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
 	if err != nil {
@@ -346,13 +334,14 @@ func (h *Host) RefreshResourceInformation() error {
 	}
 
 	h.updateLocalGpuInfoFromRemote(resp)
+	h.LastRemoteSync = time.Now()
 	return nil
 }
 
 // updateLocalGpuInfoFromRemote updates the local info pertaining to GPU usage information
 // with the "actual" GPU usage retrieved from the remote host associated with this Host struct.
 func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
-	h.gpuInfoMutex.Lock()
+	h.resourceMutex.Lock()
 
 	//h.log.Debug("Updating local GPU usage info with data from remote now...")
 	numDifferences := 0
@@ -389,7 +378,7 @@ func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
 	}
 
 	h.latestGpuInfo = remoteInfo
-	h.gpuInfoMutex.Unlock()
+	h.resourceMutex.Unlock()
 }
 
 // ContainerScheduled is to be called when a Container is scheduled onto the Host.
@@ -421,9 +410,6 @@ func (h *Host) Restore(restored *Host, callback ErrorCallback) error {
 	h.nodeName = restored.nodeName
 	h.LocalGatewayClient = restored.LocalGatewayClient
 	h.latestGpuInfo = restored.latestGpuInfo
-
-	// TODO: Make sure the other goroutine is no longer active.
-	//go h.pollForGpuInfo()
 
 	return nil
 }
@@ -639,6 +625,12 @@ func (h *Host) LastReschedule() types.StatFloat64Field {
 	return &h.lastReschedule
 }
 
+// TimeSinceLastSynchronizationWithRemote returns a time.Duration indicating how long it has been since its resources
+// were refreshed and synchronized from the actual remote Host that this Host struct represents.
+func (h *Host) TimeSinceLastSynchronizationWithRemote() time.Duration {
+	return time.Since(h.LastRemoteSync)
+}
+
 // SetMeta sets the metadata of the host.
 func (h *Host) SetMeta(key HostMetaKey, value interface{}) {
 	h.meta.Store(string(key), value)
@@ -729,45 +721,3 @@ func (h *Host) SubtractFromIdleResources(spec *types.DecimalSpec) error {
 func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
 	return h.resourcesWrapper.committedResources.Subtract(spec)
 }
-
-//func (h *Host) IdleMemoryMbStat() types.StatFloat64Field {
-//	return &h.idleMemoryMb
-//}
-//
-//func (h *Host) PendingMemoryMbStat() types.StatFloat64Field {
-//	return &h.pendingMemoryMb
-//}
-//
-//func (h *Host) CommittedMemoryMbStat() types.StatFloat64Field {
-//	return &h.committedMemoryMb
-//}
-//
-//func (h *Host) IdleCPUsStat() types.StatFloat64Field {
-//	return &h.idleCPUs
-//}
-//
-//func (h *Host) PendingCPUsStat() types.StatFloat64Field {
-//	return &h.pendingCPUs
-//}
-//
-//func (h *Host) CommittedCPUsStat() types.StatFloat64Field {
-//	return &h.committedCPUs
-//}
-//
-//// IdleGPUsStat returns the StatFloat64 representing the number of GPUs that the host
-//// has not allocated to any Containers.
-//func (h *Host) IdleGPUsStat() types.StatFloat64Field {
-//	return &h.idleGPUs
-//}
-//
-//// PendingGPUsStat returns the StatFloat64 representing the number of GPUs that are oversubscribed
-//// by Containers scheduled on the Host.
-//func (h *Host) PendingGPUsStat() types.StatFloat64Field {
-//	return &h.pendingGPUs
-//}
-//
-//// CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound
-//// to Containers scheduled on the Host.
-//func (h *Host) CommittedGPUsStat() types.StatFloat64Field {
-//	return &h.committedGPUs
-//}

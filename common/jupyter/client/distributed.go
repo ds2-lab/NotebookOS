@@ -154,7 +154,7 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 		iopubListenPort:          iopubListenPort,
 		numActiveAddOperations:   0,
 		executionFailedCallback:  executionFailedCallback,
-		activeExecutionQueue:     make(scheduling.ActiveExecutionQueue, 16),
+		activeExecutionQueue:     make(scheduling.ActiveExecutionQueue, 0, 16),
 		executionLatencyCallback: executionLatencyCallback,
 		nextNodeId:               int32(numReplicas + 1),
 	}
