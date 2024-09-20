@@ -39,6 +39,8 @@ const (
 	DefaultPrometheusPort int = 8089
 	// DefaultPrometheusInterval is the default interval on which the Local Daemon will push new Prometheus metrics.
 	DefaultPrometheusInterval = time.Second * 5
+	// DefaultNumResendAttempts is the default number of attempts we'll resend a message before giving up.
+	DefaultNumResendAttempts = 3
 )
 
 var (
@@ -192,6 +194,12 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon,
 		fmt.Sprintf("LocalDaemon_%s", nodeName), true, metrics.LocalDaemon)
+
+	if daemon.numResendAttempts <= 0 {
+		daemon.log.Error("Invalid number of message resend attempts specified: %d. Defaulting to %d.",
+			daemon.numResendAttempts, DefaultNumResendAttempts)
+		daemon.numResendAttempts = DefaultNumResendAttempts
+	}
 
 	daemon.resourceManager = scheduling.NewResourceManager(&types.Float64Spec{
 		GPUs:     types.GPUSpec(schedulerDaemonOptions.NumGPUs),

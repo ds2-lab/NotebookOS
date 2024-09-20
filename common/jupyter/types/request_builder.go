@@ -165,7 +165,7 @@ func (b *RequestBuilder) WithAckTimeout(ackTimeout time.Duration) *RequestBuilde
 
 // WithTimeout configures the timeout of the request.
 //
-// Configuring this option is OPTIONAL. By default, requests do not time-out.
+// Configuring this option is OPTIONAL. By default, requests do not time out.
 func (b *RequestBuilder) WithTimeout(timeout time.Duration) *RequestBuilder {
 	b.timeout = timeout
 	b.hasTimeout = true
@@ -182,7 +182,9 @@ func (b *RequestBuilder) WithBlocking(blocking bool) *RequestBuilder {
 
 // WithNumAttempts specifies the number of "high-level" retries for this request.
 // These "high-level" retries are distinct from retries related to message ACKs.
-// This is the number of times an ACK'd message will be resubmitted after timing out.
+// This is the number of times an acknowledged message will be resubmitted after timing out.
+//
+// TODO: I think the above is out-dated, and that these retries are all one and the same. Is this true?
 //
 // Note that this option is irrelevant if no response is expected for the request.
 //

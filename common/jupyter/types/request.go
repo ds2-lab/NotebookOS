@@ -120,7 +120,7 @@ type Request interface {
 	// Default: infinite.
 	//
 	// If the returned bool is true, then the timeout is valid.
-	// If it is false, then the timeout is invalid, meaning the request does not time-out.
+	// If it is false, then the timeout is invalid, meaning the request does not time out.
 	Timeout() (time.Duration, bool)
 
 	// MaxNumAttempts returns the maximum number of attempts allowed before giving up on sending the request.

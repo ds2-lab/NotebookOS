@@ -64,6 +64,9 @@ const (
 	TargetReplicaArg  = "target_replica"
 	ForceReprocessArg = "force_reprocess"
 
+	// DefaultNumResendAttempts is the default number of attempts we'll resend a message before giving up.
+	DefaultNumResendAttempts = 3
+
 	SchedulingPolicyLocal     SchedulingPolicy = "local"
 	SchedulingPolicyStatic    SchedulingPolicy = "static"
 	SchedulingPolicyDynamicV3 SchedulingPolicy = "dynamic-v3"
@@ -280,6 +283,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	config.InitLogger(&clusterGateway.log, clusterGateway)
 	clusterGateway.router = router.New(context.Background(), clusterGateway.connectionOptions, clusterGateway,
 		"ClusterGatewayRouter", false, metrics.ClusterGateway)
+
+	if clusterGateway.numResendAttempts <= 0 {
+		clusterGateway.log.Error("Invalid number of message resend attempts specified: %d. Defaulting to %d.",
+			clusterGateway.numResendAttempts, DefaultNumResendAttempts)
+		clusterGateway.numResendAttempts = DefaultNumResendAttempts
+	}
 
 	if clusterGateway.prometheusInterval == time.Duration(0) {
 		clusterGateway.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
