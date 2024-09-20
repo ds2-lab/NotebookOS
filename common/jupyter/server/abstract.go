@@ -247,9 +247,11 @@ func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, soc
 		ackChan <- struct{}{}
 		// s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
 	} else if ackChan == nil { // If ackChan is nil, then that means we weren't expecting an ACK in the first place.
-		s.Log.Error("[gid=%d] [3] Received ACK for %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\") via local socket %s [remoteSocket=%s]; however, we were not expecting an ACK for that message...", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), rspId, jMsg.JupyterMessageId(), jMsg.JupyterSession(), socket.Name, socket.RemoteName)
+		s.Log.Error("[gid=%d] [3] Received ACK for %s \"%s\" message %s (JupyterID=\"%s\") via local socket %s [remoteSocket=%s]; however, we were not expecting an ACK for that message...",
+			goroutineId, socket.Type.String(), jMsg.JupyterParentMessageType(), rspId, jMsg.JupyterParentMessageId(), socket.Name, socket.RemoteName)
 	} else if ackReceived {
-		s.Log.Error("[gid=%d] [4] Received ACK for %s message %s via local socket %s [remoteSocket=%s]; however, we already received an ACK for that message...", goroutineId, socket.Type.String(), rspId, socket.Name, socket.RemoteName)
+		s.Log.Error("[gid=%d] [4] Received ACK for %s message %s via local socket %s [remoteSocket=%s]; however, we already received an ACK for that message...",
+			goroutineId, socket.Type.String(), rspId, socket.Name, socket.RemoteName)
 	} else if _, loaded = s.discardACKs.LoadAndDelete(rspId); !loaded {
 		// For messages that we explicitly indicate do not require an ACK, we make note of this, just for debugging purposes.
 		// If we receive an ACK for a message, and we have no "ack channel" registered for that message, then we just do a sanity
@@ -261,7 +263,8 @@ func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, soc
 		// to not wait for an ACK before returning -- and to not resend if no ACKs are received. Not requiring an ACK
 		// does not prevent ACKs from being transmitted. In the future, we could embed a piece of metadata in the request
 		// that says "you don't need to ACK this message" if we really don't want the ACK to be sent for whatever reason.)
-		s.Log.Warn("[gid=%d] Received unexpected ACK for %s \"%s\" message %s (JupyterID=\"%s\").", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), rspId, jMsg.JupyterMessageId())
+		s.Log.Warn("[gid=%d] Received unexpected ACK for %s \"%s\" message %s (JupyterID=\"%s\").",
+			goroutineId, socket.Type.String(), jMsg.JupyterParentMessageType(), rspId, jMsg.JupyterParentMessageId())
 	}
 }
 

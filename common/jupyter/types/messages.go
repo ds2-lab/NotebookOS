@@ -372,6 +372,16 @@ func (m *JupyterMessage) JupyterMessageType() string {
 	return string(header.MsgType)
 }
 
+// JupyterParentMessageType is a convenience/utility method for retrieving the (parent) Jupyter message type from
+// the Jupyter parent message header.
+func (m *JupyterMessage) JupyterParentMessageType() string {
+	parentHeader := m.GetParentHeader() // Instantiate the header in case it isn't already.
+	if parentHeader == nil {
+		panic(fmt.Sprintf("Failed to decode message header. Message: %s.\n", m.Msg.String()))
+	}
+	return string(parentHeader.MsgType)
+}
+
 // JupyterMessageDate is a convenience/utility method for retrieving the Jupyter date type from the Jupyter message header.
 func (m *JupyterMessage) JupyterMessageDate() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
@@ -415,6 +425,16 @@ func (m *JupyterMessage) JupyterMessageId() string {
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.Msg.String(), err))
 	}
 	return header.MsgID
+}
+
+// JupyterParentMessageId is a convenience/utility method for retrieving the Jupyter message ID
+// from the parent Jupyter message header.
+func (m *JupyterMessage) JupyterParentMessageId() string {
+	parentHeader := m.GetParentHeader() // Instantiate the parentHeader in case it isn't already.
+	if parentHeader == nil {
+		panic(fmt.Sprintf("Failed to decode message parentHeader. Message: %s.\n", m.Msg.String()))
+	}
+	return parentHeader.MsgID
 }
 
 func (m *JupyterMessage) String() string {

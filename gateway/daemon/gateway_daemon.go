@@ -175,11 +175,6 @@ type ClusterGatewayImpl struct {
 	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
 	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
 
-	// activeExecutions is a mapping of all the active code executions occurring on kernel replicas right now.
-	// This also includes enqueued executions that may not have started yet due to being stuck behind another
-	// active (or enqueued) execution on a kernel replica.
-	activeExecutions hashmap.HashMap[string, *scheduling.ActiveExecution]
-
 	// numResendAttempts is the number of times to try resending a message before giving up.
 	numResendAttempts int
 
@@ -272,7 +267,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
 		kernelsStarting:                       hashmap.NewCornelkMap[string, chan struct{}](64),
 		addReplicaNewPodNotifications:         hashmap.NewCornelkMap[string, chan domain.AddReplicaOperation](64),
-		activeExecutions:                      hashmap.NewCornelkMap[string, *scheduling.ActiveExecution](64),
 		hdfsNameNodeEndpoint:                  clusterDaemonOptions.HdfsNameNodeEndpoint,
 		dockerNetworkName:                     clusterDaemonOptions.DockerNetworkName,
 		numResendAttempts:                     clusterDaemonOptions.NumResendAttempts,
@@ -1183,8 +1177,13 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	// Notify the cluster dashboard that we're performing a migration.
 	go d.notifyDashboardOfError("ErrAllReplicasProposedYield", fmt.Sprintf("all replicas of kernel %s proposed 'YIELD' during execution", c.ID()))
 
-	activeExecution, ok := d.activeExecutions.Load(c.ID())
-	if !ok {
+	// TODO: There could be race conditions here with how we are creating and linking and assigning the ...
+	// TODO: ... ActiveExecution structs here. That is, if we receive additional "execute_request" messages during ...
+	// TODO: ... this process, then things could get messed-up. We need to put a big lock around this or something ...
+	// TODO: ... Like, a lock around/in the DistributedKernelClient, specifically.
+
+	activeExecution := c.ActiveExecution()
+	if activeExecution == nil {
 		d.log.Error("Could not find active execution for kernel %s after static scheduling failure.", c.ID())
 		go d.notifyDashboardOfError("ErrActiveExecutionNotFound", "active execution for specified kernel could not be found")
 		return ErrActiveExecutionNotFound
@@ -1281,12 +1280,9 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 		}
 	}
 
-	// Since the migration operation completed successfully, we can store the new ActiveExecution struct
-	// corresponding to this next execution attempt in the 'activeExecutions' map and on the kernel client.
-	d.activeExecutions.Store(msg.JupyterMessageId(), activeExecution)
-	c.SetActiveExecution(activeExecution)
 	nextExecutionAttempt.LinkPreviousAttempt(activeExecution)
 	activeExecution.LinkNextAttempt(nextExecutionAttempt)
+	c.SetActiveExecution(nextExecutionAttempt)
 
 	d.log.Debug("Resubmitting 'execute_request' message targeting kernel %s now.", c.ID())
 	err = d.ShellHandler(c, msg)
@@ -2592,20 +2588,17 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	d.log.Debug("Received execute-reply from kernel %s.", kernelId)
 
-	activeExecution, ok := d.activeExecutions.Load(kernelId)
-	if !ok {
-		d.log.Error("No active execution registered for kernel %s...", kernelId)
-		return nil
-	}
-
-	d.log.Debug("Unregistered active execution %s for kernel %s.", activeExecution.ExecutionId(), kernelId)
-	d.activeExecutions.Delete(kernelId)
-
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
 		d.log.Error("Failed to load DistributedKernelClient %s while processing \"execute_reply\" message...", kernelId)
 		go d.notifyDashboardOfError("Failed to Load Distributed Kernel Client", fmt.Sprintf("Failed to load DistributedKernelClient %s while processing \"execute_reply\" message...", kernelId))
 		return ErrKernelNotFound
+	}
+
+	activeExecution := kernel.ActiveExecution()
+	if activeExecution == nil {
+		d.log.Error("No active execution registered for kernel %s...", kernelId)
+		return nil
 	}
 
 	d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
@@ -2614,21 +2607,6 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	if _, err := kernel.ExecutionComplete(); err != nil {
 		return err
 	}
-
-	// Attempt to load the associated Session.
-	//session, ok := d.sessions.Load(kernelId)
-	//if !ok {
-	//	errorMessage := fmt.Sprintf("Failed to locate scheduling.Session[ID=\"%s\"] when handling \"execute_reply\" message...", kernelId)
-	//	d.log.Error(errorMessage)
-	//	return fmt.Errorf("%w: Kernel ID: \"%s\"", ErrSessionNotFound, kernelId)
-	//}
-	//
-	//// Validate that the Session is currently training.
-	//if !session.IsTraining() {
-	//	sessionState := session.GetState()
-	//	d.log.Error("Session \"%s\" is supposed to be training (as we just received \"execute_reply\"); however, Session \"%s\" is in state '%v'...", kernelId, kernelId, sessionState)
-	//	return fmt.Errorf("%w: found session in state '%v'", ErrSessionNotTraining, sessionState)
-	//}
 
 	// Record that the Session has stopped training.
 	// TODO: Will there be race conditions here if we've sent multiple "execute_request" messages to the kernel?
@@ -2652,7 +2630,6 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernelId, msg)
 
 	activeExecution := scheduling.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
-	d.activeExecutions.Store(kernelId, activeExecution)
 
 	// TODO: If the Session is currently training, then we should not replace its ActiveExecution with a new one.
 	// TODO: Instead, we should enqueue the new ActiveExecution instance.

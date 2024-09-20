@@ -6,6 +6,7 @@ import types
 from typing import Optional
 
 from .ast import SyncAST
+from .election import Election
 from .errors import SyncError
 from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
@@ -209,9 +210,32 @@ class Synchronizer:
         # Failed to lead the term, which is what we want to happen since we're YIELDING.
         return 0
 
+    async def wait_for_election_to_end(self, term_number: int):
+        """
+        Wait until the leader of the specified election finishes executing the code,
+        or until we know that all replicas yielded.
+
+        :param term_number: the term number of the election
+        """
+        self._log.debug(f"Waiting for leader to finish executing code (or to learn that all replicas yielded) "
+                        f"for election term {term_number}.")
+
+        await self._synclog.wait_for_election_to_end(term_number)
+
+    async def notify_execution_complete(self, term_number: int):
+        """
+        Notify our peer replicas that we have finished executing the code for the specified election.
+
+        :param term_number: the term of the election for which we served as leader and executed
+        the user-submitted code.
+        """
+        self._log.debug(f"Notifying peers that execution of code during election term {term_number} has finished.")
+
+        await self._synclog.notify_execution_complete(term_number)
+
     async def ready(self, execution_count: int, lead: bool) -> int:
         """
-        Wait the ready of the synchronization and propose to lead a execution.
+        Wait for the replicas to synchronize and propose a leader for an election.
         Returns the execution count that granted to lead or 0 if denied.
         Note that if the execution_count is 0, the execution is guaranteed to be
         granted, which may cause duplication execution.

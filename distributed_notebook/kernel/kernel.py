@@ -1,56 +1,60 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-import os
-import logging
-import json
-import signal
-import sys
-import socket
-import traceback
-import time
-import uuid
 import faulthandler
-import debugpy
+import inspect
+import json
+import logging
+import os
+import signal
+import socket
+import sys
+import time
+import traceback
+import typing as t
+import uuid
+from multiprocessing import Process, Queue
+from threading import Lock
+from typing import Union, Optional, Dict, Any
+
+import zmq
+from ipykernel import jsonutil
+from ipykernel.ipkernel import IPythonKernel
+from jupyter_client.jsonutil import extract_dates
+from traitlets import List, Integer, Unicode, Bool, Undefined
+
+from .util import extract_header
+from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
+
 
 # from traitlets.traitlets import Set
 
-import typing as t
-from typing import Union, Optional, Dict, Any
-from traitlets import List, Integer, Unicode, Bool, Undefined
-from ipykernel.ipkernel import IPythonKernel
-from ipykernel import jsonutil
-import zmq
-from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
-from .util import extract_header
-from threading import Lock
-
-from jupyter_client.jsonutil import extract_dates
-
-from multiprocessing import Process, Queue
 
 def sigabrt_handler(sig, frame):
-    print(f'Received SIGABORT (Python): {sig} {frame}', flush = True)
+    print(f'Received SIGABORT (Python): {sig} {frame}', flush=True)
     sys.stderr.flush()
     sys.stdout.flush()
     sys.exit(0)
+
 
 def sigint_handler(sig, frame):
-    print(f'Received SIGINT (Python): {sig} {frame}', flush = True)
+    print(f'Received SIGINT (Python): {sig} {frame}', flush=True)
     sys.stderr.flush()
     sys.stdout.flush()
     sys.exit(0)
 
+
 def sigterm_handler(sig, frame):
-    print(f'Received SIGINT (Python): {sig} {frame}', flush = True)
+    print(f'Received SIGINT (Python): {sig} {frame}', flush=True)
     sys.stderr.flush()
     sys.stdout.flush()
     sys.exit(0)
+
 
 signal.signal(signal.SIGABRT, sigabrt_handler)
 signal.signal(signal.SIGINT, sigint_handler)
 signal.signal(signal.SIGTERM, sigterm_handler)
+
 
 class ExecutionYieldError(Exception):
     """Exception raised when execution is yielded."""
@@ -58,11 +62,12 @@ class ExecutionYieldError(Exception):
     def __init__(self, message):
         super().__init__(message)
 
-DeploymentMode_Kubernetes:str = "kubernetes"
-DeploymentMode_Docker:str = "docker"
-DeploymentMode_Local:str = "local"
 
-SMR_LEAD_TASK:str = "smr_lead_task"
+DeploymentMode_Kubernetes: str = "kubernetes"
+DeploymentMode_Docker: str = "docker"
+DeploymentMode_Local: str = "local"
+
+SMR_LEAD_TASK: str = "smr_lead_task"
 
 storage_base_default = os.path.dirname(os.path.realpath(__file__))
 smr_port_default = 10000
@@ -77,7 +82,9 @@ enable_storage = True
 # Used as the value for an environment variable that was not set.
 UNAVAILABLE: str = "N/A"
 
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
+logging.basicConfig(level=logging.DEBUG,
+                    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
+
 
 # TODO(Ben): Fix this, potentially.
 class CustomFormatter(logging.Formatter):
@@ -86,15 +93,15 @@ class CustomFormatter(logging.Formatter):
     red = "\x1b[31;20m"
     bold_red = "\x1b[31;1m"
     reset = "\x1b[0m"
-    format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] " # type: ignore
+    format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] "  # type: ignore
     # format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
 
     FORMATS = {
-        logging.DEBUG: grey + format + reset, # type: ignore
-        logging.INFO: grey + format + reset, # type: ignore
-        logging.WARNING: yellow + format + reset, # type: ignore
-        logging.ERROR: red + format + reset, # type: ignore
-        logging.CRITICAL: bold_red + format + reset # type: ignore
+        logging.DEBUG: grey + format + reset,  # type: ignore
+        logging.INFO: grey + format + reset,  # type: ignore
+        logging.WARNING: yellow + format + reset,  # type: ignore
+        logging.ERROR: red + format + reset,  # type: ignore
+        logging.CRITICAL: bold_red + format + reset  # type: ignore
     }
 
     def format(self, record):
@@ -102,14 +109,16 @@ class CustomFormatter(logging.Formatter):
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
 
-def tracefunc(frame, event, arg, indent: list[int] =[0]):
-      if event == "call":
-          indent[0] += 2
-          print("-" * indent[0] + "> call function", frame.f_code.co_name, flush = True)
-      elif event == "return":
-          print("<" + "-" * indent[0], "exit function", frame.f_code.co_name, flush = True)
-          indent[0] -= 2
-      return tracefunc
+
+def tracefunc(frame, event, arg, indent: list[int] = [0]):
+    if event == "call":
+        indent[0] += 2
+        print("-" * indent[0] + "> call function", frame.f_code.co_name, flush=True)
+    elif event == "return":
+        print("<" + "-" * indent[0], "exit function", frame.f_code.co_name, flush=True)
+        indent[0] -= 2
+    return tracefunc
+
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
@@ -134,27 +143,32 @@ class DistributedKernel(IPythonKernel):
                     ).tag(config=True)
 
     should_register_with_local_daemon = Bool(True,
-                                      help="""Explicitly register with the local daemon?"""
-                                      ).tag(config=True)
-    
-    local_daemon_addr: Union[str, Unicode] = Unicode(help="""Hostname of the local daemon to register with (when using Docker mode)""").tag(config=True)
+                                             help="""Explicitly register with the local daemon?"""
+                                             ).tag(config=True)
 
-    local_tcp_server_port = Integer(5555, help = "Port for local TCP server.").tag(config = True)
+    local_daemon_addr: Union[str, Unicode] = Unicode(
+        help="""Hostname of the local daemon to register with (when using Docker mode)""").tag(config=True)
+
+    local_tcp_server_port = Integer(5555, help="Port for local TCP server.").tag(config=True)
 
     persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""").tag(config=True)
 
-    pod_name: Union[str, Unicode] = Unicode(help="""Kubernetes name of the Pod encapsulating this distributed kernel replica""").tag(config=False)
+    pod_name: Union[str, Unicode] = Unicode(
+        help="""Kubernetes name of the Pod encapsulating this distributed kernel replica""").tag(config=False)
 
-    node_name: Union[str, Unicode] = Unicode(help="""Kubernetes name of the Node on which the Pod is running""").tag(config=False)
+    node_name: Union[str, Unicode] = Unicode(help="""Kubernetes name of the Node on which the Pod is running""").tag(
+        config=False)
 
-    hostname: Union[str, Unicode] = Unicode(help="""Hostname of the Pod encapsulating this distributed kernel replica""").tag(config=False)
+    hostname: Union[str, Unicode] = Unicode(
+        help="""Hostname of the Pod encapsulating this distributed kernel replica""").tag(config=False)
 
-    hdfs_namenode_hostname: Union[str, Unicode] = Unicode(help="""Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.""").tag(config=True)
+    hdfs_namenode_hostname: Union[str, Unicode] = Unicode(
+        help="""Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.""").tag(config=True)
 
     kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(config=False)
 
     # data_directory: Union[str, Unicode] = Unicode(help="""The etcd-raft WAL/data directory. This will always be equal to the empty string unless we're created during a migration operation.""").tag(config=False)
-    
+
     debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(config=False)
 
     implementation = 'Distributed Python 3'
@@ -179,6 +193,9 @@ class DistributedKernel(IPythonKernel):
     smr_nodes_map: dict
 
     def __init__(self, **kwargs):
+        self.source = None
+        # Used to create strong references to tasks, such as notifying peer replicas that execution has complete.
+        self.background_tasks = set()
         self.next_execute_request_msg_id: Optional[str] = None
         self.old_run_cell = None
         self.daemon_registration_socket = None
@@ -211,15 +228,15 @@ class DistributedKernel(IPythonKernel):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(CustomFormatter())
         self.log.addHandler(ch)
-        
+
         from ipykernel.debugger import _is_debugpy_available
         if _is_debugpy_available:
             self.log.info("The Debugger IS available/enabled.")
-            
+
             assert self.debugger is not None
         else:
             self.log.warning("The Debugger is NOT available/enabled.")
-        
+
         # sys.setprofile(tracefunc)
 
         # self.log.info("TEST -- INFO")
@@ -231,11 +248,11 @@ class DistributedKernel(IPythonKernel):
         # self.log.info("Calling Go-level `PrintTestMessage` function now...")
         # PrintTestMessage()
         # self.log.info("Called Go-level `PrintTestMessage` function now...")
-        
-        self.received_message_ids: set = set()  
 
-        self.run_training_code_mutex: Lock = Lock() 
-        self.run_training_code: bool = False 
+        self.received_message_ids: set = set()
+
+        self.run_training_code_mutex: Lock = Lock()
+        self.run_training_code: bool = False
 
         # The time at which we were created (i.e., the time at which the DistributedKernel object was instantiated)
         self.created_at: float = time.time()
@@ -259,28 +276,28 @@ class DistributedKernel(IPythonKernel):
 
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
-        
-        self.deployment_mode:str = os.environ.get("DEPLOYMENT_MODE", "local")
+
+        self.deployment_mode: str = os.environ.get("DEPLOYMENT_MODE", "local")
         if len(self.deployment_mode) == 0:
             raise ValueError("Could not determine deployment mode.")
         else:
             self.log.debug(f"Deployment mode: {self.deployment_mode}")
-        
-        session_id:str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
+
+        session_id: str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
         self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
-        
+
         if self.deployment_mode == DeploymentMode_Kubernetes:
             self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
-            self.docker_container_id:str = "N/A"
+            self.docker_container_id: str = "N/A"
         elif self.deployment_mode == DeploymentMode_Docker:
-            self.docker_container_id:str = socket.gethostname()
+            self.docker_container_id: str = socket.gethostname()
             self.pod_name = os.environ.get("POD_NAME", default=self.docker_container_id)
             self.node_name = os.environ.get("NODE_NAME", default="DockerNode")
         else:
             self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
-            self.docker_container_id:str = "N/A"
+            self.docker_container_id: str = "N/A"
 
         self.log.info("Connection file path: \"%s\"" % connection_file_path)
         self.log.info("IPython config file path: \"%s\"" % config_file_path)
@@ -289,35 +306,36 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Pod name: \"%s\"" % self.pod_name)
         self.log.info("HDFS NameNode hostname: \"%s\"" %
                       self.hdfs_namenode_hostname)
-        
+
         if len(self.hdfs_namenode_hostname) == 0:
             raise ValueError("The HDFS hostname is empty. Was it specified in the configuration file?")
 
-        self.spec_cpu:str = os.environ.get("SPEC_CPU", "0")
-        self.spec_mem:str = os.environ.get("SPEC_MEM", "0")
-        self.spec_gpu:str = os.environ.get("SPEC_GPU", "0")
+        self.spec_cpu: str = os.environ.get("SPEC_CPU", "0")
+        self.spec_mem: str = os.environ.get("SPEC_MEM", "0")
+        self.spec_gpu: str = os.environ.get("SPEC_GPU", "0")
 
         self.log.info("CPU: %s, Memory: %s, GPU: %s." %
                       (self.spec_cpu, str(self.spec_mem), self.spec_gpu))
 
         # This should only be accessed from the control IO loop (rather than the main/shell IO loop).
         self.persistent_store_cv = asyncio.Condition()
-        
-        # If we're part of a migration operation, then it will be set when we register with the local daemon.
-        self.should_read_data_from_hdfs: bool = False 
 
-        connection_info:dict[str, Any] = {}
+        # If we're part of a migration operation, then it will be set when we register with the local daemon.
+        self.should_read_data_from_hdfs: bool = False
+
+        connection_info: dict[str, Any] = {}
         try:
             if len(connection_file_path) > 0:
                 with open(connection_file_path, 'r') as connection_file:
                     connection_info = json.load(connection_file)
         except Exception as ex:
-            self.log.error("Failed to obtain connection info from file \"%s\" because: %s" % (connection_file_path, str(ex)))
+            self.log.error(
+                "Failed to obtain connection info from file \"%s\" because: %s" % (connection_file_path, str(ex)))
 
         self.log.info("Connection info: %s" % str(connection_info))
-        
+
         # Allow setting env variable to prevent registration altogether. 
-        skip_registration_override:bool = (os.environ.get("SKIP_REGISTRATION", "false").lower() == "true") 
+        skip_registration_override: bool = (os.environ.get("SKIP_REGISTRATION", "false").lower() == "true")
 
         if self.should_register_with_local_daemon and not skip_registration_override:
             self.register_with_local_daemon(connection_info, session_id)
@@ -332,15 +350,16 @@ class DistributedKernel(IPythonKernel):
             self.smr_nodes_map = {1: str(self.hostname) + ":" + str(self.smr_port)}
             self.debug_port: int = int(os.environ.get("debug_port", "31000"))
             # self.start()
-        
+
         # TODO: Remove this after finish debugging the ACK stuff.
         # self.auth = None
 
     def __init_tcp_server(self):
         self.local_tcp_server_queue: Queue = Queue()
-        self.local_tcp_server_process: Process = Process(target = self.server_process, args=(self.local_tcp_server_queue, ))
-        self.local_tcp_server_process.daemon = True 
-        self.local_tcp_server_process.start() 
+        self.local_tcp_server_process: Process = Process(target=self.server_process,
+                                                         args=(self.local_tcp_server_queue,))
+        self.local_tcp_server_process.daemon = True
+        self.local_tcp_server_process.start()
         self.log.info(f"Local TCP server process has PID={self.local_tcp_server_process.pid}")
 
     # TODO(Ben): Is the existence of this process slowing down the termination process? 
@@ -352,23 +371,25 @@ class DistributedKernel(IPythonKernel):
         sock.bind(('127.0.0.1', self.local_tcp_server_port))
         sock.listen(5)
         self.log.info(f"[Local TCP Server] Started. Port: {self.local_tcp_server_port}")
-        
+
         while True:
             conn, addr = sock.accept()
-            
-            self.log.info(f"[Local TCP Server] Received incoming connection (addr={addr}). Training should have started.")
-            
-            queue.get(block = True, timeout = None)
-            
-            self.log.info("[Local TCP Server] Received 'STOP' instruction from Cluster.")
-            
-            conn.send(b"stop")
-            
-            self.log.info("[Local TCP Server] Sent 'STOP' instruction to shell thread via TCP.")
-            
-            conn.close() 
 
-    # config_info:dict,
+            self.log.info(
+                f"[Local TCP Server] Received incoming connection (addr={addr}). Training should have started.")
+
+            queue.get(block=True, timeout=None)
+
+            self.log.info("[Local TCP Server] Received 'STOP' instruction from Cluster.")
+
+            conn.send(b"stop")
+
+            self.log.info("[Local TCP Server] Sent 'STOP' instruction to shell thread via TCP.")
+
+            conn.close()
+
+            # config_info:dict,
+
     def register_with_local_daemon(self, connection_info: dict, session_id: str):
         self.log.info("Registering with local daemon now.")
 
@@ -390,7 +411,7 @@ class DistributedKernel(IPythonKernel):
         except Exception as ex:
             self.log.error("Failed to connect to LocalDaemon at %s:%d" % (local_daemon_service_name, server_port))
             self.log.error("Reason: %s" % str(ex))
-            raise ex 
+            raise ex
 
         registration_payload = {
             "op": "register",
@@ -450,7 +471,7 @@ class DistributedKernel(IPythonKernel):
             for k, v in response_dict.items():
                 self.log.error(f"\t{k}: {v}")
             raise ValueError("registration response from local daemon did not contained a \"replicas\" entry")
-        
+
         self.num_replicas: int = len(replicas)
         self.smr_nodes_map = {int(node_id_str): (node_addr + ":" + str(self.smr_port))
                               for node_id_str, node_addr in replicas.items()}
@@ -471,8 +492,8 @@ class DistributedKernel(IPythonKernel):
         # if "data_directory" in response_dict:
         #     self.log.info("Received path to data directory in HDFS from registration: \"%s\"" %
         #                   response_dict["data_directory"])
-            # self.hdfs_data_directory = response_dict["data_directory"]
-        
+        # self.hdfs_data_directory = response_dict["data_directory"]
+
         if "debug_port" in response_dict:
             self.debug_port: int = int(response_dict["debug_port"])
             self.log.info(f"Assigned debug port to {self.debug_port}")
@@ -484,13 +505,13 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
 
         assert (self.smr_nodes_map[self.smr_node_id] == (
-            self.hostname + ":" + str(self.smr_port)))
+                self.hostname + ":" + str(self.smr_port)))
 
         self.daemon_registration_socket.close()
 
     def start(self):
         self.log.info("DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
-        
+
         super().start()
 
         # debugpy_port:int = self.debug_port + 1000
@@ -500,22 +521,24 @@ class DistributedKernel(IPythonKernel):
         # We use 'should_read_data_from_hdfs' as the criteria here, as only replicas that are started after
         # a migration will have should_read_data_from_hdfs equal to True.
         # if self.should_read_data_from_hdfs:
-            # self.log.debug("Sleeping for 15 seconds to allow for attaching of a debugger.")
-            # time.sleep(15)
-            # self.log.debug("Done sleeping.")
-            # self.log.debug("Waiting for debugpy client to connect before proceeding.")
-            # debugpy.wait_for_client()
-            # self.log.debug("Debugpy client has connected. We may now proceed.")
-            # debugpy.breakpoint()
-            # self.log.debug("Should have broken on the previous line!")
+        # self.log.debug("Sleeping for 15 seconds to allow for attaching of a debugger.")
+        # time.sleep(15)
+        # self.log.debug("Done sleeping.")
+        # self.log.debug("Waiting for debugpy client to connect before proceeding.")
+        # debugpy.wait_for_client()
+        # self.log.debug("Debugpy client has connected. We may now proceed.")
+        # debugpy.breakpoint()
+        # self.log.debug("Should have broken on the previous line!")
 
         if self.persistent_id != Undefined and self.persistent_id != "":
             assert isinstance(self.persistent_id, str)
 
-            asyncio.run_coroutine_threadsafe(self.init_persistent_store_on_start(self.persistent_id), self.control_thread.io_loop.asyncio_loop)
+            asyncio.run_coroutine_threadsafe(self.init_persistent_store_on_start(self.persistent_id),
+                                             self.control_thread.io_loop.asyncio_loop)
         else:
-            self.log.warning("Will NOT be initializing Persistent Store on start, as persistent ID is not yet available.")
-                
+            self.log.warning(
+                "Will NOT be initializing Persistent Store on start, as persistent ID is not yet available.")
+
     async def init_persistent_store_on_start(self, persistent_id: str):
         self.log.info(f"Initializing Persistent Store on start, as persistent ID is available: \"{persistent_id}\"")
         # Create future to avoid duplicate initialization
@@ -535,41 +558,42 @@ class DistributedKernel(IPythonKernel):
         try:
             msg_deserialized = self.session.deserialize(msg_without_idents, content=False, copy=False)
         except Exception as ex:
-            self.log.error(f"Received invalid SHELL message: {ex}") # noqa: G201
-            
+            self.log.error(f"Received invalid SHELL message: {ex}")  # noqa: G201
+
             minlen = 5
             msg_list = t.cast(t.List[zmq.Message], msg)
             msg_list_beginning = [bytes(msg.bytes) for msg in msg_list[:minlen]]
             msg_list = t.cast(t.List[bytes], msg_list)
             msg_list = msg_list_beginning + msg_list[minlen:]
-            
+
             self.log.error(f"Invalid shell message: {msg_list}\n\n")
-            
-            message:dict = {}
+
+            message: dict = {}
             header = self.session.unpack(msg_list[1])
             message["header"] = extract_dates(header)
             msg_type = message["msg_type"]
             msg_id = message["msg_id"]
-            
+
             message["msg_id"] = header["msg_id"]
             message["msg_type"] = header["msg_type"]
             message["parent_header"] = extract_dates(self.session.unpack(msg_list[2]))
             message["metadata"] = self.session.unpack(msg_list[3])
-            
+
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
-            self.send_ack(self.shell_stream, msg_type, msg_id, idents, message, stream_name = "shell") # Send an ACK.
+            self.send_ack(self.shell_stream, msg_type, msg_id, idents, message, stream_name="shell")  # Send an ACK.
             return
-        
+
         # self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
-        msg_id:str = msg_deserialized["header"]["msg_id"]
-        msg_type:str = msg_deserialized["header"]["msg_type"]
+        msg_id: str = msg_deserialized["header"]["msg_id"]
+        msg_type: str = msg_deserialized["header"]["msg_type"]
         self.log.debug(f"Received SHELL message {msg_id} of type \"{msg_type}\": {msg_deserialized}")
         sys.stderr.flush()
         sys.stdout.flush()
-        self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg_deserialized, stream_name = "shell") # Send an ACK.
-        
+        self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg_deserialized,
+                      stream_name="shell")  # Send an ACK.
+
         await super().dispatch_shell(msg)
-        
+
         self.log.debug(f"Finished processing shell message {msg_id} of type \"{msg_type}\"")
         sys.stderr.flush()
         sys.stdout.flush()
@@ -584,7 +608,7 @@ class DistributedKernel(IPythonKernel):
 
             # Check if the message has a "ForceReprocess" field in its metadata frame with a value of "true".
             # If so, then we'll reprocess it anyway -- as these are likely resubmitted 'yield_execute' or 'execute_request' messages.
-            metadata:dict[str, Any] = msg.get("metadata", {})
+            metadata: dict[str, Any] = msg.get("metadata", {})
             if "force_reprocess" in metadata:
                 # Presumably this will be True, but if it isn't True, then we definitely shouldn't reprocess the message.
                 return metadata["force_reprocess"]
@@ -610,37 +634,37 @@ class DistributedKernel(IPythonKernel):
         try:
             msg = self.session.deserialize(msg, content=True, copy=False)
         except Exception as ex:
-            self.log.error(f"Received invalid CONTROL message: {ex}") # noqa: G201
-            
+            self.log.error(f"Received invalid CONTROL message: {ex}")  # noqa: G201
+
             minlen = 5
             msg_list = t.cast(t.List[zmq.Message], msg)
             msg_list_beginning = [bytes(msg.bytes) for msg in msg_list[:minlen]]
             msg_list = t.cast(t.List[bytes], msg_list)
             msg_list = msg_list_beginning + msg_list[minlen:]
-            
+
             self.log.error(f"Invalid control message: {msg_list}\n\n")
-            
-            message:dict = {}
+
+            message: dict = {}
             header = self.session.unpack(msg_list[1])
             message["header"] = extract_dates(header)
             msg_type = message["msg_type"]
             msg_id = message["msg_id"]
-            
+
             message["msg_id"] = header["msg_id"]
             message["msg_type"] = header["msg_type"]
             message["parent_header"] = extract_dates(self.session.unpack(msg_list[2]))
             message["metadata"] = self.session.unpack(msg_list[3])
-            
+
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
-            self.send_ack(self.control_stream, msg_type, msg_id, idents, message, stream_name = "control") # Send an ACK.
+            self.send_ack(self.control_stream, msg_type, msg_id, idents, message, stream_name="control")  # Send an ACK.
             if self.control_stream:
                 self.control_stream.flush(zmq.POLLOUT)
-            
+
             return
 
-        header:dict = msg["header"]
-        msg_type:str = header["msg_type"]
-        msg_id:str = header["msg_id"]
+        header: dict = msg["header"]
+        msg_type: str = header["msg_type"]
+        msg_id: str = header["msg_id"]
         self.log.debug(f"Received control message {msg_id} of type \"{msg_type}\"")
         sys.stderr.flush()
         sys.stdout.flush()
@@ -649,10 +673,10 @@ class DistributedKernel(IPythonKernel):
         self.set_parent(idents, msg, channel="control")
         self._publish_status("busy", "control")
 
-        self.send_ack(self.control_stream, msg_type, msg_id, idents, msg, stream_name = "control") # Send an ACK.
+        self.send_ack(self.control_stream, msg_type, msg_id, idents, msg, stream_name="control")  # Send an ACK.
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
-            
+
         if msg_id in self.received_message_ids:
             # Is it safe to assume a msg_id will not be resubmitted?
             return False
@@ -673,11 +697,11 @@ class DistributedKernel(IPythonKernel):
         sys.stdout.flush()
         sys.stderr.flush()
         self._publish_status("idle", "control")
-        
+
         # flush to ensure reply is sent
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
-        
+
         self.log.debug(f"Finished processing control message {msg_id} of type \"{msg_type}\"")
         sys.stderr.flush()
         sys.stdout.flush()
@@ -774,15 +798,15 @@ class DistributedKernel(IPythonKernel):
         else:
             return True
 
-    def send_ack(self, stream, msg_type:str, msg_id:str, ident, parent, stream_name:str = ""):
+    def send_ack(self, stream, msg_type: str, msg_id: str, ident, parent, stream_name: str = ""):
         # self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
         ack_msg = self.session.send(  # type:ignore[assignment]
             stream,
             "ACK",
             {
-             "type": msg_type,
-             "msg_id": msg_id,
-             "source": "PYTHON KERNEL"
+                "type": msg_type,
+                "msg_id": msg_id,
+                "source": "PYTHON KERNEL"
             },
             parent,
             ident=ident,
@@ -796,11 +820,11 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(
             f"execute_request with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
 
-        self.next_execute_request_msg_id:str = parent_header["msg_id"]
-        
+        self.next_execute_request_msg_id: str = parent_header["msg_id"]
+
         self.log.debug("parent: %s", str(parent))
         self.log.debug("ident: %s" % str(ident))
-        
+
         await super().execute_request(stream, ident, parent)
 
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
@@ -814,24 +838,24 @@ class DistributedKernel(IPythonKernel):
             metadata={},
             ident=ident,
         )
-        faulthandler.dump_traceback(file = sys.stderr)
-        
-        cond: bool = asyncio.get_running_loop() == self.io_loop.asyncio_loop # type: ignore
+        faulthandler.dump_traceback(file=sys.stderr)
+
+        cond: bool = asyncio.get_running_loop() == self.io_loop.asyncio_loop  # type: ignore
         cond2: bool = asyncio.get_running_loop() == self.control_thread.io_loop.asyncio_loop
-        
+
         self.log.debug(f"Running event loop is self.io_loop: {cond}")
         self.log.debug(f"Running event loop is self.control_thread.io_loop: {cond2}")
-        
+
         def callback():
             self.log.debug("Hello from self.ioloop!")
-            
+
         def callback2():
             self.log.debug("Hello from self.control_thread.ioloop!")
-        
+
         if not cond and cond2:
             self.io_loop.add_callback(callback)
             self.control_thread.io_loop.add_callback(callback2)
-        
+
         self.log.debug(f"Sent ping_reply (control): {str(reply_msg)}")
 
     async def ping_kernel_shell_request(self, stream, ident, parent):
@@ -846,7 +870,7 @@ class DistributedKernel(IPythonKernel):
             ident=ident,
         )
         self.log.debug(f"Sent ping_reply (shell): {str(reply_msg)}")
-        
+
     async def yield_execute(self, stream, ident, parent):
         """
         Similar to the do_execute method, but this method ALWAYS proposes "YIELD" instead of "LEAD".
@@ -870,13 +894,13 @@ class DistributedKernel(IPythonKernel):
         assert self.shell is not None
 
         reply_content: Dict[str, Any] = {}
-        error_occurred: bool = False # Separate flag, since we raise an exception and generate an error response when we yield successfully.
-        
+        error_occurred: bool = False  # Separate flag, since we raise an exception and generate an error response when we yield successfully.
+
         self.log.info("DistributedKernel is preparing to yield the execution of some code to another replica.\n\n")
         self.log.debug("Parent: %s" % str(parent))
         parent_header: dict[str, Any] = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
-        
+
         if not self.session:
             return
         try:
@@ -884,9 +908,8 @@ class DistributedKernel(IPythonKernel):
             self.log.debug("Content: %s" % content)
             code = content["code"]
             silent = content.get("silent", False)
-        except Exception:
-            self.log.error("Got bad msg: ")
-            self.log.error("%s", parent)
+        except Exception as ex:
+            self.log.error(f"Got bad msg: {parent}. Exception: {ex}")
             return
 
         stop_on_error = content.get("stop_on_error", True)
@@ -909,36 +932,38 @@ class DistributedKernel(IPythonKernel):
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
-            self.log.info("Calling synchronizer.ready(%d) now with YIELD proposal." % (
-                self.synchronizer.execution_count + 1))
+            current_term_number: int = self.synchronizer.execution_count + 1
+            self.log.info(f"Calling synchronizer.ready({current_term_number}) now with YIELD proposal.")
 
             # Pass 'True' for the 'lead' parameter to propose LEAD.
             # Pass 'False' for the 'lead' parameter to propose YIELD.
             #
             # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
             # Pass value > 0 to lead a specific execution.
-            # In either case, the execution will wait until states are synchornized.
+            # In either case, the execution will wait until states are synchronized.
             # type: ignore
-            self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1, False)
+            self.shell.execution_count = await self.synchronizer.ready(current_term_number, False)
 
-            self.log.info("Completed call to synchronizer.ready(%d) with YIELD proposal. shell.execution_count: %d" % (
-                self.synchronizer.execution_count + 1, self.shell.execution_count))
+            self.log.info(f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
+                          f"shell.execution_count: {self.shell.execution_count}")
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
                 reply_content: dict[str, Any] = self.gen_error_response(err_failed_to_lead_execution)
                 # reply_content['yield-reason'] = TODO(Ben): Add this once I figure out how to extract it from the message payloads.
             else:
-                self.log.error("I've been selected to lead this execution (%d), but I'm supposed to yield!" % self.shell.execution_count)
+                self.log.error(
+                    f"I've been selected to lead this execution ({self.shell.execution_count}), but I'm supposed to yield!")
 
                 # Notify the client that we will lead the execution (which is bad, in this case, as we were supposed to yield.)
-                self.session.send(self.iopub_socket, "smr_lead_after_yield", {"term": self.synchronizer.execution_count+1}, ident=self._topic(SMR_LEAD_TASK))
+                self.session.send(self.iopub_socket, "smr_lead_after_yield",
+                                  {"term": self.synchronizer.execution_count + 1}, ident=self._topic(SMR_LEAD_TASK))
         except Exception as e:
-            self.log.error("Error while yielding execution for term %d: %s" % (self.synchronizer.execution_count + 1, str(e)))
+            self.log.error(f"Error while yielding execution for term {current_term_number}: {e}")
             reply_content = self.gen_error_response(e)
-            error_occurred = True 
+            error_occurred = True
 
-        # Flush output before sending the reply.
+            # Flush output before sending the reply.
         sys.stdout.flush()
         sys.stderr.flush()
         # FIXME: on rare occasions, the flush doesn't seem to make it to the
@@ -951,13 +976,13 @@ class DistributedKernel(IPythonKernel):
         # recover partial output (that could have been generated early in a
         # block, before an error) and always clear the payload system.
         reply_content["payload"] = self.shell.payload_manager.read_payload()
-        
+
         # Be aggressive about clearing the payload because we don't want
         # it to sit in memory until the next execute_request comes in.
         self.shell.payload_manager.clear_payload()
 
         # Send the reply.
-        reply_content = jsonutil.json_clean(reply_content)
+        reply_content: dict[str, Any] = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
@@ -970,10 +995,15 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Sent the following reply after yield_execute: %s" % reply_msg)
 
-        if not silent and error_occurred and stop_on_error: # reply_msg["content"]["status"] == "error"
+        # Block until the leader finishes executing the code, or until we know that all replicas yielded,
+        # in which case we can just return, as the code will presumably be resubmitted shortly.
+        await self.synchronizer.wait_for_election_to_end(self.synchronizer.execution_count + 1)
+
+        if not silent and error_occurred and stop_on_error:  # reply_msg["content"]["status"] == "error"
             self._abort_queues()
 
-    async def do_execute(self, code: str, silent: bool, store_history: bool = True, user_expressions: dict = None, allow_stdin: bool = False):
+    async def do_execute(self, code: str, silent: bool, store_history: bool = True, user_expressions: dict = None,
+                         allow_stdin: bool = False):
         """
         Execute user code. This is part of the official Jupyter kernel API.
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
@@ -1017,8 +1047,8 @@ class DistributedKernel(IPythonKernel):
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
-            self.log.info("Calling synchronizer.ready(%d) now with LEAD proposal." % (
-                self.synchronizer.execution_count + 1))
+            term_number: int = self.synchronizer.execution_count + 1
+            self.log.info(f"Calling synchronizer.ready({term_number}) now with LEAD proposal.")
 
             # Pass 'True' for the 'lead' parameter to propose LEAD.
             # Pass 'False' for the 'lead' parameter to propose YIELD.
@@ -1027,17 +1057,16 @@ class DistributedKernel(IPythonKernel):
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchronized.
             # type: ignore
-            self.shell.execution_count = await self.synchronizer.ready(self.synchronizer.execution_count + 1, True)
+            self.shell.execution_count = await self.synchronizer.ready(term_number, True)
 
-            self.log.info("Completed call to synchronizer.ready(%d) with LEAD proposal. shell.execution_count: %d" % (
-                self.synchronizer.execution_count + 1, self.shell.execution_count))
+            self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
+                          f"shell.execution_count: {self.shell.execution_count}")
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
                 raise err_failed_to_lead_execution
 
-            self.log.debug("I WILL lead this execution (%d)." %
-                           self.shell.execution_count)
+            self.log.debug(f"I WILL lead this execution ({self.shell.execution_count}).")
 
             # Notify the client that we will lead the execution.
             # TODO: Eventually, we could pass "gpu" as True or False depending on whether we really
@@ -1047,7 +1076,8 @@ class DistributedKernel(IPythonKernel):
                 "unix_milliseconds": time.time_ns() // 1_000_000,
                 "execute_request_msg_id": self.next_execute_request_msg_id
             }
-            self.session.send(self.iopub_socket, SMR_LEAD_TASK, content, ident=self._topic(SMR_LEAD_TASK))  # type: ignore
+            self.session.send(self.iopub_socket, SMR_LEAD_TASK, content,
+                              ident=self._topic(SMR_LEAD_TASK))  # type: ignore
 
             self.log.debug("Executing the following code now: %s" % code)
 
@@ -1059,15 +1089,13 @@ class DistributedKernel(IPythonKernel):
             # Wait for the settlement of variables.
             reply_content = await reply_routing
 
-            self.log.info(
-                "Returning the following message for do_execute: \"%s\"" % str(reply_content))
+            self.log.info("Returning the following message for do_execute: \"%s\"" % str(reply_content))
 
             # Disable stdout and stderr forwarding.
             self.toggle_outstream(override=True, enable=False)
 
             if self.execution_ast is None:
-                self.log.warning(
-                    "Execution AST is None. Synchronization will likely fail...")
+                self.log.warning("Execution AST is None. Synchronization will likely fail...")
             else:
                 self.log.debug("Synchronizing now. Execution AST is NOT None.")
 
@@ -1076,15 +1104,39 @@ class DistributedKernel(IPythonKernel):
             self.execution_ast = None
             self.source = None
             await coro
-            
+
             assert self.execution_count is not None
-            self.log.info("Synchronized. End of sync execution {}".format(self.execution_count - 1))
+            self.log.info("Synchronized. End of sync execution: {}".format(self.execution_count - 1))
+
+            # Add task to the set. This creates a strong reference.
+            # We don't await this here so that we can go ahead and send the shell response back.
+            # We'll notify our peer replicas in time.
+            #
+            # TODO: Is this okay, or should we await this before returning?
+            task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(self.execution_count - 1))
+
+            # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
+            # the set after completion.
+            task.add_done_callback(self.background_tasks.discard)
+
             return reply_content
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
             return self.gen_error_response(eye)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
+
+            # Add task to the set. This creates a strong reference.
+            # We don't await this here so that we can go ahead and send the shell response back.
+            # We'll notify our peer replicas in time.
+            #
+            # TODO: Is this okay, or should we await this before returning?
+            task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(self.execution_count - 1))
+
+            # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
+            # the set after completion.
+            task.add_done_callback(self.background_tasks.discard)
+
             return self.gen_error_response(e)
 
     async def do_shutdown(self, restart):
@@ -1133,7 +1185,7 @@ class DistributedKernel(IPythonKernel):
         # so this isn't safe...?
         # TODO: Look into this.
         if self.io_loop is not None:
-            self.io_loop.asyncio_loop.set_debug(False) # type: ignore
+            self.io_loop.asyncio_loop.set_debug(False)  # type: ignore
         if self.control_thread is not None and self.control_thread.io_loop is not None:
             self.control_thread.io_loop.asyncio_loop.set_debug(False)
 
@@ -1152,7 +1204,8 @@ class DistributedKernel(IPythonKernel):
 
         if not self.synclog:
             self.log.warning("We do not have a SyncLog. Nothing to do in order to prepare to migrate...")
-            return {'status': 'ok', "id": self.smr_node_id, "kernel_id": self.kernel_id}, True # Didn't fail, we just have nothing to migrate.
+            return {'status': 'ok', "id": self.smr_node_id,
+                    "kernel_id": self.kernel_id}, True  # Didn't fail, we just have nothing to migrate.
         #
         # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
         #
@@ -1174,16 +1227,17 @@ class DistributedKernel(IPythonKernel):
                 self.log.error(frame)
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error(f"Failed to Close SyncLog for Replica {self.smr_node_id} of Kernel {self.kernel_id}", error_message= str(e))
+            self.report_error(f"Failed to Close SyncLog for Replica {self.smr_node_id} of Kernel {self.kernel_id}",
+                              error_message=str(e))
 
             # Attempt to close the HDFS client.
             self.synclog.closeHdfsClient()
 
             return self.gen_error_response(e), False
-        
+
         # Step 2: copy the data directory to HDFS
         try:
-            waldir_path:str = await self.synclog.write_data_dir_to_hdfs()
+            waldir_path: str = await self.synclog.write_data_dir_to_hdfs()
             self.log.info(
                 "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % waldir_path)
         except Exception as e:
@@ -1192,15 +1246,15 @@ class DistributedKernel(IPythonKernel):
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self.log.error(frame)
-            
+
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error("Failed to Write HDFS Data Directory", error_message= str(e))
+            self.report_error("Failed to Write HDFS Data Directory", error_message=str(e))
 
             # Attempt to close the HDFS client.
             self.synclog.closeHdfsClient()
 
             return self.gen_error_response(e), False
-        
+
         try:
             self.synclog.closeHdfsClient()
         except Exception as e:
@@ -1210,28 +1264,31 @@ class DistributedKernel(IPythonKernel):
                 self.log.error(frame)
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error(f"Failed to Close HDFS Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}", error_message= str(e))
+            self.report_error(
+                f"Failed to Close HDFS Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}",
+                error_message=str(e))
 
             # We don't return an error here, though. 
-        
-        return {'status': 'ok', "id": self.smr_node_id, "kernel_id": self.kernel_id}, True # "data_directory": waldir_path, 
+
+        return {'status': 'ok', "id": self.smr_node_id,
+                "kernel_id": self.kernel_id}, True  # "data_directory": waldir_path,
 
     async def stop_running_training_code_request(self, stream, ident, parent):
         """
         Set the global `run_training_code` flag to False.
         """
         self.log.info("Received 'stop training' instruction.")
-        self.local_tcp_server_queue.put(b"stop", block = True, timeout = None)
+        self.local_tcp_server_queue.put(b"stop", block=True, timeout=None)
         self.log.info("Sent 'stop training' instruction to local TCP server.")
-        
-        content:dict = {
+
+        content: dict = {
             'status': 'ok',
             # The base class increments the execution count
             'execution_count': self.execution_count,
             'payload': [],
             'user_expressions': {},
         }
-        
+
         self.session.send(stream, "stop_running_training_code_reply", content, parent, ident=ident)
 
     async def prepare_to_migrate_request(self, stream, ident, parent):
@@ -1260,13 +1317,13 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Sending 'prepare_to_migrate_reply' response now.")
 
         sent_message = self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident)
-        
+
         self.log.debug("Sent 'prepare_to_migrate_reply message: %s" % str(sent_message))
 
     async def do_add_replica(self, id, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""
         if not await self.check_persistent_store():
-            return self.gen_error_response(err_wait_persistent_store), False 
+            return self.gen_error_response(err_wait_persistent_store), False
 
         self.log.info("Adding replica %d at addr %s now.", id, addr)
 
@@ -1296,19 +1353,23 @@ class DistributedKernel(IPythonKernel):
 
         if 'id' not in params or 'addr' not in params:
             err_content: dict = self.gen_error_response(err_invalid_request)
-            self.session.send(stream, "add_replica_reply", err_content, parent, ident=ident)  
-            return 
+            self.session.send(stream, "add_replica_reply", err_content, parent, ident=ident)
+            return
 
         content, success = await self.do_add_replica(params['id'], params['addr'])
 
         if success:
             self.log.debug("Notifying session that SMR node was added.")
-            self.session.send(self.iopub_socket, "smr_node_added", {"success": True, "persistent_id": self.persistent_id, "id": params[
-                              'id'], "addr": params['addr'], "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added"))  # type: ignore
+            self.session.send(self.iopub_socket, "smr_node_added",
+                              {"success": True, "persistent_id": self.persistent_id, "id": params[
+                                  'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
+                              ident=self._topic("smr_node_added"))  # type: ignore
         else:
             self.log.debug("Notifying session that SMR node addition failed.")
-            self.session.send(self.iopub_socket, "smr_node_added", {"success": False, "persistent_id": self.persistent_id, "id": params[
-                              'id'], "addr": params['addr'], "kernel_id": self.kernel_id}, ident=self._topic("smr_node_added"))  # type: ignore
+            self.session.send(self.iopub_socket, "smr_node_added",
+                              {"success": False, "persistent_id": self.persistent_id, "id": params[
+                                  'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
+                              ident=self._topic("smr_node_added"))  # type: ignore
 
         self.session.send(stream, "add_replica_reply", content, parent, ident=ident)  # type: ignore
 
@@ -1358,12 +1419,16 @@ class DistributedKernel(IPythonKernel):
 
         if success:
             self.log.debug("Notifying session that SMR node was updated.")
-            self.session.send(self.iopub_socket, "smr_node_updated", {"success": True, "persistent_id": self.persistent_id, "id": params[
-                              'id'], "addr": params['addr'], "kernel_id": self.kernel_id}, ident=self._topic("smr_node_updated"))  # type: ignore
+            self.session.send(self.iopub_socket, "smr_node_updated",
+                              {"success": True, "persistent_id": self.persistent_id, "id": params[
+                                  'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
+                              ident=self._topic("smr_node_updated"))  # type: ignore
         else:
             self.log.debug("Notifying session that SMR node update failed.")
-            self.session.send(self.iopub_socket, "smr_node_updated", {"success": False, "persistent_id": self.persistent_id, "id": params[
-                              'id'], "addr": params['addr'], "kernel_id": self.kernel_id}, ident=self._topic("smr_node_updated"))  # type: ignore
+            self.session.send(self.iopub_socket, "smr_node_updated",
+                              {"success": False, "persistent_id": self.persistent_id, "id": params[
+                                  'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
+                              ident=self._topic("smr_node_updated"))  # type: ignore
 
         self.session.send(stream, "update_replica_reply",
                           content, parent, ident=ident)  # type: ignore
@@ -1373,7 +1438,9 @@ class DistributedKernel(IPythonKernel):
         Send an error report/message to our local daemon via our IOPub socket.
         """
         self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now...")
-        err_msg = self.session.send(self.iopub_socket, "error_report", {"error": error_title, "message": error_message, "kernel_id": self.kernel_id}, ident=self._topic("error_report"))
+        err_msg = self.session.send(self.iopub_socket, "error_report",
+                                    {"error": error_title, "message": error_message, "kernel_id": self.kernel_id},
+                                    ident=self._topic("error_report"))
         self.log.debug(f"Sent 'error_report' message: {str(err_msg)}")
 
     def gen_simple_response(self, execution_count=0):
@@ -1425,13 +1492,13 @@ class DistributedKernel(IPythonKernel):
         if self.synclog.needs_to_catch_up:
             self.log.debug("RaftLog needs to propose new value.")
             await self.synclog.catchup_with_peers()
-        
+
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
-        await self.smr_ready() 
+        await self.smr_ready()
 
         self.log.info("Started Synchronizer.")
 
-    async def smr_ready(self)->None:
+    async def smr_ready(self) -> None:
         """
         Inform our local daemon that we've joined our SMR cluster.
 
@@ -1439,7 +1506,7 @@ class DistributedKernel(IPythonKernel):
         """
         # Notify the client that the SMR is ready.
         self.session.send(self.iopub_socket, "smr_ready", {
-                          "persistent_id": self.persistent_id}, ident=self._topic("smr_ready"))  # type: ignore
+            "persistent_id": self.persistent_id}, ident=self._topic("smr_ready"))  # type: ignore
 
         self.log.info(f"Notified local daemon that SMR is ready. Time elapsed since I was created: "
                       f"{time.time() - self.created_at} seconds.")
@@ -1473,28 +1540,29 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Creating RaftLog now.")
         try:
-            self.synclog = RaftLog(self.smr_node_id, 
-                                   base_path = store,
-                                   num_replicas = self.num_replicas,
-                                   hdfs_hostname = self.hdfs_namenode_hostname,
-                                   should_read_data_from_hdfs = self.should_read_data_from_hdfs, # data_directory = self.hdfs_data_directory, 
-                                   peer_addrs = addrs, 
-                                   peer_ids = ids, 
+            self.synclog = RaftLog(self.smr_node_id,
+                                   base_path=store,
+                                   num_replicas=self.num_replicas,
+                                   hdfs_hostname=self.hdfs_namenode_hostname,
+                                   should_read_data_from_hdfs=self.should_read_data_from_hdfs,
+                                   # data_directory = self.hdfs_data_directory,
+                                   peer_addrs=addrs,
+                                   peer_ids=ids,
                                    join=self.smr_join,
-                                   debug_port = self.debug_port)
+                                   debug_port=self.debug_port)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
-            
+
             # Print the stack.
-            stack:list[str] = traceback.format_exception(ex)
+            stack: list[str] = traceback.format_exception(ex)
             for stack_entry in stack:
                 self.log.error(stack_entry)
-            
-            self.report_error(error_title="Failed to Create RaftLog", error_message= str(ex))
-            
+
+            self.report_error(error_title="Failed to Create RaftLog", error_message=str(ex))
+
             # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting. 
             await asyncio.sleep(10)
-            
+
             # Terminate.
             await self.do_shutdown(False)
 
