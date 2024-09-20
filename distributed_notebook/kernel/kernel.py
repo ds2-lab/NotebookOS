@@ -825,6 +825,11 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("parent: %s", str(parent))
         self.log.debug("ident: %s" % str(ident))
 
+        # TODO: Can we use the current value of shell.execution_count or synchronizer.execution_count to
+        #       create a task to wait until the next election is over here, such that we will block until
+        #       it finishes before ultimately returning from execute_request, thereby ensuring that subsequent
+        #       "execute_request" messages are properly blocked until they're finished being processed by
+        #       ALL replicas?
         await super().execute_request(stream, ident, parent)
 
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
@@ -876,13 +881,6 @@ class DistributedKernel(IPythonKernel):
         Similar to the do_execute method, but this method ALWAYS proposes "YIELD" instead of "LEAD".
         Kernel replicas are directed to call this instead of do_execute by their local daemon if there are resource constraints
         preventing them from being able to execute the user's code (e.g., insufficient GPUs available).
-
-        Args:
-            code (str): The code to be executed.
-            silent (bool): Whether to display output.
-            store_history (bool, optional): Whether to record this code in history and increase the execution count. If silent is True, this is implicitly False. Defaults to True.
-            user_expressions (dict, optional): Mapping of names to expressions to evaluate after the code has run. You can ignore this if you need to.. Defaults to None.
-            allow_stdin (bool, optional): Whether the frontend can provide input on request (e.g. for Python's raw_input()). Defaults to False.
 
         Raises:
             err_wait_persistent_store: If the persistent data store is not available yet.
@@ -1122,6 +1120,21 @@ class DistributedKernel(IPythonKernel):
             return reply_content
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
+
+            # TODO: There's no guarantee this task will run before we start processing another "execute_request".
+            # TODO: Perhaps we override the logic of execute_request and send the response back directly in
+            #       do_execute? Or we create this task in the current execute_request defined in kernel.py, if there
+            #       is a way to determine the outcome of do_execute so that we know if we need to block or not.
+            #       Or maybe we don't have to worry about that, since if we do call wait_for_election_to_end as the
+            #       leader, then it should just return immediately?
+            # Schedule task to wait until this current election either fails (due to all replicas yielding)
+            # or until the leader finishes executing the user-submitted code.
+            task: asyncio.Task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(self.execution_count - 1))
+
+            # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
+            # the set after completion.
+            task.add_done_callback(self.background_tasks.discard)
+
             return self.gen_error_response(eye)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
