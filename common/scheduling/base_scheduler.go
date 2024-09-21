@@ -149,7 +149,7 @@ func (s *BaseScheduler) MinimumCapacity() int32 {
 // AddNode adds a new node to the kubernetes Cluster.
 // We simulate this using node taints.
 func (s *BaseScheduler) AddNode() error {
-	p := s.cluster.RequestHost(s.hostSpec)
+	p := s.cluster.RequestHosts(context.Background(), 1) /* s.hostSpec */
 	err := p.Error()
 	if err != nil {
 		s.log.Error("Failed to add new host because: %v", err)
@@ -162,7 +162,7 @@ func (s *BaseScheduler) AddNode() error {
 // RemoveNode removes a new from the kubernetes Cluster.
 // We simulate this using node taints.
 func (s *BaseScheduler) RemoveNode(hostId string) error {
-	p := s.cluster.ReleaseHost(hostId)
+	p := s.cluster.ReleaseSpecificHosts(context.Background(), []string{hostId})
 	err := p.Error()
 	if err != nil {
 		s.log.Error("Failed to release host %s because: %v", hostId, err)
@@ -452,7 +452,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		// TODO: Just mark the Host as un-schedule-able so that we don't try to schedule anything onto it until we're done here.
 		// We should not release the Host until we're sure we want to release it.
-		//p := s.Cluster.ReleaseHost(idleHost.Host.ID())
+		//p := s.Cluster.ReleaseHosts(idleHost.Host.ID())
 		panic("Not implemented")
 		//err := p.Error()
 		//if errors.Is(err, ErrHostNotFound) {

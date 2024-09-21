@@ -2,8 +2,10 @@ package scheduling
 
 import (
 	"fmt"
-	"github.com/mason-leap-lab/go-utils/promise"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	"os/exec"
+	"strings"
 )
 
 type DockerCluster struct {
@@ -15,8 +17,10 @@ type DockerCluster struct {
 // NewDockerCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
-func NewDockerCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec, opts *ClusterSchedulerOptions) *DockerCluster {
-	baseCluster := newBaseCluster(opts.GpusPerHost)
+func NewDockerCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
+	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *DockerCluster {
+
+	baseCluster := newBaseCluster(opts.GpusPerHost, opts.NumReplicas, clusterMetricsProvider)
 
 	dockerCluster := &DockerCluster{
 		BaseCluster: baseCluster,
@@ -41,28 +45,49 @@ func NewDockerCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec, opts *C
 	return dockerCluster
 }
 
-// HandleScaleOutOperation handles a scale-out operation, adding the necessary Host instances to the Cluster.
-func (c *DockerCluster) HandleScaleOutOperation(op *ScaleOperation) promise.Promise {
-	if !op.IsScaleOutOperation() {
-		return fmt.Errorf("%w: expected \"%s\", got \"%s\"", ErrIncorrectScaleOperation, ScaleOutOperation, op.OperationType)
+// NodeType returns the type of node provisioned within the Cluster.
+func (c *DockerCluster) NodeType() string {
+	return types.DockerNode
+}
+
+// GetScaleOutCommand returns the function to be executed to perform a scale-out.
+func (c *DockerCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
+	return func() {
+		app := "docker"
+		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetNumNodes)
+		args := strings.Split(argString, " ")
+
+		cmd := exec.Command(app, args...)
+		stdout, err := cmd.Output()
+
+		if err != nil {
+			c.log.Error("Failed to scale-out to %d node because: %v", targetNumNodes, err)
+			// return nil, status.Errorf(codes.Internal, err.Error())
+			resultChan <- err
+		} else {
+			c.log.Debug("Output from scaling-out to %d node:\n%s", targetNumNodes, string(stdout))
+			resultChan <- struct{}{}
+		}
 	}
-
-	return nil
 }
 
-// HandleScaleInOperation handles a scale-in operation, removing the necessary Host instances from the Cluster.
-func (c *DockerCluster) HandleScaleInOperation(op *ScaleOperation) promise.Promise {
-	if !op.IsScaleInOperation() {
-		return fmt.Errorf("%w: expected \"%s\", got \"%s\"", ErrIncorrectScaleOperation, ScaleInOperation, op.OperationType)
+// GetScaleInCommand returns the function to be executed to perform a scale-in.
+func (c *DockerCluster) GetScaleInCommand(targetNumNodes int32, resultChan chan interface{}) func() {
+	return func() {
+		app := "docker"
+		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetNumNodes)
+		args := strings.Split(argString, " ")
+
+		cmd := exec.Command(app, args...)
+		stdout, err := cmd.Output()
+
+		if err != nil {
+			c.log.Error("Failed to scale-in to %d node because: %v", targetNumNodes, err)
+			resultChan <- err
+			// return nil, status.Errorf(codes.Internal, err.Error())
+		} else {
+			c.log.Debug("Output from scaling-in to %d node:\n%s", targetNumNodes, string(stdout))
+			resultChan <- struct{}{}
+		}
 	}
-
-	return nil
-}
-
-func (c *DockerCluster) RequestHost(spec types.Spec) promise.Promise {
-	return promise.Resolved(nil, promise.ErrNotImplemented)
-}
-
-func (c *DockerCluster) ReleaseHost(id string) promise.Promise {
-	return promise.Resolved(nil, promise.ErrNotImplemented)
 }

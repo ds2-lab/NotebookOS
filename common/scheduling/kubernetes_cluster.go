@@ -1,7 +1,9 @@
 package scheduling
 
 import (
+	"fmt"
 	"github.com/mason-leap-lab/go-utils/promise"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
@@ -14,8 +16,10 @@ type KubernetesCluster struct {
 // NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
 // This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
-func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, hostSpec types.Spec, opts *ClusterSchedulerOptions) *KubernetesCluster {
-	baseCluster := newBaseCluster(opts.GpusPerHost)
+func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, hostSpec types.Spec,
+	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *KubernetesCluster {
+
+	baseCluster := newBaseCluster(opts.GpusPerHost, opts.NumReplicas, clusterMetricsProvider)
 
 	kubernetesCluster := &KubernetesCluster{
 		BaseCluster: baseCluster,
@@ -40,6 +44,11 @@ func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, h
 	return kubernetesCluster
 }
 
+// NodeType returns the type of node provisioned within the Cluster.
+func (c *KubernetesCluster) NodeType() string {
+	return types.KubernetesNode
+}
+
 func (c *KubernetesCluster) RequestHost(spec types.Spec) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
 }
@@ -54,4 +63,14 @@ func (c *KubernetesCluster) HandleScaleInOperation(op *ScaleOperation) promise.P
 
 func (c *KubernetesCluster) HandleScaleOutOperation(op *ScaleOperation) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
+}
+
+// GetScaleOutCommand returns the function to be executed to perform a scale-out.
+func (c *KubernetesCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
+	panic(fmt.Errorf("%w: KubernetesCluster::GetScaleOutCommand", ErrNotImplementedYet))
+}
+
+// GetScaleInCommand returns the function to be executed to perform a scale-in.
+func (c *KubernetesCluster) GetScaleInCommand(targetNumNodes int32, resultChan chan interface{}) func() {
+	panic(fmt.Errorf("%w: KubernetesCluster::GetScaleInCommand", ErrNotImplementedYet))
 }

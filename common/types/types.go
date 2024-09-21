@@ -10,6 +10,7 @@ const (
 
 	VirtualDockerNode string = "VirtualDockerNode" // Node name used for "docker compose" deployments.
 	DockerNode        string = "DockerNode"        // Node name used for "docker swarm" mode deployments.
+	KubernetesNode    string = "KubernetesNode"    // Node name used for "kubernetes" mode deployments.
 	LocalNode         string = "LocalNode"         // Node name used for "local" mode deployments.
 
 	DockerContainerIdTBD string = "TBD"

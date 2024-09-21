@@ -250,33 +250,26 @@ func (dc *DistributedCluster) GetDockerSwarmNodes(ctx context.Context, in *proto
 	return dc.gatewayDaemon.GetDockerSwarmNodes(ctx, in)
 }
 
-// DecreaseNumNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
-func (dc *DistributedCluster) DecreaseNumNodes(parentContext context.Context, in *proto.DecreaseNumNodesRequest) (*proto.DecreaseNumNodesResponse, error) {
-	return dc.gatewayDaemon.DecreaseNumNodes(parentContext, in)
+func (dc *DistributedCluster) GetNumNodes(ctx context.Context, in *proto.Void) (*proto.NumNodesResponse, error) {
+	return dc.gatewayDaemon.GetNumNodes(ctx, in)
 }
 
-// AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
-func (dc *DistributedCluster) AddVirtualDockerNodes(ctx context.Context, in *proto.AddVirtualDockerNodesRequest) (*proto.AddVirtualDockerNodesResponse, error) {
-	return dc.gatewayDaemon.AddVirtualDockerNodes(ctx, in)
+func (dc *DistributedCluster) SetNumClusterNodes(ctx context.Context, in *proto.SetNumClusterNodesRequest) (*proto.SetNumClusterNodesResponse, error) {
+	return dc.gatewayDaemon.SetNumClusterNodes(ctx, in)
 }
 
-// SetNumVirtualDockerNodes is used to scale the number of nodes in the cluster to a specifically value.
-// This function accepts a SetNumVirtualDockerNodesRequest struct, which encodes the target number of nodes.
-func (dc *DistributedCluster) SetNumVirtualDockerNodes(ctx context.Context, in *proto.SetNumVirtualDockerNodesRequest) (*proto.SetNumVirtualDockerNodesResponse, error) {
-	return dc.gatewayDaemon.SetNumVirtualDockerNodes(ctx, in)
+func (dc *DistributedCluster) AddClusterNodes(ctx context.Context, in *proto.AddClusterNodesRequest) (*proto.AddClusterNodesResponse, error) {
+	return dc.gatewayDaemon.AddClusterNodes(ctx, in)
 }
 
-// // RemoveVirtualDockerNodes removes a parameterized number of existing nodes from the Docker Swarm cluster.
-// func (dc *DistributedCluster) RemoveVirtualDockerNodes(ctx context.Context, in *proto.RemoveVirtualDockerNodesRequest) (*proto.RemoveVirtualDockerNodesResponse, error) {
-// 	return dc.gatewayDaemon.RemoveVirtualDockerNodes(ctx, in)
-// }
-
-// ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
-// Modifications include altering the number of GPUs available on the nodes.
-func (dc *DistributedCluster) ModifyVirtualDockerNodes(ctx context.Context, in *proto.ModifyVirtualDockerNodesRequest) (*proto.ModifyVirtualDockerNodesResponse, error) {
-	return dc.gatewayDaemon.ModifyVirtualDockerNodes(ctx, in)
+func (dc *DistributedCluster) RemoveSpecificClusterNodes(ctx context.Context, in *proto.RemoveSpecificClusterNodesRequest) (*proto.RemoveSpecificClusterNodesResponse, error) {
+	return dc.gatewayDaemon.RemoveSpecificClusterNodes(ctx, in)
 }
 
-func (dc *DistributedCluster) GetLocalDaemonNodeIDs(ctx context.Context, in *proto.Void) (*proto.GetLocalDaemonNodeIDsResponse, error) {
-	return dc.gatewayDaemon.GetLocalDaemonNodeIDs(ctx, in)
+func (dc *DistributedCluster) RemoveClusterNodes(ctx context.Context, in *proto.RemoveClusterNodesRequest) (*proto.RemoveClusterNodesResponse, error) {
+	return dc.gatewayDaemon.RemoveClusterNodes(ctx, in)
+}
+
+func (dc *DistributedCluster) ModifyClusterNodes(ctx context.Context, in *proto.ModifyClusterNodesRequest) (*proto.ModifyClusterNodesResponse, error) {
+	return dc.gatewayDaemon.ModifyClusterNodes(ctx, in)
 }

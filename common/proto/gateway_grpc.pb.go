@@ -375,25 +375,26 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	DistributedCluster_InducePanic_FullMethodName              = "/gateway.DistributedCluster/InducePanic"
-	DistributedCluster_SpoofNotifications_FullMethodName       = "/gateway.DistributedCluster/SpoofNotifications"
-	DistributedCluster_Ping_FullMethodName                     = "/gateway.DistributedCluster/Ping"
-	DistributedCluster_PingKernel_FullMethodName               = "/gateway.DistributedCluster/PingKernel"
-	DistributedCluster_ListKernels_FullMethodName              = "/gateway.DistributedCluster/ListKernels"
-	DistributedCluster_SetTotalVirtualGPUs_FullMethodName      = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
-	DistributedCluster_GetClusterActualGpuInfo_FullMethodName  = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
-	DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName = "/gateway.DistributedCluster/GetClusterVirtualGpuInfo"
-	DistributedCluster_MigrateKernelReplica_FullMethodName     = "/gateway.DistributedCluster/MigrateKernelReplica"
-	DistributedCluster_FailNextExecution_FullMethodName        = "/gateway.DistributedCluster/FailNextExecution"
-	DistributedCluster_RegisterDashboard_FullMethodName        = "/gateway.DistributedCluster/RegisterDashboard"
-	DistributedCluster_GetVirtualDockerNodes_FullMethodName    = "/gateway.DistributedCluster/GetVirtualDockerNodes"
-	DistributedCluster_GetDockerSwarmNodes_FullMethodName      = "/gateway.DistributedCluster/GetDockerSwarmNodes"
-	DistributedCluster_GetNumNodes_FullMethodName              = "/gateway.DistributedCluster/GetNumNodes"
-	DistributedCluster_SetNumVirtualDockerNodes_FullMethodName = "/gateway.DistributedCluster/SetNumVirtualDockerNodes"
-	DistributedCluster_AddVirtualDockerNodes_FullMethodName    = "/gateway.DistributedCluster/AddVirtualDockerNodes"
-	DistributedCluster_DecreaseNumNodes_FullMethodName         = "/gateway.DistributedCluster/DecreaseNumNodes"
-	DistributedCluster_ModifyVirtualDockerNodes_FullMethodName = "/gateway.DistributedCluster/ModifyVirtualDockerNodes"
-	DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName    = "/gateway.DistributedCluster/GetLocalDaemonNodeIDs"
+	DistributedCluster_InducePanic_FullMethodName                = "/gateway.DistributedCluster/InducePanic"
+	DistributedCluster_SpoofNotifications_FullMethodName         = "/gateway.DistributedCluster/SpoofNotifications"
+	DistributedCluster_Ping_FullMethodName                       = "/gateway.DistributedCluster/Ping"
+	DistributedCluster_PingKernel_FullMethodName                 = "/gateway.DistributedCluster/PingKernel"
+	DistributedCluster_ListKernels_FullMethodName                = "/gateway.DistributedCluster/ListKernels"
+	DistributedCluster_SetTotalVirtualGPUs_FullMethodName        = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
+	DistributedCluster_GetClusterActualGpuInfo_FullMethodName    = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
+	DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName   = "/gateway.DistributedCluster/GetClusterVirtualGpuInfo"
+	DistributedCluster_MigrateKernelReplica_FullMethodName       = "/gateway.DistributedCluster/MigrateKernelReplica"
+	DistributedCluster_FailNextExecution_FullMethodName          = "/gateway.DistributedCluster/FailNextExecution"
+	DistributedCluster_RegisterDashboard_FullMethodName          = "/gateway.DistributedCluster/RegisterDashboard"
+	DistributedCluster_GetVirtualDockerNodes_FullMethodName      = "/gateway.DistributedCluster/GetVirtualDockerNodes"
+	DistributedCluster_GetDockerSwarmNodes_FullMethodName        = "/gateway.DistributedCluster/GetDockerSwarmNodes"
+	DistributedCluster_GetNumNodes_FullMethodName                = "/gateway.DistributedCluster/GetNumNodes"
+	DistributedCluster_SetNumClusterNodes_FullMethodName         = "/gateway.DistributedCluster/SetNumClusterNodes"
+	DistributedCluster_AddClusterNodes_FullMethodName            = "/gateway.DistributedCluster/AddClusterNodes"
+	DistributedCluster_RemoveSpecificClusterNodes_FullMethodName = "/gateway.DistributedCluster/RemoveSpecificClusterNodes"
+	DistributedCluster_RemoveClusterNodes_FullMethodName         = "/gateway.DistributedCluster/RemoveClusterNodes"
+	DistributedCluster_ModifyClusterNodes_FullMethodName         = "/gateway.DistributedCluster/ModifyClusterNodes"
+	DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName      = "/gateway.DistributedCluster/GetLocalDaemonNodeIDs"
 )
 
 // DistributedClusterClient is the client API for DistributedCluster service.
@@ -457,16 +458,21 @@ type DistributedClusterClient interface {
 	GetDockerSwarmNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetDockerSwarmNodesResponse, error)
 	// GetNumNodes returns the number of nodes in the cluster.
 	GetNumNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*NumNodesResponse, error)
-	// SetNumVirtualDockerNodes is used to scale the number of nodes in the cluster to a specifically value.
-	// This function accepts a SetNumVirtualDockerNodesRequest struct, which encodes the target number of nodes.
-	SetNumVirtualDockerNodes(ctx context.Context, in *SetNumVirtualDockerNodesRequest, opts ...grpc.CallOption) (*SetNumVirtualDockerNodesResponse, error)
-	// AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
-	AddVirtualDockerNodes(ctx context.Context, in *AddVirtualDockerNodesRequest, opts ...grpc.CallOption) (*AddVirtualDockerNodesResponse, error)
-	// DecreaseNumNodes removes a specific number of existing nodes from the Docker cluster.
-	DecreaseNumNodes(ctx context.Context, in *DecreaseNumNodesRequest, opts ...grpc.CallOption) (*DecreaseNumNodesResponse, error)
-	// ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
+	// SetNumClusterNodes is used to scale the number of nodes in the cluster to a specifically value.
+	// This function accepts a SetNumClusterNodesRequest struct, which encodes the target number of nodes.
+	SetNumClusterNodes(ctx context.Context, in *SetNumClusterNodesRequest, opts ...grpc.CallOption) (*SetNumClusterNodesResponse, error)
+	// AddClusterNodes provisions a parameterized number of additional nodes within the cluster.
+	// This function accepts a AddClusterNodesRequest struct, which encodes the number of nodes to add.
+	AddClusterNodes(ctx context.Context, in *AddClusterNodesRequest, opts ...grpc.CallOption) (*AddClusterNodesResponse, error)
+	// RemoveClusterNodes removes the specified nodes from the Docker cluster.
+	// This function accepts a RemoveSpecificClusterNodesRequest struct, which encodes the IDs of the nodes to remove.
+	RemoveSpecificClusterNodes(ctx context.Context, in *RemoveSpecificClusterNodesRequest, opts ...grpc.CallOption) (*RemoveSpecificClusterNodesResponse, error)
+	// RemoveClusterNodes removes the specified number of existing nodes from the Docker cluster.
+	// This function accepts a RemoveClusterNodesRequest struct, which encodes the number of nodes to remove.
+	RemoveClusterNodes(ctx context.Context, in *RemoveClusterNodesRequest, opts ...grpc.CallOption) (*RemoveClusterNodesResponse, error)
+	// ModifyClusterNodes enables the modification of one or more nodes within the cluster.
 	// Modifications include altering the number of GPUs available on the nodes.
-	ModifyVirtualDockerNodes(ctx context.Context, in *ModifyVirtualDockerNodesRequest, opts ...grpc.CallOption) (*ModifyVirtualDockerNodesResponse, error)
+	ModifyClusterNodes(ctx context.Context, in *ModifyClusterNodesRequest, opts ...grpc.CallOption) (*ModifyClusterNodesResponse, error)
 	// GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
 	GetLocalDaemonNodeIDs(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetLocalDaemonNodeIDsResponse, error)
 }
@@ -619,40 +625,50 @@ func (c *distributedClusterClient) GetNumNodes(ctx context.Context, in *Void, op
 	return out, nil
 }
 
-func (c *distributedClusterClient) SetNumVirtualDockerNodes(ctx context.Context, in *SetNumVirtualDockerNodesRequest, opts ...grpc.CallOption) (*SetNumVirtualDockerNodesResponse, error) {
+func (c *distributedClusterClient) SetNumClusterNodes(ctx context.Context, in *SetNumClusterNodesRequest, opts ...grpc.CallOption) (*SetNumClusterNodesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SetNumVirtualDockerNodesResponse)
-	err := c.cc.Invoke(ctx, DistributedCluster_SetNumVirtualDockerNodes_FullMethodName, in, out, cOpts...)
+	out := new(SetNumClusterNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_SetNumClusterNodes_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *distributedClusterClient) AddVirtualDockerNodes(ctx context.Context, in *AddVirtualDockerNodesRequest, opts ...grpc.CallOption) (*AddVirtualDockerNodesResponse, error) {
+func (c *distributedClusterClient) AddClusterNodes(ctx context.Context, in *AddClusterNodesRequest, opts ...grpc.CallOption) (*AddClusterNodesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AddVirtualDockerNodesResponse)
-	err := c.cc.Invoke(ctx, DistributedCluster_AddVirtualDockerNodes_FullMethodName, in, out, cOpts...)
+	out := new(AddClusterNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_AddClusterNodes_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *distributedClusterClient) DecreaseNumNodes(ctx context.Context, in *DecreaseNumNodesRequest, opts ...grpc.CallOption) (*DecreaseNumNodesResponse, error) {
+func (c *distributedClusterClient) RemoveSpecificClusterNodes(ctx context.Context, in *RemoveSpecificClusterNodesRequest, opts ...grpc.CallOption) (*RemoveSpecificClusterNodesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DecreaseNumNodesResponse)
-	err := c.cc.Invoke(ctx, DistributedCluster_DecreaseNumNodes_FullMethodName, in, out, cOpts...)
+	out := new(RemoveSpecificClusterNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_RemoveSpecificClusterNodes_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *distributedClusterClient) ModifyVirtualDockerNodes(ctx context.Context, in *ModifyVirtualDockerNodesRequest, opts ...grpc.CallOption) (*ModifyVirtualDockerNodesResponse, error) {
+func (c *distributedClusterClient) RemoveClusterNodes(ctx context.Context, in *RemoveClusterNodesRequest, opts ...grpc.CallOption) (*RemoveClusterNodesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ModifyVirtualDockerNodesResponse)
-	err := c.cc.Invoke(ctx, DistributedCluster_ModifyVirtualDockerNodes_FullMethodName, in, out, cOpts...)
+	out := new(RemoveClusterNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_RemoveClusterNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) ModifyClusterNodes(ctx context.Context, in *ModifyClusterNodesRequest, opts ...grpc.CallOption) (*ModifyClusterNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ModifyClusterNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_ModifyClusterNodes_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -730,16 +746,21 @@ type DistributedClusterServer interface {
 	GetDockerSwarmNodes(context.Context, *Void) (*GetDockerSwarmNodesResponse, error)
 	// GetNumNodes returns the number of nodes in the cluster.
 	GetNumNodes(context.Context, *Void) (*NumNodesResponse, error)
-	// SetNumVirtualDockerNodes is used to scale the number of nodes in the cluster to a specifically value.
-	// This function accepts a SetNumVirtualDockerNodesRequest struct, which encodes the target number of nodes.
-	SetNumVirtualDockerNodes(context.Context, *SetNumVirtualDockerNodesRequest) (*SetNumVirtualDockerNodesResponse, error)
-	// AddVirtualDockerNodes provisions a parameterized number of additional nodes within the Docker Swarm cluster.
-	AddVirtualDockerNodes(context.Context, *AddVirtualDockerNodesRequest) (*AddVirtualDockerNodesResponse, error)
-	// DecreaseNumNodes removes a specific number of existing nodes from the Docker cluster.
-	DecreaseNumNodes(context.Context, *DecreaseNumNodesRequest) (*DecreaseNumNodesResponse, error)
-	// ModifyVirtualDockerNodes enables the modification of one or more nodes within the Docker Swarm cluster.
+	// SetNumClusterNodes is used to scale the number of nodes in the cluster to a specifically value.
+	// This function accepts a SetNumClusterNodesRequest struct, which encodes the target number of nodes.
+	SetNumClusterNodes(context.Context, *SetNumClusterNodesRequest) (*SetNumClusterNodesResponse, error)
+	// AddClusterNodes provisions a parameterized number of additional nodes within the cluster.
+	// This function accepts a AddClusterNodesRequest struct, which encodes the number of nodes to add.
+	AddClusterNodes(context.Context, *AddClusterNodesRequest) (*AddClusterNodesResponse, error)
+	// RemoveClusterNodes removes the specified nodes from the Docker cluster.
+	// This function accepts a RemoveSpecificClusterNodesRequest struct, which encodes the IDs of the nodes to remove.
+	RemoveSpecificClusterNodes(context.Context, *RemoveSpecificClusterNodesRequest) (*RemoveSpecificClusterNodesResponse, error)
+	// RemoveClusterNodes removes the specified number of existing nodes from the Docker cluster.
+	// This function accepts a RemoveClusterNodesRequest struct, which encodes the number of nodes to remove.
+	RemoveClusterNodes(context.Context, *RemoveClusterNodesRequest) (*RemoveClusterNodesResponse, error)
+	// ModifyClusterNodes enables the modification of one or more nodes within the cluster.
 	// Modifications include altering the number of GPUs available on the nodes.
-	ModifyVirtualDockerNodes(context.Context, *ModifyVirtualDockerNodesRequest) (*ModifyVirtualDockerNodesResponse, error)
+	ModifyClusterNodes(context.Context, *ModifyClusterNodesRequest) (*ModifyClusterNodesResponse, error)
 	// GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
 	GetLocalDaemonNodeIDs(context.Context, *Void) (*GetLocalDaemonNodeIDsResponse, error)
 	mustEmbedUnimplementedDistributedClusterServer()
@@ -794,17 +815,20 @@ func (UnimplementedDistributedClusterServer) GetDockerSwarmNodes(context.Context
 func (UnimplementedDistributedClusterServer) GetNumNodes(context.Context, *Void) (*NumNodesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetNumNodes not implemented")
 }
-func (UnimplementedDistributedClusterServer) SetNumVirtualDockerNodes(context.Context, *SetNumVirtualDockerNodesRequest) (*SetNumVirtualDockerNodesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetNumVirtualDockerNodes not implemented")
+func (UnimplementedDistributedClusterServer) SetNumClusterNodes(context.Context, *SetNumClusterNodesRequest) (*SetNumClusterNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetNumClusterNodes not implemented")
 }
-func (UnimplementedDistributedClusterServer) AddVirtualDockerNodes(context.Context, *AddVirtualDockerNodesRequest) (*AddVirtualDockerNodesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method AddVirtualDockerNodes not implemented")
+func (UnimplementedDistributedClusterServer) AddClusterNodes(context.Context, *AddClusterNodesRequest) (*AddClusterNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddClusterNodes not implemented")
 }
-func (UnimplementedDistributedClusterServer) DecreaseNumNodes(context.Context, *DecreaseNumNodesRequest) (*DecreaseNumNodesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DecreaseNumNodes not implemented")
+func (UnimplementedDistributedClusterServer) RemoveSpecificClusterNodes(context.Context, *RemoveSpecificClusterNodesRequest) (*RemoveSpecificClusterNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveSpecificClusterNodes not implemented")
 }
-func (UnimplementedDistributedClusterServer) ModifyVirtualDockerNodes(context.Context, *ModifyVirtualDockerNodesRequest) (*ModifyVirtualDockerNodesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ModifyVirtualDockerNodes not implemented")
+func (UnimplementedDistributedClusterServer) RemoveClusterNodes(context.Context, *RemoveClusterNodesRequest) (*RemoveClusterNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveClusterNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) ModifyClusterNodes(context.Context, *ModifyClusterNodesRequest) (*ModifyClusterNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ModifyClusterNodes not implemented")
 }
 func (UnimplementedDistributedClusterServer) GetLocalDaemonNodeIDs(context.Context, *Void) (*GetLocalDaemonNodeIDsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetLocalDaemonNodeIDs not implemented")
@@ -1082,74 +1106,92 @@ func _DistributedCluster_GetNumNodes_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DistributedCluster_SetNumVirtualDockerNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetNumVirtualDockerNodesRequest)
+func _DistributedCluster_SetNumClusterNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetNumClusterNodesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DistributedClusterServer).SetNumVirtualDockerNodes(ctx, in)
+		return srv.(DistributedClusterServer).SetNumClusterNodes(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: DistributedCluster_SetNumVirtualDockerNodes_FullMethodName,
+		FullMethod: DistributedCluster_SetNumClusterNodes_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DistributedClusterServer).SetNumVirtualDockerNodes(ctx, req.(*SetNumVirtualDockerNodesRequest))
+		return srv.(DistributedClusterServer).SetNumClusterNodes(ctx, req.(*SetNumClusterNodesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DistributedCluster_AddVirtualDockerNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AddVirtualDockerNodesRequest)
+func _DistributedCluster_AddClusterNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddClusterNodesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DistributedClusterServer).AddVirtualDockerNodes(ctx, in)
+		return srv.(DistributedClusterServer).AddClusterNodes(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: DistributedCluster_AddVirtualDockerNodes_FullMethodName,
+		FullMethod: DistributedCluster_AddClusterNodes_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DistributedClusterServer).AddVirtualDockerNodes(ctx, req.(*AddVirtualDockerNodesRequest))
+		return srv.(DistributedClusterServer).AddClusterNodes(ctx, req.(*AddClusterNodesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DistributedCluster_DecreaseNumNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DecreaseNumNodesRequest)
+func _DistributedCluster_RemoveSpecificClusterNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveSpecificClusterNodesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DistributedClusterServer).DecreaseNumNodes(ctx, in)
+		return srv.(DistributedClusterServer).RemoveSpecificClusterNodes(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: DistributedCluster_DecreaseNumNodes_FullMethodName,
+		FullMethod: DistributedCluster_RemoveSpecificClusterNodes_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DistributedClusterServer).DecreaseNumNodes(ctx, req.(*DecreaseNumNodesRequest))
+		return srv.(DistributedClusterServer).RemoveSpecificClusterNodes(ctx, req.(*RemoveSpecificClusterNodesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DistributedCluster_ModifyVirtualDockerNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ModifyVirtualDockerNodesRequest)
+func _DistributedCluster_RemoveClusterNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveClusterNodesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DistributedClusterServer).ModifyVirtualDockerNodes(ctx, in)
+		return srv.(DistributedClusterServer).RemoveClusterNodes(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: DistributedCluster_ModifyVirtualDockerNodes_FullMethodName,
+		FullMethod: DistributedCluster_RemoveClusterNodes_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DistributedClusterServer).ModifyVirtualDockerNodes(ctx, req.(*ModifyVirtualDockerNodesRequest))
+		return srv.(DistributedClusterServer).RemoveClusterNodes(ctx, req.(*RemoveClusterNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_ModifyClusterNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ModifyClusterNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).ModifyClusterNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_ModifyClusterNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).ModifyClusterNodes(ctx, req.(*ModifyClusterNodesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1236,20 +1278,24 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DistributedCluster_GetNumNodes_Handler,
 		},
 		{
-			MethodName: "SetNumVirtualDockerNodes",
-			Handler:    _DistributedCluster_SetNumVirtualDockerNodes_Handler,
+			MethodName: "SetNumClusterNodes",
+			Handler:    _DistributedCluster_SetNumClusterNodes_Handler,
 		},
 		{
-			MethodName: "AddVirtualDockerNodes",
-			Handler:    _DistributedCluster_AddVirtualDockerNodes_Handler,
+			MethodName: "AddClusterNodes",
+			Handler:    _DistributedCluster_AddClusterNodes_Handler,
 		},
 		{
-			MethodName: "DecreaseNumNodes",
-			Handler:    _DistributedCluster_DecreaseNumNodes_Handler,
+			MethodName: "RemoveSpecificClusterNodes",
+			Handler:    _DistributedCluster_RemoveSpecificClusterNodes_Handler,
 		},
 		{
-			MethodName: "ModifyVirtualDockerNodes",
-			Handler:    _DistributedCluster_ModifyVirtualDockerNodes_Handler,
+			MethodName: "RemoveClusterNodes",
+			Handler:    _DistributedCluster_RemoveClusterNodes_Handler,
+		},
+		{
+			MethodName: "ModifyClusterNodes",
+			Handler:    _DistributedCluster_ModifyClusterNodes_Handler,
 		},
 		{
 			MethodName: "GetLocalDaemonNodeIDs",

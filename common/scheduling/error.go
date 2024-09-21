@@ -7,6 +7,7 @@ import (
 )
 
 var (
+	ErrInvalidTargetNumHosts      = status.Error(codes.InvalidArgument, "requested operation would result in an invalid or illegal number of nodes")
 	ErrInsufficientHostsAvailable = status.Error(codes.Internal, "insufficient hosts available")
 	ErrHostNotFound               = status.Error(codes.Internal, "host not found")
 	ErrReplicaNotFound            = fmt.Errorf("replica not found")
