@@ -427,7 +427,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
 	// on the current and target cluster size).
 	opId := uuid.NewString()
-	scaleOp, err := c.RegisterScaleOutOperation(opId, int32(targetNumNodes))
+	scaleOp, err := c.RegisterScaleOutOperation(opId, targetNumNodes)
 	if err != nil {
 		c.log.Error("Could not register new scale-out operation to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err)
@@ -478,7 +478,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
 	// on the current and target cluster size).
 	opId := uuid.NewString()
-	scaleOp, err := c.RegisterScaleOutOperation(opId, int32(targetNumNodes))
+	scaleOp, err := c.RegisterScaleInOperation(opId, targetNumNodes)
 	if err != nil {
 		c.log.Error("Could not register new scale-out operation to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
