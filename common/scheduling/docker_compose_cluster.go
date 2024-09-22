@@ -1,6 +1,7 @@
 package scheduling
 
 import (
+	"errors"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/types"
@@ -93,30 +94,82 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetNumNodes int32, coreLogi
 	}
 }
 
-// GetScaleInCommand returns the function to be executed to perform a scale-in.
-//
-// DockerComposeCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
-//
-// This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
-// a docker compose service.
-func (c *DockerComposeCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) func() {
+// getTargetedScaleInCommand returns a function that, when executed, will terminate the hosts specified in the targetHosts parameter.
+func (c *DockerComposeCluster) getTargetedScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+	if targetNumNodes != int32(len(targetHosts)) {
+		return nil, fmt.Errorf("inconsistent targetNumHosts (%d) and length of target hosts (%d)", targetNumNodes, len(targetHosts))
+	}
+
 	return func() {
+		disabledHosts := make([]string, 0, len(targetHosts))
 		errs := make([]error, 0)
 		for _, id := range targetHosts {
 			err := c.disableHost(id)
 			if err != nil {
 				c.log.Error("Could not remove host \"%s\" from Docker Compose Cluster because: %v", id, err)
 				errs = append(errs, err)
+				break
+			} else {
+				disabledHosts = append(disabledHosts, id)
 			}
 		}
 
-		panic("Not implemented")
+		// If we failed to disable one or more hosts, then we'll abort the entire operation.
+		if len(errs) > 0 {
+			for _, disabledHostId := range disabledHosts {
+				enableErr := c.enableHost(disabledHostId)
+				if enableErr != nil {
+					c.log.Error("Failed to enable freshly-disabled host %s during failed scale-in operation because: %v",
+						disabledHostId, enableErr)
+				}
+			}
 
-		//if len(errs) > 0 {
-		//	err := errors.Join(errs...)
-		//	coreLogicDoneChan <- err
-		//} else {
-		//	coreLogicDoneChan <- struct{}{}
-		//}
+			err := errors.Join(errs...)
+			coreLogicDoneChan <- err
+			return
+		}
+
+		coreLogicDoneChan <- struct{}{}
+	}, nil
+}
+
+// GetScaleInCommand returns the function to be executed to perform a scale-in.
+//
+// DockerComposeCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
+//
+// This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
+// a docker compose service.
+func (c *DockerComposeCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+	if len(targetHosts) > 0 {
+		return c.getTargetedScaleInCommand(targetNumNodes, targetHosts, coreLogicDoneChan)
 	}
+
+	// If no target Host instances were specified, then we need to identify some Host instances ourselves.
+	c.hostMutex.Lock()
+
+	// First, just look for Hosts that are entirely idle.
+	c.hosts.Range(func(hostId string, host *Host) (contd bool) {
+		if host.containers.Len() == 0 {
+			targetHosts = append(targetHosts, hostId)
+		}
+
+		// If we've identified enough hosts, then we can stop iterating.
+		if int32(len(targetHosts)) == targetNumNodes {
+			return false
+		}
+
+		return true
+	})
+
+	c.hostMutex.Unlock()
+
+	// If we've found enough Hosts to terminate, then we can get the scale-in command for the specified hosts.
+	// If not, then we'll have to keep trying. Or, for now, we just return an error indicating that we cannot
+	// scale-down by that many Hosts as there are insufficient idle hosts available.
+	if int32(len(targetHosts)) == targetNumNodes {
+		return c.getTargetedScaleInCommand(targetNumNodes, targetHosts, coreLogicDoneChan)
+	}
+
+	return nil, fmt.Errorf("%w: insufficient idle hosts available to scale-in by %dhost(s); largest scale-in possible: %d host(s)",
+		ErrInvalidTargetScale, targetNumNodes, len(targetHosts))
 }

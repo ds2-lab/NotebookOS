@@ -71,6 +71,6 @@ func (c *KubernetesCluster) GetScaleOutCommand(targetNumNodes int32, coreLogicDo
 }
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
-func (c *KubernetesCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) func() {
+func (c *KubernetesCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
 	panic(fmt.Errorf("%w: KubernetesCluster::GetScaleInCommand", ErrNotImplementedYet))
 }

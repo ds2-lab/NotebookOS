@@ -116,14 +116,18 @@ func (c *BaseCluster) AddIndex(index ClusterIndexProvider) error {
 	return nil
 }
 
-// checkIfScalingComplete is used to check if there is an active scaling operation and, if there is, then to check
-// if that operation is complete.
-func (c *BaseCluster) checkIfScalingComplete() {
+// checkIfScalingComplete is used to check if there is an active scaling operation and,
+// if there is, then to check if that operation is complete.
+func (c *BaseCluster) checkIfScalingComplete(host *Host) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
 	if c.activeScaleOperation == nil {
 		return
+	}
+
+	if err := c.activeScaleOperation.RegisterAffectedHost(host); err != nil {
+		panic(err)
 	}
 
 	if int32(c.hosts.Len()) == c.activeScaleOperation.TargetScale {
@@ -155,7 +159,7 @@ func (c *BaseCluster) onHostAdded(host *Host) {
 		return true
 	})
 
-	c.checkIfScalingComplete()
+	c.checkIfScalingComplete(host)
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.
@@ -167,7 +171,7 @@ func (c *BaseCluster) onHostRemoved(host *Host) {
 		return true
 	})
 
-	c.checkIfScalingComplete()
+	c.checkIfScalingComplete(host)
 }
 
 // ValidateCapacity ensures that the Cluster has the "right" amount of Host instances provisioned.

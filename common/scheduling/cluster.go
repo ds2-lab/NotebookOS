@@ -96,7 +96,7 @@ type clusterInternal interface {
 	//
 	// If there's an error, then you send the error over the result chan.
 	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
-	GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) func()
+	GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error)
 
 	// RegisterScaleOperation registers a non-specific type of ScaleOperation.
 	// Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
