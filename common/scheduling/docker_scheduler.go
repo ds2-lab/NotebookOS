@@ -59,7 +59,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaId int32, replicaSpe
 	// We "blacklist" all the hosts for which other replicas of this kernel are scheduled.
 	// That way, we'll necessarily select a host on which no other replicas of this kernel are running.
 	for _, host := range replicaHosts {
-		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", host.ID(), host.NodeName(), kernelId, replicaId)
+		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", host.ID, host.NodeName, kernelId, replicaId)
 		blacklist = append(blacklist, host.GetMeta(HostMetaRandomIndex))
 	}
 
@@ -70,7 +70,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaId int32, replicaSpe
 	//		panic(fmt.Sprintf("Replica %d of kernel %s does NOT have a host...", replicaId, in.ID()))
 	//	}
 	//
-	//	s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", host.ID(), host.NodeName(), in.ID(), replicaId)
+	//	s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", host.ID, host.NodeName, in.ID(), replicaId)
 	//	blacklist = append(blacklist, host.GetMeta(HostMetaRandomIndex))
 	//}
 
@@ -79,7 +79,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaId int32, replicaSpe
 		return nil, ErrInsufficientHostsAvailable
 	}
 
-	s.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.", host.ID(), kernelId, replicaId, host.ID())
+	s.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.", host.ID, kernelId, replicaId, host.ID)
 	return host, nil
 }
 
@@ -248,7 +248,7 @@ func (s *DockerScheduler) pollForResourceData() {
 		s.cluster.UnlockHosts()
 
 		for _, host := range hosts {
-			hostId := host.ID()
+			hostId := host.ID
 			err := host.SynchronizeResourceInformation()
 			if err != nil {
 				var (
@@ -262,21 +262,21 @@ func (s *DockerScheduler) pollForResourceData() {
 				numConsecutiveFailures += 1
 				numConsecutiveFailuresPerHost[hostId] = numConsecutiveFailures
 
-				s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s (consecutive: %d): %v", hostId, host.NodeName(), numConsecutiveFailures, err)
+				s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s (consecutive: %d): %v", hostId, host.NodeName, numConsecutiveFailures, err)
 
 				// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
 				if numConsecutiveFailures >= ConsecutiveFailuresWarning {
 					// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
 					if host.Conn().GetState() == connectivity.TransientFailure || host.Conn().GetState() == connectivity.Shutdown {
-						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.", numConsecutiveFailures, host.ID(), host.NodeName(), host.Conn().GetState().String(), host.ID())
+						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.", numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String(), host.ID)
 						s.log.Error(errorMessage)
-						_ = host.ErrorCallback()(host.ID(), host.NodeName(), "Local Daemon Connectivity Error", errorMessage)
+						_ = host.ErrorCallback()(host.ID, host.NodeName, "Local Daemon Connectivity Error", errorMessage)
 					} else if numConsecutiveFailures >= ConsecutiveFailuresBad { // If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
-						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.", numConsecutiveFailures, host.ID(), host.NodeName(), host.Conn().GetState().String(), host.ID())
+						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.", numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String(), host.ID)
 						s.log.Error(errorMessage)
-						_ = host.ErrorCallback()(host.ID(), host.NodeName(), "Local Daemon Connectivity Error", errorMessage)
+						_ = host.ErrorCallback()(host.ID, host.NodeName, "Local Daemon Connectivity Error", errorMessage)
 					} else { // Otherwise, we won't assume it is dead yet...
-						s.log.Warn("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...", numConsecutiveFailures, host.ID(), host.NodeName(), host.Conn().GetState().String())
+						s.log.Warn("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...", numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String())
 					}
 				}
 			} else {
@@ -306,11 +306,11 @@ func (s *DockerScheduler) RefreshClusterNodes() error {
 
 	errs := make([]error, 0)
 	for _, host := range hosts {
-		hostId := host.ID()
+		hostId := host.ID
 		err := host.SynchronizeResourceInformation()
 		if err != nil {
 			s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s: %v",
-				hostId, host.NodeName(), err)
+				hostId, host.NodeName, err)
 			errs = append(errs, err)
 		}
 	}

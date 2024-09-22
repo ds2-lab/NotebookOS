@@ -452,7 +452,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		// TODO: Just mark the Host as un-schedule-able so that we don't try to schedule anything onto it until we're done here.
 		// We should not release the Host until we're sure we want to release it.
-		//p := s.Cluster.ReleaseHosts(idleHost.Host.ID())
+		//p := s.Cluster.ReleaseHosts(idleHost.host.ID)
 		panic("Not implemented")
 		//err := p.Error()
 		//if errors.Is(err, ErrHostNotFound) {
@@ -465,7 +465,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	var released int
 	for i, host := range toBeReleased {
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Releasing idle host %d/%d: Virtual Machine  %s. NumContainers: %d.", i+1, len(toBeReleased), host.ID(), host.NumContainers())
+			s.log.Debug("Releasing idle host %d/%d: Virtual Machine  %s. NumContainers: %d.", i+1, len(toBeReleased), host.ID, host.NumContainers())
 		}
 
 		// If the host has no containers running on it at all, then we can simply release the host.
@@ -477,11 +477,11 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 				if !migratedSuccessfully {
 					if err == nil {
 						// We cannot migrate the Container.
-						s.log.Warn("Abandoning the release of idle host %d/%d: Virtual Machine %s. There was no error, but the migration failed...", i+1, len(toBeReleased), host.ID())
+						s.log.Warn("Abandoning the release of idle host %d/%d: Virtual Machine %s. There was no error, but the migration failed...", i+1, len(toBeReleased), host.ID)
 						panic(fmt.Sprintf("Releasing of idle host failed for unknown reason (no error). We were trying to migrate Container %s [state=%v].", c.ContainerID(), c.Status()))
 					} else {
 						// We cannot migrate the Container.
-						s.log.Warn("Abandoning the release of idle host %d/%d: Virtual Machine %s.", i+1, len(toBeReleased), host.ID())
+						s.log.Warn("Abandoning the release of idle host %d/%d: Virtual Machine %s.", i+1, len(toBeReleased), host.ID)
 						s.log.Warn("Reason: %v", err)
 
 						// Add back all the idle hosts that we were going to release, beginning with the host that we should fail to release.
@@ -502,7 +502,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		released += 1
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Successfully released idle host %d/%d: Virtual Machine  %s.", i+1, len(toBeReleased), host.ID())
+			s.log.Debug("Successfully released idle host %d/%d: Virtual Machine  %s.", i+1, len(toBeReleased), host.ID)
 		}
 	}
 

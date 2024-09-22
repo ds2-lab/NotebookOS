@@ -11,9 +11,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"log"
 	"sync"
-	"time"
 )
 
 // BaseCluster encapsulates the core state and logic required to operate a Cluster.
@@ -331,9 +329,9 @@ func (c *BaseCluster) RegisterScaleOperation(operationId string, targetClusterSi
 		err                error
 	)
 	if targetClusterSize > currentClusterSize {
-		scaleOperation, err = NewScaleOperation(operationId, currentClusterSize, targetClusterSize)
+		scaleOperation, err = NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
 	} else {
-		scaleOperation, err = NewScaleOperation(operationId, currentClusterSize, targetClusterSize)
+		scaleOperation, err = NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
 	}
 
 	if err != nil {
@@ -343,10 +341,6 @@ func (c *BaseCluster) RegisterScaleOperation(operationId string, targetClusterSi
 	if scaleOperation.OperationType != ScaleOutOperation {
 		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
 	}
-
-	// if existingScaleOperation, loaded := c.scaleOperations.LoadOrStore(operationId, scaleOperation); loaded {
-	// 	return existingScaleOperation, ErrDuplicateScaleOperation
-	// }
 
 	return scaleOperation, nil
 }
@@ -365,7 +359,7 @@ func (c *BaseCluster) RegisterScaleOutOperation(operationId string, targetCluste
 	}
 
 	currentClusterSize := int32(c.Len())
-	scaleOperation, err := NewScaleOperation(operationId, currentClusterSize, targetClusterSize)
+	scaleOperation, err := NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
 	if err != nil {
 		return nil, err
 	}
@@ -373,10 +367,6 @@ func (c *BaseCluster) RegisterScaleOutOperation(operationId string, targetCluste
 	if scaleOperation.OperationType != ScaleOutOperation {
 		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
 	}
-
-	// if existingScaleOperation, loaded := c.scaleOperations.LoadOrStore(operationId, scaleOperation); loaded {
-	// 	return existingScaleOperation, ErrDuplicateScaleOperation
-	// }
 
 	return scaleOperation, nil
 }
@@ -395,7 +385,7 @@ func (c *BaseCluster) RegisterScaleInOperation(operationId string, targetCluster
 	}
 
 	currentClusterSize := int32(c.Len())
-	scaleOperation, err := NewScaleOperation(operationId, currentClusterSize, targetClusterSize)
+	scaleOperation, err := NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
 	if err != nil {
 		return nil, err
 	}
@@ -403,10 +393,6 @@ func (c *BaseCluster) RegisterScaleInOperation(operationId string, targetCluster
 	if scaleOperation.OperationType != ScaleInOperation {
 		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
 	}
-
-	// if existingScaleOperation, loaded := c.scaleOperations.LoadOrStore(operationId, scaleOperation); loaded {
-	// 	return existingScaleOperation, ErrDuplicateScaleOperation
-	// }
 
 	return scaleOperation, nil
 }
@@ -438,22 +424,52 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 		promise.Resolved(nil, status.Error(codes.Internal, err.Error())) // This really shouldn't happen.
 	}
 
-	// Use a separate goroutine to execute the shell command to scale the number of Local Daemon nodes.
-	resultChan := make(chan interface{})
-	execScaleOp := c.GetScaleOutCommand(targetNumNodes, resultChan)
-
 	// Wait for the shell command above to finish.
-	err = c.handleScaleOperation(ctx, scaleOp, execScaleOp, resultChan)
+	result, err := c.handleScaleOperation(ctx, scaleOp)
 	if err != nil {
 		return promise.Resolved(nil, err)
 	}
 
-	return promise.Resolved(n)
+	return promise.Resolved(result)
 }
 
 // ReleaseSpecificHosts terminates one or more specific Host instances.
 func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) promise.Promise {
-	return c.instance.ReleaseSpecificHosts(ctx, ids)
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
+
+	n := int32(len(ids))
+	currentNumNodes := int32(c.Len())
+	targetNumNodes := currentNumNodes - n
+
+	if targetNumNodes < int32(c.numReplicas) {
+		c.log.Error("Cannot remove %d specific Local Daemon Docker node(s) from the cluster", n)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		return promise.Resolved(nil, ErrInvalidTargetNumHosts)
+	}
+
+	// Register a new scaling operation.
+	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
+	// on the current and target cluster size).
+	opId := uuid.NewString()
+	scaleOp, err := c.RegisterScaleInOperation(opId, targetNumNodes)
+	if err != nil {
+		c.log.Error("Could not register new scale-in operation down to %d nodes because: %v", targetNumNodes, err)
+		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
+	}
+
+	// Start the operation.
+	if err := scaleOp.Start(); err != nil {
+		return promise.Resolved(nil, status.Error(codes.Internal, err.Error())) // This really shouldn't happen.
+	}
+
+	// Wait for the shell command above to finish.
+	result, err := c.handleScaleOperation(ctx, scaleOp)
+	if err != nil {
+		return promise.Resolved(nil, err)
+	}
+
+	return promise.Resolved(result)
 }
 
 // ReleaseHosts terminates n arbitrary Host instances, where n >= 1.
@@ -480,7 +496,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	opId := uuid.NewString()
 	scaleOp, err := c.RegisterScaleInOperation(opId, targetNumNodes)
 	if err != nil {
-		c.log.Error("Could not register new scale-out operation to %d nodes because: %v", targetNumNodes, err)
+		c.log.Error("Could not register new scale-in operation down to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
 	}
 
@@ -489,17 +505,13 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 		return promise.Resolved(nil, status.Error(codes.Internal, err.Error())) // This really shouldn't happen.
 	}
 
-	// Use a separate goroutine to execute the shell command to scale the number of Local Daemon nodes.
-	resultChan := make(chan interface{})
-	execScaleOp := c.GetScaleInCommand(targetNumNodes, resultChan)
-
 	// Wait for the shell command above to finish.
-	err = c.handleScaleOperation(ctx, scaleOp, execScaleOp, resultChan)
+	result, err := c.handleScaleOperation(ctx, scaleOp)
 	if err != nil {
 		return promise.Resolved(nil, err)
 	}
 
-	return promise.Resolved(nil)
+	return promise.Resolved(result)
 }
 
 // ScaleToSize scales the Cluster to the specified number of Host instances.
@@ -517,104 +529,23 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, n int32) promise.Promise 
 // or resulted in an error.
 //
 // handleScaleOperation returns nil on success.
-func (c *BaseCluster) handleScaleOperation(parentContext context.Context, scaleOp *ScaleOperation, execScaleOp func(), resultChan <-chan interface{}) error {
-	timeoutInterval := time.Second * 30
-	childContext, cancel := context.WithTimeout(parentContext, timeoutInterval)
-	defer cancel()
+func (c *BaseCluster) handleScaleOperation(parentContext context.Context, scaleOp *ScaleOperation) (ScaleOperationResult, error) {
+	result, err := scaleOp.Execute(parentContext)
+	return result, err
+}
 
-	go execScaleOp()
-
-	// Spawn a goroutine to monitor the cluster size.
-	//
-	// If the cluster size equals the target size of the scale operation,
-	// then we'll mark the scale operation as complete.
-	//
-	// If the operation times-out, then we'll mark the operation as having reached an error state.
-	go func() {
-		select {
-		case <-childContext.Done():
-			ctxErr := childContext.Err()
-			if ctxErr != nil {
-				_ = scaleOp.SetOperationErred(ctxErr, false)
-			} else {
-				_ = scaleOp.SetOperationErred(fmt.Errorf(""), false)
-			}
-			return
-		default:
-			{
-				currSize := int32(c.Len())
-				if currSize == scaleOp.TargetScale {
-					err := scaleOp.SetOperationFinished()
-					if err != nil {
-						c.log.Error("Failed to set scale-operation %s to 'complete' state because: %v",
-							scaleOp.OperationId, err)
-					}
-
-					return
-				}
-
-				time.Sleep(time.Millisecond * 500)
-			}
-		}
-	}()
-
-	select {
-	case <-childContext.Done():
-		{
-			c.log.Error("Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
-			if ctxErr := childContext.Err(); ctxErr != nil {
-				c.log.Error("Additional error information regarding failed adjustment of virtual Docker nodes: %v", ctxErr)
-				return status.Error(codes.Internal, ctxErr.Error())
-			} else {
-				return status.Errorf(codes.Internal, "Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
-			}
-		}
-	case res := <-resultChan: // Wait for the shell command above to finish.
-		{
-			if err, ok := res.(error); ok {
-				c.log.Error("Failed to adjust scale of virtual Docker nodes because: %v", err)
-				// If there was an error, then we'll return the error.
-				return status.Errorf(codes.Internal, err.Error())
-			}
-		}
-	}
-
-	if err := scaleOp.SetOperationFinished(); err != nil {
-		c.log.Error("Failed to transition scale operation \"%s\" to 'complete' state because: %v", scaleOp.OperationId, err)
-		return status.Error(codes.Internal, err.Error())
-	}
-
-	// Now wait for the scale operation to complete.
-	// If it has already completed by the time we call Wait, then Wait just returns immediately.
-	scaleOp.Wait()
-
-	if scaleOp.CompletedSuccessfully() {
-		timeElapsed, _ := scaleOp.GetDuration()
-		c.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d in %v.", scaleOp.InitialScale, scaleOp.TargetScale, timeElapsed)
-
-		// Record the latency of the scale operation in/with Prometheus.
-		if scaleOp.IsScaleInOperation() {
-			c.clusterMetricsProvider.GetScaleInLatencyMillisecondsHistogram().Observe(float64(timeElapsed.Milliseconds()))
-		} else {
-			c.clusterMetricsProvider.GetScaleOutLatencyMillisecondsHistogram().Observe(float64(timeElapsed.Milliseconds()))
-		}
-
-		return nil
-	} else {
-		c.log.Error("Failed to adjust number of virtual Docker nodes from %d to %c.", scaleOp.InitialScale, scaleOp.TargetScale)
-
-		if scaleOp.Error == nil {
-			log.Fatalf("ScaleOperation \"%s\" is in '%s' state, but its Error field is nil...",
-				scaleOp.OperationId, ScaleOperationErred.String())
-		}
-
-		return status.Error(codes.Internal, scaleOp.Error.Error())
-	}
+// ClusterMetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
+func (c *BaseCluster) ClusterMetricsProvider() metrics.ClusterMetricsProvider {
+	return c.clusterMetricsProvider
 }
 
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
 // This API exists so each platform-specific Cluster implementation can provide its own platform-specific
 // logic for scaling-out.
+//
+// targetNumNodes specifies the desired size of the cluster.
+//
+// resultChan is used to notify a waiting goroutine that the scale-out operation has finished.
 func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
 	return c.instance.GetScaleOutCommand(targetNumNodes, resultChan)
 }
@@ -622,6 +553,12 @@ func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan i
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
 // This API exists so each platform-specific Cluster implementation can provide its own platform-specific
 // logic for scaling-in.
-func (c *BaseCluster) GetScaleInCommand(targetNumNodes int32, resultChan chan interface{}) func() {
-	return c.instance.GetScaleInCommand(targetNumNodes, resultChan)
+//
+// targetNumNodes specifies the desired size of the cluster.
+//
+// targetHosts specifies any specific hosts that are to be removed.
+//
+// resultChan is used to notify a waiting goroutine that the scale-in operation has finished.
+func (c *BaseCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, resultChan chan interface{}) func() {
+	return c.instance.GetScaleInCommand(targetNumNodes, targetHosts, resultChan)
 }

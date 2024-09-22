@@ -559,7 +559,7 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 
 	err = host.ContainerRemoved(r.Container())
 	if err != nil {
-		c.log.Error("Failed to remove scheduling.Container %s-%d from Host %s because: %v", r.ID(), r.ReplicaID(), host.ID(), err)
+		c.log.Error("Failed to remove scheduling.Container %s-%d from Host %s because: %v", r.ID(), r.ReplicaID(), host.ID, err)
 	}
 
 	r.Container().SetHost(nil) // Set the Host to nil...

@@ -135,7 +135,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	if err != nil {
 		log.Fatalf("Failed to listen on provisioner port: %v", err)
 	}
-	globalLogger.Info("Provisioning server listening at %v", lisHost.Addr())
+	globalLogger.Info("Provisioning server listening at %v", lisHost.Addr)
 
 	// Initialize internal gRPC server
 	provisioner := grpc.NewServer(GetGrpcOptions("Provisioner gRPC Server", tracer, distributedCluster)...)

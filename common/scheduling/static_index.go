@@ -84,7 +84,7 @@ func (index *StaticClusterIndex) Add(host *Host) {
 func (index *StaticClusterIndex) Update(host *Host) {
 	found := false
 	for i, h := range index.hosts {
-		if h.ID() == host.ID() {
+		if h.ID == host.ID {
 			index.hosts[i] = host
 			found = true
 			break

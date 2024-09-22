@@ -423,7 +423,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.cluster = scheduling.NewKubernetesCluster(clusterGateway, clusterGateway.kubeClient, hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 	} else if clusterGateway.DockerMode() {
 		clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
-		clusterGateway.cluster = scheduling.NewDockerCluster(clusterGateway, hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+		clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 	}
 
 	return clusterGateway
@@ -849,9 +849,9 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	if err != nil {
 		if errors.Is(err, scheduling.ErrRestoreRequired) {
-			d.log.Warn("Restoration is required for newly-connected Local Daemon %s.", host.ID())
+			d.log.Warn("Restoration is required for newly-connected Local Daemon %s.", host.ID)
 			// Restore host scheduler.
-			registered, loaded := d.cluster.GetHostManager().LoadOrStore(host.ID(), host)
+			registered, loaded := d.cluster.GetHostManager().LoadOrStore(host.ID, host)
 			if loaded {
 				err := registered.Restore(host, d.localDaemonDisconnected)
 				if err != nil {
@@ -859,7 +859,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 					return nil, err
 				}
 			} else {
-				d.log.Warn("Host scheduler requested for restoration but not found: %s", host.ID())
+				d.log.Warn("Host scheduler requested for restoration but not found: %s", host.ID)
 				return nil, scheduling.ErrRestorationFailed
 			}
 		} else {
@@ -872,9 +872,9 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 		log.Fatalf("Newly-connected host from addr=%s is nil.\n", incoming.RemoteAddr().String())
 	}
 
-	d.log.Info("Incoming host scheduler %s (node = %s) connected", host.ID(), host.NodeName())
-	d.cluster.GetHostManager().Store(host.ID(), host)
-	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the Cluster Gateway.", host.ID(), host.NodeName()))
+	d.log.Info("Incoming host scheduler %s (node = %s) connected", host.ID, host.NodeName)
+	d.cluster.GetHostManager().Store(host.ID, host)
+	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the Cluster Gateway.", host.ID, host.NodeName))
 
 	return conn, nil
 }
@@ -1724,7 +1724,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		}
 
 		// In Docker mode, we'll just use the Host ID as the node name.
-		in.NodeName = host.ID()
+		in.NodeName = host.ID
 	}
 
 	// Initialize kernel client
@@ -1772,7 +1772,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		container.SetDockerContainerID(dockerContainerId.(string))
 	}
 
-	d.log.Debug("Adding replica for kernel %s, replica %d on host %s. Resource spec: %v", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID(), replicaSpec.Kernel.ResourceSpec)
+	d.log.Debug("Adding replica for kernel %s, replica %d on host %s. Resource spec: %v", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID, replicaSpec.Kernel.ResourceSpec)
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
 		panic(fmt.Sprintf("KernelReplicaClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
@@ -1921,7 +1921,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 		}
 
 		// In Docker mode, we'll just use the Host ID as the node name.
-		nodeName = host.ID()
+		nodeName = host.ID
 	}
 
 	// Initialize kernel client
@@ -2195,10 +2195,10 @@ func (d *ClusterGatewayImpl) GetClusterActualGpuInfo(ctx context.Context, in *pr
 	d.cluster.GetHostManager().Range(func(hostId string, host *scheduling.Host) (contd bool) {
 		data, err := host.GetActualGpuInfo(ctx, in)
 		if err != nil {
-			d.log.Error("Failed to retrieve actual GPU info from Local Daemon %s on node %s because: %v", hostId, host.NodeName(), err)
-			resp.GpuInfo[host.NodeName()] = nil
+			d.log.Error("Failed to retrieve actual GPU info from Local Daemon %s on node %s because: %v", hostId, host.NodeName, err)
+			resp.GpuInfo[host.NodeName] = nil
 		} else {
-			resp.GpuInfo[host.NodeName()] = data
+			resp.GpuInfo[host.NodeName] = data
 		}
 		return true
 	})
@@ -2215,10 +2215,10 @@ func (d *ClusterGatewayImpl) getClusterVirtualGpuInfo(ctx context.Context, in *p
 	d.cluster.GetHostManager().Range(func(hostId string, host *scheduling.Host) (contd bool) {
 		data, err := host.GetVirtualGpuInfo(ctx, in)
 		if err != nil {
-			d.log.Error("Failed to retrieve virtual GPU info from Local Daemon %s on node %s because: %v", hostId, host.NodeName(), err)
-			resp.GpuInfo[host.NodeName()] = nil
+			d.log.Error("Failed to retrieve virtual GPU info from Local Daemon %s on node %s because: %v", hostId, host.NodeName, err)
+			resp.GpuInfo[host.NodeName] = nil
 		} else {
-			resp.GpuInfo[host.NodeName()] = data
+			resp.GpuInfo[host.NodeName] = data
 		}
 		return true
 	})
@@ -2237,12 +2237,12 @@ func (d *ClusterGatewayImpl) setTotalVirtualGPUs(ctx context.Context, in *proto.
 	var targetHost *scheduling.Host
 	d.log.Debug("We currently have %d LocalDaemons connected.", d.cluster.GetHostManager().Len())
 	d.cluster.GetHostManager().Range(func(hostId string, host *scheduling.Host) bool {
-		if host.NodeName() == in.GetKubernetesNodeName() {
+		if host.NodeName == in.GetKubernetesNodeName() {
 			d.log.Debug("Found LocalDaemon running on target node %s.", in.KubernetesNodeName)
 			targetHost = host
 			return false // Stop looping.
 		} else {
-			d.log.Debug("LocalDaemon %s is running on different node: %s.", host.ID(), host.NodeName())
+			d.log.Debug("LocalDaemon %s is running on different node: %s.", host.ID, host.NodeName)
 		}
 
 		return true // Continue looping.
@@ -2707,10 +2707,10 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 		// The kernels for which the `YieldNextExecution` succeeded will simply yield.
 		_, err := host.YieldNextExecution(ctx, in)
 		if err != nil {
-			d.log.Error("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s", hostId, host.Addr(), err.Error())
-			go d.notifyDashboardOfError("'FailNextExecution' Request Failed", fmt.Sprintf("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s", hostId, host.Addr(), err.Error()))
+			d.log.Error("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s", hostId, host.Addr, err.Error())
+			go d.notifyDashboardOfError("'FailNextExecution' Request Failed", fmt.Sprintf("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s", hostId, host.Addr, err.Error()))
 		} else {
-			d.log.Debug("Successfully issued 'FailNextExecution' to Local Daemon %s (%s) targeting kernel %s.", hostId, host.Addr(), in.Id)
+			d.log.Debug("Successfully issued 'FailNextExecution' to Local Daemon %s (%s) targeting kernel %s.", hostId, host.Addr, in.Id)
 		}
 	}
 

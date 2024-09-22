@@ -153,10 +153,10 @@ type Host struct {
 	syncMutex          sync.Mutex                           // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
 	meta               hashmap.HashMap[string, interface{}] // meta is a map of metadata.
 	conn               *grpc.ClientConn                     // conn is the gRPC connection to the Host.
-	addr               string                               // addr is the Host's address.
-	nodeName           string                               // nodeName is the Host's name (for printing/logging).
+	Addr               string                               // Addr is the Host's address.
+	NodeName           string                               // NodeName is the Host's name (for printing/logging).
 	Cluster            Cluster                              // Cluster is a reference to the Cluster interface that manages this Host.
-	id                 string                               // id is the unique ID of this host.
+	ID                 string                               // ID is the unique ID of this host.
 	containers         hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
 	trainingContainers []*Container                         // trainingContainers are the actively-training kernel replicas.
 	seenSessions       []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
@@ -164,7 +164,8 @@ type Host struct {
 	lastReschedule     types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
 	errorCallback      ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
 	pendingContainers  types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
-	createdAt          time.Time                            // createdAt is the time at which the Host was created.
+	CreatedAt          time.Time                            // CreatedAt is the time at which the Host was created.
+	Enabled            bool                                 // Enabled indicates whether the Host is currently enabled and able to serve kernels.
 	resourcesWrapper   *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
 
 	LastRemoteSync time.Time // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
@@ -218,9 +219,9 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 	host := &Host{
 		LocalGatewayClient: localGatewayClient,
 		latestGpuInfo:      gpuInfoResp,
-		id:                 id,
-		nodeName:           confirmedId.NodeName,
-		addr:               addr,
+		ID:                 id,
+		NodeName:           confirmedId.NodeName,
+		Addr:               addr,
 		resourceSpec:       resourceSpec,
 		Cluster:            cluster,
 		conn:               conn,
@@ -231,7 +232,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		seenSessions:       make([]string, int(resourceSpec.GPU())),
 		meta:               hashmap.NewCornelkMap[string, interface{}](64),
 		errorCallback:      errorCallback,
-		createdAt:          time.Now(),
+		CreatedAt:          time.Now(),
 	}
 
 	host.resourcesWrapper = &resourcesWrapper{
@@ -297,10 +298,10 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 	})
 
 	return &proto.VirtualDockerNode{
-		NodeId:          h.id,
-		NodeName:        h.nodeName,
-		Address:         h.addr,
-		CreatedAt:       timestamppb.New(h.createdAt),
+		NodeId:          h.ID,
+		NodeName:        h.NodeName,
+		Address:         h.Addr,
+		CreatedAt:       timestamppb.New(h.CreatedAt),
 		Containers:      dockerContainers,
 		SpecCpu:         float32(h.resourceSpec.CPU()),
 		SpecMemory:      float32(h.resourceSpec.MemoryMB()),
@@ -389,7 +390,7 @@ func (h *Host) ContainerScheduled(container *Container) error {
 
 	if err := h.resourcesWrapper.pendingResources.Add(types.ToDecimalSpec(container.outstandingResources)); err != nil {
 		h.log.Error("Could not schedule Container %s onto Host %s due to resource-related issue: %v",
-			container.ContainerID(), h.ID(), err)
+			container.ContainerID(), h.ID, err)
 		return err
 	}
 
@@ -397,7 +398,7 @@ func (h *Host) ContainerScheduled(container *Container) error {
 	//h.pendingMemoryMb.Add(container.OutstandingResources().MemoryMB())
 	//h.pendingGPUs.Add(container.OutstandingResources().GPU())
 
-	h.log.Debug("Container %s was scheduled onto Host %s.", container.String(), h.ID())
+	h.log.Debug("Container %s was scheduled onto Host %s.", container.String(), h.ID)
 	return nil
 }
 
@@ -406,8 +407,8 @@ func (h *Host) ContainerScheduled(container *Container) error {
 func (h *Host) Restore(restored *Host, callback ErrorCallback) error {
 	h.SetErrorCallback(callback)
 	h.resourceSpec = restored.resourceSpec
-	h.id = restored.id
-	h.nodeName = restored.nodeName
+	h.ID = restored.ID
+	h.NodeName = restored.NodeName
 	h.LocalGatewayClient = restored.LocalGatewayClient
 	h.latestGpuInfo = restored.latestGpuInfo
 
@@ -427,7 +428,7 @@ func (h *Host) ContainerRemoved(container *Container) error {
 
 	if err := h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources)); err != nil {
 		h.log.Error("Could not remove Container %s from Host %s due to resource-related issue: %v",
-			container.ContainerID(), h.ID(), err)
+			container.ContainerID(), h.ID, err)
 		return err
 	}
 
@@ -435,7 +436,7 @@ func (h *Host) ContainerRemoved(container *Container) error {
 	//h.pendingMemoryMb.Sub(container.OutstandingResources().MemoryMB())
 	//h.pendingGPUs.Sub(container.OutstandingResources().GPU())
 
-	h.log.Debug("Container %s was removed from Host %s.", container.String(), h.ID())
+	h.log.Debug("Container %s was removed from Host %s.", container.String(), h.ID)
 
 	return nil
 }
@@ -509,7 +510,7 @@ func (h *Host) getRB(sessRB float64, required float64) float64 {
 		extras = idleGPUs / h.resourcesWrapper.pendingResources.GPUs()
 	}
 	rb := sessRB * (extras + 1) / float64(h.pendingContainers.Load())
-	h.log.Debug("Calculated RB: %.4f\n", h.id, rb)
+	h.log.Debug("Calculated RB: %.4f\n", h.ID, rb)
 	return rb
 }
 
@@ -597,20 +598,20 @@ func (h *Host) SetIdx(idx int) {
 }
 
 func (h *Host) String() string {
-	return fmt.Sprintf("Host[ID=%s,Name=%s,Addr=%s,Spec=%s]", h.id, h.nodeName, h.addr, h.resourceSpec.String())
+	return fmt.Sprintf("Host[ID=%s,Name=%s,Addr=%s,Spec=%s]", h.ID, h.NodeName, h.Addr, h.resourceSpec.String())
 }
 
-func (h *Host) ID() string {
-	return h.id
-}
+//func (h *Host) ID() string {
+//	return h.ID
+//}
 
-func (h *Host) NodeName() string {
-	return h.nodeName
-}
+//func (h *Host) NodeName() string {
+//	return h.NodeName
+//}
 
-func (h *Host) Addr() string {
-	return h.addr
-}
+//func (h *Host) Addr() string {
+//	return h.Addr
+//}
 
 func (h *Host) Conn() *grpc.ClientConn {
 	return h.conn

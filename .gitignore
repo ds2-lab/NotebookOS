@@ -13,7 +13,7 @@ venv/
 ENV/
 distributed-notebook/
 
-# Distribution / packaging
+# Distribution The / packaging
 .Python
 build/
 develop-eggs/

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/mason-leap-lab/go-utils/promise"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -74,12 +75,28 @@ type clusterInternal interface {
 	// GetScaleOutCommand returns the function to be executed to perform a scale-out.
 	// This API exists so each platform-specific Cluster implementation can provide its own platform-specific
 	// logic for scaling-out.
-	GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func()
+	//
+	// targetNumNodes specifies the desired size of the cluster.
+	//
+	// resultChan is used to notify a waiting goroutine that the scale-out operation has finished.
+	//
+	// If there's an error, then you send the error over the result chan.
+	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
+	GetScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan interface{}) func()
 
 	// GetScaleInCommand returns the function to be executed to perform a scale-in.
 	// This API exists so each platform-specific Cluster implementation can provide its own platform-specific
 	// logic for scaling-in.
-	GetScaleInCommand(targetNumNodes int32, resultChan chan interface{}) func()
+	//
+	// targetNumNodes specifies the desired size of the cluster.
+	//
+	// targetHosts specifies any specific hosts that are to be removed.
+	//
+	// resultChan is used to notify a waiting goroutine that the scale-in operation has finished.
+	//
+	// If there's an error, then you send the error over the result chan.
+	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
+	GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) func()
 
 	// RegisterScaleOperation registers a non-specific type of ScaleOperation.
 	// Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
@@ -99,6 +116,9 @@ type clusterInternal interface {
 	// RegisterScaleInOperation registers a scale-in operation.
 	// When the operation completes, a notification is sent on the channel associated with the ScaleOperation.
 	RegisterScaleInOperation(string, int32) (*ScaleOperation, error)
+
+	// ClusterMetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
+	ClusterMetricsProvider() metrics.ClusterMetricsProvider
 }
 
 // Cluster defines the interface for a BaseCluster that is responsible for:

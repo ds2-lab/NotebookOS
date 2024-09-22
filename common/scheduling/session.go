@@ -374,7 +374,7 @@ func (s *Session) TrainingStarted(container *Container) promise.Promise {
 
 	s.trainingStart = time.Now()
 
-	s.log.Debug("Container %s began training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().ID())
+	s.log.Debug("Container %s began training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().ID)
 
 	return promise.Resolved(s.instance)
 }
@@ -408,7 +408,7 @@ func (s *Session) TrainingStopped() promise.Promise {
 	latestInteractivePriority := s.updateInteractivePriority("training stopped")
 	s.interactivePriorityHistory.AddValue(latestInteractivePriority)
 
-	s.log.Debug("%s has stopped training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().ID())
+	s.log.Debug("%s has stopped training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().ID)
 	return promise.Resolved(s.instance)
 }
 

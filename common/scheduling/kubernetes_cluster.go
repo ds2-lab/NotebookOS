@@ -66,11 +66,11 @@ func (c *KubernetesCluster) HandleScaleOutOperation(op *ScaleOperation) promise.
 }
 
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
-func (c *KubernetesCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
+func (c *KubernetesCluster) GetScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan interface{}) func() {
 	panic(fmt.Errorf("%w: KubernetesCluster::GetScaleOutCommand", ErrNotImplementedYet))
 }
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
-func (c *KubernetesCluster) GetScaleInCommand(targetNumNodes int32, resultChan chan interface{}) func() {
+func (c *KubernetesCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) func() {
 	panic(fmt.Errorf("%w: KubernetesCluster::GetScaleInCommand", ErrNotImplementedYet))
 }

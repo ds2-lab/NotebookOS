@@ -1,7 +1,11 @@
 package scheduling
 
 import (
+	"context"
 	"fmt"
+	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/mason-leap-lab/go-utils/logger"
+	"log"
 	"sync"
 	"time"
 
@@ -40,28 +44,119 @@ func (s ScaleOperationStatus) String() string {
 	return string(s)
 }
 
+// ScaleOperationResult is an interface defining the result of a scale-in or scale-out operation.
+type ScaleOperationResult interface {
+	// GetPreviousNumNodes returns the number of Host instances within the Cluster
+	// before the scale-in operation was performed.
+	GetPreviousNumNodes() int32
+
+	// GetCurrentNumNodes returns the number of Host instances within the Cluster
+	// after the scale-in operation completed.
+	GetCurrentNumNodes() int32
+
+	// NumNodesAffected returns the number of Host instances that were created or terminated (depending
+	//	// on whether a scale-out or a scale-in operation was performed, respectively).
+	NumNodesAffected() int32
+
+	// Nodes returns the IDs of each of the Host instances that was created or terminated (depending
+	// on whether a scale-out or a scale-in operation was performed, respectively).
+	Nodes() []string
+
+	// Error returns the error (or errors that were joined together via errors.Join) that occurred while
+	// performing the ScaleOperation, if any such error(s) did occur.
+	Error() error
+}
+
+type BaseScaleOperationResult struct {
+	// PreviousNumNodes is the number of Host instances within the Cluster
+	// before the scale-in/scale-out operation was performed.
+	PreviousNumNodes int32 `json:"prev_num_nodes"`
+
+	// CurrentNumNodes is the number of Host instances within the Cluster
+	// after the scale-in/scale-out operation completed.
+	CurrentNumNodes int32 `json:"current_num_nodes"`
+
+	// The error (or errors that were joined together via errors.Join) that occurred while
+	// performing the ScaleOperation, if any such error(s) did occur.
+	Err error `json:"error"`
+}
+
+func (s *BaseScaleOperationResult) GetPreviousNumNodes() int32 {
+	return s.PreviousNumNodes
+}
+
+func (s *BaseScaleOperationResult) GetCurrentNumNodes() int32 {
+	return s.CurrentNumNodes
+}
+
+// ScaleInOperationResult encapsulates the results of a scale-in operation.
+type ScaleInOperationResult struct {
+	*BaseScaleOperationResult
+
+	// NumNodesTerminated is the number of Host instances that were terminated.
+	NumNodesTerminated int32 `json:"num_nodes_terminated"`
+
+	// NodesTerminated contains the IDs of each of the Host instances that was terminated.
+	NodesTerminated []string `json:"nodes_terminated"`
+}
+
+func (s *ScaleInOperationResult) NumNodesAffected() int32 {
+	return s.NumNodesTerminated
+}
+
+func (s *ScaleInOperationResult) Nodes() []string {
+	return s.NodesTerminated
+}
+
+// ScaleOutOperationResult encapsulates the results of a scale-in operation.
+type ScaleOutOperationResult struct {
+	*BaseScaleOperationResult
+
+	// NumNodesCreated is the number of Host instances that were created.
+	NumNodesCreated int32 `json:"num_nodes_created"`
+
+	// NodesCreated contains the IDs of each of the Host instances that was created.
+	NodesCreated []string `json:"nodes_created"`
+}
+
+func (s *ScaleOutOperationResult) NumNodesAffected() int32 {
+	return s.NumNodesCreated
+}
+
+func (s *ScaleOutOperationResult) Nodes() []string {
+	return s.NodesCreated
+}
+
 // ScaleOperation encapsulates the bookkeeping required for adjusting the scale of the Cluster.
 // As of right now, the actual business logic required for performing the scale operation (i.e., adding or removing
 // nodes from the Cluster) is not implemented, referenced by, or contained within a ScaleOperation struct.
 //
 // Instead, the associated business logic is implemented directly within the ClusterGateway.
 type ScaleOperation struct {
-	OperationId      string               `json:"request_id"`
-	InitialScale     int32                `json:"initial_scale"`
-	TargetScale      int32                `json:"target_scale"`
-	OperationType    ScaleOperationType   `json:"scale_operation_type"`
-	RegistrationTime time.Time            `json:"registration_time"`
-	StartTime        time.Time            `json:"start_time"`
-	EndTime          time.Time            `json:"end_time"`
-	Status           ScaleOperationStatus `json:"status"`
-	Error            error                `json:"error"` // Error is the error that caused ScaleOperation to enter the ScaleOperationErred state/status.
-	NotificationChan chan struct{}        `json:"-"`
+	OperationId       string               `json:"request_id"`
+	InitialScale      int32                `json:"initial_scale"`
+	TargetScale       int32                `json:"target_scale"`
+	OperationType     ScaleOperationType   `json:"scale_operation_type"`
+	RegistrationTime  time.Time            `json:"registration_time"`
+	StartTime         time.Time            `json:"start_time"`
+	EndTime           time.Time            `json:"end_time"`
+	Status            ScaleOperationStatus `json:"status"`
+	Error             error                `json:"error"` // Error is the error that caused ScaleOperation to enter the ScaleOperationErred state/status.
+	Result            ScaleOperationResult `json:"result"`
+	NotificationChan  chan struct{}        `json:"-"`
+	CoreLogicDoneChan chan interface{}     `json:"-"`
+	Cluster           clusterInternal      `json:"-"`
 
 	// cond exists so that goroutines can wait for the scale operation to complete.
 	cond   *sync.Cond
 	condMu sync.Mutex
+	mu     sync.Mutex
 
-	mu sync.Mutex
+	// This is what actually performs the scaling operation.
+	// It is supplied by the Cluster implementation.
+	executionFunc func()
+
+	log logger.Logger
 }
 
 // NewScaleOperation creates a new ScaleOperation struct and returns a pointer to it.
@@ -69,7 +164,7 @@ type ScaleOperation struct {
 // Specifically, a tuple is returned, where the first element is a pointer to a new ScaleOperation struct, and
 // the second element is an error, if one occurred. If an error did occur, then the pointer to the ScaleOperation
 // struct will presumably be a null pointer.
-func NewScaleOperation(operationId string, initialScale int32, targetScale int32) (*ScaleOperation, error) {
+func NewScaleOperation(operationId string, initialScale int32, targetScale int32, cluster clusterInternal) (*ScaleOperation, error) {
 	scaleOperation := &ScaleOperation{
 		OperationId:      operationId,
 		NotificationChan: make(chan struct{}, 1),
@@ -77,19 +172,28 @@ func NewScaleOperation(operationId string, initialScale int32, targetScale int32
 		TargetScale:      targetScale,
 		RegistrationTime: time.Now(),
 		Status:           ScaleOperationAwaitingStart,
+		Cluster:          cluster,
 	}
 
 	scaleOperation.cond = sync.NewCond(&scaleOperation.condMu)
 
 	if targetScale < initialScale {
 		scaleOperation.OperationType = ScaleInOperation
+
+		scaleOperation.CoreLogicDoneChan = make(chan interface{})
+		scaleOperation.executionFunc = cluster.GetScaleInCommand(targetScale, []string{} /* No specific hosts targeted */, scaleOperation.CoreLogicDoneChan)
 	} else if targetScale > initialScale {
 		scaleOperation.OperationType = ScaleOutOperation
+
+		scaleOperation.CoreLogicDoneChan = make(chan interface{})
+		scaleOperation.executionFunc = cluster.GetScaleInCommand(targetScale, []string{} /* No specific hosts targeted */, scaleOperation.CoreLogicDoneChan)
 	} else /* targetScale == initialScale */ {
 		wrappedErr := fmt.Errorf("%w: current scale and initial scale are equal (%d)", ErrInvalidTargetScale, targetScale)
 		return nil, status.Error(codes.InvalidArgument, wrappedErr.Error())
 	}
 
+	scaleOperation.log = config.GetLogger(
+		fmt.Sprintf("%s-%s", scaleOperation.OperationType, scaleOperation.OperationId))
 	return scaleOperation, nil
 }
 
@@ -107,6 +211,122 @@ func (op *ScaleOperation) IsScaleInOperation() bool {
 func (op *ScaleOperation) String() string {
 	return fmt.Sprintf("%s[Initial: %d, Target: %d, State: %s, ID: %s]",
 		op.OperationType, op.InitialScale, op.TargetScale, op.Status.String(), op.OperationId)
+}
+
+// Execute performs the ScaleOperation.
+func (op *ScaleOperation) Execute(parentContext context.Context) (ScaleOperationResult, error) {
+	if op.executionFunc == nil {
+		log.Fatalf("Cannot execute ScaleOperation %s as its execution function is nil.", op.OperationId)
+	}
+
+	timeoutInterval := time.Second * 30
+	childContext, cancel := context.WithTimeout(parentContext, timeoutInterval)
+	defer cancel()
+
+	go op.executionFunc()
+
+	// Spawn a goroutine to monitor the cluster size.
+	//
+	// If the cluster size equals the target size of the scale operation,
+	// then we'll mark the scale operation as complete.
+	//
+	// If the operation times-out, then we'll mark the operation as having reached an error state.
+	go func() {
+		select {
+		case <-childContext.Done():
+			return
+		default:
+			{
+				currSize := int32(op.Cluster.GetHostManager().Len())
+				if currSize == op.TargetScale {
+					err := op.SetOperationFinished()
+					if err != nil {
+						op.log.Error("Failed to set scale-operation %s to 'complete' state because: %v",
+							op.OperationId, err)
+					}
+
+					return
+				}
+
+				time.Sleep(time.Millisecond * 500)
+			}
+		}
+	}()
+
+	var (
+		result ScaleOperationResult
+		err    error
+		ok     bool
+	)
+	select {
+	case <-childContext.Done():
+		{
+			op.log.Error("Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+			if ctxErr := childContext.Err(); ctxErr != nil {
+				op.log.Error("Additional error information regarding failed adjustment of virtual Docker nodes: %v", ctxErr)
+				if transitionError := op.SetOperationErred(ctxErr, false); transitionError != nil {
+					op.log.Error("Failed to transition to the erred state because: %v", transitionError)
+				}
+
+				return nil, status.Error(codes.Internal, ctxErr.Error())
+			} else {
+				if transitionError := op.SetOperationErred(fmt.Errorf("operation timed-out"), false); transitionError != nil {
+					op.log.Error("Failed to transition to the erred state because: %v", transitionError)
+				}
+
+				return nil, status.Errorf(codes.Internal, "Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+			}
+		}
+	case notification := <-op.CoreLogicDoneChan: // Wait for the shell command above to finish.
+		{
+			if err, ok = notification.(error); ok {
+				op.log.Error("Failed to adjust scale of virtual Docker nodes because: %v", err)
+				op.Error = err
+				if transitionError := op.SetOperationErred(err, false); transitionError != nil {
+					op.log.Error("Failed to transition to the erred state because: %v", transitionError)
+				}
+
+				// If there was an error, then we'll return the error.
+				return nil, status.Errorf(codes.Internal, err.Error())
+			} else if result, ok = notification.(ScaleOperationResult); ok {
+				op.log.Debug("Received result for %s operation %s.", op.OperationType, op.OperationId)
+				break
+			} else {
+				log.Fatalf("Received unknown or unexpected result from %s operation %s: %v",
+					op.OperationType, op.OperationId, notification)
+			}
+		}
+	}
+
+	if err := op.SetOperationFinished(); err != nil {
+		op.log.Error("Failed to transition scale operation \"%s\" to 'complete' state because: %v", op.OperationId, err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	timeElapsed, _ := op.GetDuration()
+	op.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d in %v.", op.InitialScale, op.TargetScale, timeElapsed)
+
+	// Record the latency of the scale operation in/with Prometheus.
+	if op.IsScaleInOperation() {
+		op.Cluster.ClusterMetricsProvider().GetScaleInLatencyMillisecondsHistogram().Observe(float64(timeElapsed.Milliseconds()))
+	} else {
+		op.Cluster.ClusterMetricsProvider().GetScaleOutLatencyMillisecondsHistogram().Observe(float64(timeElapsed.Milliseconds()))
+	}
+
+	return result, nil
+}
+
+// GetResult returns the result of the ScalingOperation, including any error that occurred.
+func (op *ScaleOperation) GetResult() (ScaleOperationResult, error) {
+	if !op.IsComplete() {
+		return nil, ErrScalingInvalidOperation
+	}
+
+	if !op.CompletedSuccessfully() {
+		return nil, op.Error
+	}
+
+	return op.Result, op.Error
 }
 
 // IsComplete returns true if the ScaleOperation has either completed successfully or stopped due to an error.

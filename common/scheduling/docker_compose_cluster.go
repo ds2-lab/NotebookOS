@@ -58,8 +58,22 @@ func (c *DockerComposeCluster) NodeType() string {
 	return types.DockerNode
 }
 
+// disableHost disables an active Host.
+//
+// If the Host does not exist or is not already disabled, then an error is returned.
+func (c *DockerComposeCluster) disableHost(id string) error {
+	return nil
+}
+
+// enableHost enables a disabled Host.
+//
+// If the Host does not exist or is not disabled, then an error is returned.
+func (c *DockerComposeCluster) enableHost(id string) error {
+	return nil
+}
+
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
-func (c *DockerComposeCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
+func (c *DockerComposeCluster) GetScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan interface{}) func() {
 	return func() {
 		app := "docker"
 		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetNumNodes)
@@ -70,32 +84,39 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetNumNodes int32, resultCh
 
 		if err != nil {
 			c.log.Error("Failed to scale-out to %d node because: %v", targetNumNodes, err)
-			// return nil, status.Errorf(codes.Internal, err.Error())
-			resultChan <- err
+			coreLogicDoneChan <- err
 		} else {
 			c.log.Debug("Output from scaling-out to %d node:\n%s", targetNumNodes, string(stdout))
-			resultChan <- struct{}{}
+
+			coreLogicDoneChan <- struct{}{}
 		}
 	}
 }
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
-func (c *DockerComposeCluster) GetScaleInCommand(targetNumNodes int32, resultChan chan interface{}) func() {
+//
+// DockerComposeCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
+//
+// This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
+// a docker compose service.
+func (c *DockerComposeCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) func() {
 	return func() {
-		app := "docker"
-		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetNumNodes)
-		args := strings.Split(argString, " ")
-
-		cmd := exec.Command(app, args...)
-		stdout, err := cmd.Output()
-
-		if err != nil {
-			c.log.Error("Failed to scale-in to %d node because: %v", targetNumNodes, err)
-			resultChan <- err
-			// return nil, status.Errorf(codes.Internal, err.Error())
-		} else {
-			c.log.Debug("Output from scaling-in to %d node:\n%s", targetNumNodes, string(stdout))
-			resultChan <- struct{}{}
+		errs := make([]error, 0)
+		for _, id := range targetHosts {
+			err := c.disableHost(id)
+			if err != nil {
+				c.log.Error("Could not remove host \"%s\" from Docker Compose Cluster because: %v", id, err)
+				errs = append(errs, err)
+			}
 		}
+
+		panic("Not implemented")
+
+		//if len(errs) > 0 {
+		//	err := errors.Join(errs...)
+		//	coreLogicDoneChan <- err
+		//} else {
+		//	coreLogicDoneChan <- struct{}{}
+		//}
 	}
 }
