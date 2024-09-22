@@ -164,8 +164,8 @@ type Host struct {
 	lastReschedule     types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
 	errorCallback      ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
 	pendingContainers  types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
+	enabled            bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels.
 	CreatedAt          time.Time                            // CreatedAt is the time at which the Host was created.
-	Enabled            bool                                 // Enabled indicates whether the Host is currently enabled and able to serve kernels.
 	resourcesWrapper   *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
 
 	LastRemoteSync time.Time // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
@@ -412,6 +412,35 @@ func (h *Host) Restore(restored *Host, callback ErrorCallback) error {
 	h.LocalGatewayClient = restored.LocalGatewayClient
 	h.latestGpuInfo = restored.latestGpuInfo
 
+	return nil
+}
+
+// Enabled returns a boolean indicating whether the Host is enabled (true) or disabled (false).
+func (h *Host) Enabled() bool {
+	return h.enabled
+}
+
+// Enable enables the Host.
+//
+// If the Host is already enabled, then this returns an error.
+func (h *Host) Enable() error {
+	if h.enabled {
+		return fmt.Errorf("%w: host \"%s\" is already enabled", ErrInvalidHost, h.ID)
+	}
+
+	h.enabled = false
+	return nil
+}
+
+// Disable disables the Host.
+//
+// If the Host is already disabled, then this returns an error.
+func (h *Host) Disable() error {
+	if !h.enabled {
+		return fmt.Errorf("%w: host \"%s\" is already disabled", ErrInvalidHost, h.ID)
+	}
+
+	h.enabled = false
 	return nil
 }
 

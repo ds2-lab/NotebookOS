@@ -16,8 +16,8 @@ import (
 type DockerComposeCluster struct {
 	*BaseCluster
 
-	// OfflineHosts is a map from host ID to *Host containing all the Host instances that are currently set to "off".
-	OfflineHosts hashmap.HashMap[string, *Host]
+	// DisabledHosts is a map from host ID to *Host containing all the Host instances that are currently set to "off".
+	DisabledHosts hashmap.HashMap[string, *Host]
 }
 
 // NewDockerComposeCluster creates a new DockerComposeCluster struct and returns a pointer to it.
@@ -31,8 +31,8 @@ func NewDockerComposeCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
 	baseCluster := newBaseCluster(opts.GpusPerHost, opts.NumReplicas, clusterMetricsProvider)
 
 	dockerCluster := &DockerComposeCluster{
-		BaseCluster:  baseCluster,
-		OfflineHosts: hashmap.NewConcurrentMap[*Host](64),
+		BaseCluster:   baseCluster,
+		DisabledHosts: hashmap.NewConcurrentMap[*Host](64),
 	}
 
 	placer, err := NewRandomPlacer(dockerCluster, opts)
@@ -63,6 +63,32 @@ func (c *DockerComposeCluster) NodeType() string {
 //
 // If the Host does not exist or is not already disabled, then an error is returned.
 func (c *DockerComposeCluster) disableHost(id string) error {
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
+
+	host, loaded := c.LoadAndDelete(id)
+	if !loaded {
+		// Let's check if the Host even exists.
+		_, exists := c.DisabledHosts.Load(id)
+		if exists {
+			return fmt.Errorf("%w: host \"%s\" is already disabled", ErrInvalidHost, id)
+		} else {
+			return fmt.Errorf("%w: host \"%s\" does not exist (in any capacity)", ErrInvalidHost, id)
+		}
+	}
+
+	if host.containers.Len() > 0 {
+		return fmt.Errorf("%w: host \"%s\" is hosting at least one kernel replica, and automated migrations are not yet implemented", ErrInvalidHost, id)
+	}
+
+	c.DisabledHosts.Store(id, host)
+	if err := host.Enable(); err != nil {
+		// This really shouldn't happen.
+		// This would mean that the Host was in an inconsistent state relative to the Cluster,
+		// as the Host was stored in the wrong map.
+		panic(err)
+	}
+
 	return nil
 }
 
@@ -70,6 +96,28 @@ func (c *DockerComposeCluster) disableHost(id string) error {
 //
 // If the Host does not exist or is not disabled, then an error is returned.
 func (c *DockerComposeCluster) enableHost(id string) error {
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
+
+	disabledHost, loaded := c.DisabledHosts.LoadAndDelete(id)
+	if !loaded {
+		// Let's check if the Host even exists.
+		_, exists := c.hosts.Load(id)
+		if exists {
+			return fmt.Errorf("%w: host \"%s\" is not disabled", ErrInvalidHost, id)
+		} else {
+			return fmt.Errorf("%w: host \"%s\" does not exist (in any capacity)", ErrInvalidHost, id)
+		}
+	}
+
+	c.Store(id, disabledHost)
+	if err := disabledHost.Enable(); err != nil {
+		// This really shouldn't happen.
+		// This would mean that the Host was in an inconsistent state relative to the Cluster,
+		// as the Host was stored in the wrong map.
+		panic(err)
+	}
+
 	return nil
 }
 

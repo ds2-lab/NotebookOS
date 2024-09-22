@@ -12,4 +12,5 @@ var (
 	ErrHostNotFound               = status.Error(codes.Internal, "host not found")
 	ErrReplicaNotFound            = fmt.Errorf("replica not found")
 	ErrHostNotViable              = status.Error(codes.Internal, "host is not viable; cannot host specified kernel replica")
+	ErrInvalidHost                = status.Error(codes.InvalidArgument, "invalid host specified")
 )
