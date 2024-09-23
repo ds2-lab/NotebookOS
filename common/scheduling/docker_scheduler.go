@@ -220,8 +220,7 @@ func (s *DockerScheduler) pollForResourceData() {
 	lastSync := time.Now()
 
 	for {
-		s.cluster.LockHosts()
-		hostManager := s.cluster.GetHostManager()
+		s.cluster.ReadLockHosts()
 
 		// If we've forcibly synchronized this Host recently (i.e., within half the synchronization interval ago),
 		// then we'll just skip it to save network bandwidth.
@@ -233,8 +232,8 @@ func (s *DockerScheduler) pollForResourceData() {
 		// So, if we last synchronized 16 min ago, then ts is equal to whatever time it was 4 min ago.
 		ts := time.Now().Add(-1 * time.Duration(float64(timeSinceLastSync)*0.25))
 
-		hosts := make([]*Host, 0, hostManager.Len())
-		hostManager.Range(func(_ string, host *Host) (contd bool) {
+		hosts := make([]*Host, 0, s.cluster.Len())
+		s.cluster.RangeOverHosts(func(_ string, host *Host) (contd bool) {
 			// If we've not synchronized this host within the last <interval of time since last sync> / 4,
 			// then we'll synchronize it again now.
 			//
@@ -245,7 +244,7 @@ func (s *DockerScheduler) pollForResourceData() {
 			}
 			return true
 		})
-		s.cluster.UnlockHosts()
+		s.cluster.ReadUnlockHosts()
 
 		for _, host := range hosts {
 			hostId := host.ID
@@ -294,15 +293,13 @@ func (s *DockerScheduler) pollForResourceData() {
 // Returns nil on success; returns an error on one or more failures.
 // If there are multiple failures, then their associated errors will be joined together via errors.Join(...).
 func (s *DockerScheduler) RefreshClusterNodes() error {
-	s.cluster.LockHosts()
-	hostManager := s.cluster.GetHostManager()
-
-	hosts := make([]*Host, 0, hostManager.Len())
-	hostManager.Range(func(_ string, host *Host) (contd bool) {
+	s.cluster.ReadLockHosts()
+	hosts := make([]*Host, 0, s.cluster.Len())
+	s.cluster.RangeOverHosts(func(_ string, host *Host) (contd bool) {
 		hosts = append(hosts, host)
 		return true
 	})
-	s.cluster.UnlockHosts()
+	s.cluster.ReadUnlockHosts()
 
 	errs := make([]error, 0)
 	for _, host := range hosts {

@@ -205,7 +205,7 @@ func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 		__blacklist = append(__blacklist, meta.(int32))
 	}
 
-	index.log.Debug("Searching for host. Size of blacklist: %d. Number of hosts in index: %d.", len(__blacklist), index.Len())
+	index.log.Debug("Searching for host. Len of blacklist: %d. Number of hosts in index: %d.", len(__blacklist), index.Len())
 
 	// Begin searching from `seekStart`, which is reset after every Seek operation.
 	for _, host := range index.hosts[index.seekStart:] {

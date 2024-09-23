@@ -176,12 +176,12 @@ func (s *BaseScheduler) RemoveNode(hostId string) error {
 // This includes both nodes that are already running and nodes that are being provisioned.
 // TODO(Ben): Implement "node provisioning" (i.e., simulating the time it takes to spin-up a new node).
 func (s *BaseScheduler) currentSize() int32 {
-	return int32(s.cluster.GetHostManager().Len())
+	return int32(s.cluster.Len())
 }
 
 // activeSize returns the number of active/already-running/already-provisioned hosts within the Cluster.
 func (s *BaseScheduler) activeSize() int32 {
-	return int32(s.cluster.GetHostManager().Len())
+	return int32(s.cluster.Len())
 }
 
 // pendingSize returns the number of hosts currently being provisioned within the Cluster.
@@ -439,7 +439,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	s.validate()
 
 	if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-		s.log.Debug("Attempting to release %d idle host(s). There are currently %d host(s) in the Cluster.", n, s.cluster.GetHostManager().Len())
+		s.log.Debug("Attempting to release %d idle host(s). There are currently %d host(s) in the Cluster.", n, s.cluster.Len())
 	}
 
 	toBeReleased := make([]*Host, 0, n)

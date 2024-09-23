@@ -32,7 +32,7 @@ func NewDockerComposeCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
 
 	dockerCluster := &DockerComposeCluster{
 		BaseCluster:   baseCluster,
-		DisabledHosts: hashmap.NewConcurrentMap[*Host](64),
+		DisabledHosts: hashmap.NewConcurrentMap[*Host](256),
 	}
 
 	placer, err := NewRandomPlacer(dockerCluster, opts)
@@ -65,10 +65,10 @@ func (c *DockerComposeCluster) NodeType() string {
 //
 // Important: this should be called with the DockerComposeCluster's hostMutex already acquired.
 func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
-	//c.hostMutex.Lock()
-	//defer c.hostMutex.Unlock()
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
 
-	host, loaded := c.LoadAndDelete(id)
+	host, loaded := c.hosts.LoadAndDelete(id)
 	if !loaded {
 		// Let's check if the Host even exists.
 		_, exists := c.DisabledHosts.Load(id)
@@ -102,8 +102,8 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 //
 // Important: this should be called with the DockerComposeCluster's hostMutex already acquired.
 func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
-	//c.hostMutex.Lock()
-	//defer c.hostMutex.Unlock()
+	c.hostMutex.Lock()
+	defer c.hostMutex.Unlock()
 
 	disabledHost, loaded := c.DisabledHosts.LoadAndDelete(id)
 	if !loaded {
@@ -123,44 +123,45 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 		// as the Host was stored in the wrong map.
 		panic(err)
 	}
-	c.Store(id, disabledHost)
+	c.hosts.Store(id, disabledHost)
 
 	return nil
 }
 
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
-func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
+//
+// Important: this should be called with the Cluster's hostMutex already acquired.
+func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
 	return func() {
-
 		app := "docker"
 		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetScale)
 		args := strings.Split(argString, " ")
 
 		cmd := exec.Command(app, args...)
-		stdout, err := cmd.Output()
+		stdout, err := cmd.CombinedOutput()
 
 		if err != nil {
 			c.log.Error("Failed to scale-out to %d node because: %v", targetScale, err)
+			c.log.Error("Output from failed attempt at scaling-out to %d nodes:\n%s", targetScale, string(stdout))
 			coreLogicDoneChan <- err
 		} else {
-			c.log.Debug("Output from scaling-out to %d node:\n%s", targetScale, string(stdout))
+			c.log.Debug("Output from scaling-out to %d nodes:\n%s", targetScale, string(stdout))
 
 			coreLogicDoneChan <- struct{}{}
 		}
 	}
 }
 
-// getTargetedScaleInCommand returns a function that, when executed, will terminate the hosts specified in the targetHosts parameter.
-func (c *DockerComposeCluster) getTargetedScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+// unsafeGetTargetedScaleInCommand returns a function that, when executed, will terminate the hosts specified in the targetHosts parameter.
+//
+// Important: this should be called with the Cluster's hostMutex already acquired.
+func (c *DockerComposeCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
 	numAffectedNodes := int32(c.hosts.Len()) - targetScale
 	if numAffectedNodes != int32(len(targetHosts)) {
 		return nil, fmt.Errorf("inconsistent targetScale (%d) and length of hosts to remove (%d)", targetScale, len(targetHosts))
 	}
 
 	return func() {
-		c.hostMutex.Lock()
-		defer c.hostMutex.Unlock()
-
 		c.log.Debug("Attempting to remove the following %d host(s): %s", len(targetHosts), strings.Join(targetHosts, ", "))
 
 		disabledHosts := make([]string, 0, len(targetHosts))
@@ -204,20 +205,20 @@ func (c *DockerComposeCluster) getTargetedScaleInCommand(targetScale int32, targ
 //
 // This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
 // a docker compose service.
-func (c *DockerComposeCluster) GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+//
+// Important: this should be called with the Cluster's hostMutex already acquired.
+func (c *DockerComposeCluster) getScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
 	if len(targetHosts) > 0 {
-		return c.getTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
+		return c.unsafeGetTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}
 
 	// If no target Host instances were specified, then we need to identify some Host instances ourselves.
-	c.hostMutex.Lock()
-
 	numAffectedNodes := int32(c.hosts.Len()) - targetScale
 
 	c.log.Debug("Searching for %d hosts to terminate for requested scale-in.", numAffectedNodes)
 
 	// First, just look for Hosts that are entirely idle.
-	// NOTE: targetHosts is empty at this point. If it wasn't, we would have called getTargetedScaleInCommand(...).
+	// NOTE: targetHosts is empty at this point. If it wasn't, we would have called unsafeGetTargetedScaleInCommand(...).
 	c.hosts.Range(func(hostId string, host *Host) (contd bool) {
 		if host.containers.Len() == 0 {
 			targetHosts = append(targetHosts, hostId)
@@ -236,13 +237,11 @@ func (c *DockerComposeCluster) GetScaleInCommand(targetScale int32, targetHosts 
 		return true
 	})
 
-	c.hostMutex.Unlock()
-
 	// If we've found enough Hosts to terminate, then we can get the scale-in command for the specified hosts.
 	// If not, then we'll have to keep trying. Or, for now, we just return an error indicating that we cannot
 	// scale-down by that many Hosts as there are insufficient idle hosts available.
 	if int32(len(targetHosts)) == numAffectedNodes {
-		return c.getTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
+		return c.unsafeGetTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}
 
 	return nil, fmt.Errorf("%w: insufficient idle hosts available to scale-in by %d host(s); largest scale-in possible: %d host(s)",

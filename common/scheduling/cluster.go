@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -82,7 +81,9 @@ type clusterInternal interface {
 	//
 	// If there's an error, then you send the error over the result chan.
 	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
-	GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func()
+	//
+	// IMPORTANT: this method should be called while the hostMutex is already held.
+	getScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func()
 
 	// GetScaleInCommand returns the function to be executed to perform a scale-in.
 	// This API exists so each platform-specific Cluster implementation can provide its own platform-specific
@@ -96,7 +97,9 @@ type clusterInternal interface {
 	//
 	// If there's an error, then you send the error over the result chan.
 	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
-	GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error)
+	//
+	// IMPORTANT: this method should be called while the hostMutex is already held.
+	getScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error)
 
 	// RegisterScaleOperation registers a non-specific type of ScaleOperation.
 	// Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
@@ -107,15 +110,15 @@ type clusterInternal interface {
 	//
 	// Alternatively, if the target node count is less than the current node count, then a ScaleInOperation is created,
 	// registered, and returned.
-	RegisterScaleOperation(string, int32) (*ScaleOperation, error)
+	registerScaleOperation(string, int32) (*ScaleOperation, error)
 
 	// RegisterScaleOutOperation registers a scale-out operation.
 	// When the operation completes, a notification is sent on the channel associated with the ScaleOperation.
-	RegisterScaleOutOperation(string, int32) (*ScaleOperation, error)
+	registerScaleOutOperation(string, int32) (*ScaleOperation, error)
 
 	// RegisterScaleInOperation registers a scale-in operation.
 	// When the operation completes, a notification is sent on the channel associated with the ScaleOperation.
-	RegisterScaleInOperation(string, int32, []string) (*ScaleOperation, error)
+	registerScaleInOperation(string, int32, []string) (*ScaleOperation, error)
 
 	// ClusterMetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
 	ClusterMetricsProvider() metrics.ClusterMetricsProvider
@@ -155,7 +158,7 @@ type Cluster interface {
 	//HandleScaleOutOperation(op *ScaleOperation) promise.Promise
 
 	// GetHostManager returns the host manager of the BaseCluster.
-	GetHostManager() hashmap.HashMap[string, *Host]
+	//GetHostManager() hashmap.HashMap[string, *Host]
 
 	// AddIndex adds an index to the BaseCluster. For each category and expected value, there can be only one index.
 	AddIndex(index ClusterIndexProvider) error
@@ -164,20 +167,37 @@ type Cluster interface {
 	// If there is no active scaling operation, then ActiveScaleOperation returns nil.
 	ActiveScaleOperation() *ScaleOperation
 
-	// IsThereAnActiveScaleOperation returns true if there is an active scaling operation taking place right now.
-	IsThereAnActiveScaleOperation() bool
-
 	// ClusterScheduler returns the ClusterScheduler used by the Cluster.
 	ClusterScheduler() ClusterScheduler
 
 	// Placer returns the Placer used by the Cluster.
 	Placer() Placer
 
-	// LockHosts locks the underlying host manager such that no Host instances can be added or removed.
-	LockHosts()
+	// ReadLockHosts locks the underlying host manager such that no Host instances can be added or removed.
+	ReadLockHosts()
 
-	// UnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
-	UnlockHosts()
+	// ReadUnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
+	ReadUnlockHosts()
+
+	// NewHostConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
+	// NewHostConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
+	// task of locking the required structures during scaling operations.
+	NewHostConnected(host *Host)
+
+	// RemoveHost removes the Host with the specified ID.
+	// This is called when a Local Daemon loses connection.
+	RemoveHost(hostId string)
+
+	// Len returns the current size of the Cluster (i.e., the number of Host instances within the Cluster).
+	Len() int
+
+	// GetHost returns the Host with the given ID, if one exists.
+	GetHost(hostId string) (*Host, bool)
+
+	// RangeOverHosts executes the provided function on each Host in the Cluster.
+	//
+	// Importantly, this function does NOT lock the hostsMutex.
+	RangeOverHosts(f func(key string, value *Host) bool)
 
 	// BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
 	BusyGPUs() float64

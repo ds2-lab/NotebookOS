@@ -28,6 +28,7 @@ type BaseCluster struct {
 	// There may only be one scaling operation active at any given time.
 	// If activeScaleOperation is nil, then there is no active scale-out or scale-in operation.
 	activeScaleOperation *ScaleOperation
+	scaleOperationCond   *sync.Cond
 
 	// gpusPerHost is the number of GPUs available on each host.
 	gpusPerHost int
@@ -44,8 +45,9 @@ type BaseCluster struct {
 
 	clusterMetricsProvider metrics.ClusterMetricsProvider
 
+	// This is also used as the sync.Locker for the scaleOperationCond.
 	scalingOpMutex sync.Mutex
-	hostMutex      sync.Mutex
+	hostMutex      sync.RWMutex
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
@@ -59,6 +61,7 @@ func newBaseCluster(gpusPerHost int, numReplicas int, clusterMetricsProvider met
 		hosts:                  hashmap.NewConcurrentMap[*Host](256),
 		indexes:                hashmap.NewSyncMap[string, ClusterIndexProvider](),
 	}
+	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
 	config.InitLogger(&cluster.log, cluster)
 	return cluster
 }
@@ -76,16 +79,16 @@ func (c *BaseCluster) Placer() Placer {
 	return c.placer
 }
 
-// LockHosts locks the underlying host manager such that no Host instances can be added or removed.
-func (c *BaseCluster) LockHosts() {
-	c.hostMutex.Lock()
+// ReadLockHosts locks the underlying host manager such that no Host instances can be added or removed.
+func (c *BaseCluster) ReadLockHosts() {
+	c.hostMutex.RLock()
 }
 
-// UnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
+// ReadUnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
 //
 // The caller must have already acquired the hostMutex or this function will fail panic.
-func (c *BaseCluster) UnlockHosts() {
-	c.hostMutex.Unlock()
+func (c *BaseCluster) ReadUnlockHosts() {
+	c.hostMutex.RUnlock()
 }
 
 // ClusterScheduler returns the ClusterScheduler used by the Cluster.
@@ -101,9 +104,9 @@ func (c *BaseCluster) ClusterScheduler() ClusterScheduler {
 //	return c.instance.HandleScaleOutOperation(op)
 //}
 
-func (c *BaseCluster) GetHostManager() hashmap.HashMap[string, *Host] {
-	return c
-}
+//func (c *BaseCluster) GetHostManager() hashmap.HashMap[string, *Host] {
+//	return c
+//}
 
 func (c *BaseCluster) AddIndex(index ClusterIndexProvider) error {
 	category, expected := index.Category()
@@ -116,30 +119,35 @@ func (c *BaseCluster) AddIndex(index ClusterIndexProvider) error {
 	return nil
 }
 
-// checkIfScalingComplete is used to check if there is an active scaling operation and,
+// unsafeCheckIfScaleOperationIsComplete is used to check if there is an active scaling operation and,
 // if there is, then to check if that operation is complete.
-func (c *BaseCluster) checkIfScalingComplete(host *Host) {
-	c.scalingOpMutex.Lock()
-	defer c.scalingOpMutex.Unlock()
-
+func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host *Host) {
 	if c.activeScaleOperation == nil {
 		return
 	}
+
+	activeScaleOp := c.activeScaleOperation
+	c.log.Debug("Checking if %s %s is finished...", activeScaleOp.OperationType, activeScaleOp.OperationId)
 
 	if err := c.activeScaleOperation.RegisterAffectedHost(host); err != nil {
 		panic(err)
 	}
 
-	if int32(c.hosts.Len()) == c.activeScaleOperation.TargetScale {
-		c.log.Debug("%s %s has completed (target scale = %d).", c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, c.activeScaleOperation.TargetScale)
-		err := c.activeScaleOperation.SetOperationFinished()
+	if int32(c.hosts.Len()) == activeScaleOp.TargetScale {
+		c.log.Debug("%s %s has finished (target scale = %d).",
+			activeScaleOp.OperationType, activeScaleOp.OperationId, activeScaleOp.TargetScale)
+		err := activeScaleOp.SetOperationFinished()
 		if err != nil {
-			c.log.Error("Failed to mark active %s %s as finished because: %v", c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, err)
+			c.log.Error("Failed to mark active %s %s as finished because: %v",
+				activeScaleOp.OperationType, activeScaleOp.OperationId, err)
 		}
-		c.activeScaleOperation.NotificationChan <- struct{}{}
-		c.activeScaleOperation = nil
+		activeScaleOp.NotificationChan <- struct{}{}
+		activeScaleOp = nil
+		c.scaleOperationCond.Broadcast()
 	} else {
-		c.log.Debug("%s %s has completed (current scale = %d, target scale = %d).", c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, c.hosts.Len(), c.activeScaleOperation.TargetScale)
+		c.log.Debug("%s %s is not yet finished (current scale = %d, target scale = %d). Only %d/%d affected hosts have been registered.",
+			activeScaleOp.OperationType, activeScaleOp.OperationId, c.Len(), activeScaleOp.TargetScale,
+			len(activeScaleOp.NodesAffected), activeScaleOp.ExpectedNumAffectedNodes)
 	}
 }
 
@@ -159,7 +167,7 @@ func (c *BaseCluster) onHostAdded(host *Host) {
 		return true
 	})
 
-	c.checkIfScalingComplete(host)
+	c.unsafeCheckIfScaleOperationIsComplete(host)
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.
@@ -171,7 +179,9 @@ func (c *BaseCluster) onHostRemoved(host *Host) {
 		return true
 	})
 
-	c.checkIfScalingComplete(host)
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
+	c.unsafeCheckIfScaleOperationIsComplete(host)
 }
 
 // ValidateCapacity ensures that the Cluster has the "right" amount of Host instances provisioned.
@@ -207,6 +217,27 @@ func (c *BaseCluster) NumReplicas() int {
 	return c.numReplicas
 }
 
+// RangeOverHosts executes the provided function on each Host in the Cluster.
+//
+// Importantly, this function does NOT lock the hostsMutex.
+func (c *BaseCluster) RangeOverHosts(f func(key string, value *Host) bool) {
+	c.hosts.Range(f)
+}
+
+// RemoveHost removes the Host with the specified ID.
+func (c *BaseCluster) RemoveHost(hostId string) {
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
+
+	c.hostMutex.Lock()
+	removedHost, loaded := c.hosts.LoadAndDelete(hostId)
+	c.hostMutex.Unlock()
+
+	if loaded {
+		c.onHostRemoved(removedHost)
+	}
+}
+
 ////////////////////////////
 // Hashmap implementation //
 ////////////////////////////
@@ -216,104 +247,78 @@ func (c *BaseCluster) Len() int {
 	return c.hosts.Len()
 }
 
-func (c *BaseCluster) Load(key string) (*Host, bool) {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
+//func (c *BaseCluster) Load(key string) (*Host, bool) {
+//	c.hostMutex.RLock()
+//	defer c.hostMutex.RUnlock()
+//
+//	return c.hosts.Load(key)
+//}
 
-	return c.hosts.Load(key)
-}
+//func (c *BaseCluster) Store(key string, value *Host) {
+//	log.Fatalf("The Store method should not be called directly. Arguments[key=%s, host=%v]", key, value)
+//}
 
-func (c *BaseCluster) Store(key string, value *Host) {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
-
-	c.hosts.Store(key, value)
-	c.onHostAdded(value)
-}
-
-func (c *BaseCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
-
-	host, ok := c.hosts.LoadOrStore(key, value)
-	if !ok {
-		c.onHostAdded(value)
-	}
-	return host, ok
-}
+//func (c *BaseCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
+//	c.hostMutex.Lock()
+//	defer c.hostMutex.Unlock()
+//
+//	host, ok := c.hosts.LoadOrStore(key, value)
+//	if !ok {
+//		c.onHostAdded(value)
+//	}
+//	return host, ok
+//}
 
 // CompareAndSwap is not supported in host provisioning and will always return false.
-func (c *BaseCluster) CompareAndSwap(_ string, oldValue, _ *Host) (*Host, bool) {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
+//func (c *BaseCluster) CompareAndSwap(_ string, oldValue, _ *Host) (*Host, bool) {
+//	c.hostMutex.Lock()
+//	defer c.hostMutex.Unlock()
+//
+//	return oldValue, false
+//}
 
-	return oldValue, false
-}
+//func (c *BaseCluster) LoadAndDelete(key string) (*Host, bool) {
+//	c.hostMutex.Lock()
+//	defer c.hostMutex.Unlock()
+//
+//	host, ok := c.hosts.LoadAndDelete(key)
+//	if ok {
+//		c.onHostRemoved(host)
+//	}
+//	return host, ok
+//}
 
-func (c *BaseCluster) LoadAndDelete(key string) (*Host, bool) {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
-
-	host, ok := c.hosts.LoadAndDelete(key)
-	if ok {
-		c.onHostRemoved(host)
-	}
-	return host, ok
-}
-
-func (c *BaseCluster) Delete(key string) {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
-
-	c.hosts.LoadAndDelete(key)
-}
+//func (c *BaseCluster) Delete(key string) {
+//	c.hostMutex.Lock()
+//	defer c.hostMutex.Unlock()
+//
+//	c.hosts.LoadAndDelete(key)
+//}
 
 // Range executes the provided function on each Host in the Cluster.
 //
 // Importantly, this function does NOT lock the hostsMutex.
-func (c *BaseCluster) Range(f func(key string, value *Host) bool) {
-	c.hosts.Range(f)
-}
+//func (c *BaseCluster) Range(f func(key string, value *Host) bool) {
+//	c.hosts.Range(f)
+//}
 
 // RangeUnsafe executes the provided function on each Host in the Cluster.
 // This is an alias for the Range function.
 //
 // Importantly, this function does NOT lock the hostsMutex.
-func (c *BaseCluster) RangeUnsafe(f func(key string, value *Host) bool) {
-	c.hosts.Range(f)
-}
-
-// NodeType returns the type of node provisioned within the Cluster.
-func (c *BaseCluster) NodeType() string {
-	return c.instance.NodeType()
-}
+//func (c *BaseCluster) RangeUnsafe(f func(key string, value *Host) bool) {
+//	c.hosts.Range(f)
+//}
 
 // RangeLocked executes the provided function on each Host in the Cluster.
 //
 // Importantly, this function DOES lock the hostsMutex.
-func (c *BaseCluster) RangeLocked(f func(key string, value *Host) bool) {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
-
-	c.hosts.Range(f)
-}
-
-// ActiveScaleOperation returns the active scaling operation, if one exists.
-// If there is no active scaling operation, then ActiveScaleOperation returns nil.
-func (c *BaseCluster) ActiveScaleOperation() *ScaleOperation {
-	c.scalingOpMutex.Lock()
-	defer c.scalingOpMutex.Unlock()
-
-	return c.activeScaleOperation
-}
-
-// IsThereAnActiveScaleOperation returns true if there is an active scaling operation taking place right now.
-func (c *BaseCluster) IsThereAnActiveScaleOperation() bool {
-	c.scalingOpMutex.Lock()
-	defer c.scalingOpMutex.Unlock()
-
-	return c.activeScaleOperation != nil
-}
+//func (c *BaseCluster) RangeLocked(f func(key string, value *Host) bool) {
+//	c.hostMutex.RLock()
+//	defer c.hostMutex.RUnlock()
+//
+//	c.hosts.Range(f)
+//}
 
 // RegisterScaleOperation registers a non-specific type of ScaleOperation.
 // Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
@@ -324,7 +329,7 @@ func (c *BaseCluster) IsThereAnActiveScaleOperation() bool {
 //
 // Alternatively, if the target node count is less than the current node count, then a ScaleInOperation is created,
 // registered, and returned.
-func (c *BaseCluster) RegisterScaleOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
+func (c *BaseCluster) registerScaleOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -352,6 +357,7 @@ func (c *BaseCluster) RegisterScaleOperation(operationId string, targetClusterSi
 		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
 	}
 
+	c.activeScaleOperation = scaleOperation
 	return scaleOperation, nil
 }
 
@@ -359,7 +365,7 @@ func (c *BaseCluster) RegisterScaleOperation(operationId string, targetClusterSi
 // When the operation completes, a notification is sent on the channel passed to this function.
 //
 // If there is already an active scaling operation taking place, then an error is returned.
-func (c *BaseCluster) RegisterScaleOutOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
+func (c *BaseCluster) registerScaleOutOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -378,6 +384,7 @@ func (c *BaseCluster) RegisterScaleOutOperation(operationId string, targetCluste
 		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
 	}
 
+	c.activeScaleOperation = scaleOperation
 	return scaleOperation, nil
 }
 
@@ -385,7 +392,7 @@ func (c *BaseCluster) RegisterScaleOutOperation(operationId string, targetCluste
 // When the operation completes, a notification is sent on the channel passed to this function.
 //
 // If there already exists a scale operation with the same ID, then the existing scale operation is returned along with an error.
-func (c *BaseCluster) RegisterScaleInOperation(operationId string, targetClusterSize int32, targetHosts []string) (*ScaleOperation, error) {
+func (c *BaseCluster) registerScaleInOperation(operationId string, targetClusterSize int32, targetHosts []string) (*ScaleOperation, error) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -415,6 +422,7 @@ func (c *BaseCluster) RegisterScaleInOperation(operationId string, targetCluster
 		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
 	}
 
+	c.activeScaleOperation = scaleOperation
 	return scaleOperation, nil
 }
 
@@ -424,41 +432,38 @@ func (c *BaseCluster) RegisterScaleInOperation(operationId string, targetCluster
 //
 // If n is negative, then this returns with an error.
 func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
-
-	currentNumNodes := int32(c.GetHostManager().Len())
+	currentNumNodes := int32(c.Len())
 	targetNumNodes := n + currentNumNodes
+
+	c.log.Debug("Received request for %d additional host(s). Current scale: %d. Target scale: %d.",
+		n, currentNumNodes, targetNumNodes)
 
 	// Register a new scaling operation.
 	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
 	// on the current and target cluster size).
 	opId := uuid.NewString()
-	scaleOp, err := c.RegisterScaleOutOperation(opId, targetNumNodes)
+	scaleOp, err := c.registerScaleOutOperation(opId, targetNumNodes)
 	if err != nil {
 		c.log.Error("Could not register new scale-out operation to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err)
 	}
 
+	c.log.Debug("Beginning scale-out from %d nodes to %d nodes.", scaleOp.InitialScale, scaleOp.TargetScale)
+
 	// Start the operation.
-	if err := scaleOp.Start(); err != nil {
-		promise.Resolved(nil, status.Error(codes.Internal, err.Error())) // This really shouldn't happen.
-	}
-
-	// Wait for the shell command above to finish.
-	result, err := c.handleScaleOperation(ctx, scaleOp)
+	result, err := scaleOp.Start(ctx)
 	if err != nil {
-		return promise.Resolved(nil, err)
+		c.log.Debug("Scale-out from %d nodes to %d nodes failed because: %v",
+			scaleOp.InitialScale, scaleOp.TargetScale, err)
+		promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
+	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.")
 	return promise.Resolved(result)
 }
 
 // ReleaseSpecificHosts terminates one or more specific Host instances.
 func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) promise.Promise {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
-
 	n := int32(len(ids))
 	currentNumNodes := int32(c.Len())
 	targetNumNodes := currentNumNodes - n
@@ -473,21 +478,16 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
 	// on the current and target cluster size).
 	opId := uuid.NewString()
-	scaleOp, err := c.RegisterScaleInOperation(opId, targetNumNodes, ids)
+	scaleOp, err := c.registerScaleInOperation(opId, targetNumNodes, ids)
 	if err != nil {
 		c.log.Error("Could not register new scale-in operation down to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
 	}
 
 	// Start the operation.
-	if err := scaleOp.Start(); err != nil {
-		return promise.Resolved(nil, status.Error(codes.Internal, err.Error())) // This really shouldn't happen.
-	}
-
-	// Wait for the shell command above to finish.
-	result, err := c.handleScaleOperation(ctx, scaleOp)
+	result, err := scaleOp.Start(ctx)
 	if err != nil {
-		return promise.Resolved(nil, err)
+		promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	return promise.Resolved(result)
@@ -499,9 +499,6 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 //
 // If n is negative, then ReleaseHosts returns with an error.
 func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
-
 	currentNumNodes := int32(c.Len())
 	targetNumNodes := currentNumNodes - n
 
@@ -511,25 +508,23 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 		return promise.Resolved(nil, ErrInvalidTargetNumHosts)
 	}
 
+	c.log.Debug("Will attempt to release %d nodes. Current scale: %d. Target scale: %d.",
+		n, currentNumNodes, targetNumNodes)
+
 	// Register a new scaling operation.
 	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
 	// on the current and target cluster size).
 	opId := uuid.NewString()
-	scaleOp, err := c.RegisterScaleInOperation(opId, targetNumNodes, []string{})
+	scaleOp, err := c.registerScaleInOperation(opId, targetNumNodes, []string{})
 	if err != nil {
 		c.log.Error("Could not register new scale-in operation down to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
 	}
 
 	// Start the operation.
-	if err := scaleOp.Start(); err != nil {
-		return promise.Resolved(nil, status.Error(codes.Internal, err.Error())) // This really shouldn't happen.
-	}
-
-	// Wait for the shell command above to finish.
-	result, err := c.handleScaleOperation(ctx, scaleOp)
+	result, err := scaleOp.Start(ctx)
 	if err != nil {
-		return promise.Resolved(nil, err)
+		promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	return promise.Resolved(result)
@@ -542,22 +537,31 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, n int32) promise.Promise 
 	return c.instance.ScaleToSize(ctx, n)
 }
 
-// handleScaleOperation orchestrates the given scheduling.ScaleOperation.
-//
-// This function creates a child context from the given parent context. The child context has a timeout of 15 seconds.
-//
-// The resultChan is the channel used in the execScaleOp function to notify that the operation has either finished
-// or resulted in an error.
-//
-// handleScaleOperation returns nil on success.
-func (c *BaseCluster) handleScaleOperation(parentContext context.Context, scaleOp *ScaleOperation) (ScaleOperationResult, error) {
-	result, err := scaleOp.Execute(parentContext)
-	return result, err
-}
-
 // ClusterMetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
 func (c *BaseCluster) ClusterMetricsProvider() metrics.ClusterMetricsProvider {
 	return c.clusterMetricsProvider
+}
+
+// NewHostConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
+// NewHostConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
+// task of locking the required structures during scaling operations.
+func (c *BaseCluster) NewHostConnected(host *Host) {
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
+
+	c.hostMutex.Lock()
+	// The host mutex is already locked if we're performing a scaling operation.
+	c.hosts.Store(host.ID, host)
+	c.hostMutex.Unlock()
+
+	c.onHostAdded(host)
+
+	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-connected host %s", host.ID)
+}
+
+// GetHost returns the Host with the given ID, if one exists.
+func (c *BaseCluster) GetHost(hostId string) (*Host, bool) {
+	return c.hosts.Load(hostId)
 }
 
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
@@ -567,8 +571,8 @@ func (c *BaseCluster) ClusterMetricsProvider() metrics.ClusterMetricsProvider {
 // targetNumNodes specifies the desired size of the cluster.
 //
 // resultChan is used to notify a waiting goroutine that the scale-out operation has finished.
-func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
-	return c.instance.GetScaleOutCommand(targetNumNodes, resultChan)
+func (c *BaseCluster) getScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
+	return c.instance.getScaleOutCommand(targetNumNodes, resultChan)
 }
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
@@ -580,6 +584,20 @@ func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan i
 // targetHosts specifies any specific hosts that are to be removed.
 //
 // resultChan is used to notify a waiting goroutine that the scale-in operation has finished.
-func (c *BaseCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, resultChan chan interface{}) (func(), error) {
-	return c.instance.GetScaleInCommand(targetNumNodes, targetHosts, resultChan)
+func (c *BaseCluster) getScaleInCommand(targetNumNodes int32, targetHosts []string, resultChan chan interface{}) (func(), error) {
+	return c.instance.getScaleInCommand(targetNumNodes, targetHosts, resultChan)
+}
+
+// NodeType returns the type of node provisioned within the Cluster.
+func (c *BaseCluster) NodeType() string {
+	return c.instance.NodeType()
+}
+
+// ActiveScaleOperation returns the active scaling operation, if one exists.
+// If there is no active scaling operation, then ActiveScaleOperation returns nil.
+func (c *BaseCluster) ActiveScaleOperation() *ScaleOperation {
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
+
+	return c.activeScaleOperation
 }

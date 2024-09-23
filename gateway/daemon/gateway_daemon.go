@@ -675,7 +675,7 @@ func (d *ClusterGatewayImpl) ConnectionOptions() *jupyter.ConnectionInfo {
 }
 
 func (d *ClusterGatewayImpl) NumLocalDaemonsConnected() int {
-	return d.cluster.GetHostManager().Len()
+	return d.cluster.Len()
 }
 
 func (d *ClusterGatewayImpl) NumKernelsRegistered() int {
@@ -767,28 +767,30 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost, scheduling.MemoryMbPerHost,
-		d.cluster, gConn, d.localDaemonDisconnected)
+	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
+		scheduling.MemoryMbPerHost, d.cluster, gConn, d.localDaemonDisconnected)
 
 	if err != nil {
-		if errors.Is(err, scheduling.ErrRestoreRequired) {
-			d.log.Warn("Restoration is required for newly-connected Local Daemon %s.", host.ID)
-			// Restore host scheduler.
-			registered, loaded := d.cluster.GetHostManager().LoadOrStore(host.ID, host)
-			if loaded {
-				err := registered.Restore(host, d.localDaemonDisconnected)
-				if err != nil {
-					d.log.Error("Error while restoring host %v: %v", host, err)
-					return nil, err
-				}
-			} else {
-				d.log.Warn("Host scheduler requested for restoration but not found: %s", host.ID)
-				return nil, scheduling.ErrRestorationFailed
-			}
-		} else {
-			d.log.Error("Failed to create host scheduler client: %v", err)
-			return nil, err
-		}
+		d.log.Error("Failed to create host scheduler client: %v", err)
+		return nil, err
+		//if errors.Is(err, scheduling.ErrRestoreRequired) {
+		//	d.log.Warn("Restoration is required for newly-connected Local Daemon %s.", host.ID)
+		//	// Restore host scheduler.
+		//	registered, loaded := d.cluster.GetHostManager().LoadOrStore(host.ID, host)
+		//	if loaded {
+		//		err := registered.Restore(host, d.localDaemonDisconnected)
+		//		if err != nil {
+		//			d.log.Error("Error while restoring host %v: %v", host, err)
+		//			return nil, err
+		//		}
+		//	} else {
+		//		d.log.Warn("Host scheduler requested for restoration but not found: %s", host.ID)
+		//		return nil, scheduling.ErrRestorationFailed
+		//	}
+		//} else {
+		//	d.log.Error("Failed to create host scheduler client: %v", err)
+		//	return nil, err
+		//}
 	}
 
 	if host == nil {
@@ -796,7 +798,9 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	d.log.Info("Incoming host scheduler %s (node = %s) connected", host.ID, host.NodeName)
-	d.cluster.GetHostManager().Store(host.ID, host)
+
+	d.cluster.NewHostConnected(host)
+
 	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the Cluster Gateway.", host.ID, host.NodeName))
 
 	return conn, nil
@@ -1488,7 +1492,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		d.addReplicaNewPodNotifications.Delete(key)
 	}
 
-	host, loaded := d.cluster.GetHostManager().Load(in.HostId)
+	host, loaded := d.cluster.GetHost(in.HostId)
 	if !loaded {
 		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", in.HostId)) // TODO(Ben): Handle gracefully.
 	}
@@ -1665,7 +1669,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 		panic(fmt.Sprintf("Expected to find existing WaitGroup associated with kernel with ID %s", kernelId))
 	}
 
-	host, loaded := d.cluster.GetHostManager().Load(hostId)
+	host, loaded := d.cluster.GetHost(hostId)
 	if !loaded {
 		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", hostId)) // TODO(Ben): Handle gracefully.
 	}
@@ -1946,8 +1950,9 @@ func (d *ClusterGatewayImpl) ID(_ context.Context, _ *proto.Void) (*proto.Provis
 	return &proto.ProvisionerId{Id: d.id}, nil
 }
 
-func (d *ClusterGatewayImpl) RemoveHost(_ context.Context, in *proto.HostId) (*proto.Void, error) {
-	d.cluster.GetHostManager().Delete(in.Id)
+func (d *ClusterGatewayImpl) RemoveHost(ctx context.Context, in *proto.HostId) (*proto.Void, error) {
+	// d.cluster.ReleaseSpecificHosts(ctx, []string{in.Id})
+	d.cluster.RemoveHost(in.Id)
 	return proto.VOID, nil
 }
 
@@ -1971,7 +1976,7 @@ func (d *ClusterGatewayImpl) GetClusterActualGpuInfo(ctx context.Context, in *pr
 		GpuInfo: make(map[string]*proto.GpuInfo),
 	}
 
-	d.cluster.GetHostManager().Range(func(hostId string, host *scheduling.Host) (contd bool) {
+	d.cluster.RangeOverHosts(func(hostId string, host *scheduling.Host) (contd bool) {
 		data, err := host.GetActualGpuInfo(ctx, in)
 		if err != nil {
 			d.log.Error("Failed to retrieve actual GPU info from Local Daemon %s on node %s because: %v", hostId, host.NodeName, err)
@@ -1991,7 +1996,7 @@ func (d *ClusterGatewayImpl) getClusterVirtualGpuInfo(ctx context.Context, in *p
 		GpuInfo: make(map[string]*proto.VirtualGpuInfo),
 	}
 
-	d.cluster.GetHostManager().Range(func(hostId string, host *scheduling.Host) (contd bool) {
+	d.cluster.RangeOverHosts(func(hostId string, host *scheduling.Host) (contd bool) {
 		data, err := host.GetVirtualGpuInfo(ctx, in)
 		if err != nil {
 			d.log.Error("Failed to retrieve virtual GPU info from Local Daemon %s on node %s because: %v", hostId, host.NodeName, err)
@@ -2014,8 +2019,8 @@ func (d *ClusterGatewayImpl) getClusterVirtualGpuInfo(ctx context.Context, in *p
 func (d *ClusterGatewayImpl) setTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
 	d.log.Debug("Received 'SetTotalVirtualGPUs' request targeting node %s with %d vGPU(s).", in.KubernetesNodeName, in.Value)
 	var targetHost *scheduling.Host
-	d.log.Debug("We currently have %d LocalDaemons connected.", d.cluster.GetHostManager().Len())
-	d.cluster.GetHostManager().Range(func(hostId string, host *scheduling.Host) bool {
+	d.log.Debug("We currently have %d LocalDaemons connected.", d.cluster.Len())
+	d.cluster.RangeOverHosts(func(hostId string, host *scheduling.Host) bool {
 		if host.NodeName == in.GetKubernetesNodeName() {
 			d.log.Debug("Found LocalDaemon running on target node %s.", in.KubernetesNodeName)
 			targetHost = host
@@ -2057,9 +2062,7 @@ func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo, ta
 
 	// Check if the specified node is viable. If not, we'll abort the operation before removing the replica.
 	if len(targetNodeId) > 0 {
-		hostManager := d.cluster.GetHostManager()
-
-		host, hostExists := hostManager.Load(targetNodeId)
+		host, hostExists := d.cluster.GetHost(targetNodeId)
 		if !hostExists {
 			d.log.Error("Cannot migrate replica %d of kernel %s to node %s, as that node does not exist within the cluster.",
 				in.ReplicaId, in.KernelId, targetNodeId)
@@ -2470,11 +2473,10 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 		return proto.VOID, ErrKernelNotFound
 	}
 
-	hostManager := d.cluster.GetHostManager()
 	for _, replica := range kernel.Replicas() {
 		replicaClient := replica.(*client.KernelReplicaClient)
 		hostId := replicaClient.HostId()
-		host, ok := hostManager.Load(hostId)
+		host, ok := d.cluster.GetHost(hostId)
 
 		if !ok {
 			d.log.Error("Could not find host %s on which replica %d of kernel %s is supposedly running...", hostId, replicaClient.ReplicaID(), in.Id)
@@ -2953,7 +2955,7 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 	defer d.Unlock()
 
 	d.kernelIdToKernel.Range(func(id string, kernel *client.DistributedKernelClient) bool {
-		// d.log.Debug("Will be returning Kernel %s with %d replica(s) [%v] [%v].", id, kernel.Size(), kernel.Status(), kernel.AggregateBusyStatus())
+		// d.log.Debug("Will be returning Kernel %s with %d replica(s) [%v] [%v].", id, kernel.Len(), kernel.Status(), kernel.AggregateBusyStatus())
 
 		respKernel := &proto.DistributedJupyterKernel{
 			KernelId:            id,
@@ -3009,10 +3011,9 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
-	hostManager := d.cluster.GetHostManager()
-	nodes := make([]*proto.VirtualDockerNode, 0, hostManager.Len())
+	nodes := make([]*proto.VirtualDockerNode, 0, d.cluster.Len())
 
-	hostManager.Range(func(_ string, host *scheduling.Host) (contd bool) {
+	d.cluster.RangeOverHosts(func(_ string, host *scheduling.Host) (contd bool) {
 		virtualDockerNode := host.ToVirtualDockerNode()
 		nodes = append(nodes, virtualDockerNode)
 		return true
@@ -3045,10 +3046,9 @@ func (d *ClusterGatewayImpl) GetLocalDaemonNodeIDs(_ context.Context, _ *proto.V
 		return nil, types.ErrIncompatibleDeploymentMode
 	}
 
-	hostManager := d.cluster.GetHostManager()
-	hostIds := make([]string, 0, hostManager.Len())
+	hostIds := make([]string, 0, d.cluster.Len())
 
-	hostManager.Range(func(hostId string, _ *scheduling.Host) (contd bool) {
+	d.cluster.RangeOverHosts(func(hostId string, _ *scheduling.Host) (contd bool) {
 		hostIds = append(hostIds, hostId)
 		return true
 	})
@@ -3091,28 +3091,38 @@ func (d *ClusterGatewayImpl) GetDockerSwarmNodes(_ context.Context, _ *proto.Voi
 
 func (d *ClusterGatewayImpl) GetNumNodes(_ context.Context, _ *proto.Void) (*proto.NumNodesResponse, error) {
 	return &proto.NumNodesResponse{
-		NumNodes: int32(d.cluster.GetHostManager().Len()),
+		NumNodes: int32(d.cluster.Len()),
 		NodeType: d.cluster.NodeType(),
 	}, nil
 }
 
 func (d *ClusterGatewayImpl) SetNumClusterNodes(ctx context.Context, in *proto.SetNumClusterNodesRequest) (*proto.SetNumClusterNodesResponse, error) {
-	initialSize := d.cluster.GetHostManager().Len()
+	initialSize := d.cluster.Len()
+	d.log.Debug("Received request to scale the cluster to %d nodes (current size: %d).", in.TargetNumNodes, initialSize)
 	p := d.cluster.ScaleToSize(ctx, in.TargetNumNodes)
 
 	if err := p.Error(); err != nil {
-		d.log.Error("Failed to scale to %d nodes because: %v", in.TargetNumNodes, err)
+		d.log.Error("Failed to set cluster scale to %d nodes because: %v", in.TargetNumNodes, err)
 		return nil, err
 	}
 
+	result, err := p.Result()
+	if err != nil {
+		d.log.Error("Failed to set cluster scale to %d nodes because: %v", in.TargetNumNodes, err)
+		return nil, err
+	}
+
+	scaleResult := result.(scheduling.ScaleOperationResult)
+	d.log.Debug("Successfully fulfilled set-scale request: %s", scaleResult.String())
 	return &proto.SetNumClusterNodesResponse{
 		RequestId:   in.RequestId,
 		OldNumNodes: int32(initialSize),
-		NewNumNodes: int32(d.cluster.GetHostManager().Len()),
+		NewNumNodes: int32(d.cluster.Len()),
 	}, nil
 }
 
 func (d *ClusterGatewayImpl) AddClusterNodes(ctx context.Context, in *proto.AddClusterNodesRequest) (*proto.AddClusterNodesResponse, error) {
+	d.log.Debug("Received request to add %d node(s) to the cluster.", in.NumNodes)
 	p := d.cluster.RequestHosts(ctx, in.NumNodes)
 
 	if err := p.Error(); err != nil {
@@ -3127,6 +3137,7 @@ func (d *ClusterGatewayImpl) AddClusterNodes(ctx context.Context, in *proto.AddC
 	}
 
 	scaleOutOperationResult := scaleResult.(*scheduling.ScaleOutOperationResult)
+	d.log.Debug("Successfully fulfilled add node request: %s", scaleOutOperationResult.String())
 	return &proto.AddClusterNodesResponse{
 		RequestId:         in.RequestId,
 		PrevNumNodes:      scaleOutOperationResult.PreviousNumNodes,
@@ -3136,6 +3147,7 @@ func (d *ClusterGatewayImpl) AddClusterNodes(ctx context.Context, in *proto.AddC
 }
 
 func (d *ClusterGatewayImpl) RemoveSpecificClusterNodes(ctx context.Context, in *proto.RemoveSpecificClusterNodesRequest) (*proto.RemoveSpecificClusterNodesResponse, error) {
+	d.log.Debug("Received request to remove %d specific node(s) from the cluster.", len(in.NodeIDs), strings.Join(in.NodeIDs, ", "))
 	p := d.cluster.ReleaseSpecificHosts(ctx, in.NodeIDs)
 
 	if err := p.Error(); err != nil {
@@ -3150,6 +3162,7 @@ func (d *ClusterGatewayImpl) RemoveSpecificClusterNodes(ctx context.Context, in 
 	}
 
 	scaleInOperationResult := scaleResult.(*scheduling.ScaleInOperationResult)
+	d.log.Debug("Successfully fulfilled specific node removal request: %s", scaleInOperationResult.String())
 	return &proto.RemoveSpecificClusterNodesResponse{
 		RequestId:       in.RequestId,
 		OldNumNodes:     scaleInOperationResult.PreviousNumNodes,
@@ -3160,6 +3173,7 @@ func (d *ClusterGatewayImpl) RemoveSpecificClusterNodes(ctx context.Context, in 
 }
 
 func (d *ClusterGatewayImpl) RemoveClusterNodes(ctx context.Context, in *proto.RemoveClusterNodesRequest) (*proto.RemoveClusterNodesResponse, error) {
+	d.log.Debug("Received request to remove %d node(s) from the cluster.", in.NumNodesToRemove)
 	p := d.cluster.ReleaseHosts(ctx, in.NumNodesToRemove)
 
 	if err := p.Error(); err != nil {
@@ -3174,6 +3188,7 @@ func (d *ClusterGatewayImpl) RemoveClusterNodes(ctx context.Context, in *proto.R
 	}
 
 	scaleInOperationResult := scaleResult.(*scheduling.ScaleInOperationResult)
+	d.log.Debug("Successfully fulfilled node removal request: %s", scaleInOperationResult.String())
 	return &proto.RemoveClusterNodesResponse{
 		RequestId:       in.RequestId,
 		OldNumNodes:     scaleInOperationResult.PreviousNumNodes,

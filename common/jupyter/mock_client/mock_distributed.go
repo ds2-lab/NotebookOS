@@ -476,7 +476,7 @@ func (mr *MockDistributedKernelClientMockRecorder) Shutdown(remover, restart any
 // Size mocks base method.
 func (m *MockDistributedKernelClient) Size() int {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Size")
+	ret := m.ctrl.Call(m, "Len")
 	ret0, _ := ret[0].(int)
 	return ret0
 }
@@ -484,7 +484,7 @@ func (m *MockDistributedKernelClient) Size() int {
 // Size indicates an expected call of Size.
 func (mr *MockDistributedKernelClientMockRecorder) Size() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Size", reflect.TypeOf((*MockDistributedKernelClient)(nil).Size))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Len", reflect.TypeOf((*MockDistributedKernelClient)(nil).Size))
 }
 
 // Socket mocks base method.

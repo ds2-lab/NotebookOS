@@ -31,7 +31,7 @@ func main() {
 	// 	panic(err)
 	// }
 	// sess := &Session{SessionId: "Session1"}
-	// err = tmpl.Execute(os.Stdout, sess)
+	// err = tmpl.execute(os.Stdout, sess)
 	// if err != nil {
 	// 	panic(err)
 	// }

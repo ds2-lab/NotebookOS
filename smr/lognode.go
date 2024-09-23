@@ -908,7 +908,7 @@ func (node *LogNode) readDirectoryFromHdfs(dir string, progressChan chan<- strin
 	node.sugaredLogger.Debugf("Walking directory (in HDFS), copying remote files and directories to local storage: '%s'", dir)
 	walk_err := node.hdfsClient.Walk(dir, func(path string, info fs.FileInfo, err error) error {
 		node.sugaredLogger.Debugf("Processing file system object at path \"%s\"", path)
-		node.sugaredLogger.Debugf("Base name: \"%s\", Size: %d bytes, Mode: %v, ModTime: %v, IsDir: %v", info.Name(), info.Size(), info.Mode(), info.ModTime(), info.IsDir())
+		node.sugaredLogger.Debugf("Base name: \"%s\", Len: %d bytes, Mode: %v, ModTime: %v, IsDir: %v", info.Name(), info.Size(), info.Mode(), info.ModTime(), info.IsDir())
 
 		if info.IsDir() {
 			// node.sugaredLogger.Debugf("Found remote directory '%s'", path)

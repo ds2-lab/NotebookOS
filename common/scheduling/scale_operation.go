@@ -2,6 +2,7 @@ package scheduling
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
@@ -31,6 +32,7 @@ var (
 	ErrInvalidTargetScale      = status.Error(codes.InvalidArgument, "invalid target scale specified")
 	ErrScalingInvalidOperation = status.Error(codes.Internal, "scale operation is in invalid state for requested operation")
 	ErrTooManyNodesAffected    = status.Error(codes.Internal, "too many nodes have been added/removed during the scale operation")
+	ErrClusterSizeMismatch     = status.Error(codes.Internal, "cluster size and target scale are unequal despite scale operation being recorded as a success")
 	ErrIncorrectScaleOperation = status.Error(codes.Internal, "scale operation is of incorrect type")
 )
 
@@ -67,6 +69,9 @@ type ScaleOperationResult interface {
 	// Error returns the error (or errors that were joined together via errors.Join) that occurred while
 	// performing the ScaleOperation, if any such error(s) did occur.
 	Error() error
+
+	// String returns the ScaleOperationResult formatted as a string that is suitable for logging.
+	String() string
 }
 
 type BaseScaleOperationResult struct {
@@ -95,10 +100,20 @@ func (s *BaseScaleOperationResult) GetCurrentNumNodes() int32 {
 	return s.CurrentNumNodes
 }
 
-// Error returns the error (or errors that were joined together via errors.Join) that occurred while
-// performing the ScaleOperation, if any such error(s) did occur.
+// String returns the BaseScaleOperationResult formatted as a string that is suitable for logging.
 func (s *BaseScaleOperationResult) Error() error {
 	return s.Err
+}
+
+// Error returns the error (or errors that were joined together via errors.Join) that occurred while
+// performing the ScaleOperation, if any such error(s) did occur.
+func (s *BaseScaleOperationResult) String() string {
+	m, err := json.Marshal(s)
+	if err != nil {
+		panic(m)
+	}
+
+	return string(m)
 }
 
 // ScaleInOperationResult encapsulates the results of a scale-in operation.
@@ -120,6 +135,16 @@ func (s *ScaleInOperationResult) Nodes() []string {
 	return s.NodesTerminated
 }
 
+// String returns the ScaleInOperationResult formatted as a string that is suitable for logging.
+func (s *ScaleInOperationResult) String() string {
+	m, err := json.Marshal(s)
+	if err != nil {
+		panic(m)
+	}
+
+	return string(m)
+}
+
 // ScaleOutOperationResult encapsulates the results of a scale-in operation.
 type ScaleOutOperationResult struct {
 	*BaseScaleOperationResult
@@ -137,6 +162,16 @@ func (s *ScaleOutOperationResult) NumNodesAffected() int32 {
 
 func (s *ScaleOutOperationResult) Nodes() []string {
 	return s.NodesCreated
+}
+
+// String returns the ScaleOutOperationResult formatted as a string that is suitable for logging.
+func (s *ScaleOutOperationResult) String() string {
+	m, err := json.Marshal(s)
+	if err != nil {
+		panic(m)
+	}
+
+	return string(m)
 }
 
 // ScaleOperation encapsulates the bookkeeping required for adjusting the scale of the Cluster.
@@ -248,7 +283,7 @@ func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, 
 
 	scaleOperation.cond = sync.NewCond(&scaleOperation.condMu)
 
-	executionFunc, err := cluster.GetScaleInCommand(targetScale, targetHosts, scaleOperation.CoreLogicDoneChan)
+	executionFunc, err := cluster.getScaleInCommand(targetScale, targetHosts, scaleOperation.CoreLogicDoneChan)
 	if err != nil {
 		return nil, err
 	}
@@ -294,9 +329,9 @@ func NewScaleOperation(operationId string, initialScale int32, targetScale int32
 		err           error
 	)
 	if scaleOperation.OperationType == ScaleInOperation {
-		executionFunc, err = cluster.GetScaleInCommand(targetScale, []string{} /* No specific hosts targeted */, scaleOperation.CoreLogicDoneChan)
+		executionFunc, err = cluster.getScaleInCommand(targetScale, []string{} /* No specific hosts targeted */, scaleOperation.CoreLogicDoneChan)
 	} else {
-		executionFunc = cluster.GetScaleOutCommand(targetScale, scaleOperation.CoreLogicDoneChan)
+		executionFunc = cluster.getScaleOutCommand(targetScale, scaleOperation.CoreLogicDoneChan)
 	}
 
 	if err != nil {
@@ -305,7 +340,7 @@ func NewScaleOperation(operationId string, initialScale int32, targetScale int32
 
 	scaleOperation.executionFunc = executionFunc
 	scaleOperation.log = config.GetLogger(
-		fmt.Sprintf("%s-%s", scaleOperation.OperationType, scaleOperation.OperationId))
+		fmt.Sprintf("%s-%s ", scaleOperation.OperationType, scaleOperation.OperationId))
 	return scaleOperation, nil
 }
 
@@ -325,45 +360,19 @@ func (op *ScaleOperation) String() string {
 		op.OperationType, op.InitialScale, op.TargetScale, op.Status.String(), op.OperationId)
 }
 
-// Execute performs the ScaleOperation.
-func (op *ScaleOperation) Execute(parentContext context.Context) (ScaleOperationResult, error) {
+// execute performs the ScaleOperation.
+func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperationResult, error) {
 	if op.executionFunc == nil {
 		log.Fatalf("Cannot execute ScaleOperation %s as its execution function is nil.", op.OperationId)
 	}
+
+	op.log.Debug("%s %s is beginning to execute.", op.OperationType, op.OperationId)
 
 	timeoutInterval := time.Second * 30
 	childContext, cancel := context.WithTimeout(parentContext, timeoutInterval)
 	defer cancel()
 
 	go op.executionFunc()
-
-	// Spawn a goroutine to monitor the cluster size.
-	//
-	// If the cluster size equals the target size of the scale operation,
-	// then we'll mark the scale operation as complete.
-	//
-	// If the operation times-out, then we'll mark the operation as having reached an error state.
-	go func() {
-		select {
-		case <-childContext.Done():
-			return
-		default:
-			{
-				currSize := int32(op.Cluster.GetHostManager().Len())
-				if currSize == op.TargetScale {
-					err := op.SetOperationFinished()
-					if err != nil {
-						op.log.Error("Failed to set scale-operation %s to 'complete' state because: %v",
-							op.OperationId, err)
-					}
-
-					return
-				}
-
-				time.Sleep(time.Millisecond * 500)
-			}
-		}
-	}()
 
 	select {
 	case <-childContext.Done():
@@ -396,26 +405,39 @@ func (op *ScaleOperation) Execute(parentContext context.Context) (ScaleOperation
 				// If there was an error, then we'll return the error.
 				return nil, status.Errorf(codes.Internal, err.Error())
 			} else {
-				op.log.Debug("Received result for %s operation %s.", op.OperationType, op.OperationId)
+				op.log.Debug("%s %s has finished its core logic.", op.OperationType, op.OperationId)
 				break
 			}
 		}
 	}
 
-	if err := op.SetOperationFinished(); err != nil {
-		op.log.Error("Failed to transition scale operation \"%s\" to 'complete' state because: %v", op.OperationId, err)
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
+	op.log.Debug("Waiting for new node(s) to connect or terminated nodes to be removed.")
 	// The "core logic" of the operation has concluded insofar as we scaled-out or scaled-in the cluster.
 	// If we scaled-out, then we need to wait for the new Cluster Nodes to connect.
 	// If we scaled-in, then we don't really have any waiting to do.
 	// If it has already completed by the time we call Wait, then Wait just returns immediately.
 	op.Wait()
+	op.log.Debug("%s %s has finished (either in error or successfully).", op.OperationType, op.OperationId)
 
 	if op.CompletedSuccessfully() {
+		// The scale operation was recorded to have been a success.
+		//
+		// We still perform a sanity check here to make sure that the size of the cluster is consistent with
+		// the target scale of the scale operation.
+		//
+		// If they're unequal, then we'll return an error; however, it's possible that a node simply lost connection
+		// right after the scale operation concluded. This does not necessarily indicate an internal error with
+		// the logic of the Cluster Gateway or anything (but it might).
+		currentSize := int32(op.Cluster.Len())
+		if currentSize != op.TargetScale {
+			op.log.Error("Current cluster size (%d) does not match target scale (%d)...", currentSize, op.TargetScale)
+			return nil, status.Error(codes.Internal, fmt.Errorf("%w: cluster size = %d, target scale = %d",
+				ErrClusterSizeMismatch, currentSize, op.TargetScale).Error())
+		}
+
 		timeElapsed, _ := op.GetDuration()
-		op.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d in %v.", op.InitialScale, op.TargetScale, timeElapsed)
+		op.log.Debug("Successfully adjusted number of virtual Docker nodes from %d to %d in %v.",
+			op.InitialScale, op.TargetScale, timeElapsed)
 
 		// Record the latency of the scale operation in/with Prometheus.
 		var result ScaleOperationResult
@@ -423,9 +445,9 @@ func (op *ScaleOperation) Execute(parentContext context.Context) (ScaleOperation
 			result = &ScaleInOperationResult{
 				BaseScaleOperationResult: &BaseScaleOperationResult{
 					PreviousNumNodes: op.InitialScale,
-					CurrentNumNodes:  int32(op.Cluster.GetHostManager().Len()),
+					CurrentNumNodes:  int32(op.Cluster.Len()),
 				},
-				NumNodesTerminated: int32(op.Cluster.GetHostManager().Len()) - op.InitialScale,
+				NumNodesTerminated: int32(op.Cluster.Len()) - op.InitialScale,
 				NodesTerminated:    op.NodesAffected,
 			}
 
@@ -434,9 +456,9 @@ func (op *ScaleOperation) Execute(parentContext context.Context) (ScaleOperation
 			result = &ScaleOutOperationResult{
 				BaseScaleOperationResult: &BaseScaleOperationResult{
 					PreviousNumNodes: op.InitialScale,
-					CurrentNumNodes:  int32(op.Cluster.GetHostManager().Len()),
+					CurrentNumNodes:  int32(op.Cluster.Len()),
 				},
-				NumNodesCreated: int32(op.Cluster.GetHostManager().Len()) - op.InitialScale,
+				NumNodesCreated: int32(op.Cluster.Len()) - op.InitialScale,
 				NodesCreated:    op.NodesAffected,
 			}
 
@@ -506,6 +528,9 @@ func (op *ScaleOperation) RegisterAffectedHost(host *Host) error {
 
 		return fmt.Errorf("%w: expected %d, but %d node(s) have/has been affected",
 			ErrTooManyNodesAffected, op.ExpectedNumAffectedNodes, len(op.NodesAffected))
+	} else {
+		op.log.Debug("Affected host %d/%d has registered: %v",
+			len(op.NodesAffected), op.ExpectedNumAffectedNodes, host)
 	}
 
 	return nil
@@ -529,21 +554,21 @@ func (op *ScaleOperation) Wait() {
 	op.cond.L.Unlock()
 }
 
-// Start records that the ScaleOperation has started.
+// Start begins the ScaleOperation.
 //
 // Note: this acquires the "main" mutex of the ScaleOperation.
-func (op *ScaleOperation) Start() error {
+func (op *ScaleOperation) Start(ctx context.Context) (ScaleOperationResult, error) {
 	op.mu.Lock()
-	defer op.mu.Unlock()
 
 	if op.Status != ScaleOperationAwaitingStart {
-		return fmt.Errorf("%w: \"%s\"", ErrScalingInvalidOperation, op.Status)
+		return nil, fmt.Errorf("%w: \"%s\"", ErrScalingInvalidOperation, op.Status)
 	}
 
 	op.StartTime = time.Now()
 	op.Status = ScaleOperationInProgress
+	op.mu.Unlock()
 
-	return nil
+	return op.execute(ctx)
 }
 
 // SetOperationFinished records that the ScaleOperation has completed successfully.
@@ -552,7 +577,6 @@ func (op *ScaleOperation) Start() error {
 // Note: this acquires the "main" mutex of the ScaleOperation.
 func (op *ScaleOperation) SetOperationFinished() error {
 	op.mu.Lock()
-	defer op.mu.Unlock()
 
 	if op.Status != ScaleOperationAwaitingStart && op.Status != ScaleOperationInProgress {
 		return fmt.Errorf("%w: \"%s\"", ErrScalingInvalidOperation, op.Status)
@@ -560,9 +584,12 @@ func (op *ScaleOperation) SetOperationFinished() error {
 
 	op.EndTime = time.Now()
 	op.Status = ScaleOperationComplete
+	op.mu.Unlock()
 
 	// Wake up anybody waiting for the operation to complete.
 	// Note: it is allowed but not required for the caller to hold cond.L during the call.
+	op.condMu.Lock()
+	defer op.condMu.Unlock()
 	op.cond.Broadcast()
 
 	return nil
@@ -574,7 +601,6 @@ func (op *ScaleOperation) SetOperationFinished() error {
 // transition the ScaleOperation to the ScaleOperationErred unless the override parameter is true.
 func (op *ScaleOperation) SetOperationErred(err error, override bool) error {
 	op.mu.Lock()
-	defer op.mu.Unlock()
 
 	// If we've already completed successfully and override is false, then we'll return an error.
 	if op.Status == ScaleOperationComplete && !override {
@@ -589,9 +615,12 @@ func (op *ScaleOperation) SetOperationErred(err error, override bool) error {
 	op.EndTime = time.Now()
 	op.Status = ScaleOperationErred
 	op.Error = err
+	op.mu.Unlock()
 
 	// Wake up anybody waiting for the operation to complete.
 	// Note: it is allowed but not required for the caller to hold cond.L during the call.
+	op.condMu.Lock()
+	defer op.condMu.Unlock()
 	op.cond.Broadcast()
 
 	return nil
