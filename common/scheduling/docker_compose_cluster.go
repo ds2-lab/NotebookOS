@@ -228,12 +228,10 @@ func (c *DockerComposeCluster) getScaleInCommand(targetScale int32, targetHosts 
 
 		// If we've identified enough hosts, then we can stop iterating.
 		if int32(len(targetHosts)) == numAffectedNodes {
-			c.log.Warn("Failed to identify %d hosts for scale-in. Only identified %d/%d.",
-				numAffectedNodes, len(targetHosts), numAffectedNodes)
+			c.log.Debug("Successfully identified %d/%d hosts to terminate for scale-in.", len(targetHosts), numAffectedNodes)
 			return false
 		}
 
-		c.log.Debug("Successfully identified %d/%d hosts to terminate for scale-in.", len(targetHosts), numAffectedNodes)
 		return true
 	})
 
@@ -244,6 +242,8 @@ func (c *DockerComposeCluster) getScaleInCommand(targetScale int32, targetHosts 
 		return c.unsafeGetTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}
 
+	c.log.Warn("Failed to identify %d hosts for scale-in. Only identified %d/%d.",
+		numAffectedNodes, len(targetHosts), numAffectedNodes)
 	return nil, fmt.Errorf("%w: insufficient idle hosts available to scale-in by %d host(s); largest scale-in possible: %d host(s)",
 		ErrInvalidTargetScale, numAffectedNodes, len(targetHosts))
 }
