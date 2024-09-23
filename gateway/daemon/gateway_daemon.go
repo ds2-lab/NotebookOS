@@ -13,9 +13,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"os/exec"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2998,9 +2996,6 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
 	d.log.Debug("Received request for the cluster's virtual docker nodes.")
 
-	expectedNumNodes, _ := d.getNumLocalDaemonDocker()
-	// d.log.Debug("Expected number of Docker nodes: %d", expectedNumNodes)
-
 	d.dockerNodeMutex.Lock()
 	defer d.dockerNodeMutex.Unlock()
 
@@ -3019,13 +3014,6 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 		return true
 	})
 
-	// Sanity check.
-	// It's possible that GetVirtualDockerNodes is called during a scaling operation, so the values will be inconsistent.
-	// As a result, we just log the error, but we don't panic or return an error.
-	if expectedNumNodes > 0 && len(nodes) != expectedNumNodes {
-		d.log.Error("Expected to find %d Local Daemon Docker node(s), based on output from Docker CLI. Instead, we have %d connection(s) to Local Daemon Docker nodes.", expectedNumNodes, len(nodes))
-	}
-
 	resp := &proto.GetVirtualDockerNodesResponse{
 		Nodes: nodes,
 	}
@@ -3034,8 +3022,6 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 }
 
 func (d *ClusterGatewayImpl) GetLocalDaemonNodeIDs(_ context.Context, _ *proto.Void) (*proto.GetLocalDaemonNodeIDsResponse, error) {
-	expectedNumNodes, _ := d.getNumLocalDaemonDocker()
-
 	d.dockerNodeMutex.Lock()
 	defer d.dockerNodeMutex.Unlock()
 
@@ -3052,13 +3038,6 @@ func (d *ClusterGatewayImpl) GetLocalDaemonNodeIDs(_ context.Context, _ *proto.V
 		hostIds = append(hostIds, hostId)
 		return true
 	})
-
-	// Sanity check.
-	// It's possible that GetVirtualDockerNodes is called during a scaling operation, so the values will be inconsistent.
-	// As a result, we just log the error, but we don't panic or return an error.
-	if expectedNumNodes > 0 && len(hostIds) != expectedNumNodes {
-		d.log.Error("Expected to find %d Local Daemon Docker node(s), based on output from Docker CLI. Instead, we have %d connection(s) to Local Daemon Docker nodes.", expectedNumNodes, len(hostIds))
-	}
 
 	resp := &proto.GetLocalDaemonNodeIDsResponse{
 		HostIds: hostIds,
@@ -3199,44 +3178,4 @@ func (d *ClusterGatewayImpl) RemoveClusterNodes(ctx context.Context, in *proto.R
 
 func (d *ClusterGatewayImpl) ModifyClusterNodes(_ context.Context, _ *proto.ModifyClusterNodesRequest) (*proto.ModifyClusterNodesResponse, error) {
 	return nil, ErrNotImplemented
-}
-
-// getNumLocalDaemonDocker returns the number of Local Daemon Docker containers.
-// A return value of -1 indicates that an error occurred.
-//
-// We should probably just go off of the number of connected Hosts we have, rather than use this function...
-func (d *ClusterGatewayImpl) getNumLocalDaemonDocker() (int, error) {
-	d.dockerNodeMutex.Lock()
-	defer d.dockerNodeMutex.Unlock()
-
-	if !d.DockerMode() {
-		return -1, types.ErrIncompatibleDeploymentMode
-	}
-
-	if d.DockerComposeMode() {
-		//d.log.Debug("Executing command: \"bash -c USER=root docker compose ps daemon | wc -l\"")
-		cmd := exec.Command("bash", "-c", "USER=root docker compose ps daemon | wc -l")
-		stdoutBytes, err := cmd.CombinedOutput()
-
-		stdout := strings.TrimSpace(string(stdoutBytes))
-		if err != nil {
-			d.log.Error("Failed to get number of Local Daemon Docker containers because: %v", err)
-			d.log.Error("Command output: \"%s\"", stdout)
-			return -1, err
-		}
-
-		numContainers, err := strconv.Atoi(stdout)
-		if err != nil {
-			d.log.Error("Failed to parse command output for number of Local Daemon Docker containers.")
-			d.log.Error("Error: %v", err)
-			d.log.Error("Command output: \"%s\"", stdout)
-
-			return -1, err
-		}
-
-		// Subtract 1 to account for first line.
-		return numContainers - 1, nil
-	} else /* Docker Swarm mode */ {
-		panic("Not implemented.")
-	}
 }

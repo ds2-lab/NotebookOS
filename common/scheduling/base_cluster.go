@@ -614,7 +614,7 @@ func (c *BaseCluster) NewHostConnected(host *Host) {
 
 	c.onHostAdded(host)
 
-	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-connected host %s", host.ID)
+	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-added host %s", host.ID)
 }
 
 // GetHost returns the Host with the given ID, if one exists.

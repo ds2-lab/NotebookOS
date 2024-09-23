@@ -6,6 +6,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"log"
 	"os/exec"
 	"strings"
 )
@@ -93,6 +94,8 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 	}
 	c.DisabledHosts.Store(id, host)
 
+	c.onHostRemoved(host)
+
 	return nil
 }
 
@@ -133,6 +136,59 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 // Important: this should be called with the Cluster's hostMutex already acquired.
 func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
 	return func() {
+		currentScale := c.Len()
+		numNewNodesRequired := targetScale - int32(currentScale)
+		c.log.Debug("Scaling-out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d.",
+			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len())
+
+		if c.DisabledHosts.Len() > 0 {
+			enabledHosts := make([]*Host, 0)
+			// First, check if we have any disabled nodes. If we do, then we'll just re-enable them.
+			c.DisabledHosts.Range(func(hostId string, host *Host) (contd bool) {
+				err := host.Enable()
+				if err != nil {
+					c.log.Error("Failed to re-enable host %s because: %v", hostId, err)
+					// For now, we panic, as we don't expect there to be a "valid" reason to fail to enable a host.
+					// Later on, we may find that there are valid reasons, in which case we'd just handle the
+					// error in whatever way is appropriate, such as by skipping this host and trying the next one.
+					panic(err)
+				}
+
+				// This will add the host back to the Cluster.
+				c.NewHostConnected(host)
+				enabledHosts = append(enabledHosts, host)
+				numNewNodesRequired -= 1
+
+				// If we have already satisfied the scale-out requirement, then we'll stop iterating.
+				if numNewNodesRequired == 0 {
+					return false
+				}
+
+				// Keep iterating, as we need more hosts to satisfy the scale-out requirement.
+				return true
+			})
+
+			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the "disabled hosts" mapping.
+			for _, host := range enabledHosts {
+				_, loaded := c.DisabledHosts.LoadAndDelete(host.ID)
+				if !loaded {
+					log.Fatalf("Failed to find host %s in DisabledHosts map after using it in scale-out operation.", host.ID)
+				}
+			}
+		}
+
+		// Check if we satisfied the scale-out request using disabled nodes, in which case we do not
+		// need to execute a Docker CLI command and can just return immediately.
+		if numNewNodesRequired == 0 {
+			// Note that currentScale should be outdated at this point, but its old/outdated
+			// value can be used to calculate how many disabled hosts we must have used
+			// in order to satisfy the scale-out request.
+			c.log.Debug("Satisfied scale-out request to %d nodes exclusively using %d disabled nodes.",
+				targetScale, targetScale-int32(currentScale))
+
+			return
+		}
+
 		app := "docker"
 		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetScale)
 		args := strings.Split(argString, " ")
