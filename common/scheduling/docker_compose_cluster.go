@@ -69,7 +69,7 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
-	host, loaded := c.hosts.LoadAndDelete(id)
+	host, loaded := c.hosts.Load(id)
 	if !loaded {
 		// Let's check if the Host even exists.
 		_, exists := c.DisabledHosts.Load(id)
@@ -93,6 +93,7 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 		panic(err)
 	}
 	c.DisabledHosts.Store(id, host)
+	c.hosts.Delete(id)
 
 	c.onHostRemoved(host)
 
@@ -185,7 +186,7 @@ func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDo
 			// in order to satisfy the scale-out request.
 			c.log.Debug("Satisfied scale-out request to %d nodes exclusively using %d disabled nodes.",
 				targetScale, targetScale-int32(currentScale))
-
+			coreLogicDoneChan <- struct{}{}
 			return
 		}
 

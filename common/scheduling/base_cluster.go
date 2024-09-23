@@ -485,7 +485,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	if err != nil {
 		c.log.Debug("Scale-out from %d nodes to %d nodes failed because: %v",
 			scaleOp.InitialScale, scaleOp.TargetScale, err)
-		promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
+		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
@@ -521,7 +521,9 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	// Start the operation.
 	result, err := scaleOp.Start(ctx)
 	if err != nil {
-		promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
+		c.log.Debug("Scale-in from %d nodes down to %d nodes failed because: %v",
+			scaleOp.InitialScale, scaleOp.TargetScale, err)
+		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-in from %d nodes down to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
@@ -562,7 +564,9 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	// Start the operation.
 	result, err := scaleOp.Start(ctx)
 	if err != nil {
-		promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
+		c.log.Debug("Scale-in from %d nodes down to %d nodes failed because: %v",
+			scaleOp.InitialScale, scaleOp.TargetScale, err)
+		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-in from %d nodes to %d nodes has succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
