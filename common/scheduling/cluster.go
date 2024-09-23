@@ -76,19 +76,19 @@ type clusterInternal interface {
 	// This API exists so each platform-specific Cluster implementation can provide its own platform-specific
 	// logic for scaling-out.
 	//
-	// targetNumNodes specifies the desired size of the cluster.
+	// targetScale specifies the desired size of the Cluster.
 	//
 	// resultChan is used to notify a waiting goroutine that the scale-out operation has finished.
 	//
 	// If there's an error, then you send the error over the result chan.
 	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
-	GetScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan interface{}) func()
+	GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func()
 
 	// GetScaleInCommand returns the function to be executed to perform a scale-in.
 	// This API exists so each platform-specific Cluster implementation can provide its own platform-specific
 	// logic for scaling-in.
 	//
-	// targetNumNodes specifies the desired size of the cluster.
+	// targetScale specifies the desired size of the Cluster.
 	//
 	// targetHosts specifies any specific hosts that are to be removed.
 	//
@@ -96,7 +96,7 @@ type clusterInternal interface {
 	//
 	// If there's an error, then you send the error over the result chan.
 	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
-	GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error)
+	GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error)
 
 	// RegisterScaleOperation registers a non-specific type of ScaleOperation.
 	// Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation

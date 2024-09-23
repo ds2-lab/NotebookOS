@@ -59,12 +59,14 @@ func (c *DockerComposeCluster) NodeType() string {
 	return types.DockerNode
 }
 
-// disableHost disables an active Host.
+// unsafeDisableHost disables an active Host.
 //
 // If the Host does not exist or is not already disabled, then an error is returned.
-func (c *DockerComposeCluster) disableHost(id string) error {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
+//
+// Important: this should be called with the DockerComposeCluster's hostMutex already acquired.
+func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
+	//c.hostMutex.Lock()
+	//defer c.hostMutex.Unlock()
 
 	host, loaded := c.LoadAndDelete(id)
 	if !loaded {
@@ -78,26 +80,30 @@ func (c *DockerComposeCluster) disableHost(id string) error {
 	}
 
 	if host.containers.Len() > 0 {
-		return fmt.Errorf("%w: host \"%s\" is hosting at least one kernel replica, and automated migrations are not yet implemented", ErrInvalidHost, id)
+		return fmt.Errorf("%w: host \"%s\" is hosting at least one kernel replica, and automated migrations are not yet implemented",
+			ErrInvalidHost, id)
 	}
 
-	c.DisabledHosts.Store(id, host)
-	if err := host.Enable(); err != nil {
+	c.log.Debug("Disabling host %s now...", id)
+	if err := host.Disable(); err != nil {
 		// This really shouldn't happen.
 		// This would mean that the Host was in an inconsistent state relative to the Cluster,
 		// as the Host was stored in the wrong map.
 		panic(err)
 	}
+	c.DisabledHosts.Store(id, host)
 
 	return nil
 }
 
-// enableHost enables a disabled Host.
+// unsafeEnableHost enables a disabled Host.
 //
 // If the Host does not exist or is not disabled, then an error is returned.
-func (c *DockerComposeCluster) enableHost(id string) error {
-	c.hostMutex.Lock()
-	defer c.hostMutex.Unlock()
+//
+// Important: this should be called with the DockerComposeCluster's hostMutex already acquired.
+func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
+	//c.hostMutex.Lock()
+	//defer c.hostMutex.Unlock()
 
 	disabledHost, loaded := c.DisabledHosts.LoadAndDelete(id)
 	if !loaded {
@@ -110,32 +116,34 @@ func (c *DockerComposeCluster) enableHost(id string) error {
 		}
 	}
 
-	c.Store(id, disabledHost)
+	c.log.Debug("Enabling host %s now...", id)
 	if err := disabledHost.Enable(); err != nil {
 		// This really shouldn't happen.
 		// This would mean that the Host was in an inconsistent state relative to the Cluster,
 		// as the Host was stored in the wrong map.
 		panic(err)
 	}
+	c.Store(id, disabledHost)
 
 	return nil
 }
 
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
-func (c *DockerComposeCluster) GetScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan interface{}) func() {
+func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
 	return func() {
+
 		app := "docker"
-		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetNumNodes)
+		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetScale)
 		args := strings.Split(argString, " ")
 
 		cmd := exec.Command(app, args...)
 		stdout, err := cmd.Output()
 
 		if err != nil {
-			c.log.Error("Failed to scale-out to %d node because: %v", targetNumNodes, err)
+			c.log.Error("Failed to scale-out to %d node because: %v", targetScale, err)
 			coreLogicDoneChan <- err
 		} else {
-			c.log.Debug("Output from scaling-out to %d node:\n%s", targetNumNodes, string(stdout))
+			c.log.Debug("Output from scaling-out to %d node:\n%s", targetScale, string(stdout))
 
 			coreLogicDoneChan <- struct{}{}
 		}
@@ -143,16 +151,22 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetNumNodes int32, coreLogi
 }
 
 // getTargetedScaleInCommand returns a function that, when executed, will terminate the hosts specified in the targetHosts parameter.
-func (c *DockerComposeCluster) getTargetedScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
-	if targetNumNodes != int32(len(targetHosts)) {
-		return nil, fmt.Errorf("inconsistent targetNumHosts (%d) and length of target hosts (%d)", targetNumNodes, len(targetHosts))
+func (c *DockerComposeCluster) getTargetedScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+	numAffectedNodes := int32(c.hosts.Len()) - targetScale
+	if numAffectedNodes != int32(len(targetHosts)) {
+		return nil, fmt.Errorf("inconsistent targetScale (%d) and length of hosts to remove (%d)", targetScale, len(targetHosts))
 	}
 
 	return func() {
+		c.hostMutex.Lock()
+		defer c.hostMutex.Unlock()
+
+		c.log.Debug("Attempting to remove the following %d host(s): %s", len(targetHosts), strings.Join(targetHosts, ", "))
+
 		disabledHosts := make([]string, 0, len(targetHosts))
 		errs := make([]error, 0)
 		for _, id := range targetHosts {
-			err := c.disableHost(id)
+			err := c.unsafeDisableHost(id)
 			if err != nil {
 				c.log.Error("Could not remove host \"%s\" from Docker Compose Cluster because: %v", id, err)
 				errs = append(errs, err)
@@ -164,8 +178,10 @@ func (c *DockerComposeCluster) getTargetedScaleInCommand(targetNumNodes int32, t
 
 		// If we failed to disable one or more hosts, then we'll abort the entire operation.
 		if len(errs) > 0 {
+			c.log.Warn("Could not identify all %d hosts during scale-in. Re-enabling %d hosts that were already disabled.",
+				len(targetHosts), len(disabledHosts))
 			for _, disabledHostId := range disabledHosts {
-				enableErr := c.enableHost(disabledHostId)
+				enableErr := c.unsafeEnableHost(disabledHostId)
 				if enableErr != nil {
 					c.log.Error("Failed to enable freshly-disabled host %s during failed scale-in operation because: %v",
 						disabledHostId, enableErr)
@@ -173,6 +189,7 @@ func (c *DockerComposeCluster) getTargetedScaleInCommand(targetNumNodes int32, t
 			}
 
 			err := errors.Join(errs...)
+			c.log.Warn("Scale-in operation of %d nodes has failed because: %v", len(targetHosts), err)
 			coreLogicDoneChan <- err
 			return
 		}
@@ -187,25 +204,35 @@ func (c *DockerComposeCluster) getTargetedScaleInCommand(targetNumNodes int32, t
 //
 // This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
 // a docker compose service.
-func (c *DockerComposeCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+func (c *DockerComposeCluster) GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
 	if len(targetHosts) > 0 {
-		return c.getTargetedScaleInCommand(targetNumNodes, targetHosts, coreLogicDoneChan)
+		return c.getTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}
 
 	// If no target Host instances were specified, then we need to identify some Host instances ourselves.
 	c.hostMutex.Lock()
 
+	numAffectedNodes := int32(c.hosts.Len()) - targetScale
+
+	c.log.Debug("Searching for %d hosts to terminate for requested scale-in.", numAffectedNodes)
+
 	// First, just look for Hosts that are entirely idle.
+	// NOTE: targetHosts is empty at this point. If it wasn't, we would have called getTargetedScaleInCommand(...).
 	c.hosts.Range(func(hostId string, host *Host) (contd bool) {
 		if host.containers.Len() == 0 {
 			targetHosts = append(targetHosts, hostId)
+			c.log.Debug("Identified Host %s as viable target for termination during scale-in. Identified %d/%d hosts to terminate.",
+				host.ID, len(targetHosts), numAffectedNodes)
 		}
 
 		// If we've identified enough hosts, then we can stop iterating.
-		if int32(len(targetHosts)) == targetNumNodes {
+		if int32(len(targetHosts)) == numAffectedNodes {
+			c.log.Warn("Failed to identify %d hosts for scale-in. Only identified %d/%d.",
+				numAffectedNodes, len(targetHosts), numAffectedNodes)
 			return false
 		}
 
+		c.log.Debug("Successfully identified %d/%d hosts to terminate for scale-in.", len(targetHosts), numAffectedNodes)
 		return true
 	})
 
@@ -214,10 +241,10 @@ func (c *DockerComposeCluster) GetScaleInCommand(targetNumNodes int32, targetHos
 	// If we've found enough Hosts to terminate, then we can get the scale-in command for the specified hosts.
 	// If not, then we'll have to keep trying. Or, for now, we just return an error indicating that we cannot
 	// scale-down by that many Hosts as there are insufficient idle hosts available.
-	if int32(len(targetHosts)) == targetNumNodes {
-		return c.getTargetedScaleInCommand(targetNumNodes, targetHosts, coreLogicDoneChan)
+	if int32(len(targetHosts)) == numAffectedNodes {
+		return c.getTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}
 
-	return nil, fmt.Errorf("%w: insufficient idle hosts available to scale-in by %dhost(s); largest scale-in possible: %d host(s)",
-		ErrInvalidTargetScale, targetNumNodes, len(targetHosts))
+	return nil, fmt.Errorf("%w: insufficient idle hosts available to scale-in by %d host(s); largest scale-in possible: %d host(s)",
+		ErrInvalidTargetScale, numAffectedNodes, len(targetHosts))
 }
