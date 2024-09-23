@@ -232,6 +232,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		seenSessions:       make([]string, int(resourceSpec.GPU())),
 		meta:               hashmap.NewCornelkMap[string, interface{}](64),
 		errorCallback:      errorCallback,
+		enabled:            true,
 		CreatedAt:          time.Now(),
 	}
 
