@@ -429,7 +429,7 @@ func (h *Host) Enable() error {
 		return fmt.Errorf("%w: host \"%s\" is already enabled", ErrInvalidHost, h.ID)
 	}
 
-	h.enabled = false
+	h.enabled = true
 	return nil
 }
 
