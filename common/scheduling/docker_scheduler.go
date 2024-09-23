@@ -151,15 +151,39 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 
 	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", s.opts.NumReplicas, in.Id, in.ResourceSpec.String())
 
-	// Identify the hosts onto which we will place replicas of the kernel.
-	hosts := s.placer.FindHosts(types.FullSpecFromKernelSpec(in))
+	var (
+		numTries    = 0
+		bestAttempt = -1
+		hosts       []*Host
+	)
+	for numTries < 3 {
+		// Identify the hosts onto which we will place replicas of the kernel.
+		hosts := s.placer.FindHosts(types.FullSpecFromKernelSpec(in))
 
-	if len(hosts) < s.opts.NumReplicas {
-		s.log.Error("Found %d/%d hosts to serve replicas of kernel %s.", len(hosts), s.opts.NumReplicas, in.Id)
-		return fmt.Errorf("%w: found %d/%d required hosts to serve replicas of kernel %s", ErrInsufficientHostsAvailable, len(hosts), s.opts.NumReplicas, in.Id)
+		if len(hosts) < s.opts.NumReplicas {
+			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s.", len(hosts), s.opts.NumReplicas, in.Id)
+
+			numHostsRequired := s.opts.NumReplicas - len(hosts)
+			s.log.Debug("Will attempt to provision %d new host(s).", numHostsRequired)
+
+			s.cluster.RequestHosts(ctx, int32(numHostsRequired))
+
+			numTries += 1
+
+			if len(hosts) > bestAttempt {
+				bestAttempt = len(hosts)
+			}
+
+			s.log.Debug("Trying again to find %d hosts to serve replicas of kernel %s.", s.opts.NumReplicas, in.Id)
+		} else {
+			s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v", s.opts.NumReplicas, in.Id, hosts)
+			break
+		}
 	}
-
-	s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v", s.opts.NumReplicas, in.Id, hosts)
+	if len(hosts) < s.opts.NumReplicas {
+		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...", s.opts.NumReplicas, in.Id, numTries)
+		return fmt.Errorf("%w: could only find at-most %d/%d required hosts to serve replicas of kernel %s", ErrInsufficientHostsAvailable, bestAttempt, s.opts.NumReplicas, in.Id)
+	}
 
 	// For each host, launch a Docker replica on that host.
 	for i, host := range hosts {
