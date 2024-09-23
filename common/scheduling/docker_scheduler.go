@@ -153,12 +153,13 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 
 	var (
 		numTries    = 0
+		maxAttempts = 3
 		bestAttempt = -1
 		hosts       []*Host
 	)
-	for numTries < 3 {
+	for numTries < maxAttempts {
 		// Identify the hosts onto which we will place replicas of the kernel.
-		hosts := s.placer.FindHosts(types.FullSpecFromKernelSpec(in))
+		hosts = s.placer.FindHosts(types.FullSpecFromKernelSpec(in))
 
 		if len(hosts) < s.opts.NumReplicas {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s.", len(hosts), s.opts.NumReplicas, in.Id)
@@ -174,7 +175,10 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 				bestAttempt = len(hosts)
 			}
 
-			s.log.Debug("Trying again to find %d hosts to serve replicas of kernel %s.", s.opts.NumReplicas, in.Id)
+			if (numTries + 1) < maxAttempts {
+				// Don't want to print this if we've just used up our last try, so to speak.
+				s.log.Debug("Trying again to find %d hosts to serve replicas of kernel %s.", s.opts.NumReplicas, in.Id)
+			}
 		} else {
 			s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v", s.opts.NumReplicas, in.Id, hosts)
 			break
