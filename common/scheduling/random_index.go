@@ -1,6 +1,7 @@
 package scheduling
 
 import (
+	"log"
 	"math/rand"
 	"slices"
 	"sync"
@@ -79,6 +80,7 @@ func (index *RandomClusterIndex) Add(host *Host) {
 		index.freeStart += 1
 	}
 	host.SetMeta(HostMetaRandomIndex, i)
+	index.log.Debug("Added Host %s to RandomClusterIndex at position %d.", host.ID, i)
 	index.len += 1
 }
 
@@ -94,8 +96,34 @@ func (index *RandomClusterIndex) Remove(host *Host) {
 	if !ok {
 		return
 	}
+
+	index.log.Debug("Removing host %s from RandomClusterIndex, position=%d", host.ID, i)
+
+	if i > int32(len(index.hosts)) {
+		log.Fatalf("Index %d is out of range for RandomClusterIndex of length %d...\n", i, len(index.hosts))
+	}
+
+	if index.hosts[i] == nil {
+		index.log.Error("There is no host at index %d of RandomClusterIndex (i.e., hosts[%d] is nil).", i, i)
+		for idx := 0; idx < cap(index.hosts); idx++ {
+			if index.hosts[idx] != nil {
+				index.log.Error("index.hosts[%d] = %v", idx, index.hosts[idx])
+			} else {
+				index.log.Error("index.hosts[%d] = %v", idx, index.hosts[idx])
+			}
+		}
+
+		log.Fatalf("There is no host at index %d of RandomClusterIndex (i.e., hosts[%d] is nil.\n", i, i)
+	}
+
+	if index.hosts[i].ID != host.ID {
+		log.Fatalf("Host at index %d of RandomClusterIndex is Host %s; however, we're supposed to remove Host %s...\n",
+			i, index.hosts[i].ID, host.ID)
+	}
+
 	index.hosts[i] = nil
 	index.len -= 1
+	host.SetMeta(HostMetaRandomIndex, nil)
 
 	// Update freeStart.
 	if i < index.freeStart {

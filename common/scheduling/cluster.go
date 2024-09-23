@@ -182,7 +182,7 @@ type Cluster interface {
 	// NewHostConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
 	// NewHostConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
 	// task of locking the required structures during scaling operations.
-	NewHostConnected(host *Host)
+	NewHostAddedOrConnected(host *Host)
 
 	// RemoveHost removes the Host with the specified ID.
 	// This is called when a Local Daemon loses connection.

@@ -604,12 +604,14 @@ func (c *BaseCluster) ClusterMetricsProvider() metrics.ClusterMetricsProvider {
 	return c.clusterMetricsProvider
 }
 
-// NewHostConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
-// NewHostConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
+// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
+// NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
 // task of locking the required structures during scaling operations.
-func (c *BaseCluster) NewHostConnected(host *Host) {
+func (c *BaseCluster) NewHostAddedOrConnected(host *Host) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
+
+	c.log.Debug("Host %s has just connected to the Cluster or is being re-enabled.", host.ID)
 
 	c.hostMutex.Lock()
 	// The host mutex is already locked if we're performing a scaling operation.

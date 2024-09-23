@@ -797,7 +797,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	d.log.Info("Incoming host scheduler %s (node = %s) connected", host.ID, host.NodeName)
 
-	d.cluster.NewHostConnected(host)
+	d.cluster.NewHostAddedOrConnected(host)
 
 	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the Cluster Gateway.", host.ID, host.NodeName))
 
