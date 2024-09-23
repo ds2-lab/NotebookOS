@@ -448,7 +448,7 @@ type registrationWaitGroups struct {
 // Create and return a pointer to a new registrationWaitGroups struct.
 //
 // Parameters:
-// - numReplicas (int): Value to be added to the registrationWaitGroups's "notified" and "registered" sync.WaitGroups.
+// - numReplicas (int): Value to be added to the "notified" and "registered" sync.WaitGroups of the registrationWaitGroups.
 func newRegistrationWaitGroups(numReplicas int) *registrationWaitGroups {
 	wg := &registrationWaitGroups{
 		replicas: make(map[int32]string),
@@ -541,15 +541,6 @@ func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) map[
 
 	return wg.replicas
 }
-
-// func (wg *registrationWaitGroups) UpdateAndGetReplicasAfterMigration(idx int32, hostname string) []string {
-// wg.replicasMutex.Lock()
-// defer wg.replicasMutex.Unlock()
-
-// 	wg.replicas[idx] = hostname
-
-// 	return wg.replicas
-// }
 
 // GetNotified returns the "notified" sync.WaitGroup.
 func (wg *registrationWaitGroups) GetNotified() *sync.WaitGroup {
@@ -735,74 +726,6 @@ func (d *ClusterGatewayImpl) Listen(transport string, addr string) (net.Listener
 	d.listener = lis
 	return d, nil
 }
-
-// func (d *ClusterGatewayImpl) initializeDockerKernelDebugPort() {
-// Need to find a series of at least 5 available ports.
-// startingPort := DockerKernelDebugPortDefault
-
-// var listOptions container.ListOptions
-// if len(d.dockerNetworkName) > 0 {
-// 	listOptions = container.ListOptions{
-// 		Filters: filters.NewArgs(filters.KeyValuePair{
-// 			Key:   "network",
-// 			Value: d.dockerNetworkName,
-// 		}),
-// 	}
-// }
-
-// containers, err := d.dockerApiClient.ContainerList(context.Background(), listOptions)
-// if err != nil {
-// 	d.log.Error("Failed to list Docker containers because: %v", err)
-// 	panic(err)
-// }
-
-// // Iterate over all containers...
-// for _, container := range containers {
-// 	container_names := container.Names
-
-// 	// Inspect the name(s) of the container...
-// 	for _, container_name := range container_names {
-// 		// If it is a kernel replica container...
-// 		if strings.HasPrefix(container_name, "kernel") {
-// 			// Check the ports.
-// 		}
-// 	}
-// }
-
-// for startingPort < 64000 {
-// 	// If we get through the check without this being flipped to false, then we'll know we succeeded in finding 5 free ports available.
-// 	success := true
-
-// 	// Look for 5 free ports in a row.
-// 	port := startingPort
-// 	for ; port < startingPort+5; port++ {
-// 		ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
-
-// 		// If there was an error, then the port is already in-use.
-// 		if err != nil {
-// 			d.log.Warn("Port %d was unavailable; cannot use for docker kernel debug port.", port)
-// 			// Indicate that we failed.
-// 			success = false
-// 			break
-// 		}
-
-// 		d.log.Debug("Port %d appears to be available...", port)
-
-// 		// Close the listener.
-// 		ln.Close()
-// 	}
-
-// 	// If we found 5 free ports in a row, then we'll start here.
-// 	if success {
-// 		d.log.Debug("Assigning 'docker kernel debug port' an initial value of %d.", startingPort)
-// 		d.dockerModeKernelDebugPort.Store(startingPort)
-// 		return
-// 	}
-
-// 	// We'll try again (to find 5 free ports in a row), beginning with the next port we've not yet tested.
-// 	startingPort = port + 1
-// }
-// }
 
 // Accept waits for and returns the next connection to the listener.
 // Accept is part of the net.Listener interface implementation.
@@ -1355,58 +1278,6 @@ func (d *ClusterGatewayImpl) KubernetesMode() bool {
 	return d.deploymentMode == types.KubernetesMode
 }
 
-// Important: exactly ONE of `kernelSpec` and `replicaSpec` must be non-nil. That is, they cannot both be nil, and they cannot both be non-nil.
-// func (d *ClusterGatewayImpl) launchReplicaDocker(replicaId int, host *scheduling.Host, numReplicas int32, kernelSpec *proto.KernelSpec, replicaSpec *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
-//	var err error
-//
-//	if host == nil {
-//		d.log.Error("Target host cannot be nil when launching kernel replica via Docker")
-//		return nil, scheduling.ErrNilHost
-//	}
-//
-//	if kernelSpec == nil && replicaSpec == nil {
-//		panic("Both `kernelSpec` and `replicaSpec` cannot be nil; exactly one of these two arguments must be non-nil.")
-//	}
-//
-//	if kernelSpec != nil && replicaSpec != nil {
-//		panic("Both `kernelSpec` and `replicaSpec` cannot be non-nil; exactly one of these two arguments must be non-nil.")
-//	}
-//
-//	var kernelId string
-//	if kernelSpec != nil {
-//		kernelId = kernelSpec.Id
-//		d.log.Debug("Launching replica %d of kernel %s on host %v now.", replicaId, kernelId, host)
-//		replicaSpec = &proto.KernelReplicaSpec{
-//			Kernel:                    kernelSpec,
-//			ReplicaId:                 int32(replicaId),
-//			NumReplicas:               numReplicas,
-//			DockerModeKernelDebugPort: d.dockerModeKernelDebugPort.Add(1),
-//		}
-//	} else {
-//		kernelId = replicaSpec.Kernel.Id
-//
-//		// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
-//		if replicaSpec.DockerModeKernelDebugPort <= 1023 {
-//			replicaSpec.DockerModeKernelDebugPort = d.dockerModeKernelDebugPort.Add(1)
-//		}
-//
-//		d.log.Debug("Launching replica %d of kernel %s on host %v now.", replicaSpec.ReplicaId, kernelId, host)
-//	}
-//
-//	replicaConnInfo, err := d.placer.Place(host, replicaSpec)
-//	if err != nil {
-//		if kernelSpec != nil {
-//			d.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
-//		} else {
-//			d.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
-//		}
-//		return nil, err
-//	}
-//
-//	d.log.Debug("Received replica connection info after calling placer.Place: %v", replicaConnInfo)
-//	return replicaConnInfo, nil
-//}
-
 // startNewKernel is called by StartKernel when creating a brand-new kernel, rather than restarting an existing kernel.
 func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.DistributedKernelClient, error) {
 	d.log.Debug("Did not find existing DistributedKernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
@@ -1456,82 +1327,6 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 	return kernel, nil
 }
 
-// handleNewDockerKernel is called by StartKernel to handle Docker-specific initialization steps.
-// That is, handleNewDockerKernel is only called when running in Docker Mode.
-//
-// This function is responsible for interfacing with the Scheduler to determine which virtual nodes to
-// place the new kernel replicas on.
-//
-// This function initiates the scheduling and provisioning process before waiting for the replicas to register
-// with the Cluster Gateway (via their Local Daemons).
-//func (d *ClusterGatewayImpl) handleNewDockerKernel(ctx context.Context, in *proto.KernelSpec) error {
-//	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
-//	// or errors that occurred when launching a replica.
-//	resultChan := make(chan interface{}, 3)
-//
-//	d.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", d.ClusterOptions.NumReplicas, in.Id, in.ResourceSpec.String())
-//
-//	// Identify the hosts onto which we will place replicas of the kernel.
-//	hosts := d.placer.FindHosts(types.FullSpecFromKernelSpec(in))
-//
-//	if len(hosts) < d.ClusterOptions.NumReplicas {
-//		d.log.Error("Found %d/%d hosts to serve replicas of kernel %s.", len(hosts), d.ClusterOptions.NumReplicas, in.Id)
-//		return fmt.Errorf("%w: found %d/%d required hosts to serve replicas of kernel %s", scheduling.ErrInsufficientHostsAvailable, len(hosts), d.ClusterOptions.NumReplicas, in.Id)
-//	}
-//
-//	d.log.Debug("Found %d hosts to serve replicas of kernel %s: %v", d.ClusterOptions.NumReplicas, in.Id, hosts)
-//
-//	// For each host, launch a Docker replica on that host.
-//	for i, host := range hosts {
-//		// Launch replicas in parallel.
-//		go func(replicaId int, targetHost *scheduling.Host) {
-//			_, err := d.launchReplicaDocker(replicaId, targetHost, int32(len(hosts)), in, nil) /* Only 1 of arguments 3 and 4 can be non-nil */
-//
-//			if err != nil {
-//				// An error occurred. Send it over the channel.
-//				resultChan <- err
-//			} else {
-//				// Send a notification that a replica was launched successfully.
-//				resultChan <- struct{}{}
-//			}
-//		}(i+1, host)
-//	}
-//
-//	// Keep looping until we've received all responses or the context times-out.
-//	responsesReceived := 0
-//	responsesRequired := len(hosts)
-//	for responsesReceived < responsesRequired {
-//		select {
-//		// Context time-out, meaning the operation itself has timed-out or been cancelled.
-//		case <-ctx.Done():
-//			{
-//				err := ctx.Err()
-//				if err != nil {
-//					d.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. Error extracted from now-cancelled context: %v", in.Id, err)
-//					return err
-//				} else {
-//					d.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. No error extracted from now-cancelled context.", in.Id, err)
-//					return types.ErrRequestTimedOut // Return generic error if we can't get one from the Context for some reason.
-//				}
-//			}
-//		// Received response.
-//		case val := <-resultChan:
-//			{
-//				if err, ok := val.(error); ok {
-//					d.log.Error("Error while launching at least one of the replicas of kernel %s: %v", in.Id, err)
-//					return err
-//				}
-//
-//				responsesReceived += 1
-//
-//				d.log.Debug("Launched %d/%d replica(s) of kernel %s.", responsesReceived, responsesRequired, in.Id)
-//			}
-//		}
-//	}
-//
-//	return nil
-//}
-
 // StartKernel launches a new kernel.
 func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
 	startTime := time.Now()
@@ -1567,22 +1362,6 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	d.waitGroups.Store(in.Id, created)
 
 	d.log.Debug("Created and stored new DistributedKernel %s.", in.Id)
-
-	// If we're in KubeMode, then
-	//if d.KubernetesMode() {
-	//	_, err = d.kubeClient.DeployDistributedKernels(ctx, in)
-	//	if err != nil {
-	//		d.log.Error("Error encountered while attempting to create the Kubernetes resources for Session %s", in.Id)
-	//		d.log.Error("%v", err)
-	//		return nil, status.Errorf(codes.Internal, "Failed to start kernel")
-	//	}
-	//} else if d.DockerMode() {
-	//	err = d.handleNewDockerKernel(ctx, in)
-	//	if err != nil {
-	//		d.log.Error("Error while handling Docker-specific initiation steps for new kernel %s: %v", in.Id, err)
-	//		return nil, status.Error(codes.Internal, err.Error())
-	//	}
-	//}
 
 	err = d.cluster.ClusterScheduler().DeployNewKernel(ctx, in)
 	if err != nil {
@@ -2960,14 +2739,6 @@ func (d *ClusterGatewayImpl) cleanUp() {
 	close(d.cleaned)
 }
 
-// func (d *ClusterGatewayImpl) closeReplica(host *scheduling.Host, kernel *client.DistributedKernelClient, replica *client.KernelReplicaClient, replicaId int, reason string) {
-// 	defer replica.Close()
-
-// 	if err := d.placer.Reclaim(host, kernel, false); err != nil {
-// 		d.log.Warn("Failed to close kernel(%s:%d) after %s, failure: %v", kernel.ID(), replicaId, reason, err)
-// 	}
-// }
-
 // Add a new replica to a particular distributed kernel.
 // This is only used for adding new replicas beyond the base set of replicas created
 // when the CloneSet is first created. The first 3 (or however many there are configured
@@ -3318,14 +3089,14 @@ func (d *ClusterGatewayImpl) GetDockerSwarmNodes(_ context.Context, _ *proto.Voi
 	return nil, status.Errorf(codes.Unimplemented, "method GetDockerSwarmNodes not implemented")
 }
 
-func (d *ClusterGatewayImpl) GetNumNodes(ctx context.Context, in *proto.Void, opts ...grpc.CallOption) (*proto.NumNodesResponse, error) {
+func (d *ClusterGatewayImpl) GetNumNodes(_ context.Context, _ *proto.Void) (*proto.NumNodesResponse, error) {
 	return &proto.NumNodesResponse{
 		NumNodes: int32(d.cluster.GetHostManager().Len()),
 		NodeType: d.cluster.NodeType(),
 	}, nil
 }
 
-func (d *ClusterGatewayImpl) SetNumClusterNodes(ctx context.Context, in *proto.SetNumClusterNodesRequest, opts ...grpc.CallOption) (*proto.SetNumClusterNodesResponse, error) {
+func (d *ClusterGatewayImpl) SetNumClusterNodes(ctx context.Context, in *proto.SetNumClusterNodesRequest) (*proto.SetNumClusterNodesResponse, error) {
 	initialSize := d.cluster.GetHostManager().Len()
 	p := d.cluster.ScaleToSize(ctx, in.TargetNumNodes)
 
@@ -3341,8 +3112,7 @@ func (d *ClusterGatewayImpl) SetNumClusterNodes(ctx context.Context, in *proto.S
 	}, nil
 }
 
-func (d *ClusterGatewayImpl) AddClusterNodes(ctx context.Context, in *proto.AddClusterNodesRequest, opts ...grpc.CallOption) (*proto.AddClusterNodesResponse, error) {
-	initialSize := d.cluster.GetHostManager().Len()
+func (d *ClusterGatewayImpl) AddClusterNodes(ctx context.Context, in *proto.AddClusterNodesRequest) (*proto.AddClusterNodesResponse, error) {
 	p := d.cluster.RequestHosts(ctx, in.NumNodes)
 
 	if err := p.Error(); err != nil {
@@ -3350,27 +3120,46 @@ func (d *ClusterGatewayImpl) AddClusterNodes(ctx context.Context, in *proto.AddC
 		return nil, err
 	}
 
-	numNodesCreated, err := p.Result()
+	scaleResult, err := p.Result()
 	if err != nil {
 		d.log.Error("Failed to add %d nodes because: %v", in.NumNodes, err)
 		return nil, err
 	}
 
+	scaleOutOperationResult := scaleResult.(*scheduling.ScaleOutOperationResult)
 	return &proto.AddClusterNodesResponse{
 		RequestId:         in.RequestId,
-		PrevNumNodes:      int32(initialSize),
-		NumNodesCreated:   numNodesCreated.(int32),
+		PrevNumNodes:      scaleOutOperationResult.PreviousNumNodes,
+		NumNodesCreated:   scaleOutOperationResult.NumNodesCreated,
 		NumNodesRequested: in.NumNodes,
 	}, nil
 }
 
-func (d *ClusterGatewayImpl) RemoveSpecificClusterNodes(ctx context.Context, in *proto.RemoveSpecificClusterNodesRequest, opts ...grpc.CallOption) (*proto.RemoveSpecificClusterNodesResponse, error) {
-	//TODO implement me
-	panic("implement me")
+func (d *ClusterGatewayImpl) RemoveSpecificClusterNodes(ctx context.Context, in *proto.RemoveSpecificClusterNodesRequest) (*proto.RemoveSpecificClusterNodesResponse, error) {
+	p := d.cluster.ReleaseSpecificHosts(ctx, in.NodeIDs)
+
+	if err := p.Error(); err != nil {
+		d.log.Error("Failed to remove %d specific nodes because: %v", len(in.NodeIDs), err)
+		return nil, err
+	}
+
+	scaleResult, err := p.Result()
+	if err != nil {
+		d.log.Error("Failed to remove %d specific nodes because: %v", len(in.NodeIDs), err)
+		return nil, err
+	}
+
+	scaleInOperationResult := scaleResult.(*scheduling.ScaleInOperationResult)
+	return &proto.RemoveSpecificClusterNodesResponse{
+		RequestId:       in.RequestId,
+		OldNumNodes:     scaleInOperationResult.PreviousNumNodes,
+		NumNodesRemoved: scaleInOperationResult.NumNodesTerminated,
+		NewNumNodes:     scaleInOperationResult.CurrentNumNodes,
+		NodesRemoved:    scaleInOperationResult.Nodes(),
+	}, nil
 }
 
 func (d *ClusterGatewayImpl) RemoveClusterNodes(ctx context.Context, in *proto.RemoveClusterNodesRequest) (*proto.RemoveClusterNodesResponse, error) {
-	initialSize := d.cluster.GetHostManager().Len()
 	p := d.cluster.ReleaseHosts(ctx, in.NumNodesToRemove)
 
 	if err := p.Error(); err != nil {
@@ -3378,21 +3167,22 @@ func (d *ClusterGatewayImpl) RemoveClusterNodes(ctx context.Context, in *proto.R
 		return nil, err
 	}
 
-	numNodesRemoved, err := p.Result()
+	scaleResult, err := p.Result()
 	if err != nil {
 		d.log.Error("Failed to remove %d nodes because: %v", in.NumNodesToRemove, err)
 		return nil, err
 	}
 
+	scaleInOperationResult := scaleResult.(*scheduling.ScaleInOperationResult)
 	return &proto.RemoveClusterNodesResponse{
 		RequestId:       in.RequestId,
-		OldNumNodes:     int32(initialSize),
-		NumNodesRemoved: numNodesRemoved.(int32),
-		NewNumNodes:     int32(d.cluster.GetHostManager().Len()),
+		OldNumNodes:     scaleInOperationResult.PreviousNumNodes,
+		NumNodesRemoved: scaleInOperationResult.NumNodesTerminated,
+		NewNumNodes:     scaleInOperationResult.CurrentNumNodes,
 	}, nil
 }
 
-func (d *ClusterGatewayImpl) ModifyClusterNodes(ctx context.Context, in *proto.ModifyClusterNodesRequest, opts ...grpc.CallOption) (*proto.ModifyClusterNodesResponse, error) {
+func (d *ClusterGatewayImpl) ModifyClusterNodes(_ context.Context, _ *proto.ModifyClusterNodesRequest) (*proto.ModifyClusterNodesResponse, error) {
 	return nil, ErrNotImplemented
 }
 

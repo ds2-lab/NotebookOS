@@ -201,6 +201,12 @@ func (c *BaseCluster) DemandGPUs() float64 {
 	panic("Not implemented")
 }
 
+// NumReplicas returns the numer of replicas that each Jupyter kernel has associated with it.
+// This is typically equal to 3, but may be altered in the system configuration.
+func (c *BaseCluster) NumReplicas() int {
+	return c.numReplicas
+}
+
 ////////////////////////////
 // Hashmap implementation //
 ////////////////////////////
@@ -379,7 +385,7 @@ func (c *BaseCluster) RegisterScaleOutOperation(operationId string, targetCluste
 // When the operation completes, a notification is sent on the channel passed to this function.
 //
 // If there already exists a scale operation with the same ID, then the existing scale operation is returned along with an error.
-func (c *BaseCluster) RegisterScaleInOperation(operationId string, targetClusterSize int32) (*ScaleOperation, error) {
+func (c *BaseCluster) RegisterScaleInOperation(operationId string, targetClusterSize int32, targetHosts []string) (*ScaleOperation, error) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -388,10 +394,21 @@ func (c *BaseCluster) RegisterScaleInOperation(operationId string, targetCluster
 		return nil, ErrScalingActive
 	}
 
-	currentClusterSize := int32(c.Len())
-	scaleOperation, err := NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
-	if err != nil {
-		return nil, err
+	var (
+		currentClusterSize = int32(c.Len())
+		scaleOperation     *ScaleOperation
+		err                error
+	)
+	if len(targetHosts) > 0 {
+		scaleOperation, err = NewScaleInOperationWithTargetHosts(operationId, currentClusterSize, targetHosts, c.instance)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		scaleOperation, err = NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if scaleOperation.OperationType != ScaleInOperation {
@@ -456,7 +473,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
 	// on the current and target cluster size).
 	opId := uuid.NewString()
-	scaleOp, err := c.RegisterScaleInOperation(opId, targetNumNodes)
+	scaleOp, err := c.RegisterScaleInOperation(opId, targetNumNodes, ids)
 	if err != nil {
 		c.log.Error("Could not register new scale-in operation down to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
@@ -498,7 +515,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
 	// on the current and target cluster size).
 	opId := uuid.NewString()
-	scaleOp, err := c.RegisterScaleInOperation(opId, targetNumNodes)
+	scaleOp, err := c.RegisterScaleInOperation(opId, targetNumNodes, []string{})
 	if err != nil {
 		c.log.Error("Could not register new scale-in operation down to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
@@ -563,6 +580,6 @@ func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan i
 // targetHosts specifies any specific hosts that are to be removed.
 //
 // resultChan is used to notify a waiting goroutine that the scale-in operation has finished.
-func (c *BaseCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, resultChan chan interface{}) func() {
+func (c *BaseCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, resultChan chan interface{}) (func(), error) {
 	return c.instance.GetScaleInCommand(targetNumNodes, targetHosts, resultChan)
 }

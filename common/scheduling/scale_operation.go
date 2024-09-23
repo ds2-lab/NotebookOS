@@ -173,12 +173,106 @@ type ScaleOperation struct {
 	log logger.Logger
 }
 
+// getScaleOperationType returns the appropriate ScaleOperationType given the initial scale and target scale
+// values for a particular ScaleOperation.
+//
+// This function will panic if initialScale and targetScale are equal.
+//
+// getScaleOperationType returns ScaleOutOperation if targetScale > initialScale and ScaleInOperation if
+// targetScale < initialScale.
+func getScaleOperationType(initialScale int32, targetScale int32) ScaleOperationType {
+	if targetScale == initialScale {
+		log.Fatalf("Invalid initial scale (%d) and target scale (%d) values specified.", initialScale, targetScale)
+	}
+
+	if initialScale > targetScale {
+		return ScaleInOperation
+	} else {
+		return ScaleOutOperation
+	}
+}
+
+// NewScaleInOperationWithTargetHosts creates a new ScaleOperation struct and returns a pointer to it.
+// NewScaleInOperationWithTargetHosts differs from NewScaleOperation in that (a) it obviously creates a ScaleInOperation,
+// rather than a ScaleOperation whose type is determined by the initialScale and targetScale arguments, and (b) allows
+// the caller to explicitly specify the IDs of the Host instances that are to be removed from the Cluster.
+//
+// For now, the difference between the initial (current) scale and the target scale must equal the number of target
+// Host IDs that are specified. That is, the caller cannot request a scale-in of (e.g.,) 10 hosts, while only explicitly
+// specifying 5 Host IDs (with the idea that the Cluster would automatically select another 5 Host instances to remove).
+func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, targetHosts []string, cluster clusterInternal) (*ScaleOperation, error) {
+	// There should be at least one target Host specified.
+	if len(targetHosts) == 0 {
+		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: current scale and initial scale are equal (no target hosts specified)", ErrInvalidTargetScale).Error())
+	}
+
+	// Ensure that the caller isn't trying to scale-in by too many hosts. There needs to be at least `NUM_REPLICAS`
+	// hosts in the cluster, where `NUM_REPLICAS` is the number of replicas of each Jupyter kernel.
+	targetScale := initialScale - int32(len(targetHosts))
+	if targetScale <= int32(cluster.NumReplicas()) {
+		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: too many target hosts specified (%d, with initial scale of %d); cluster's minimum scale is %d", ErrInvalidTargetScale, targetScale, initialScale, cluster.NumReplicas()).Error())
+	}
+
+	// We're necessarily creating a scale-in operation here, so the target scale must be less than the initial scale.
+	if targetScale > initialScale {
+		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: cannot create scale-in operation with initial scale of %d and target scale of %d", ErrInvalidTargetScale, initialScale, targetScale).Error())
+	}
+
+	// For now, the difference between the initial (current) scale and the target scale must equal the number of target
+	// Host IDs that are specified. That is, the caller cannot request a scale-in of (e.g.,) 10 hosts, while only explicitly
+	// specifying 5 Host IDs (with the idea that the Cluster would automatically select another 5 Host instances to remove).
+	expectedNumAffectedNodes := int(math.Abs(float64(targetScale - initialScale)))
+	if len(targetHosts) != expectedNumAffectedNodes {
+		return nil, status.Error(codes.InvalidArgument,
+			fmt.Errorf("%w: specified %d target hosts, but difference between initial scale (%d) and target scale (%d) is %d",
+				ErrInvalidTargetScale, len(targetHosts), initialScale, targetScale, expectedNumAffectedNodes).Error())
+	}
+
+	if cluster == nil {
+		log.Fatalf("Cannot create new ScaleOperation when Cluster is nil...")
+	}
+
+	scaleOperation := &ScaleOperation{
+		OperationId:              operationId,
+		NotificationChan:         make(chan struct{}, 1),
+		ExpectedNumAffectedNodes: expectedNumAffectedNodes,
+		NodesAffected:            make([]string, 0, int(math.Abs(float64(targetScale-initialScale)))),
+		InitialScale:             initialScale,
+		TargetScale:              targetScale,
+		RegistrationTime:         time.Now(),
+		Status:                   ScaleOperationAwaitingStart,
+		Cluster:                  cluster,
+		OperationType:            getScaleOperationType(initialScale, targetScale),
+		CoreLogicDoneChan:        make(chan interface{}),
+	}
+
+	scaleOperation.cond = sync.NewCond(&scaleOperation.condMu)
+
+	executionFunc, err := cluster.GetScaleInCommand(targetScale, targetHosts, scaleOperation.CoreLogicDoneChan)
+	if err != nil {
+		return nil, err
+	}
+
+	scaleOperation.executionFunc = executionFunc
+	scaleOperation.log = config.GetLogger(
+		fmt.Sprintf("%s-%s", scaleOperation.OperationType, scaleOperation.OperationId))
+	return scaleOperation, nil
+}
+
 // NewScaleOperation creates a new ScaleOperation struct and returns a pointer to it.
 //
 // Specifically, a tuple is returned, where the first element is a pointer to a new ScaleOperation struct, and
 // the second element is an error, if one occurred. If an error did occur, then the pointer to the ScaleOperation
 // struct will presumably be a null pointer.
 func NewScaleOperation(operationId string, initialScale int32, targetScale int32, cluster clusterInternal) (*ScaleOperation, error) {
+	if targetScale == initialScale {
+		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: current scale and initial scale are equal (%d)", ErrInvalidTargetScale, targetScale).Error())
+	}
+
+	if cluster == nil {
+		log.Fatalf("Cannot create new ScaleOperation when Cluster is nil...")
+	}
+
 	scaleOperation := &ScaleOperation{
 		OperationId:              operationId,
 		NotificationChan:         make(chan struct{}, 1),
@@ -189,25 +283,27 @@ func NewScaleOperation(operationId string, initialScale int32, targetScale int32
 		RegistrationTime:         time.Now(),
 		Status:                   ScaleOperationAwaitingStart,
 		Cluster:                  cluster,
+		OperationType:            getScaleOperationType(initialScale, targetScale),
+		CoreLogicDoneChan:        make(chan interface{}),
 	}
 
 	scaleOperation.cond = sync.NewCond(&scaleOperation.condMu)
 
-	if targetScale < initialScale {
-		scaleOperation.OperationType = ScaleInOperation
-
-		scaleOperation.CoreLogicDoneChan = make(chan interface{})
-		scaleOperation.executionFunc = cluster.GetScaleInCommand(targetScale, []string{} /* No specific hosts targeted */, scaleOperation.CoreLogicDoneChan)
-	} else if targetScale > initialScale {
-		scaleOperation.OperationType = ScaleOutOperation
-
-		scaleOperation.CoreLogicDoneChan = make(chan interface{})
-		scaleOperation.executionFunc = cluster.GetScaleInCommand(targetScale, []string{} /* No specific hosts targeted */, scaleOperation.CoreLogicDoneChan)
-	} else /* targetScale == initialScale */ {
-		wrappedErr := fmt.Errorf("%w: current scale and initial scale are equal (%d)", ErrInvalidTargetScale, targetScale)
-		return nil, status.Error(codes.InvalidArgument, wrappedErr.Error())
+	var (
+		executionFunc func()
+		err           error
+	)
+	if scaleOperation.OperationType == ScaleInOperation {
+		executionFunc, err = cluster.GetScaleInCommand(targetScale, []string{} /* No specific hosts targeted */, scaleOperation.CoreLogicDoneChan)
+	} else {
+		executionFunc = cluster.GetScaleOutCommand(targetScale, scaleOperation.CoreLogicDoneChan)
 	}
 
+	if err != nil {
+		return nil, err
+	}
+
+	scaleOperation.executionFunc = executionFunc
 	scaleOperation.log = config.GetLogger(
 		fmt.Sprintf("%s-%s", scaleOperation.OperationType, scaleOperation.OperationId))
 	return scaleOperation, nil

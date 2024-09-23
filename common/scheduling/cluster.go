@@ -115,7 +115,7 @@ type clusterInternal interface {
 
 	// RegisterScaleInOperation registers a scale-in operation.
 	// When the operation completes, a notification is sent on the channel associated with the ScaleOperation.
-	RegisterScaleInOperation(string, int32) (*ScaleOperation, error)
+	RegisterScaleInOperation(string, int32, []string) (*ScaleOperation, error)
 
 	// ClusterMetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
 	ClusterMetricsProvider() metrics.ClusterMetricsProvider
@@ -193,4 +193,8 @@ type Cluster interface {
 
 	// NodeType returns the type of node provisioned within the Cluster.
 	NodeType() string
+
+	// NumReplicas returns the numer of replicas that each Jupyter kernel has associated with it.
+	// This is typically equal to 3, but may be altered in the system configuration.
+	NumReplicas() int
 }
