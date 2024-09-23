@@ -11,6 +11,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"log"
 	"sync"
 )
 
@@ -361,6 +362,35 @@ func (c *BaseCluster) registerScaleOperation(operationId string, targetClusterSi
 	return scaleOperation, nil
 }
 
+// unregisterActiveScaleOp unregisters the current active ScaleOperation and returns a boolean indicating whether
+// a ScaleOperation was in fact unregistered.
+//
+// If there is no active ScaleOperation, then unregisterActiveScaleOp returns false.
+//
+// If there is an active ScaleOperation, but that ScaleOperation is incomplete, then unregisterActiveScaleOp returns false.
+//
+// If there is an active ScaleOperation, and that ScaleOperation has finished (either successfully or in an error state),
+// then unregisterActiveScaleOp returns true.
+func (c *BaseCluster) unregisterActiveScaleOp() bool {
+	c.scalingOpMutex.Lock()
+	defer c.scalingOpMutex.Unlock()
+
+	if c.activeScaleOperation == nil {
+		c.log.Error("Cannot unregister active scale operation, as there is no active scale operation right now...")
+		return false
+	}
+
+	if !c.activeScaleOperation.IsComplete() {
+		c.log.Error("Cannot unregister active %s %s, as the operation is incomplete: %v",
+			c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, c.activeScaleOperation)
+		return false
+	}
+
+	c.log.Debug("Unregistered completed %s %s now.", c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId)
+	c.activeScaleOperation = nil
+	return true
+}
+
 // RegisterScaleOutOperation registers a scale-out operation.
 // When the operation completes, a notification is sent on the channel passed to this function.
 //
@@ -458,7 +488,11 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 		promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
-	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.")
+	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
+	if unregistered := c.unregisterActiveScaleOp(); !unregistered {
+		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+	}
+
 	return promise.Resolved(result)
 }
 
@@ -490,6 +524,10 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 		promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
+	c.log.Debug("Scale-in from %d nodes down to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
+	if unregistered := c.unregisterActiveScaleOp(); !unregistered {
+		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+	}
 	return promise.Resolved(result)
 }
 
@@ -527,14 +565,34 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 		promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
+	c.log.Debug("Scale-in from %d nodes to %d nodes has succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
+	if unregistered := c.unregisterActiveScaleOp(); !unregistered {
+		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+	}
+
 	return promise.Resolved(result)
 }
 
 // ScaleToSize scales the Cluster to the specified number of Host instances.
 //
 // If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
-func (c *BaseCluster) ScaleToSize(ctx context.Context, n int32) promise.Promise {
-	return c.instance.ScaleToSize(ctx, n)
+func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise {
+	currentNumNodes := int32(c.Len())
+
+	if targetNumNodes < int32(c.numReplicas) {
+		c.log.Error("Cannot scale to size of %d Local Daemon Docker node(s) from the cluster", targetNumNodes)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		return promise.Resolved(nil, fmt.Errorf("%w: targetNumNodes=%d", ErrInvalidTargetNumHosts, targetNumNodes))
+	}
+
+	if targetNumNodes == currentNumNodes {
+		c.log.Error("Cluster is already of size %d. Rejecting request to scale to size %d.", currentNumNodes, targetNumNodes)
+		return promise.Resolved(nil, fmt.Errorf("%w: cluster is already of size %d", ErrInvalidTargetNumHosts, targetNumNodes))
+	} else if targetNumNodes > currentNumNodes {
+		return c.RequestHosts(ctx, targetNumNodes-currentNumNodes)
+	} else {
+		return c.ReleaseHosts(ctx, currentNumNodes-targetNumNodes)
+	}
 }
 
 // ClusterMetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.

@@ -149,7 +149,7 @@ type Cluster interface {
 	// ScaleToSize scales the Cluster to the specified number of Host instances.
 	//
 	// If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
-	ScaleToSize(ctx context.Context, n int32) promise.Promise
+	ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise
 
 	// HandleScaleInOperation handles a scale-in operation, removing the necessary Host instances from the Cluster.
 	//HandleScaleInOperation(op *ScaleOperation) promise.Promise
