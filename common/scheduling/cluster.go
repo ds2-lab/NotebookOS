@@ -6,6 +6,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -144,6 +145,9 @@ type clusterInternal interface {
 // 2. Providing a global view of all hosts with multiple indexes.
 // 3. Providing a statistics of the hosts.
 type Cluster interface {
+	// Sessions returns a mapping from session ID to Session.
+	Sessions() hashmap.HashMap[string, *Session]
+
 	// RequestHosts requests n Host instances to be launched and added to the Cluster, where n >= 1.
 	//
 	// If n is 0, then this returns immediately.

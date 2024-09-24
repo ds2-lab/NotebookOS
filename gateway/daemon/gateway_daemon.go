@@ -132,7 +132,6 @@ type ClusterGatewayImpl struct {
 	// kernel members
 	transport        string
 	ip               string
-	sessions         hashmap.HashMap[string, *scheduling.Session]             // Map of Sessions
 	kernels          hashmap.HashMap[string, *client.DistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
 	kernelIdToKernel hashmap.HashMap[string, *client.DistributedKernelClient] // Map from Kernel ID to  client.DistributedKernelClient.
 	kernelSpecs      hashmap.HashMap[string, *proto.KernelSpec]
@@ -244,7 +243,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		transport:                             "tcp",
 		ip:                                    opts.IP,
 		availablePorts:                        utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
-		sessions:                              hashmap.NewCornelkMap[string, *scheduling.Session](128),
 		kernels:                               hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
 		kernelIdToKernel:                      hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
 		kernelSpecs:                           hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
@@ -653,7 +651,7 @@ func (d *ClusterGatewayImpl) NumLocalDaemonsConnected() int {
 	return d.cluster.Len()
 }
 
-func (d *ClusterGatewayImpl) NumKernelsRegistered() int {
+func (d *ClusterGatewayImpl) NumKernels() int {
 	return d.kernels.Len()
 }
 
@@ -668,9 +666,11 @@ func (d *ClusterGatewayImpl) publishPrometheusMetrics() {
 		d.log.Debug("Beginning to publish metrics to Prometheus now. Interval: %v", d.prometheusInterval)
 
 		for {
-			d.gatewayPrometheusManager.DemandGpusGauge.Set(d.cluster.DemandGPUs())
-			d.gatewayPrometheusManager.BusyGpusGauge.Set(d.cluster.BusyGPUs())
-			d.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(d.cluster.SubscriptionRatio())
+			if d.cluster != nil {
+				d.gatewayPrometheusManager.DemandGpusGauge.Set(d.cluster.DemandGPUs())
+				d.gatewayPrometheusManager.BusyGpusGauge.Set(d.cluster.BusyGPUs())
+				d.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(d.cluster.SubscriptionRatio())
+			}
 
 			time.Sleep(d.prometheusInterval)
 		}
@@ -1302,7 +1302,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 		WithMemoryUsageMb(in.ResourceSpec.MemoryMB()).
 		WithNGpuUtilizationValues(in.ResourceSpec.Gpu, 0)
 	session := scheduling.NewUserSession(context.Background(), kernel.ID(), in, resourceUtil, d.cluster, d.ClusterOptions)
-	d.sessions.Store(kernel.ID(), session)
+	d.cluster.Sessions().Store(kernel.ID(), session)
 
 	// Assign the Session to the DistributedKernelClient.
 	kernel.SetSession(session)
@@ -1409,7 +1409,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	}
 	d.log.Info("Kernel(%s) started after %v: %v", kernel.ID(), time.Since(startTime), info)
 
-	session, ok := d.sessions.Load(kernel.ID())
+	session, ok := d.cluster.Sessions().Load(kernel.ID())
 	if ok {
 		p := session.SessionStarted()
 		err = p.Error()
@@ -1500,7 +1500,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
 	}
 
-	session, ok := d.sessions.Load(in.KernelId)
+	session, ok := d.cluster.Sessions().Load(in.KernelId)
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", in.SessionId)
 		d.log.Error(errorMessage)
@@ -1692,7 +1692,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 		nil, kernel.PersistentID(), hostId, host, metrics.ClusterGateway, true, true,
 		d.gatewayPrometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
-	session, ok := d.sessions.Load(kernelId)
+	session, ok := d.cluster.Sessions().Load(kernelId)
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", kernelId)
 		d.log.Error(errorMessage)
@@ -2242,7 +2242,7 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.Ju
 			return err
 		}
 
-		session, ok := d.sessions.Load(kernel.ID())
+		session, ok := d.cluster.Sessions().Load(kernel.ID())
 		if !ok || session == nil {
 			errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", sessionId, kernel.ID())
 			d.log.Error(errorMessage)
@@ -2399,7 +2399,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 
 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernelId, activeExecution)
 
-	session, ok := d.sessions.Load(kernelId)
+	session, ok := d.cluster.Sessions().Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
 		return fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
@@ -2911,7 +2911,7 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) err
 		d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
 	}
 
-	session, loaded := d.sessions.Load(kernelId)
+	session, loaded := d.cluster.Sessions().Load(kernelId)
 	if !loaded {
 		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
 		return fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)

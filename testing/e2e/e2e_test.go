@@ -176,7 +176,7 @@ var _ = Describe("End to End (E2E) Tests", func() {
 
 			time.Sleep(time.Millisecond * 1250)
 
-			Expect(clusterGateway.NumKernelsRegistered()).To(Equal(1))
+			Expect(clusterGateway.NumKernels()).To(Equal(1))
 
 			// doneGW.Wait()
 			// doneLD1.Wait()

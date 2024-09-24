@@ -24,6 +24,9 @@ type BaseCluster struct {
 	// hosts is a map from host ID to *Host containing all the Host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, *Host]
 
+	// sessions is a map of Sessions.
+	sessions hashmap.HashMap[string, *Session]
+
 	// indexes is a map from index key to ClusterIndexProvider containing all the indexes in the Cluster.
 	indexes hashmap.BaseHashMap[string, ClusterIndexProvider]
 
@@ -83,7 +86,8 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		numReplicasDecimal:       decimal.NewFromInt(int64(opts.NumReplicas)),
 		clusterMetricsProvider:   clusterMetricsProvider,
 		subscriptionRatio:        7.0,
-		hosts:                    hashmap.NewConcurrentMap[*Host](256),
+		hosts:                    hashmap.NewConcurrentMap[*Host](64),
+		sessions:                 hashmap.NewCornelkMap[string, *Session](128),
 		indexes:                  hashmap.NewSyncMap[string, ClusterIndexProvider](),
 		validateCapacityInterval: time.Second * time.Duration(opts.ScalingInterval),
 	}
@@ -101,6 +105,11 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 
 	config.InitLogger(&cluster.log, cluster)
 	return cluster
+}
+
+// Sessions returns a mapping from session ID to Session.
+func (c *BaseCluster) Sessions() hashmap.HashMap[string, *Session] {
+	return c.sessions
 }
 
 // NumReplicasAsDecimal returns the numer of replicas that each Jupyter kernel has associated with it as
@@ -267,7 +276,16 @@ func (c *BaseCluster) BusyGPUs() float64 {
 
 // DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
 func (c *BaseCluster) DemandGPUs() float64 {
-	panic("Not implemented")
+	demandGPUs := 0.0
+	c.sessions.Range(func(_ string, session *Session) (contd bool) {
+		if session.IsIdle() || session.IsTraining() {
+			demandGPUs += session.ResourceSpec().GPU()
+		}
+
+		return true
+	})
+
+	return demandGPUs
 }
 
 // NumReplicas returns the numer of replicas that each Jupyter kernel has associated with it.
