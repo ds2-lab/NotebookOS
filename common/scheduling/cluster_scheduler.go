@@ -3,10 +3,17 @@ package scheduling
 import (
 	"context"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"time"
 )
 
+// ClusterScheduler defines the interface of a scheduler for the Cluster.
+//
+// The scheduler is ultimately responsible for deciding where to schedule kernel replicas, when and where to migrate
+// kernel replicas, etc.
+//
+// The ClusterScheduler works together with the Placer to fulfill its role and responsibilities.
 type ClusterScheduler interface {
 	// MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
 	// Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
@@ -37,6 +44,21 @@ type ClusterScheduler interface {
 
 	// MinimumCapacity Returns the minimum number of nodes we must have available at any time.
 	MinimumCapacity() int32
+
+	// GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between
+	// the given ratio and the Cluster's current subscription ratio.
+	GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal
+
+	// GetCandidateHosts returns a slice of *Host containing Host instances that could serve
+	// a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
+	//
+	// GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster
+	// if it fails to find sufficiently many viable Host instances. This process will be attempted three times.
+	// If GetCandidateHosts is unsuccessful (at finding sufficiently many viable hosts) after those three attempts,
+	// then GetCandidateHosts will give up and return an error.
+	//
+	// The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
+	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error)
 
 	// ReleaseIdleHosts Tries to release n idle hosts. Return the number of hosts that were actually released.
 	// Error will be nil on success and non-nil if some sort of failure is encountered.

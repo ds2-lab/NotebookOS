@@ -224,6 +224,64 @@ func (res *resources) LessThanOrEqual(other *resources) (bool, ResourceKind) {
 	return true, NoResource
 }
 
+// GreaterThan returns true if each field of the target 'resources' struct is strictly greater than to the
+// corresponding field of the other 'resources' struct.
+//
+// This method locks both 'resources' instances, beginning with the target instance.
+//
+// If any field of the target 'resources' struct is not strictly greater than the corresponding field of the
+// other 'resources' struct, then false is returned.
+func (res *resources) GreaterThan(other *resources) (bool, ResourceKind) {
+	res.Lock()
+	defer res.Unlock()
+
+	other.Lock()
+	defer other.Unlock()
+
+	if !res.millicpus.GreaterThan(other.millicpus) {
+		return false, CPU
+	}
+
+	if !res.memoryMB.GreaterThan(other.memoryMB) {
+		return false, Memory
+	}
+
+	if !res.gpus.GreaterThan(other.gpus) {
+		return false, GPU
+	}
+
+	return true, NoResource
+}
+
+// GreaterThanOrEqual returns true if each field of the target 'resources' struct is greater than or equal to the
+// corresponding field of the other 'resources' struct.
+//
+// This method locks both 'resources' instances, beginning with the target instance.
+//
+// If any field of the target 'resources' struct is not greater than or equal to the corresponding field of the
+// other 'resources' struct, then false is returned.
+func (res *resources) GreaterThanOrEqual(other *resources) (bool, ResourceKind) {
+	res.Lock()
+	defer res.Unlock()
+
+	other.Lock()
+	defer other.Unlock()
+
+	if !res.millicpus.GreaterThanOrEqual(other.millicpus) {
+		return false, CPU
+	}
+
+	if !res.memoryMB.GreaterThanOrEqual(other.memoryMB) {
+		return false, Memory
+	}
+
+	if !res.gpus.GreaterThanOrEqual(other.gpus) {
+		return false, GPU
+	}
+
+	return true, NoResource
+}
+
 // EqualTo returns true if each field of the target 'resources' struct is exactly equal to the corresponding field of
 // the other 'resources' struct.
 //
@@ -493,13 +551,22 @@ func (res *resources) Subtract(spec *types.DecimalSpec) error {
 
 // Validate returns true if each of the resources' cpu, gpu, and memory are greater than or equal to the respective
 // resource of the given types.DecimalSpec.
-func (res *resources) Validate(spec *types.DecimalSpec) bool {
+func (res *resources) Validate(spec types.Spec) bool {
 	res.Lock()
 	defer res.Unlock()
 
-	return res.gpus.GreaterThanOrEqual(spec.GPUs) &&
-		res.millicpus.GreaterThanOrEqual(spec.Millicpus) &&
-		res.memoryMB.GreaterThanOrEqual(spec.MemoryMb)
+	// Convert the given types.Spec to a *types.DecimalSpec.
+	var decimalSpec *types.DecimalSpec
+	if specAsDecimalSpec, ok := spec.(*types.DecimalSpec); ok {
+		// If the parameter is already a *types.DecimalSpec, then no actual conversion needs to be performed.
+		decimalSpec = specAsDecimalSpec
+	} else {
+		decimalSpec = types.ToDecimalSpec(spec)
+	}
+
+	return res.gpus.GreaterThanOrEqual(decimalSpec.GPUs) &&
+		res.millicpus.GreaterThanOrEqual(decimalSpec.Millicpus) &&
+		res.memoryMB.GreaterThanOrEqual(decimalSpec.MemoryMb)
 }
 
 // ValidateWithError returns nil if each of the resources' cpu, gpu, and memory are greater than or equal to the
@@ -508,30 +575,39 @@ func (res *resources) Validate(spec *types.DecimalSpec) bool {
 //
 // If the specified types.DecimalSpec is NOT validated, then an error is returned.
 // This error indicates which of the resources' cpu, gpu, and/or memory were insufficient to validate the given spec.
-func (res *resources) ValidateWithError(spec *types.DecimalSpec) error {
+func (res *resources) ValidateWithError(spec types.Spec) error {
 	res.Lock()
 	defer res.Unlock()
 
-	sufficientGPUsAvailable := res.gpus.GreaterThanOrEqual(spec.GPUs)
-	sufficientCPUsAvailable := res.millicpus.GreaterThanOrEqual(spec.Millicpus)
-	sufficientMemoryAvailable := res.memoryMB.GreaterThanOrEqual(spec.MemoryMb)
+	// Convert the given types.Spec to a *types.DecimalSpec.
+	var decimalSpec *types.DecimalSpec
+	if specAsDecimalSpec, ok := spec.(*types.DecimalSpec); ok {
+		// If the parameter is already a *types.DecimalSpec, then no actual conversion needs to be performed.
+		decimalSpec = specAsDecimalSpec
+	} else {
+		decimalSpec = types.ToDecimalSpec(spec)
+	}
+
+	sufficientGPUsAvailable := res.gpus.GreaterThanOrEqual(decimalSpec.GPUs)
+	sufficientCPUsAvailable := res.millicpus.GreaterThanOrEqual(decimalSpec.Millicpus)
+	sufficientMemoryAvailable := res.memoryMB.GreaterThanOrEqual(decimalSpec.MemoryMb)
 
 	errs := make([]error, 0)
 	if !sufficientGPUsAvailable {
 		err := fmt.Errorf("%w: available=%s,required=%s",
-			ErrInsufficientGPUs, res.gpus.StringFixed(0), spec.GPUs.StringFixed(0))
+			ErrInsufficientGPUs, res.gpus.StringFixed(0), decimalSpec.GPUs.StringFixed(0))
 		errs = append(errs, err)
 	}
 
 	if !sufficientCPUsAvailable {
 		err := fmt.Errorf("%w: available=%s,required=%s",
-			ErrInsufficientCPUs, res.millicpus.StringFixed(0), spec.Millicpus.StringFixed(0))
+			ErrInsufficientCPUs, res.millicpus.StringFixed(0), decimalSpec.Millicpus.StringFixed(0))
 		errs = append(errs, err)
 	}
 
 	if !sufficientMemoryAvailable {
 		err := fmt.Errorf("%w: available=%s,required=%s",
-			ErrInsufficientMemory, res.memoryMB.StringFixed(0), spec.MemoryMb.StringFixed(0))
+			ErrInsufficientMemory, res.memoryMB.StringFixed(0), decimalSpec.MemoryMb.StringFixed(0))
 		errs = append(errs, err)
 	}
 

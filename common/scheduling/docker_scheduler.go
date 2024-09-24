@@ -94,7 +94,9 @@ func (s *DockerScheduler) MigrateContainer(container *Container, host *Host, b b
 // That is, both cannot be nil, and both cannot be non-nil.
 //
 // If targetHost is nil, then a candidate host is identified automatically by the ClusterScheduler.
-func (s *DockerScheduler) ScheduleKernelReplica(replicaId int32, kernelId string, replicaSpec *proto.KernelReplicaSpec, kernelSpec *proto.KernelSpec, host *Host) error {
+func (s *DockerScheduler) ScheduleKernelReplica(replicaId int32, kernelId string, replicaSpec *proto.KernelReplicaSpec,
+	kernelSpec *proto.KernelSpec, host *Host) error {
+
 	if kernelSpec == nil && replicaSpec == nil {
 		panic("Both `kernelSpec` and `replicaSpec` cannot be nil; exactly one of these two arguments must be non-nil.")
 	}
@@ -143,51 +145,17 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaId int32, kernelId string
 	return nil
 }
 
-// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec) error {
+// scheduleKernelReplicas schedules a replica of the specified kernel on each Host within the given slice of *Host.
+// Specifically, scheduleKernelReplicas calls ScheduleKernelReplica for each of the Host instances within the given
+// slice of Hosts in a separate goroutine, thereby scheduling a replica of the given kernel on the Host. That is, the
+// scheduling of a replica of the kernel occurs in a unique goroutine for each of the specified Host instances.
+//
+// scheduleKernelReplicas returns a <-chan interface{} used to notify the caller when the scheduling operations
+// have completed.
+func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*Host) <-chan interface{} {
 	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
 	// or errors that occurred when launching a replica.
 	resultChan := make(chan interface{}, 3)
-
-	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", s.opts.NumReplicas, in.Id, in.ResourceSpec.String())
-
-	var (
-		numTries    = 0
-		maxAttempts = 3
-		bestAttempt = -1
-		hosts       []*Host
-	)
-	for numTries < maxAttempts {
-		// Identify the hosts onto which we will place replicas of the kernel.
-		hosts = s.placer.FindHosts(types.FullSpecFromKernelSpec(in))
-
-		if len(hosts) < s.opts.NumReplicas {
-			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s.", len(hosts), s.opts.NumReplicas, in.Id)
-
-			numHostsRequired := s.opts.NumReplicas - len(hosts)
-			s.log.Debug("Will attempt to provision %d new host(s).", numHostsRequired)
-
-			s.cluster.RequestHosts(ctx, int32(numHostsRequired))
-
-			numTries += 1
-
-			if len(hosts) > bestAttempt {
-				bestAttempt = len(hosts)
-			}
-
-			if (numTries + 1) < maxAttempts {
-				// Don't want to print this if we've just used up our last try, so to speak.
-				s.log.Debug("Trying again to find %d hosts to serve replicas of kernel %s.", s.opts.NumReplicas, in.Id)
-			}
-		} else {
-			s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v", s.opts.NumReplicas, in.Id, hosts)
-			break
-		}
-	}
-	if len(hosts) < s.opts.NumReplicas {
-		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...", s.opts.NumReplicas, in.Id, numTries)
-		return fmt.Errorf("%w: could only find at-most %d/%d required hosts to serve replicas of kernel %s", ErrInsufficientHostsAvailable, bestAttempt, s.opts.NumReplicas, in.Id)
-	}
 
 	// For each host, launch a Docker replica on that host.
 	for i, host := range hosts {
@@ -204,12 +172,40 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 		}(i+1, host)
 	}
 
+	return resultChan
+}
+
+// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
+func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec) error {
+	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", s.opts.NumReplicas, in.Id, in.ResourceSpec.String())
+
+	// Retrieve a slice of viable Hosts onto which we can schedule replicas of the specified kernel.
+	hosts, err := s.GetCandidateHosts(ctx, in)
+	if err != nil {
+		return err
+	}
+
+	// TODO: We need to perform a resource allocation here -- making sure that our resource data is up to date --
+	// 		 to prevent race conditions where we select a candidate host and then schedule another replica onto it
+	//       concurrently, thereby rendering the host no longer viable.
+	//
+	// TODO: Alternatively, we could add a lock such that we only schedule one kernel at a time, but I'm not sure
+	//       if we want to do that. It might make things slower than is really necessary. A compromise would just
+	//		 be to lock around the part where we identify the candidate hosts and then allocate resources, which is
+	//		 probably what we actually need to do anyway.
+	// Schedule a replica of the kernel on each of the candidate hosts.
+	resultChan := s.scheduleKernelReplicas(in, hosts)
+
 	// Keep looping until we've received all responses or the context times-out.
 	responsesReceived := 0
 	responsesRequired := len(hosts)
 	for responsesReceived < responsesRequired {
 		select {
 		// Context time-out, meaning the operation itself has timed-out or been cancelled.
+		// TODO: We ultimately need to handle this somehow, as we'll have allocated resources to the kernel replicas
+		// 		 on the hosts that we selected. If this operation fails or times-out, then we need to potentially
+		//		 terminate the replicas that we know were scheduled successfully and release the resources on those
+		//		 hosts.
 		case <-ctx.Done():
 			{
 				err := ctx.Err()

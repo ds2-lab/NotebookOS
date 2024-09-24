@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/container"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
@@ -65,7 +66,7 @@ type BaseScheduler struct {
 
 	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	stRatio                *types.MovingStat // session/training ratio
-	subscriptionRatio      float64           // Subscription ratio.
+	subscriptionRatio      decimal.Decimal   // Subscription ratio.
 	invalidated            float64
 	lastSubscribedRatio    float64
 	pendingSubscribedRatio float64
@@ -123,6 +124,68 @@ func NewBaseScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, ho
 
 func (s *BaseScheduler) SetHostSpec(spec types.Spec) {
 	s.hostSpec = spec
+}
+
+// GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between
+// the given ratio and the Cluster's current subscription ratio.
+func (s *BaseScheduler) GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal {
+	return ratio.Sub(s.subscriptionRatio)
+}
+
+// GetCandidateHosts returns a slice of *Host containing Host instances that could serve
+// a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
+//
+// GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster
+// if it fails to find sufficiently many viable Host instances. This process will be attempted three times.
+// If GetCandidateHosts is unsuccessful (at finding sufficiently many viable hosts) after those three attempts,
+// then GetCandidateHosts will give up and return an error.
+//
+// The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
+func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error) {
+	var (
+		numTries     = 0
+		maxAttempts  = 3
+		bestAttempt  = -1
+		resourceSpec = types.DecimalSpecFromKernelSpec(kernelSpec)
+		hosts        []*Host
+	)
+	for numTries < maxAttempts {
+		// Identify the hosts onto which we will place replicas of the kernel.
+		hosts = s.placer.FindHosts(resourceSpec)
+
+		if len(hosts) < s.opts.NumReplicas {
+			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s.",
+				len(hosts), s.opts.NumReplicas, kernelSpec.Id)
+
+			numHostsRequired := s.opts.NumReplicas - len(hosts)
+			s.log.Debug("Will attempt to provision %d new host(s).", numHostsRequired)
+
+			s.cluster.RequestHosts(ctx, int32(numHostsRequired))
+
+			numTries += 1
+
+			if len(hosts) > bestAttempt {
+				bestAttempt = len(hosts)
+			}
+
+			if (numTries + 1) < maxAttempts {
+				// Don't want to print this if we've just used up our last try, so to speak.
+				s.log.Debug("Trying again to find %d hosts to serve replicas of kernel %s.", s.opts.NumReplicas, kernelSpec.Id)
+			}
+		} else {
+			s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v", s.opts.NumReplicas, kernelSpec.Id, hosts)
+			break
+		}
+	}
+
+	if len(hosts) < s.opts.NumReplicas {
+		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...",
+			s.opts.NumReplicas, kernelSpec.Id, numTries)
+		return nil, fmt.Errorf("%w: could only find at-most %d/%d required hosts to serve replicas of kernel %s",
+			ErrInsufficientHostsAvailable, bestAttempt, s.opts.NumReplicas, kernelSpec.Id)
+	}
+
+	return hosts, nil
 }
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
@@ -276,7 +339,7 @@ func (s *BaseScheduler) UpdateRatio() bool {
 			s.log.Debug("We can now scale-in.")
 			s.canScalingIn = true
 		}
-		s.subscriptionRatio = avg
+		s.subscriptionRatio = decimal.NewFromFloat(avg)
 		s.rebalance(avg)
 
 		if s.scalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.scalingInterval {

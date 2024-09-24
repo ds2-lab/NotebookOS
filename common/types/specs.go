@@ -169,7 +169,7 @@ func (d DecimalSpec) CloneDecimalSpec() *DecimalSpec {
 }
 
 // Clone returns a copy/clone of the target DecimalSpec as a Spec.
-func (d DecimalSpec) Clone() Spec {
+func (d DecimalSpec) Clone() CloneableSpec {
 	return d.CloneDecimalSpec()
 }
 
@@ -259,5 +259,21 @@ func FullSpecFromKernelSpec(in *proto.KernelSpec) *Float64Spec {
 		CPUs:     float64(in.ResourceSpec.Cpu),
 		MemoryMb: float64(in.ResourceSpec.Memory),
 		GPUs:     GPUSpec(in.ResourceSpec.Gpu),
+	}
+}
+
+// DecimalSpecFromKernelSpec converts the *proto.ResourceSpec contained within the given
+// *proto.KernelSpec to a *DecimalSpec and returns the resulting *DecimalSpec.
+//
+// If the proto.KernelSpec argument is nil, then FullSpecFromKernelSpec will return nil.
+func DecimalSpecFromKernelSpec(in *proto.KernelSpec) *DecimalSpec {
+	if in == nil {
+		return nil
+	}
+
+	return &DecimalSpec{
+		Millicpus: decimal.NewFromFloat(float64(in.ResourceSpec.Cpu)),
+		MemoryMb:  decimal.NewFromFloat(float64(in.ResourceSpec.Memory)),
+		GPUs:      decimal.NewFromFloat(float64(in.ResourceSpec.Gpu)),
 	}
 }

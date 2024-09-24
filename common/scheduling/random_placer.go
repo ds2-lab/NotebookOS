@@ -63,7 +63,10 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
 		// placer.log.Debug("Found host: %v. Next position: %d.", host, pos)
 
 		// If the Host can satisfy the resourceSpec, then add it to the slice of Host instances being returned.
-		if host.ResourceSpec().Validate(spec) {
+		if host.CanServeContainer(spec) && !host.WillBecomeTooOversubscribed(spec) {
+			// TODO: We need to lock the Host or allocate resources to it in a locked way to ensure that it
+			//		 remains viable. If we end up aborting this due to not finding enough hosts, then we can
+			//		 just release the resources at that point.
 			hosts = append(hosts, host)
 			placer.log.Debug(utils.GreenStyle.Render("Found viable host: %v. Identified hosts: %d."), host, len(hosts))
 		} else {

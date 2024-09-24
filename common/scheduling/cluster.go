@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/mason-leap-lab/go-utils/promise"
+	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -217,4 +218,20 @@ type Cluster interface {
 	// NumReplicas returns the numer of replicas that each Jupyter kernel has associated with it.
 	// This is typically equal to 3, but may be altered in the system configuration.
 	NumReplicas() int
+
+	// NumReplicasAsDecimal returns the numer of replicas that each Jupyter kernel has associated with it as
+	// a decimal.Decimal struct.
+	//
+	// This value is typically equal to 3, but may be altered in the system configuration.
+	//
+	// This API exists as basically an optimization so we can return a cached decimal.Decimal struct,
+	// rather than recreate it each time we need it.
+	NumReplicasAsDecimal() decimal.Decimal
+
+	// GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between
+	// the given ratio and the Cluster's current subscription ratio.
+	//
+	// Cluster's GetOversubscriptionFactor simply calls the GetOversubscriptionFactor method of the
+	// Cluster's ClusterScheduler.
+	GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal
 }

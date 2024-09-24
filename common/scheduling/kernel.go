@@ -19,7 +19,7 @@ type KernelInfo interface {
 	ID() string
 
 	// ResourceSpec returns resource resourceSpec, which defines the resource requirements of the kernel.
-	ResourceSpec() *types.Float64Spec
+	ResourceSpec() *types.DecimalSpec
 
 	// KernelSpec returns kernel resourceSpec.
 	KernelSpec() *proto.KernelSpec

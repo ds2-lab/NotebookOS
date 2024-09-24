@@ -49,6 +49,9 @@ type PreemptionInfo interface {
 	Candidates() ContainerList
 }
 
+// Used by Host's to query
+type OversubscriptionQuerierFunction func(ratio decimal.Decimal) decimal.Decimal
+
 type HostMetaKey string
 
 type HostStatistics interface {
@@ -167,8 +170,11 @@ type Host struct {
 	enabled            bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels.
 	CreatedAt          time.Time                            // CreatedAt is the time at which the Host was created.
 	resourcesWrapper   *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
+	LastRemoteSync     time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 
-	LastRemoteSync time.Time // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
+	// oversubscriptionQuerierFunction is used to query the oversubscription factor given the host's
+	// subscription ratio and the cluster's subscription ratio.
+	oversubscriptionQuerierFunction OversubscriptionQuerierFunction
 
 	// Cached penalties
 	sip             cache.InlineCache // Scale-in penalty.
@@ -217,23 +223,24 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 	}
 
 	host := &Host{
-		LocalGatewayClient: localGatewayClient,
-		latestGpuInfo:      gpuInfoResp,
-		ID:                 id,
-		NodeName:           confirmedId.NodeName,
-		Addr:               addr,
-		resourceSpec:       resourceSpec,
-		Cluster:            cluster,
-		conn:               conn,
-		log:                config.GetLogger(fmt.Sprintf("Host %s ", id)),
-		containers:         hashmap.NewCornelkMap[string, *Container](5),
-		trainingContainers: make([]*Container, 0, int(resourceSpec.GPU())),
-		penalties:          make([]cachedPenalty, int(resourceSpec.GPU())),
-		seenSessions:       make([]string, int(resourceSpec.GPU())),
-		meta:               hashmap.NewCornelkMap[string, interface{}](64),
-		errorCallback:      errorCallback,
-		enabled:            true,
-		CreatedAt:          time.Now(),
+		LocalGatewayClient:              localGatewayClient,
+		latestGpuInfo:                   gpuInfoResp,
+		ID:                              id,
+		NodeName:                        confirmedId.NodeName,
+		Addr:                            addr,
+		resourceSpec:                    resourceSpec,
+		Cluster:                         cluster,
+		conn:                            conn,
+		log:                             config.GetLogger(fmt.Sprintf("Host %s ", id)),
+		containers:                      hashmap.NewCornelkMap[string, *Container](5),
+		trainingContainers:              make([]*Container, 0, int(resourceSpec.GPU())),
+		penalties:                       make([]cachedPenalty, int(resourceSpec.GPU())),
+		seenSessions:                    make([]string, int(resourceSpec.GPU())),
+		meta:                            hashmap.NewCornelkMap[string, interface{}](64),
+		errorCallback:                   errorCallback,
+		enabled:                         true,
+		CreatedAt:                       time.Now(),
+		oversubscriptionQuerierFunction: cluster.GetOversubscriptionFactor,
 	}
 
 	host.resourcesWrapper = &resourcesWrapper{
@@ -338,6 +345,98 @@ func (h *Host) SynchronizeResourceInformation() error {
 	h.updateLocalGpuInfoFromRemote(resp)
 	h.LastRemoteSync = time.Now()
 	return nil
+}
+
+// PlacedMemoryMB returns the total amount of memory scheduled onto the Host, which is computed as the
+// sum of the Host's pending memory and the Host's committed memory, in megabytes.
+func (h *Host) PlacedMemoryMB() decimal.Decimal {
+	return h.resourcesWrapper.pendingResources.memoryMB.Add(h.resourcesWrapper.committedResources.memoryMB)
+}
+
+// PlacedGPUs returns the total number of GPUs scheduled onto the Host, which is computed as the
+// sum of the Host's pending GPUs and the Host's committed GPUs.
+func (h *Host) PlacedGPUs() decimal.Decimal {
+	return h.resourcesWrapper.pendingResources.gpus.Add(h.resourcesWrapper.committedResources.gpus)
+}
+
+// PlacedCPUs returns the total number of CPUs scheduled onto the Host, which is computed as the
+// sum of the Host's pending CPUs and the Host's committed CPUs.
+func (h *Host) PlacedCPUs() decimal.Decimal {
+	return h.resourcesWrapper.pendingResources.millicpus.Add(h.resourcesWrapper.committedResources.millicpus)
+}
+
+// computeHypotheticalSubscriptionRatio computes what the Host's (over)subscription ratios would be for CPU, Memory,
+// and GPU, if it were to serve a Container with the given types.Spec resource request/requirements.
+func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) (decimal.Decimal, decimal.Decimal, decimal.Decimal) {
+	divisor := h.Cluster.NumReplicasAsDecimal()
+
+	// Convert the given types.Spec to a *types.DecimalSpec.
+	var decimalSpec *types.DecimalSpec
+	if specAsDecimalSpec, ok := resourceRequest.(*types.DecimalSpec); ok {
+		// If the parameter is already a *types.DecimalSpec, then no actual conversion needs to be performed.
+		decimalSpec = specAsDecimalSpec
+	} else {
+		decimalSpec = types.ToDecimalSpec(resourceRequest)
+	}
+
+	var cpuRatio, memRatio, gpuRatio decimal.Decimal
+
+	if h.resourcesWrapper.specResources.millicpus.Equals(decimal.Zero) {
+		cpuRatio = decimal.Zero
+	} else {
+		totalCPUs := h.PlacedCPUs().Add(decimalSpec.Millicpus)
+		cpuRatio = totalCPUs.Div(h.resourcesWrapper.specResources.millicpus).Div(divisor)
+	}
+
+	if h.resourcesWrapper.specResources.memoryMB.Equals(decimal.Zero) {
+		memRatio = decimal.Zero
+	} else {
+		totalMemory := h.PlacedMemoryMB().Add(decimalSpec.MemoryMb)
+		memRatio = totalMemory.Div(h.resourcesWrapper.specResources.memoryMB).Div(divisor)
+	}
+
+	if h.resourcesWrapper.specResources.gpus.Equals(decimal.Zero) {
+		gpuRatio = decimal.Zero
+	} else {
+		totalGPUs := h.PlacedGPUs().Add(decimalSpec.GPUs)
+		gpuRatio = totalGPUs.Div(h.resourcesWrapper.specResources.gpus).Div(divisor)
+	}
+
+	return cpuRatio, memRatio, gpuRatio
+}
+
+// WillBecomeTooOversubscribed returns a boolean indicating whether the Host will become "too" oversubscribed if it
+// were to serve a kernel replica with the given resource requirements / request.
+//
+// "Too" oversubscribed means that the Host's over-subscription ratio would exceed the configured limit upon
+// serving the Container with the given types.Spec resource request/requirements.
+func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
+	cpuRatio, memRatio, gpuRatio := h.computeHypotheticalSubscriptionRatio(resourceRequest)
+
+	willOversubscribeCpu := h.oversubscriptionQuerierFunction(cpuRatio).GreaterThanOrEqual(decimal.Zero)
+	willOversubscribeMemory := h.oversubscriptionQuerierFunction(memRatio).GreaterThanOrEqual(decimal.Zero)
+	willOversubscribeGpu := h.oversubscriptionQuerierFunction(gpuRatio).GreaterThanOrEqual(decimal.Zero)
+
+	return willOversubscribeCpu || willOversubscribeMemory || willOversubscribeGpu
+}
+
+// CanServeContainer returns a boolean indicating whether this Host could serve a kernel replica with the given
+// resource requirements / resource request. This method only checks against the Host's "spec" (i.e., the total
+// resources available on the Host, not taking into account current resource allocations).
+//
+// CanServeContainer returns true when the Host could serve the hypothetical kernel and false when the Host could not.
+func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
+	return h.resourcesWrapper.specResources.Validate(resourceRequest)
+}
+
+// CanCommitResources returns a boolean indicating whether this Host could commit the specified resource request
+// to a kernel scheduled onto the Host right now. Commiting resource requires having sufficiently many idle resources
+// available.
+//
+// CanCommitResources returns true if the Host could commit/reserve the given resources right now.
+// Otherwise, CanCommitResources returns false.
+func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
+	return h.resourcesWrapper.idleResources.Validate(types.ToDecimalSpec(resourceRequest))
 }
 
 // updateLocalGpuInfoFromRemote updates the local info pertaining to GPU usage information

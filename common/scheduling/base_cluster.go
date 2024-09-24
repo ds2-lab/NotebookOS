@@ -7,6 +7,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/mason-leap-lab/go-utils/promise"
+	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/codes"
@@ -34,21 +35,29 @@ type BaseCluster struct {
 	// gpusPerHost is the number of GPUs available on each host.
 	gpusPerHost int
 
+	// scheduler is the ClusterScheduler for the Cluster.
 	scheduler ClusterScheduler
 
+	// placer is the Placer for the Cluster.
 	placer Placer
 
 	log logger.Logger
 
-	numReplicas int
+	// numReplicas is the number of replicas for each kernel.
+	numReplicas        int
+	numReplicasDecimal decimal.Decimal
 
 	subscriptionRatio float64
 
+	// clusterMetricsProvider provides access to Prometheus metrics (for publishing purposes).
 	clusterMetricsProvider metrics.ClusterMetricsProvider
 
-	// This is also used as the sync.Locker for the scaleOperationCond.
+	// scalingOpMutex controls access to the currently active scaling operation.
+	// scalingOpMutex is also used as the sync.Locker for the scaleOperationCond.
 	scalingOpMutex sync.Mutex
-	hostMutex      sync.RWMutex
+
+	// hostMutex controls external access to the internal Host mapping.
+	hostMutex sync.RWMutex
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
@@ -57,6 +66,7 @@ func newBaseCluster(gpusPerHost int, numReplicas int, clusterMetricsProvider met
 	cluster := &BaseCluster{
 		gpusPerHost:            gpusPerHost,
 		numReplicas:            numReplicas,
+		numReplicasDecimal:     decimal.NewFromInt(int64(numReplicas)),
 		clusterMetricsProvider: clusterMetricsProvider,
 		subscriptionRatio:      7.0,
 		hosts:                  hashmap.NewConcurrentMap[*Host](256),
@@ -65,6 +75,26 @@ func newBaseCluster(gpusPerHost int, numReplicas int, clusterMetricsProvider met
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
 	config.InitLogger(&cluster.log, cluster)
 	return cluster
+}
+
+// NumReplicasAsDecimal returns the numer of replicas that each Jupyter kernel has associated with it as
+// a decimal.Decimal struct.
+//
+// This value is typically equal to 3, but may be altered in the system configuration.
+//
+// This API exists as basically an optimization so we can return a cached decimal.Decimal struct,
+// rather than recreate it each time we need it.
+func (c *BaseCluster) NumReplicasAsDecimal() decimal.Decimal {
+	return c.numReplicasDecimal
+}
+
+// GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between
+// the given ratio and the Cluster's current subscription ratio.
+//
+// Cluster's GetOversubscriptionFactor simply calls the GetOversubscriptionFactor method of the
+// Cluster's ClusterScheduler.
+func (c *BaseCluster) GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal {
+	return c.scheduler.GetOversubscriptionFactor(ratio)
 }
 
 func (c *BaseCluster) SubscriptionRatio() float64 {

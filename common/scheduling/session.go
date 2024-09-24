@@ -118,7 +118,7 @@ type Session struct {
 func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelSpec, resourceUtilization *ResourceUtilization, cluster Cluster, opts *ClusterSchedulerOptions) *Session {
 	session := &Session{
 		kernelSpec:          kernelSpec,
-		resourceSpec:        types.FullSpecFromKernelSpec(kernelSpec),
+		resourceSpec:        types.DecimalSpecFromKernelSpec(kernelSpec),
 		ctx:                 ctx,
 		cluster:             cluster,
 		id:                  id,

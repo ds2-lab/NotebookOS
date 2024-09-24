@@ -501,13 +501,13 @@ func (c *KernelReplicaClient) PersistentID() string {
 }
 
 // ResourceSpec returns the resource spec
-func (c *KernelReplicaClient) ResourceSpec() *commonTypes.Float64Spec {
+func (c *KernelReplicaClient) ResourceSpec() *commonTypes.DecimalSpec {
 	if c.spec == nil {
 		log.Fatalf(utils.RedStyle.Render("Replica %d of kernel %s does not have a valid (i.e., non-nil) spec...\n"),
 			c.replicaId, c.id)
 	}
 
-	return commonTypes.FullSpecFromKernelSpec(c.spec)
+	return commonTypes.DecimalSpecFromKernelSpec(c.spec)
 }
 
 func (c *KernelReplicaClient) SetResourceSpec(spec *proto.ResourceSpec) {
