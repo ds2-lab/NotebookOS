@@ -18,7 +18,7 @@ type ClusterSchedulerOptions struct {
 	ScalingInterval               int     `name:"scaling-interval"                  json:"scaling-interval"                 yaml:"scaling-interval"                        description:"Interval to call validateCapacity, 0 to disable routing scaling."`
 	ScalingLimit                  float64 `name:"scaling-limit"                     json:"scaling-limit"                    yaml:"scaling-limit"                        description:"Defines how many hosts the Cluster will provision at maximum based on busy resources"`
 	MaximumHostsToReleaseAtOnce   int     `name:"scaling-in-limit"                  json:"scaling-in-limit"                 yaml:"scaling-in-limit"                        description:"Sort of the inverse of the ScalingLimit parameter (maybe?)"`
-	ScalingOutEnabled             bool    `name:"scaling-out-enabled"               json:"scaling-out-enabled"              yaml:"scaling-out-enabled"                        description:"If enabled, the scaling manager will attempt to over-provision hosts slightly so as to leave room for fluctuation. If disabled, then the Cluster will exclusively scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges."`
+	PredictiveAutoscalingEnabled  bool    `name:"predictive_autoscaling"            json:"predictive_autoscaling"           yaml:"predictive_autoscaling"                        description:"If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation."`
 	ScalingBufferSize             int     `name:"scaling-buffer-size"               json:"scaling-buffer-size"              yaml:"scaling-buffer-size"                        description:"Buffer size is how many extra hosts we provision so that we can quickly scale if needed."`
 	MinimumNumNodes               int     `name:"min_cluster_nodes"                 json:"min_cluster_nodes"                yaml:"min_cluster_nodes"                        description:"The minimum number of cluster nodes we must have available at any time."`
 	MaximumNumNodes               int     `name:"max_cluster_nodes"                 json:"max_cluster_nodes"                yaml:"max_cluster_nodes"                        description:"The maximum number of cluster nodes we must have available at any time. If this is < 0, then it is unbounded."`
@@ -30,6 +30,9 @@ type ClusterSchedulerOptions struct {
 	SchedulerHttpPort             int     `name:"scheduler-http-port"               json:"scheduler-http-port"              yaml:"scheduler-http-port"                        description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
 }
 
+// ValidateClusterSchedulerOptions ensures that the values of certain configuration parameters are consistent with
+// respect to one another, and/or with respect to certain requirements/constraints on their values (unrelated of
+// other configuration parameters).
 func (opts *ClusterSchedulerOptions) ValidateClusterSchedulerOptions() {
 	// Validate the minimum capacity.
 	// It must be at least equal to the number of replicas per kernel.

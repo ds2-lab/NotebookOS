@@ -57,6 +57,9 @@ type ClusterDaemonOptions struct {
 	NumResendAttempts                  int    `name:"num_resend_attempts"              json:"num_resend_attempts"               yaml:"num_resend_attempts"                 description:"The number of times to attempt to resend a message before giving up."`
 }
 
+// ValidateClusterDaemonOptions ensures that the values of certain configuration parameters are consistent with respect
+// to one another, and/or with respect to certain requirements/constraints on their values
+// (unrelated of other configuration parameters).
 func (o *ClusterDaemonOptions) ValidateClusterDaemonOptions() {
 	if o.NumResendAttempts <= 0 {
 		log.Printf("[WARNING] Invalid number of message resend attempts specified: %d. Defaulting to %d.\n",

@@ -73,21 +73,21 @@ type BaseScheduler struct {
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
 	//-//-//-//-//-//-//-//-//-//
-	gpusPerHost                 float64                  // The number of actual GPUs that are available for use on each node/host.
-	virtualGpusPerHost          int32                    // The number of virtual GPUs per host.
-	scalingFactor               float64                  // scalingFactor defines how many hosts the cluster will provision based on busy resources.
-	maximumHostsToReleaseAtOnce int32                    // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	scalingIntervalSec          int32                    // How often to call UpdateRatio in seconds.
-	scalingInterval             time.Duration            // How often to call UpdateRatio .
-	scalingLimit                float64                  // scalingLimit defines how many hosts the cluster will provision at maximum based on busy resources.
-	canScalingIn                bool                     // Can the Cluster/Placer scale-in?
-	shouldUpdateRatio           bool                     // Should the Placer update its subscription ratio?
-	scalingOutEnabled           bool                     // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation. If disabled, then the Cluster will exclusively scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges.
-	scalingBufferSize           int32                    // How many extra hosts we provision so that we can quickly scale if needed.
-	minimumCapacity             int32                    // The minimum number of nodes we must have available at any time.
-	maximumCapacity             int32                    // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
-	opts                        *ClusterSchedulerOptions // Configuration options.
-	hostSpec                    types.Spec               // The types.Spec used when creating new Host instances.
+	gpusPerHost                  float64                  // The number of actual GPUs that are available for use on each node/host.
+	virtualGpusPerHost           int32                    // The number of virtual GPUs per host.
+	scalingFactor                float64                  // scalingFactor defines how many hosts the cluster will provision based on busy resources.
+	maximumHostsToReleaseAtOnce  int32                    // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	scalingIntervalSec           int32                    // How often to call UpdateRatio in seconds.
+	scalingInterval              time.Duration            // How often to call UpdateRatio .
+	scalingLimit                 float64                  // scalingLimit defines how many hosts the cluster will provision at maximum based on busy resources.
+	canScaleIn                   bool                     // Can the Cluster/Placer scale-in?
+	shouldUpdateRatio            bool                     // Should the Placer update its subscription ratio?
+	predictiveAutoscalingEnabled bool                     // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
+	scalingBufferSize            int32                    // How many extra hosts we provision so that we can quickly scale if needed.
+	minimumCapacity              int32                    // The minimum number of nodes we must have available at any time.
+	maximumCapacity              int32                    // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	opts                         *ClusterSchedulerOptions // Configuration options.
+	hostSpec                     types.Spec               // The types.Spec used when creating new Host instances.
 
 	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	stRatio                *types.MovingStat // session/training ratio
@@ -110,7 +110,7 @@ func NewBaseScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, ho
 		scalingLimit:                  opts.ScalingLimit,
 		maximumHostsToReleaseAtOnce:   int32(opts.MaximumHostsToReleaseAtOnce),
 		scalingIntervalSec:            int32(opts.ScalingInterval),
-		scalingOutEnabled:             opts.ScalingOutEnabled,
+		predictiveAutoscalingEnabled:  opts.PredictiveAutoscalingEnabled,
 		scalingBufferSize:             int32(opts.ScalingBufferSize),
 		stRatio:                       types.NewMovingStatFromWindow(5),
 		opts:                          opts,
@@ -141,7 +141,7 @@ func NewBaseScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, ho
 		clusterScheduler.log.Debug("ScalingLimit: %.2f", clusterScheduler.scalingLimit)
 		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d", clusterScheduler.maximumHostsToReleaseAtOnce)
 		clusterScheduler.log.Debug("ScalingInterval: %d", clusterScheduler.scalingIntervalSec)
-		clusterScheduler.log.Debug("ScalingOutEnabled: %v", clusterScheduler.scalingOutEnabled)
+		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v", clusterScheduler.predictiveAutoscalingEnabled)
 		clusterScheduler.log.Debug("ScalingBufferSize: %d", clusterScheduler.scalingBufferSize)
 		clusterScheduler.log.Debug("GPU Refresh Interval: %v", clusterScheduler.remoteSynchronizationInterval)
 	}
@@ -347,9 +347,9 @@ func (s *BaseScheduler) UpdateRatio() bool {
 	avg := s.stRatio.Avg()
 	s.cluster.SetSubscriptionRatio(avg)
 	if s.stRatio.N() == s.stRatio.Window() {
-		if !s.canScalingIn {
+		if !s.canScaleIn {
 			s.log.Debug("We can now scale-in.")
-			s.canScalingIn = true
+			s.canScaleIn = true
 		}
 		s.subscriptionRatio = decimal.NewFromFloat(avg)
 		s.rebalance(avg)
@@ -406,7 +406,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 	}
 	oldNumHosts := int32(s.cluster.Len())
 	// Only scale-out if that feature is enabled.
-	if s.scalingOutEnabled && oldNumHosts < scaledOutNumHosts {
+	if s.predictiveAutoscalingEnabled && oldNumHosts < scaledOutNumHosts {
 		// Scaling out
 		numProvisioned := 0
 		targetNumProvisioned := scaledOutNumHosts - oldNumHosts
@@ -443,7 +443,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 	}
 
 	// Should we scale in?
-	if !s.canScalingIn || load <= limit {
+	if !s.canScaleIn || !s.predictiveAutoscalingEnabled || load <= limit {
 		return
 	}
 

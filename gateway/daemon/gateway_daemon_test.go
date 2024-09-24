@@ -143,7 +143,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					ScalingInterval:               1,
 					ScalingLimit:                  1,
 					MaximumHostsToReleaseAtOnce:   1,
-					ScalingOutEnabled:             true,
+					PredictiveAutoscalingEnabled:  true,
 					ScalingBufferSize:             1,
 					MinimumNumNodes:               1,
 				},

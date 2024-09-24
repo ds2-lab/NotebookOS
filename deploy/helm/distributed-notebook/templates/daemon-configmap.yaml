@@ -43,7 +43,7 @@ data:
     scaling-interval: {{ .Values.gateway.scheduler.scaling_interval }}
     scaling-limit: {{ .Values.gateway.scheduler.scaling_limit }}
     scaling-in-limit: {{ .Values.gateway.scheduler.scaling_in_limit }}
-    scaling-out-enabled: {{ .Values.gateway.scheduler.scaling_out_enabled }}
+    predictive_autoscaling: {{ .Values.gateway.scheduler.predictive_autoscaling }}
     scaling-buffer-size: {{ .Values.gateway.scheduler.scaling_buffer_size }}
     min_cluster_nodes: {{ .Values.gateway.scheduler.min_kubernetes_nodes }}
     max_cluster_nodes: {{ .Values.gateway.scheduler.max_kubernetes_nodes }}
