@@ -92,8 +92,11 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		validateCapacityInterval: time.Second * time.Duration(opts.ScalingInterval),
 	}
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
+	config.InitLogger(&cluster.log, cluster)
 
 	go func() {
+		cluster.log.Debug("Sleeping for %v before periodically validating cluster capacity.", cluster.validateCapacityInterval)
+
 		// We wait for `validateCapacityInterval` before the first call to UpdateRatio (which calls ValidateCapacity).
 		time.Sleep(cluster.validateCapacityInterval)
 
@@ -103,7 +106,6 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		}
 	}()
 
-	config.InitLogger(&cluster.log, cluster)
 	return cluster
 }
 
@@ -250,17 +252,6 @@ func (c *BaseCluster) onHostRemoved(host *Host) {
 	defer c.scalingOpMutex.Unlock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 	c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
-}
-
-// ValidateCapacity ensures that the Cluster has the "right" amount of Host instances provisioned.
-//
-// If ValidateCapacity detects that there are too few Host instances provisioned to satisfy demand,
-// then additional Host instances will be created.
-//
-// Alternatively, if ValidateCapacity determines that there are more Host instances provisioned than
-// are truly needed, then some Host instances will be terminated to reduce unnecessary resource usage.
-func (c *BaseCluster) ValidateCapacity() {
-	c.scheduler.ValidateCapacity()
 }
 
 // BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.

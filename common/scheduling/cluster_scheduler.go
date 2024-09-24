@@ -48,16 +48,6 @@ type ClusterScheduler interface {
 	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
 	MigrateContainer(*Container, *Host, bool) (bool, error)
 
-	// ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
-	// Adjust the Cluster's capacity as directed by scaling policy.
-	//
-	// If ValidateCapacity detects that there are too few Host instances provisioned to satisfy demand,
-	// then additional Host instances will be created.
-	//
-	// Alternatively, if ValidateCapacity determines that there are more Host instances provisioned than
-	// are truly needed, then some Host instances will be terminated to reduce unnecessary resource usage.
-	ValidateCapacity()
-
 	// UpdateRatio updates the Cluster's subscription ratio.
 	// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
 	UpdateRatio() bool
@@ -100,7 +90,7 @@ type ClusterScheduler interface {
 	// the Host instances within the Cluster with their remote nodes.
 	RemoteSynchronizationInterval() time.Duration
 
-	// RefreshClusterNodes Updates the cached list of Kubernetes nodes.
+	// RefreshClusterNodes Updates the cached list of Cluster nodes.
 	// Returns nil on success; returns an error on failure.
 	RefreshClusterNodes() error
 

@@ -64,9 +64,7 @@ type BaseScheduler struct {
 	cluster  Cluster
 	placer   Placer
 
-	gpuInfo                       *aggregateGpuInfo // The current "actual" GPU usage within the cluster.
-	lastGpuInfoRefresh            time.Time         // The time at which the 'actual' GPU info was last refreshed.
-	remoteSynchronizationInterval time.Duration     // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
+	remoteSynchronizationInterval time.Duration // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
 
 	lastNodeRefreshTime time.Time // The time at which the nodes were last refreshed.
 
@@ -267,58 +265,58 @@ func (s *BaseScheduler) RemoveNode(hostId string) error {
 //
 // Return a slice of any errors that occurred. If an error occurs while refreshing a particular piece of information,
 // then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).
-func (s *BaseScheduler) RefreshAll() []error {
-	errs := make([]error, 0)
-	var err error
+//func (s *BaseScheduler) RefreshAll() []error {
+//	errs := make([]error, 0)
+//	var err error
+//
+//	if s.ClusterGateway().KubernetesMode() {
+//		err = s.RefreshClusterNodes()
+//		if err != nil {
+//			errs = append(errs, err)
+//		}
+//	}
+//
+//	err = s.RefreshActualGpuInfo()
+//	if err != nil {
+//		errs = append(errs, err)
+//	}
+//
+//	if len(errs) > 0 {
+//		s.log.Error("%d error(s) occurred while refreshing all metrics.", len(errs))
+//	}
+//
+//	return errs
+//}
+//
+//// RefreshActualGpuInfo refreshes the actual GPU usage information.
+//// Returns nil on success; returns an error on failure.
+//func (s *BaseScheduler) RefreshActualGpuInfo() error {
+//	clusterGpuInfo, err := s.gateway.GetClusterActualGpuInfo(context.TODO(), &proto.Void{})
+//	if err != nil {
+//		s.log.Error("Error while to retrieving 'actual' GPU info: %v", err)
+//	} else {
+//		gpuInfo := &aggregateGpuInfo{
+//			ClusterActualGpuInfo: clusterGpuInfo,
+//		}
+//
+//		for _, info := range clusterGpuInfo.GpuInfo {
+//			gpuInfo.TotalSpecGPUs += info.SpecGPUs
+//			gpuInfo.TotalIdleGPUs += info.IdleGPUs
+//			gpuInfo.TotalCommittedGPUs += info.CommittedGPUs
+//			gpuInfo.TotalPendingGPUs += info.PendingGPUs
+//			gpuInfo.TotalNumPendingAllocations += info.NumPendingAllocations
+//			gpuInfo.TotalNumAllocations += info.NumAllocations
+//		}
+//
+//		s.gpuInfo = gpuInfo
+//		s.lastGpuInfoRefresh = time.Now()
+//		s.log.Debug("Successfully refreshed 'actual' GPU info.")
+//	}
+//
+//	return err // Will be nil if there was no error.
+//}
 
-	if s.ClusterGateway().KubernetesMode() {
-		err = s.RefreshClusterNodes()
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	err = s.RefreshActualGpuInfo()
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	if len(errs) > 0 {
-		s.log.Error("%d error(s) occurred while refreshing all metrics.", len(errs))
-	}
-
-	return errs
-}
-
-// RefreshActualGpuInfo refreshes the actual GPU usage information.
-// Returns nil on success; returns an error on failure.
-func (s *BaseScheduler) RefreshActualGpuInfo() error {
-	clusterGpuInfo, err := s.gateway.GetClusterActualGpuInfo(context.TODO(), &proto.Void{})
-	if err != nil {
-		s.log.Error("Error while to retrieving 'actual' GPU info: %v", err)
-	} else {
-		aggregateGpuInfo := &aggregateGpuInfo{
-			ClusterActualGpuInfo: clusterGpuInfo,
-		}
-
-		for _, gpuInfo := range clusterGpuInfo.GpuInfo {
-			aggregateGpuInfo.TotalSpecGPUs += gpuInfo.SpecGPUs
-			aggregateGpuInfo.TotalIdleGPUs += gpuInfo.IdleGPUs
-			aggregateGpuInfo.TotalCommittedGPUs += gpuInfo.CommittedGPUs
-			aggregateGpuInfo.TotalPendingGPUs += gpuInfo.PendingGPUs
-			aggregateGpuInfo.TotalNumPendingAllocations += gpuInfo.NumPendingAllocations
-			aggregateGpuInfo.TotalNumAllocations += gpuInfo.NumAllocations
-		}
-
-		s.gpuInfo = aggregateGpuInfo
-		s.lastGpuInfoRefresh = time.Now()
-		s.log.Debug("Successfully refreshed 'actual' GPU info.")
-	}
-
-	return err // Will be nil if there was no error.
-}
-
-// RefreshClusterNodes updates the cached list of Kubernetes nodes.
+// RefreshClusterNodes updates the cached list of Cluster nodes.
 // Returns nil on success; returns an error on failure.
 func (s *BaseScheduler) RefreshClusterNodes() error {
 	return s.instance.RefreshClusterNodes()
@@ -375,12 +373,11 @@ func (s *BaseScheduler) MigrateContainer(container *Container, host *Host, b boo
 // ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (s *BaseScheduler) ValidateCapacity() {
-	if s.gpuInfo == nil {
-		s.log.Warn("Scheduler's GPU Info is nil. Cannot ValidateCapacity.")
-		return
-	}
-
-	load := s.gpuInfo.TotalCommittedGPUs
+	var load int32
+	s.cluster.RangeOverHosts(func(_ string, host *Host) bool {
+		load += int32(host.CommittedGPUs())
+		return true
+	})
 
 	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the Cluster's current committed GPUs.
 	minNumHosts := int32(s.opts.NumReplicas)
