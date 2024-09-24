@@ -11,6 +11,29 @@ var (
 	ErrNotSupported  = errors.New("not supported")
 )
 
+// internalPlacer is the internal API implemented by all Placer instances.
+type internalPlacer interface {
+	Placer
+
+	// index returns the ClusterIndex of the specific Placer implementation.
+	getIndex() ClusterIndex
+
+	// findHost returns a host that can satisfy the resourceSpec.
+	// This is the Placer-implementation-specific logic of the Placer.FindHost method.
+	findHost(blacklist []interface{}, metrics types.Spec) *Host
+
+	// FindHosts returns a slice of Host instances that can satisfy the resourceSpec.
+	// This is the Placer-implementation-specific logic of the Placer.FindHosts method.
+	findHosts(spec types.Spec) []*Host
+
+	// hostIsViable returns a tuple (bool, bool).
+	// First bool represents whether the host is viable.
+	// Second bool indicates whether the host was successfully locked. This does not mean that it is still locked.
+	// Merely that we were able to lock it when we tried. If we locked it and found that the host wasn't viable,
+	// then we'll have unlocked it before hostIsViable returns.
+	hostIsViable(candidateHost *Host, spec types.Spec) (bool, bool)
+}
+
 // Placer defines the interface for a placer that is responsible for:
 // 1. Finding hosts that can satisfy the resourceSpec.
 //   - A host satisfies the resourceSpec as long as the over-subscription rate is below a threshold given the assumption that an interactive session:

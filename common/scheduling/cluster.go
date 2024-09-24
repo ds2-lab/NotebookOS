@@ -65,7 +65,7 @@ type HostCriteriaFunction func(*Host) bool
 
 type ClusterIndexQuerier interface {
 	// Seek returns the host specified by the metrics.
-	Seek(metrics ...[]float64) (host *Host, pos interface{})
+	Seek(blacklist []interface{}, metrics ...[]float64) (host *Host, pos interface{})
 
 	// SeekFrom continues the seek from the position.
 	SeekFrom(start interface{}, metrics ...[]float64) (host *Host, pos interface{})

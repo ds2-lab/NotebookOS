@@ -1,40 +1,38 @@
 package scheduling
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	"sync"
 	"time"
 
-	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 
 // RandomPlacer is a simple placer that places sessions randomly.
 type RandomPlacer struct {
-	AbstractPlacer
+	*AbstractPlacer
 
-	cluster clusterInternal
-	index   *RandomClusterIndex
-	opts    *ClusterSchedulerOptions
-
-	mu sync.Mutex
+	index *RandomClusterIndex
 }
 
 // NewRandomPlacer creates a new RandomPlacer.
 func NewRandomPlacer(cluster clusterInternal, opts *ClusterSchedulerOptions) (*RandomPlacer, error) {
-	placer := &RandomPlacer{
-		cluster: cluster,
-		index:   NewRandomClusterIndex(100),
-		opts:    opts,
+	basePlacer := newAbstractPlacer(cluster, opts)
+	randomPlacer := &RandomPlacer{
+		AbstractPlacer: basePlacer,
+		index:          NewRandomClusterIndex(100),
 	}
 
-	if err := cluster.AddIndex(placer.index); err != nil {
+	if err := cluster.AddIndex(randomPlacer.index); err != nil {
 		return nil, err
 	}
 
-	config.InitLogger(&placer.log, placer)
-	return placer, nil
+	basePlacer.instance = randomPlacer
+	return randomPlacer, nil
+}
+
+// index returns the ClusterIndex of the specific Placer implementation.
+func (placer *RandomPlacer) getIndex() ClusterIndex {
+	return placer.index
 }
 
 // hostIsViable returns a tuple (bool, bool).
@@ -52,7 +50,7 @@ func (placer *RandomPlacer) hostIsViable(candidateHost *Host, spec types.Spec) (
 	}
 
 	// If the Host can satisfy the resourceSpec, then add it to the slice of Host instances being returned.
-	if candidateHost.CanServeContainer(spec) && !candidateHost.WillBecomeTooOversubscribed(spec) {
+	if candidateHost.ResourceSpec().Validate(spec) && candidateHost.CanServeContainer(spec) && !candidateHost.WillBecomeTooOversubscribed(spec) {
 		// The Host can satisfy the resource request. Keep the host locked and return true.
 		placer.log.Debug(utils.GreenStyle.Render("Found viable candidate host: %v."), candidateHost)
 		return true, true
@@ -65,19 +63,8 @@ func (placer *RandomPlacer) hostIsViable(candidateHost *Host, spec types.Spec) (
 }
 
 // FindHosts returns a slice of Host instances that can satisfy the resourceSpec.
-func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
-	placer.mu.Lock()
-	st := time.Now()
-	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", placer.opts.NumReplicas, spec.String(), placer.index.Len())
-
+func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 	numReplicas := placer.opts.NumReplicas
-	if placer.index.Len() == 0 {
-		placer.log.Warn(utils.OrangeStyle.Render("Index is empty... returning empty slice of Hosts."))
-		return make([]*Host, 0)
-	} else if placer.index.Len() < numReplicas {
-		placer.log.Warn("Index has just %d hosts (%d are required).", placer.index.Len(), placer.opts.NumReplicas)
-		numReplicas = placer.index.Len()
-	}
 
 	var (
 		pos          interface{} = nil
@@ -175,52 +162,23 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
 				placer.mu.Unlock()
 				time.Sleep(time.Millisecond * 500)
 			}
-		} else {
-			latency := time.Since(st)
-			placer.log.Warn(utils.OrangeStyle.Render("Failed to identify the %d required hosts for kernel %s. Found only %d/%d. Time elapsed: %v."),
-				placer.opts.NumReplicas, len(hosts), placer.opts.NumReplicas, latency)
-
-			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-				With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
 		}
-	} else {
-		latency := time.Since(st)
-		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts after %v."),
-			len(hosts), numReplicas, latency)
-		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-			With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
 	}
 
 	return hosts
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *RandomPlacer) FindHost(blacklist []interface{}, spec types.Spec) *Host {
-	placer.mu.Lock()
-	defer placer.mu.Unlock()
-
-	st := time.Now()
+func (placer *RandomPlacer) findHost(blacklist []interface{}, spec types.Spec) *Host {
 	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost *Host) bool {
 		viable, _ := placer.hostIsViable(candidateHost, spec)
 		return viable
 	}, blacklist)
 
 	if len(hosts) > 0 {
-		candidateHost := hosts[0]
-		if candidateHost.ResourceSpec().Validate(spec) {
-			latency := time.Since(st)
-			placer.log.Debug(utils.GreenStyle.Render("Successfully identified single viable host after %v."), latency)
-			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-				With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
-			// The Host can satisfy the resourceSpec, so return it.
-			return candidateHost
-		}
+		return hosts[0]
 	}
 
-	latency := time.Since(st)
-	placer.log.Warn(utils.OrangeStyle.Render("Failed to identify single viable hosts. Time elapsed: %v."), latency)
-	placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-		With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
 	// The Host could not satisfy the resourceSpec, so return nil.
 	return nil
 }
