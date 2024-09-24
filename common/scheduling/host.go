@@ -154,6 +154,7 @@ type Host struct {
 	latestGpuInfo      *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
 	resourceMutex      sync.Mutex                           // resourceMutex controls access to the latest GPU info.
 	syncMutex          sync.Mutex                           // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
+	schedulingMutex    sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating resources on the Host.
 	meta               hashmap.HashMap[string, interface{}] // meta is a map of metadata.
 	conn               *grpc.ClientConn                     // conn is the gRPC connection to the Host.
 	Addr               string                               // Addr is the Host's address.
@@ -292,6 +293,18 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 	return host, nil
 }
 
+func (h *Host) LockScheduling() {
+	h.schedulingMutex.Lock()
+}
+
+func (h *Host) TryLockScheduling() bool {
+	return h.schedulingMutex.TryLock()
+}
+
+func (h *Host) UnlockScheduling() {
+	h.schedulingMutex.Unlock()
+}
+
 func (h *Host) SubscribedRatio() float64 {
 	return h.subscribedRatio.Load()
 }
@@ -335,8 +348,11 @@ func (h *Host) SynchronizeResourceInformation() error {
 	h.syncMutex.Lock()
 	defer h.syncMutex.Unlock()
 
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+
 	//h.log.Debug("Refreshing resource information from remote.")
-	resp, err := h.LocalGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
+	resp, err := h.LocalGatewayClient.GetActualGpuInfo(ctx, &proto.Void{})
 	if err != nil {
 		h.log.Error("Failed to refresh resource information from remote: %v", err)
 		return err

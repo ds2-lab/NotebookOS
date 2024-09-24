@@ -33,6 +33,27 @@ type aggregateGpuInfo struct {
 	TotalNumAllocations        int32 `json:"numAllocations,omitempty"`        // Number of individual allocations such that the GPUs have been committed to a container.
 }
 
+// schedulingNotification is a struct that is sent over a channel to notify the "main" goroutine handling the
+// scheduling of a new kernel that the scheduling of one of that kernel's replicas has completed successfully.
+type schedulingNotification struct {
+	// SchedulingCompletedAt is the time at which the scheduling operation concluded
+	// for the particular replica of the associated kernel.
+	SchedulingCompletedAt time.Time
+
+	// HostId is the ID of the Host onto which a replica was scheduled.
+	HostId string
+
+	// KernelId is the ID of the kernel for which a replica was scheduled.
+	KernelId string
+
+	// Successful indicates whether the operation succeeded or whether it failed.
+	Successful bool
+
+	// Error is the error that occurred that caused the scheduling operation to fail.
+	// This field will be nil if the scheduling operation was successful.
+	Error error
+}
+
 type BaseScheduler struct {
 	gateway ClusterGateway
 

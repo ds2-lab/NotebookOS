@@ -152,23 +152,47 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaId int32, kernelId string
 //
 // scheduleKernelReplicas returns a <-chan interface{} used to notify the caller when the scheduling operations
 // have completed.
-func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*Host) <-chan interface{} {
+func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*Host) <-chan *schedulingNotification {
 	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
 	// or errors that occurred when launching a replica.
-	resultChan := make(chan interface{}, 3)
+	resultChan := make(chan *schedulingNotification, 3)
 
 	// For each host, launch a Docker replica on that host.
 	for i, host := range hosts {
 		// Launch replicas in parallel.
+		currentHost := host
+
 		go func(replicaId int, targetHost *Host) {
 			// Only 1 of arguments 2 and 3 can be non-nil.
 			if err := s.ScheduleKernelReplica(int32(replicaId), in.Id, nil, in, targetHost); err != nil {
 				// An error occurred. Send it over the channel.
-				resultChan <- err
+				resultChan <- &schedulingNotification{
+					SchedulingCompletedAt: time.Now(),
+					KernelId:              in.Id,
+					HostId:                currentHost.ID,
+					Error:                 err,
+					Successful:            false,
+				}
 			} else {
 				// Send a notification that a replica was launched successfully.
-				resultChan <- struct{}{}
+				resultChan <- &schedulingNotification{
+					SchedulingCompletedAt: time.Now(),
+					KernelId:              in.Id,
+					HostId:                currentHost.ID,
+					Error:                 nil,
+					Successful:            true,
+				}
+
+				// Synchronize the resource information for the Host.
+				if syncError := targetHost.SynchronizeResourceInformation(); syncError != nil {
+					s.log.Error("Failed to synchronize resource info for host %s after scheduling replica of kernel %s onto it because: %v",
+						currentHost.ID, in.Id, syncError)
+				}
 			}
+
+			// Unlock scheduling for the host. We've finished the current scheduling operation, and we've synchronized
+			// its resource state (we'll only have done that in the case where the scheduling of the replica succeeded).
+			host.UnlockScheduling()
 		}(i+1, host)
 	}
 
@@ -185,14 +209,6 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 		return err
 	}
 
-	// TODO: We need to perform a resource allocation here -- making sure that our resource data is up to date --
-	// 		 to prevent race conditions where we select a candidate host and then schedule another replica onto it
-	//       concurrently, thereby rendering the host no longer viable.
-	//
-	// TODO: Alternatively, we could add a lock such that we only schedule one kernel at a time, but I'm not sure
-	//       if we want to do that. It might make things slower than is really necessary. A compromise would just
-	//		 be to lock around the part where we identify the candidate hosts and then allocate resources, which is
-	//		 probably what we actually need to do anyway.
 	// Schedule a replica of the kernel on each of the candidate hosts.
 	resultChan := s.scheduleKernelReplicas(in, hosts)
 
@@ -218,15 +234,14 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 				}
 			}
 		// Received response.
-		case val := <-resultChan:
+		case notification := <-resultChan:
 			{
-				if err, ok := val.(error); ok {
+				if !notification.Successful {
 					s.log.Error("Error while launching at least one of the replicas of kernel %s: %v", in.Id, err)
-					return err
+					return notification.Error
 				}
 
 				responsesReceived += 1
-
 				s.log.Debug("Launched %d/%d replica(s) of kernel %s.", responsesReceived, responsesRequired, in.Id)
 			}
 		}
