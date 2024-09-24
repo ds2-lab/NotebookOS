@@ -46,6 +46,9 @@ type schedulingNotification struct {
 	// KernelId is the ID of the kernel for which a replica was scheduled.
 	KernelId string
 
+	// ReplicaId is the SMR node ID of the replica that was scheduled (or whose scheduling was attempted but failed).
+	ReplicaId int32
+
 	// Successful indicates whether the operation succeeded or whether it failed.
 	Successful bool
 

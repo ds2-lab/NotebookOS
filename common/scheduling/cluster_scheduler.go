@@ -2,11 +2,35 @@ package scheduling
 
 import (
 	"context"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"strings"
 	"time"
 )
+
+// ErrorDuringScheduling is a custom error for when the scheduling of a new kernel fails.
+type ErrorDuringScheduling struct {
+	// UnderlyingError is the underlying error.
+	UnderlyingError error `json:"underlying_error"`
+
+	// ScheduledReplicaIDs are the IDs of replicas whose scheduling was successful.
+	ScheduledReplicaIDs []int32 `json:"scheduled_replica_ids"`
+
+	// HostsWithOrphanedReplicas are the IDs of Host instances who have an orphaned replica Container
+	// scheduled onto them (because some replicas may have been scheduled successfully while others weren't).
+	HostsWithOrphanedReplicas []string `json:"hosts_with_orphaned_replicas"`
+}
+
+func (e *ErrorDuringScheduling) Error() string {
+	return fmt.Sprintf("ErrorDuringScheduling[ScheduledReplicaIDs: %v, HostsWithOrphanedReplicas: %s, UnderlyingError: %v",
+		e.ScheduledReplicaIDs, strings.Join(e.HostsWithOrphanedReplicas, ", "), e.UnderlyingError)
+}
+
+func (e *ErrorDuringScheduling) String() string {
+	return e.Error()
+}
 
 // ClusterScheduler defines the interface of a scheduler for the Cluster.
 //
