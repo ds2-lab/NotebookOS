@@ -84,7 +84,7 @@ type ClusterScheduler interface {
 
 	// RefreshActualGpuInfo Refreshes the actual GPU usage information.
 	// Returns nil on success; returns an error on failure.
-	RefreshActualGpuInfo() error
+	// RefreshActualGpuInfo() error
 
 	// RemoteSynchronizationInterval returns the interval at which the ClusterScheduler synchronizes
 	// the Host instances within the Cluster with their remote nodes.
@@ -99,7 +99,7 @@ type ClusterScheduler interface {
 	//
 	// Return a slice of any errors that occurred. If an error occurs while refreshing a particular piece of information,
 	// then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).
-	RefreshAll() []error
+	//RefreshAll() []error
 
 	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
 	DeployNewKernel(context.Context, *proto.KernelSpec) error
