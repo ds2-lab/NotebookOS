@@ -434,9 +434,11 @@ func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
 	willOversubscribeMemory := h.OversubscriptionQuerierFunction(memRatio).GreaterThanOrEqual(decimal.Zero)
 	willOversubscribeGpu := h.OversubscriptionQuerierFunction(gpuRatio).GreaterThanOrEqual(decimal.Zero)
 
-	h.log.Debug("Computed over-subscription ratios for resource request: %v.\n"+
+	subscriptionRatio := h.Cluster.ClusterScheduler().SubscriptionRatio()
+
+	h.log.Debug("Computed over-subscription ratios for resource request: %v. Current subscription ratio: %.4f.\n"+
 		"CPU Ratio: %s (Will Oversubscribe? %v), Memory Ratio: %s (Will Oversubscribe? %v), GPU Ratio: %s (Will Oversubscribe? %v)",
-		resourceRequest.String(), cpuRatio.StringFixed(4), willOversubscribeCpu, memRatio.StringFixed(4),
+		resourceRequest.String(), subscriptionRatio, cpuRatio.StringFixed(4), willOversubscribeCpu, memRatio.StringFixed(4),
 		willOversubscribeMemory, gpuRatio.StringFixed(4), willOversubscribeGpu)
 
 	return willOversubscribeCpu || willOversubscribeMemory || willOversubscribeGpu

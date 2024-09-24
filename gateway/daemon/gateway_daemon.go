@@ -1294,7 +1294,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
-	d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v", kernel.ID(), listenPorts)
+	d.log.Debug("Allocating the following \"listen\" ports to kernel %s: %v", kernel.ID(), listenPorts)
 
 	// Create a new Session for scheduling purposes.
 	resourceUtil := scheduling.NewEmptyResourceUtilization().

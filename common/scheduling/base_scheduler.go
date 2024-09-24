@@ -157,6 +157,11 @@ func (s *BaseScheduler) GetOversubscriptionFactor(ratio decimal.Decimal) decimal
 	return ratio.Sub(s.subscriptionRatio)
 }
 
+// SubscriptionRatio returns the subscription ratio of the Cluster.
+func (s *BaseScheduler) SubscriptionRatio() float64 {
+	return s.subscriptionRatio.InexactFloat64()
+}
+
 // GetCandidateHosts returns a slice of *Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -331,13 +336,13 @@ func (s *BaseScheduler) UpdateRatio() bool {
 		ratio = 0.0
 
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("DemandGPUs: %.1f. CommittedGPUs: %.1f. Ratio: %.4f.", s.cluster.DemandGPUs(), s.cluster.BusyGPUs(), ratio)
+			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(), s.cluster.BusyGPUs(), ratio)
 		}
 	} else {
 		ratio = s.cluster.DemandGPUs() / s.cluster.BusyGPUs()
 
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("DemandGPUs: %.1f. CommittedGPUs: %.1f. Ratio: %.4f.", s.cluster.DemandGPUs(), s.cluster.BusyGPUs(), ratio)
+			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(), s.cluster.BusyGPUs(), ratio)
 		}
 	}
 
@@ -350,6 +355,7 @@ func (s *BaseScheduler) UpdateRatio() bool {
 			s.canScaleIn = true
 		}
 		s.subscriptionRatio = decimal.NewFromFloat(avg)
+		s.log.Debug("Recomputed subscription ratio as %s.", s.subscriptionRatio.StringFixed(4))
 		s.rebalance(avg)
 
 		if s.scalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.scalingInterval {
@@ -364,6 +370,7 @@ func (s *BaseScheduler) UpdateRatio() bool {
 func (s *BaseScheduler) rebalance(newRatio float64) {
 	s.pendingSubscribedRatio = newRatio
 	s.invalidated = newRatio - s.lastSubscribedRatio
+	s.log.Debug("Pending subscription ratio: %.4f. Invalidated: %.4f", s.pendingSubscribedRatio, s.invalidated)
 }
 
 func (s *BaseScheduler) MigrateContainer(container *Container, host *Host, b bool) (bool, error) {
@@ -404,7 +411,8 @@ func (s *BaseScheduler) ValidateCapacity() {
 	}
 
 	if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-		s.log.Debug("Load (CommittedGPUs): %s. Current #Hosts: %s. Minimum #Hosts to Satisfy Load: %s. Target #Hosts: %s. Max Scaled-Out #Hosts: %s.", load, s.cluster.Len(), minNumHosts, scaledOutNumHosts, limit)
+		s.log.Debug("Load (CommittedGPUs): %d. Current #Hosts: %d. Minimum #Hosts to Satisfy Load: %d. Target #Hosts: %d. Max Scaled-Out #Hosts: %d.",
+			load, s.cluster.Len(), minNumHosts, scaledOutNumHosts, limit)
 	}
 	oldNumHosts := int32(s.cluster.Len())
 	// Only scale-out if that feature is enabled.

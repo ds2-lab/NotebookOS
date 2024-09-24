@@ -63,6 +63,9 @@ type ClusterScheduler interface {
 	// MinimumCapacity Returns the minimum number of nodes we must have available at any time.
 	MinimumCapacity() int32
 
+	// SubscriptionRatio returns the subscription ratio of the Cluster.
+	SubscriptionRatio() float64
+
 	// GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between
 	// the given ratio and the Cluster's current subscription ratio.
 	GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal
