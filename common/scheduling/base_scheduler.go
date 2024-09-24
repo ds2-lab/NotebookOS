@@ -375,6 +375,11 @@ func (s *BaseScheduler) MigrateContainer(container *Container, host *Host, b boo
 // ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (s *BaseScheduler) ValidateCapacity() {
+	if s.gpuInfo == nil {
+		s.log.Warn("Scheduler's GPU Info is nil. Cannot ValidateCapacity.")
+		return
+	}
+
 	load := s.gpuInfo.TotalCommittedGPUs
 
 	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the Cluster's current committed GPUs.

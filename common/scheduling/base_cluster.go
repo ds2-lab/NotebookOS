@@ -86,7 +86,7 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		numReplicasDecimal:       decimal.NewFromInt(int64(opts.NumReplicas)),
 		clusterMetricsProvider:   clusterMetricsProvider,
 		subscriptionRatio:        7.0,
-		hosts:                    hashmap.NewConcurrentMap[*Host](64),
+		hosts:                    hashmap.NewConcurrentMap[*Host](256),
 		sessions:                 hashmap.NewCornelkMap[string, *Session](128),
 		indexes:                  hashmap.NewSyncMap[string, ClusterIndexProvider](),
 		validateCapacityInterval: time.Second * time.Duration(opts.ScalingInterval),
@@ -321,6 +321,10 @@ func (c *BaseCluster) RemoveHost(hostId string) {
 
 // Len returns the number of *Host instances in the Cluster.
 func (c *BaseCluster) Len() int {
+	if c.hosts == nil {
+		return 0
+	}
+
 	return c.hosts.Len()
 }
 
