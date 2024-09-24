@@ -173,7 +173,7 @@ type Host struct {
 	resourcesWrapper       *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
 	LastRemoteSync         time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 	IsContainedWithinIndex bool                                 // IsContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
-	
+
 	// OversubscriptionQuerierFunction is used to query the oversubscription factor given the host's
 	// subscription ratio and the cluster's subscription ratio.
 	OversubscriptionQuerierFunction OversubscriptionQuerierFunction
@@ -433,6 +433,11 @@ func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
 	willOversubscribeCpu := h.OversubscriptionQuerierFunction(cpuRatio).GreaterThanOrEqual(decimal.Zero)
 	willOversubscribeMemory := h.OversubscriptionQuerierFunction(memRatio).GreaterThanOrEqual(decimal.Zero)
 	willOversubscribeGpu := h.OversubscriptionQuerierFunction(gpuRatio).GreaterThanOrEqual(decimal.Zero)
+
+	h.log.Debug("Computed over-subscription ratios for resource request: %v.\n"+
+		"CPU Ratio: %s (Will Oversubscribe? %v), Memory Ratio: %s (Will Oversubscribe? %v), GPU Ratio: %s (Will Oversubscribe? %v)",
+		resourceRequest.String(), cpuRatio.StringFixed(4), willOversubscribeCpu, memRatio.StringFixed(4),
+		willOversubscribeMemory, gpuRatio.StringFixed(4), willOversubscribeGpu)
 
 	return willOversubscribeCpu || willOversubscribeMemory || willOversubscribeGpu
 }

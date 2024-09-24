@@ -85,6 +85,7 @@ type BaseScheduler struct {
 	scalingOutEnabled           bool                     // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation. If disabled, then the Cluster will exclusively scale-out in response to real-time demand, rather than attempt to have some hosts available in the case that demand surges.
 	scalingBufferSize           int32                    // How many extra hosts we provision so that we can quickly scale if needed.
 	minimumCapacity             int32                    // The minimum number of nodes we must have available at any time.
+	maximumCapacity             int32                    // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
 	opts                        *ClusterSchedulerOptions // Configuration options.
 	hostSpec                    types.Spec               // The types.Spec used when creating new Host instances.
 
@@ -111,13 +112,15 @@ func NewBaseScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, ho
 		scalingIntervalSec:            int32(opts.ScalingInterval),
 		scalingOutEnabled:             opts.ScalingOutEnabled,
 		scalingBufferSize:             int32(opts.ScalingBufferSize),
-		minimumCapacity:               int32(opts.MinimumNumNodes),
 		stRatio:                       types.NewMovingStatFromWindow(5),
 		opts:                          opts,
 		remoteSynchronizationInterval: time.Second * time.Duration(opts.GpuPollIntervalSeconds),
 		placer:                        placer,
 		hostSpec:                      hostSpec,
 		idleHosts:                     make(container.Heap, 0, 10),
+		maximumCapacity:               int32(opts.MaximumNumNodes),
+		minimumCapacity:               int32(opts.MinimumNumNodes),
+		subscriptionRatio:             decimal.NewFromFloat(opts.MaxSubscribedRatio),
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 
@@ -259,23 +262,6 @@ func (s *BaseScheduler) RemoveNode(hostId string) error {
 	return nil
 }
 
-// currentSize returns the current number of nodes in the kubernetes cluster.
-// This includes both nodes that are already running and nodes that are being provisioned.
-// TODO(Ben): Implement "node provisioning" (i.e., simulating the time it takes to spin-up a new node).
-func (s *BaseScheduler) currentSize() int32 {
-	return int32(s.cluster.Len())
-}
-
-// activeSize returns the number of active/already-running/already-provisioned hosts within the Cluster.
-func (s *BaseScheduler) activeSize() int32 {
-	return int32(s.cluster.Len())
-}
-
-// pendingSize returns the number of hosts currently being provisioned within the Cluster.
-func (s *BaseScheduler) pendingSize() int32 {
-	panic("Not implemented yet.")
-}
-
 // RefreshAll refreshes all metrics maintained/cached/required by the Cluster Scheduler,
 // including the list of current kubernetes nodes, actual and virtual GPU usage information, etc.
 //
@@ -338,6 +324,8 @@ func (s *BaseScheduler) RefreshClusterNodes() error {
 	return s.instance.RefreshClusterNodes()
 }
 
+// UpdateRatio updates the Cluster's subscription ratio.
+// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
 func (s *BaseScheduler) UpdateRatio() bool {
 	var ratio float64
 	if s.cluster.BusyGPUs() == 0 || s.cluster.DemandGPUs() == 0 {
@@ -394,6 +382,9 @@ func (s *BaseScheduler) ValidateCapacity() {
 	scaledOutNumHosts := int32(math.Ceil(float64(load) * s.scalingFactor / s.gpusPerHost)) // The number of hosts we would scale-out to based on the configured scaling factor.
 	limit := int32(math.Ceil(float64(load) * s.scalingLimit / s.gpusPerHost))              // The maximum number of hosts we're permitted to scale-out to.
 
+	s.log.Debug("Validating Cluster Capacity. MinNumHosts: %d, ScaledOutNumHosts: %d, Limit: %d",
+		minNumHosts, scaledOutNumHosts, limit)
+
 	// Make some room for fluctuation.
 	//
 	// TODO(Ben): Is the minimum capacity of the host pool the right value to use here?
@@ -403,43 +394,51 @@ func (s *BaseScheduler) ValidateCapacity() {
 	// to take advantage of reserved pricing.
 	if scaledOutNumHosts < (minNumHosts + s.scalingBufferSize) {
 		scaledOutNumHosts = minNumHosts + s.scalingBufferSize
-		// s.log.Debug("Adjusted scaledOutNumHosts: %s.", scaledOutNumHosts)
+		s.log.Debug("Adjusted scaledOutNumHosts: %s.", scaledOutNumHosts)
 	}
 	if limit < minNumHosts+4 {
 		limit = minNumHosts + 4
-		// s.log.Debug("Adjusted limit: %s.", limit)
+		s.log.Debug("Adjusted limit: %s.", limit)
 	}
 
 	if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-		s.log.Debug("Load (CommittedGPUs): %s. Current #Hosts: %s. Minimum #Hosts to Satisfy Load: %s. Target #Hosts: %s. Max Scaled-Out #Hosts: %s.", load, s.currentSize(), minNumHosts, scaledOutNumHosts, limit)
+		s.log.Debug("Load (CommittedGPUs): %s. Current #Hosts: %s. Minimum #Hosts to Satisfy Load: %s. Target #Hosts: %s. Max Scaled-Out #Hosts: %s.", load, s.cluster.Len(), minNumHosts, scaledOutNumHosts, limit)
 	}
-	oldNumHosts := s.currentSize()
+	oldNumHosts := int32(s.cluster.Len())
 	// Only scale-out if that feature is enabled.
 	if s.scalingOutEnabled && oldNumHosts < scaledOutNumHosts {
 		// Scaling out
-		var numProvisioned = 0
+		numProvisioned := 0
+		targetNumProvisioned := scaledOutNumHosts - oldNumHosts
 
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Scaling-out by %d hosts (from %d to %d).", scaledOutNumHosts-oldNumHosts, oldNumHosts, scaledOutNumHosts)
+			s.log.Debug("Scaling-out by %d hosts (from %d to %d).", targetNumProvisioned, oldNumHosts, scaledOutNumHosts)
 		}
 
 		// This is such a minor optimization, but we cache the size of the active host pool locally so that we don't have to grab it everytime.
 		// The size of the pending host pool will grow each time we provision a new host.
-		var activeSize = s.activeSize()
-		for (activeSize + s.pendingSize()) < scaledOutNumHosts {
+		numFailures := 0
+		for int32(s.cluster.Len()) < scaledOutNumHosts {
 			err := s.AddNode()
 			if err != nil {
 				s.log.Error("Failed to add new host because: %v", err)
+				numFailures += 1
 
-				// TODO (Ben): Figure out how to proceed here. For now, just return...
-				return
+				if numFailures > 3 {
+					s.log.Error("We've failed three times to provision a new host. Aborting automated operation.")
+					return
+				} else {
+					continue
+				}
 			}
 
 			numProvisioned++
 		}
 
-		if numProvisioned > 0 && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %s. New #hosts: %s.", numProvisioned, load, oldNumHosts, s.currentSize())
+		// If we provisioned any hosts -- or if we were supposed to provision at least one host -- then we'll
+		// print a message about how many we provisioned, and how many failures we encountered.
+		if (numProvisioned > 0 || targetNumProvisioned > 0) && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
+			s.log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %s. New #hosts: %s. #FailedProvisions: %d.", numProvisioned, load, oldNumHosts, s.cluster.Len(), numFailures)
 		}
 	}
 
@@ -449,12 +448,12 @@ func (s *BaseScheduler) ValidateCapacity() {
 	}
 
 	// Scaling in.
-	// TODO(Ben): Jingyuan used initial capacity here instead of minimum capacity. But my initial capacity is very high.
+	// NOTE: Jingyuan's algorithm uses initial capacity here, rather than minimum capacity.
 	if limit < s.MinimumCapacity() {
 		limit = s.MinimumCapacity()
 	}
 
-	numToRelease := s.currentSize() - limit
+	numToRelease := int32(s.cluster.Len()) - limit
 	if numToRelease > 0 {
 		if numToRelease > s.maximumHostsToReleaseAtOnce {
 			if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
@@ -473,7 +472,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 		}
 
 		if numReleased > 0 && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Released %d idle hosts based on #CommittedGPUs (%d). Prev #hosts: %s. New #hosts: %s.", numReleased, load, oldNumHosts, s.currentSize())
+			s.log.Debug("Released %d idle hosts based on #CommittedGPUs (%d). Prev #hosts: %s. New #hosts: %s.", numReleased, load, oldNumHosts, s.cluster.Len())
 		}
 	}
 

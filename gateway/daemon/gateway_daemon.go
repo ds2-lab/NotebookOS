@@ -62,18 +62,10 @@ const (
 	TargetReplicaArg  = "target_replica"
 	ForceReprocessArg = "force_reprocess"
 
-	// DefaultNumResendAttempts is the default number of attempts we'll resend a message before giving up.
-	DefaultNumResendAttempts = 3
-
 	SchedulingPolicyLocal     SchedulingPolicy = "local"
 	SchedulingPolicyStatic    SchedulingPolicy = "static"
 	SchedulingPolicyDynamicV3 SchedulingPolicy = "dynamic-v3"
 	SchedulingPolicyDynamicV4 SchedulingPolicy = "dynamic-v4"
-
-	// DefaultPrometheusPort is the default port on which the Local Daemon will serve Prometheus metrics.
-	DefaultPrometheusPort int = 8089
-	// DefaultPrometheusInterval is the default interval on which the Local Daemon will push new Prometheus metrics.
-	DefaultPrometheusInterval = time.Second * 2
 )
 
 var (
@@ -267,6 +259,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		hdfsNameNodeEndpoint:                  clusterDaemonOptions.HdfsNameNodeEndpoint,
 		dockerNetworkName:                     clusterDaemonOptions.DockerNetworkName,
 		numResendAttempts:                     clusterDaemonOptions.NumResendAttempts,
+		prometheusInterval:                    time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
 	}
 	for _, configFunc := range configs {
 		configFunc(clusterGateway)
@@ -274,22 +267,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	config.InitLogger(&clusterGateway.log, clusterGateway)
 	clusterGateway.router = router.New(context.Background(), clusterGateway.connectionOptions, clusterGateway,
 		"ClusterGatewayRouter", false, metrics.ClusterGateway)
-
-	if clusterGateway.numResendAttempts <= 0 {
-		clusterGateway.log.Error("Invalid number of message resend attempts specified: %d. Defaulting to %d.",
-			clusterGateway.numResendAttempts, DefaultNumResendAttempts)
-		clusterGateway.numResendAttempts = DefaultNumResendAttempts
-	}
-
-	if clusterGateway.prometheusInterval == time.Duration(0) {
-		clusterGateway.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
-		clusterGateway.prometheusInterval = DefaultPrometheusInterval
-	}
-
-	if clusterGateway.prometheusPort <= 0 {
-		clusterGateway.log.Debug("Using default Prometheus port: %d.", DefaultPrometheusPort)
-		clusterGateway.prometheusPort = DefaultPrometheusPort
-	}
 
 	clusterGateway.gatewayPrometheusManager = metrics.NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, clusterGateway)
 	err := clusterGateway.gatewayPrometheusManager.Start()
@@ -304,6 +281,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	// Initial values for these metrics.
 	clusterGateway.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
 		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Set(0)
+	clusterGateway.gatewayPrometheusManager.DemandGpusGauge.Set(0)
+	clusterGateway.gatewayPrometheusManager.BusyGpusGauge.Set(0)
 
 	if clusterGateway.ip == "" {
 		ip, err := utils.GetIP()
@@ -312,10 +291,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		} else {
 			clusterGateway.ip = ip
 		}
-	}
-
-	if len(clusterDaemonOptions.HdfsNameNodeEndpoint) == 0 {
-		panic("HDFS NameNode endpoint is empty.")
 	}
 
 	switch clusterDaemonOptions.SchedulingPolicy {
@@ -423,6 +398,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
 		clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 	}
+
+	clusterGateway.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
 
 	return clusterGateway
 }
@@ -690,9 +667,13 @@ func (d *ClusterGatewayImpl) publishPrometheusMetrics() {
 
 		d.log.Debug("Beginning to publish metrics to Prometheus now. Interval: %v", d.prometheusInterval)
 
-		//for {
-		//	time.Sleep(d.prometheusInterval)
-		//}
+		for {
+			d.gatewayPrometheusManager.DemandGpusGauge.Set(d.cluster.DemandGPUs())
+			d.gatewayPrometheusManager.BusyGpusGauge.Set(d.cluster.BusyGPUs())
+			d.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(d.cluster.SubscriptionRatio())
+
+			time.Sleep(d.prometheusInterval)
+		}
 	}()
 }
 

@@ -2,13 +2,13 @@ package domain
 
 import (
 	"encoding/json"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	"log"
 )
 
 const (
@@ -19,6 +19,14 @@ const (
 
 	DockerContainerFullId  MetadataKey = "docker-container-full-id"
 	DockerContainerShortId MetadataKey = "docker-container-short-id"
+
+	// DefaultNumResendAttempts is the default number of attempts we'll resend a message before giving up.
+	DefaultNumResendAttempts = 3
+
+	// DefaultPrometheusPort is the default port on which the Local Daemon will serve Prometheus metrics.
+	DefaultPrometheusPort int = 8089
+	// DefaultPrometheusIntervalSeconds is the default interval, in seconds, on which the Local Daemon will push new Prometheus metrics.
+	DefaultPrometheusIntervalSeconds = 15
 )
 
 type MetadataKey string
@@ -49,32 +57,54 @@ type ClusterDaemonOptions struct {
 	NumResendAttempts                  int    `name:"num_resend_attempts"              json:"num_resend_attempts"               yaml:"num_resend_attempts"                 description:"The number of times to attempt to resend a message before giving up."`
 }
 
+func (o *ClusterDaemonOptions) ValidateClusterDaemonOptions() {
+	if o.NumResendAttempts <= 0 {
+		log.Printf("[WARNING] Invalid number of message resend attempts specified: %d. Defaulting to %d.\n",
+			o.NumResendAttempts, DefaultNumResendAttempts)
+		o.NumResendAttempts = DefaultNumResendAttempts
+	}
+
+	if o.PrometheusInterval <= 0 {
+		log.Printf("[WARNING] Using default Prometheus interval: %v.\n", DefaultPrometheusIntervalSeconds)
+		o.PrometheusInterval = DefaultPrometheusIntervalSeconds
+	}
+
+	if o.PrometheusPort <= 0 {
+		log.Printf("[WARNING] Using default Prometheus port: %d.\n", DefaultPrometheusPort)
+		o.PrometheusPort = DefaultPrometheusPort
+	}
+
+	if len(o.HdfsNameNodeEndpoint) == 0 {
+		panic("HDFS NameNode endpoint is empty.")
+	}
+}
+
 // IsLocalMode returns true if the deployment mode is specified as "local".
-func (o ClusterDaemonOptions) IsLocalMode() bool {
+func (o *ClusterDaemonOptions) IsLocalMode() bool {
 	return o.DeploymentMode == string(types.LocalMode)
 }
 
 // IsDockerMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".
-func (o ClusterDaemonOptions) IsDockerMode() bool {
+func (o *ClusterDaemonOptions) IsDockerMode() bool {
 	return o.IsDockerComposeMode() || o.IsDockerSwarmMode()
 }
 
 // IsDockerSwarmMode returns true if the deployment mode is specified as "docker-swarm".
-func (o ClusterDaemonOptions) IsDockerSwarmMode() bool {
+func (o *ClusterDaemonOptions) IsDockerSwarmMode() bool {
 	return o.DeploymentMode == string(types.DockerSwarmMode)
 }
 
 // IsDockerComposeMode returns true if the deployment mode is specified as "docker-compose".
-func (o ClusterDaemonOptions) IsDockerComposeMode() bool {
+func (o *ClusterDaemonOptions) IsDockerComposeMode() bool {
 	return o.DeploymentMode == string(types.DockerComposeMode)
 }
 
 // IsKubernetesMode returns true if the deployment mode is specified as "kubernetes".
-func (o ClusterDaemonOptions) IsKubernetesMode() bool {
+func (o *ClusterDaemonOptions) IsKubernetesMode() bool {
 	return o.DeploymentMode == string(types.KubernetesMode)
 }
 
-func (o ClusterDaemonOptions) String() string {
+func (o *ClusterDaemonOptions) String() string {
 	//return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HdfsNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HdfsNameNodeEndpoint)
 	out, err := json.Marshal(o)
 	if err != nil {

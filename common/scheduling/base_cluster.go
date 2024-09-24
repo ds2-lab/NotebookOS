@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 	"log"
 	"sync"
+	"time"
 )
 
 // BaseCluster encapsulates the core state and logic required to operate a Cluster.
@@ -47,6 +48,15 @@ type BaseCluster struct {
 	numReplicas        int
 	numReplicasDecimal decimal.Decimal
 
+	// minimumCapacity is the minimum number of nodes we must have available at any time.
+	// It must be at least equal to the number of replicas per kernel.
+	minimumCapacity int32
+
+	// maximumCapacity is the maximum number of nodes we may have available at any time.
+	// If this value is < 0, then it is unbounded.
+	// It must be at least equal to the number of replicas per kernel, and it cannot be smaller than the minimum capacity.
+	maximumCapacity int32
+
 	subscriptionRatio float64
 
 	// clusterMetricsProvider provides access to Prometheus metrics (for publishing purposes).
@@ -58,21 +68,37 @@ type BaseCluster struct {
 
 	// hostMutex controls external access to the internal Host mapping.
 	hostMutex sync.RWMutex
+
+	// validateCapacityInterval is how frequently the Cluster should validate its capacity,
+	// scaling-in or scaling-out depending on the current load and whatnot.
+	validateCapacityInterval time.Duration
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
-func newBaseCluster(gpusPerHost int, numReplicas int, clusterMetricsProvider metrics.ClusterMetricsProvider) *BaseCluster {
+func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metrics.ClusterMetricsProvider) *BaseCluster {
 	cluster := &BaseCluster{
-		gpusPerHost:            gpusPerHost,
-		numReplicas:            numReplicas,
-		numReplicasDecimal:     decimal.NewFromInt(int64(numReplicas)),
-		clusterMetricsProvider: clusterMetricsProvider,
-		subscriptionRatio:      7.0,
-		hosts:                  hashmap.NewConcurrentMap[*Host](256),
-		indexes:                hashmap.NewSyncMap[string, ClusterIndexProvider](),
+		gpusPerHost:              opts.GpusPerHost,
+		numReplicas:              opts.NumReplicas,
+		numReplicasDecimal:       decimal.NewFromInt(int64(opts.NumReplicas)),
+		clusterMetricsProvider:   clusterMetricsProvider,
+		subscriptionRatio:        7.0,
+		hosts:                    hashmap.NewConcurrentMap[*Host](256),
+		indexes:                  hashmap.NewSyncMap[string, ClusterIndexProvider](),
+		validateCapacityInterval: time.Second * time.Duration(opts.ScalingInterval),
 	}
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
+
+	go func() {
+		// We wait for `validateCapacityInterval` before the first call to UpdateRatio (which calls ValidateCapacity).
+		time.Sleep(cluster.validateCapacityInterval)
+
+		for {
+			cluster.scheduler.UpdateRatio()
+			time.Sleep(cluster.validateCapacityInterval)
+		}
+	}()
+
 	config.InitLogger(&cluster.log, cluster)
 	return cluster
 }
@@ -199,6 +225,7 @@ func (c *BaseCluster) onHostAdded(host *Host) {
 	})
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
+	c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.
@@ -213,6 +240,7 @@ func (c *BaseCluster) onHostRemoved(host *Host) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
+	c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 }
 
 // ValidateCapacity ensures that the Cluster has the "right" amount of Host instances provisioned.
@@ -495,6 +523,15 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	currentNumNodes := int32(c.Len())
 	targetNumNodes := n + currentNumNodes
 
+	if targetNumNodes < c.maximumCapacity {
+		c.log.Error("Cannot add %d Local Daemon Docker node(s) from the cluster, "+
+			"as doing so would violate the cluster's maximum capacity constraint of %d.", n, c.maximumCapacity)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		return promise.Resolved(nil, fmt.Errorf("%w: "+
+			"adding %d nodes would violate maximum capacity constraint of %d",
+			ErrInvalidTargetNumHosts, n, c.maximumCapacity))
+	}
+
 	c.log.Debug("Received request for %d additional host(s). Current scale: %d. Target scale: %d.",
 		n, currentNumNodes, targetNumNodes)
 
@@ -531,6 +568,15 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	n := int32(len(ids))
 	currentNumNodes := int32(c.Len())
 	targetNumNodes := currentNumNodes - n
+
+	if targetNumNodes < c.minimumCapacity {
+		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the cluster, "+
+			"as doing so would violate the cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		return promise.Resolved(nil, fmt.Errorf("%w: "+
+			"removing %d nodes would violate minimum capacity constraint of %d",
+			ErrInvalidTargetNumHosts, n, c.minimumCapacity))
+	}
 
 	if targetNumNodes < int32(c.numReplicas) {
 		c.log.Error("Cannot remove %d specific Local Daemon Docker node(s) from the cluster", n)
@@ -576,6 +622,15 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the cluster", n)
 		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, ErrInvalidTargetNumHosts)
+	}
+
+	if targetNumNodes < c.minimumCapacity {
+		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the cluster, "+
+			"as doing so would violate the cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		return promise.Resolved(nil, fmt.Errorf("%w: "+
+			"removing %d nodes would violate minimum capacity constraint of %d",
+			ErrInvalidTargetNumHosts, n, c.minimumCapacity))
 	}
 
 	c.log.Debug("Will attempt to release %d nodes. Current scale: %d. Target scale: %d.",

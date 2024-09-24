@@ -166,15 +166,6 @@ type Cluster interface {
 	// If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
 	ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise
 
-	// HandleScaleInOperation handles a scale-in operation, removing the necessary Host instances from the Cluster.
-	//HandleScaleInOperation(op *ScaleOperation) promise.Promise
-
-	// HandleScaleOutOperation handles a scale-out operation, adding the necessary Host instances to the Cluster.
-	//HandleScaleOutOperation(op *ScaleOperation) promise.Promise
-
-	// GetHostManager returns the host manager of the BaseCluster.
-	//GetHostManager() hashmap.HashMap[string, *Host]
-
 	// AddIndex adds an index to the BaseCluster. For each category and expected value, there can be only one index.
 	AddIndex(index ClusterIndexProvider) error
 

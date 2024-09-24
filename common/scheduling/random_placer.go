@@ -50,13 +50,16 @@ func (placer *RandomPlacer) hostIsViable(candidateHost *Host, spec types.Spec) (
 	}
 
 	// If the Host can satisfy the resourceSpec, then add it to the slice of Host instances being returned.
-	if candidateHost.ResourceSpec().Validate(spec) && candidateHost.CanServeContainer(spec) && !candidateHost.WillBecomeTooOversubscribed(spec) {
+	canServeContainer := candidateHost.CanServeContainer(spec)
+	willBecomeTooOversubscribed := candidateHost.WillBecomeTooOversubscribed(spec)
+	if canServeContainer && !willBecomeTooOversubscribed {
 		// The Host can satisfy the resource request. Keep the host locked and return true.
 		placer.log.Debug(utils.GreenStyle.Render("Found viable candidate host: %v."), candidateHost)
 		return true, true
 	} else {
 		// The Host could not satisfy the resource request. Unlock it and return false.
-		placer.log.Warn(utils.OrangeStyle.Render("Host %v cannot satisfy request %v. (Host resources: %v.)"), candidateHost, candidateHost.ResourceSpec().String(), spec.String())
+		placer.log.Warn(utils.OrangeStyle.Render("%v cannot satisfy request %v. CanServeContainer=%v, WillBecomeTooOversubscribed=%v, Host's resources=%v.)"),
+			candidateHost, candidateHost.ResourceSpec().String(), canServeContainer, willBecomeTooOversubscribed, spec.String())
 		candidateHost.UnlockScheduling()
 		return false, true
 	}
@@ -163,6 +166,10 @@ func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 				time.Sleep(time.Millisecond * 500)
 			}
 		}
+	}
+
+	if len(hosts) == 0 {
+		panic("Shouldn't have failed (debugging)")
 	}
 
 	return hosts

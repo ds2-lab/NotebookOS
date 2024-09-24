@@ -29,7 +29,7 @@ type DockerComposeCluster struct {
 func NewDockerComposeCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
 	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *DockerComposeCluster {
 
-	baseCluster := newBaseCluster(opts.GpusPerHost, opts.NumReplicas, clusterMetricsProvider)
+	baseCluster := newBaseCluster(opts, clusterMetricsProvider)
 
 	dockerCluster := &DockerComposeCluster{
 		BaseCluster:   baseCluster,
@@ -97,6 +97,8 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 
 	c.onHostRemoved(host)
 
+	c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
+
 	return nil
 }
 
@@ -128,6 +130,7 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 		panic(err)
 	}
 	c.hosts.Store(id, disabledHost)
+	c.clusterMetricsProvider.GetNumDisabledHostsGauge().Sub(1)
 
 	return nil
 }

@@ -116,6 +116,9 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	}
 	globalLogger.Info("Jupyter server listening at %v", lis.Addr())
 
+	options.ClusterDaemonOptions.ValidateClusterDaemonOptions()
+	options.ClusterSchedulerOptions.ValidateClusterSchedulerOptions()
+
 	// Initialize daemon
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv scheduling.ClusterGateway) {
 		globalLogger.Info("Initializing Cluster Daemon with options: %s", options.ClusterDaemonOptions.String())

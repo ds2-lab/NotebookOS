@@ -58,6 +58,10 @@ type ClusterScheduler interface {
 	// are truly needed, then some Host instances will be terminated to reduce unnecessary resource usage.
 	ValidateCapacity()
 
+	// UpdateRatio updates the Cluster's subscription ratio.
+	// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
+	UpdateRatio() bool
+
 	// AddNode adds a new node to the kubernetes Cluster.
 	// We simulate this using node taints.
 	AddNode() error

@@ -23,6 +23,8 @@ type ClusterMetricsProvider interface {
 	GetScaleOutLatencyMillisecondsHistogram() prometheus.Histogram
 	GetScaleInLatencyMillisecondsHistogram() prometheus.Histogram
 	GetPlacerFindHostLatencyMicrosecondsHistogram() *prometheus.HistogramVec
+	GetNumDisabledHostsGauge() prometheus.Gauge
+	GetNumHostsGauge() prometheus.Gauge
 }
 
 // GatewayPrometheusManager is responsible for registering metrics with Prometheus and serving them via HTTP.
@@ -62,6 +64,26 @@ type GatewayPrometheusManager struct {
 
 	// PlacerFindHostLatencyMicrosecondsHistogramVec tracks the latency of each call to a scheduling.Placer's FindHosts method.
 	PlacerFindHostLatencyMicrosecondsHistogramVec *prometheus.HistogramVec
+
+	// ClusterSubscriptionRatioGauge is a gauge of the subscription ratio metric of the Cluster.
+	ClusterSubscriptionRatioGauge prometheus.Gauge
+
+	// DemandGpusGauge is a prometheus.Gauge metric that tracks the total GPU demand within the cluster.
+	// The "demand" is the number of GPUs that are required by all actively-running Sessions, if all
+	// GPUs were to be committed at the same time.
+	DemandGpusGauge prometheus.Gauge
+
+	// BusyGpusGauge is a prometheus.Gauge metric that tracks the total number of "busy" GPUs
+	// within the entire cluster, where "busy" GPUs are those actively committed to kernel replicas.
+	BusyGpusGauge prometheus.Gauge
+
+	// NumHostsGauge is a prometheus.Gauge metric that tracks the total number of active/enabled hosts provisioned
+	// within the Cluster.
+	NumHostsGauge prometheus.Gauge
+
+	// NumDisabledHostsGauge is a prometheus.Gauge metric that tracks the total number of disabled hosts within
+	// the Cluster.
+	NumDisabledHostsGauge prometheus.Gauge
 
 	//////////////////////////////
 	// Kernel Migration Metrics //
@@ -128,6 +150,36 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 			30e6 /* 30 sec */, 45e6, 60e6 /* 1 min */, 120e6 /* 2 min */},
 	}, []string{"successful"})
 
+	m.ClusterSubscriptionRatioGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "cluster_subscription_ratio",
+		Help:      "The subscription ratio, which is the ratio of demand to committed GPUs within the cluster.",
+	})
+
+	m.DemandGpusGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "cluster_demand_gpus_total",
+		Help:      "The total GPU demand within the cluster (i.e., the total number of GPUs required by all actively-running sessions.",
+	})
+
+	m.BusyGpusGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "cluster_busy_gpus_total",
+		Help:      "The total number of GPUs that are actively committed to training kernel replicas within the Cluster.",
+	})
+
+	m.NumHostsGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "hosts_total",
+		Help:      "The total number of active/enabled hosts provisioned within the Cluster.",
+	})
+
+	m.NumDisabledHostsGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "disabled_hosts_total",
+		Help:      "The total number of disabled hosts provisioned within the Cluster.",
+	})
+
 	m.ScaleOutLatencyMillisecondsHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
 		Name:      "scale_out_latency_milliseconds",
@@ -161,8 +213,33 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 		return err
 	}
 
+	if err := prometheus.Register(m.NumDisabledHostsGauge); err != nil {
+		m.log.Error("Failed to register 'Num Disabled Hosts Gauge' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.NumHostsGauge); err != nil {
+		m.log.Error("Failed to register 'Num Hosts Gauge' metric because: %v", err)
+		return err
+	}
+
 	if err := prometheus.Register(m.KernelMigrationLatencyHistogram); err != nil {
 		m.log.Error("Failed to register 'Kernel Migration Latency Histogram' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.ClusterSubscriptionRatioGauge); err != nil {
+		m.log.Error("Failed to register 'Cluster Subscription Ratio Gauge' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.DemandGpusGauge); err != nil {
+		m.log.Error("Failed to register 'Demand Gpus Gauge' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.BusyGpusGauge); err != nil {
+		m.log.Error("Failed to register 'Busy Gpus Gauge' metric because: %v", err)
 		return err
 	}
 
@@ -254,30 +331,10 @@ func (m *GatewayPrometheusManager) GetPlacerFindHostLatencyMicrosecondsHistogram
 	return m.PlacerFindHostLatencyMicrosecondsHistogramVec
 }
 
-//func (m *GatewayPrometheusManager) HandleRequest(c *gin.Context) {
-//	m.prometheusHandler.ServeHTTP(c.Writer, c.Request)
-//}
-//
-//func (m *GatewayPrometheusManager) initializeHttpServer() {
-//	m.engine = gin.New()
-//
-//	m.engine.Use(gin.Logger())
-//	m.engine.Use(cors.Default())
-//
-//	m.engine.GET("/variables/:variable_name", m.HandleVariablesRequest)
-//	m.engine.GET("/prometheus", m.HandleRequest)
-//
-//	address := fmt.Sprintf("0.0.0.0:%d", m.port)
-//	m.httpServer = &http.Server{
-//		Addr:    address,
-//		Handler: m.engine,
-//	}
-//
-//	go func() {
-//		m.log.Debug("Serving Prometheus metrics at %s", address)
-//		if err := m.httpServer.ListenAndServe(); err != nil {
-//			m.log.Error(utils.RedStyle.Render("HTTP Server failed to listen on '%s'. Error: %v"), address, err)
-//			panic(err)
-//		}
-//	}()
-//}
+func (m *GatewayPrometheusManager) GetNumDisabledHostsGauge() prometheus.Gauge {
+	return m.NumDisabledHostsGauge
+}
+
+func (m *GatewayPrometheusManager) GetNumHostsGauge() prometheus.Gauge {
+	return m.NumHostsGauge
+}
