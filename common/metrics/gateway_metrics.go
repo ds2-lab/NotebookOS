@@ -22,6 +22,7 @@ type LocalDaemonNodeProvider interface {
 type ClusterMetricsProvider interface {
 	GetScaleOutLatencyMillisecondsHistogram() prometheus.Histogram
 	GetScaleInLatencyMillisecondsHistogram() prometheus.Histogram
+	GetPlacerFindHostLatencyMicrosecondsHistogram() *prometheus.HistogramVec
 }
 
 // GatewayPrometheusManager is responsible for registering metrics with Prometheus and serving them via HTTP.
@@ -29,12 +30,42 @@ type ClusterMetricsProvider interface {
 type GatewayPrometheusManager struct {
 	*basePrometheusManager
 
+	localDaemonNodeProvider LocalDaemonNodeProvider
+
 	// JupyterTrainingStartLatency is a metric tracking the latency, in milliseconds, between when an
 	// "execute_request" message is sent and when the first "execute_reply" is received.
 	//
 	// The latency is observed from the Golang-based Jupyter client, and the units
 	// of the metric are seconds.
 	JupyterTrainingStartLatency *prometheus.HistogramVec
+
+	//////////////////////////
+	// Node Scaling Metrics //
+	//////////////////////////
+
+	// ScaleOutLatencyMillisecondsHistogram is a prometheus.Histogram of the latency, in milliseconds, of scaling-out
+	// (i.e., increasing the number of nodes available within the cluster).
+	ScaleOutLatencyMillisecondsHistogram prometheus.Histogram
+
+	// ScaleInLatencyMillisecondsHistogram is a prometheus.Histogram of the latency, in milliseconds, of scaling-in
+	// (i.e., decreasing the number of nodes available within the cluster).
+	ScaleInLatencyMillisecondsHistogram prometheus.Histogram
+
+	///////////////////////////////////////
+	// Kernel Replica Scheduling Metrics //
+	///////////////////////////////////////
+
+	// KernelCreationLatencyHistogram records the latency of creating a new kernel from the perspective of
+	// the Cluster Gateway. There are separate metrics for tracking how long it takes to create new sessions
+	// from the perspective of Jupyter Clients.
+	KernelCreationLatencyHistogram prometheus.Histogram
+
+	// PlacerFindHostLatencyMicrosecondsHistogramVec tracks the latency of each call to a scheduling.Placer's FindHosts method.
+	PlacerFindHostLatencyMicrosecondsHistogramVec *prometheus.HistogramVec
+
+	//////////////////////////////
+	// Kernel Migration Metrics //
+	//////////////////////////////
 
 	// NumSuccessfulMigrations keeps track of the number of times we successfully migrated a kernel from
 	// one node to another.
@@ -46,21 +77,6 @@ type GatewayPrometheusManager struct {
 
 	// KernelMigrationLatencyHistogram records the latencies of migrating kernel replicas from one node to another.
 	KernelMigrationLatencyHistogram prometheus.Histogram
-
-	// KernelCreationLatencyHistogram records the latency of creating a new kernel from the perspective of
-	// the Cluster Gateway. There are separate metrics for tracking how long it takes to create new sessions
-	// from the perspective of Jupyter Clients.
-	KernelCreationLatencyHistogram prometheus.Histogram
-
-	// ScaleOutLatencyMillisecondsHistogram is a prometheus.Histogram of the latency, in milliseconds, of scaling-out
-	// (i.e., increasing the number of nodes available within the cluster).
-	ScaleOutLatencyMillisecondsHistogram prometheus.Histogram
-
-	// ScaleInLatencyMillisecondsHistogram is a prometheus.Histogram of the latency, in milliseconds, of scaling-in
-	// (i.e., decreasing the number of nodes available within the cluster).
-	ScaleInLatencyMillisecondsHistogram prometheus.Histogram
-
-	localDaemonNodeProvider LocalDaemonNodeProvider
 }
 
 func NewGatewayPrometheusManager(port int, localDaemonNodeProvider LocalDaemonNodeProvider) *GatewayPrometheusManager {
@@ -103,6 +119,15 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 			1.2e5, 1.8e5, 2.4e5, 3e5},
 	})
 
+	m.PlacerFindHostLatencyMicrosecondsHistogramVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "placer_find_host_latency_microseconds",
+		Help:      "The latency, in microseconds, of finding candidate hosts when scheduling a kernel for the first time.",
+		Buckets: []float64{1, 10, 50, 100, 250, 500, 750, 1e3, 2e3, 3e3, 4e3, 5e3, 6e3, 7e3, 8e3, 9e3, 1e4, 1.5e4, 2e4,
+			3e4, 4.5e4, 6e4, 9e4, 1.2e5, 1.8e5, 2.4e5, 5e5 /* 0.5 sec */, 7.5e5, 1.0e6 /* 1 second */, 5e6, 10e6, 15e6,
+			30e6 /* 30 sec */, 45e6, 60e6 /* 1 min */, 120e6 /* 2 min */},
+	}, []string{"successful"})
+
 	m.ScaleOutLatencyMillisecondsHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
 		Name:      "scale_out_latency_milliseconds",
@@ -143,6 +168,11 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 
 	if err := prometheus.Register(m.KernelCreationLatencyHistogram); err != nil {
 		m.log.Error("Failed to register 'Kernel Creation Latency Histogram' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.PlacerFindHostLatencyMicrosecondsHistogramVec); err != nil {
+		m.log.Error("Failed to register 'Placer FindHosts Latency Histogram' metric because: %v", err)
 		return err
 	}
 
@@ -218,6 +248,10 @@ func (m *GatewayPrometheusManager) GetScaleOutLatencyMillisecondsHistogram() pro
 
 func (m *GatewayPrometheusManager) GetScaleInLatencyMillisecondsHistogram() prometheus.Histogram {
 	return m.ScaleInLatencyMillisecondsHistogram
+}
+
+func (m *GatewayPrometheusManager) GetPlacerFindHostLatencyMicrosecondsHistogram() *prometheus.HistogramVec {
+	return m.PlacerFindHostLatencyMicrosecondsHistogramVec
 }
 
 //func (m *GatewayPrometheusManager) HandleRequest(c *gin.Context) {

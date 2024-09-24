@@ -1,6 +1,7 @@
 package scheduling
 
 import (
+	"github.com/prometheus/client_golang/prometheus"
 	"sync"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 type RandomPlacer struct {
 	AbstractPlacer
 
-	cluster Cluster
+	cluster clusterInternal
 	index   *RandomClusterIndex
 	opts    *ClusterSchedulerOptions
 
@@ -21,7 +22,7 @@ type RandomPlacer struct {
 }
 
 // NewRandomPlacer creates a new RandomPlacer.
-func NewRandomPlacer(cluster Cluster, opts *ClusterSchedulerOptions) (*RandomPlacer, error) {
+func NewRandomPlacer(cluster clusterInternal, opts *ClusterSchedulerOptions) (*RandomPlacer, error) {
 	placer := &RandomPlacer{
 		cluster: cluster,
 		index:   NewRandomClusterIndex(100),
@@ -36,11 +37,37 @@ func NewRandomPlacer(cluster Cluster, opts *ClusterSchedulerOptions) (*RandomPla
 	return placer, nil
 }
 
+// hostIsViable returns a tuple (bool, bool).
+// First bool represents whether the host is viable.
+// Second bool indicates whether the host was successfully locked. This does not mean that it is still locked.
+// Merely that we were able to lock it when we tried. If we locked it and found that the host wasn't viable,
+// then we'll have unlocked it before hostIsViable returns.
+func (placer *RandomPlacer) hostIsViable(candidateHost *Host, spec types.Spec) (bool, bool) {
+	// Attempt to lock the host for our scheduling operation.
+	// If we fail to lock it, then we'll make note if that and try again later (if necessary).
+	// It is currently involved in another scheduling operation and may be available once that operation completes.
+	if locked := candidateHost.TryLockScheduling(); !locked {
+		placer.log.Warn("Failed to scheduling-lock host %s due to concurrent scheduling operation.", candidateHost.ID)
+		return false, false
+	}
+
+	// If the Host can satisfy the resourceSpec, then add it to the slice of Host instances being returned.
+	if candidateHost.CanServeContainer(spec) && !candidateHost.WillBecomeTooOversubscribed(spec) {
+		// The Host can satisfy the resource request. Keep the host locked and return true.
+		placer.log.Debug(utils.GreenStyle.Render("Found viable candidate host: %v."), candidateHost)
+		return true, true
+	} else {
+		// The Host could not satisfy the resource request. Unlock it and return false.
+		placer.log.Warn(utils.OrangeStyle.Render("Host %v cannot satisfy request %v. (Host resources: %v.)"), candidateHost, candidateHost.ResourceSpec().String(), spec.String())
+		candidateHost.UnlockScheduling()
+		return false, true
+	}
+}
+
 // FindHosts returns a slice of Host instances that can satisfy the resourceSpec.
 func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
 	placer.mu.Lock()
-	defer placer.mu.Unlock()
-
+	st := time.Now()
 	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", placer.opts.NumReplicas, spec.String(), placer.index.Len())
 
 	numReplicas := placer.opts.NumReplicas
@@ -53,28 +80,31 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
 	}
 
 	var (
-		pos           interface{}
-		candidateHost *Host
-		hosts         = make([]*Host, 0, numReplicas)
-		failedToLock  = make(map[string]*Host)
+		pos          interface{} = nil
+		hosts        []*Host     = nil
+		failedToLock             = make(map[string]*Host)
 	)
-	for i := 0; i < numReplicas; i++ {
-		candidateHost, pos = placer.index.SeekFrom(pos)
-		if locked := candidateHost.TryLockScheduling(); !locked {
-			placer.log.Warn("Failed to scheduling-lock host %s due to concurrent scheduling operation.", candidateHost.ID)
-			failedToLock[candidateHost.ID] = candidateHost
-			continue
+
+	// Seek `numReplicas` Hosts from the Placer's index.
+	hosts, _ = placer.index.SeekMultipleFrom(pos, numReplicas, func(candidateHost *Host) bool {
+		// Check if the host is viable.
+		viable, locked := placer.hostIsViable(candidateHost, spec)
+		if viable {
+			// It's viable, so return true.
+			return true
 		}
 
-		// If the Host can satisfy the resourceSpec, then add it to the slice of Host instances being returned.
-		if candidateHost.CanServeContainer(spec) && !candidateHost.WillBecomeTooOversubscribed(spec) {
-			hosts = append(hosts, candidateHost)
-			placer.log.Debug(utils.GreenStyle.Render("Found viable candidate host: %v. Identified hosts: %d."), candidateHost, len(hosts))
-		} else {
-			placer.log.Warn(utils.OrangeStyle.Render("Host %v cannot satisfy request %v. (Host resources: %v.)"), candidateHost, candidateHost.ResourceSpec().String(), spec.String())
-			candidateHost.UnlockScheduling()
+		// It wasn't viable. Did we simply fail to lock it (and therefore couldn't check its viability)?
+		if !locked {
+			// Simply couldn't check the host's viability. We'll try again later (if we need to).
+			failedToLock[candidateHost.ID] = candidateHost
 		}
-	}
+
+		// Return false because the host ultimately wasn't viable for one reason (truly not viable) or another (we
+		// simply couldn't lock the host and check if it is viable or not).
+		return false
+	}, make([]interface{}, 0))
+	placer.mu.Unlock()
 
 	// If we failed to find enough hosts, then we'll first check if there were any hosts that we couldn't lock due to a
 	// concurrent scheduling operation. If so, then we'll wait for ~30 seconds to see if they become available, and we'll
@@ -82,18 +112,30 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
 	if len(hosts) < numReplicas {
 		placer.log.Warn(utils.OrangeStyle.Render("Failed to find %d viable hosts. Found %d/%d."), numReplicas, len(hosts), numReplicas)
 
+		// Were there any hosts we couldn't test due to their being involved in a separate, concurrent scheduling operation?
 		if len(failedToLock) > 0 {
-			placer.log.Debug("Failed to scheduling-lock %d candidateHost(s). Will spend 30 seconds waiting to see if they become available...")
+			// There were some hosts we couldn't check before.
+			// We'll spend up to a minute trying to lock them for our scheduling operation before aborting.
+			interval := time.Second * 60
+			placer.log.Debug("Failed to scheduling-lock %d candidateHost(s). "+
+				"Will spend %v waiting to see if they become available...", interval)
 
-			// Try for the next 30 seconds to use any of the hosts that we failed to scheduling-lock.
+			// Try for the next `interval` to use any of the hosts that we failed to scheduling-lock.
 			st := time.Now()
-			for time.Since(st) < time.Second*30 && len(hosts) < numReplicas {
+			for time.Since(st) < interval && len(hosts) < numReplicas {
+				placer.mu.Lock()
 				// If we succeed in locking one of the hosts, then we'll remove it from the mapping so that
 				// we don't recheck it (in either case -- that it can serve our new kernel replica or if it cannot).
 				removeFromFailedToLock := make([]*Host, 0)
 
 				// Iterate over each of the hosts that we failed to scheduling-lock and retry.
 				for _, host := range failedToLock {
+					if !host.IsContainedWithinIndex {
+						placer.log.Warn("Host %s is no longer in a ClusterIndex. Must have been removed.", host.ID)
+						removeFromFailedToLock = append(removeFromFailedToLock, host)
+						continue
+					}
+
 					// Try to scheduling-lock the host.
 					if locked := host.TryLockScheduling(); locked {
 						// If we locked it, then check if it is viable. If it is, then we'll use it.
@@ -130,11 +172,23 @@ func (placer *RandomPlacer) FindHosts(spec types.Spec) []*Host {
 					}
 				}
 
+				placer.mu.Unlock()
 				time.Sleep(time.Millisecond * 500)
 			}
+		} else {
+			latency := time.Since(st)
+			placer.log.Warn(utils.OrangeStyle.Render("Failed to identify the %d required hosts for kernel %s. Found only %d/%d. Time elapsed: %v."),
+				placer.opts.NumReplicas, len(hosts), placer.opts.NumReplicas, latency)
+
+			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+				With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
 		}
 	} else {
-		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts."), len(hosts), numReplicas)
+		latency := time.Since(st)
+		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts after %v."),
+			len(hosts), numReplicas, latency)
+		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+			With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
 	}
 
 	return hosts
@@ -145,13 +199,28 @@ func (placer *RandomPlacer) FindHost(blacklist []interface{}, spec types.Spec) *
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 
-	host, _ := placer.index.Seek(blacklist)
+	st := time.Now()
+	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost *Host) bool {
+		viable, _ := placer.hostIsViable(candidateHost, spec)
+		return viable
+	}, blacklist)
 
-	if host.ResourceSpec().Validate(spec) {
-		// The Host can satisfy the resourceSpec, so return it.
-		return host
-	} else {
-		// The Host could not satisfy the resourceSpec, so return nil.
-		return nil
+	if len(hosts) > 0 {
+		candidateHost := hosts[0]
+		if candidateHost.ResourceSpec().Validate(spec) {
+			latency := time.Since(st)
+			placer.log.Debug(utils.GreenStyle.Render("Successfully identified single viable host after %v."), latency)
+			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+				With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
+			// The Host can satisfy the resourceSpec, so return it.
+			return candidateHost
+		}
 	}
+
+	latency := time.Since(st)
+	placer.log.Warn(utils.OrangeStyle.Render("Failed to identify single viable hosts. Time elapsed: %v."), latency)
+	placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+		With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
+	// The Host could not satisfy the resourceSpec, so return nil.
+	return nil
 }

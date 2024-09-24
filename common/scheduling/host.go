@@ -151,31 +151,32 @@ type Host struct {
 
 	log logger.Logger
 
-	latestGpuInfo      *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
-	resourceMutex      sync.Mutex                           // resourceMutex controls access to the latest GPU info.
-	syncMutex          sync.Mutex                           // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
-	schedulingMutex    sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating resources on the Host.
-	meta               hashmap.HashMap[string, interface{}] // meta is a map of metadata.
-	conn               *grpc.ClientConn                     // conn is the gRPC connection to the Host.
-	Addr               string                               // Addr is the Host's address.
-	NodeName           string                               // NodeName is the Host's name (for printing/logging).
-	Cluster            Cluster                              // Cluster is a reference to the Cluster interface that manages this Host.
-	ID                 string                               // ID is the unique ID of this host.
-	containers         hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
-	trainingContainers []*Container                         // trainingContainers are the actively-training kernel replicas.
-	seenSessions       []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec       types.ValidatableResourceSpec        // resourceSpec is the spec describing the total resources available on the Host, not impacted by allocations.
-	lastReschedule     types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	errorCallback      ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
-	pendingContainers  types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
-	enabled            bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels.
-	CreatedAt          time.Time                            // CreatedAt is the time at which the Host was created.
-	resourcesWrapper   *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
-	LastRemoteSync     time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
-
-	// oversubscriptionQuerierFunction is used to query the oversubscription factor given the host's
+	latestGpuInfo          *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
+	resourceMutex          sync.Mutex                           // resourceMutex controls access to the latest GPU info.
+	syncMutex              sync.Mutex                           // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
+	schedulingMutex        sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating resources on the Host.
+	meta                   hashmap.HashMap[string, interface{}] // meta is a map of metadata.
+	conn                   *grpc.ClientConn                     // conn is the gRPC connection to the Host.
+	Addr                   string                               // Addr is the Host's address.
+	NodeName               string                               // NodeName is the Host's name (for printing/logging).
+	Cluster                Cluster                              // Cluster is a reference to the Cluster interface that manages this Host.
+	ID                     string                               // ID is the unique ID of this host.
+	containers             hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
+	trainingContainers     []*Container                         // trainingContainers are the actively-training kernel replicas.
+	seenSessions           []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
+	resourceSpec           types.ValidatableResourceSpec        // resourceSpec is the spec describing the total resources available on the Host, not impacted by allocations.
+	lastReschedule         types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	errorCallback          ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
+	pendingContainers      types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
+	enabled                bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels.
+	CreatedAt              time.Time                            // CreatedAt is the time at which the Host was created.
+	resourcesWrapper       *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
+	LastRemoteSync         time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
+	IsContainedWithinIndex bool                                 // IsContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
+	
+	// OversubscriptionQuerierFunction is used to query the oversubscription factor given the host's
 	// subscription ratio and the cluster's subscription ratio.
-	oversubscriptionQuerierFunction OversubscriptionQuerierFunction
+	OversubscriptionQuerierFunction OversubscriptionQuerierFunction
 
 	// Cached penalties
 	sip             cache.InlineCache // Scale-in penalty.
@@ -241,7 +242,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		errorCallback:                   errorCallback,
 		enabled:                         true,
 		CreatedAt:                       time.Now(),
-		oversubscriptionQuerierFunction: cluster.GetOversubscriptionFactor,
+		OversubscriptionQuerierFunction: cluster.GetOversubscriptionFactor,
 	}
 
 	host.resourcesWrapper = &resourcesWrapper{
@@ -429,9 +430,9 @@ func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) 
 func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
 	cpuRatio, memRatio, gpuRatio := h.computeHypotheticalSubscriptionRatio(resourceRequest)
 
-	willOversubscribeCpu := h.oversubscriptionQuerierFunction(cpuRatio).GreaterThanOrEqual(decimal.Zero)
-	willOversubscribeMemory := h.oversubscriptionQuerierFunction(memRatio).GreaterThanOrEqual(decimal.Zero)
-	willOversubscribeGpu := h.oversubscriptionQuerierFunction(gpuRatio).GreaterThanOrEqual(decimal.Zero)
+	willOversubscribeCpu := h.OversubscriptionQuerierFunction(cpuRatio).GreaterThanOrEqual(decimal.Zero)
+	willOversubscribeMemory := h.OversubscriptionQuerierFunction(memRatio).GreaterThanOrEqual(decimal.Zero)
+	willOversubscribeGpu := h.OversubscriptionQuerierFunction(gpuRatio).GreaterThanOrEqual(decimal.Zero)
 
 	return willOversubscribeCpu || willOversubscribeMemory || willOversubscribeGpu
 }

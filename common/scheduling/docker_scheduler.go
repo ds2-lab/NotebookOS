@@ -48,6 +48,11 @@ func NewDockerScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, 
 	return dockerScheduler, nil
 }
 
+// selectViableHostForReplica is called at scheduling-time (rather than before we get to the point of scheduling, such
+// as searching for viable hosts before trying to schedule the container).
+//
+// selectViableHostForReplica searches for a viable training host and, if one is found, then that host is returned.
+// Otherwise, an error is returned.
 func (s *DockerScheduler) selectViableHostForReplica(replicaId int32, replicaSpec *proto.KernelReplicaSpec) (*Host, error) {
 	blacklist := make([]interface{}, 0)
 	kernelId := replicaSpec.ID()
@@ -63,17 +68,6 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaId int32, replicaSpe
 		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", host.ID, host.NodeName, kernelId, replicaId)
 		blacklist = append(blacklist, host.GetMeta(HostMetaRandomIndex))
 	}
-
-	//for _, replica := range kernel.Replicas() {
-	//	host := replica.GetHost()
-	//	if host == nil {
-	//		// This shouldn't happen as far as I know, but if it does, then we can't really identify the proper host to migrate to.
-	//		panic(fmt.Sprintf("Replica %d of kernel %s does NOT have a host...", replicaId, in.ID()))
-	//	}
-	//
-	//	s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", host.ID, host.NodeName, in.ID(), replicaId)
-	//	blacklist = append(blacklist, host.GetMeta(HostMetaRandomIndex))
-	//}
 
 	host := s.placer.FindHost(blacklist, types.FullSpecFromKernelReplicaSpec(replicaSpec))
 	if host == nil {
@@ -96,7 +90,7 @@ func (s *DockerScheduler) MigrateContainer(container *Container, host *Host, b b
 //
 // If targetHost is nil, then a candidate host is identified automatically by the ClusterScheduler.
 func (s *DockerScheduler) ScheduleKernelReplica(replicaId int32, kernelId string, replicaSpec *proto.KernelReplicaSpec,
-	kernelSpec *proto.KernelSpec, host *Host) error {
+	kernelSpec *proto.KernelSpec, targetHost *Host) (err error) {
 
 	if kernelSpec == nil && replicaSpec == nil {
 		panic("Both `kernelSpec` and `replicaSpec` cannot be nil; exactly one of these two arguments must be non-nil.")
@@ -106,17 +100,22 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaId int32, kernelId string
 		panic("Both `kernelSpec` and `replicaSpec` cannot be non-nil; exactly one of these two arguments must be non-nil.")
 	}
 
-	if host == nil {
-		var err error
-		host, err = s.selectViableHostForReplica(replicaId, replicaSpec)
+	if targetHost == nil {
+		s.log.Debug("No target host specified when scheduling replica %d of kernel %s. Searching for one now...",
+			replicaId, kernelId)
+
+		targetHost, err = s.selectViableHostForReplica(replicaId, replicaSpec)
 		if err != nil {
-			s.log.Error("Could not find viable host for replica %d of kernel %s: %v", replicaId, kernelId, err)
+			s.log.Error("Could not find viable targetHost for replica %d of kernel %s: %v", replicaId, kernelId, err)
 			return err
 		}
+
+		s.log.Debug("Found viable target host for replica %d of kernel %s at scheduling time: host %s",
+			replicaId, kernelId, targetHost.ID)
 	}
 
 	if kernelSpec != nil {
-		s.log.Debug("Launching replica %d of kernel %s on host %v now.", replicaId, kernelId, host)
+		s.log.Debug("Launching replica %d of kernel %s on targetHost %v now.", replicaId, kernelId, targetHost)
 		replicaSpec = &proto.KernelReplicaSpec{
 			Kernel:                    kernelSpec,
 			ReplicaId:                 replicaId,
@@ -129,10 +128,10 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaId int32, kernelId string
 			replicaSpec.DockerModeKernelDebugPort = s.dockerModeKernelDebugPort.Add(1)
 		}
 
-		s.log.Debug("Launching replica %d of kernel %s on host %v now.", replicaSpec.ReplicaId, kernelId, host)
+		s.log.Debug("Launching replica %d of kernel %s on targetHost %v now.", replicaSpec.ReplicaId, kernelId, targetHost)
 	}
 
-	replicaConnInfo, err := s.placer.Place(host, replicaSpec)
+	replicaConnInfo, err := s.placer.Place(targetHost, replicaSpec)
 	if err != nil {
 		if kernelSpec != nil {
 			s.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
@@ -202,6 +201,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
 func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec) error {
+	st := time.Now()
 	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", s.opts.NumReplicas, in.Id, in.ResourceSpec.String())
 
 	// Retrieve a slice of viable Hosts onto which we can schedule replicas of the specified kernel.
@@ -282,8 +282,8 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 				}
 
 				// TODO: kill orphaned replicas so that they don't just sit there, taking up resources unnecessarily.
-				s.log.Error("Scheduling of kernel %s has failed. Only managed to schedule replicas %s (%d/%d).",
-					in.Id, replicasScheduledBuilder.String(), len(responsesReceived), responsesRequired)
+				s.log.Error("Scheduling of kernel %s has failed after %v. Only managed to schedule replicas %s (%d/%d).",
+					in.Id, time.Since(st), replicasScheduledBuilder.String(), len(responsesReceived), responsesRequired)
 				s.log.Error("As such, the following Hosts have orphaned replicas of kernel %s scheduled onto them: %s",
 					in.Id, hostsWithOrphanedReplicaBuilder.String())
 
@@ -302,12 +302,14 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 				}
 
 				responsesReceived = append(responsesReceived, notification)
-				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s. %d/%d replicas scheduled.",
-					notification.ReplicaId, in.Id, notification.HostId, len(responsesReceived), responsesRequired, in.Id)
+				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s. %d/%d replicas scheduled. Time elapsed: %v.",
+					notification.ReplicaId, in.Id, notification.HostId, len(responsesReceived), responsesRequired, in.Id, time.Since(st))
 			}
 		}
 	}
 
+	s.log.Debug("Successfully scheduled all %d replica(s) of kernel %s in %v.",
+		s.opts.NumReplicas, in.Id, time.Since(st))
 	return nil
 }
 

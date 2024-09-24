@@ -173,7 +173,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		resourceSpec = types.DecimalSpecFromKernelSpec(kernelSpec)
 		hosts        []*Host
 	)
-	for numTries < maxAttempts {
+	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {
 		// Identify the hosts onto which we will place replicas of the kernel.
 		hosts = s.placer.FindHosts(resourceSpec)
 
