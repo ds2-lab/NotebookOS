@@ -270,6 +270,10 @@ func (dc *DistributedCluster) RemoveClusterNodes(ctx context.Context, in *proto.
 	return dc.gatewayDaemon.RemoveClusterNodes(ctx, in)
 }
 
+func (dc *DistributedCluster) ClusterAge(ctx context.Context, in *proto.Void) (*proto.ClusterAgeResponse, error) {
+	return dc.gatewayDaemon.ClusterAge(ctx, in)
+}
+
 func (dc *DistributedCluster) ModifyClusterNodes(ctx context.Context, in *proto.ModifyClusterNodesRequest) (*proto.ModifyClusterNodesResponse, error) {
 	return dc.gatewayDaemon.ModifyClusterNodes(ctx, in)
 }

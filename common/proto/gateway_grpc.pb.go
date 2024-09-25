@@ -376,6 +376,7 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	DistributedCluster_InducePanic_FullMethodName                = "/gateway.DistributedCluster/InducePanic"
+	DistributedCluster_ClusterAge_FullMethodName                 = "/gateway.DistributedCluster/ClusterAge"
 	DistributedCluster_SpoofNotifications_FullMethodName         = "/gateway.DistributedCluster/SpoofNotifications"
 	DistributedCluster_Ping_FullMethodName                       = "/gateway.DistributedCluster/Ping"
 	DistributedCluster_PingKernel_FullMethodName                 = "/gateway.DistributedCluster/PingKernel"
@@ -406,6 +407,8 @@ const (
 type DistributedClusterClient interface {
 	// Used for debugging/testing. Causes a Panic.
 	InducePanic(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
+	// ClusterAge returns the age of the DistributedCluster as a UnixMilliseconds timestamp.
+	ClusterAge(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterAgeResponse, error)
 	// Used to test notifications.
 	SpoofNotifications(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
 	// Used to test connectivity.
@@ -489,6 +492,16 @@ func (c *distributedClusterClient) InducePanic(ctx context.Context, in *Void, op
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Void)
 	err := c.cc.Invoke(ctx, DistributedCluster_InducePanic_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) ClusterAge(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterAgeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterAgeResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_ClusterAge_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -694,6 +707,8 @@ func (c *distributedClusterClient) GetLocalDaemonNodeIDs(ctx context.Context, in
 type DistributedClusterServer interface {
 	// Used for debugging/testing. Causes a Panic.
 	InducePanic(context.Context, *Void) (*Void, error)
+	// ClusterAge returns the age of the DistributedCluster as a UnixMilliseconds timestamp.
+	ClusterAge(context.Context, *Void) (*ClusterAgeResponse, error)
 	// Used to test notifications.
 	SpoofNotifications(context.Context, *Void) (*Void, error)
 	// Used to test connectivity.
@@ -775,6 +790,9 @@ type UnimplementedDistributedClusterServer struct{}
 
 func (UnimplementedDistributedClusterServer) InducePanic(context.Context, *Void) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InducePanic not implemented")
+}
+func (UnimplementedDistributedClusterServer) ClusterAge(context.Context, *Void) (*ClusterAgeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClusterAge not implemented")
 }
 func (UnimplementedDistributedClusterServer) SpoofNotifications(context.Context, *Void) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SpoofNotifications not implemented")
@@ -868,6 +886,24 @@ func _DistributedCluster_InducePanic_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DistributedClusterServer).InducePanic(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_ClusterAge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).ClusterAge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_ClusterAge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).ClusterAge(ctx, req.(*Void))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1224,6 +1260,10 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InducePanic",
 			Handler:    _DistributedCluster_InducePanic_Handler,
+		},
+		{
+			MethodName: "ClusterAge",
+			Handler:    _DistributedCluster_ClusterAge_Handler,
 		},
 		{
 			MethodName: "SpoofNotifications",

@@ -43,6 +43,9 @@ service DistributedCluster {
   // Used for debugging/testing. Causes a Panic.
   rpc InducePanic(Void) returns (Void) {}
 
+  // ClusterAge returns the age of the DistributedCluster as a UnixMilliseconds timestamp.
+  rpc ClusterAge(Void) returns (ClusterAgeResponse) {}
+
   // Used to test notifications.
   rpc SpoofNotifications(Void) returns (Void) {}
 
@@ -136,6 +139,13 @@ service DistributedCluster {
 // (i.e., the Dashboard is the server while the Cluster Gateway is the client).
 service ClusterDashboard {
   rpc SendNotification(Notification) returns (Void) {} // Report to the Dashboard that an error occurred.
+}
+
+// ClusterAgeResponse is returned by the ClusterAge gRPC function.
+// It encodes the age of the Cluster as a UnixMilliseconds timestamp.
+message ClusterAgeResponse {
+  // Age is the age of the Cluster in the form of a UnixMilliseconds timestamp.
+  int64 age = 1;
 }
 
 // GetLocalDaemonNodeIDsResponse is returned by the GetLocalDaemonNodeIDs gRPC function.

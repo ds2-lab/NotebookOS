@@ -113,6 +113,8 @@ type ClusterGatewayImpl struct {
 	sync.Mutex
 
 	id string
+	// createdAt is the time at which the ClusterGatewayImpl struct was created.
+	createdAt time.Time
 
 	// schedulingPolicy refers to the scheduling policy/methodology/algorithm that the Cluster Gateway is configured to use.
 	schedulingPolicy SchedulingPolicy
@@ -133,7 +135,7 @@ type ClusterGatewayImpl struct {
 	transport        string
 	ip               string
 	kernels          hashmap.HashMap[string, *client.DistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
-	kernelIdToKernel hashmap.HashMap[string, *client.DistributedKernelClient] // Map from Kernel ID to  client.DistributedKernelClient.
+	kernelIdToKernel hashmap.HashMap[string, *client.DistributedKernelClient] // Map from Kernel ID to client.DistributedKernelClient.
 	kernelSpecs      hashmap.HashMap[string, *proto.KernelSpec]
 
 	// numActiveKernels is the number of actively-running kernels.
@@ -240,6 +242,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	clusterGateway := &ClusterGatewayImpl{
 		id:                                    uuid.New().String(),
 		connectionOptions:                     opts,
+		createdAt:                             time.Now(),
 		transport:                             "tcp",
 		ip:                                    opts.IP,
 		availablePorts:                        utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
@@ -2420,6 +2423,10 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 	}
 
 	return nil
+}
+
+func (d *ClusterGatewayImpl) ClusterAge(_ context.Context, _ *proto.Void) (*proto.ClusterAgeResponse, error) {
+	return &proto.ClusterAgeResponse{Age: d.createdAt.UnixMilli()}, nil
 }
 
 func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, workloadId string) {

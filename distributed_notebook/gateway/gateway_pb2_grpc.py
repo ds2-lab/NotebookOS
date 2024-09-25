@@ -387,6 +387,11 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 _registered_method=True)
+        self.ClusterAge = channel.unary_unary(
+                '/gateway.DistributedCluster/ClusterAge',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.ClusterAgeResponse.FromString,
+                _registered_method=True)
         self.SpoofNotifications = channel.unary_unary(
                 '/gateway.DistributedCluster/SpoofNotifications',
                 request_serializer=gateway__pb2.Void.SerializeToString,
@@ -491,6 +496,13 @@ class DistributedClusterServicer(object):
 
     def InducePanic(self, request, context):
         """Used for debugging/testing. Causes a Panic.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ClusterAge(self, request, context):
+        """ClusterAge returns the age of the DistributedCluster as a UnixMilliseconds timestamp.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -668,6 +680,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
+            'ClusterAge': grpc.unary_unary_rpc_method_handler(
+                    servicer.ClusterAge,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.ClusterAgeResponse.SerializeToString,
+            ),
             'SpoofNotifications': grpc.unary_unary_rpc_method_handler(
                     servicer.SpoofNotifications,
                     request_deserializer=gateway__pb2.Void.FromString,
@@ -793,6 +810,33 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/InducePanic',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ClusterAge(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/ClusterAge',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.ClusterAgeResponse.FromString,
             options,
             channel_credentials,
             insecure,
