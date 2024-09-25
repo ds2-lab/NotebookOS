@@ -43,6 +43,7 @@ type SchedulerDaemonOptions struct {
 	PrometheusInterval   int    `name:"prometheus_interval" description:"Frequency in seconds of how often to publish metrics to Prometheus. So, setting this to 5 means we publish metrics roughly every 5 seconds."`
 	PrometheusPort       int    `name:"prometheus_port" description:"The port on which this local daemon will serve Prometheus metrics. Default/suggested: 8089."`
 	NumResendAttempts    int    `name:"num_resend_attempts" description:"The number of times to attempt to resend a message before giving up."`
+	RunKernelsInGdb      bool   `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
 }
 
 // IsKubernetesMode returns true if the deployment mode is specified as "kubernetes".

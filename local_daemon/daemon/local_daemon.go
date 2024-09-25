@@ -134,6 +134,9 @@ type SchedulerDaemonImpl struct {
 	// them to be able to connect to HDFS running in the host (WSL).
 	usingWSL bool
 
+	// If true, then the kernels will be executed within GDB.
+	runKernelsInGdb bool
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -184,6 +187,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		prometheusInterval:           time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
 		prometheusPort:               schedulerDaemonOptions.PrometheusPort,
 		numResendAttempts:            schedulerDaemonOptions.NumResendAttempts,
+		runKernelsInGdb:              schedulerDaemonOptions.RunKernelsInGdb,
 	}
 
 	for _, configFunc := range configs {
@@ -650,6 +654,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			KernelDebugPort:      -1,
 			DockerStorageBase:    d.dockerStorageBase,
 			UsingWSL:             d.usingWSL,
+			RunKernelsInGdb:      d.runKernelsInGdb,
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1330,6 +1335,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			KernelDebugPort:      int(in.DockerModeKernelDebugPort),
 			DockerStorageBase:    d.dockerStorageBase,
 			UsingWSL:             d.usingWSL,
+			RunKernelsInGdb:      d.runKernelsInGdb,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.

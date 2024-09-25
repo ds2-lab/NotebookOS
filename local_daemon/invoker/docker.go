@@ -87,22 +87,26 @@ type DockerInvoker struct {
 	containerCreatedAt       time.Time                        // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
 	containerCreated         bool                             // containerCreated is a bool indicating whether kernel the container has been created.
 	containerMetricsProvider metrics.ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
+	runKernelsInGdb          bool                             // If true, then the kernels will be run in GDB.
 }
 
 type DockerInvokerOptions struct {
-	// Endpoint of the HDFS namenode.
+	// HdfsNameNodeEndpoint is the endpoint of the HDFS namenode.
 	HdfsNameNodeEndpoint string
 
-	// Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	// KernelDebugPort is the debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
 	KernelDebugPort int
 
-	// Base directory in which the persistent store data is stored when running in docker mode.
+	// DockerStorageBase is the base directory in which the persistent store data is stored when running in docker mode.
 	DockerStorageBase string
 
-	// Indicates whether we're running within WSL (Windows Subsystem for Linux).
+	// UsingWSL indicates whether we're running within WSL (Windows Subsystem for Linux).
 	// If we are, then there is some additional configuration required for the kernel containers in order for
 	// them to be able to connect to HDFS running in the host (WSL).
 	UsingWSL bool
+
+	// RunKernelsInGdb specifies that, if true, then the kernels will be run in GDB.
+	RunKernelsInGdb bool `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider metrics.ContainerMetricsProvider) *DockerInvoker {
@@ -127,6 +131,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		kernelDebugPort:          opts.KernelDebugPort,
 		dockerNetworkName:        dockerNetworkName,
 		dockerStorageBase:        opts.DockerStorageBase,
+		runKernelsInGdb:          opts.RunKernelsInGdb,
 		containerMetricsProvider: containerMetricsProvider,
 	}
 
@@ -135,9 +140,12 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkNameEnv, DockerNetworkNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarStorageVolume, utils.GetEnv(DockerStorageVolume, DockerStorageVolumeDefault))
 
+	if invoker.runKernelsInGdb {
+		invoker.invokerCmd = invoker.invokerCmd + " -e RUN_IN_GDB=1"
+	}
+
 	config.InitLogger(&invoker.log, invoker)
 
-	// invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarLocalDaemonAddr, localDaemonAddr)
 	return invoker
 }
 
@@ -255,8 +263,6 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 
 	argv := append(strings.Split(cmd, " "), spec.Kernel.Argv...)
 
-	// argv = append(argv, ">")
-	// argv = append(argv, "kernel_output.log")
 	argv = append(argv, "2>&1")
 
 	configurationFilesExist := ivk.validateConfigFilesExist(connectionFile, configFile)

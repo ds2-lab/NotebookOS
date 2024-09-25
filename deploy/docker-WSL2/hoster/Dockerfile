@@ -5,6 +5,6 @@ FROM frolvlad/alpine-python3
 RUN pip3 install docker
 RUN mkdir /hoster
 WORKDIR /hoster
-ADD deploy/docker/hoster/hoster.py /hoster/
+ADD deploy/docker-WSL2/hoster/hoster.py /hoster/
 
 CMD ["python3", "-u", "hoster.py"]
