@@ -386,6 +386,14 @@ func (s *Session) TrainingStopped() promise.Promise {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.unsafeTrainingStopped()
+}
+
+// unsafeTrainingStopped performs the work of TrainingStopped. It is to be called by TrainingStopped, and sometimes
+// SessionStopped, after the Session's mutex has already been acquired.
+//
+// Note: this method is thread-safe.
+func (s *Session) unsafeTrainingStopped() promise.Promise {
 	if err := s.transition(SessionStateIdle); err != nil {
 		s.log.Warn("Failed to stop training because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -487,8 +495,8 @@ func (s *Session) SessionStopped() promise.Promise {
 	// If the Session is training, then we need to first call TrainingStopped to ensure that our local view(s) of
 	// resource usage on the Host on which the Session's active replica is training are consistent/correct.
 	if s.IsTraining() {
-		s.log.Debug("scheduling.Session %s is training. Stopping training before stopping scheduling.Session.")
-		s.TrainingStopped()
+		s.log.Debug("Currently training. Stopping training before stopping scheduling.Session.")
+		s.unsafeTrainingStopped() // Call unsafeTrainingStopped directly, as we already have the mutex.
 	}
 
 	// Transition to the 'SessionStateStopped' state.

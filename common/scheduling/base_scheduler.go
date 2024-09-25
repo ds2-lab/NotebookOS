@@ -90,6 +90,7 @@ type BaseScheduler struct {
 	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	stRatio                *types.MovingStat // session/training ratio
 	subscriptionRatio      decimal.Decimal   // Subscription ratio.
+	maxSubscribedRatio     decimal.Decimal
 	invalidated            float64
 	lastSubscribedRatio    float64
 	pendingSubscribedRatio float64
@@ -118,6 +119,7 @@ func NewBaseScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, ho
 		idleHosts:                     make(container.Heap, 0, 10),
 		maximumCapacity:               int32(opts.MaximumNumNodes),
 		minimumCapacity:               int32(opts.MinimumNumNodes),
+		maxSubscribedRatio:            decimal.NewFromFloat(opts.MaxSubscribedRatio),
 		subscriptionRatio:             decimal.NewFromFloat(opts.MaxSubscribedRatio),
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
@@ -331,9 +333,11 @@ func (s *BaseScheduler) RefreshClusterNodes() error {
 // UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
 func (s *BaseScheduler) UpdateRatio() bool {
 	var ratio float64
-	if s.cluster.BusyGPUs() == 0 || s.cluster.DemandGPUs() == 0 {
+	if s.cluster.BusyGPUs() == 0 {
 		// Technically if the number of committed GPUs is zero, then the ratio is infinite (undefined).
-		ratio = 0.0
+		// TODO: Previously, I'd just set the ratio to 0 if BusyGPUs was 0.
+		// But technically, it should be undefined/infinite, so I will try setting it to maxSubscribedRatio...
+		ratio = s.maxSubscribedRatio.InexactFloat64()
 
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
 			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(), s.cluster.BusyGPUs(), ratio)
@@ -348,7 +352,6 @@ func (s *BaseScheduler) UpdateRatio() bool {
 
 	s.stRatio.Add(ratio)
 	avg := s.stRatio.Avg()
-	s.cluster.SetSubscriptionRatio(avg)
 	if s.stRatio.N() == s.stRatio.Window() {
 		if !s.canScaleIn {
 			s.log.Debug("We can now scale-in.")
@@ -403,11 +406,11 @@ func (s *BaseScheduler) ValidateCapacity() {
 	// to take advantage of reserved pricing.
 	if scaledOutNumHosts < (minNumHosts + s.scalingBufferSize) {
 		scaledOutNumHosts = minNumHosts + s.scalingBufferSize
-		s.log.Debug("Adjusted scaledOutNumHosts: %s.", scaledOutNumHosts)
+		s.log.Debug("Adjusted scaledOutNumHosts: %d.", scaledOutNumHosts)
 	}
 	if limit < minNumHosts+4 {
 		limit = minNumHosts + 4
-		s.log.Debug("Adjusted limit: %s.", limit)
+		s.log.Debug("Adjusted limit: %df.", limit)
 	}
 
 	if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
@@ -448,7 +451,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 		// If we provisioned any hosts -- or if we were supposed to provision at least one host -- then we'll
 		// print a message about how many we provisioned, and how many failures we encountered.
 		if (numProvisioned > 0 || targetNumProvisioned > 0) && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %s. New #hosts: %s. #FailedProvisions: %d.", numProvisioned, load, oldNumHosts, s.cluster.Len(), numFailures)
+			s.log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %d. Current #hosts: %d. #FailedProvisions: %d.", numProvisioned, load, oldNumHosts, s.cluster.Len(), numFailures)
 		}
 	}
 

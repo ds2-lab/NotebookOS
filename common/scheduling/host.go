@@ -49,7 +49,8 @@ type PreemptionInfo interface {
 	Candidates() ContainerList
 }
 
-// Used by Host's to query
+// OversubscriptionQuerierFunction is a function used by Host's to compare their subscription ratio against the
+// Cluster's subscription ratio/factor. This is used to determine if a Host is fit to serve a Container or not.
 type OversubscriptionQuerierFunction func(ratio decimal.Decimal) decimal.Decimal
 
 type HostMetaKey string
@@ -152,7 +153,6 @@ type Host struct {
 	log logger.Logger
 
 	latestGpuInfo          *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
-	resourceMutex          sync.Mutex                           // resourceMutex controls access to the latest GPU info.
 	syncMutex              sync.Mutex                           // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
 	schedulingMutex        sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating resources on the Host.
 	meta                   hashmap.HashMap[string, interface{}] // meta is a map of metadata.
@@ -466,11 +466,7 @@ func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 // updateLocalGpuInfoFromRemote updates the local info pertaining to GPU usage information
 // with the "actual" GPU usage retrieved from the remote host associated with this Host struct.
 func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
-	h.resourceMutex.Lock()
-
-	//h.log.Debug("Updating local GPU usage info with data from remote now...")
 	numDifferences := 0
-
 	localIdleGpus := h.resourcesWrapper.idleResources.GPUs()
 	if localIdleGpus != float64(remoteInfo.IdleGPUs) {
 		h.log.Warn("Local idle GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", localIdleGpus, remoteInfo.IdleGPUs)
@@ -503,7 +499,6 @@ func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
 	}
 
 	h.latestGpuInfo = remoteInfo
-	h.resourceMutex.Unlock()
 }
 
 // ContainerScheduled is to be called when a Container is scheduled onto the Host.

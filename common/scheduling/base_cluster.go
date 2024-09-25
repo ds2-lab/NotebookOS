@@ -60,8 +60,6 @@ type BaseCluster struct {
 	// It must be at least equal to the number of replicas per kernel, and it cannot be smaller than the minimum capacity.
 	maximumCapacity int32
 
-	subscriptionRatio float64
-
 	// clusterMetricsProvider provides access to Prometheus metrics (for publishing purposes).
 	clusterMetricsProvider metrics.ClusterMetricsProvider
 
@@ -85,7 +83,6 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		numReplicas:              opts.NumReplicas,
 		numReplicasDecimal:       decimal.NewFromInt(int64(opts.NumReplicas)),
 		clusterMetricsProvider:   clusterMetricsProvider,
-		subscriptionRatio:        7.0,
 		hosts:                    hashmap.NewConcurrentMap[*Host](256),
 		sessions:                 hashmap.NewCornelkMap[string, *Session](128),
 		indexes:                  hashmap.NewSyncMap[string, ClusterIndexProvider](),
@@ -135,11 +132,7 @@ func (c *BaseCluster) GetOversubscriptionFactor(ratio decimal.Decimal) decimal.D
 }
 
 func (c *BaseCluster) SubscriptionRatio() float64 {
-	return c.subscriptionRatio
-}
-
-func (c *BaseCluster) SetSubscriptionRatio(ratio float64) {
-	c.subscriptionRatio = ratio
+	return c.ClusterScheduler().SubscriptionRatio()
 }
 
 // Placer returns the Placer used by the Cluster.

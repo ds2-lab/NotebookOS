@@ -218,9 +218,6 @@ type Cluster interface {
 	// SubscriptionRatio returns the SubscriptionRatio of the Cluster.
 	SubscriptionRatio() float64
 
-	// SetSubscriptionRatio sets the SubscriptionRatio of the Cluster.
-	SetSubscriptionRatio(float64)
-
 	// NodeType returns the type of node provisioned within the Cluster.
 	NodeType() string
 
