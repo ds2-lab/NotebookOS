@@ -8,7 +8,7 @@ services:
     platform: linux/amd64
     build:
       context: ../..
-      dockerfile: deploy/docker/hoster/Dockerfile
+      dockerfile: ../docker (outdated)/hoster/Dockerfile
     image: scusemua/docker-hoster:latest
     labels:
       app: "distributed_cluster"
@@ -140,7 +140,7 @@ services:
       - "3100:3100"
     volumes:
       - loki_data:/loki
-      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
+      - {@current_directory}/loki/loki-config.yaml:/etc/loki/loki-config.yaml
 
   promtail:
     image: grafana/promtail:3.2.0
@@ -148,7 +148,7 @@ services:
       - /var/log:/var/log
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./promtail/config.yml:/etc/promtail/config.yml
+      - {@current_directory}/promtail/config.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       - loki
@@ -164,8 +164,8 @@ services:
       - GF_SECURITY_ADMIN_USER=scusemua
       - GF_SECURITY_ADMIN_PASSWORD=grafana
     volumes:
-      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
-      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+      - {@current_directory}/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+      - {@current_directory}/grafana/grafana.ini:/etc/grafana/grafana.ini
       - grafana_data:/var/lib/grafana
 
 volumes:

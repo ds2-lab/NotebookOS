@@ -8,7 +8,7 @@ services:
   docker-hoster:
     build:
       context: ../..
-      dockerfile: deploy/docker/hoster/Dockerfile
+      dockerfile: /hoster/Dockerfile
     image: scusemua/docker-hoster:latest
     labels:
       app: "distributed_cluster"
