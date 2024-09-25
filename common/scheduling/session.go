@@ -34,6 +34,10 @@ var (
 
 type SessionState string
 
+func (s SessionState) String() string {
+	return string(s)
+}
+
 type SessionStatistic interface {
 	Add(val float64)
 	Sum() float64
@@ -337,6 +341,8 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 //
 // Note: this method is thread-safe.
 func (s *Session) TrainingStarted(container *Container) promise.Promise {
+	s.log.Debug("Training starting. Current state: %s.", s.sessionState.String())
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -394,6 +400,8 @@ func (s *Session) TrainingStopped() promise.Promise {
 //
 // Note: this method is thread-safe.
 func (s *Session) unsafeTrainingStopped() promise.Promise {
+	s.log.Debug("Training stopping. Current state: %s.", s.sessionState.String())
+
 	if err := s.transition(SessionStateIdle); err != nil {
 		s.log.Warn("Failed to stop training because: %v", err)
 		return promise.Resolved(s.instance, err)
@@ -472,6 +480,8 @@ func (s *Session) GetState() SessionState {
 //
 // Note: this method is thread-safe.
 func (s *Session) SessionStarted() promise.Promise {
+	s.log.Debug("Session starting. Current state: %s.", s.sessionState.String())
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -487,10 +497,10 @@ func (s *Session) SessionStarted() promise.Promise {
 //
 // Note: this method is thread-safe.
 func (s *Session) SessionStopped() promise.Promise {
+	s.log.Debug("Session stopping. Current state: %s.", s.sessionState.String())
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	s.log.Debug("Stopping scheduling.Session now.")
 
 	// If the Session is training, then we need to first call TrainingStopped to ensure that our local view(s) of
 	// resource usage on the Host on which the Session's active replica is training are consistent/correct.

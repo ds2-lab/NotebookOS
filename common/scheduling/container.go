@@ -68,7 +68,7 @@ func NewContainer(session *Session, kernelReplica KernelReplica, host *Host, ker
 		id:                   id,
 		host:                 host,
 		session:              session,
-		log:                  config.GetLogger(fmt.Sprintf("Container %s", id)),
+		log:                  config.GetLogger(fmt.Sprintf("Container %s-%d ", kernelReplica.ID(), kernelReplica.ReplicaID())),
 		containerState:       ContainerStateIdle,
 		spec:                 session.ResourceSpec().Clone(),
 		outstandingResources: kernelReplica.ResourceSpec().Clone(),

@@ -28,6 +28,8 @@ services:
     image: scusemua/jupyter-debug:latest
     labels:
       app: "distributed_cluster"
+      logging: "promtail"
+      logging_jobname: "jupyter"
     container_name: "jupyter"
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
     expose:
@@ -49,6 +51,8 @@ services:
     image: scusemua/gateway:latest
     labels:
       app: "distributed_cluster"
+      logging: "promtail"
+      logging_jobname: "jupyter"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - {@current_directory}/gateway/gateway.yml:/gateway.yml
@@ -85,12 +89,12 @@ services:
     image: scusemua/daemon:latest
     labels:
       app: "distributed_cluster"
+      logging: "promtail"
+      logging_jobname: "jupyter"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base
       - {@current_directory}/local_daemon/daemon.yml:/daemon.yml
-        # - ./local_daemon/daemon.yml:/daemon.yml
-      # - storage:/home/$USER/kernel_storage
     depends_on:
       - gateway
       - docker-hoster
@@ -128,6 +132,26 @@ services:
         condition: service_completed_successfully
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  loki:
+    image: grafana/loki:3.2.0
+    command: -config.file=/etc/loki/loki-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
+
+  promtail:
+    image: grafana/promtail:3.2.0
+    volumes:
+      - /var/log:/var/log
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail/config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
 
   grafana:
     platform: linux/amd64
