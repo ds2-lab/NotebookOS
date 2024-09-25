@@ -280,15 +280,7 @@ else
     # if [[ "${cmd[0]}" == *.sh ]]; then
     if [[ -z "${RUN_IN_GDB}" ]]; then # If RUN_IN_GDB is not set, then don't run in GDB.
         _log "Will NOT be running script or executable in GDB."
-        if [[ "${cmd[0]}" == *.sh ]]; then
-            sudo --preserve-env --set-home --user "${NB_USER}" \
-                          LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
-                          PATH="${PATH}" \
-                          PYTHONPATH="${PYTHONPATH:-}" \
-                          bash "${cmd[@]}" 2>&1
-        else
-            "${cmd[@]}" 2>&1
-        fi
+        "${cmd[@]}" 2>&1
     else
         _log "Running executable in GDB: " "${cmd[@]}"
         RAND_STR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 13; echo)
