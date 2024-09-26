@@ -60,6 +60,7 @@ type LocalDaemonPrometheusManager struct {
 	NumTrainingEventsCompletedCounter       prometheus.Counter  // NumTrainingEventsCompletedCounter is a cached return of NumTrainingEventsCompletedCounterVec.With(<label for the local daemon on this node>)
 	NumActiveKernelReplicasGauge            prometheus.Gauge    // NumActiveKernelReplicasGauge is a cached return of NumActiveKernelReplicasGaugeVec.With(<label for the local daemon on this node>)
 	DockerContainerCreationLatencyHistogram prometheus.Observer // DockerContainerCreationLatencyHistogram is a cached return of DockerContainerCreationLatencyHistogramVec.With(<label for the local daemon on this node>)
+	AckLatencyMicrosecondsHistogram         prometheus.Observer // AckLatencyMicrosecondsHistogram is a cached return of AckLatencyMicrosecondsVec.With(<label for the local daemon on this node>)
 }
 
 // NewLocalDaemonPrometheusManager creates a new LocalDaemonPrometheusManager struct and returns a pointer to it.

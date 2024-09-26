@@ -71,6 +71,10 @@ type MessagingMetricsProvider interface {
 	AddNumSendAttemptsRequiredObservation(acksRequired float64, nodeId string, nodeType NodeType,
 		socketType jupyterTypes.MessageType, jupyterMessageType string) error
 
+	// AddAckReceivedLatency is used to record an observation for the "ack_received_latency_microseconds" metric.
+	AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType NodeType,
+		socketType jupyterTypes.MessageType, jupyterMessageType string) error
+
 	// AddFailedSendAttempt records that a message was never acknowledged by the target recipient.
 	//
 	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
@@ -174,8 +178,11 @@ type basePrometheusManager struct {
 	// - "jupyter_message_type": the Jupyter message type of the message whose latency is being observed.
 	MessageLatencyMicrosecondsVec *prometheus.HistogramVec
 
-	// MessageSendLatencyMicrosecondsVec is a histogram if the time taken to send a ZMQ message in microseconds.
+	// MessageSendLatencyMicrosecondsVec is a histogram of the time taken to send a ZMQ message in microseconds.
 	MessageSendLatencyMicrosecondsVec *prometheus.HistogramVec
+
+	// AckLatencyMicrosecondsVec is a histogram of the amount of time that passes before an ACK is received.
+	AckLatencyMicrosecondsVec *prometheus.HistogramVec
 
 	// NumSendsBeforeAckReceived is a prometheus.HistogramVec tracking observations of the number of times a given
 	// message was sent before an ACK was received for that message.
@@ -358,6 +365,14 @@ func (m *basePrometheusManager) initializeMetrics() error {
 			400e3, 500e3, 750e3, 1e6, 1.5e6, 2e6, 3e6, 4.5e6, 6e6, 9e6, 1.2e7, 1.8e7, 2.4e7, 3e7, 4.5e7, 6e7, 9e7, 1.2e8},
 	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
 
+	m.AckLatencyMicrosecondsVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "ack_received_latency_microseconds",
+		Help:      "The amount of time that passes before an acknowledgement message is received from the recipient of another (non-acknowledgement) message.",
+		Buckets: []float64{1, 10, 100, 1e3, 5e3, 10e3, 15e3, 20e3, 30e3, 50e3, 75e3, 100e3, 150e3, 200e3, 300e3,
+			400e3, 500e3, 750e3, 1e6, 1.5e6, 2e6, 3e6, 4.5e6, 6e6, 9e6, 1.2e7, 1.8e7, 2.4e7, 3e7, 4.5e7, 6e7, 9e7, 1.2e8},
+	}, []string{"node_id", "node_type", "socket_type", "jupyter_message_type"})
+
 	m.MessageSendLatencyMicrosecondsVec = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
 		Name:      "message_send_latency_microseconds",
@@ -404,6 +419,11 @@ func (m *basePrometheusManager) initializeMetrics() error {
 
 	if err := prometheus.Register(m.MessageSendLatencyMicrosecondsVec); err != nil {
 		m.log.Error("Failed to register 'Message Send Latency Microseconds' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.AckLatencyMicrosecondsVec); err != nil {
+		m.log.Error("Failed to register 'Ack Latency Microseconds Vec' metric because: %v", err)
 		return err
 	}
 
@@ -553,6 +573,23 @@ func (m *basePrometheusManager) SentMessageUnique(nodeId string, nodeType NodeTy
 			"socket_type":          socketType.String(),
 			"jupyter_message_type": jupyterMessageType,
 		}).Inc()
+
+	return nil
+}
+
+// AddAckReceivedLatency is used to record an observation for the "ack_received_latency_microseconds" metric.
+func (m *basePrometheusManager) AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error {
+	if !m.metricsInitialized {
+		m.log.Error("Cannot record \"AckLatencyMicroseconds\" observation as metrics have not yet been initialized...")
+		return ErrMetricsNotInitialized
+	}
+
+	m.AckLatencyMicrosecondsVec.With(prometheus.Labels{
+		"node_id":              nodeId,
+		"node_type":            nodeType.String(),
+		"socket_type":          socketType.String(),
+		"jupyter_message_type": jupyterMessageType,
+	}).Observe(float64(latency.Microseconds()))
 
 	return nil
 }

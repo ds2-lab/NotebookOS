@@ -976,15 +976,19 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 // onAcknowledgementReceived is to be called when an acknowledgement is received for the given Request within
 // the Request's configured time-out window.
 func (s *AbstractServer) onAcknowledgementReceived(request types.Request, socket *types.Socket) {
-	goroutineId := goid.Get()
+	startTime, _ := request.BeganSendingAt()
+	ackReceivedLatency := time.Since(startTime)
 
 	if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
-		startTime, _ := request.BeganSendingAt()
-
+		goroutineId := goid.Get()
 		firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] %v \"%s\" message"), goroutineId, socket.Type, request.JupyterMessageType())
 		secondPart := fmt.Sprintf("%s (JupyterID=%s)", utils.PurpleStyle.Render(request.RequestId()), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
-		thirdPart := fmt.Sprintf(utils.GreenStyle.Render("has successfully been acknowledged on attempt %d/%d after %v."), request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), time.Since(startTime))
+		thirdPart := fmt.Sprintf(utils.GreenStyle.Render("has successfully been acknowledged on attempt %d/%d after %v."), request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), ackReceivedLatency)
 		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+	}
+
+	if err := s.MessagingMetricsProvider.AddAckReceivedLatency(ackReceivedLatency, s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
+		s.Log.Warn("Could not record \"ack received latency\" metric because: %v", err)
 	}
 }
 
