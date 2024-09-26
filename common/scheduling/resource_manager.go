@@ -628,8 +628,8 @@ func (m *ResourceManager) PromoteReservation(replicaId int32, kernelId string) e
 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Error("Cannot promote reserved resources for replica %d of kernel %s: no existing resource allocation "+
-			"found for that kernel replica.", replicaId, kernelId)
+		m.log.Error("Cannot promote reserved resources for replica %d of kernel %s: no existing resource allocation found for that kernel replica.",
+			replicaId, kernelId)
 	}
 
 	if allocation.IsPending() {
@@ -643,7 +643,7 @@ func (m *ResourceManager) PromoteReservation(replicaId int32, kernelId string) e
 	if !allocation.IsReservation {
 		m.log.Error("Found existing '%s' resource allocation for replica %d of kernel %s; "+
 			"however, '%s' resource allocation is already not a reservation...",
-			replicaId, kernelId, CommittedAllocation.String(), CommittedAllocation.String())
+			CommittedAllocation.String(), replicaId, kernelId, allocation.AllocationType.String())
 		return fmt.Errorf("%w: expected '%s' allocation to be a reservation (it is not)",
 			ErrInvalidAllocationType, CommittedAllocation.String())
 	}
@@ -679,7 +679,7 @@ func (m *ResourceManager) PromoteReservation(replicaId int32, kernelId string) e
 //
 // This operation is performed atomically by acquiring the ResourceManager::mu sync.Mutex.
 // The sync.Mutex is released before the function returns.
-func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adjustedResourceRequest types.Spec) error {
+func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adjustedResourceRequest types.Spec, isReservation bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -716,8 +716,8 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 		m.log.Debug("Pending allocation for kernel %s-%d pre-commitment: %s", kernelId, replicaId, allocation.ToSpec())
 	}
 
-	m.log.Debug("Attempting to commit the following resources to replica %d of kernel %s: %v",
-		replicaId, kernelId, requestedResources.String())
+	m.log.Debug("Attempting to commit the following resources to replica %d of kernel %s (isReservation=%v): %v",
+		replicaId, kernelId, isReservation, requestedResources.String())
 
 	// First, validate against this scheduling.Host's spec.
 	if err := m.resourcesWrapper.specResources.ValidateWithError(requestedResources); err != nil {
@@ -767,13 +767,14 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 	allocation.Millicpus = requestedResources.Millicpus.Copy()
 	allocation.MemoryMB = requestedResources.MemoryMb.Copy()
 	allocation.AllocationType = CommittedAllocation
+	allocation.IsReservation = isReservation
 
 	// Update the pending/committed allocation counters.
 	m.numPendingAllocations.Decr()
 	m.numCommittedAllocations.Incr()
 
-	m.log.Debug("Successfully committed the following resources to replica %d of kernel %s: %v",
-		replicaId, kernelId, requestedResources.String())
+	m.log.Debug("Successfully committed the following resources to replica %d of kernel %s (isReservation=%v): %v",
+		replicaId, kernelId, isReservation, requestedResources.String())
 
 	// Update Prometheus metrics.
 	// m.resourceMetricsCallback(m.resourcesWrapper)

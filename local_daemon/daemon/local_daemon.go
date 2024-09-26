@@ -1925,7 +1925,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
 		d.log.Debug("Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election.",
 			kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-		resourceAllocationFailure := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec())
+		resourceAllocationFailure := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
 		if resourceAllocationFailure != nil {
 			d.log.Warn("Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
 				kernel.ReplicaID(), kernel.ID(), resourceAllocationFailure.Error())
