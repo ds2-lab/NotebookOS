@@ -393,6 +393,12 @@ func (m *ResourceManager) SpecMemoryMB() decimal.Decimal {
 	return m.resourcesWrapper.SpecResources().MemoryMbAsDecimal().Copy()
 }
 
+// SpecResources returns a snapshot of the current quantities of spec resources available
+// on this node at the time at which the SpecResources method is called.
+func (m *ResourceManager) SpecResources() *types.DecimalSpec {
+	return m.resourcesWrapper.specResources.ToDecimalSpec()
+}
+
 // IdleGPUs returns the number of GPUs that are uncommitted and therefore available on this node.
 //
 // This returns a copy of the decimal.Decimal used internally.
@@ -423,6 +429,12 @@ func (m *ResourceManager) IdleMemoryMB() decimal.Decimal {
 	return m.resourcesWrapper.IdleResources().MemoryMbAsDecimal().Copy()
 }
 
+// IdleResources returns a snapshot of the current quantities of idle resources available
+// on this node at the time at which the IdleResources method is called.
+func (m *ResourceManager) IdleResources() *types.DecimalSpec {
+	return m.resourcesWrapper.idleResources.ToDecimalSpec()
+}
+
 // CommittedGPUs returns the number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
 //
 // This returns a copy of the decimal.Decimal used internally.
@@ -451,6 +463,12 @@ func (m *ResourceManager) CommittedMemoryMB() decimal.Decimal {
 	defer m.mu.Unlock()
 
 	return m.resourcesWrapper.CommittedResources().MemoryMbAsDecimal().Copy()
+}
+
+// CommittedResources returns a snapshot of the current quantities of committed resources available
+// on this node at the time at which the CommittedResources method is called.
+func (m *ResourceManager) CommittedResources() *types.DecimalSpec {
+	return m.resourcesWrapper.committedResources.ToDecimalSpec()
 }
 
 // PendingGPUs returns the sum of the outstanding GPUs of all replicas scheduled onto this node.
@@ -490,6 +508,12 @@ func (m *ResourceManager) PendingMemoryMB() decimal.Decimal {
 	defer m.mu.Unlock()
 
 	return m.resourcesWrapper.PendingResources().MemoryMbAsDecimal().Copy()
+}
+
+// PendingResources returns a snapshot of the current quantities of pending resources available
+// on this node at the time at which the PendingResources method is called.
+func (m *ResourceManager) PendingResources() *types.DecimalSpec {
+	return m.resourcesWrapper.pendingResources.ToDecimalSpec()
 }
 
 // AdjustSpecGPUs sets the available GPUs to the specified value.
@@ -997,6 +1021,25 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 	m.unsafeUpdatePrometheusResourceMetrics()
 
 	return nil
+}
+
+// HasSufficientIdleResourcesAvailable returns true if there are sufficiently many idle resources available
+// on the node such that the requested resources could be commited to a locally-running kernel replica.
+func (m *ResourceManager) HasSufficientIdleResourcesAvailable(spec types.Spec) bool {
+	return m.resourcesWrapper.idleResources.Validate(spec)
+}
+
+// HasSufficientIdleResourcesAvailableWithError returns true if there are sufficiently many idle resources available
+// on the node such that the requested resources could be commited to a locally-running kernel replica.
+//
+// This method differs from HasSufficientIdleResourcesAvailable insofar as it returns an error encoding the resource(s)
+// for which there are insufficient idle resources available.
+func (m *ResourceManager) HasSufficientIdleResourcesAvailableWithError(spec types.Spec) (bool, error) {
+	if err := m.resourcesWrapper.idleResources.ValidateWithError(spec); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 // InconsistentResourcesError is a custom error type used to indicate that some resource quantity within

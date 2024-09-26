@@ -1804,12 +1804,10 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	return nil /* will be nil on success */
 }
 
-// func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.KernelReplicaClient, header *jupyter.MessageHeader, offset int) *jupyter.JupyterMessage {
 func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.KernelReplicaClient) *jupyter.JupyterMessage {
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	var targetReplicaId int32 = -1
 
-	// TODO(Ben): Check GPU resources. If there are sufficiently-many GPUs available, then leave the message as-is.
 	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_execute" message.
 	// This will force the replica to necessarily yield the execution to the other replicas.
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
@@ -1851,57 +1849,48 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 		kernel.SetWorkloadId(workloadId.(string))
 	}
 
-	var (
-		// Check if another replica was specified as the one that should execute the code.
-		// If this is true, then we'll yield the execution.
-		// Note that we may pass 0 to force the execution to fail, for testing/debugging purposes.
-		// No SMR replica can have an ID of 0.
-		differentTargetReplicaSpecified = targetReplicaId != int32(-1) && targetReplicaId != kernel.ReplicaID()
+	// Check if another replica was specified as the one that should execute the code.
+	// If this is true, then we'll yield the execution.
+	// Note that we may pass 0 to force the execution to fail, for testing/debugging purposes.
+	// No SMR replica can have an ID of 0.
+	differentTargetReplicaSpecified := targetReplicaId != int32(-1) && targetReplicaId != kernel.ReplicaID()
 
-		// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
-		err error
-
-		// The number of GPUs required by this kernel replica.
-		//requiredGPUs decimal.Decimal
-	)
-
-	//if kernel.ResourceSpec() == nil {
-	//	d.log.Error("Kernel %s (replica %d) does not have a ResourceSpec associated with it...", kernel.ID(), kernel.ReplicaID())
-	//	requiredGPUs = ZeroDecimal.Copy()
-	//} else {
-	//	d.log.Debug("Kernel %s requires %d GPU(s).", kernel.ID(), kernel.ResourceSpec().GPU())
-	//	requiredGPUs = decimal.NewFromFloat(kernel.ResourceSpec().GPU())
-	//}
-
-	// If the error is non-nil, then there weren't enough idle GPUs available.
-	//if !differentTargetReplicaSpecified {
-	//	// Only bother trying to allocate GPUs if the request isn't explicitly targeting another replica.
-	//	err = d.resourceManager.AllocatePendingGPUs(requiredGPUs, kernel.ReplicaID(), kernel.ID())
-	//}
+	idleResources := d.resourceManager.IdleResources()
+	// Check if there are sufficient idle resources available on the node for the replica to train.
+	sufficientResourcesAvailable := d.resourceManager.HasSufficientIdleResourcesAvailable(kernel.ResourceSpec())
 
 	// Include the current number of idle GPUs available.
-	idleGPUs := d.resourceManager.IdleGPUs()
-	d.log.Debug("Including idle-gpus (%s) in request metadata.", idleGPUs.StringFixed(0))
-	metadataDict["idle-gpus"] = idleGPUs
+	metadataDict["idle-gpus"] = idleResources.GPU()
+	metadataDict["idle-millicpus"] = idleResources.CPU()
+	metadataDict["idle-memory-mb"] = idleResources.MemoryMB()
+	d.log.Debug("Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %d.",
+		idleResources.Millicpus.StringFixed(0), idleResources.MemoryMb.StringFixed(4), idleResources.GPUs.StringFixed(0))
+
+	// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
+	var err error
 
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.
 	// - If one of the other replicas was explicitly specified as the target replica, then our replica will need to yield.
-	if differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest() { // err != nil ||
+	if differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest() || !sufficientResourcesAvailable { // err != nil ||
 		var reason domain.YieldReason
 		// Log message depends on which condition was true (first).
-		//if err != nil {
-		//	d.log.Debug("Insufficient GPUs available (%s) for replica %d of kernel %s to execute code (%v required).", d.resourceManager.IdleGPUs(), kernel.ReplicaID(), kernel.ID(), 0 /* Placeholder */)
-		//	reason = domain.YieldInsufficientGPUs
-		//} else
 		if differentTargetReplicaSpecified {
-			d.log.Debug("Replica %d of kernel %s is targeted, while we have replica %d running on this node.", targetReplicaId, kernel.ID(), kernel.ReplicaID() /* Placeholder */)
+			d.log.Debug("Replica %d of kernel %s is targeted, while we have replica %d running on this node.",
+				targetReplicaId, kernel.ID(), kernel.ReplicaID() /* Placeholder */)
 			reason = domain.YieldDifferentReplicaTargeted
 		} else if kernel.SupposedToYieldNextExecutionRequest() {
-			d.log.Debug("Replica %d of kernel %s has been explicitly instructed to yield its next execution request.", kernel.ReplicaID(), kernel.ID())
+			d.log.Debug("Replica %d of kernel %s has been explicitly instructed to yield its next execution request.",
+				kernel.ReplicaID(), kernel.ID())
 			reason = domain.YieldExplicitlyInstructed
+		} else if !sufficientResourcesAvailable {
+			d.log.Debug("There are insufficient resources available for replica %d of kernel %s to train. Available: %s. Required: %s.",
+				kernel.ReplicaID(), kernel.ID(), idleResources.String(), kernel.ResourceSpec().String())
+			reason = domain.YieldInsufficientResourcesAvailable
 		}
+
 		metadataDict["yield-reason"] = reason
+
 		// Convert the message to a yield request.
 		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica in place of the original 'execute_request' message.
 		msg, _ = d.convertExecuteRequestToYieldExecute(msg) // , header, offset)

@@ -163,6 +163,22 @@ type resources struct {
 	memoryMB       decimal.Decimal // memoryMB is the amount of memory in MB.
 }
 
+// ToDecimalSpec returns a pointer to a types.DecimalSpec struct that encapsulates a snapshot of
+// the current quantities of resources encoded/maintained by the target resources struct.
+//
+// This method is thread-safe to ensure that the quantity of each individual resource type cannot
+// be modified during the time that the new types.DecimalSpec struct is being constructed.
+func (res *resources) ToDecimalSpec() *types.DecimalSpec {
+	res.Lock()
+	defer res.Unlock()
+
+	return &types.DecimalSpec{
+		GPUs:      res.gpus.Copy(),
+		Millicpus: res.millicpus.Copy(),
+		MemoryMb:  res.memoryMB.Copy(),
+	}
+}
+
 // LessThan returns true if each field of the target 'resources' struct is strictly less than the corresponding field
 // of the other 'resources' struct.
 //
