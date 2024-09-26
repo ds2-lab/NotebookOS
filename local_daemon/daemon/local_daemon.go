@@ -1768,12 +1768,21 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		return err
 	}
 
-	// shouldReleaseResources basically indicates whether this kernel replica was leading the execution and thus
-	// actively training / running user-submitted code. If it was, then we'll now need to release its resources.
-	var shouldReleaseResources bool
+	var (
+		// shouldReleaseResources basically indicates whether this kernel replica was leading the execution and thus
+		// actively training / running user-submitted code. If it was, then we'll now need to release its resources.
+		shouldReleaseResources bool
+
+		// shouldCallTrainingStopped tells us whether to call TrainingStopped on the associated KernelClient.
+		// We need to call TrainingStopped if the replica was in fact leading its execution and therefore
+		// executing user-submitted code. If this wasn't the case, then the status of the message will be
+		// a jupyter.MessageStatusError status, and the error will be a jupyter.MessageErrYieldExecution error.
+		shouldCallTrainingStopped bool
+	)
 	if msgErr.Status == jupyter.MessageStatusOK {
 		d.log.Debug("Status of \"execute_reply\" message from replica %d of kernel %s is OK.", kernelClient.ReplicaID(), kernelClient.ID())
 		shouldReleaseResources = true // Replica was leader and is done executing.
+		shouldCallTrainingStopped = true
 	} else if msgErr.Status == jupyter.MessageStatusError {
 		d.log.Warn("Status of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status, msgErr.String())
 
@@ -1782,24 +1791,55 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		//
 		// If the returned error is ExecutionYieldError, then the replica did not lead the execution,
 		// and therefore it will not have any resources committed to it.
-		shouldReleaseResources = msgErr.ErrName != jupyter.MessageErrYieldExecution
-	} else {
-		d.log.Error("Unexpected message status in \"execute_reply\" message from replica %d of kernel %s: \"%s\"", kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status)
-	}
+		//
+		// EDIT: For now, we are reserving resources before leader elections, to ensure that they're
+		// available if and when the kernel replica wins its leader election. Consequently, we should
+		// release resources upon receiving any error status, even for "yield execution" errors.
+		shouldReleaseResources = true // msgErr.ErrName != jupyter.MessageErrYieldExecution
 
-	//err = d.resourceManager.ReleaseAllocatedGPUs(kernelClient.ReplicaID(), kernel.ID())
+		// We should only call TrainingStopped if the replica was actively training.
+		// We can check this by inspecting the type of error encoded in the "execute_reply" message.
+		// If it's a jupyter.MessageErrYieldExecution error, then the replica was NOT training,
+		// and therefore we should not call TrainingStopped on the associated KernelReplicaClient.
+		shouldCallTrainingStopped = msgErr.ErrName != jupyter.MessageErrYieldExecution
+	} else {
+		errorMessage := fmt.Sprintf("Unexpected message status in \"execute_reply\" message from replica %d of kernel %s: \"%s\"",
+			kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status)
+		d.log.Error(errorMessage)
+		d.notifyClusterGatewayAndPanic("Unexpected Message Status in \"execute_reply\" Message", errorMessage, errorMessage)
+	}
 
 	// Release any resources committed to the kernel replica, as it is done training and does not need the resources
 	// to be actively-bound/committed to it anymore.
 	if shouldReleaseResources {
+		// Attempt to release the resources. If we fail for some reason, then (for now) we'll notify the Cluster
+		// Gateway, but we won't panic. This may change, as we really shouldn't fail.
+		d.log.Debug("Attempting to release committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
 		if err = d.resourceManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil {
-			d.log.Error("Failed to release GPUs allocated to replica %d of kernel %s because: %v", kernelClient.ReplicaID(), kernel.ID(), err)
+			errorMessage := fmt.Sprintf("Failed to release GPUs allocated to replica %d of kernel %s because: %v",
+				kernelClient.ReplicaID(), kernel.ID(), err)
+			d.log.Error(errorMessage)
+			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Title:            "Failed to Release Committed Resources",
+				Message:          errorMessage,
+				NotificationType: 0,
+				Panicked:         false,
+			})
 		}
 
-		_ = kernelClient.TrainingStopped()
-		d.prometheusManager.TrainingTimeGaugeVec.
-			With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
-			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
+		d.log.Debug("Successfully released committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
+		if shouldCallTrainingStopped {
+			_ = kernelClient.TrainingStopped()
+			d.prometheusManager.TrainingTimeGaugeVec.
+				With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
+				Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
+		}
+	} else if shouldCallTrainingStopped {
+		// This should never happen, and in fact, I don't think it's possible for it to happen (just by statically
+		// looking the code); however, I'm leaving this in here as a sanity check in case it's somehow possible.
+		errorMessage := fmt.Sprintf("shouldReleaseResources=%v, but shouldCallTrainingStopped=%v. This shouldn't happen.",
+			shouldReleaseResources, shouldCallTrainingStopped)
+		d.notifyClusterGatewayAndPanic("Inconsistent Values for shouldReleaseResources and shouldCallTrainingStopped", errorMessage, errorMessage)
 	}
 
 	d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
@@ -1813,6 +1853,11 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 // We also check if this replica has been explicitly instructed to yield, or if there is simply another replica of
 // the same kernel that has been explicitly targeted as the winner (in which case the locally-running replica of the
 // associated kernel must yield).
+//
+// TODO: Should we "reserve" resources for the kernel replica before the leader election to ensure that they are
+// TODO: | available in the event that the replica wins? Or should we instead require that the winning replica contact
+// TODO: | its local daemon upon winning to request the resources (in which case they may be unavailable due to
+// TODO: | concurrent code executions running on the same node)?
 func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.KernelReplicaClient) *jupyter.JupyterMessage {
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	var targetReplicaId int32 = -1
@@ -1864,24 +1909,52 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	// No SMR replica can have an ID of 0.
 	differentTargetReplicaSpecified := targetReplicaId != int32(-1) && targetReplicaId != kernel.ReplicaID()
 
-	// Check if there are sufficient idle resources available on the node for the replica to train.
-	idleResources := d.resourceManager.IdleResources()
-	sufficientResourcesAvailable := d.resourceManager.HasSufficientIdleResourcesAvailable(kernel.ResourceSpec())
-
-	// Include the current number of idle GPUs available.
-	metadataDict["idle-gpus"] = idleResources.GPU()
-	metadataDict["idle-millicpus"] = idleResources.CPU()
-	metadataDict["idle-memory-mb"] = idleResources.MemoryMB()
-	d.log.Debug("Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %d.",
-		idleResources.Millicpus.StringFixed(0), idleResources.MemoryMb.StringFixed(4), idleResources.GPUs.StringFixed(0))
-
 	// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
-	var err error
+	var (
+		err                          error
+		sufficientResourcesAvailable bool
+	)
+
+	// Create a snapshot of the available idle resources on this node prior to our (potential) attempt
+	// to reserve resources for this kernel replica in anticipation of its leader election.
+	idleResourcesBeforeReservation := d.resourceManager.IdleResources()
+	shouldYield := differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest()
+	if !shouldYield {
+		// We didn't want to bother reserving resources for this kernel replica if its either been explicitly told
+		// to yield, or if another replica of the same kernel was explicitly expected to yield. But now that we know
+		// that neither of those two things are true, we can go ahead and try to reserve the resources.
+		d.log.Debug("Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election.",
+			kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
+		resourceAllocationFailure := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec())
+		if resourceAllocationFailure != nil {
+			d.log.Warn("Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
+				kernel.ReplicaID(), kernel.ID(), resourceAllocationFailure.Error())
+			d.log.Warn("Replica %d of kernel %s requires the following resources: %s.",
+				kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
+			d.log.Warn("The following resources are currently available on the node: %s.", idleResourcesBeforeReservation.String())
+			shouldYield = true
+			sufficientResourcesAvailable = false
+		} else {
+			d.log.Debug("Successfully reserved the following resources for replica %d of kernel %s in anticipation of its leader election: %s.",
+				kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
+			sufficientResourcesAvailable = true
+		}
+	}
+
+	// Include the quantities of idle GPUs available on the node PRIOR to our attempt to reserve resources for the kernel replica.
+	metadataDict["idle-gpus"] = idleResourcesBeforeReservation.GPU()
+	metadataDict["idle-millicpus"] = idleResourcesBeforeReservation.CPU()
+	metadataDict["idle-memory-mb"] = idleResourcesBeforeReservation.MemoryMB()
+	metadataDict["required-gpus"] = kernel.ResourceSpec().GPU()
+	metadataDict["required-millicpus"] = kernel.ResourceSpec().CPU()
+	metadataDict["required-memory-mb"] = kernel.ResourceSpec().MemoryMB()
+	d.log.Debug("Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %d.",
+		idleResourcesBeforeReservation.Millicpus.StringFixed(0), idleResourcesBeforeReservation.MemoryMb.StringFixed(4), idleResourcesBeforeReservation.GPUs.StringFixed(0))
 
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.
 	// - If one of the other replicas was explicitly specified as the target replica, then our replica will need to yield.
-	if differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest() || !sufficientResourcesAvailable { // err != nil ||
+	if shouldYield {
 		var reason domain.YieldReason
 		// Log message depends on which condition was true (first).
 		if differentTargetReplicaSpecified {
@@ -1894,7 +1967,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 			reason = domain.YieldExplicitlyInstructed
 		} else if !sufficientResourcesAvailable {
 			d.log.Debug("There are insufficient resources available for replica %d of kernel %s to train. Available: %s. Required: %s.",
-				kernel.ReplicaID(), kernel.ID(), idleResources.String(), kernel.ResourceSpec().String())
+				kernel.ReplicaID(), kernel.ID(), idleResourcesBeforeReservation.String(), kernel.ResourceSpec().String())
 			reason = domain.YieldInsufficientResourcesAvailable
 		}
 
@@ -2285,11 +2358,23 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 		// TODO: Verify that all the cases in which the ResourceManager panics are legitimately panic-worthy, rather than scenarios
 		// that could arise during regular operation and should just be handled using the failure handler of whatever
 		// scheduling procedure we have in place.
-		if err = d.resourceManager.CommitResources(kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), kernelReplicaClient.ResourceSpec()); err != nil {
-			d.log.Error("Could not allocate resources to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
+		//if err = d.resourceManager.CommitResources(kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), kernelReplicaClient.ResourceSpec()); err != nil {
+		//	d.log.Error("Could not allocate resources to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
+		//	go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+		//		Title:            "Resource Commitment Failed",
+		//		Message:          fmt.Sprintf("Failed to commit resources to replica %d of kernel %s because: %v", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err),
+		//		NotificationType: 0,
+		//		Panicked:         true,
+		//	})
+		//	panic(err) // TODO(Ben): Handle gracefully.
+		//}
+		if err = d.resourceManager.PromoteReservation(kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID()); err != nil {
+			d.log.Error("Our attempt to promote reserved resources of replica %d of kernel %s failed because: %v.",
+				kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
 			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-				Title:            "Resource Commitment Failed",
-				Message:          fmt.Sprintf("Failed to commit resources to replica %d of kernel %s because: %v", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err),
+				Title: "Promotion of Resource Reservation Failed",
+				Message: fmt.Sprintf("Could not promote resource reservation for replica %d of kernel %s because: %v",
+					kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err),
 				NotificationType: 0,
 				Panicked:         true,
 			})

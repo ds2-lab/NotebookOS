@@ -33,6 +33,7 @@ var (
 
 	ErrIllegalGpuAdjustment     = errors.New("requested gpu adjustment is illegal")
 	ErrAllocationNotFound       = errors.New("could not find the requested GPU allocation")
+	ErrInvalidAllocationType    = errors.New("allocation for target kernel replica is not of expected/correct type")
 	ErrNoPendingAllocationFound = errors.New("a pending allocation could not be found when allocating actual GPUs")
 )
 
@@ -96,28 +97,12 @@ type ResourceAllocation struct {
 	// associated kernel replica. These resources are not available for use by other kernel replicas.
 	AllocationType AllocationType `json:"allocation_type"`
 
+	// IsReservation indicates whether the resources were commited in anticipation of a leader election,
+	// or if they are committed to a kernel that is actively training.
+	IsReservation bool `json:"is_reservation"`
+
 	// cachedAllocationKey is the cached return value of getKey(ResourceAllocation.ReplicaId, ResourceAllocation.KernelId).
 	cachedAllocationKey string
-}
-
-// assertIsPending returns true if the target *ResourceAllocation has AllocationType equal to PendingAllocation.
-// If the target *ResourceAllocation has CommittedAllocation equal to PendingAllocation, then this function will panic.
-func (a *ResourceAllocation) assertIsPending() bool {
-	if a.IsPending() {
-		return true
-	}
-
-	panic(fmt.Sprintf("GPU Allocation is NOT pending: %s", a.String()))
-}
-
-// assertIsCommitted returns true if the target *ResourceAllocation has AllocationType equal to CommittedAllocation
-// If the target *ResourceAllocation has AllocationType equal to PendingAllocation, then this function will panic.
-func (a *ResourceAllocation) assertIsCommitted() bool {
-	if !a.IsPending() {
-		return true
-	}
-
-	panic(fmt.Sprintf("GPU Allocation IS pending: %s", a.String()))
 }
 
 // String returns a string representation of the ResourceAllocation suitable for logging.
@@ -623,6 +608,58 @@ func (m *ResourceManager) NumPendingAllocations() int {
 	return m.numPendingAllocations.LoadInt()
 }
 
+// PromoteReservation should be called when a kernel replica has won its leader election and begins executing code.
+// This method simply records that the resources committed to the kernel are no longer "merely" a reservation.
+// Instead, the resource allocation will indicate that they committed resources are being used by a kernel replica
+// that is actively running user-submitted code.
+//
+// If there is no resource reservation (i.e., committed allocation whose IsReservation flag is set to true) for the
+// specified kernel replica, then an error is returned. Likewise, if there is no committed allocation to begin with,
+// then an error is returned (i.e., if there's no committed allocation whose IsReservation flag is either true or false).
+func (m *ResourceManager) PromoteReservation(replicaId int32, kernelId string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var (
+		key              string
+		allocation       *ResourceAllocation
+		allocationExists bool
+	)
+
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		m.log.Error("Cannot promote reserved resources for replica %d of kernel %s: no existing resource allocation "+
+			"found for that kernel replica.", replicaId, kernelId)
+	}
+
+	if allocation.IsPending() {
+		m.log.Error("Found existing resource allocation for replica %d of kernel %s; "+
+			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
+			replicaId, kernelId, allocation.AllocationType.String(), CommittedAllocation.String())
+		return fmt.Errorf("%w: expected '%s', found '%s'",
+			ErrInvalidAllocationType, CommittedAllocation.String(), allocation.AllocationType.String())
+	}
+
+	if !allocation.IsReservation {
+		m.log.Error("Found existing '%s' resource allocation for replica %d of kernel %s; "+
+			"however, '%s' resource allocation is already not a reservation...",
+			replicaId, kernelId, CommittedAllocation.String(), CommittedAllocation.String())
+		return fmt.Errorf("%w: expected '%s' allocation to be a reservation (it is not)",
+			ErrInvalidAllocationType, CommittedAllocation.String())
+	}
+
+	allocation.IsReservation = false
+
+	// Make sure everything is still hunky-dory.
+	err := m.unsafePerformConsistencyCheck()
+	if err != nil {
+		m.log.Error("Discovered an inconsistency: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 // CommitResources commits/binds resources to a particular kernel replica, such that the resources are reserved for
 // exclusive use by that kernel replica until the kernel replica releases them (or another entity releases them
 // on behalf of the kernel replica).
@@ -656,12 +693,18 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
 		m.log.Error("Cannot commit resources to replica %d of kernel %s: no existing resource allocation "+
 			"found for that kernel replica.", replicaId, kernelId)
-		return fmt.Errorf("%w: no pending resource allocation found for replica %d of kernel %s",
+		return fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
 	}
 
 	// Sanity check, essentially. It should not already be committed.
-	allocation.assertIsPending()
+	if allocation.IsCommitted() {
+		m.log.Error("Found existing resource allocation for replica %d of kernel %s; "+
+			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
+			replicaId, kernelId, allocation.AllocationType.String(), PendingResources.String())
+		return fmt.Errorf("%w: expected '%s', found '%s'",
+			ErrInvalidAllocationType, PendingResources.String(), allocation.AllocationType.String())
+	}
 
 	var requestedResources *types.DecimalSpec
 	if adjustedResourceRequest != nil {
@@ -770,7 +813,13 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 	}
 
 	// Sanity check, essentially. It should not already be pending, since we're supposed to be releasing it right now.
-	allocation.assertIsCommitted()
+	if allocation.IsPending() {
+		m.log.Error("Found existing resource allocation for replica %d of kernel %s; "+
+			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
+			replicaId, kernelId, allocation.AllocationType.String(), CommittedAllocation.String())
+		return fmt.Errorf("%w: expected '%s', found '%s'",
+			ErrInvalidAllocationType, CommittedAllocation.String(), allocation.AllocationType.String())
+	}
 
 	// Perform the resource count adjustments, as we've validated that everything is correct/as it should be.
 	// We'll pass nil for the second argument as we don't need the *types.DecimalSpec anywhere else in

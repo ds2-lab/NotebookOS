@@ -791,7 +791,7 @@ class DistributedKernel(IPythonKernel):
     async def check_persistent_store(self):
         """Check if persistent store is ready. If initializing, wait. The futrue return True if ready."""
         store = self.store
-        if store == None:
+        if store is None:
             return False
         elif inspect.isawaitable(store):
             response = await store
@@ -1022,8 +1022,17 @@ class DistributedKernel(IPythonKernel):
                        "to be totally finished before returning from yield_execute function.")
         await self.synchronizer.wait_for_election_to_end(term_number)
 
-    async def do_execute(self, code: str, silent: bool, store_history: bool = True, user_expressions: dict = None,
-                         allow_stdin: bool = False):
+    async def do_execute(
+            self,
+            code: str,
+            silent: bool,
+            store_history: bool = True,
+            user_expressions: dict = None,
+            allow_stdin: bool = False,
+            *,
+            cell_meta=None,
+            cell_id=None
+    ):
         """
         Execute user code. This is part of the official Jupyter kernel API.
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
@@ -1133,7 +1142,8 @@ class DistributedKernel(IPythonKernel):
             # We'll notify our peer replicas in time.
             #
             # TODO: Is this okay, or should we await this before returning?
-            task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(self.execution_count - 1))
+            task: asyncio.Task = asyncio.create_task(
+                self.synchronizer.notify_execution_complete(self.execution_count - 1))
 
             # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
             # the set after completion.
