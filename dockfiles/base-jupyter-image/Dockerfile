@@ -66,6 +66,7 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vi
 # RUN chmod -R 777 /home/jovyan/datasets/*
 
 RUN /home/jovyan/Python-3.12.6/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install --upgrade ipyflow
 
 # Install Golang for debugging.
 RUN cd /tmp && wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz

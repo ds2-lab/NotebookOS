@@ -55,6 +55,8 @@ const (
 	VarKernelDebugPyPort = "{kernel_debugpy_port}"
 	HostMountDir         = "{host_mount_dir}"
 	TargetMountDir       = "{target_mount_dir}"
+
+	dockerErrorPrefix = "docker: Error response from daemon: "
 )
 
 var (
@@ -66,8 +68,9 @@ var (
 	dockerShutdownCmd = "docker stop {container_name}"
 	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
 
-	ErrUnexpectedReplicaExpression  = fmt.Errorf("unexpected replica expression, expected url")
-	ErrConfigurationFilesDoNotExist = errors.New("one or more of the necessary configuration files do not exist on the host's file system")
+	ErrDockerContainerCreationFailed = errors.New("failed to create docker container for new kernel")
+	ErrUnexpectedReplicaExpression   = fmt.Errorf("unexpected replica expression, expected url")
+	ErrConfigurationFilesDoNotExist  = errors.New("one or more of the necessary configuration files do not exist on the host's file system")
 )
 
 type DockerInvoker struct {
@@ -273,7 +276,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 
 	// Start kernel process
 	ivk.log.Debug("Launch kernel: \"%v\"\n", argv)
-	if err := ivk.launchKernel(ctx, kernelName, argv); err != nil {
+	if err = ivk.launchKernel(ctx, kernelName, argv); err != nil {
 		return nil, ivk.reportLaunchError(err)
 	}
 
@@ -477,8 +480,19 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 	if err := cmd.Run(); err != nil {
 		ivk.log.Debug("Failed to launch container/kernel %s: %v", name, err)
 		ivk.log.Error("STDOUT: %s", outb.String())
-		ivk.log.Error("STDERR: %s", errb.String())
-		return fmt.Errorf("%w: %s", err, errb.String())
+
+		stderrOutput := errb.String()
+		ivk.log.Error("STDERR: %s", stderrOutput)
+
+		// Extract the error message, if possible.
+		var errorMessage string
+		if strings.HasPrefix(stderrOutput, dockerErrorPrefix) {
+			errorMessage = stderrOutput[len(dockerErrorPrefix):]
+		} else {
+			errorMessage = stderrOutput
+		}
+
+		return fmt.Errorf("%w: %s", ErrDockerContainerCreationFailed, errorMessage)
 	}
 
 	timeElapsed := time.Since(startTime)

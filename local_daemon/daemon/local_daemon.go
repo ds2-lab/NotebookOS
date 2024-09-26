@@ -57,7 +57,8 @@ var (
 //
 // WIP: Replica membership change.
 // TODO: Distinguish reachable host list from replica list.
-// TODO: Synchronize resource status using replica network (e.g., control socket). Synchoronization message should load-balance between replicas mapped the same host.
+// TODO: Synchronize resource status using replica network (e.g., control socket).
+// Synchronization message should load-balance between replicas mapped the same host.
 type SchedulerDaemonImpl struct {
 	// Options
 	id       string
@@ -617,6 +618,12 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	}
 
 	if connInfo == nil {
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Title:            "Received nil Connection Info from Kernel",
+			Message:          fmt.Sprintf("The connection info sent in the registration payload of kernel at address %s is nil.", remoteIp),
+			NotificationType: 0,
+			Panicked:         true,
+		})
 		panic(fmt.Sprintf("Connection info sent to us by kernel at %s is nil.", remoteIp))
 	}
 	d.log.Debug("connInfo: %v", connInfo)
@@ -633,6 +640,12 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 
 	listenPorts, err := d.availablePorts.RequestPorts()
 	if err != nil {
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Title:            "Unable to Assign \"Listen\" Ports for New Kernel",
+			Message:          fmt.Sprintf("Unable to assign \"listen\" ports for new replica %d of kernel %s because: %s.", registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err.Error()),
+			NotificationType: 0,
+			Panicked:         true,
+		})
 		panic(err)
 	}
 
@@ -692,7 +705,8 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	} else {
 		kernelClientCreationChannel, loaded = d.kernelClientCreationChannels.Load(kernelReplicaSpec.Kernel.Id)
 		if !loaded {
-			panic(fmt.Sprintf("Failed to load 'kernel client creation' channel for kernel \"%s\".", kernelReplicaSpec.Kernel.Id))
+			message := fmt.Sprintf("Failed to load 'kernel client creation' channel for kernel \"%s\".", kernelReplicaSpec.Kernel.Id)
+			d.notifyClusterGatewayAndPanic("Failed to Load 'Kernel Client Creation' Channel", message, fmt.Errorf(message))
 		}
 
 		d.log.Debug("Waiting for notification that the KernelClient for kernel \"%s\" has been created.", kernelReplicaSpec.Kernel.Id)
@@ -702,12 +716,14 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		kernel, loaded = d.kernels.Load(kernelReplicaSpec.Kernel.Id)
 
 		if !loaded {
-			panic(fmt.Sprintf("Failed to load kernel client with ID \"%s\", even though one should have already been created...", kernelReplicaSpec.Kernel.Id))
+			message := fmt.Sprintf("Failed to load kernel client with ID \"%s\", even though one should have already been created...", kernelReplicaSpec.Kernel.Id)
+			d.notifyClusterGatewayAndPanic("Failed to Load Kernel Client for New Kernel Replica", message, message)
 		}
 
 		createdAt, ok := d.getInvoker(kernel).KernelCreatedAt()
 		if !ok {
-			panic("Docker Invoker thinks it hasn't created kernel container, but kernel just registered...")
+			message := "Docker Invoker thinks it hasn't created kernel container, but kernel just registered..."
+			d.notifyClusterGatewayAndPanic("Docker Invoker Thinks Container Has Not Been Created", message, message)
 		}
 
 		timeElapsed := registeredAt.Sub(createdAt)
@@ -842,22 +858,38 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 
 	payloadJson, err := json.Marshal(payload)
 	if err != nil {
-		d.log.Error("Error encountered while marshalling replica ID to JSON: %v", err)
+		d.log.Error("Error encountered while marshalling registration response payload to JSON: %v", err)
 		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
-		panic(err)
+		d.notifyClusterGatewayAndPanic("Failed to Marshal Registration Response Payload", err.Error(), err)
 	}
 
 	bytesWritten, err := kernelRegistrationClient.conn.Write(payloadJson)
 	if err != nil {
-		d.log.Error("Error encountered while writing replica ID back to kernel: %v", err)
+		d.log.Error("Error encountered while writing registration response payload back to kernel: %v", err)
 		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
-		panic(err)
+		d.notifyClusterGatewayAndPanic("Failed to Write Registration Response Payload Back to Kernel", err.Error(), err)
 	}
 	d.log.Debug("Wrote %d bytes back to kernel in response to kernel registration.", bytesWritten)
 
 	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
 	// TODO: Is this still needed?
-	time.Sleep(time.Second * 1)
+	// time.Sleep(time.Second * 1)
+}
+
+// notifyClusterGatewayAndPanic attempts to notify the Cluster Gateway of a fatal error and then panics.
+// notifyClusterGatewayAndPanic's attempt to notify the Cluster Gateway will time out after 30 seconds.
+func (d *SchedulerDaemonImpl) notifyClusterGatewayAndPanic(errorTitle string, errorBody string, panicArg interface{}) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+
+	d.notifyClusterGatewayOfError(ctx, &proto.Notification{
+		Title:            errorTitle,
+		Message:          errorBody,
+		NotificationType: 0,
+		Panicked:         true,
+	})
+
+	panic(panicArg)
 }
 
 // When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
@@ -890,7 +922,7 @@ func (d *SchedulerDaemonImpl) kernelReconnectionFailed(kernel *client.KernelRepl
 //
 // If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
 // then this method is called.
-func (d *SchedulerDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(kernel *client.KernelReplicaClient, msg *jupyter.JupyterMessage, resubmissionError error) { /* client client.DistributedKernelClient, */
+func (d *SchedulerDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(kernel *client.KernelReplicaClient, msg *jupyter.JupyterMessage, resubmissionError error) {
 	// var messageType string = "N/A"
 	// _, header, _, err := jupyter.HeaderFromMsg(msg)
 	// if err != nil {
@@ -1320,12 +1352,12 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, ErrExistingReplicaAlreadyRunning
 	}
 
-	err := d.resourceManager.KernelReplicaScheduled(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
-	// err := d.resourceManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
-	if err != nil {
+	invocationError := d.resourceManager.KernelReplicaScheduled(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
+	// invocationError := d.resourceManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
+	if invocationError != nil {
 		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
-			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, err)
-		return nil, status.Error(codes.Internal, err.Error())
+			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, invocationError)
+		return nil, status.Error(codes.Internal, invocationError.Error())
 	}
 
 	var kernelInvoker invoker.KernelInvoker
@@ -1344,7 +1376,8 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	} else if d.LocalMode() {
 		kernelInvoker = invoker.NewLocalInvoker()
 	} else {
-		panic(fmt.Sprintf("Unknown/unsupported deployment mode: \"%s\"", d.deploymentMode))
+		message := fmt.Sprintf("Unknown/unsupported deployment mode: \"%s\"", d.deploymentMode)
+		d.notifyClusterGatewayAndPanic("Unknown or Unsupported Deployment Mode", message, message)
 	}
 
 	// When the kernel registers, we need the kernel client that we create here.
@@ -1352,24 +1385,24 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	kernelClientCreationChannel := make(chan *proto.KernelConnectionInfo)
 	d.kernelClientCreationChannels.Store(in.Kernel.Id, kernelClientCreationChannel)
 
-	connInfo, err := kernelInvoker.InvokeWithContext(ctx, in)
-	if err != nil {
+	connInfo, invocationError := kernelInvoker.InvokeWithContext(ctx, in)
+	if invocationError != nil {
 		go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
 			Title:            fmt.Sprintf("Failed to Create Container for Kernel %s-%d", in.Kernel.Id, in.ReplicaId),
-			Message:          err.Error(),
+			Message:          invocationError.Error(),
 			NotificationType: 0,
 			Panicked:         false,
 		})
-		return nil, status.Errorf(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, invocationError.Error())
 	}
 
 	// Initialize kernel client with new context.
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, kernelInvoker)
 
-	listenPorts, err := d.availablePorts.RequestPorts()
-	if err != nil {
-		d.log.Error("Failed to request listen ports for new kernel %s because: %v", in.ID(), err)
-		return nil, err
+	listenPorts, invocationError := d.availablePorts.RequestPorts()
+	if invocationError != nil {
+		d.log.Error("Failed to request listen ports for new kernel %s because: %v", in.ID(), invocationError)
+		return nil, invocationError
 	}
 
 	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, true, d.numResendAttempts,
@@ -1383,10 +1416,10 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
 
-	info, err := d.initializeKernelClient(in.Kernel.Id, connInfo, kernel)
-	if err != nil {
+	info, invocationError := d.initializeKernelClient(in.Kernel.Id, connInfo, kernel)
+	if invocationError != nil {
 		d.log.Error("Failed to initialize replica %d of kernel %s.", in.ReplicaId, in.Kernel.Id)
-		return nil, err
+		return nil, invocationError
 	}
 
 	// Notify that the kernel client has been set up successfully.
@@ -1886,15 +1919,15 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	err = frames[msg.Offset:].EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("Failed to encode metadata frame because: %v", err)
-		panic(err)
+		d.notifyClusterGatewayAndPanic("Failed to Encode Metadata Frame", err.Error(), err)
 	}
 
 	// Regenerate the signature.
 	framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(msg.Frames)
 	_, err = framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
 	if err != nil {
-		d.log.Error("Failed to sign updated JupyterFrames for \"%s\" message because: %v", msg.JupyterMessageType(), err)
-		panic(err)
+		message := fmt.Sprintf("Failed to sign updated JupyterFrames for \"%s\" message because: %v", msg.JupyterMessageType(), err)
+		d.notifyClusterGatewayAndPanic("Failed to Sign JupyterFrames", message, err)
 	}
 
 	if verified := jupyter.ValidateFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, msg.Offset, msg.Frames); !verified {
@@ -1994,7 +2027,7 @@ func (d *SchedulerDaemonImpl) setTotalVirtualGPUsKubernetes(ctx context.Context,
 			FreeVirtualGPUs:      int32(d.virtualGpuPluginServer.NumFreeVirtualGPUs()),
 		}
 
-		return response, fmt.Errorf("domain.ErrInvalidParameter %w : cannot decrease the total number of vGPUs below the number of allocated vGPUs", domain.ErrInvalidParameter)
+		return response, fmt.Errorf("%w : cannot decrease the total number of vGPUs below the number of allocated vGPUs", domain.ErrInvalidParameter)
 	}
 
 	err := d.virtualGpuPluginServer.SetTotalVirtualGPUs(newNumVirtualGPUs)
@@ -2035,8 +2068,7 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 	jFrames := jupyter.JupyterFrames(newMessage.Frames)
 	if err = jFrames.Validate(); err != nil {
 		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while validating the existing frames: %v", err)
-		panic(err) // TODO(Ben): Handle this error more gracefully.
-		// return nil, err
+		d.notifyClusterGatewayAndPanic("Failed to Validate \"yield_execute\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
 	}
 
 	// Replace the header with the new header (that has the 'yield_execute' MsgType).
@@ -2047,8 +2079,7 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 
 	if jFrames[jupyter.JupyterFrameHeader+jMsg.Offset], err = json.Marshal(header); err != nil {
 		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while encoding the new message header: %v", err)
-		panic(err) // TODO(Ben): Handle this error more gracefully.
-		// return nil, err
+		d.notifyClusterGatewayAndPanic("Failed to Encode Header for \"yield_execute\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
 	}
 
 	// Replace the frames of the cloned message.
@@ -2256,8 +2287,14 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 		// TODO: Verify that all the cases in which the ResourceManager panics are legitimately panic-worthy, rather than scenarios
 		// that could arise during regular operation and should just be handled using the failure handler of whatever
 		// scheduling procedure we have in place.
-		if err := d.resourceManager.CommitResources(kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), kernelReplicaClient.ResourceSpec()); err != nil {
-			d.log.Error("Could not allocate actual GPUs to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
+		if err = d.resourceManager.CommitResources(kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), kernelReplicaClient.ResourceSpec()); err != nil {
+			d.log.Error("Could not allocate resources to replica %d of kernel %s because: %v.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
+			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Title:            "Resource Commitment Failed",
+				Message:          fmt.Sprintf("Failed to commit resources to replica %d of kernel %s because: %v", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err),
+				NotificationType: 0,
+				Panicked:         true,
+			})
 			panic(err) // TODO(Ben): Handle gracefully.
 		}
 
@@ -2267,7 +2304,14 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 		// return commonTypes.ErrStopPropagation
 	} else if messageType == jupyter.MessageTypeLeadAfterYield {
 		// TODO(Ben): Need a better way to propagate errors back to the user, either at the Jupyter Notebook or the Workload Driver.
-		panic(fmt.Sprintf("Our replica of kernel %s was selected to lead an execution after explicitly yielding.", kernel.ID()))
+		kernelReplicaClient := kernel.(*client.KernelReplicaClient)
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Title:            "Kernel Replica Lead Execution After Yielding",
+			Message:          fmt.Sprintf("Replica %d of kernel %s was selected to lead an execution after explicitly yielding.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID()),
+			NotificationType: 0,
+			Panicked:         true,
+		})
+		log.Fatalf("Our replica of kernel %s was selected to lead an execution after explicitly yielding.\n", kernel.ID())
 	} else {
 		d.log.Error("Received message of unexpected type '%s' for SMR Lead ZMQ message topic.", messageType)
 		return domain.ErrUnexpectedZMQMessageType

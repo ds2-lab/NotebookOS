@@ -214,8 +214,14 @@ class GatewayProvisioner(KernelProvisionerBase):
 
             return conn_info
         except grpc.RpcError as e:
+            self.log.error(f"Failed to launch kernel \"{self._kernel_id}\" because of grpc.RpcError: {e}")
             self._try_close()
-            raise RuntimeError(f"Failed to launch kernel: {e}")
+            raise RuntimeError(f"Failed to launch kernel because of grpc.RpcError: {e}")
+        except Exception as e:
+            self.log.error(f"Failed to launch kernel \"{self._kernel_id}\" due to exception of type {type(e).__name__}: {e}")
+            self._try_close()
+            raise RuntimeError(f"Failed to launch kernel due to exception of type {type(e).__name__}: {e}")
+
 
     async def cleanup(self, restart: bool = False) -> None:
         """
@@ -321,7 +327,7 @@ class GatewayProvisioner(KernelProvisionerBase):
 
         The recommended value will typically be what is configured in the kernel manager.
         """
-        if recommended == None or recommended < self._kernel_shutdown_wait_time:
+        if recommended is None or recommended < self._kernel_shutdown_wait_time:
             recommended = self._kernel_shutdown_wait_time
 
             self.log.debug(f"{type(self).__name__} shutdown wait time adjusted to {recommended} seconds.")
@@ -329,7 +335,7 @@ class GatewayProvisioner(KernelProvisionerBase):
         return recommended
 
     def _get_stub(self) -> LocalGatewayStub:
-        if self.gatewayChannel == None:
+        if self.gatewayChannel is None:
             self.log.debug(
                 "Creating GatewayChannel now. Gateway: \"%s\"" % self.gateway)
             self.gatewayChannel = grpc.insecure_channel(self.gateway)
@@ -338,6 +344,6 @@ class GatewayProvisioner(KernelProvisionerBase):
         return self.gatewayStub
 
     def _try_close(self) -> None:
-        if self.autoclose and self.gatewayChannel != None:
+        if self.autoclose and self.gatewayChannel is not None:
             self.gatewayChannel.close()
             self.gatewayChannel = None
