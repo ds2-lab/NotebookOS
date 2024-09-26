@@ -1385,6 +1385,9 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	kernelClientCreationChannel := make(chan *proto.KernelConnectionInfo)
 	d.kernelClientCreationChannels.Store(in.Kernel.Id, kernelClientCreationChannel)
 
+	// Despite what your IDE may or may not be saying, kernelInvoker cannot be nil here.
+	// We'll have either returned from this method or panicked in any of the cases in which
+	// kernelInvoker is nil before this line of code is executed.
 	connInfo, invocationError := kernelInvoker.InvokeWithContext(ctx, in)
 	if invocationError != nil {
 		go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
@@ -1804,6 +1807,12 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	return nil /* will be nil on success */
 }
 
+// processExecuteRequest performs some scheduling logic, such as verifying that there are sufficient resources available
+// for the locally-running kernel replica to train (if it were to win its leader election).
+//
+// We also check if this replica has been explicitly instructed to yield, or if there is simply another replica of
+// the same kernel that has been explicitly targeted as the winner (in which case the locally-running replica of the
+// associated kernel must yield).
 func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.KernelReplicaClient) *jupyter.JupyterMessage {
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	var targetReplicaId int32 = -1
@@ -1855,8 +1864,8 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	// No SMR replica can have an ID of 0.
 	differentTargetReplicaSpecified := targetReplicaId != int32(-1) && targetReplicaId != kernel.ReplicaID()
 
-	idleResources := d.resourceManager.IdleResources()
 	// Check if there are sufficient idle resources available on the node for the replica to train.
+	idleResources := d.resourceManager.IdleResources()
 	sufficientResourcesAvailable := d.resourceManager.HasSufficientIdleResourcesAvailable(kernel.ResourceSpec())
 
 	// Include the current number of idle GPUs available.
