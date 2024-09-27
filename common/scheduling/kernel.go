@@ -65,7 +65,7 @@ type Kernel interface {
 	Close() error
 
 	// TrainingStopped should be called when the kernel associated with this client stops actively training.
-	TrainingStopped() error
+	TrainingStopped(snapshot types.HostResourceSnapshot[*ResourceSnapshot]) error
 
 	// SessionStartedTraining should be called when the kernel associated with this client begins actively training.
 	// TrainingStartedInContainer(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error

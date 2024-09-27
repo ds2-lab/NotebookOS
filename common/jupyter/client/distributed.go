@@ -240,11 +240,11 @@ func (c *DistributedKernelClient) SetActiveExecution(activeExecution *scheduling
 // ExecutionComplete returns true.
 //
 // If there are no ActiveExecution structs enqueued, then ExecutionComplete returns false.
-func (c *DistributedKernelClient) ExecutionComplete() (bool, error) {
+func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot]) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	err := c.activeExecution.ActiveReplica.TrainingStopped()
+	err := c.activeExecution.ActiveReplica.TrainingStopped(snapshot)
 
 	if len(c.activeExecutionQueue) > 0 {
 		c.activeExecution = c.activeExecutionQueue.Dequeue()
@@ -539,7 +539,7 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 	// c.size--
 
 	if r.(*KernelReplicaClient).IsTraining() {
-		err := r.(*KernelReplicaClient).TrainingStopped()
+		err := r.(*KernelReplicaClient).TrainingStopped(nil)
 		if err != nil {
 			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
 				r.ReplicaID(), err)

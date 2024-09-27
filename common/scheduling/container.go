@@ -275,7 +275,7 @@ func TrainingStartedInContainer[T types.ArbitraryResourceSnapshot](c *Container,
 	//}
 
 	if snapshot != nil {
-		err := ApplyResourceSnapshot(c.host, snapshot)
+		err := ApplyResourceSnapshotToHost(c.host, snapshot)
 		if err != nil {
 			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
 		}
@@ -306,7 +306,7 @@ func TrainingStartedInContainer[T types.ArbitraryResourceSnapshot](c *Container,
 }
 
 // TrainingStopped should be called when the Container stops training.
-func (c *Container) TrainingStopped() error {
+func (c *Container) TrainingStopped(snapshot types.HostResourceSnapshot[*ResourceSnapshot]) error {
 	if err := c.transition(ContainerStateIdle); err != nil {
 		c.log.Error("Failed to transition Container to state %v because: %v", ContainerStateIdle, err)
 		return err
@@ -325,49 +325,46 @@ func (c *Container) TrainingStopped() error {
 	}
 	c.spec = c.lastSpec
 
+	if snapshot != nil {
+		err := ApplyResourceSnapshotToHost(c.host, snapshot)
+		if err != nil {
+			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
+		}
+	} else {
+		c.log.Warn("Received nil ResourceSnapshot. This should only happen if we're about to be terminated.")
+	}
+
 	// If we encounter errors while updating our Host's resources, then we'll force a synchronization of the Host's
 	// resources with its remote node now.
-	var errorEncountered bool
+	//var errorEncountered bool
 
-	outstandingResourcesAsDecimalSpec := types.ToDecimalSpec(c.outstandingResources)
-	if err := c.host.AddToPendingResources(outstandingResourcesAsDecimalSpec); err != nil {
-		c.log.Warn("Could not increment pending resources while stopping training because: %v", err)
-		errorEncountered = true
-	}
-
-	if err := c.host.AddToIdleResources(outstandingResourcesAsDecimalSpec); err != nil {
-		c.log.Warn("Could not increment idle resources while stopping training because: %v", err)
-		errorEncountered = true
-	}
-
-	if err := c.host.SubtractFromCommittedResources(outstandingResourcesAsDecimalSpec); err != nil {
-		c.log.Warn("Could not decrement committed resources while stopping training because: %v", err)
-		errorEncountered = true
-	}
-
-	if errorEncountered {
-		c.log.Debug("Host's resource info is too out-of-date. Forcibly refreshing now.")
-
-		err := c.host.SynchronizeResourceInformation()
-		if err != nil {
-			c.log.Error("Failed to forcibly synchronize Host's resource info because: %v", err)
-			return err
-		}
-
-		c.log.Debug("Successfully forced synchronization of Host's resource info.")
-	}
-
-	//c.host.Stats().PendingCPUsStat().Add(c.outstandingResources.CPU())
-	//c.host.Stats().PendingMemoryMbStat().Add(c.outstandingResources.MemoryMB())
-	//c.host.Stats().PendingGPUsStat().Add(c.outstandingResources.GPU())
-
-	//c.host.Stats().IdleCPUsStat().Add(c.outstandingResources.CPU())
-	//c.host.Stats().IdleMemoryMbStat().Add(c.outstandingResources.MemoryMB())
-	//c.host.Stats().IdleGPUsStat().Add(c.outstandingResources.GPU())
+	//outstandingResourcesAsDecimalSpec := types.ToDecimalSpec(c.outstandingResources)
+	//if err := c.host.AddToPendingResources(outstandingResourcesAsDecimalSpec); err != nil {
+	//	c.log.Warn("Could not increment pending resources while stopping training because: %v", err)
+	//	errorEncountered = true
+	//}
 	//
-	//c.host.Stats().CommittedCPUsStat().Sub(c.outstandingResources.CPU())
-	//c.host.Stats().CommittedMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
-	//c.host.Stats().CommittedGPUsStat().Sub(c.outstandingResources.GPU())
+	//if err := c.host.AddToIdleResources(outstandingResourcesAsDecimalSpec); err != nil {
+	//	c.log.Warn("Could not increment idle resources while stopping training because: %v", err)
+	//	errorEncountered = true
+	//}
+	//
+	//if err := c.host.SubtractFromCommittedResources(outstandingResourcesAsDecimalSpec); err != nil {
+	//	c.log.Warn("Could not decrement committed resources while stopping training because: %v", err)
+	//	errorEncountered = true
+	//}
+
+	//if errorEncountered {
+	//	c.log.Debug("Host's resource info is too out-of-date. Forcibly refreshing now.")
+	//
+	//	err := c.host.SynchronizeResourceInformation()
+	//	if err != nil {
+	//		c.log.Error("Failed to forcibly synchronize Host's resource info because: %v", err)
+	//		return err
+	//	}
+	//
+	//	c.log.Debug("Successfully forced synchronization of Host's resource info.")
+	//}
 
 	c.log.Debug("Training stopped. Outputting resources now that training has officially stopped.")
 	c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())

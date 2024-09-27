@@ -7,6 +7,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"log"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -1017,25 +1018,25 @@ type ResourceWrapperSnapshot struct {
 
 // Compare compares the object with specified object.
 // Returns negative, 0, positive if the object is smaller than, equal to, or larger than specified object respectively.
-//func (s *ResourceWrapperSnapshot) Compare(obj interface{}) float64 {
-//	if obj == nil {
-//		log.Fatalf("Cannot compare target ResourceWrapperSnapshot with nil.")
-//	}
-//
-//	other, ok := obj.(types.HostResourceSnapshot)
-//	if !ok {
-//		log.Fatalf("Cannot compare target ResourceWrapperSnapshot with specified object of type '%s'.",
-//			reflect.ValueOf(obj).Type().String())
-//	}
-//
-//	if s.GetSnapshotId() < other.GetSnapshotId() {
-//		return -1
-//	} else if s.GetSnapshotId() == other.GetSnapshotId() {
-//		return 0
-//	} else {
-//		return 1
-//	}
-//}
+func (s *ResourceWrapperSnapshot) Compare(obj interface{}) float64 {
+	if obj == nil {
+		log.Fatalf("Cannot compare target ResourceWrapperSnapshot with nil.")
+	}
+
+	other, ok := obj.(types.ArbitraryResourceSnapshot)
+	if !ok {
+		log.Fatalf("Cannot compare target ResourceWrapperSnapshot with specified object of type '%s'.",
+			reflect.ValueOf(obj).Type().String())
+	}
+
+	if s.GetSnapshotId() < other.GetSnapshotId() {
+		return -1
+	} else if s.GetSnapshotId() == other.GetSnapshotId() {
+		return 0
+	} else {
+		return 1
+	}
+}
 
 ////////////////////////////////////////////////////
 // HostResourceSnapshot interface implementation. //

@@ -2348,7 +2348,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 	return nil
 }
 
-func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
+func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter.JupyterMessage) error {
 	d.log.Debug("Received execute-reply from kernel %s.", kernelId)
 
 	kernel, loaded := d.kernels.Load(kernelId)
@@ -2367,7 +2367,24 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string) error {
 	d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
 		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
 
-	if _, err := kernel.ExecutionComplete(); err != nil {
+	metadata, err := msg.DecodeMetadata()
+	if err != nil {
+		d.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
+		return err // TODO: Should I panic here?
+	}
+
+	var (
+		snapshot types.HostResourceSnapshot[*scheduling.ResourceSnapshot]
+	)
+	if val, loaded := metadata[scheduling.ResourceSnapshotMetadataKey]; !loaded {
+		d.log.Error("Metadata frame of \"%s\" message did not contain an \"%s\" entry...",
+			msg.JupyterMessageType(), scheduling.ResourceSnapshotMetadataKey)
+		return err // TODO: Should I panic here?
+	} else {
+		snapshot = val.(types.HostResourceSnapshot[*scheduling.ResourceSnapshot])
+	}
+
+	if _, err := kernel.ExecutionComplete(snapshot); err != nil {
 		return err
 	}
 
@@ -2667,7 +2684,7 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 
 	if typ == jupyter.ShellMessage {
 		if msg.JupyterMessageType() == ShellExecuteReply {
-			err := d.processExecutionReply(from.ID())
+			err := d.processExecutionReply(from.ID(), msg)
 			if err != nil {
 				go d.notifyDashboardOfError("Error While Processing \"execute_reply\" Message", err.Error())
 				panic(err)

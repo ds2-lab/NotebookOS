@@ -149,15 +149,15 @@ func (p *cachedPenalty) Candidates() ContainerList {
 	return p.preemptions[:]
 }
 
-// ApplyResourceSnapshot applies the given HostResourceSnapshot to the given Host's local resource quantities.
+// ApplyResourceSnapshotToHost applies the given HostResourceSnapshot to the given Host's local resource quantities.
 //
-// ApplyResourceSnapshot returns nil on success.
+// ApplyResourceSnapshotToHost returns nil on success.
 //
 // If the given HostResourceSnapshot has a SnapshotID that is less than the last HostResourceSnapshot applied to the
 // target Host, then an error is returned.
 //
 // If either of the arguments are nil, then this method will panic.
-func ApplyResourceSnapshot[T types.ArbitraryResourceSnapshot](h *Host, snapshot types.HostResourceSnapshot[T]) error {
+func ApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Host, snapshot types.HostResourceSnapshot[T]) error {
 	if h == nil {
 		log.Fatalf("Attempted to apply (possibly nil) resource snapshot to nil Host.")
 	}
@@ -366,7 +366,7 @@ func (h *Host) SynchronizeResourceInformation() error {
 		return err
 	}
 
-	err = ApplyResourceSnapshot[*proto.ResourcesSnapshot](h, snapshot)
+	err = ApplyResourceSnapshotToHost[*proto.ResourcesSnapshot](h, snapshot)
 	if err != nil {
 		return err
 	}

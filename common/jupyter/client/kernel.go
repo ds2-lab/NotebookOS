@@ -257,7 +257,7 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 }
 
 // TrainingStopped should be called when the kernel associated with this client stops actively training.
-func (c *KernelReplicaClient) TrainingStopped() error {
+func (c *KernelReplicaClient) TrainingStopped(snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot]) error {
 	if !c.isTraining {
 		c.log.Error("Cannot stop training; already not training.")
 		return fmt.Errorf("cannot stop training; replica %d of kernel %s is already not training", c.replicaId, c.id)
@@ -270,7 +270,7 @@ func (c *KernelReplicaClient) TrainingStopped() error {
 	// If the Container is actively-training, then we need to call TrainingStopped
 	// before removing it so that the resources are all returned appropriately.
 	if container := c.Container(); container != nil {
-		err := container.TrainingStopped()
+		err := container.TrainingStopped(snapshot)
 		if err != nil {
 			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
 				c.ID(), c.ReplicaID(), err)

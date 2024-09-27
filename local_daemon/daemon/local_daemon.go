@@ -1842,14 +1842,14 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	}
 
 	if shouldCallTrainingStopped {
-		_ = kernelClient.TrainingStopped()
+		_ = kernelClient.TrainingStopped(d.resourceManager.ResourcesSnapshot())
 		d.prometheusManager.TrainingTimeGaugeVec.
 			With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
 			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
 	}
 
 	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
-	_ = d.addResourceSnapshotToJupyterMessage(msg)
+	_, _ = d.addResourceSnapshotToJupyterMessage(msg)
 
 	d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
 
@@ -2399,9 +2399,10 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 		}
 
 		// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
-		_ = d.addResourceSnapshotToJupyterMessage(jMsg)
+		snapshot, _ := d.addResourceSnapshotToJupyterMessage(jMsg)
 
-		_ = kernelReplicaClient.TrainingStarted()
+		// Note: we don't really need to pass the snapshot here, as it isn't used in the Local Daemon.
+		_ = client.KernelStartedTraining(kernelReplicaClient, snapshot)
 
 		// Don't return here -- we want his to be forwarded to the Cluster Gateway.
 		// return commonTypes.ErrStopPropagation
@@ -2426,7 +2427,9 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 // addResourceSnapshotToJupyterMessage decodes the metadata frame of the given jupyter.JupyterMessage
 // and adds an entry under the scheduling.ResourceSnapshotMetadataKey key with the value being a snapshot
 // of the current resource quantities of the Local Daemon's ResourceManager.
-func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.JupyterMessage) (*scheduling.ResourceWrapperSnapshot, error) {
+	var snapshot *scheduling.ResourceWrapperSnapshot
+
 	// Include in the message a snapshot of the current resource quantities of the ResourceManager.
 	metadata, decodeError := jMsg.DecodeMetadata()
 	if decodeError != nil {
@@ -2440,9 +2443,9 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 			Panicked:         false,
 		})
 
-		return decodeError
+		return nil, decodeError
 	} else {
-		snapshot := d.resourceManager.ResourcesSnapshot()
+		snapshot = d.resourceManager.ResourcesSnapshot()
 		metadata[scheduling.ResourceSnapshotMetadataKey] = snapshot
 		if encodeErr := jMsg.EncodeMetadata(snapshot); encodeErr != nil {
 			d.log.Error("Failed to encode metadata frame of Jupyter Message after adding resource snapshot: %v", encodeErr)
@@ -2453,11 +2456,11 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 				Panicked:         false,
 			})
 
-			return encodeErr
+			return nil, encodeErr
 		}
 	}
 
-	return nil
+	return snapshot, nil
 }
 
 func (d *SchedulerDaemonImpl) handleIgnoreMsg(kernel scheduling.Kernel, _ jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
