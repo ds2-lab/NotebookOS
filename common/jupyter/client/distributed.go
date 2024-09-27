@@ -311,7 +311,7 @@ func (c *DistributedKernelClient) SourceKernelID() string {
 }
 
 func (c *DistributedKernelClient) ResourceSpec() *commonTypes.DecimalSpec {
-	return commonTypes.DecimalSpecFromKernelSpec(c.spec)
+	return c.spec.DecimalSpecFromKernelSpec()
 }
 
 func (c *DistributedKernelClient) KernelSpec() *proto.KernelSpec {
@@ -1059,7 +1059,24 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *KernelReplicaClient, msg *types.JupyterMessage) error {
 	c.log.Debug("Received \"%s\" message from %v: %s", types.MessageTypeSMRLeadTask, kernelReplica.String(), msg.String())
 
-	if err := kernelReplica.TrainingStarted(); err != nil {
+	metadata, err := msg.DecodeMetadata()
+	if err != nil {
+		c.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
+		return err // TODO: Should I panic here?
+	}
+
+	var (
+		snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot]
+	)
+	if val, loaded := metadata[scheduling.ResourceSnapshotMetadataKey]; !loaded {
+		c.log.Error("Metadata frame of \"%s\" message did not contain an \"%s\" entry...",
+			msg.JupyterMessageType(), scheduling.ResourceSnapshotMetadataKey)
+		return err // TODO: Should I panic here?
+	} else {
+		snapshot = val.(commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot])
+	}
+
+	if err = KernelStartedTraining(kernelReplica, snapshot); err != nil {
 		c.log.Error("Failed to start training for kernel replica %s-%d: %v", c.id, kernelReplica.ReplicaID(), err)
 		panic(err)
 	}

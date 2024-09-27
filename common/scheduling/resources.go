@@ -1062,21 +1062,21 @@ func (s *ResourceWrapperSnapshot) GetGoTimestamp() time.Time {
 }
 
 // GetIdleResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetIdleResources() types.ArbitraryResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetIdleResources() *ResourceSnapshot {
 	return s.IdleResources
 }
 
 // GetPendingResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetPendingResources() types.ArbitraryResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetPendingResources() *ResourceSnapshot {
 	return s.PendingResources
 }
 
 // GetCommittedResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetCommittedResources() types.ArbitraryResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetCommittedResources() *ResourceSnapshot {
 	return s.CommittedResources
 }
 
 // GetSpecResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetSpecResources() types.ArbitraryResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetSpecResources() *ResourceSnapshot {
 	return s.SpecResources
 }

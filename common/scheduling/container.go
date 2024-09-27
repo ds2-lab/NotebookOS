@@ -255,8 +255,8 @@ func (c *Container) ScaleOutPriority() float64 {
 	return (c.interactivePriorityBase + 1) * c.InteractivePriority()
 }
 
-// TrainingStarted should be called when the Container begins training.
-func (c *Container) TrainingStarted(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
+// TrainingStartedInContainer should be called when the Container begins training.
+func TrainingStartedInContainer[T types.ArbitraryResourceSnapshot](c *Container, snapshot types.HostResourceSnapshot[T]) error {
 	c.lastSpec = c.spec
 
 	// Update resource data on the Host.
@@ -280,7 +280,7 @@ func (c *Container) TrainingStarted(snapshot types.HostResourceSnapshot[types.Ar
 			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
 		}
 	} else {
-		log.Fatalf("Container %s did not receive Resource Snapshot on TrainingStarted...", c.id)
+		log.Fatalf("Container %s did not receive Resource Snapshot on TrainingStartedInContainer...", c.id)
 	}
 
 	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().NumGpus))

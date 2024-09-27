@@ -337,18 +337,18 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 	return promise.Resolved(s.instance)
 }
 
-// TrainingStarted should be called when one of the Session's Kernel replicas begins training.
+// SessionStartedTraining should be called when one of the Session's Kernel replicas begins training.
 //
 // Note: this method is thread-safe.
 //
 // In the Local Daemon, this won't be called, as the Local Daemon does not track resources in this way.
 //
-// In the Cluster Gateway, this is called in the TrainingStarted method of the KernelReplicaClient.
-// The KernelReplicaClient's TrainingStarted method is called in the handleSmrLeadTaskMessage method
+// In the Cluster Gateway, this is called in the SessionStartedTraining method of the KernelReplicaClient.
+// The KernelReplicaClient's SessionStartedTraining method is called in the handleSmrLeadTaskMessage method
 // of DistributedKernelClient.
 //
-// DistributedKernelClient::handleSmrLeadTaskMessage --> KernelReplicaClient::TrainingStarted --> Session::TrainingStarted.
-func (s *Session) TrainingStarted(container *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
+// DistributedKernelClient::handleSmrLeadTaskMessage --> KernelReplicaClient::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
+func SessionStartedTraining[T types.ArbitraryResourceSnapshot](s *Session, container *Container, snapshot types.HostResourceSnapshot[T]) promise.Promise {
 	s.log.Debug("Training starting. Current state: %s.", s.sessionState.String())
 
 	s.mu.Lock()
@@ -381,7 +381,7 @@ func (s *Session) TrainingStarted(container *Container, snapshot types.HostResou
 	}
 
 	s.trainingContainer = container
-	if err := s.trainingContainer.TrainingStarted(snapshot); err != nil {
+	if err := TrainingStartedInContainer(s.trainingContainer, snapshot); err != nil {
 		s.log.Error("Failed to start training in container %s: %v", container.String(), err)
 		return promise.Resolved(s.instance, err)
 	}

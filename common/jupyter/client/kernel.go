@@ -229,12 +229,12 @@ func (c *KernelReplicaClient) LastTrainingTimePrometheusUpdate() time.Time {
 	return c.lastTrainingTimePrometheusUpdate
 }
 
-// TrainingStarted should be called when the kernel associated with this client begins actively training.
+// KernelStartedTraining should be called when the kernel associated with this client begins actively training.
 //
 // In the Local Daemon, this is called in the handleSMRLeadTask method.
 //
 // In the Cluster Gateway, this is called in the handleSmrLeadTaskMessage method of DistributedKernelClient.
-func (c *KernelReplicaClient) TrainingStarted(snapshot commonTypes.HostResourceSnapshot[commonTypes.ArbitraryResourceSnapshot]) error {
+func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[T]) error {
 	if c.isTraining {
 		c.log.Error("Cannot begin training; already training as of %v.", c.trainingStartedAt)
 		return fmt.Errorf("cannot start training; replica %d of kernel %s is already training as of %v", c.replicaId, c.id, c.trainingStartedAt)
@@ -246,10 +246,9 @@ func (c *KernelReplicaClient) TrainingStarted(snapshot commonTypes.HostResourceS
 	// The following code is only executed within the Cluster Gateway.
 	container := c.Container()
 	if container != nil { // Container will be nil on Local Daemons; they don't track resources this way.
-		session := container.Session()
-		p := session.TrainingStarted(container, snapshot)
+		p := scheduling.SessionStartedTraining(container.Session(), container, snapshot)
 		if err := p.Error(); err != nil {
-			c.log.Error("Failed to start training for session %s: %v", session.ID(), err)
+			c.log.Error("Failed to start training for session %s: %v", container.Session().ID(), err)
 			return err
 		}
 	}
@@ -511,7 +510,7 @@ func (c *KernelReplicaClient) ResourceSpec() *commonTypes.DecimalSpec {
 			c.replicaId, c.id)
 	}
 
-	return commonTypes.DecimalSpecFromKernelSpec(c.spec)
+	return c.spec.DecimalSpecFromKernelSpec()
 }
 
 func (c *KernelReplicaClient) SetResourceSpec(spec *proto.ResourceSpec) {
