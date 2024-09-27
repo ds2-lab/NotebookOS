@@ -59,13 +59,13 @@ service DistributedCluster {
   rpc ListKernels(Void) returns (ListKernelsResponse) {}
 
   // Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
-  //  rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
+    rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
 
   // Return the current GPU resource metrics on the node.
-  //  rpc GetClusterActualGpuInfo(Void) returns (ClusterActualGpuInfo) {}
+    rpc GetClusterActualGpuInfo(Void) returns (ClusterActualGpuInfo) {}
 
   // Return the current vGPU (or "deflated GPU") resource metrics on the node.
-  //  rpc GetClusterVirtualGpuInfo(Void) returns (ClusterVirtualGpuInfo) {}
+    rpc GetClusterVirtualGpuInfo(Void) returns (ClusterVirtualGpuInfo) {}
 
   // MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
   // Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
@@ -366,14 +366,14 @@ message ResourceSpecRegistration {
 }
 
 // Mapping from Kubernetes node name to the actual GPU info for that node.
-//message ClusterActualGpuInfo {
-//  map<string, GpuInfo> gpuInfo = 1;
-//}
+message ClusterActualGpuInfo {
+  map<string, GpuInfo> gpuInfo = 1;
+}
 
 // Mapping from Kubernetes node name to the virtual GPU info for that node.
-//message ClusterVirtualGpuInfo {
-//  map<string, VirtualGpuInfo> gpuInfo = 1;
-//}
+message ClusterVirtualGpuInfo {
+  map<string, VirtualGpuInfo> gpuInfo = 1;
+}
 
 message JupyterKernelReplica {
   string kernelId = 1;

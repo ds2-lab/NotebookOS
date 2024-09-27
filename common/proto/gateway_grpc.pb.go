@@ -381,6 +381,9 @@ const (
 	DistributedCluster_Ping_FullMethodName                       = "/gateway.DistributedCluster/Ping"
 	DistributedCluster_PingKernel_FullMethodName                 = "/gateway.DistributedCluster/PingKernel"
 	DistributedCluster_ListKernels_FullMethodName                = "/gateway.DistributedCluster/ListKernels"
+	DistributedCluster_SetTotalVirtualGPUs_FullMethodName        = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
+	DistributedCluster_GetClusterActualGpuInfo_FullMethodName    = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
+	DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName   = "/gateway.DistributedCluster/GetClusterVirtualGpuInfo"
 	DistributedCluster_MigrateKernelReplica_FullMethodName       = "/gateway.DistributedCluster/MigrateKernelReplica"
 	DistributedCluster_FailNextExecution_FullMethodName          = "/gateway.DistributedCluster/FailNextExecution"
 	DistributedCluster_RegisterDashboard_FullMethodName          = "/gateway.DistributedCluster/RegisterDashboard"
@@ -414,6 +417,12 @@ type DistributedClusterClient interface {
 	PingKernel(ctx context.Context, in *PingInstruction, opts ...grpc.CallOption) (*Pong, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ListKernelsResponse, error)
+	// Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
+	SetTotalVirtualGPUs(ctx context.Context, in *SetVirtualGPUsRequest, opts ...grpc.CallOption) (*VirtualGpuInfo, error)
+	// Return the current GPU resource metrics on the node.
+	GetClusterActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterActualGpuInfo, error)
+	// Return the current vGPU (or "deflated GPU") resource metrics on the node.
+	GetClusterVirtualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterVirtualGpuInfo, error)
 	// MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
 	// Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
 	// need to start immediately after replica started, e.g., preempting a training task.
@@ -533,6 +542,36 @@ func (c *distributedClusterClient) ListKernels(ctx context.Context, in *Void, op
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListKernelsResponse)
 	err := c.cc.Invoke(ctx, DistributedCluster_ListKernels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) SetTotalVirtualGPUs(ctx context.Context, in *SetVirtualGPUsRequest, opts ...grpc.CallOption) (*VirtualGpuInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VirtualGpuInfo)
+	err := c.cc.Invoke(ctx, DistributedCluster_SetTotalVirtualGPUs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) GetClusterActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterActualGpuInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterActualGpuInfo)
+	err := c.cc.Invoke(ctx, DistributedCluster_GetClusterActualGpuInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) GetClusterVirtualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterVirtualGpuInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterVirtualGpuInfo)
+	err := c.cc.Invoke(ctx, DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -678,6 +717,12 @@ type DistributedClusterServer interface {
 	PingKernel(context.Context, *PingInstruction) (*Pong, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(context.Context, *Void) (*ListKernelsResponse, error)
+	// Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
+	SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error)
+	// Return the current GPU resource metrics on the node.
+	GetClusterActualGpuInfo(context.Context, *Void) (*ClusterActualGpuInfo, error)
+	// Return the current vGPU (or "deflated GPU") resource metrics on the node.
+	GetClusterVirtualGpuInfo(context.Context, *Void) (*ClusterVirtualGpuInfo, error)
 	// MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
 	// Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
 	// need to start immediately after replica started, e.g., preempting a training task.
@@ -760,6 +805,15 @@ func (UnimplementedDistributedClusterServer) PingKernel(context.Context, *PingIn
 }
 func (UnimplementedDistributedClusterServer) ListKernels(context.Context, *Void) (*ListKernelsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListKernels not implemented")
+}
+func (UnimplementedDistributedClusterServer) SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetTotalVirtualGPUs not implemented")
+}
+func (UnimplementedDistributedClusterServer) GetClusterActualGpuInfo(context.Context, *Void) (*ClusterActualGpuInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetClusterActualGpuInfo not implemented")
+}
+func (UnimplementedDistributedClusterServer) GetClusterVirtualGpuInfo(context.Context, *Void) (*ClusterVirtualGpuInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetClusterVirtualGpuInfo not implemented")
 }
 func (UnimplementedDistributedClusterServer) MigrateKernelReplica(context.Context, *MigrationRequest) (*MigrateKernelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MigrateKernelReplica not implemented")
@@ -922,6 +976,60 @@ func _DistributedCluster_ListKernels_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DistributedClusterServer).ListKernels(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_SetTotalVirtualGPUs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetVirtualGPUsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).SetTotalVirtualGPUs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_SetTotalVirtualGPUs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).SetTotalVirtualGPUs(ctx, req.(*SetVirtualGPUsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_GetClusterActualGpuInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).GetClusterActualGpuInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_GetClusterActualGpuInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).GetClusterActualGpuInfo(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_GetClusterVirtualGpuInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).GetClusterVirtualGpuInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).GetClusterVirtualGpuInfo(ctx, req.(*Void))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1172,6 +1280,18 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListKernels",
 			Handler:    _DistributedCluster_ListKernels_Handler,
+		},
+		{
+			MethodName: "SetTotalVirtualGPUs",
+			Handler:    _DistributedCluster_SetTotalVirtualGPUs_Handler,
+		},
+		{
+			MethodName: "GetClusterActualGpuInfo",
+			Handler:    _DistributedCluster_GetClusterActualGpuInfo_Handler,
+		},
+		{
+			MethodName: "GetClusterVirtualGpuInfo",
+			Handler:    _DistributedCluster_GetClusterVirtualGpuInfo_Handler,
 		},
 		{
 			MethodName: "MigrateKernelReplica",

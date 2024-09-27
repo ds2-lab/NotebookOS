@@ -69,7 +69,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaId int32, replicaSpe
 		blacklist = append(blacklist, host.GetMeta(HostMetaRandomIndex))
 	}
 
-	host := s.placer.FindHost(blacklist, types.FullSpecFromKernelReplicaSpec(replicaSpec))
+	host := s.placer.FindHost(blacklist, replicaSpec.FullSpecFromKernelReplicaSpec())
 	if host == nil {
 		return nil, ErrInsufficientHostsAvailable
 	}

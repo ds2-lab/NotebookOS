@@ -178,7 +178,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		numTries     = 0
 		maxAttempts  = 3
 		bestAttempt  = -1
-		resourceSpec = types.DecimalSpecFromKernelSpec(kernelSpec)
+		resourceSpec = kernelSpec.DecimalSpecFromKernelSpec()
 		hosts        []*Host
 	)
 	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {

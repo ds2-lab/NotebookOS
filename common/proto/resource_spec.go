@@ -1,5 +1,10 @@
 package proto
 
+import (
+	"github.com/shopspring/decimal"
+	"github.com/zhangjyr/distributed-notebook/common/types"
+)
+
 // GPU returns the number of GPUs required.
 //
 // Although the return type is float64, this is merely because it is often compared to other float64s and rarely
@@ -48,3 +53,29 @@ func (s *ResourceSpec) Mem() float64 {
 //func (s *ResourceSpec) Validate(requirement types.Spec) bool {
 //	return s.GPU() >= requirement.GPU() && s.CPU() >= requirement.CPU() && s.MemoryMB() > requirement.MemoryMB()
 //}
+
+// FullSpecFromKernelReplicaSpec converts the *proto.ResourceSpec contained within the given
+// *proto.KernelReplicaSpec to a *Float64Spec and returns the resulting *Float64Spec.
+func (x *KernelReplicaSpec) FullSpecFromKernelReplicaSpec() *types.Float64Spec {
+	return &types.Float64Spec{
+		Millicpus: float64(x.Kernel.ResourceSpec.Cpu),
+		MemoryMb:  float64(x.Kernel.ResourceSpec.Memory),
+		GPUs:      types.GPUSpec(x.Kernel.ResourceSpec.Gpu),
+	}
+}
+
+// DecimalSpecFromKernelSpec converts the *proto.ResourceSpec contained within the given
+// *proto.KernelSpec to a *DecimalSpec and returns the resulting *DecimalSpec.
+//
+// If the proto.KernelSpec argument is nil, then FullSpecFromKernelSpec will return nil.
+func (x *KernelSpec) DecimalSpecFromKernelSpec() *types.DecimalSpec {
+	if x == nil {
+		return nil
+	}
+
+	return &types.DecimalSpec{
+		Millicpus: decimal.NewFromFloat(float64(x.ResourceSpec.Cpu)),
+		MemoryMb:  decimal.NewFromFloat(float64(x.ResourceSpec.Memory)),
+		GPUs:      decimal.NewFromFloat(float64(x.ResourceSpec.Gpu)),
+	}
+}

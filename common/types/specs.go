@@ -3,7 +3,6 @@ package types
 import (
 	"fmt"
 	"github.com/shopspring/decimal"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
 )
 
 // CloneableSpec is a superset of the Spec interface with an additional Clone method.
@@ -236,44 +235,26 @@ func (s *Float64Spec) Clone() CloneableSpec {
 	}
 }
 
-// FullSpecFromKernelReplicaSpec converts the *proto.ResourceSpec contained within the given
-// *proto.KernelReplicaSpec to a *Float64Spec and returns the resulting *Float64Spec.
-func FullSpecFromKernelReplicaSpec(in *proto.KernelReplicaSpec) *Float64Spec {
-	return &Float64Spec{
-		Millicpus: float64(in.Kernel.ResourceSpec.Cpu),
-		MemoryMb:  float64(in.Kernel.ResourceSpec.Memory),
-		GPUs:      GPUSpec(in.Kernel.ResourceSpec.Gpu),
-	}
+// ArbitraryKernelSpec is an extraction of the proto.KernelSpec API to an interface.
+type ArbitraryKernelSpec interface {
+	GetId() string
+	GetSession() string
+	GetArgv() []string
+	GetSignatureScheme() string
+	GetKey() string
+	GetResourceSpec() Spec
 }
 
-// FullSpecFromKernelSpec converts the *proto.ResourceSpec contained within the given
-// *proto.KernelSpec to a *Float64Spec and returns the resulting *Float64Spec.
-//
-// If the proto.KernelSpec argument is nil, then FullSpecFromKernelSpec will return nil.
-func FullSpecFromKernelSpec(in *proto.KernelSpec) *Float64Spec {
-	if in == nil {
-		return nil
-	}
-
-	return &Float64Spec{
-		Millicpus: float64(in.ResourceSpec.Cpu),
-		MemoryMb:  float64(in.ResourceSpec.Memory),
-		GPUs:      GPUSpec(in.ResourceSpec.Gpu),
-	}
-}
-
-// DecimalSpecFromKernelSpec converts the *proto.ResourceSpec contained within the given
-// *proto.KernelSpec to a *DecimalSpec and returns the resulting *DecimalSpec.
-//
-// If the proto.KernelSpec argument is nil, then FullSpecFromKernelSpec will return nil.
-func DecimalSpecFromKernelSpec(in *proto.KernelSpec) *DecimalSpec {
-	if in == nil {
-		return nil
-	}
-
-	return &DecimalSpec{
-		Millicpus: decimal.NewFromFloat(float64(in.ResourceSpec.Cpu)),
-		MemoryMb:  decimal.NewFromFloat(float64(in.ResourceSpec.Memory)),
-		GPUs:      decimal.NewFromFloat(float64(in.ResourceSpec.Gpu)),
-	}
-}
+// ArbitraryResourceSpec is an extraction of the proto.ResourceSpec API to an interface.
+//type ArbitraryResourceSpec interface {
+//	GPU() float64
+//	CPU() float64
+//	MemoryMB() float64
+//	UpdateSpecGPUs(gpus float64)
+//	UpdateSpecCPUs(cpus float64)
+//	UpdateSpecMemoryMB(memory float64)
+//	Mem() float64
+//	GetCpu() int32
+//	GetMemory() float32
+//	GetGpu() int32
+//}

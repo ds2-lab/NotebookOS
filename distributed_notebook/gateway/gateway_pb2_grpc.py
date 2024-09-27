@@ -412,6 +412,21 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.ListKernelsResponse.FromString,
                 _registered_method=True)
+        self.SetTotalVirtualGPUs = channel.unary_unary(
+                '/gateway.DistributedCluster/SetTotalVirtualGPUs',
+                request_serializer=gateway__pb2.SetVirtualGPUsRequest.SerializeToString,
+                response_deserializer=gateway__pb2.VirtualGpuInfo.FromString,
+                _registered_method=True)
+        self.GetClusterActualGpuInfo = channel.unary_unary(
+                '/gateway.DistributedCluster/GetClusterActualGpuInfo',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.ClusterActualGpuInfo.FromString,
+                _registered_method=True)
+        self.GetClusterVirtualGpuInfo = channel.unary_unary(
+                '/gateway.DistributedCluster/GetClusterVirtualGpuInfo',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.ClusterVirtualGpuInfo.FromString,
+                _registered_method=True)
         self.MigrateKernelReplica = channel.unary_unary(
                 '/gateway.DistributedCluster/MigrateKernelReplica',
                 request_serializer=gateway__pb2.MigrationRequest.SerializeToString,
@@ -521,17 +536,29 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def MigrateKernelReplica(self, request, context):
+    def SetTotalVirtualGPUs(self, request, context):
         """Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
-        rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
-        Return the current GPU resource metrics on the node.
-        rpc GetClusterActualGpuInfo(Void) returns (ClusterActualGpuInfo) {}
+    def GetClusterActualGpuInfo(self, request, context):
+        """Return the current GPU resource metrics on the node.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
-        Return the current vGPU (or "deflated GPU") resource metrics on the node.
-        rpc GetClusterVirtualGpuInfo(Void) returns (ClusterVirtualGpuInfo) {}
+    def GetClusterVirtualGpuInfo(self, request, context):
+        """Return the current vGPU (or "deflated GPU") resource metrics on the node.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
-        MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
+    def MigrateKernelReplica(self, request, context):
+        """MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
         Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
         need to start immediately after replica started, e.g., preempting a training task.
 
@@ -677,6 +704,21 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.ListKernels,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.ListKernelsResponse.SerializeToString,
+            ),
+            'SetTotalVirtualGPUs': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetTotalVirtualGPUs,
+                    request_deserializer=gateway__pb2.SetVirtualGPUsRequest.FromString,
+                    response_serializer=gateway__pb2.VirtualGpuInfo.SerializeToString,
+            ),
+            'GetClusterActualGpuInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetClusterActualGpuInfo,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.ClusterActualGpuInfo.SerializeToString,
+            ),
+            'GetClusterVirtualGpuInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetClusterVirtualGpuInfo,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.ClusterVirtualGpuInfo.SerializeToString,
             ),
             'MigrateKernelReplica': grpc.unary_unary_rpc_method_handler(
                     servicer.MigrateKernelReplica,
@@ -903,6 +945,87 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/ListKernels',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.ListKernelsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetTotalVirtualGPUs(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/SetTotalVirtualGPUs',
+            gateway__pb2.SetVirtualGPUsRequest.SerializeToString,
+            gateway__pb2.VirtualGpuInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetClusterActualGpuInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetClusterActualGpuInfo',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.ClusterActualGpuInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetClusterVirtualGpuInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetClusterVirtualGpuInfo',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.ClusterVirtualGpuInfo.FromString,
             options,
             channel_credentials,
             insecure,
