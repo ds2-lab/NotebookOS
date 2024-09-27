@@ -349,6 +349,7 @@ func (h *Host) SynchronizeResourceInformation() error {
 	h.syncMutex.Lock()
 	defer h.syncMutex.Unlock()
 
+	st := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
@@ -361,6 +362,7 @@ func (h *Host) SynchronizeResourceInformation() error {
 
 	h.updateLocalGpuInfoFromRemote(resp)
 	h.LastRemoteSync = time.Now()
+	h.log.Debug("Synchronized resources with remote in %v.", time.Since(st))
 	return nil
 }
 

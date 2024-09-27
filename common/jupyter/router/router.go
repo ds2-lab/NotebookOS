@@ -139,6 +139,10 @@ func (g *Router) Start() error {
 
 	// Close all the sockets.
 	for _, socket := range g.server.Sockets.All {
+		if socket == nil {
+			g.server.Log.Warn("Router found nil socket when attempting to close all sockets...")
+			continue
+		}
 		if socket.Socket != nil {
 			_ = socket.Socket.Close()
 		}

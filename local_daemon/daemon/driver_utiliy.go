@@ -1,11 +1,16 @@
 package daemon
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"log"
 	"net"
 	"os"
+	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,7 +72,7 @@ func CreateConsulAndTracer(options *domain.LocalDaemonOptions) (opentracing.Trac
 	return tracer, consulClient
 }
 
-// Build grpc options
+// GetGrpcOptions builds the grpc.ServerOption slice and returns it.
 func GetGrpcOptions(tracer opentracing.Tracer) []grpc.ServerOption {
 	gOpts := []grpc.ServerOption{
 		grpc.KeepaliveParams(keepalive.ServerParameters{
@@ -85,6 +90,46 @@ func GetGrpcOptions(tracer opentracing.Tracer) []grpc.ServerOption {
 	return gOpts
 }
 
+// getNameOfDockerContainer attempts to discover the name of the Docker container in which we are running.
+// This should only be called when we are using the Docker Compose or Docker Swarm deployment mode.
+func getNameOfDockerContainer() string {
+	hostnameEnv := os.Getenv("HOSTNAME")
+
+	if len(hostnameEnv) == 0 {
+		globalLogger.Error("Could not retrieve valid value from HOSTNAME environment variable.")
+		globalLogger.Error("Returning default value for NodeName: \"%s\"", types.DockerNode)
+		return types.DockerNode
+	}
+
+	globalLogger.Debug("Retrieved value for HOSTNAME environment variable: \"$s\"", hostnameEnv)
+
+	// We will use this command to retrieve the name of this Docker container.
+	unformattedCommand := "docker inspect {container_hostname_env} --format='{{.Name}}'"
+	formattedCommand := strings.ReplaceAll(unformattedCommand, "{container_hostname_env}", hostnameEnv)
+	argv := strings.Split(formattedCommand, " ")
+
+	globalLogger.Debug("Executing shell command: %s", utils.LightBlueStyle.Render(formattedCommand))
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+
+	var stdoutBuffer, stderrBuffer bytes.Buffer
+	cmd.Stdout = &stdoutBuffer
+	cmd.Stderr = &stderrBuffer
+
+	if err := cmd.Run(); err != nil {
+		globalLogger.Error("[Error] Failed to retrieve container name: %v\n", err)
+		globalLogger.Error("STDERR: %s", stderrBuffer.String())
+		globalLogger.Error("Returning default value for NodeName: \"%s\"", types.DockerNode)
+		return types.DockerNode
+	}
+
+	containerName := stdoutBuffer.String()
+	globalLogger.Debug("Resolved container name: \"%s\"", containerName)
+	return containerName
+}
+
 func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, done *sync.WaitGroup, finalize LocalDaemonFinalizer, sig chan os.Signal) (*SchedulerDaemonImpl, func()) {
 	tracer, consulClient := CreateConsulAndTracer(options)
 
@@ -94,7 +139,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	if options.IsLocalMode() {
 		nodeName = options.NodeName
 	} else if options.IsDockerMode() {
-		nodeName = types.DockerNode
+		nodeName = getNameOfDockerContainer()
 	} else {
 		nodeName = os.Getenv("NODE_NAME")
 	}

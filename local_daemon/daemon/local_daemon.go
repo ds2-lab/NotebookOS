@@ -1812,19 +1812,21 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	// Release any resources committed to the kernel replica, as it is done training and does not need the resources
 	// to be actively-bound/committed to it anymore.
 	if shouldReleaseResources {
-		// Attempt to release the resources. If we fail for some reason, then (for now) we'll notify the Cluster
-		// Gateway, but we won't panic. This may change, as we really shouldn't fail.
+		// Attempt to release the resources.
+		// This may fail, as sometimes, the replica will not have resources allocated to it, such as if it
+		// proposed 'YIELD' during its leader election (like if there were not enough resources available on
+		// the node for it to train if it were to have won).
 		d.log.Debug("Attempting to release committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
 		if err = d.resourceManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil {
-			errorMessage := fmt.Sprintf("Failed to release GPUs allocated to replica %d of kernel %s because: %v",
+			warningMessage := fmt.Sprintf("Failed to release GPUs allocated to replica %d of kernel %s because: %v",
 				kernelClient.ReplicaID(), kernel.ID(), err)
-			d.log.Error(errorMessage)
-			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-				Title:            "Failed to Release Committed Resources",
-				Message:          errorMessage,
-				NotificationType: 0,
-				Panicked:         false,
-			})
+			d.log.Warn(warningMessage)
+			//go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			//	Title:            "Failed to Release Committed Resources",
+			//	Message:          warningMessage,
+			//	NotificationType: 0,
+			//	Panicked:         false,
+			//})
 		}
 
 		d.log.Debug("Successfully released committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
