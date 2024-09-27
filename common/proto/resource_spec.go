@@ -25,7 +25,7 @@ func (s *ResourceSpec) UpdateSpecGPUs(gpus float64) {
 	s.Gpu = int32(gpus)
 }
 
-// UpdateSpecCPUs can be used to update the number of CPUs.
+// UpdateSpecCPUs can be used to update the number of Millicpus.
 func (s *ResourceSpec) UpdateSpecCPUs(cpus float64) {
 	s.Cpu = int32(cpus)
 }

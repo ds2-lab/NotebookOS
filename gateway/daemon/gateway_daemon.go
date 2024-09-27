@@ -389,7 +389,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	// Create the Cluster Scheduler.
 	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
-	hostSpec := &types.Float64Spec{GPUs: types.GPUSpec(clusterSchedulerOptions.GpusPerHost), CPUs: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}
+	hostSpec := &types.Float64Spec{GPUs: types.GPUSpec(clusterSchedulerOptions.GpusPerHost), Millicpus: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}
 	if clusterGateway.KubernetesMode() {
 		clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
 		clusterGateway.containerWatcher = clusterGateway.kubeClient

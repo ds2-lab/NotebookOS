@@ -289,9 +289,9 @@ func (c *Container) TrainingStarted() error {
 	c.spec.UpdateSpecCPUs(c.Session().ResourceUtilization().CpuUtilization)
 	c.spec.UpdateSpecMemoryMB(c.Session().ResourceUtilization().MemoryUsageMb)
 	c.outstandingResources = &types.Float64Spec{
-		GPUs:     types.GPUSpec(0),
-		CPUs:     0,
-		MemoryMb: 0,
+		GPUs:      types.GPUSpec(0),
+		Millicpus: 0,
+		MemoryMb:  0,
 	}
 
 	// Processing a new training event.
@@ -321,9 +321,9 @@ func (c *Container) TrainingStopped() error {
 	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs())
 
 	c.outstandingResources = &types.Float64Spec{
-		GPUs:     types.GPUSpec(c.spec.GPU()),
-		CPUs:     c.spec.CPU(),
-		MemoryMb: c.spec.MemoryMB(),
+		GPUs:      types.GPUSpec(c.spec.GPU()),
+		Millicpus: c.spec.CPU(),
+		MemoryMb:  c.spec.MemoryMB(),
 	}
 	c.spec = c.lastSpec
 

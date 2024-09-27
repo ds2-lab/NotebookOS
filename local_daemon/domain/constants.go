@@ -17,7 +17,7 @@ const (
 	// This indicates that a specific replica should execute the code.
 	TargetReplicaArg = "target_replica"
 
-	YieldInsufficientResourcesAvailable YieldReason = "YieldInsufficientResourcesAvailable" // Yield because there are not enough resources (CPUs, memory, and/or GPUs) available.
+	YieldInsufficientResourcesAvailable YieldReason = "YieldInsufficientResourcesAvailable" // Yield because there are not enough resources (Millicpus, memory, and/or GPUs) available.
 	YieldDifferentReplicaTargeted       YieldReason = "YieldDifferentReplicaTargeted"       // Yield because another replica was explicitly targeted.
 	YieldExplicitlyInstructed           YieldReason = "YieldExplicitlyInstructed"           // Yield because we were explicitly instructed to yield.
 )

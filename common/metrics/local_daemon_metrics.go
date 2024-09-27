@@ -111,22 +111,22 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 	m.IdleCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "idle_millicpus",
-		Help:      "Idle CPUs available on a Local Daemon",
+		Help:      "Idle Millicpus available on a Local Daemon",
 	}, []string{"node_id"})
 	m.SpecCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "spec_millicpus",
-		Help:      "Total CPUs available for use on a Local Daemon",
+		Help:      "Total Millicpus available for use on a Local Daemon",
 	}, []string{"node_id"})
 	m.CommittedCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "committed_millicpus",
-		Help:      "Allocated/committed CPUs on a Local Daemon",
+		Help:      "Allocated/committed Millicpus on a Local Daemon",
 	}, []string{"node_id"})
 	m.PendingCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "pending_millicpus",
-		Help:      "Pending CPUs on a Local Daemon",
+		Help:      "Pending Millicpus on a Local Daemon",
 	}, []string{"node_id"})
 
 	// Memory resource metrics.

@@ -207,9 +207,9 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 
 	daemon.resourceManager = scheduling.NewResourceManager(&types.Float64Spec{
-		GPUs:     types.GPUSpec(schedulerDaemonOptions.NumGPUs),
-		CPUs:     scheduling.MillicpusPerHost,
-		MemoryMb: scheduling.MemoryMbPerHost})
+		GPUs:      types.GPUSpec(schedulerDaemonOptions.NumGPUs),
+		Millicpus: scheduling.MillicpusPerHost,
+		MemoryMb:  scheduling.MemoryMbPerHost})
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -959,6 +959,9 @@ func (d *SchedulerDaemonImpl) smrReadyCallback(kernelClient *client.KernelReplic
 	}
 }
 
+// GetActualGpuInfo returns the "actual" GPU resource information for the node.
+//
+// Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 func (d *SchedulerDaemonImpl) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.GpuInfo, error) {
 	gpuInfo := &proto.GpuInfo{
 		SpecGPUs:              int32(d.resourceManager.SpecGPUs().InexactFloat64()),
@@ -2124,6 +2127,12 @@ func (d *SchedulerDaemonImpl) setTotalVirtualGPUsKubernetes(ctx context.Context,
 	return response, nil
 }
 
+// ResourcesSnapshot returns a *proto.NodeResourcesSnapshot struct encoding a snapshot of the current resource quantities on the node.
+func (d *SchedulerDaemonImpl) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*proto.NodeResourcesSnapshot, error) {
+	snapshot := d.resourceManager.ProtoResourcesSnapshot()
+	return snapshot, nil
+}
+
 // convertExecuteRequestToYieldExecute converts the given message to a "yield_execute" message.
 //
 // This will return a COPY of the original message with the type field modified to contact "yield_execute" instead of "execute_request".
@@ -2433,7 +2442,7 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 
 		return decodeError
 	} else {
-		snapshot := d.resourceManager.ResourceWrapperSnapshot()
+		snapshot := d.resourceManager.ResourcesSnapshot()
 		metadata[scheduling.ResourceSnapshotMetadataKey] = snapshot
 		if encodeErr := jMsg.EncodeMetadata(snapshot); encodeErr != nil {
 			d.log.Error("Failed to encode metadata frame of Jupyter Message after adding resource snapshot: %v", encodeErr)

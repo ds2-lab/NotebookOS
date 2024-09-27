@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
+	"log"
 	"math"
 	"sort"
 	"sync"
@@ -30,6 +31,7 @@ var (
 
 	ErrRestoreRequired     = errors.New("restore required")
 	ErrNodeNameUnspecified = errors.New("no kubernetes node name returned for LocalDaemonClient")
+	ErrOldSnapshot         = errors.New("the given snapshot is older than the last snapshot applied to the target host")
 )
 
 // ErrorCallback defines a function to be called if a Host appears to be dead.
@@ -82,23 +84,23 @@ type HostStatistics interface {
 	// CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound to Containers scheduled on the Host.
 	//CommittedGPUsStat() types.StatFloat64Field
 
-	// IdleCPUs returns the number of CPUs that the host has not allocated to any Containers.
+	// IdleCPUs returns the number of Millicpus that the host has not allocated to any Containers.
 	IdleCPUs() float64
 
-	// PendingCPUs returns the number of CPUs that are oversubscribed by Containers scheduled on the Host.
-	// Pending CPUs are NOT actively bound to any
+	// PendingCPUs returns the number of Millicpus that are oversubscribed by Containers scheduled on the Host.
+	// Pending Millicpus are NOT actively bound to any
 	PendingCPUs() float64
 
-	// CommittedCPUs returns the number of CPUs that are actively bound to Containers scheduled on the Host.
+	// CommittedCPUs returns the number of Millicpus that are actively bound to Containers scheduled on the Host.
 	CommittedCPUs() float64
 
-	// IdleCPUsStat returns the StatFloat64 representing the number of CPUs that the host has not allocated to any Containers.
+	// IdleCPUsStat returns the StatFloat64 representing the number of Millicpus that the host has not allocated to any Containers.
 	//IdleCPUsStat() types.StatFloat64Field
 
-	// PendingCPUsStat returns the StatFloat64 representing the number of CPUs that are oversubscribed by Containers scheduled on the Host.
+	// PendingCPUsStat returns the StatFloat64 representing the number of Millicpus that are oversubscribed by Containers scheduled on the Host.
 	//PendingCPUsStat() types.StatFloat64Field
 
-	// CommittedCPUsStat returns the StatFloat64 representing the number of CPUs that are actively bound to Containers scheduled on the Host.
+	// CommittedCPUsStat returns the StatFloat64 representing the number of Millicpus that are actively bound to Containers scheduled on the Host.
 	//CommittedCPUsStat() types.StatFloat64Field
 
 	// IdleMemoryMb returns the amount of memory, in megabytes (MB), that the host has not allocated to any Containers.
@@ -173,6 +175,7 @@ type Host struct {
 	resourcesWrapper       *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
 	LastRemoteSync         time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 	IsContainedWithinIndex bool                                 // IsContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
+	lastSnapshot           types.HostResourceSnapshot           // lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
 
 	// OversubscriptionQuerierFunction is used to query the oversubscription factor given the host's
 	// subscription ratio and the cluster's subscription ratio.
@@ -218,10 +221,10 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 	}
 
 	// Create the ResourceSpec defining the resources available on the Host.
-	resourceSpec := &types.Float64Spec{
-		GPUs:     types.GPUSpec(gpuInfoResp.SpecGPUs),
-		CPUs:     float64(millicpus),
-		MemoryMb: float64(memMb),
+	resourceSpec := &types.DecimalSpec{
+		GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
+		Millicpus: decimal.NewFromFloat(float64(millicpus)),
+		MemoryMb:  decimal.NewFromFloat(float64(memMb)),
 	}
 
 	host := &Host{
@@ -245,44 +248,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		OversubscriptionQuerierFunction: cluster.GetOversubscriptionFactor,
 	}
 
-	host.resourcesWrapper = &resourcesWrapper{
-		idleResources: &resources{
-			resourceStatus: IdleResources,
-			millicpus:      decimal.NewFromFloat(resourceSpec.CPU()),
-			memoryMB:       decimal.NewFromFloat(resourceSpec.MemoryMB()),
-			gpus:           decimal.NewFromFloat(resourceSpec.GPU()),
-		},
-		pendingResources: &resources{
-			resourceStatus: PendingResources,
-			millicpus:      decimal.Zero.Copy(),
-			memoryMB:       decimal.Zero.Copy(),
-			gpus:           decimal.Zero.Copy(),
-		},
-		committedResources: &resources{
-			resourceStatus: CommittedResources,
-			millicpus:      decimal.Zero.Copy(),
-			memoryMB:       decimal.Zero.Copy(),
-			gpus:           decimal.Zero.Copy(),
-		},
-		specResources: &resources{
-			resourceStatus: SpecResources,
-			millicpus:      decimal.NewFromFloat(resourceSpec.CPUs),
-			memoryMB:       decimal.NewFromFloat(resourceSpec.MemoryMb),
-			gpus:           decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
-		},
-	}
-
-	//host.idleGPUs.Store(float64(gpuInfoResp.SpecGPUs))
-	//host.pendingGPUs.Store(0)
-	//host.committedGPUs.Store(0)
-	//
-	//host.idleCPUs.Store(resourceSpec.CPUs)
-	//host.pendingCPUs.Store(0)
-	//host.committedCPUs.Store(0)
-	//
-	//host.idleMemoryMb.Store(resourceSpec.MemoryMb)
-	//host.pendingMemoryMb.Store(0)
-	//host.committedMemoryMb.Store(0)
+	host.resourcesWrapper = newResourcesWrapper(resourceSpec)
 
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
 	host.sip.Validator = GetClockTimeCacheValidator()
@@ -306,6 +272,14 @@ func (h *Host) UnlockScheduling() {
 	h.schedulingMutex.Unlock()
 }
 
+// LastResourcesSnapshot returns the last HostResourceSnapshot to have been applied successfully to this Host.
+//
+// If the target Host has had no HostResourceSnapshot instances applied successfully, then this method returns nil.
+func (h *Host) LastResourcesSnapshot() types.HostResourceSnapshot {
+	return h.lastSnapshot
+}
+
+// SubscribedRatio returns the current subscription ratio of the Host.
 func (h *Host) SubscribedRatio() float64 {
 	return h.subscribedRatio.Load()
 }
@@ -353,14 +327,18 @@ func (h *Host) SynchronizeResourceInformation() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	//h.log.Debug("Refreshing resource information from remote.")
-	resp, err := h.LocalGatewayClient.GetActualGpuInfo(ctx, &proto.Void{})
+	snapshot, err := h.LocalGatewayClient.ResourcesSnapshot(ctx, &proto.Void{})
 	if err != nil {
-		h.log.Error("Failed to refresh resource information from remote: %v", err)
+		h.log.Error("Failed to retrieve Resource Snapshot from remote node %s (ID=%s) because: %v",
+			h.NodeName, h.ID, err)
 		return err
 	}
 
-	h.updateLocalGpuInfoFromRemote(resp)
+	err = h.ApplyResourceSnapshot(snapshot)
+	if err != nil {
+		return err
+	}
+
 	h.LastRemoteSync = time.Now()
 	h.log.Debug("Synchronized resources with remote in %v.", time.Since(st))
 	return nil
@@ -378,8 +356,8 @@ func (h *Host) PlacedGPUs() decimal.Decimal {
 	return h.resourcesWrapper.pendingResources.gpus.Add(h.resourcesWrapper.committedResources.gpus)
 }
 
-// PlacedCPUs returns the total number of CPUs scheduled onto the Host, which is computed as the
-// sum of the Host's pending CPUs and the Host's committed CPUs.
+// PlacedCPUs returns the total number of Millicpus scheduled onto the Host, which is computed as the
+// sum of the Host's pending Millicpus and the Host's committed Millicpus.
 func (h *Host) PlacedCPUs() decimal.Decimal {
 	return h.resourcesWrapper.pendingResources.millicpus.Add(h.resourcesWrapper.committedResources.millicpus)
 }
@@ -463,6 +441,32 @@ func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
 // Otherwise, CanCommitResources returns false.
 func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 	return h.resourcesWrapper.idleResources.Validate(types.ToDecimalSpec(resourceRequest))
+}
+
+// ApplyResourceSnapshot applies the given HostResourceSnapshot to the Host's local resource quantities.
+//
+// ApplyResourceSnapshot returns nil on success.
+//
+// If the given HostResourceSnapshot has a SnapshotID that is less than the last HostResourceSnapshot applied to the
+// target Host, then an error is returned.
+//
+// If the given HostResourceSnapshot is nil, then this method will panic.
+func (h *Host) ApplyResourceSnapshot(snapshot types.HostResourceSnapshot) error {
+	if snapshot == nil {
+		log.Fatalf("Attempted to apply nil ArbitraryResourceSnapshot to Host %s (ID=%s).", h.NodeName, h.ID)
+	}
+
+	if h.lastSnapshot != nil && snapshot.GetSnapshotId() < h.lastSnapshot.GetSnapshotId() {
+		h.log.Warn("Given snapshot has ID %d < our last applied snapshot (with ID=%d). Rejecting.",
+			h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
+		return fmt.Errorf("%w: last applied snapshot had ID=%d, specified snapshot had ID=%d",
+			ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
+	}
+
+	// TODO: Implement this.
+	panic("Implement me!")
+
+	return nil
 }
 
 // updateLocalGpuInfoFromRemote updates the local info pertaining to GPU usage information

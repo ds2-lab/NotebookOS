@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"log"
 	"sync"
+	"time"
 )
 
 const (
@@ -65,6 +67,13 @@ var (
 	// ErrInsufficientGPUs indicates that there was insufficient GPU resources available to validate/support/serve
 	// the given resource request/types.Spec.
 	ErrInsufficientGPUs = errors.New("insufficient GPU resources available")
+
+	// ErrInvalidSnapshot is a general error message indicating that the application of a snapshot has failed.
+	ErrInvalidSnapshot = errors.New("the specified snapshot could not be applied")
+
+	// ErrIncompatibleResourceStatus is a specific reason for why the application of a snapshot may fail.
+	// If the source and target ResourceStatus values do not match, then the snapshot will be rejected.
+	ErrIncompatibleResourceStatus = errors.New("source and target ResourceStatus values are not the same")
 )
 
 // ResourceKind can be one of CPU, GPU, or Memory
@@ -147,7 +156,7 @@ type ResourceState interface {
 
 	// ResourceSnapshot creates and returns a pointer to a new ResourceSnapshot struct, thereby
 	// capturing the current quantities of the resources encoded by the ResourceState instance.
-	ResourceSnapshot() *ResourceSnapshot
+	ResourceSnapshot(snapshotId int32) *ResourceSnapshot
 }
 
 // ResourceStatus differentiates between idle, pending, committed, and spec resources.
@@ -164,6 +173,32 @@ type ResourceSnapshot struct {
 	Millicpus      decimal.Decimal `json:"millicpus"`       // millicpus is CPU in 1/1000th of CPU core.
 	Gpus           decimal.Decimal `json:"gpus"`            // gpus is the number of GPUs.
 	MemoryMB       decimal.Decimal `json:"memoryMB"`        // memoryMB is the amount of memory in MB.
+
+	// SnapshotId uniquely identifies the HostResourceSnapshot in which this ResourceSnapshot struct will be included.
+	// Specifically, the SnapshotId and defines a total order amongst all HostResourceSnapshot instances that originate
+	// from the same node. Each newly-created HostResourceSnapshot is assigned an ID from a monotonically-increasing
+	// counter by the ResourceManager from the associated Host.
+	SnapshotId int32 `json:"snapshot_id"`
+}
+
+func (s *ResourceSnapshot) GetSnapshotId() int32 {
+	return s.SnapshotId
+}
+
+func (s *ResourceSnapshot) GetResourceStatus() string {
+	return s.ResourceStatus.String()
+}
+
+func (s *ResourceSnapshot) GetMillicpus() int32 {
+	return int32(s.Millicpus.InexactFloat64())
+}
+
+func (s *ResourceSnapshot) GetMemoryMb() float32 {
+	return float32(s.MemoryMB.InexactFloat64())
+}
+
+func (s *ResourceSnapshot) GetGpus() int32 {
+	return int32(s.Gpus.InexactFloat64())
 }
 
 // String returns a string representation of the target ResourceSnapshot struct that is suitable for logging.
@@ -177,16 +212,51 @@ func (s *ResourceSnapshot) String() string {
 type resources struct {
 	sync.Mutex // Enables atomic access to each individual field.
 
+	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this resources.
+	lastAppliedSnapshotId int32
+
 	resourceStatus ResourceStatus  // resourceStatus is the ResourceStatus represented/encoded by this struct.
 	millicpus      decimal.Decimal // millicpus is CPU in 1/1000th of CPU core.
 	gpus           decimal.Decimal // gpus is the number of GPUs.
 	memoryMB       decimal.Decimal // memoryMB is the amount of memory in MB.
 }
 
+// ApplySnapshot atomically overwrites its resource quantities with the quantities encoded
+// in the given ArbitraryResourceSnapshot instance.
+//
+// ApplySnapshot returns nil on success. The only failure possible is that the ArbitraryResourceSnapshot
+// encodes resources of a different "status" than the target resources struct. For example, if the target
+// resources struct encodes "idle" resources, whereas the given ArbitraryResourceSnapshot instance encodes
+// "pending" resources, then an error will be returned, and none of the resource quantities in the target
+// resources struct will be overwritten.
+func (res *resources) ApplySnapshot(snapshot types.ArbitraryResourceSnapshot) error {
+	res.Lock()
+	defer res.Unlock()
+
+	// Ensure that the snapshot corresponds to resources of the same status as the target resources struct.
+	// If it doesn't, then we'll reject the snapshot.
+	if res.resourceStatus.String() != snapshot.GetResourceStatus() {
+		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, ErrIncompatibleResourceStatus)
+	}
+
+	// Ensure that the snapshot being applied is not old. If it is old, then we'll reject it.
+	if res.lastAppliedSnapshotId > snapshot.GetSnapshotId() {
+		return fmt.Errorf("%w: %w (last applied ID=%d, given ID=%d)",
+			ErrInvalidSnapshot, ErrOldSnapshot, res.lastAppliedSnapshotId, snapshot.GetSnapshotId())
+	}
+
+	res.millicpus = decimal.NewFromFloat(float64(snapshot.GetMillicpus()))
+	res.memoryMB = decimal.NewFromFloat(float64(snapshot.GetMemoryMb()))
+	res.gpus = decimal.NewFromFloat(float64(snapshot.GetGpus()))
+	res.lastAppliedSnapshotId = snapshot.GetSnapshotId()
+
+	return nil
+}
+
 // ResourceSnapshot constructs and returns a pointer to a new ResourceSnapshot struct.
 //
 // This method is thread-safe to ensure that the quantities of each resource are all captured atomically.
-func (res *resources) ResourceSnapshot() *ResourceSnapshot {
+func (res *resources) ResourceSnapshot(snapshotId int32) *ResourceSnapshot {
 	res.Lock()
 	defer res.Unlock()
 
@@ -195,6 +265,25 @@ func (res *resources) ResourceSnapshot() *ResourceSnapshot {
 		Millicpus:      res.millicpus,
 		Gpus:           res.gpus,
 		MemoryMB:       res.memoryMB,
+		SnapshotId:     snapshotId,
+	}
+
+	return snapshot
+}
+
+// protoResourceSnapshot constructs and returns a pointer to a new protoResourceSnapshot struct.
+//
+// This method is thread-safe to ensure that the quantities of each resource are all captured atomically.
+func (res *resources) protoResourceSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+	res.Lock()
+	defer res.Unlock()
+
+	snapshot := &proto.ResourcesSnapshot{
+		ResourceStatus: res.resourceStatus.String(),
+		Millicpus:      int32(res.millicpus.InexactFloat64()),
+		Gpus:           int32(res.gpus.InexactFloat64()),
+		MemoryMb:       float32(res.memoryMB.InexactFloat64()),
+		SnapshotId:     snapshotId,
 	}
 
 	return snapshot
@@ -511,7 +600,7 @@ func (res *resources) MillicpusAsDecimal() decimal.Decimal {
 	return res.millicpus.Copy()
 }
 
-// SetMillicpus sets the number of CPUs to a copy of the specified decimal.Decimal value.
+// SetMillicpus sets the number of Millicpus to a copy of the specified decimal.Decimal value.
 func (res *resources) SetMillicpus(millicpus decimal.Decimal) {
 	res.Lock()
 	defer res.Unlock()
@@ -532,7 +621,7 @@ func (res *resources) Add(spec *types.DecimalSpec) error {
 
 	updatedCPUs := res.millicpus.Add(spec.Millicpus)
 	if updatedCPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s CPUs would be set to %s millicpus after addition (current=%s,addend=%s)",
+		return fmt.Errorf("%w: %s Millicpus would be set to %s millicpus after addition (current=%s,addend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
 			res.millicpus.StringFixed(0), spec.Millicpus.StringFixed(0))
 	}
@@ -573,7 +662,7 @@ func (res *resources) Subtract(spec *types.DecimalSpec) error {
 
 	updatedCPUs := res.millicpus.Sub(spec.Millicpus)
 	if updatedCPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s CPUs would be set to %s millicpus after subtraction (current=%s,subtrahend=%s)",
+		return fmt.Errorf("%w: %s Millicpus would be set to %s millicpus after subtraction (current=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
 			res.millicpus.StringFixed(0), spec.Millicpus.StringFixed(0))
 	}
@@ -676,10 +765,87 @@ func (res *resources) ValidateWithError(spec types.Spec) error {
 type resourcesWrapper struct {
 	mu sync.Mutex
 
+	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this resourcesWrapper.
+	lastAppliedSnapshotId int32
+
 	idleResources      *resources
 	pendingResources   *resources
 	committedResources *resources
 	specResources      *resources
+}
+
+// newResourcesWrapper creates a new resourcesWrapper struct from the given types.Spec and returns
+// a pointer to it (the new resourcesWrapper struct).
+//
+// The given types.Spec is used to initialize the spec and idle resource quantities of the new resourcesWrapper struct.
+func newResourcesWrapper(spec types.Spec) *resourcesWrapper {
+	resourceSpec := types.ToDecimalSpec(spec)
+
+	return &resourcesWrapper{
+		// Snapshot IDs begin at 0, so -1 will always be less than the first snapshot to be applied.
+		lastAppliedSnapshotId: -1,
+		idleResources: &resources{
+			resourceStatus: IdleResources,
+			millicpus:      resourceSpec.Millicpus.Copy(),
+			memoryMB:       resourceSpec.MemoryMb.Copy(),
+			gpus:           resourceSpec.GPUs.Copy(),
+		},
+		pendingResources: &resources{
+			resourceStatus: PendingResources,
+			millicpus:      decimal.Zero.Copy(),
+			memoryMB:       decimal.Zero.Copy(),
+			gpus:           decimal.Zero.Copy(),
+		},
+		committedResources: &resources{
+			resourceStatus: CommittedResources,
+			millicpus:      decimal.Zero.Copy(),
+			memoryMB:       decimal.Zero.Copy(),
+			gpus:           decimal.Zero.Copy(),
+		},
+		specResources: &resources{
+			resourceStatus: SpecResources,
+			millicpus:      resourceSpec.Millicpus.Copy(),
+			memoryMB:       resourceSpec.MemoryMb.Copy(),
+			gpus:           resourceSpec.GPUs.Copy(),
+		},
+	}
+}
+
+// ApplySnapshot atomically overwrites the target resourceWrapper's resource quantities with
+// the resource quantities encoded by the given HostResourceSnapshot instance.
+//
+// ApplySnapshot returns nil on success.
+//
+// If the given HostResourceSnapshot's SnapshotId is less than the resourceWrapper's lastAppliedSnapshotId,
+// then an error will be returned.
+func (r *resourcesWrapper) ApplySnapshot(snapshot types.HostResourceSnapshot) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Ensure that the snapshot being applied is not old. If it is old, then we'll reject it.
+	if r.lastAppliedSnapshotId > snapshot.GetSnapshotId() {
+		return fmt.Errorf("%w: %w (last applied ID=%d, given ID=%d)",
+			ErrInvalidSnapshot, ErrOldSnapshot, r.lastAppliedSnapshotId, snapshot.GetSnapshotId())
+	}
+
+	var err error
+	if err = r.idleResources.ApplySnapshot(snapshot.GetIdleResources()); err != nil {
+		return err
+	}
+
+	if err = r.pendingResources.ApplySnapshot(snapshot.GetPendingResources()); err != nil {
+		return err
+	}
+
+	if err = r.committedResources.ApplySnapshot(snapshot.GetCommittedResources()); err != nil {
+		return err
+	}
+
+	if err = r.specResources.ApplySnapshot(snapshot.GetSpecResources()); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // String returns a string representation of the resourcesWrapper that is suitable for logging.
@@ -727,61 +893,97 @@ func (r *resourcesWrapper) SpecResources() ResourceState {
 	return r.specResources
 }
 
-// IdleResourcesSnapshot returns a *ResourceSnapshot struct capturing the current idle resources
+// idleResourcesSnapshot returns a *ResourceSnapshot struct capturing the current idle resources
 // of the target resourcesWrapper.
-func (r *resourcesWrapper) IdleResourcesSnapshot() *ResourceSnapshot {
+func (r *resourcesWrapper) idleResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.idleResources.ResourceSnapshot()
+	return r.idleResources.ResourceSnapshot(snapshotId)
 }
 
-// PendingResourcesSnapshot returns a *ResourceSnapshot struct capturing the current pending resources
+// pendingResourcesSnapshot returns a *ResourceSnapshot struct capturing the current pending resources
 // of the target resourcesWrapper.
-func (r *resourcesWrapper) PendingResourcesSnapshot() *ResourceSnapshot {
+func (r *resourcesWrapper) pendingResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.pendingResources.ResourceSnapshot()
+	return r.pendingResources.ResourceSnapshot(snapshotId)
 }
 
-// CommittedResourcesSnapshot returns a *ResourceSnapshot struct capturing the current committed resources
+// committedResourcesSnapshot returns a *ResourceSnapshot struct capturing the current committed resources
 // of the target resourcesWrapper.
-func (r *resourcesWrapper) CommittedResourcesSnapshot() *ResourceSnapshot {
+func (r *resourcesWrapper) committedResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.committedResources.ResourceSnapshot()
+	return r.committedResources.ResourceSnapshot(snapshotId)
 }
 
-// SpecResourcesSnapshot returns a *ResourceSnapshot struct capturing the current spec resources
+// specResourcesSnapshot returns a *ResourceSnapshot struct capturing the current spec resources
 // of the target resourcesWrapper.
-func (r *resourcesWrapper) SpecResourcesSnapshot() *ResourceSnapshot {
+func (r *resourcesWrapper) specResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.specResources.ResourceSnapshot()
+	return r.specResources.ResourceSnapshot(snapshotId)
+}
+
+// idleProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current idle resources
+// of the target resourcesWrapper.
+func (r *resourcesWrapper) idleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.idleResources.protoResourceSnapshot(snapshotId)
+}
+
+// pendingProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current pending resources
+// of the target resourcesWrapper.
+func (r *resourcesWrapper) pendingProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.pendingResources.protoResourceSnapshot(snapshotId)
+}
+
+// committedProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current committed resources
+// of the target resourcesWrapper.
+func (r *resourcesWrapper) committedProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.committedResources.protoResourceSnapshot(snapshotId)
+}
+
+// specProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current spec resources
+// of the target resourcesWrapper.
+func (r *resourcesWrapper) specProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.specResources.protoResourceSnapshot(snapshotId)
 }
 
 // ResourceSnapshot returns a pointer to a ResourceSnapshot created for the specified "status" of resources
 // (i.e., "idle", "pending", "committed", or "spec").
-func (r *resourcesWrapper) ResourceSnapshot(status ResourceStatus) *ResourceSnapshot {
+func (r *resourcesWrapper) ResourceSnapshot(status ResourceStatus, snapshotId int32) *ResourceSnapshot {
 	switch status {
 	case IdleResources:
 		{
-			return r.IdleResourcesSnapshot()
+			return r.idleResourcesSnapshot(snapshotId)
 		}
 	case PendingResources:
 		{
-			return r.PendingResourcesSnapshot()
+			return r.pendingResourcesSnapshot(snapshotId)
 		}
 	case CommittedResources:
 		{
-			return r.CommittedResourcesSnapshot()
+			return r.committedResourcesSnapshot(snapshotId)
 		}
 	case SpecResources:
 		{
-			return r.SpecResourcesSnapshot()
+			return r.specResourcesSnapshot(snapshotId)
 		}
 	default:
 		{
@@ -789,4 +991,92 @@ func (r *resourcesWrapper) ResourceSnapshot(status ResourceStatus) *ResourceSnap
 			return nil
 		}
 	}
+}
+
+// ResourceWrapperSnapshot encapsulates a JSON-compatible snapshot of the resource quantities of the ResourceManager.
+type ResourceWrapperSnapshot struct {
+	// SnapshotId uniquely identifies the ResourceWrapperSnapshot and defines a total order amongst all ResourceWrapperSnapshot
+	// structs originating from the same node. Each newly-created ResourceWrapperSnapshot is assigned an ID from a
+	// monotonically-increasing counter by the ResourceManager.
+	SnapshotId int32 `json:"snapshot_id"`
+
+	// NodeId is the ID of the node from which the snapshot originates.
+	NodeId string `json:"host_id"`
+
+	// ManagerId is the unique ID of the ResourceManager struct from which the ResourceWrapperSnapshot was constructed.
+	ManagerId string `json:"manager_id"`
+
+	// Timestamp is the time at which the ResourceWrapperSnapshot was taken/created.
+	Timestamp time.Time `json:"timestamp"`
+
+	IdleResources      *ResourceSnapshot `json:"idle_resources"`
+	PendingResources   *ResourceSnapshot `json:"pending_resources"`
+	CommittedResources *ResourceSnapshot `json:"committed_resources"`
+	SpecResources      *ResourceSnapshot `json:"spec_resources"`
+}
+
+// Compare compares the object with specified object.
+// Returns negative, 0, positive if the object is smaller than, equal to, or larger than specified object respectively.
+//func (s *ResourceWrapperSnapshot) Compare(obj interface{}) float64 {
+//	if obj == nil {
+//		log.Fatalf("Cannot compare target ResourceWrapperSnapshot with nil.")
+//	}
+//
+//	other, ok := obj.(types.HostResourceSnapshot)
+//	if !ok {
+//		log.Fatalf("Cannot compare target ResourceWrapperSnapshot with specified object of type '%s'.",
+//			reflect.ValueOf(obj).Type().String())
+//	}
+//
+//	if s.GetSnapshotId() < other.GetSnapshotId() {
+//		return -1
+//	} else if s.GetSnapshotId() == other.GetSnapshotId() {
+//		return 0
+//	} else {
+//		return 1
+//	}
+//}
+
+////////////////////////////////////////////////////
+// HostResourceSnapshot interface implementation. //
+////////////////////////////////////////////////////
+
+// GetSnapshotId is part of the HostResourceSnapshot interface implementation.
+func (s *ResourceWrapperSnapshot) GetSnapshotId() int32 {
+	return s.SnapshotId
+}
+
+// GetNodeId is part of the HostResourceSnapshot interface implementation.
+func (s *ResourceWrapperSnapshot) GetNodeId() string {
+	return s.NodeId
+}
+
+// GetManagerId is part of the HostResourceSnapshot interface implementation.
+func (s *ResourceWrapperSnapshot) GetManagerId() string {
+	return s.ManagerId
+}
+
+// GetGoTimestamp is part of the HostResourceSnapshot interface implementation.
+func (s *ResourceWrapperSnapshot) GetGoTimestamp() time.Time {
+	return s.Timestamp
+}
+
+// GetIdleResources is part of the HostResourceSnapshot interface implementation.
+func (s *ResourceWrapperSnapshot) GetIdleResources() types.ArbitraryResourceSnapshot {
+	return s.IdleResources
+}
+
+// GetPendingResources is part of the HostResourceSnapshot interface implementation.
+func (s *ResourceWrapperSnapshot) GetPendingResources() types.ArbitraryResourceSnapshot {
+	return s.PendingResources
+}
+
+// GetCommittedResources is part of the HostResourceSnapshot interface implementation.
+func (s *ResourceWrapperSnapshot) GetCommittedResources() types.ArbitraryResourceSnapshot {
+	return s.CommittedResources
+}
+
+// GetSpecResources is part of the HostResourceSnapshot interface implementation.
+func (s *ResourceWrapperSnapshot) GetSpecResources() types.ArbitraryResourceSnapshot {
+	return s.SpecResources
 }

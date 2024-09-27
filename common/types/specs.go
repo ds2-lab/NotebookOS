@@ -41,7 +41,7 @@ type Spec interface {
 	// UpdateSpecGPUs can be used to update the number of GPUs.
 	UpdateSpecGPUs(float64)
 
-	// UpdateSpecCPUs can be used to update the number of CPUs.
+	// UpdateSpecCPUs can be used to update the number of Millicpus.
 	UpdateSpecCPUs(float64)
 
 	// UpdateSpecMemoryMB can be used to update the amount of memory (in MB).
@@ -60,7 +60,7 @@ type Spec interface {
 type GPUSpec float64
 
 // GPU is an implementation of Spec that just maintains the GPU requirement.
-// CPUs and MemoryMB are both 0.
+// Millicpus and MemoryMB are both 0.
 //
 // Although the return type is float64, this is merely because it is often compared to other float64s and rarely
 // other integers. That is, it's merely for convenience to avoid having to cast it every time.
@@ -117,10 +117,10 @@ func ToDecimalSpec(spec Spec) *DecimalSpec {
 }
 
 // DecimalSpec is a concrete implementation of the Spec interface that is backed by decimal.Decimal structs
-// for each resource value (CPUs, GPUs, and memory).
+// for each resource value (Millicpus, GPUs, and memory).
 type DecimalSpec struct {
 	GPUs      decimal.Decimal `json:"gpus"`      // Number of vGPUs.
-	Millicpus decimal.Decimal `json:"cpus"`      // Number of CPUs in millicpus, where 1000 mCPU = 1 vCPU.
+	Millicpus decimal.Decimal `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU.
 	MemoryMb  decimal.Decimal `json:"memory_mb"` // Amount of memory in megabytes (MB).
 }
 
@@ -155,7 +155,7 @@ func (d DecimalSpec) Validate(requirement Spec) bool {
 }
 
 func (d DecimalSpec) String() string {
-	return fmt.Sprintf("ResourceSpec[CPUs: %s, Memory: %s MB, GPUs: %s]",
+	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s]",
 		d.Millicpus.StringFixed(0), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(0))
 }
 
@@ -174,11 +174,11 @@ func (d DecimalSpec) Clone() CloneableSpec {
 }
 
 // Float64Spec is a concrete implementation of the Spec interface that is backed by float64 variables for each
-// resource value (CPUs, GPUs, and memory).
+// resource value (Millicpus, GPUs, and memory).
 type Float64Spec struct {
-	GPUs     GPUSpec `json:"gpus"`      // Number of vGPUs.
-	CPUs     float64 `json:"cpus"`      // Number of CPUs in millicpus, where 1000 mCPU = 1 vCPU
-	MemoryMb float64 `json:"memory_mb"` // Amount of memory in megabytes (MB).
+	GPUs      GPUSpec `json:"gpus"`      // Number of vGPUs.
+	Millicpus float64 `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU
+	MemoryMb  float64 `json:"memory_mb"` // Amount of memory in megabytes (MB).
 }
 
 // GPU returns the number of GPUs required.
@@ -193,7 +193,7 @@ func (s *Float64Spec) GPU() float64 {
 
 // CPU returns the number of vCPUs in milliCPUs, where 1000 mCPU = 1 vCPU, which may be fractional.
 func (s *Float64Spec) CPU() float64 {
-	return s.CPUs
+	return s.Millicpus
 }
 
 // MemoryMB returns the amount of memory in MB.
@@ -206,9 +206,9 @@ func (s *Float64Spec) UpdateSpecGPUs(gpus float64) {
 	s.GPUs = GPUSpec(gpus)
 }
 
-// UpdateSpecCPUs can be used to update the number of CPUs.
+// UpdateSpecCPUs can be used to update the number of Millicpus.
 func (s *Float64Spec) UpdateSpecCPUs(cpus float64) {
-	s.CPUs = cpus
+	s.Millicpus = cpus
 }
 
 // UpdateSpecMemoryMB can be used to update the amount of memory (in MB).
@@ -217,7 +217,7 @@ func (s *Float64Spec) UpdateSpecMemoryMB(memory float64) {
 }
 
 func (s *Float64Spec) String() string {
-	return fmt.Sprintf("ResourceSpec[CPUs: %.2f, Memory: %.2f MB, GPUs: %.2f]", s.CPUs, s.MemoryMb, s.GPUs)
+	return fmt.Sprintf("ResourceSpec[Millicpus: %.2f, Memory: %.2f MB, GPUs: %.2f]", s.Millicpus, s.MemoryMb, s.GPUs)
 }
 
 // Validate checks that "this" Spec could "satisfy" the parameterized Spec.
@@ -230,9 +230,9 @@ func (s *Float64Spec) Validate(requirement Spec) bool {
 
 func (s *Float64Spec) Clone() CloneableSpec {
 	return &Float64Spec{
-		GPUs:     s.GPUs,
-		CPUs:     s.CPUs,
-		MemoryMb: s.MemoryMb,
+		GPUs:      s.GPUs,
+		Millicpus: s.Millicpus,
+		MemoryMb:  s.MemoryMb,
 	}
 }
 
@@ -240,9 +240,9 @@ func (s *Float64Spec) Clone() CloneableSpec {
 // *proto.KernelReplicaSpec to a *Float64Spec and returns the resulting *Float64Spec.
 func FullSpecFromKernelReplicaSpec(in *proto.KernelReplicaSpec) *Float64Spec {
 	return &Float64Spec{
-		CPUs:     float64(in.Kernel.ResourceSpec.Cpu),
-		MemoryMb: float64(in.Kernel.ResourceSpec.Memory),
-		GPUs:     GPUSpec(in.Kernel.ResourceSpec.Gpu),
+		Millicpus: float64(in.Kernel.ResourceSpec.Cpu),
+		MemoryMb:  float64(in.Kernel.ResourceSpec.Memory),
+		GPUs:      GPUSpec(in.Kernel.ResourceSpec.Gpu),
 	}
 }
 
@@ -256,9 +256,9 @@ func FullSpecFromKernelSpec(in *proto.KernelSpec) *Float64Spec {
 	}
 
 	return &Float64Spec{
-		CPUs:     float64(in.ResourceSpec.Cpu),
-		MemoryMb: float64(in.ResourceSpec.Memory),
-		GPUs:     GPUSpec(in.ResourceSpec.Gpu),
+		Millicpus: float64(in.ResourceSpec.Cpu),
+		MemoryMb:  float64(in.ResourceSpec.Memory),
+		GPUs:      GPUSpec(in.ResourceSpec.Gpu),
 	}
 }
 

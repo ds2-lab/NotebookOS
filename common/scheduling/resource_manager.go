@@ -9,8 +9,10 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,7 +47,7 @@ const (
 	PendingAllocation AllocationType = "pending"
 
 	//CommittedAllocation indicates that a ResourceAllocation has been committed to the associated kernel replica.
-	//That is, the GPUs, CPUs, and Memory specified in the allocation are actively committed and bound to the
+	//That is, the GPUs, Millicpus, and Memory specified in the allocation are actively committed and bound to the
 	//associated kernel replica. These resources are not available for use by other kernel replicas.
 	CommittedAllocation AllocationType = "committed"
 
@@ -76,7 +78,7 @@ type ResourceAllocation struct {
 	// GPUs is the number of GPUs in the ResourceAllocation.
 	GPUs decimal.Decimal `json:"gpus"`
 
-	// Millicpus is the number of CPUs in the ResourceAllocation, represented as 1/1000th cores.
+	// Millicpus is the number of Millicpus in the ResourceAllocation, represented as 1/1000th cores.
 	// That is, 1000 Millicpus is equal to 1 vCPU.
 	Millicpus decimal.Decimal `json:"millicpus"`
 
@@ -98,7 +100,7 @@ type ResourceAllocation struct {
 	// The kernel replica is merely scheduled locally, but it has not bound to these resources.
 	//
 	// "Committed" indicates that a ResourceAllocation has been committed to the associated kernel replica.
-	// That is, the GPUs, CPUs, and Memory specified in the allocation are actively committed and bound to the
+	// That is, the GPUs, Millicpus, and Memory specified in the allocation are actively committed and bound to the
 	// associated kernel replica. These resources are not available for use by other kernel replicas.
 	AllocationType AllocationType `json:"allocation_type"`
 
@@ -123,7 +125,7 @@ func (a *ResourceAllocation) String() string {
 // ToSpecString returns a string representation of the ResourceAllocation (suitable for logging) in the format
 // of the String() methods of types.Spec implementations.
 func (a *ResourceAllocation) ToSpecString() string {
-	return fmt.Sprintf("ResourceSpec[CPUs: %s, Memory: %s MB, GPUs: %s]",
+	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s]",
 		a.Millicpus.StringFixed(0), a.MemoryMB.StringFixed(4), a.GPUs.StringFixed(0))
 }
 
@@ -213,7 +215,7 @@ func (b *ResourceAllocationBuilder) WithGPUs(gpus float64) *ResourceAllocationBu
 	return b
 }
 
-// WithMillicpus enables the specification of the number of CPUs (in millicpus, or 1/1000th of a core)
+// WithMillicpus enables the specification of the number of Millicpus (in millicpus, or 1/1000th of a core)
 // in the ResourceAllocation that is being constructed.
 func (b *ResourceAllocationBuilder) WithMillicpus(millicpus float64) *ResourceAllocationBuilder {
 	b.millicpus = decimal.NewFromFloat(millicpus)
@@ -242,28 +244,6 @@ func (b *ResourceAllocationBuilder) BuildResourceAllocation() *ResourceAllocatio
 	}
 }
 
-// ResourceWrapperSnapshot encapsulates a JSON-compatible snapshot of the resource quantities of the ResourceManager.
-type ResourceWrapperSnapshot struct {
-	// SnapshotId uniquely identifies the ResourceWrapperSnapshot and defines a total order amongst all ResourceWrapperSnapshot
-	// structs originating from the same node. Each newly-created ResourceWrapperSnapshot is assigned an ID from a
-	// monotonically-increasing counter by the ResourceManager.
-	SnapshotId int32 `json:"snapshot_id"`
-
-	// NodeId is the ID of the node from which the snapshot originates.
-	NodeId string `json:"host_id"`
-
-	// ManagerId is the unique ID of the ResourceManager struct from which the ResourceWrapperSnapshot was constructed.
-	ManagerId string `json:"manager_id"`
-
-	// Timestamp is the time at which the ResourceWrapperSnapshot was taken/created.
-	Timestamp time.Time `json:"timestamp"`
-
-	IdleResources      *ResourceSnapshot `json:"idle_resources"`
-	PendingResources   *ResourceSnapshot `json:"pending_resources"`
-	CommittedResources *ResourceSnapshot `json:"committed_resources"`
-	SpecResources      *ResourceSnapshot `json:"spec_resources"`
-}
-
 // ResourceManager is responsible for keeping track of resource allocations on behalf of the Local Daemon.
 // The ResourceManager allocates and deallocates resources to/from kernel replicas scheduled to run on the node.
 //
@@ -290,7 +270,14 @@ type ResourceManager struct {
 	log logger.Logger // Logger.
 
 	// resourceSnapshotCounter is an atomic, thread-safe counter used to associate a monotonically-increasing
-	// identifier with each newly-created ResourceSnapshot.
+	// identifier with each newly-created ResourceSnapshot and *proto.NodeResourcesSnapshot struct.
+	//
+	// That is, the *proto.NodeResourcesSnapshot structs created by the ResourceManager's ProtoResourcesSnapshot
+	// method and the *ResourceWrapperSnapshot structs created by the ResourceManager's ResourcesSnapshot method share
+	// the same "source" for their SnapshotId fields.
+	//
+	// Thus, the total ordering provided by the monotonically-increasing counter actually applies to all
+	// *ResourceWrapperSnapshot structs and all *ResourceWrapperSnapshot structs originating from the same node.
 	resourceSnapshotCounter atomic.Int32
 
 	// allocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
@@ -319,32 +306,7 @@ func NewResourceManager(resourceSpec types.Spec) *ResourceManager {
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, *ResourceAllocation](128),
 	}
 
-	manager.resourcesWrapper = &resourcesWrapper{
-		idleResources: &resources{
-			resourceStatus: IdleResources,
-			millicpus:      decimal.NewFromFloat(resourceSpec.CPU()),
-			memoryMB:       decimal.NewFromFloat(resourceSpec.MemoryMB()),
-			gpus:           decimal.NewFromFloat(resourceSpec.GPU()),
-		},
-		pendingResources: &resources{
-			resourceStatus: PendingResources,
-			millicpus:      decimal.Zero.Copy(),
-			memoryMB:       decimal.Zero.Copy(),
-			gpus:           decimal.Zero.Copy(),
-		},
-		committedResources: &resources{
-			resourceStatus: CommittedResources,
-			millicpus:      decimal.Zero.Copy(),
-			memoryMB:       decimal.Zero.Copy(),
-			gpus:           decimal.Zero.Copy(),
-		},
-		specResources: &resources{
-			resourceStatus: SpecResources,
-			millicpus:      decimal.NewFromFloat(resourceSpec.CPU()),
-			memoryMB:       decimal.NewFromFloat(resourceSpec.MemoryMB()),
-			gpus:           decimal.NewFromFloat(resourceSpec.GPU()),
-		},
-	}
+	manager.resourcesWrapper = newResourcesWrapper(resourceSpec)
 
 	manager.numPendingAllocations.Store(0)
 	manager.numCommittedAllocations.Store(0)
@@ -356,24 +318,79 @@ func NewResourceManager(resourceSpec types.Spec) *ResourceManager {
 	return manager
 }
 
-// ResourceWrapperSnapshot returns a ResourceWrapperSnapshot encoding the current resource quantities
+// ResourcesSnapshot returns a *ResourceWrapperSnapshot encoding the current resource quantities
 // tracked by the ResourceManager. The ResourceWrapperSnapshot struct is JSON-serializable.
-func (m *ResourceManager) ResourceWrapperSnapshot() *ResourceWrapperSnapshot {
+// This method is intended to be used when the data will be transferred via JSON/ZMQ.
+//
+// Important note: the *proto.NodeResourcesSnapshot structs created by the ResourceManager's ProtoResourcesSnapshot
+// method and the *ResourceWrapperSnapshot structs created by this method (i.e., the ResourceManager's ArbitraryResourceSnapshot
+// method) share the same "source" for their SnapshotId fields.
+//
+// Thus, the total ordering provided by the monotonically-increasing counter actually applies to all
+// *ResourceWrapperSnapshot structs and all *ResourceWrapperSnapshot structs originating from the same node.
+//
+// Similarly, while the IDs of all *ResourceWrapperSnapshot structs (or equivalently all *proto.NodeResourcesSnapshot
+// structs) will be monotonically increasing, they may not increase by one from struct-to-struct (for structs of the
+// same type). That is, if the Local Daemon produces 3 *ResourceWrapperSnapshot structs followed by 3
+// *proto.NodeResourcesSnapshot structs followed by 1 *ResourceWrapperSnapshot struct, that last *ResourceWrapperSnapshot
+// struct will have SnapshotID 6. SnapshotID 0, 1, and 2 are for the first three *ResourceWrapperSnapshot structs.
+// IDs 3, 4, and 5 are for the three *proto.NodeResourcesSnapshot structs that followed, meaning that the last
+// *ResourceWrapperSnapshot is ultimately assigned an SnapshotID of 6.
+func (m *ResourceManager) ResourcesSnapshot() *ResourceWrapperSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	snapshotId := m.resourceSnapshotCounter.Add(1)
 	snapshot := &ResourceWrapperSnapshot{
-		SnapshotId:         m.resourceSnapshotCounter.Add(1),
+		SnapshotId:         snapshotId,
 		Timestamp:          time.Now(),
 		NodeId:             m.NodeID,
 		ManagerId:          m.ID,
-		IdleResources:      m.resourcesWrapper.IdleResourcesSnapshot(),
-		PendingResources:   m.resourcesWrapper.PendingResourcesSnapshot(),
-		CommittedResources: m.resourcesWrapper.CommittedResourcesSnapshot(),
-		SpecResources:      m.resourcesWrapper.SpecResourcesSnapshot(),
+		IdleResources:      m.resourcesWrapper.idleResourcesSnapshot(snapshotId),
+		PendingResources:   m.resourcesWrapper.pendingResourcesSnapshot(snapshotId),
+		CommittedResources: m.resourcesWrapper.committedResourcesSnapshot(snapshotId),
+		SpecResources:      m.resourcesWrapper.specResourcesSnapshot(snapshotId),
 	}
 
-	m.log.Debug("Created ResourceWrapperSnapshot with ID=%d.", snapshot.SnapshotId)
+	m.log.Debug("Created *ArbitraryResourceSnapshot with ID=%d.", snapshot.SnapshotId)
+
+	return snapshot
+}
+
+// ProtoResourcesSnapshot returns a *proto.NodeResourcesSnapshot encoding the current resource quantities
+// tracked by the ResourceManager. This method is intended to be used when the data will be transferred via gRPC.
+//
+// Important note: the *ResourceWrapperSnapshot structs created by the ResourceManager's ArbitraryResourceSnapshot method and
+// the *proto.NodeResourcesSnapshot structs created by this method (i.e., the ResourceManager's ProtoResourcesSnapshot
+// method) share the same "source" for their SnapshotId fields.
+//
+// Thus, the total ordering provided by the monotonically-increasing counter actually applies to all
+// *ResourceWrapperSnapshot structs and all *ResourceWrapperSnapshot structs originating from the same node.
+//
+// Similarly, while the IDs of all *ResourceWrapperSnapshot structs (or equivalently all *proto.NodeResourcesSnapshot
+// structs) will be monotonically increasing, they may not increase by one from struct-to-struct (for structs of the
+// same type). That is, if the Local Daemon produces 3 *ResourceWrapperSnapshot structs followed by 3
+// *proto.NodeResourcesSnapshot structs followed by 1 *ResourceWrapperSnapshot struct, that last *ResourceWrapperSnapshot
+// struct will have SnapshotID 6. SnapshotID 0, 1, and 2 are for the first three *ResourceWrapperSnapshot structs.
+// IDs 3, 4, and 5 are for the three *proto.NodeResourcesSnapshot structs that followed, meaning that the last
+// *ResourceWrapperSnapshot is ultimately assigned an SnapshotID of 6.
+func (m *ResourceManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	snapshotId := m.resourceSnapshotCounter.Add(1)
+	snapshot := &proto.NodeResourcesSnapshot{
+		SnapshotId:         snapshotId,
+		Timestamp:          timestamppb.Now(),
+		NodeId:             m.NodeID,
+		ManagerId:          m.ID,
+		IdleResources:      m.resourcesWrapper.idleProtoResourcesSnapshot(snapshotId),
+		PendingResources:   m.resourcesWrapper.pendingProtoResourcesSnapshot(snapshotId),
+		CommittedResources: m.resourcesWrapper.committedProtoResourcesSnapshot(snapshotId),
+		SpecResources:      m.resourcesWrapper.specProtoResourcesSnapshot(snapshotId),
+	}
+
+	m.log.Debug("Created *proto.NodeResourcesSnapshot with ID=%d.", snapshot.SnapshotId)
 
 	return snapshot
 }
@@ -426,7 +443,7 @@ func (m *ResourceManager) SpecGPUs() decimal.Decimal {
 	return m.resourcesWrapper.SpecResources().GPUsAsDecimal().Copy()
 }
 
-// SpecCPUs returns the total number of CPUs configured/present on this node in millicpus.
+// SpecCPUs returns the total number of Millicpus configured/present on this node in millicpus.
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) SpecCPUs() decimal.Decimal {
@@ -456,7 +473,7 @@ func (m *ResourceManager) IdleGPUs() decimal.Decimal {
 	return m.resourcesWrapper.IdleResources().GPUsAsDecimal().Copy()
 }
 
-// IdleCPUs returns the number of CPUs that are uncommitted and therefore available on this node.
+// IdleCPUs returns the number of Millicpus that are uncommitted and therefore available on this node.
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) IdleCPUs() decimal.Decimal {
@@ -492,7 +509,7 @@ func (m *ResourceManager) CommittedGPUs() decimal.Decimal {
 	return m.resourcesWrapper.CommittedResources().GPUsAsDecimal().Copy()
 }
 
-// CommittedCPUs returns the CPUs, in millicpus, that are actively committed and allocated to replicas that are scheduled onto this node.
+// CommittedCPUs returns the Millicpus, in millicpus, that are actively committed and allocated to replicas that are scheduled onto this node.
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) CommittedCPUs() decimal.Decimal {
@@ -531,8 +548,8 @@ func (m *ResourceManager) PendingGPUs() decimal.Decimal {
 	return m.resourcesWrapper.PendingResources().GPUsAsDecimal().Copy()
 }
 
-// PendingCPUs returns the sum of the outstanding CPUs of all replicas scheduled onto this node, in millicpus.
-// Pending CPUs are not allocated or committed to a particular replica yet.
+// PendingCPUs returns the sum of the outstanding Millicpus of all replicas scheduled onto this node, in millicpus.
+// Pending Millicpus are not allocated or committed to a particular replica yet.
 // The time at which resources are actually committed to a replica depends upon the policy being used.
 // In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
 //
