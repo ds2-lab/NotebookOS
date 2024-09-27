@@ -222,15 +222,15 @@ type resources struct {
 	memoryMB       decimal.Decimal // memoryMB is the amount of memory in MB.
 }
 
-// ApplySnapshot atomically overwrites its resource quantities with the quantities encoded
+// ApplySnapshotToResources atomically overwrites its resource quantities with the quantities encoded
 // in the given ArbitraryResourceSnapshot instance.
 //
-// ApplySnapshot returns nil on success. The only failure possible is that the ArbitraryResourceSnapshot
+// ApplySnapshotToResources returns nil on success. The only failure possible is that the ArbitraryResourceSnapshot
 // encodes resources of a different "status" than the target resources struct. For example, if the target
 // resources struct encodes "idle" resources, whereas the given ArbitraryResourceSnapshot instance encodes
 // "pending" resources, then an error will be returned, and none of the resource quantities in the target
 // resources struct will be overwritten.
-func (res *resources) ApplySnapshot(snapshot types.ArbitraryResourceSnapshot) error {
+func ApplySnapshotToResources[T types.ArbitraryResourceSnapshot](res *resources, snapshot T) error {
 	res.Lock()
 	defer res.Unlock()
 
@@ -812,14 +812,14 @@ func newResourcesWrapper(spec types.Spec) *resourcesWrapper {
 	}
 }
 
-// ApplySnapshot atomically overwrites the target resourceWrapper's resource quantities with
+// ApplySnapshotToResourceWrapper atomically overwrites the target resourceWrapper's resource quantities with
 // the resource quantities encoded by the given HostResourceSnapshot instance.
 //
-// ApplySnapshot returns nil on success.
+// ApplySnapshotToResourceWrapper returns nil on success.
 //
 // If the given HostResourceSnapshot's SnapshotId is less than the resourceWrapper's lastAppliedSnapshotId,
 // then an error will be returned.
-func (r *resourcesWrapper) ApplySnapshot(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
+func ApplySnapshotToResourceWrapper[T types.ArbitraryResourceSnapshot](r *resourcesWrapper, snapshot types.HostResourceSnapshot[T]) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -830,19 +830,19 @@ func (r *resourcesWrapper) ApplySnapshot(snapshot types.HostResourceSnapshot[typ
 	}
 
 	var err error
-	if err = r.idleResources.ApplySnapshot(snapshot.GetIdleResources()); err != nil {
+	if err = ApplySnapshotToResources(r.idleResources, snapshot.GetIdleResources()); err != nil {
 		return err
 	}
 
-	if err = r.pendingResources.ApplySnapshot(snapshot.GetPendingResources()); err != nil {
+	if err = ApplySnapshotToResources(r.pendingResources, snapshot.GetPendingResources()); err != nil {
 		return err
 	}
 
-	if err = r.committedResources.ApplySnapshot(snapshot.GetCommittedResources()); err != nil {
+	if err = ApplySnapshotToResources(r.committedResources, snapshot.GetCommittedResources()); err != nil {
 		return err
 	}
 
-	if err = r.specResources.ApplySnapshot(snapshot.GetSpecResources()); err != nil {
+	if err = ApplySnapshotToResources(r.specResources, snapshot.GetSpecResources()); err != nil {
 		return err
 	}
 

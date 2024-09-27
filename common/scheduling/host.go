@@ -173,10 +173,15 @@ func ApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Host, sna
 			ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
 	}
 
-	// TODO: Implement this.
-	panic("Implement me!")
+	h.syncMutex.Lock()
+	defer h.syncMutex.Unlock()
 
-	return nil
+	// TODO: Is this the correct order to acquire these locks?
+	// TODO: Do we need to acquire both of these locks?
+	h.LockScheduling()
+	defer h.UnlockScheduling()
+
+	return ApplySnapshotToResourceWrapper(h.resourcesWrapper, snapshot)
 }
 
 type Host struct {
