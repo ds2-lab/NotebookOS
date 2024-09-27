@@ -818,7 +818,7 @@ func newResourcesWrapper(spec types.Spec) *resourcesWrapper {
 //
 // If the given HostResourceSnapshot's SnapshotId is less than the resourceWrapper's lastAppliedSnapshotId,
 // then an error will be returned.
-func (r *resourcesWrapper) ApplySnapshot(snapshot types.HostResourceSnapshot) error {
+func (r *resourcesWrapper) ApplySnapshot(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

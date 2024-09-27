@@ -7,6 +7,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	"log"
 	"sync/atomic"
 	"time"
 )
@@ -255,35 +256,32 @@ func (c *Container) ScaleOutPriority() float64 {
 }
 
 // TrainingStarted should be called when the Container begins training.
-func (c *Container) TrainingStarted() error {
+func (c *Container) TrainingStarted(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
 	c.lastSpec = c.spec
 
 	// Update resource data on the Host.
 	// TODO: Should these just be updated either via "pushes" from the Local Daemon or "pulls" by the Cluster Gateway?
-	outstandingResourcesAsDecimalSpec := types.ToDecimalSpec(c.outstandingResources)
-	if err := c.host.SubtractFromPendingResources(outstandingResourcesAsDecimalSpec); err != nil {
-		return err
-	}
-
-	if err := c.host.SubtractFromIdleResources(outstandingResourcesAsDecimalSpec); err != nil {
-		return err
-	}
-
-	if err := c.host.AddToCommittedResources(outstandingResourcesAsDecimalSpec); err != nil {
-		return err
-	}
-
-	//c.host.Stats().PendingCPUsStat().Sub(c.outstandingResources.CPU())
-	//c.host.Stats().PendingMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
-	//c.host.Stats().PendingGPUsStat().Sub(c.outstandingResources.GPU())
+	//outstandingResourcesAsDecimalSpec := types.ToDecimalSpec(c.outstandingResources)
+	//if err := c.host.SubtractFromPendingResources(outstandingResourcesAsDecimalSpec); err != nil {
+	//	return err
+	//}
 	//
-	//c.host.Stats().IdleCPUsStat().Sub(c.outstandingResources.CPU())
-	//c.host.Stats().IdleMemoryMbStat().Sub(c.outstandingResources.MemoryMB())
-	//c.host.Stats().IdleGPUsStat().Sub(c.outstandingResources.GPU())
+	//if err := c.host.SubtractFromIdleResources(outstandingResourcesAsDecimalSpec); err != nil {
+	//	return err
+	//}
 	//
-	//c.host.Stats().CommittedCPUsStat().Add(c.outstandingResources.CPU())
-	//c.host.Stats().CommittedMemoryMbStat().Add(c.outstandingResources.MemoryMB())
-	//c.host.Stats().CommittedGPUsStat().Add(c.outstandingResources.GPU())
+	//if err := c.host.AddToCommittedResources(outstandingResourcesAsDecimalSpec); err != nil {
+	//	return err
+	//}
+
+	if snapshot != nil {
+		err := ApplyResourceSnapshot(c.host, snapshot)
+		if err != nil {
+			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
+		}
+	} else {
+		log.Fatalf("Container %s did not receive Resource Snapshot on TrainingStarted...", c.id)
+	}
 
 	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().NumGpus))
 	c.spec.UpdateSpecCPUs(c.Session().ResourceUtilization().CpuUtilization)

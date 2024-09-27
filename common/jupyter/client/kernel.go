@@ -230,7 +230,11 @@ func (c *KernelReplicaClient) LastTrainingTimePrometheusUpdate() time.Time {
 }
 
 // TrainingStarted should be called when the kernel associated with this client begins actively training.
-func (c *KernelReplicaClient) TrainingStarted() error {
+//
+// In the Local Daemon, this is called in the handleSMRLeadTask method.
+//
+// In the Cluster Gateway, this is called in the handleSmrLeadTaskMessage method of DistributedKernelClient.
+func (c *KernelReplicaClient) TrainingStarted(snapshot commonTypes.HostResourceSnapshot[commonTypes.ArbitraryResourceSnapshot]) error {
 	if c.isTraining {
 		c.log.Error("Cannot begin training; already training as of %v.", c.trainingStartedAt)
 		return fmt.Errorf("cannot start training; replica %d of kernel %s is already training as of %v", c.replicaId, c.id, c.trainingStartedAt)
@@ -243,7 +247,7 @@ func (c *KernelReplicaClient) TrainingStarted() error {
 	container := c.Container()
 	if container != nil { // Container will be nil on Local Daemons; they don't track resources this way.
 		session := container.Session()
-		p := session.TrainingStarted(container)
+		p := session.TrainingStarted(container, snapshot)
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to start training for session %s: %v", session.ID(), err)
 			return err

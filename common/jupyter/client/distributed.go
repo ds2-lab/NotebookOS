@@ -1064,16 +1064,6 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 		panic(err)
 	}
 
-	//container := kernelReplica.Container()
-	//session := container.Session()
-
-	//p := session.TrainingStarted(container)
-	//err := p.Error()
-	//if err != nil {
-	//	c.log.Error("Failed to start training for session %s: %v", session.ID(), err)
-	//	panic(err)
-	//}
-
 	if c.activeExecution == nil {
 		log.Fatalf("Kernel %s has started training; however, its active execution is nil...", c.id)
 	}

@@ -149,6 +149,36 @@ func (p *cachedPenalty) Candidates() ContainerList {
 	return p.preemptions[:]
 }
 
+// ApplyResourceSnapshot applies the given HostResourceSnapshot to the given Host's local resource quantities.
+//
+// ApplyResourceSnapshot returns nil on success.
+//
+// If the given HostResourceSnapshot has a SnapshotID that is less than the last HostResourceSnapshot applied to the
+// target Host, then an error is returned.
+//
+// If either of the arguments are nil, then this method will panic.
+func ApplyResourceSnapshot[T types.ArbitraryResourceSnapshot](h *Host, snapshot types.HostResourceSnapshot[T]) error {
+	if h == nil {
+		log.Fatalf("Attempted to apply (possibly nil) resource snapshot to nil Host.")
+	}
+
+	if snapshot == nil {
+		log.Fatalf("Attempted to apply nil resource snapshot to Host %s (ID=%s).", h.NodeName, h.ID)
+	}
+
+	if h.lastSnapshot != nil && snapshot.GetSnapshotId() < h.lastSnapshot.GetSnapshotId() {
+		h.log.Warn("Given snapshot has ID %d < our last applied snapshot (with ID=%d). Rejecting.",
+			h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
+		return fmt.Errorf("%w: last applied snapshot had ID=%d, specified snapshot had ID=%d",
+			ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
+	}
+
+	// TODO: Implement this.
+	panic("Implement me!")
+
+	return nil
+}
+
 type Host struct {
 	proto.LocalGatewayClient
 
@@ -175,7 +205,9 @@ type Host struct {
 	resourcesWrapper       *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
 	LastRemoteSync         time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 	IsContainedWithinIndex bool                                 // IsContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
-	lastSnapshot           types.HostResourceSnapshot           // lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
+
+	// lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
+	lastSnapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
 
 	// OversubscriptionQuerierFunction is used to query the oversubscription factor given the host's
 	// subscription ratio and the cluster's subscription ratio.
@@ -275,7 +307,7 @@ func (h *Host) UnlockScheduling() {
 // LastResourcesSnapshot returns the last HostResourceSnapshot to have been applied successfully to this Host.
 //
 // If the target Host has had no HostResourceSnapshot instances applied successfully, then this method returns nil.
-func (h *Host) LastResourcesSnapshot() types.HostResourceSnapshot {
+func (h *Host) LastResourcesSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot] {
 	return h.lastSnapshot
 }
 
@@ -334,7 +366,7 @@ func (h *Host) SynchronizeResourceInformation() error {
 		return err
 	}
 
-	err = h.ApplyResourceSnapshot(snapshot)
+	err = ApplyResourceSnapshot[*proto.ResourcesSnapshot](h, snapshot)
 	if err != nil {
 		return err
 	}
@@ -441,32 +473,6 @@ func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
 // Otherwise, CanCommitResources returns false.
 func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 	return h.resourcesWrapper.idleResources.Validate(types.ToDecimalSpec(resourceRequest))
-}
-
-// ApplyResourceSnapshot applies the given HostResourceSnapshot to the Host's local resource quantities.
-//
-// ApplyResourceSnapshot returns nil on success.
-//
-// If the given HostResourceSnapshot has a SnapshotID that is less than the last HostResourceSnapshot applied to the
-// target Host, then an error is returned.
-//
-// If the given HostResourceSnapshot is nil, then this method will panic.
-func (h *Host) ApplyResourceSnapshot(snapshot types.HostResourceSnapshot) error {
-	if snapshot == nil {
-		log.Fatalf("Attempted to apply nil ArbitraryResourceSnapshot to Host %s (ID=%s).", h.NodeName, h.ID)
-	}
-
-	if h.lastSnapshot != nil && snapshot.GetSnapshotId() < h.lastSnapshot.GetSnapshotId() {
-		h.log.Warn("Given snapshot has ID %d < our last applied snapshot (with ID=%d). Rejecting.",
-			h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
-		return fmt.Errorf("%w: last applied snapshot had ID=%d, specified snapshot had ID=%d",
-			ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
-	}
-
-	// TODO: Implement this.
-	panic("Implement me!")
-
-	return nil
 }
 
 // updateLocalGpuInfoFromRemote updates the local info pertaining to GPU usage information

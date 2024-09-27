@@ -68,7 +68,7 @@ type Kernel interface {
 	TrainingStopped() error
 
 	// TrainingStarted should be called when the kernel associated with this client begins actively training.
-	TrainingStarted() error
+	TrainingStarted(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
 }
 
 // KernelReplica defines the interface for a jupyter kernel replica.
