@@ -157,7 +157,7 @@ func (mr *MockKernelReplicaClientMockRecorder) GetHost() *gomock.Call {
 // HostId mocks base method.
 func (m *MockKernelReplicaClient) HostId() string {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HostId")
+	ret := m.ctrl.Call(m, "NodeId")
 	ret0, _ := ret[0].(string)
 	return ret0
 }
@@ -165,7 +165,7 @@ func (m *MockKernelReplicaClient) HostId() string {
 // HostId indicates an expected call of HostId.
 func (mr *MockKernelReplicaClientMockRecorder) HostId() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HostId", reflect.TypeOf((*MockKernelReplicaClient)(nil).HostId))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NodeId", reflect.TypeOf((*MockKernelReplicaClient)(nil).HostId))
 }
 
 // ID mocks base method.

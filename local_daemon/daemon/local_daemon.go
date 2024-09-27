@@ -372,6 +372,7 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 		replicaClient.SetComponentId(in.Id)
 		return true
 	})
+	d.resourceManager.NodeID = in.Id
 
 	if d.prometheusManager != nil {
 		// We'll just restart the Local Daemon's Prometheus Manager.
@@ -1385,9 +1386,19 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	kernelClientCreationChannel := make(chan *proto.KernelConnectionInfo)
 	d.kernelClientCreationChannels.Store(in.Kernel.Id, kernelClientCreationChannel)
 
-	// Despite what your IDE may or may not be saying, kernelInvoker cannot be nil here.
+	// We already know for a fact that kernelInvoker cannot be nil here.
 	// We'll have either returned from this method or panicked in any of the cases in which
 	// kernelInvoker is nil before this line of code is executed.
+	// This is just to stop the IDE from complaining, as it (apparently) cannot detect the impossibility here.
+	if kernelInvoker == nil {
+		errorMessage := fmt.Sprintf("Invoker is nil when creating replica %d of kernel %s.", in.ReplicaId, in.Kernel.Id)
+		d.notifyClusterGatewayAndPanic(errorMessage, errorMessage, errorMessage)
+
+		// This won't get executed, as the above call will panic.
+		// This line is just here so that the IDE won't complain about kernelInvoker possibly being null below.
+		return nil, fmt.Errorf(errorMessage)
+	}
+
 	connInfo, invocationError := kernelInvoker.InvokeWithContext(ctx, in)
 	if invocationError != nil {
 		go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
@@ -1769,9 +1780,13 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	}
 
 	var (
-		// shouldReleaseResources basically indicates whether this kernel replica was leading the execution and thus
-		// actively training / running user-submitted code. If it was, then we'll now need to release its resources.
-		shouldReleaseResources bool
+		// releaseResourcesMustSucceed indicates whether we know for a fact that the call to the ResourceManager's
+		// ReleaseCommittedResources method should succeed or not. We know for a fact that it should succeed if the
+		// replica was in fact leading the execution.
+		//
+		// If the replica proposed 'yield', then we cannot say for sure, as we might've told it to propose 'yield'
+		// due to insufficient resources available prior to the replica's leader election.
+		releaseResourcesMustSucceed bool
 
 		// shouldCallTrainingStopped tells us whether to call TrainingStopped on the associated KernelClient.
 		// We need to call TrainingStopped if the replica was in fact leading its execution and therefore
@@ -1781,21 +1796,10 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	)
 	if msgErr.Status == jupyter.MessageStatusOK {
 		d.log.Debug("Status of \"execute_reply\" message from replica %d of kernel %s is OK.", kernelClient.ReplicaID(), kernelClient.ID())
-		shouldReleaseResources = true // Replica was leader and is done executing.
+		releaseResourcesMustSucceed = true // Replica was leader and is done executing.
 		shouldCallTrainingStopped = true
 	} else if msgErr.Status == jupyter.MessageStatusError {
 		d.log.Warn("Status of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status, msgErr.String())
-
-		// Since there was an error, we should only release resources if the error occurred while
-		// executing the user-submitted Python code.
-		//
-		// If the returned error is ExecutionYieldError, then the replica did not lead the execution,
-		// and therefore it will not have any resources committed to it.
-		//
-		// EDIT: For now, we are reserving resources before leader elections, to ensure that they're
-		// available if and when the kernel replica wins its leader election. Consequently, we should
-		// release resources upon receiving any error status, even for "yield execution" errors.
-		shouldReleaseResources = true // msgErr.ErrName != jupyter.MessageErrYieldExecution
 
 		// We should only call TrainingStopped if the replica was actively training.
 		// We can check this by inspecting the type of error encoded in the "execute_reply" message.
@@ -1803,6 +1807,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		// and therefore we should not call TrainingStopped on the associated KernelReplicaClient.
 		shouldCallTrainingStopped = msgErr.ErrName != jupyter.MessageErrYieldExecution
 	} else {
+		// This should never happen. So, if it does, then we'll panic.
 		errorMessage := fmt.Sprintf("Unexpected message status in \"execute_reply\" message from replica %d of kernel %s: \"%s\"",
 			kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status)
 		d.log.Error(errorMessage)
@@ -1811,38 +1816,37 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 
 	// Release any resources committed to the kernel replica, as it is done training and does not need the resources
 	// to be actively-bound/committed to it anymore.
-	if shouldReleaseResources {
-		// Attempt to release the resources.
-		// This may fail, as sometimes, the replica will not have resources allocated to it, such as if it
-		// proposed 'YIELD' during its leader election (like if there were not enough resources available on
-		// the node for it to train if it were to have won).
-		d.log.Debug("Attempting to release committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
-		if err = d.resourceManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil {
-			warningMessage := fmt.Sprintf("Failed to release GPUs allocated to replica %d of kernel %s because: %v",
-				kernelClient.ReplicaID(), kernel.ID(), err)
-			d.log.Warn(warningMessage)
-			//go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-			//	Title:            "Failed to Release Committed Resources",
-			//	Message:          warningMessage,
-			//	NotificationType: 0,
-			//	Panicked:         false,
-			//})
-		}
-
+	//
+	// This may fail, as sometimes, the replica will not have resources allocated to it, such as if it
+	// proposed 'YIELD' during its leader election (like if there were not enough resources available on
+	// the node for it to train if it were to have won).
+	d.log.Debug("Attempting to release committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
+	if err = d.resourceManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil && releaseResourcesMustSucceed {
+		errorMessage := fmt.Sprintf("Failed to release GPUs allocated to leader replica %d of kernel %s because: %v",
+			kernelClient.ReplicaID(), kernel.ID(), err)
+		d.log.Error(errorMessage)
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Title:            "Failed to Release Committed Resources",
+			Message:          errorMessage,
+			NotificationType: 0,
+			Panicked:         false,
+		})
+	} else if err == nil {
+		// Again, if the error is non-nil, that doesn't necessarily mean the system is in an error state.
+		// There are cases where we'll have told the replica to yield and did not reserve any resources for it.
+		// These are described in greater detail in the comment(s) above.
 		d.log.Debug("Successfully released committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
-		if shouldCallTrainingStopped {
-			_ = kernelClient.TrainingStopped()
-			d.prometheusManager.TrainingTimeGaugeVec.
-				With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
-				Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
-		}
-	} else if shouldCallTrainingStopped {
-		// This should never happen, and in fact, I don't think it's possible for it to happen (just by statically
-		// looking the code); however, I'm leaving this in here as a sanity check in case it's somehow possible.
-		errorMessage := fmt.Sprintf("shouldReleaseResources=%v, but shouldCallTrainingStopped=%v. This shouldn't happen.",
-			shouldReleaseResources, shouldCallTrainingStopped)
-		d.notifyClusterGatewayAndPanic("Inconsistent Values for shouldReleaseResources and shouldCallTrainingStopped", errorMessage, errorMessage)
 	}
+
+	if shouldCallTrainingStopped {
+		_ = kernelClient.TrainingStopped()
+		d.prometheusManager.TrainingTimeGaugeVec.
+			With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
+			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
+	}
+
+	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
+	_ = d.addResourceSnapshotToJupyterMessage(msg)
 
 	d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
 
@@ -1860,6 +1864,8 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 // TODO: | available in the event that the replica wins? Or should we instead require that the winning replica contact
 // TODO: | its local daemon upon winning to request the resources (in which case they may be unavailable due to
 // TODO: | concurrent code executions running on the same node)?
+// TODO: |
+// TODO: | For now, we're reserving resources.
 func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.KernelReplicaClient) *jupyter.JupyterMessage {
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	var targetReplicaId int32 = -1
@@ -2335,7 +2341,7 @@ func (d *SchedulerDaemonImpl) notifyClusterGatewayOfError(ctx context.Context, n
 	}
 }
 
-func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames jupyter.JupyterFrames, _ *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames jupyter.JupyterFrames, jMsg *jupyter.JupyterMessage) error {
 	messageType, err := frames.GetMessageType()
 	if err != nil {
 		d.log.Error("Failed to extract message type from SMR Lead ZMQ message: %v", err)
@@ -2344,7 +2350,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 
 	if messageType == jupyter.MessageTypeSMRLeadTask {
 		var leadMessage jupyter.MessageSMRLeadTask
-		if err := frames.DecodeContent(&leadMessage); err != nil {
+		if err = frames.DecodeContent(&leadMessage); err != nil {
 			d.log.Error("Failed to decode content of SMR Lead ZMQ message: %v", err)
 			return err
 		}
@@ -2383,6 +2389,9 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 			panic(err) // TODO(Ben): Handle gracefully.
 		}
 
+		// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
+		_ = d.addResourceSnapshotToJupyterMessage(jMsg)
+
 		_ = kernelReplicaClient.TrainingStarted()
 
 		// Don't return here -- we want his to be forwarded to the Cluster Gateway.
@@ -2400,6 +2409,43 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 	} else {
 		d.log.Error("Received message of unexpected type '%s' for SMR Lead ZMQ message topic.", messageType)
 		return domain.ErrUnexpectedZMQMessageType
+	}
+
+	return nil
+}
+
+// addResourceSnapshotToJupyterMessage decodes the metadata frame of the given jupyter.JupyterMessage
+// and adds an entry under the scheduling.ResourceSnapshotMetadataKey key with the value being a snapshot
+// of the current resource quantities of the Local Daemon's ResourceManager.
+func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.JupyterMessage) error {
+	// Include in the message a snapshot of the current resource quantities of the ResourceManager.
+	metadata, decodeError := jMsg.DecodeMetadata()
+	if decodeError != nil {
+		errorMessage := fmt.Sprintf("Failed to decode metadata frame of IOPub \"%s\" Jupyter message: %v",
+			jupyter.MessageTypeSMRLeadTask, decodeError)
+		d.log.Error(errorMessage)
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Title:            "Failed to Decode Metadata Frame of Jupyter Message",
+			Message:          errorMessage,
+			NotificationType: 0,
+			Panicked:         false,
+		})
+
+		return decodeError
+	} else {
+		snapshot := d.resourceManager.ResourceWrapperSnapshot()
+		metadata[scheduling.ResourceSnapshotMetadataKey] = snapshot
+		if encodeErr := jMsg.EncodeMetadata(snapshot); encodeErr != nil {
+			d.log.Error("Failed to encode metadata frame of Jupyter Message after adding resource snapshot: %v", encodeErr)
+			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Title:            "Encoding of Metadata Frame with Resource Snapshot Failed",
+				Message:          fmt.Sprintf("Failed to encode metadata frame of Jupyter Message after adding resource snapshot: %s", encodeErr.Error()),
+				NotificationType: 0,
+				Panicked:         false,
+			})
+
+			return encodeErr
+		}
 	}
 
 	return nil

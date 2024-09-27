@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	"log"
 	"sync"
 )
 
@@ -143,6 +144,10 @@ type ResourceState interface {
 
 	// String returns a string representation of the ResourceState suitable for logging.
 	String() string
+
+	// ResourceSnapshot creates and returns a pointer to a new ResourceSnapshot struct, thereby
+	// capturing the current quantities of the resources encoded by the ResourceState instance.
+	ResourceSnapshot() *ResourceSnapshot
 }
 
 // ResourceStatus differentiates between idle, pending, committed, and spec resources.
@@ -150,6 +155,21 @@ type ResourceStatus string
 
 func (t ResourceStatus) String() string {
 	return string(t)
+}
+
+// ResourceSnapshot is a snapshot of a resources struct with exported
+// fields so that it can be marshalled and unmarshalled to JSON.
+type ResourceSnapshot struct {
+	ResourceStatus ResourceStatus  `json:"resource_status"` // resourceStatus is the ResourceStatus represented/encoded by this struct.
+	Millicpus      decimal.Decimal `json:"millicpus"`       // millicpus is CPU in 1/1000th of CPU core.
+	Gpus           decimal.Decimal `json:"gpus"`            // gpus is the number of GPUs.
+	MemoryMB       decimal.Decimal `json:"memoryMB"`        // memoryMB is the amount of memory in MB.
+}
+
+// String returns a string representation of the target ResourceSnapshot struct that is suitable for logging.
+func (s *ResourceSnapshot) String() string {
+	return fmt.Sprintf("ResourceSnapshot[Status=%s,Millicpus=%s,MemoryMB=%s,GPUs=%s",
+		s.ResourceStatus.String(), s.Millicpus.StringFixed(0), s.MemoryMB.StringFixed(4), s.Gpus.StringFixed(0))
 }
 
 // resources is a struct used by the ResourceManager to track its total idle, pending, committed, and spec resources
@@ -161,6 +181,23 @@ type resources struct {
 	millicpus      decimal.Decimal // millicpus is CPU in 1/1000th of CPU core.
 	gpus           decimal.Decimal // gpus is the number of GPUs.
 	memoryMB       decimal.Decimal // memoryMB is the amount of memory in MB.
+}
+
+// ResourceSnapshot constructs and returns a pointer to a new ResourceSnapshot struct.
+//
+// This method is thread-safe to ensure that the quantities of each resource are all captured atomically.
+func (res *resources) ResourceSnapshot() *ResourceSnapshot {
+	res.Lock()
+	defer res.Unlock()
+
+	snapshot := &ResourceSnapshot{
+		ResourceStatus: res.resourceStatus,
+		Millicpus:      res.millicpus,
+		Gpus:           res.gpus,
+		MemoryMB:       res.memoryMB,
+	}
+
+	return snapshot
 }
 
 // ToDecimalSpec returns a pointer to a types.DecimalSpec struct that encapsulates a snapshot of
@@ -645,6 +682,7 @@ type resourcesWrapper struct {
 	specResources      *resources
 }
 
+// String returns a string representation of the resourcesWrapper that is suitable for logging.
 func (r *resourcesWrapper) String() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -653,6 +691,8 @@ func (r *resourcesWrapper) String() string {
 		r.idleResources.String(), r.pendingResources.String(), r.committedResources.String(), r.specResources.String())
 }
 
+// IdleResources returns a ResourceState that is responsible for encoding the current idle resources
+// of the target resourcesWrapper.
 func (r *resourcesWrapper) IdleResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -660,6 +700,8 @@ func (r *resourcesWrapper) IdleResources() ResourceState {
 	return r.idleResources
 }
 
+// PendingResources returns a ResourceState that is responsible for encoding the current pending resources
+// of the target resourcesWrapper.
 func (r *resourcesWrapper) PendingResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -667,6 +709,8 @@ func (r *resourcesWrapper) PendingResources() ResourceState {
 	return r.pendingResources
 }
 
+// CommittedResources returns a ResourceState that is responsible for encoding the current committed resources
+// of the target resourcesWrapper.
 func (r *resourcesWrapper) CommittedResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -674,9 +718,75 @@ func (r *resourcesWrapper) CommittedResources() ResourceState {
 	return r.committedResources
 }
 
+// SpecResources returns a ResourceState that is responsible for encoding the current spec resources
+// of the target resourcesWrapper.
 func (r *resourcesWrapper) SpecResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.specResources
+}
+
+// IdleResourcesSnapshot returns a *ResourceSnapshot struct capturing the current idle resources
+// of the target resourcesWrapper.
+func (r *resourcesWrapper) IdleResourcesSnapshot() *ResourceSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.idleResources.ResourceSnapshot()
+}
+
+// PendingResourcesSnapshot returns a *ResourceSnapshot struct capturing the current pending resources
+// of the target resourcesWrapper.
+func (r *resourcesWrapper) PendingResourcesSnapshot() *ResourceSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.pendingResources.ResourceSnapshot()
+}
+
+// CommittedResourcesSnapshot returns a *ResourceSnapshot struct capturing the current committed resources
+// of the target resourcesWrapper.
+func (r *resourcesWrapper) CommittedResourcesSnapshot() *ResourceSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.committedResources.ResourceSnapshot()
+}
+
+// SpecResourcesSnapshot returns a *ResourceSnapshot struct capturing the current spec resources
+// of the target resourcesWrapper.
+func (r *resourcesWrapper) SpecResourcesSnapshot() *ResourceSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.specResources.ResourceSnapshot()
+}
+
+// ResourceSnapshot returns a pointer to a ResourceSnapshot created for the specified "status" of resources
+// (i.e., "idle", "pending", "committed", or "spec").
+func (r *resourcesWrapper) ResourceSnapshot(status ResourceStatus) *ResourceSnapshot {
+	switch status {
+	case IdleResources:
+		{
+			return r.IdleResourcesSnapshot()
+		}
+	case PendingResources:
+		{
+			return r.PendingResourcesSnapshot()
+		}
+	case CommittedResources:
+		{
+			return r.CommittedResourcesSnapshot()
+		}
+	case SpecResources:
+		{
+			return r.SpecResourcesSnapshot()
+		}
+	default:
+		{
+			log.Fatalf("Unknown or unexpected ResourceStatus specified: \"%s\"", status)
+			return nil
+		}
+	}
 }

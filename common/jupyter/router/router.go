@@ -83,6 +83,8 @@ func (g *Router) AssignPrometheusManager(messagingMetricsProvider metrics.Messag
 	g.BaseServer.AssignMessagingMetricsProvider(messagingMetricsProvider)
 }
 
+// SetComponentId sets the ComponentId of the underlying AbstractServer (and BaseServer, but I think they
+// are actually one and the same?)
 func (g *Router) SetComponentId(id string) {
 	g.server.ComponentId = id
 

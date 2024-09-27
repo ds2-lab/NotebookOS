@@ -241,7 +241,7 @@ func (c *KernelReplicaClient) TrainingStarted() error {
 
 	// The following code is only executed within the Cluster Gateway.
 	container := c.Container()
-	if container != nil {
+	if container != nil { // Container will be nil on Local Daemons; they don't track resources this way.
 		session := container.Session()
 		p := session.TrainingStarted(container)
 		if err := p.Error(); err != nil {

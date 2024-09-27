@@ -1946,7 +1946,7 @@ func (x *HostId) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use HostId.ProtoReflect.Descriptor instead.
+// Deprecated: Use NodeId.ProtoReflect.Descriptor instead.
 func (*HostId) Descriptor() ([]byte, []int) {
 	return file_common_proto_gateway_proto_rawDescGZIP(), []int{29}
 }
@@ -4231,7 +4231,7 @@ var file_common_proto_gateway_proto_goTypes = []any{
 	(*ListKernelsResponse)(nil),                    // 26: gateway.ListKernelsResponse
 	(*ProvisionerId)(nil),                          // 27: gateway.ProvisionerId
 	(*HostSpec)(nil),                               // 28: gateway.HostSpec
-	(*HostId)(nil),                                 // 29: gateway.HostId
+	(*HostId)(nil),                                 // 29: gateway.NodeId
 	(*VirtualGpuAllocations)(nil),                  // 30: gateway.VirtualGpuAllocations
 	(*VirtualGpuAllocation)(nil),                   // 31: gateway.VirtualGpuAllocation
 	(*SetVirtualGPUsRequest)(nil),                  // 32: gateway.SetVirtualGPUsRequest
@@ -4283,7 +4283,7 @@ var file_common_proto_gateway_proto_depIdxs = []int32{
 	34, // 19: gateway.ClusterVirtualGpuInfo.GpuInfoEntry.value:type_name -> gateway.VirtualGpuInfo
 	31, // 20: gateway.VirtualGpuAllocations.AllocationsEntry.value:type_name -> gateway.VirtualGpuAllocation
 	51, // 21: gateway.ClusterGateway.ID:input_type -> gateway.Void
-	29, // 22: gateway.ClusterGateway.RemoveHost:input_type -> gateway.HostId
+	29, // 22: gateway.ClusterGateway.RemoveHost:input_type -> gateway.NodeId
 	40, // 23: gateway.ClusterGateway.MigrateKernelReplica:input_type -> gateway.MigrationRequest
 	48, // 24: gateway.ClusterGateway.NotifyKernelRegistered:input_type -> gateway.KernelRegistrationNotification
 	41, // 25: gateway.ClusterGateway.SmrReady:input_type -> gateway.SmrReadyNotification
@@ -4311,7 +4311,7 @@ var file_common_proto_gateway_proto_depIdxs = []int32{
 	9,  // 47: gateway.DistributedCluster.ModifyClusterNodes:input_type -> gateway.ModifyClusterNodesRequest
 	51, // 48: gateway.DistributedCluster.GetLocalDaemonNodeIDs:input_type -> gateway.Void
 	20, // 49: gateway.ClusterDashboard.SendNotification:input_type -> gateway.Notification
-	29, // 50: gateway.LocalGateway.SetID:input_type -> gateway.HostId
+	29, // 50: gateway.LocalGateway.SetID:input_type -> gateway.NodeId
 	46, // 51: gateway.LocalGateway.StartKernel:input_type -> gateway.KernelSpec
 	36, // 52: gateway.LocalGateway.StartKernelReplica:input_type -> gateway.KernelReplicaSpec
 	38, // 53: gateway.LocalGateway.GetKernelStatus:input_type -> gateway.KernelId
@@ -4357,7 +4357,7 @@ var file_common_proto_gateway_proto_depIdxs = []int32{
 	10, // 93: gateway.DistributedCluster.ModifyClusterNodes:output_type -> gateway.ModifyClusterNodesResponse
 	1,  // 94: gateway.DistributedCluster.GetLocalDaemonNodeIDs:output_type -> gateway.GetLocalDaemonNodeIDsResponse
 	51, // 95: gateway.ClusterDashboard.SendNotification:output_type -> gateway.Void
-	29, // 96: gateway.LocalGateway.SetID:output_type -> gateway.HostId
+	29, // 96: gateway.LocalGateway.SetID:output_type -> gateway.NodeId
 	47, // 97: gateway.LocalGateway.StartKernel:output_type -> gateway.KernelConnectionInfo
 	47, // 98: gateway.LocalGateway.StartKernelReplica:output_type -> gateway.KernelConnectionInfo
 	50, // 99: gateway.LocalGateway.GetKernelStatus:output_type -> gateway.KernelStatus

@@ -12,6 +12,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -47,6 +48,10 @@ const (
 	//That is, the GPUs, CPUs, and Memory specified in the allocation are actively committed and bound to the
 	//associated kernel replica. These resources are not available for use by other kernel replicas.
 	CommittedAllocation AllocationType = "committed"
+
+	// ResourceSnapshotMetadataKey is used as a key for the metadata dictionary of Jupyter messages
+	// when including a snapshot of the ResourceManager's current resource quantities in the message.
+	ResourceSnapshotMetadataKey string = "resource_snapshot"
 )
 
 // getKey creates and returns a string of the form "<KernelID>-<ReplicaID>".
@@ -237,6 +242,28 @@ func (b *ResourceAllocationBuilder) BuildResourceAllocation() *ResourceAllocatio
 	}
 }
 
+// ResourceWrapperSnapshot encapsulates a JSON-compatible snapshot of the resource quantities of the ResourceManager.
+type ResourceWrapperSnapshot struct {
+	// SnapshotId uniquely identifies the ResourceWrapperSnapshot and defines a total order amongst all ResourceWrapperSnapshot
+	// structs originating from the same node. Each newly-created ResourceWrapperSnapshot is assigned an ID from a
+	// monotonically-increasing counter by the ResourceManager.
+	SnapshotId int32 `json:"snapshot_id"`
+
+	// NodeId is the ID of the node from which the snapshot originates.
+	NodeId string `json:"host_id"`
+
+	// ManagerId is the unique ID of the ResourceManager struct from which the ResourceWrapperSnapshot was constructed.
+	ManagerId string `json:"manager_id"`
+
+	// Timestamp is the time at which the ResourceWrapperSnapshot was taken/created.
+	Timestamp time.Time `json:"timestamp"`
+
+	IdleResources      *ResourceSnapshot `json:"idle_resources"`
+	PendingResources   *ResourceSnapshot `json:"pending_resources"`
+	CommittedResources *ResourceSnapshot `json:"committed_resources"`
+	SpecResources      *ResourceSnapshot `json:"spec_resources"`
+}
+
 // ResourceManager is responsible for keeping track of resource allocations on behalf of the Local Daemon.
 // The ResourceManager allocates and deallocates resources to/from kernel replicas scheduled to run on the node.
 //
@@ -250,8 +277,21 @@ func (b *ResourceAllocationBuilder) BuildResourceAllocation() *ResourceAllocatio
 type ResourceManager struct {
 	mu sync.Mutex
 
-	ID  string        // Unique ID of the Resource Manager.
+	// ID is the unique ID of the ResourceManager. This is distinct from the NodeID.
+	ID string
+
+	// NodeID is the unique identifier of the node on which the ResourceManager exists.
+	// This field is not populated immediately, as the LocalDaemon does not have an ID
+	// when it is first created. Instead, the Cluster Gateway assigns an ID to the
+	// LocalDaemon via the SetID gRPC call. The NodeID field of the ResourceManager
+	// is assigned a value during the execution of the SetID RPC.
+	NodeID string
+
 	log logger.Logger // Logger.
+
+	// resourceSnapshotCounter is an atomic, thread-safe counter used to associate a monotonically-increasing
+	// identifier with each newly-created ResourceSnapshot.
+	resourceSnapshotCounter atomic.Int32
 
 	// allocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> *ResourceAllocation.
 	// That is, allocationKernelReplicaMap is a mapping in which keys are strings of the form
@@ -314,6 +354,28 @@ func NewResourceManager(resourceSpec types.Spec) *ResourceManager {
 	manager.log.Debug("Resource Manager initialized: %v", manager.resourcesWrapper.String())
 
 	return manager
+}
+
+// ResourceWrapperSnapshot returns a ResourceWrapperSnapshot encoding the current resource quantities
+// tracked by the ResourceManager. The ResourceWrapperSnapshot struct is JSON-serializable.
+func (m *ResourceManager) ResourceWrapperSnapshot() *ResourceWrapperSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	snapshot := &ResourceWrapperSnapshot{
+		SnapshotId:         m.resourceSnapshotCounter.Add(1),
+		Timestamp:          time.Now(),
+		NodeId:             m.NodeID,
+		ManagerId:          m.ID,
+		IdleResources:      m.resourcesWrapper.IdleResourcesSnapshot(),
+		PendingResources:   m.resourcesWrapper.PendingResourcesSnapshot(),
+		CommittedResources: m.resourcesWrapper.CommittedResourcesSnapshot(),
+		SpecResources:      m.resourcesWrapper.SpecResourcesSnapshot(),
+	}
+
+	m.log.Debug("Created ResourceWrapperSnapshot with ID=%d.", snapshot.SnapshotId)
+
+	return snapshot
 }
 
 // updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
@@ -815,7 +877,14 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 
 	// Sanity check, essentially. It should not already be pending, since we're supposed to be releasing it right now.
 	if allocation.IsPending() {
-		m.log.Error("Found existing resource allocation for replica %d of kernel %s; "+
+		// In some cases, this isn't really an error. We (almost) always try to release committed resources
+		// when we receive an "execute_reply" message, as we commit/reserve resources for kernel replicas before
+		// their leader election so that they're definitely available if they win.
+		//
+		// However, if we already knew that there were insufficient resources available prior to the leader election,
+		// then we'll not have reserved any, and the call to ReleaseCommittedResources will "fail" (as there won't
+		// be any committed resources to release). In this case, it's not an error.
+		m.log.Warn("Found existing resource allocation for replica %d of kernel %s; "+
 			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
 			replicaId, kernelId, allocation.AllocationType.String(), CommittedAllocation.String())
 		return fmt.Errorf("%w: expected '%s', found '%s'",
