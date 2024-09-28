@@ -275,7 +275,7 @@ func TrainingStartedInContainer[T types.ArbitraryResourceSnapshot](c *Container,
 	//}
 
 	if snapshot != nil {
-		err := ApplyResourceSnapshotToHost(c.host, snapshot)
+		err := ApplyResourceSnapshotToHost[T](c.host, snapshot)
 		if err != nil {
 			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
 		}
@@ -326,7 +326,7 @@ func (c *Container) TrainingStopped(snapshot types.HostResourceSnapshot[*Resourc
 	c.spec = c.lastSpec
 
 	if snapshot != nil {
-		err := ApplyResourceSnapshotToHost(c.host, snapshot)
+		err := ApplyResourceSnapshotToHost[*ResourceSnapshot](c.host, snapshot)
 		if err != nil {
 			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
 		}

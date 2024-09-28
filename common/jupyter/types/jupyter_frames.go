@@ -271,6 +271,7 @@ func SkipIdentitiesFrame(frames [][]byte) (JupyterFrames, int) {
 	return frames[i:], i
 }
 
+// ExtractDestFrameWithOffset extracts the destination frame with a given offset.
 // Given a jOffset, attempt to extract a DestFrame from the given set of frames.
 func ExtractDestFrameWithOffset(frames [][]byte, jOffset int) (destID string, reqID string) {
 	matches := jupyter.ZMQDestFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
@@ -282,6 +283,7 @@ func ExtractDestFrameWithOffset(frames [][]byte, jOffset int) (destID string, re
 	return
 }
 
+// ExtractDestFrame extracts the destination frame.
 // First, determine the offset.
 // Next, attempt to extract a DestFrame from the given set of frames.
 func ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int) {
@@ -292,7 +294,7 @@ func ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int
 	return
 }
 
-// GenerateKernelFrame appends a frame contains the kernel ID to the given ZMQ frames.
+// AddDestFrame appends a frame contains the kernel ID to the given ZMQ frames.
 func AddDestFrame(frames [][]byte, destID string, offsetArg int) (newFrames [][]byte, reqID string, jOffset int) {
 	// Automatically detect the dest frame.
 	if offsetArg == jupyter.JOffsetAutoDetect {

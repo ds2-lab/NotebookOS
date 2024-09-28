@@ -177,6 +177,7 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 
 	return &JupyterMessage{
 		Msg:                 msg,
+		JupyterFrames:       JupyterFrames(msg.Frames),
 		header:              nil, // &header,
 		parentHeader:        nil, // &parentHeader,
 		DestinationId:       destId,

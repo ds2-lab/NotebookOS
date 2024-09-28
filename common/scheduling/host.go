@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"log"
 	"math"
 	"sort"
@@ -158,28 +159,36 @@ func (p *cachedPenalty) Candidates() ContainerList {
 //
 // If either of the arguments are nil, then this method will panic.
 func ApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Host, snapshot types.HostResourceSnapshot[T]) error {
+	h.syncMutex.Lock()
+	defer h.syncMutex.Unlock()
+
+	return unsafeApplyResourceSnapshotToHost[T](h, snapshot)
+}
+
+// unsafeApplyResourceSnapshotToHost does the actual work of the ApplyResourceSnapshotToHost function, but
+// no locks are acquired.
+//
+// unsafeApplyResourceSnapshotToHost should only be called if both the syncMutex and schedulingMutex of the specified
+// Host are already held.
+func unsafeApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Host, snapshot types.HostResourceSnapshot[T]) error {
 	if h == nil {
-		log.Fatalf("Attempted to apply (possibly nil) resource snapshot to nil Host.")
+		log.Fatalf(utils.RedStyle.Render("Attempted to apply (possibly nil) resource snapshot to nil Host."))
 	}
 
 	if snapshot == nil {
-		log.Fatalf("Attempted to apply nil resource snapshot to Host %s (ID=%s).", h.NodeName, h.ID)
+		log.Fatalf(utils.RedStyle.Render("Attempted to apply nil resource snapshot to Host %s (ID=%s)."),
+			h.NodeName, h.ID)
 	}
 
 	if h.lastSnapshot != nil && snapshot.GetSnapshotId() < h.lastSnapshot.GetSnapshotId() {
-		h.log.Warn("Given snapshot has ID %d < our last applied snapshot (with ID=%d). Rejecting.",
+		h.log.Warn(utils.OrangeStyle.Render("Given snapshot has ID %d < our last applied snapshot (with ID=%d). Rejecting."),
 			h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
 		return fmt.Errorf("%w: last applied snapshot had ID=%d, specified snapshot had ID=%d",
 			ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
 	}
 
-	h.syncMutex.Lock()
-	defer h.syncMutex.Unlock()
-
-	// TODO: Is this the correct order to acquire these locks?
-	// TODO: Do we need to acquire both of these locks?
-	h.LockScheduling()
-	defer h.UnlockScheduling()
+	h.log.Debug(utils.PurpleStyle.Render("Host %s is applying snapshot. Current resources: %s. Snapshot: %s."),
+		h.ID, h.resourcesWrapper.String(), snapshot.String())
 
 	return ApplySnapshotToResourceWrapper(h.resourcesWrapper, snapshot)
 }
@@ -356,6 +365,9 @@ func (h *Host) NumContainers() int {
 // SynchronizeResourceInformation queries the remote host via gRPC to request update-to-date resource usage information.
 //
 // This method is thread-safe. Only one goroutine at a time may execute this method.
+//
+// Similarly, once the snapshot is retrieved from the remote Host, scheduling will be temporarily locked
+// until the snapshot is applied successfully.
 func (h *Host) SynchronizeResourceInformation() error {
 	h.syncMutex.Lock()
 	defer h.syncMutex.Unlock()
@@ -371,7 +383,10 @@ func (h *Host) SynchronizeResourceInformation() error {
 		return err
 	}
 
-	err = ApplyResourceSnapshotToHost[*proto.ResourcesSnapshot](h, snapshot)
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	err = unsafeApplyResourceSnapshotToHost[*proto.ResourcesSnapshot](h, snapshot)
 	if err != nil {
 		return err
 	}

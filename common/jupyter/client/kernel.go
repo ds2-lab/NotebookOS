@@ -240,6 +240,9 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 		return fmt.Errorf("cannot start training; replica %d of kernel %s is already training as of %v", c.replicaId, c.id, c.trainingStartedAt)
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.isTraining = true
 	c.trainingStartedAt = time.Now()
 
@@ -258,6 +261,9 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 
 // TrainingStopped should be called when the kernel associated with this client stops actively training.
 func (c *KernelReplicaClient) TrainingStopped(snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot]) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if !c.isTraining {
 		c.log.Error("Cannot stop training; already not training.")
 		return fmt.Errorf("cannot stop training; replica %d of kernel %s is already not training", c.replicaId, c.id)

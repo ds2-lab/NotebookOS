@@ -360,18 +360,6 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 // Returns a flag where 'true' means to continue calling the normal message handlers, and 'false' means to not forward the message around or do anything else for this message,
 // including sending an ACK. (That is, there is no need to even send an ACK if 'false' is returned.)
 func (s *AbstractServer) tryHandleSpecialMessage(jMsg *types.JupyterMessage, socket *types.Socket) (bool, error) {
-	//goroutineId := goid.Get()
-	//
-	//if jMsg.IsAck() {
-	//	firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %s \"%s\""), goroutineId, socket.Type, jMsg.GetParentHeader().MsgType)
-	//	secondPart := fmt.Sprintf("%s (JupyterID=%s, ParentJupyterId=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()), utils.LightPurpleStyle.Render(jMsg.GetParentHeader().MsgID))
-	//	thirdPart := fmt.Sprintf(utils.GreenStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
-	//	s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
-	//	s.handleAck(jMsg, jMsg.RequestId, socket)
-	//
-	//	return false, nil
-	//}
-
 	// This is generally unused for now; we don't do anything special for Golang frontends as of right now.
 	if s.isMessageGolangFrontendRegistrationRequest(jMsg, socket.Type) {
 		jFrames := jMsg.ToJFrames()
@@ -1197,12 +1185,12 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDe
 	return func(info types.JupyterServerInfo, msgType types.MessageType, msg *types.JupyterMessage) error {
 		// This handler returns errServeOnce if any to indicate that the server should stop serving.
 		retErr := errServeOnce
-		pendings := socket.PendingReq
+		pendingRequests := socket.PendingReq
 		// var matchReqId string
 		var handler types.MessageHandler
 		var request types.Request
 
-		if pendings != nil {
+		if pendingRequests != nil {
 			// We do not assume that the types.RequestDest implements the auto-detect feature.
 			_, rspId, offset := types.ExtractDestFrame(msg.Frames)
 			if rspId == "" {
@@ -1214,13 +1202,20 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDe
 				// matchReqId = rspId
 
 				// Automatically remove destination kernel ID frame.
-				// if remove, _ := getOption(jupyter.WROptionRemoveDestFrame).(bool); remove {
 				if shouldDestFrameBeRemoved {
+					originalLength := len(msg.Frames)
 					msg.Frames = types.RemoveDestFrame(msg.Frames, offset)
+					if len(msg.Frames) < originalLength {
+						// Adjust the offset.
+						diff := originalLength - len(msg.Frames)
+						s.Log.Debug("Adjusting Offset of Jupyter \"%s\" message %s (JupyterID=%s) by %d (original=%d, target=%d).",
+							msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), diff, msg.Offset, msg.Offset-diff)
+						msg.Offset -= diff
+					}
 				}
 
 				// Remove pending request and return registered handler. If timeout, the handler will be nil.
-				if pending, exist := pendings.LoadAndDelete(rspId); exist {
+				if pending, exist := pendingRequests.LoadAndDelete(rspId); exist {
 					handler = pending.Handle // Handle will release the pending request once called.
 					request = pending.Request()
 
@@ -1238,7 +1233,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDe
 					}
 				}
 				// Continue serving if there are pending requests.
-				if pendings.Len() > 0 {
+				if pendingRequests.Len() > 0 {
 					retErr = nil
 				}
 			}

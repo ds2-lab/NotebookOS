@@ -1016,6 +1016,17 @@ type ResourceWrapperSnapshot struct {
 	SpecResources      *ResourceSnapshot `json:"spec_resources"`
 }
 
+// MetadataResourceWrapperSnapshot is a simpel wrapper around a ResourceWrapperSnapshot struct so that
+// we can deserialize a ResourceWrapperSnapshot struct from the metadata frame of a JupyterMessage, which
+// is typically a map[string]interface{}.
+type MetadataResourceWrapperSnapshot struct {
+	ResourceWrapperSnapshot *ResourceWrapperSnapshot `json:"resource_snapshot"`
+}
+
+////////////////////////////////////////////////////
+// HostResourceSnapshot interface implementation. //
+////////////////////////////////////////////////////
+
 // Compare compares the object with specified object.
 // Returns negative, 0, positive if the object is smaller than, equal to, or larger than specified object respectively.
 func (s *ResourceWrapperSnapshot) Compare(obj interface{}) float64 {
@@ -1038,9 +1049,31 @@ func (s *ResourceWrapperSnapshot) Compare(obj interface{}) float64 {
 	}
 }
 
-////////////////////////////////////////////////////
-// HostResourceSnapshot interface implementation. //
-////////////////////////////////////////////////////
+// String returns a string representation of the ResourceWrapperSnapshot suitable for logging/printing.
+func (s *ResourceWrapperSnapshot) String() string {
+	idle := "nil"
+	if s.IdleResources != nil {
+		idle = s.IdleResources.String()
+	}
+
+	pending := "nil"
+	if s.PendingResources != nil {
+		pending = s.PendingResources.String()
+	}
+
+	committed := "nil"
+	if s.CommittedResources != nil {
+		committed = s.CommittedResources.String()
+	}
+
+	spec := "nil"
+	if s.SpecResources != nil {
+		spec = s.SpecResources.String()
+	}
+
+	return fmt.Sprintf("ResourceWrapperSnapshot[SnapshotID=%d, NodeID=%s, ManagerID=%s, Timestamp=%v, Idle=%s, Pending=%s, Committed=%s, Spec=%s]",
+		s.SnapshotId, s.NodeId, s.ManagerId, s.Timestamp, idle, pending, committed, spec)
+}
 
 // GetSnapshotId is part of the HostResourceSnapshot interface implementation.
 func (s *ResourceWrapperSnapshot) GetSnapshotId() int32 {

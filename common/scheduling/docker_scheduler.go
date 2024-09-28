@@ -162,14 +162,15 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 		// Launch replicas in parallel.
 		go func(replicaId int, targetHost *Host) {
 			// Only 1 of arguments 2 and 3 can be non-nil.
-			if err := s.ScheduleKernelReplica(int32(replicaId), in.Id, nil, in, targetHost); err != nil {
+			var schedulingError error
+			if schedulingError = s.ScheduleKernelReplica(int32(replicaId), in.Id, nil, in, targetHost); schedulingError != nil {
 				// An error occurred. Send it over the channel.
 				resultChan <- &schedulingNotification{
 					SchedulingCompletedAt: time.Now(),
 					KernelId:              in.Id,
 					ReplicaId:             int32(replicaId),
 					HostId:                targetHost.ID,
-					Error:                 err,
+					Error:                 schedulingError,
 					Successful:            false,
 				}
 			} else {
@@ -182,17 +183,19 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 					Error:                 nil,
 					Successful:            true,
 				}
-
-				// Synchronize the resource information for the Host.
-				if syncError := targetHost.SynchronizeResourceInformation(); syncError != nil {
-					s.log.Error("Failed to synchronize resource info for host %s after scheduling replica of kernel %s onto it because: %v",
-						targetHost.ID, in.Id, syncError)
-				}
 			}
 
 			// Unlock scheduling for the host. We've finished the current scheduling operation, and we've synchronized
 			// its resource state (we'll only have done that in the case where the scheduling of the replica succeeded).
 			targetHost.UnlockScheduling()
+
+			// Synchronize the resource information for the Host.
+			if schedulingError == nil /* i.e., if we scheduled successfully up above */ {
+				if syncError := targetHost.SynchronizeResourceInformation(); syncError != nil {
+					s.log.Error("Failed to synchronize resource info for host %s after scheduling replica of kernel %s onto it because: %v",
+						targetHost.ID, in.Id, syncError)
+				}
+			}
 		}(i+1, host)
 	}
 

@@ -244,6 +244,12 @@ func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostRes
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.activeExecution == nil {
+		log.Fatalf("DistributedKernelClient %s does not have a non-nil active execution...", c.id)
+	} else if c.activeExecution.ActiveReplica == nil {
+		log.Fatalf("DistributedKernelClient %s has an active execution, but the active replica is nil: %v", c.id, c.activeExecution.String())
+	}
+
 	err := c.activeExecution.ActiveReplica.TrainingStopped(snapshot)
 
 	if len(c.activeExecutionQueue) > 0 {
@@ -1059,33 +1065,28 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *KernelReplicaClient, msg *types.JupyterMessage) error {
 	c.log.Debug("Received \"%s\" message from %v: %s", types.MessageTypeSMRLeadTask, kernelReplica.String(), msg.String())
 
-	metadata, err := msg.DecodeMetadata()
-	if err != nil {
-		c.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
-		return err // TODO: Should I panic here?
-	}
-
-	var (
-		snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot]
-	)
-	if val, loaded := metadata[scheduling.ResourceSnapshotMetadataKey]; !loaded {
-		c.log.Error("Metadata frame of \"%s\" message did not contain an \"%s\" entry...",
-			msg.JupyterMessageType(), scheduling.ResourceSnapshotMetadataKey)
-		return err // TODO: Should I panic here?
-	} else {
-		snapshot = val.(commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot])
-	}
-
-	if err = KernelStartedTraining(kernelReplica, snapshot); err != nil {
-		c.log.Error("Failed to start training for kernel replica %s-%d: %v", c.id, kernelReplica.ReplicaID(), err)
-		panic(err)
-	}
-
 	if c.activeExecution == nil {
 		log.Fatalf("Kernel %s has started training; however, its active execution is nil...", c.id)
 	}
 
 	c.activeExecution.ActiveReplica = kernelReplica
+
+	var snapshotWrapper *scheduling.MetadataResourceWrapperSnapshot
+	metadataFrame := types.JupyterFrames(msg.Frames[msg.Offset:]).MetadataFrame()
+	err := metadataFrame.Decode(&snapshotWrapper)
+	if err != nil {
+		c.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
+		return err // TODO: Should I panic here?
+	}
+
+	snapshot := snapshotWrapper.ResourceWrapperSnapshot
+	c.log.Debug(utils.LightBlueStyle.Render("Extracted ResourceWrapperSnapshot from metadata frame of Jupyter \"%s\" message: %s"),
+		types.MessageTypeSMRLeadTask, snapshot.String())
+	if err = KernelStartedTraining(kernelReplica, snapshot); err != nil {
+		c.log.Error("Failed to start training for kernel replica %s-%d: %v", c.id, kernelReplica.ReplicaID(), err)
+		panic(err)
+	}
+
 	if c.activeExecution.HasValidOriginalSentTimestamp() {
 		var (
 			leadMessage types.MessageSMRLeadTask

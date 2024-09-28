@@ -1849,7 +1849,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	}
 
 	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
-	_, _ = d.addResourceSnapshotToJupyterMessage(msg)
+	_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)
 
 	d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
 
@@ -2399,7 +2399,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 		}
 
 		// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
-		snapshot, _ := d.addResourceSnapshotToJupyterMessage(jMsg)
+		snapshot, _ := d.addResourceSnapshotToJupyterMessage(jMsg, kernelReplicaClient)
 
 		// Note: we don't really need to pass the snapshot here, as it isn't used in the Local Daemon.
 		_ = client.KernelStartedTraining(kernelReplicaClient, snapshot)
@@ -2427,7 +2427,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 // addResourceSnapshotToJupyterMessage decodes the metadata frame of the given jupyter.JupyterMessage
 // and adds an entry under the scheduling.ResourceSnapshotMetadataKey key with the value being a snapshot
 // of the current resource quantities of the Local Daemon's ResourceManager.
-func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.JupyterMessage) (*scheduling.ResourceWrapperSnapshot, error) {
+func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.JupyterMessage, kernel *client.KernelReplicaClient) (*scheduling.ResourceWrapperSnapshot, error) {
 	var snapshot *scheduling.ResourceWrapperSnapshot
 
 	// Include in the message a snapshot of the current resource quantities of the ResourceManager.
@@ -2447,19 +2447,40 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 	} else {
 		snapshot = d.resourceManager.ResourcesSnapshot()
 		metadata[scheduling.ResourceSnapshotMetadataKey] = snapshot
-		if encodeErr := jMsg.EncodeMetadata(snapshot); encodeErr != nil {
-			d.log.Error("Failed to encode metadata frame of Jupyter Message after adding resource snapshot: %v", encodeErr)
+
+		var frames = jupyter.JupyterFrames(jMsg.Frames)
+
+		// Re-encode the metadata frame. It will have the number of idle GPUs available,
+		// as well as the reason that the request was yielded (if it was yielded).
+		encodeErr := frames[jMsg.Offset:].EncodeMetadata(metadata)
+		if encodeErr != nil {
+			d.log.Error("Failed to encode metadata frame because: %v", encodeErr)
+			d.notifyClusterGatewayAndPanic("Failed to Encode Metadata Frame", encodeErr.Error(), encodeErr)
+		}
+
+		// Regenerate the signature.
+		framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(jMsg.Frames)
+		_, err := framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
+		if err != nil {
+			message := fmt.Sprintf("Failed to sign updated JupyterFrames for \"%s\" message because: %v", jMsg.JupyterMessageType(), err)
+			d.notifyClusterGatewayAndPanic("Failed to Sign JupyterFrames", message, err)
+		}
+
+		if verified := jupyter.ValidateFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, jMsg.Offset, jMsg.Frames); !verified {
+			errorMessage := fmt.Sprintf("Failed to verify modified message with signature scheme '%v' and key '%v'",
+				kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
+			d.log.Error(errorMessage)
 			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-				Title:            "Encoding of Metadata Frame with Resource Snapshot Failed",
-				Message:          fmt.Sprintf("Failed to encode metadata frame of Jupyter Message after adding resource snapshot: %s", encodeErr.Error()),
+				Title:            "Failed to Validate Modified Jupyter Message with Resource Snapshot",
+				Message:          fmt.Sprintf(errorMessage),
 				NotificationType: 0,
 				Panicked:         false,
 			})
-
 			return nil, encodeErr
 		}
 	}
 
+	d.log.Debug("Added snapshot to Jupyter \"%s\" message: %s", jMsg.JupyterMessageType(), snapshot.String())
 	return snapshot, nil
 }
 

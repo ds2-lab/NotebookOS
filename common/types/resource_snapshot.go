@@ -13,6 +13,7 @@ import (
 type HostResourceSnapshot[T ArbitraryResourceSnapshot] interface {
 	container.Comparable
 
+	String() string
 	GetSnapshotId() int32
 	GetNodeId() string
 	GetManagerId() string

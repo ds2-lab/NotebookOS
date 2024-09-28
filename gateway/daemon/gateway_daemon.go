@@ -2287,13 +2287,6 @@ func (d *ClusterGatewayImpl) kernelShellHandler(kernel scheduling.KernelInfo, _ 
 }
 
 func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
-	// kernelId, header, _, err := jupyter.HeaderFromMsg(msg)
-	// if err != nil {
-	// 	d.log.Error("Could not parse Shell message from %s because: %v", info.String(), err)
-	// 	d.log.Error("Message in question: %s", msg.String())
-	// 	return err
-	// }
-
 	kernel, ok := d.kernels.Load(msg.JupyterSession())
 	if !ok && (msg.JupyterMessageType() == ShellKernelInfoRequest || msg.JupyterMessageType() == ShellExecuteRequest) {
 		// Register kernel on ShellKernelInfoRequest
@@ -2366,24 +2359,24 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 
 	d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
 		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
-
-	metadata, err := msg.DecodeMetadata()
+	
+	var snapshotWrapper *scheduling.MetadataResourceWrapperSnapshot
+	metadataFrame := msg.Frames[msg.Offset+jupyter.JupyterFrameMetadata]
+	d.log.Debug("Attempting to decode metadata frame of Jupyter \"%s\" message %s (JupyterID=%s): %s",
+		msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), string(metadataFrame))
+	err := json.Unmarshal(metadataFrame, &snapshotWrapper)
 	if err != nil {
 		d.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
 		return err // TODO: Should I panic here?
 	}
 
-	var (
-		snapshot types.HostResourceSnapshot[*scheduling.ResourceSnapshot]
-	)
-	if val, loaded := metadata[scheduling.ResourceSnapshotMetadataKey]; !loaded {
-		d.log.Error("Metadata frame of \"%s\" message did not contain an \"%s\" entry...",
-			msg.JupyterMessageType(), scheduling.ResourceSnapshotMetadataKey)
-		return err // TODO: Should I panic here?
+	snapshot := snapshotWrapper.ResourceWrapperSnapshot
+	if snapshot != nil {
+		d.log.Debug(utils.LightBlueStyle.Render("Extracted ResourceWrapperSnapshot from metadata frame of Jupyter \"%s\" message: %s"),
+			ShellExecuteReply, snapshot.String())
 	} else {
-		snapshot = val.(types.HostResourceSnapshot[*scheduling.ResourceSnapshot])
+		d.log.Warn(utils.OrangeStyle.Render("Jupyter \"%s\" did not contain an \"%s\" entry..."), msg.JupyterMessageType(), scheduling.ResourceSnapshotMetadataKey)
 	}
-
 	if _, err := kernel.ExecutionComplete(snapshot); err != nil {
 		return err
 	}
@@ -2410,11 +2403,6 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernelId, msg)
 
 	activeExecution := scheduling.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
-
-	// TODO: If the Session is currently training, then we should not replace its ActiveExecution with a new one.
-	// TODO: Instead, we should enqueue the new ActiveExecution instance.
-	// TODO: When the current ActiveExecution resolves, the next enqueued ActiveExecution can be popped off the...
-	// TODO: ...queue and set as the Session's new current ActiveExecution.
 	_ = kernel.EnqueueActiveExecution(activeExecution)
 
 	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernelId, activeExecution)
