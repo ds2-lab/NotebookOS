@@ -82,18 +82,27 @@ type SessionStatistics interface {
 	Duration() time.Duration
 }
 
+// sessionStateTransition encapsulates some data regarding state transitions.
+type sessionStateTransition struct {
+	PrevState       SessionState  `json:"prev_state"`
+	NewState        SessionState  `json:"new_state"`
+	Timestamp       time.Time     `json:"timestamp"`
+	TimeInPrevState time.Duration `json:"time_in_prev_state"`
+}
+
 type Session struct {
 	instance *Session
 
-	cluster           Cluster              // The Cluster in which this Session exists.
-	ctx               context.Context      // The Session's context.
-	id                string               // Session/kernel ID.
-	sessionState      SessionState         // The current state of the Session.
-	trainingStart     time.Time            // Time at which the current training began.
-	migrationStart    time.Time            // Time at which the migration began.
-	containers        map[int32]*Container // The kernel replicas belonging to this Session.
-	trainingContainer *Container           // The Container that is actively training.
-	resourceSpec      types.CloneableSpec  // The (current) resource requirements of the Session.
+	cluster           Cluster                   // The Cluster in which this Session exists.
+	ctx               context.Context           // The Session's context.
+	id                string                    // Session/kernel ID.
+	sessionState      SessionState              // The current state of the Session.
+	trainingStart     time.Time                 // Time at which the current training began.
+	migrationStart    time.Time                 // Time at which the migration began.
+	containers        map[int32]*Container      // The kernel replicas belonging to this Session.
+	trainingContainer *Container                // The Container that is actively training.
+	resourceSpec      types.CloneableSpec       // The (current) resource requirements of the Session.
+	stateTransitions  []*sessionStateTransition // History of state transitions performed by the Session.
 
 	////////////////////////
 	// Session Statistics //
@@ -121,18 +130,18 @@ type Session struct {
 
 func NewUserSession(ctx context.Context, id string, kernelSpec *proto.KernelSpec, resourceUtilization *ResourceUtilization, cluster Cluster, opts *ClusterSchedulerOptions) *Session {
 	session := &Session{
-		kernelSpec:          kernelSpec,
-		resourceSpec:        kernelSpec.DecimalSpecFromKernelSpec(),
-		ctx:                 ctx,
-		cluster:             cluster,
-		id:                  id,
-		log:                 config.GetLogger(fmt.Sprintf("Session %s ", id)),
-		sessionState:        SessionStateInit,
-		startedAt:           time.Now(),
-		trainingTime:        NewSessionStatistic(opts.ExecutionTimeSamplingWindow),
-		migrationTime:       NewSessionStatistic(opts.MigrationTimeSamplingWindow),
-		resourceUtilization: resourceUtilization,
-
+		kernelSpec:                 kernelSpec,
+		resourceSpec:               kernelSpec.DecimalSpecFromKernelSpec(),
+		ctx:                        ctx,
+		cluster:                    cluster,
+		id:                         id,
+		log:                        config.GetLogger(fmt.Sprintf("Session %s ", id)),
+		sessionState:               SessionStateInit,
+		startedAt:                  time.Now(),
+		trainingTime:               NewSessionStatistic(opts.ExecutionTimeSamplingWindow),
+		migrationTime:              NewSessionStatistic(opts.MigrationTimeSamplingWindow),
+		resourceUtilization:        resourceUtilization,
+		stateTransitions:           make([]*sessionStateTransition, 0),
 		interactivePriorityHistory: NewValueHistory[float64]("Interactive Priority", "float64"),
 		preemptionPriorityHistory:  NewValueHistory[float64]("Preemption Priority", "float64"),
 		trainingTimeHistory:        NewValueHistory[time.Duration]("Training Time", "time.Duration"),
@@ -569,10 +578,30 @@ func (s *Session) transition(targetState SessionState) error {
 		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, s.sessionState, targetState)
 	}
 
+	// Some bookkeeping about state transitions, like how long we were in the previous state,
+	// and when we last performed a state transition.
+	timeInPrevState := time.Duration(0)
+	lastStateTransitionAt := "N/A"
+	if len(s.stateTransitions) > 0 {
+		lastStateTransition := s.stateTransitions[len(s.stateTransitions)-1]
+		lastStateTransitionAt = lastStateTransition.Timestamp.String()
+		timeInPrevState = time.Since(lastStateTransition.Timestamp)
+	} else {
+		timeInPrevState = time.Since(s.startedAt)
+	}
+
+	stateTransition := &sessionStateTransition{
+		Timestamp:       time.Now(),
+		PrevState:       s.sessionState,
+		NewState:        targetState,
+		TimeInPrevState: timeInPrevState,
+	}
+
+	s.stateTransitions = append(s.stateTransitions, stateTransition)
 	originalState := s.sessionState
-	//s.log.Debug("Attempting to transition from state \"%v\" to state \"%v\"", originalState, targetState)
 	s.sessionState = targetState
-	s.log.Debug("Successfully transitioned from state \"%v\" to state \"%v\"", originalState, targetState)
+	s.log.Debug("Successfully transitioned from state \"%v\" to state \"%v\". Last transition was at %v. Time spent in previous (\"%v\") state: %v.",
+		originalState, targetState, originalState, lastStateTransitionAt, stateTransition.TimeInPrevState)
 	return nil
 }
 

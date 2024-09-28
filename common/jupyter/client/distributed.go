@@ -1107,7 +1107,8 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 			latency = startedProcessingAt.Sub(c.activeExecution.OriginalSentTimestamp())
 		}
 
-		c.log.Debug("Time elapsed between submission and starting to execute user's code: %v", latency)
+		c.log.Debug("Execution requested was submitted at %v, so it took %v for the request to begin being executed.",
+			c.activeExecution.OriginalSentTimestamp(), latency)
 
 		if !c.activeExecution.HasValidWorkloadId() {
 			c.log.Warn("ActiveExecution had \"sent-at\" timestamp, but no workload ID...")
