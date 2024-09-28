@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
+	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"log"
 	"math"
@@ -187,8 +188,8 @@ func unsafeApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Hos
 			ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
 	}
 
-	h.log.Debug(utils.PurpleStyle.Render("Host %s is applying snapshot. Current resources: %s. Snapshot: %s."),
-		h.ID, h.resourcesWrapper.String(), snapshot.String())
+	//h.log.Debug(utils.PurpleStyle.Render("Host %s is applying snapshot. Current resources: %s. Snapshot: %s."),
+	//	h.ID, h.resourcesWrapper.String(), snapshot.String())
 
 	return ApplySnapshotToResourceWrapper(h.resourcesWrapper, snapshot)
 }
@@ -206,6 +207,7 @@ type Host struct {
 	Addr                   string                               // Addr is the Host's address.
 	NodeName               string                               // NodeName is the Host's name (for printing/logging).
 	Cluster                Cluster                              // Cluster is a reference to the Cluster interface that manages this Host.
+	metricsProvider        metrics.ClusterMetricsProvider       // Provides access to metrics relevant to the Host.
 	ID                     string                               // ID is the unique ID of this host.
 	containers             hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
 	trainingContainers     []*Container                         // trainingContainers are the actively-training kernel replicas.
@@ -224,7 +226,7 @@ type Host struct {
 	lastSnapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
 
 	// OversubscriptionQuerierFunction is used to query the oversubscription factor given the host's
-	// subscription ratio and the cluster's subscription ratio.
+	// subscription ratio and the Cluster's subscription ratio.
 	OversubscriptionQuerierFunction OversubscriptionQuerierFunction
 
 	// Cached penalties
@@ -238,7 +240,7 @@ type Host struct {
 }
 
 // NewHost creates and returns a new *Host.
-func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Cluster, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
+func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Cluster, metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
@@ -391,8 +393,8 @@ func (h *Host) SynchronizeResourceInformation() error {
 		return err
 	}
 
+	h.metricsProvider.GetHostRemoteSyncLatencyMicrosecondsHistogram().Observe(float64(time.Since(st).Microseconds()))
 	h.LastRemoteSync = time.Now()
-	h.log.Debug("Synchronized resources with remote in %v.", time.Since(st))
 	return nil
 }
 

@@ -80,7 +80,7 @@ type KernelReplicaClient struct {
 	iopubListenPort                  int              // Port that the KernelReplicaClient::iopub socket listens on.
 	podOrContainerName               string           // Name of the Pod or Container housing the associated distributed kernel replica container.
 	nodeName                         string           // Name of the node that the Pod or Container is running on.
-	ready                            bool             // True if the replica has registered and joined its SMR cluster. Only used by the Cluster Gateway, not by the Local Daemon.
+	ready                            bool             // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
 	yieldNextExecutionRequest        bool             // If true, then we will yield the next 'execute_request'.
 	hostId                           string           // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
 	host                             *scheduling.Host // The host that the kernel replica is running on.
@@ -99,10 +99,10 @@ type KernelReplicaClient struct {
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback
 	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback
 
-	// If true, then this client exists on the Cluster Gateway.
+	// If true, then this client exists on the internalCluster Gateway.
 	// If false, then this client exists on the Local Daemon.
 	//
-	// To be clear, this indicates whether this client struct exists within the memory of the Cluster Gateway.
+	// To be clear, this indicates whether this client struct exists within the memory of the internalCluster Gateway.
 	// This is NOT referring to whether the remote client (i.e., the client that this KernelClient is connected to) is on the cluster gateway or local daemon.
 	isGatewayClient bool
 
@@ -233,7 +233,7 @@ func (c *KernelReplicaClient) LastTrainingTimePrometheusUpdate() time.Time {
 //
 // In the Local Daemon, this is called in the handleSMRLeadTask method.
 //
-// In the Cluster Gateway, this is called in the handleSmrLeadTaskMessage method of DistributedKernelClient.
+// In the internalCluster Gateway, this is called in the handleSmrLeadTaskMessage method of DistributedKernelClient.
 func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[T]) error {
 	if c.isTraining {
 		c.log.Error("Cannot begin training; already training as of %v.", c.trainingStartedAt)
@@ -246,7 +246,7 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 	c.isTraining = true
 	c.trainingStartedAt = time.Now()
 
-	// The following code is only executed within the Cluster Gateway.
+	// The following code is only executed within the internalCluster Gateway.
 	container := c.Container()
 	if container != nil { // Container will be nil on Local Daemons; they don't track resources this way.
 		p := scheduling.SessionStartedTraining(container.Session(), container, snapshot)
@@ -271,7 +271,7 @@ func (c *KernelReplicaClient) TrainingStopped(snapshot commonTypes.HostResourceS
 
 	c.isTraining = false
 
-	// The following code executes only on the Cluster Gateway.
+	// The following code executes only on the internalCluster Gateway.
 	//
 	// If the Container is actively-training, then we need to call TrainingStopped
 	// before removing it so that the resources are all returned appropriately.
@@ -543,7 +543,7 @@ func (c *KernelReplicaClient) String() string {
 }
 
 // IsReady returns true if the replica has registered and joined its SMR cluster.
-// Only used by the Cluster Gateway, not by the Local Daemon.
+// Only used by the internalCluster Gateway, not by the Local Daemon.
 func (c *KernelReplicaClient) IsReady() bool {
 	return c.ready
 }
@@ -554,7 +554,7 @@ func (c *KernelReplicaClient) HostId() string {
 }
 
 // SetReady designates the replica as ready.
-// SetReady is only used by the Cluster Gateway, not by the Local Daemon.
+// SetReady is only used by the internalCluster Gateway, not by the Local Daemon.
 func (c *KernelReplicaClient) SetReady() {
 	c.log.Debug("Kernel %s-%d has been designated as ready.", c.id, c.replicaId)
 	c.ready = true

@@ -42,7 +42,7 @@ type SessionManager interface {
 	ClearSessions()            // ClearSessions clears all sessions.
 }
 
-// ExecutionLatencyCallback is provided by the Cluster Gateway to each DistributedKernelClient.
+// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
 // When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
 // the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
 // of the original "execute_request". If it does, then it can calculate the latency between submission and when
@@ -105,7 +105,7 @@ type DistributedKernelClient struct {
 	// Callback for when execution fails (such as all replicas proposing 'YIELD').
 	executionFailedCallback ExecutionFailedCallback
 
-	// ExecutionLatencyCallback is provided by the Cluster Gateway to each DistributedKernelClient.
+	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
 	// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
 	// the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
 	// of the original "execute_request". If it does, then it can calculate the latency between submission and when

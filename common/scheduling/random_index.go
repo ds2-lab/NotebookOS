@@ -109,7 +109,7 @@ func (index *RandomClusterIndex) Remove(host *Host) {
 	}
 
 	if host.IsContainedWithinIndex {
-		log.Fatalf("Host %s thinks it is not contained within any cluster indices; "+
+		log.Fatalf("Host %s thinks it is not contained within any Cluster indices; "+
 			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.ID, HostMetaRandomIndex, i)
 	}
 

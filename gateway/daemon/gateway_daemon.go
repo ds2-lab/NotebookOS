@@ -90,7 +90,7 @@ var (
 	ErrSessionNotFound         = status.Error(codes.InvalidArgument, "could not locate scheduling.Session instance")
 )
 
-// SchedulingPolicy indicates the scheduling policy/methodology/algorithm that the Cluster Gateway is configured to use.
+// SchedulingPolicy indicates the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
 type SchedulingPolicy string
 
 type GatewayDaemonConfig func(scheduling.ClusterGateway)
@@ -116,7 +116,7 @@ type ClusterGatewayImpl struct {
 	// createdAt is the time at which the ClusterGatewayImpl struct was created.
 	createdAt time.Time
 
-	// schedulingPolicy refers to the scheduling policy/methodology/algorithm that the Cluster Gateway is configured to use.
+	// schedulingPolicy refers to the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
 	schedulingPolicy SchedulingPolicy
 	proto.UnimplementedClusterGatewayServer
 	proto.UnimplementedLocalGatewayServer
@@ -207,7 +207,7 @@ type ClusterGatewayImpl struct {
 	// Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
 	hdfsNameNodeEndpoint string
 
-	// Kubernetes client. This is shared with the associated Cluster Gateway.
+	// Kubernetes client. This is shared with the associated internalCluster Gateway.
 	kubeClient scheduling.KubeClient
 
 	// Watches for new Pods/Containers.
@@ -387,7 +387,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
-	// Create the Cluster Scheduler.
+	// Create the internalCluster Scheduler.
 	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
 	hostSpec := &types.Float64Spec{GPUs: types.GPUSpec(clusterSchedulerOptions.GpusPerHost), Millicpus: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}
 	if clusterGateway.KubernetesMode() {
@@ -750,7 +750,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	// Create a host scheduler client and register it.
 	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, d.cluster, gConn, d.localDaemonDisconnected)
+		scheduling.MemoryMbPerHost, d.cluster, d.gatewayPrometheusManager, gConn, d.localDaemonDisconnected)
 
 	if err != nil {
 		d.log.Error("Failed to create host scheduler client: %v", err)
@@ -783,7 +783,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	d.cluster.NewHostAddedOrConnected(host)
 
-	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the Cluster Gateway.", host.ID, host.NodeName))
+	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the internalCluster Gateway.", host.ID, host.NodeName))
 
 	return conn, nil
 }
@@ -1017,9 +1017,9 @@ func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificati
 		})
 
 		if err != nil {
-			d.log.Error("Failed to send notification to Cluster Dashboard because: %s", err.Error())
+			d.log.Error("Failed to send notification to internalCluster Dashboard because: %s", err.Error())
 		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=%d) notification to Cluster Dashboard.", notificationName, typ)
+			d.log.Debug("Successfully sent \"%s\" (typ=%d) notification to internalCluster Dashboard.", notificationName, typ)
 		}
 	}
 }
@@ -1039,7 +1039,7 @@ func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeN
 	return err
 }
 
-// Used to issue an "info" notification to the Cluster Dashboard.
+// Used to issue an "info" notification to the internalCluster Dashboard.
 func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) {
 	if d.clusterDashboard != nil {
 		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
@@ -1049,14 +1049,14 @@ func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, mess
 		})
 
 		if err != nil {
-			d.log.Error("Failed to send \"%s\" notification to Cluster Dashboard because: %s", notificationName, err.Error())
+			d.log.Error("Failed to send \"%s\" notification to internalCluster Dashboard because: %s", notificationName, err.Error())
 		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=INFO) notification to Cluster Dashboard.", notificationName)
+			d.log.Debug("Successfully sent \"%s\" (typ=INFO) notification to internalCluster Dashboard.", notificationName)
 		}
 	}
 }
 
-// Used to issue an "error" notification to the Cluster Dashboard.
+// Used to issue an "error" notification to the internalCluster Dashboard.
 func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) {
 	if d.clusterDashboard != nil {
 		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
@@ -1066,9 +1066,9 @@ func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 		})
 
 		if err != nil {
-			d.log.Error("Failed to send \"%s\" error notification to Cluster Dashboard because: %s", errorName, err.Error())
+			d.log.Error("Failed to send \"%s\" error notification to internalCluster Dashboard because: %s", errorName, err.Error())
 		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=ERROR) notification to Cluster Dashboard.", errorName)
+			d.log.Debug("Successfully sent \"%s\" (typ=ERROR) notification to internalCluster Dashboard.", errorName)
 		}
 	}
 }
@@ -1765,9 +1765,9 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	return response, nil
 }
 
-// RegisterDashboard is called by the Cluster Dashboard backend server to both verify that a connection has been
+// RegisterDashboard is called by the internalCluster Dashboard backend server to both verify that a connection has been
 // established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
-// Kubernetes), from the Cluster Gateway.
+// Kubernetes), from the internalCluster Gateway.
 func (d *ClusterGatewayImpl) RegisterDashboard(_ context.Context, _ *proto.Void) (*proto.DashboardRegistrationResponse, error) {
 	resp := &proto.DashboardRegistrationResponse{
 		DeploymentMode:   string(d.deploymentMode),
@@ -1915,10 +1915,10 @@ func (d *ClusterGatewayImpl) Notify(_ context.Context, in *proto.Notification) (
 
 func (d *ClusterGatewayImpl) SpoofNotifications(_ context.Context, _ *proto.Void) (*proto.Void, error) {
 	go func() {
-		d.notifyDashboard("Spoofed Error", "This is a made-up error message sent by the Cluster Gateway.", jupyter.ErrorNotification)
-		d.notifyDashboard("Spoofed Warning", "This is a made-up warning message sent by the Cluster Gateway.", jupyter.WarningNotification)
-		d.notifyDashboard("Spoofed Info Notification", "This is a made-up 'info' message sent by the Cluster Gateway.", jupyter.InfoNotfication)
-		d.notifyDashboard("Spoofed Success Notification", "This is a made-up 'success' message sent by the Cluster Gateway.", jupyter.SuccessNotification)
+		d.notifyDashboard("Spoofed Error", "This is a made-up error message sent by the internalCluster Gateway.", jupyter.ErrorNotification)
+		d.notifyDashboard("Spoofed Warning", "This is a made-up warning message sent by the internalCluster Gateway.", jupyter.WarningNotification)
+		d.notifyDashboard("Spoofed Info Notification", "This is a made-up 'info' message sent by the internalCluster Gateway.", jupyter.InfoNotfication)
+		d.notifyDashboard("Spoofed Success Notification", "This is a made-up 'success' message sent by the internalCluster Gateway.", jupyter.SuccessNotification)
 	}()
 
 	return proto.VOID, nil
@@ -1938,14 +1938,14 @@ func (d *ClusterGatewayImpl) RemoveHost(ctx context.Context, in *proto.HostId) (
 	return proto.VOID, nil
 }
 
-// GetActualGpuInfo is not implemented for the Cluster Gateway.
+// GetActualGpuInfo is not implemented for the internalCluster Gateway.
 // This is the single-node version of the function; it's only supposed to be issued to local daemons.
 // The cluster-level version of this method is 'GetClusterActualGpuInfo'.
 func (d *ClusterGatewayImpl) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.GpuInfo, error) {
 	return nil, ErrNotImplemented
 }
 
-// GetVirtualGpuInfo is not implemented for the Cluster Gateway.
+// GetVirtualGpuInfo is not implemented for the internalCluster Gateway.
 // This is the single-node version of the function; it's only supposed to be issued to local daemons.
 // The cluster-level version of this method is 'GetClusterVirtualGpuInfo'.
 func (d *ClusterGatewayImpl) GetVirtualGpuInfo(_ context.Context, _ *proto.Void) (*proto.VirtualGpuInfo, error) {
@@ -2359,7 +2359,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 
 	d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
 		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
-	
+
 	var snapshotWrapper *scheduling.MetadataResourceWrapperSnapshot
 	metadataFrame := msg.Frames[msg.Offset+jupyter.JupyterFrameMetadata]
 	d.log.Debug("Attempting to decode metadata frame of Jupyter \"%s\" message %s (JupyterID=%s): %s",
@@ -2985,7 +2985,7 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 // In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
 // we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
 //
-// If the Cluster is not running in Docker mode, then this will return an error.
+// If the internalCluster is not running in Docker mode, then this will return an error.
 func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
 	d.log.Debug("Received request for the cluster's virtual docker nodes.")
 
@@ -3048,7 +3048,7 @@ func (d *ClusterGatewayImpl) GetLocalDaemonNodeIDs(_ context.Context, _ *proto.V
 // In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
 // we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
 //
-// If the Cluster is not running in Docker mode, then this will return an error.
+// If the internalCluster is not running in Docker mode, then this will return an error.
 func (d *ClusterGatewayImpl) GetDockerSwarmNodes(_ context.Context, _ *proto.Void) (*proto.GetDockerSwarmNodesResponse, error) {
 	d.dockerNodeMutex.Lock()
 	defer d.dockerNodeMutex.Unlock()

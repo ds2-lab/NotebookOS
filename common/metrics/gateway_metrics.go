@@ -25,6 +25,7 @@ type ClusterMetricsProvider interface {
 	GetPlacerFindHostLatencyMicrosecondsHistogram() *prometheus.HistogramVec
 	GetNumDisabledHostsGauge() prometheus.Gauge
 	GetNumHostsGauge() prometheus.Gauge
+	GetHostRemoteSyncLatencyMicrosecondsHistogram() prometheus.Histogram
 }
 
 // GatewayPrometheusManager is responsible for registering metrics with Prometheus and serving them via HTTP.
@@ -40,6 +41,10 @@ type GatewayPrometheusManager struct {
 	// The latency is observed from the Golang-based Jupyter client, and the units
 	// of the metric are seconds.
 	JupyterTrainingStartLatency *prometheus.HistogramVec
+
+	// HostRemoteSyncLatencyMicrosecondsHistogram is a Histogram of the latencies for Hosts to synchronize
+	// their local view of their resources with the "ground truth" resource values on their remote host.
+	HostRemoteSyncLatencyMicrosecondsHistogram prometheus.Histogram
 
 	//////////////////////////
 	// Node Scaling Metrics //
@@ -150,6 +155,15 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 			30e6 /* 30 sec */, 45e6, 60e6 /* 1 min */, 120e6 /* 2 min */},
 	}, []string{"successful"})
 
+	m.HostRemoteSyncLatencyMicrosecondsHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "distributed_cluster",
+		Name:      "host_remote_sync_latency_microseconds",
+		Help:      "The latency, in microseconds, of finding candidate hosts when scheduling a kernel for the first time.",
+		Buckets: []float64{1, 10, 50, 100, 250, 500, 750, 1e3, 2e3, 3e3, 4e3, 5e3, 6e3, 7e3, 8e3, 9e3, 1e4, 1.5e4, 2e4,
+			3e4, 4.5e4, 6e4, 9e4, 1.2e5, 1.8e5, 2.4e5, 5e5 /* 0.5 sec */, 7.5e5, 1.0e6 /* 1 second */, 5e6, 10e6, 15e6,
+			30e6 /* 30 sec */, 45e6, 60e6 /* 1 min */, 120e6 /* 2 min */},
+	})
+
 	m.ClusterSubscriptionRatioGauge = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "distributed_cluster",
 		Name:      "cluster_subscription_ratio",
@@ -210,6 +224,11 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 
 	if err := prometheus.Register(m.JupyterTrainingStartLatency); err != nil {
 		m.log.Error("Failed to register 'Jupyter Training Start Latency' metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.HostRemoteSyncLatencyMicrosecondsHistogram); err != nil {
+		m.log.Error("Failed to register 'Host Remote Sync Latency Microseconds Histogram' metric because: %v", err)
 		return err
 	}
 
@@ -337,4 +356,8 @@ func (m *GatewayPrometheusManager) GetNumDisabledHostsGauge() prometheus.Gauge {
 
 func (m *GatewayPrometheusManager) GetNumHostsGauge() prometheus.Gauge {
 	return m.NumHostsGauge
+}
+
+func (m *GatewayPrometheusManager) GetHostRemoteSyncLatencyMicrosecondsHistogram() prometheus.Histogram {
+	return m.HostRemoteSyncLatencyMicrosecondsHistogram
 }

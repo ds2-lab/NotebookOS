@@ -92,7 +92,7 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 	config.InitLogger(&cluster.log, cluster)
 
 	go func() {
-		cluster.log.Debug("Sleeping for %v before periodically validating cluster capacity.", cluster.validateCapacityInterval)
+		cluster.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", cluster.validateCapacityInterval)
 
 		// We wait for `validateCapacityInterval` before the first call to UpdateRatio (which calls ValidateCapacity).
 		time.Sleep(cluster.validateCapacityInterval)
@@ -530,8 +530,8 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	targetNumNodes := n + currentNumNodes
 
 	if targetNumNodes < c.maximumCapacity {
-		c.log.Error("Cannot add %d Local Daemon Docker node(s) from the cluster, "+
-			"as doing so would violate the cluster's maximum capacity constraint of %d.", n, c.maximumCapacity)
+		c.log.Error("Cannot add %d Local Daemon Docker node(s) from the Cluster, "+
+			"as doing so would violate the Cluster's maximum capacity constraint of %d.", n, c.maximumCapacity)
 		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"adding %d nodes would violate maximum capacity constraint of %d",
@@ -543,7 +543,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 
 	// Register a new scaling operation.
 	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
-	// on the current and target cluster size).
+	// on the current and target Cluster size).
 	opId := uuid.NewString()
 	scaleOp, err := c.registerScaleOutOperation(opId, targetNumNodes)
 	if err != nil {
@@ -576,8 +576,8 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	targetNumNodes := currentNumNodes - n
 
 	if targetNumNodes < c.minimumCapacity {
-		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the cluster, "+
-			"as doing so would violate the cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
+		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster, "+
+			"as doing so would violate the Cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
 		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"removing %d nodes would violate minimum capacity constraint of %d",
@@ -585,14 +585,14 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	}
 
 	if targetNumNodes < int32(c.numReplicas) {
-		c.log.Error("Cannot remove %d specific Local Daemon Docker node(s) from the cluster", n)
+		c.log.Error("Cannot remove %d specific Local Daemon Docker node(s) from the Cluster", n)
 		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, ErrInvalidTargetNumHosts)
 	}
 
 	// Register a new scaling operation.
 	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
-	// on the current and target cluster size).
+	// on the current and target Cluster size).
 	opId := uuid.NewString()
 	scaleOp, err := c.registerScaleInOperation(opId, targetNumNodes, ids)
 	if err != nil {
@@ -625,14 +625,14 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	targetNumNodes := currentNumNodes - n
 
 	if targetNumNodes < int32(c.numReplicas) {
-		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the cluster", n)
+		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster", n)
 		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, ErrInvalidTargetNumHosts)
 	}
 
 	if targetNumNodes < c.minimumCapacity {
-		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the cluster, "+
-			"as doing so would violate the cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
+		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster, "+
+			"as doing so would violate the Cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
 		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"removing %d nodes would violate minimum capacity constraint of %d",
@@ -644,7 +644,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 
 	// Register a new scaling operation.
 	// The registration process validates that the requested operation makes sense (i.e., we would indeed scale-out based
-	// on the current and target cluster size).
+	// on the current and target Cluster size).
 	opId := uuid.NewString()
 	scaleOp, err := c.registerScaleInOperation(opId, targetNumNodes, []string{})
 	if err != nil {
@@ -675,14 +675,14 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 	currentNumNodes := int32(c.Len())
 
 	if targetNumNodes < int32(c.numReplicas) {
-		c.log.Error("Cannot scale to size of %d Local Daemon Docker node(s) from the cluster", targetNumNodes)
+		c.log.Error("Cannot scale to size of %d Local Daemon Docker node(s) from the Cluster", targetNumNodes)
 		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: targetNumNodes=%d", ErrInvalidTargetNumHosts, targetNumNodes))
 	}
 
 	if targetNumNodes == currentNumNodes {
 		c.log.Error("Cluster is already of size %d. Rejecting request to scale to size %d.", currentNumNodes, targetNumNodes)
-		return promise.Resolved(nil, fmt.Errorf("%w: cluster is already of size %d", ErrInvalidTargetNumHosts, targetNumNodes))
+		return promise.Resolved(nil, fmt.Errorf("%w: Cluster is already of size %d", ErrInvalidTargetNumHosts, targetNumNodes))
 	} else if targetNumNodes > currentNumNodes {
 		return c.RequestHosts(ctx, targetNumNodes-currentNumNodes)
 	} else {
@@ -723,7 +723,7 @@ func (c *BaseCluster) GetHost(hostId string) (*Host, bool) {
 // This API exists so each platform-specific Cluster implementation can provide its own platform-specific
 // logic for scaling-out.
 //
-// targetNumNodes specifies the desired size of the cluster.
+// targetNumNodes specifies the desired size of the Cluster.
 //
 // resultChan is used to notify a waiting goroutine that the scale-out operation has finished.
 func (c *BaseCluster) getScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
@@ -734,7 +734,7 @@ func (c *BaseCluster) getScaleOutCommand(targetNumNodes int32, resultChan chan i
 // This API exists so each platform-specific Cluster implementation can provide its own platform-specific
 // logic for scaling-in.
 //
-// targetNumNodes specifies the desired size of the cluster.
+// targetNumNodes specifies the desired size of the Cluster.
 //
 // targetHosts specifies any specific hosts that are to be removed.
 //

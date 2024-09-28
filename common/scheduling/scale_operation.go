@@ -32,7 +32,7 @@ var (
 	ErrInvalidTargetScale      = status.Error(codes.InvalidArgument, "invalid target scale specified")
 	ErrScalingInvalidOperation = status.Error(codes.Internal, "scale operation is in invalid state for requested operation")
 	ErrTooManyNodesAffected    = status.Error(codes.Internal, "too many nodes have been added/removed during the scale operation")
-	ErrClusterSizeMismatch     = status.Error(codes.Internal, "cluster size and target scale are unequal despite scale operation being recorded as a success")
+	ErrClusterSizeMismatch     = status.Error(codes.Internal, "Cluster size and target scale are unequal despite scale operation being recorded as a success")
 	ErrIncorrectScaleOperation = status.Error(codes.Internal, "scale operation is of incorrect type")
 )
 
@@ -242,10 +242,10 @@ func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, 
 	}
 
 	// Ensure that the caller isn't trying to scale-in by too many hosts. There needs to be at least `NUM_REPLICAS`
-	// hosts in the cluster, where `NUM_REPLICAS` is the number of replicas of each Jupyter kernel.
+	// hosts in the Cluster, where `NUM_REPLICAS` is the number of replicas of each Jupyter kernel.
 	targetScale := initialScale - int32(len(targetHosts))
 	if targetScale <= int32(cluster.NumReplicas()) {
-		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: too many target hosts specified (%d, with initial scale of %d); cluster's minimum scale is %d", ErrInvalidTargetScale, targetScale, initialScale, cluster.NumReplicas()).Error())
+		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: too many target hosts specified (%d, with initial scale of %d); Cluster's minimum scale is %d", ErrInvalidTargetScale, targetScale, initialScale, cluster.NumReplicas()).Error())
 	}
 
 	// We're necessarily creating a scale-in operation here, so the target scale must be less than the initial scale.
@@ -412,7 +412,7 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 	}
 
 	op.log.Debug("Waiting for new node(s) to connect or terminated nodes to be removed.")
-	// The "core logic" of the operation has concluded insofar as we scaled-out or scaled-in the cluster.
+	// The "core logic" of the operation has concluded insofar as we scaled-out or scaled-in the Cluster.
 	// If we scaled-out, then we need to wait for the new Cluster Nodes to connect.
 	// If we scaled-in, then we don't really have any waiting to do.
 	// If it has already completed by the time we call Wait, then Wait just returns immediately.
@@ -422,7 +422,7 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 	if op.CompletedSuccessfully() {
 		// The scale operation was recorded to have been a success.
 		//
-		// We still perform a sanity check here to make sure that the size of the cluster is consistent with
+		// We still perform a sanity check here to make sure that the size of the Cluster is consistent with
 		// the target scale of the scale operation.
 		//
 		// If they're unequal, then we'll return an error; however, it's possible that a node simply lost connection
@@ -430,8 +430,8 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 		// the logic of the Cluster Gateway or anything (but it might).
 		currentSize := int32(op.Cluster.Len())
 		if currentSize != op.TargetScale {
-			op.log.Error("Current cluster size (%d) does not match target scale (%d)...", currentSize, op.TargetScale)
-			return nil, status.Error(codes.Internal, fmt.Errorf("%w: cluster size = %d, target scale = %d",
+			op.log.Error("Current Cluster size (%d) does not match target scale (%d)...", currentSize, op.TargetScale)
+			return nil, status.Error(codes.Internal, fmt.Errorf("%w: Cluster size = %d, target scale = %d",
 				ErrClusterSizeMismatch, currentSize, op.TargetScale).Error())
 		}
 

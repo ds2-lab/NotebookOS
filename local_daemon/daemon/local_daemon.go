@@ -74,7 +74,7 @@ type SchedulerDaemonImpl struct {
 	connectionOptions      *jupyter.ConnectionInfo
 	schedulerDaemonOptions domain.SchedulerDaemonOptions
 
-	// Cluster client
+	// internalCluster client
 	provisioner proto.ClusterGatewayClient
 
 	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
@@ -673,7 +673,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
-		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the Cluster Gateway.
+		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
 		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id, true,
 			d.numResendAttempts, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName,
 			d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, metrics.LocalDaemon, false,
@@ -877,8 +877,8 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	// time.Sleep(time.Second * 1)
 }
 
-// notifyClusterGatewayAndPanic attempts to notify the Cluster Gateway of a fatal error and then panics.
-// notifyClusterGatewayAndPanic's attempt to notify the Cluster Gateway will time out after 30 seconds.
+// notifyClusterGatewayAndPanic attempts to notify the internalCluster Gateway of a fatal error and then panics.
+// notifyClusterGatewayAndPanic's attempt to notify the internalCluster Gateway will time out after 30 seconds.
 func (d *SchedulerDaemonImpl) notifyClusterGatewayAndPanic(errorTitle string, errorBody string, panicArg interface{}) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
@@ -2246,10 +2246,10 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelInfo
 
 		socket = d.router.Socket(typ)
 
-		// TODO (Ben): If we're forwarding a response back to the Cluster Gateway here, then the Cluster Gateway will ACK the response.
+		// TODO (Ben): If we're forwarding a response back to the internalCluster Gateway here, then the internalCluster Gateway will ACK the response.
 		// We need to:
 		// (a) Listen for the ACK.
-		// (b) Re-forward the kernel's response to the Cluster Gateway if we don't receive an ACK.
+		// (b) Re-forward the kernel's response to the internalCluster Gateway if we don't receive an ACK.
 		d.router.RegisterAck(msg)
 
 		// Use the router as the server to forward the kernel's response to the cluster gateway.
@@ -2338,7 +2338,7 @@ func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames
 	return nil
 }
 
-// notifyClusterGatewayOfError calls the Cluster Gateway's 'Notify' gRPC method.
+// notifyClusterGatewayOfError calls the internalCluster Gateway's 'Notify' gRPC method.
 // This is used to report errors to the Gateway.
 // In general, this is done so that the errors can then be
 // pushed to the frontend UI to inform the user.
@@ -2346,7 +2346,7 @@ func (d *SchedulerDaemonImpl) notifyClusterGatewayOfError(ctx context.Context, n
 	_, err := d.provisioner.Notify(ctx, notification)
 
 	if err != nil {
-		d.log.Error("Failed to notify Cluster Gateway of error because: %v", err)
+		d.log.Error("Failed to notify internalCluster Gateway of error because: %v", err)
 	}
 }
 
@@ -2404,7 +2404,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 		// Note: we don't really need to pass the snapshot here, as it isn't used in the Local Daemon.
 		_ = client.KernelStartedTraining(kernelReplicaClient, snapshot)
 
-		// Don't return here -- we want his to be forwarded to the Cluster Gateway.
+		// Don't return here -- we want his to be forwarded to the internalCluster Gateway.
 		// return commonTypes.ErrStopPropagation
 	} else if messageType == jupyter.MessageTypeLeadAfterYield {
 		// TODO(Ben): Need a better way to propagate errors back to the user, either at the Jupyter Notebook or the Workload Driver.

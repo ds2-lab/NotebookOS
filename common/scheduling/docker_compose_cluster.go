@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// DockerComposeCluster encapsulates the logic for a Docker compose cluster, in which the nodes are simulated
+// DockerComposeCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
 // locally, and scaling-up and down sometimes involves simulation steps in which nodes are not actually deleted,
 // but simply toggled "off" and "on".
 type DockerComposeCluster struct {

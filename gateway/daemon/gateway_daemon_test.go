@@ -29,7 +29,7 @@ func TestProxy(t *testing.T) {
 	RunSpecs(t, "Daemon Suite")
 }
 
-var _ = Describe("Cluster Gateway Tests", func() {
+var _ = Describe("internalCluster Gateway Tests", func() {
 	var (
 		clusterGateway *ClusterGatewayImpl
 		mockCtrl       *gomock.Controller

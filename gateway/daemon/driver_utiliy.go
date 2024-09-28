@@ -24,7 +24,7 @@ import (
 )
 
 //
-// This file contains methods that are useful for a driver script for the Cluster Gateway.
+// This file contains methods that are useful for a driver script for the internalCluster Gateway.
 //
 
 const (
@@ -65,7 +65,7 @@ func CreateConsulAndTracer(options *domain.ClusterGatewayOptions) (opentracing.T
 	return tracer, consulClient
 }
 
-// GetGrpcOptions builds gRPC options for use by the Cluster Gateway.
+// GetGrpcOptions builds gRPC options for use by the internalCluster Gateway.
 func GetGrpcOptions(identity string, tracer opentracing.Tracer, distributedCluster *DistributedCluster) []grpc.ServerOption {
 	gOpts := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(
@@ -74,7 +74,7 @@ func GetGrpcOptions(identity string, tracer opentracing.Tracer, distributedClust
 					func(p any) (err error) {
 						fmt.Printf("gRPC Recovery Handler called with error: %v\n", err)
 						debug.PrintStack()
-						// Enable the Distributed Cluster to handle panics, which ultimately
+						// Enable the Distributed internalCluster to handle panics, which ultimately
 						// just involves sending a notification of the panic to the Dashboard.
 						if distributedCluster != nil {
 							distributedCluster.HandlePanic(identity, err)
@@ -121,7 +121,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	// Initialize daemon
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv scheduling.ClusterGateway) {
-		globalLogger.Info("Initializing Cluster Daemon with options: %s", options.ClusterDaemonOptions.String())
+		globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
 		srv.SetClusterOptions(&options.ClusterSchedulerOptions)
 	})
 
@@ -129,9 +129,9 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	distributedClusterServiceListener, err := distributedCluster.Listen("tcp", fmt.Sprintf(":%d", options.DistributedClusterServicePort))
 	if err != nil {
-		log.Fatalf("Failed to listen with Distributed Cluster Service server: %v", err)
+		log.Fatalf("Failed to listen with Distributed internalCluster Service server: %v", err)
 	}
-	globalLogger.Info("Distributed Cluster Service gRPC server listening at %v", distributedClusterServiceListener.Addr())
+	globalLogger.Info("Distributed internalCluster Service gRPC server listening at %v", distributedClusterServiceListener.Addr())
 
 	// Listen on provisioner port
 	lisHost, err := srv.Listen("tcp", fmt.Sprintf(":%d", options.ProvisionerPort))
@@ -148,7 +148,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	registrar := grpc.NewServer(GetGrpcOptions("Jupyter gRPC Server", tracer, distributedCluster)...)
 	proto.RegisterLocalGatewayServer(registrar, srv)
 
-	distributedClusterRpcServer := grpc.NewServer(GetGrpcOptions("Distributed Cluster gRPC Server", tracer, distributedCluster)...)
+	distributedClusterRpcServer := grpc.NewServer(GetGrpcOptions("Distributed internalCluster gRPC Server", tracer, distributedCluster)...)
 	proto.RegisterDistributedClusterServer(distributedClusterRpcServer, distributedCluster)
 
 	// Register services in consul
@@ -195,7 +195,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	// Start distributed cluster gRPC server.
 	go func() {
-		defer finalize(true, "Distributed Cluster Server", distributedCluster)
+		defer finalize(true, "Distributed internalCluster Server", distributedCluster)
 		if err := distributedClusterRpcServer.Serve(distributedClusterServiceListener); err != nil {
 			log.Fatalf("Error on serving distributed cluster connections: %v", err)
 		}
@@ -203,7 +203,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	// Start daemon
 	go func() {
-		defer finalize(true, "Cluster Gateway Daemon", distributedCluster)
+		defer finalize(true, "internalCluster Gateway Daemon", distributedCluster)
 		if err := srv.Start(); err != nil {
 			log.Fatalf("Error during daemon serving: %v", err)
 		}
