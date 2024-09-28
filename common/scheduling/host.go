@@ -283,6 +283,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		Addr:                            addr,
 		resourceSpec:                    resourceSpec,
 		Cluster:                         cluster,
+		metricsProvider:                 metricsProvider,
 		conn:                            conn,
 		log:                             config.GetLogger(fmt.Sprintf("Host %s ", id)),
 		containers:                      hashmap.NewCornelkMap[string, *Container](5),
