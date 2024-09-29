@@ -48,10 +48,11 @@ func (q *ActiveExecutionQueue) Dequeue() *ActiveExecution {
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
 // Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
 type ActiveExecution struct {
-	executionId string // Unique ID identifying the execution request.
-	attemptId   int    // Beginning at 1, identifies the "attempt number", in case we have to retry due to timeouts.
-	sessionId   string // The ID of the Jupyter session that initiated the request.
-	kernelId    string // ID of the associated kernel.
+	ExecutionId             string // Unique ID identifying the execution request.
+	AttemptId               int    // Beginning at 1, identifies the "attempt number", in case we have to retry due to timeouts.
+	SessionId               string // The ID of the Jupyter session that initiated the request.
+	KernelId                string // ID of the associated kernel.
+	ExecuteRequestMessageId string // The Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
 
 	NumReplicas int // The number of replicas that the kernel had with the execution request was originally received.
 
@@ -69,9 +70,9 @@ type ActiveExecution struct {
 	// executing the user-submitted code.
 	ActiveReplica KernelReplica
 
-	// workloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
+	// WorkloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
 	// was a Golang Jupyter client.
-	workloadId    string
+	WorkloadId    string
 	workloadIdSet bool
 
 	proposals map[int32]string // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
@@ -86,15 +87,16 @@ type ActiveExecution struct {
 
 func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *types.JupyterMessage) *ActiveExecution {
 	activeExecution := &ActiveExecution{
-		executionId:             uuid.NewString(),
-		sessionId:               msg.JupyterSession(),
-		attemptId:               attemptId,
+		ExecutionId:             uuid.NewString(),
+		SessionId:               msg.JupyterSession(),
+		AttemptId:               attemptId,
 		proposals:               make(map[int32]string, 3),
-		kernelId:                kernelId,
+		KernelId:                kernelId,
 		NumReplicas:             numReplicas,
 		nextAttempt:             nil,
 		previousAttempt:         nil,
 		msg:                     msg,
+		ExecuteRequestMessageId: msg.JupyterMessageId(),
 		originallySentAtDecoded: false,
 	}
 
@@ -110,21 +112,12 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 		workloadIdVal, ok := metadata["workload_id"]
 		if ok {
 			workloadId := workloadIdVal.(string)
-			activeExecution.workloadId = workloadId
+			activeExecution.WorkloadId = workloadId
 			activeExecution.workloadIdSet = true
 		}
 	}
 
 	return activeExecution
-}
-
-// WorkloadId returns the workload ID that we possibly extracted from the metadata of the "execute_request" message
-// that submitted the code associated with this ActiveExecution struct.
-//
-// To determine if this ActiveExecution has a valid workload ID to return, use the HasValidWorkloadId method.
-// If the workload ID is "invalid", then the WorkloadId method simply returns the empty string.
-func (e *ActiveExecution) WorkloadId() string {
-	return e.workloadId
 }
 
 // HasValidWorkloadId returns true if we were able to extract the associated workload ID from the metadata
@@ -163,16 +156,8 @@ func (e *ActiveExecution) SetExecuted() {
 	e.executed = true
 }
 
-func (e *ActiveExecution) ExecutionId() string {
-	return e.executionId
-}
-
-func (e *ActiveExecution) AttemptId() int {
-	return e.attemptId
-}
-
 func (e *ActiveExecution) String() string {
-	return fmt.Sprintf("ActiveExecution[ID=%s,Kernel=%s,Session=%s,Attempt=%d,NumReplicas=%d,numLeadProposals=%d,numYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v]", e.executionId, e.kernelId, e.sessionId, e.attemptId, e.NumReplicas, e.numLeadProposals, e.numYieldProposals, e.nextAttempt == nil, e.previousAttempt == nil)
+	return fmt.Sprintf("ActiveExecution[ID=%s,Kernel=%s,Session=%s,Attempt=%d,NumReplicas=%d,numLeadProposals=%d,numYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v]", e.ExecutionId, e.KernelId, e.SessionId, e.AttemptId, e.NumReplicas, e.numLeadProposals, e.numYieldProposals, e.nextAttempt == nil, e.previousAttempt == nil)
 }
 
 func (e *ActiveExecution) ReceivedLeadProposal(smrNodeId int32) error {

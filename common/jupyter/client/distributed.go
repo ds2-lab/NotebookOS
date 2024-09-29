@@ -8,6 +8,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -98,6 +99,11 @@ type DistributedKernelClient struct {
 	// activeExecution is the current execution request that is being processed by the kernels.
 	activeExecution *scheduling.ActiveExecution
 
+	// activeExecutionsByExecuteRequestMsgId is a map used to keep track of all scheduling.ActiveExecutions
+	// processed by the kernel. The keys are the Jupyter message IDs of the "execute_request" messages
+	// sent by the client to submit code for execution.
+	activeExecutionsByExecuteRequestMsgId *hashmap.ConcurrentMap[string, *scheduling.ActiveExecution]
+
 	// activeExecutionQueue is a queue of ActiveExecution structs corresponding to
 	// submitted/enqueued execution operations.
 	activeExecutionQueue scheduling.ActiveExecutionQueue
@@ -145,18 +151,19 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 			s.MessagingMetricsProvider = messagingMetricsProvider
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
-		status:                   types.KernelStatusInitializing,
-		spec:                     spec,
-		replicas:                 make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.KernelReplica, numReplicas),
-		cleaned:                  make(chan struct{}),
-		connectionInfo:           connectionInfo,
-		shellListenPort:          shellListenPort,
-		iopubListenPort:          iopubListenPort,
-		numActiveAddOperations:   0,
-		executionFailedCallback:  executionFailedCallback,
-		activeExecutionQueue:     make(scheduling.ActiveExecutionQueue, 0, 16),
-		executionLatencyCallback: executionLatencyCallback,
-		nextNodeId:               int32(numReplicas + 1),
+		status:                                types.KernelStatusInitializing,
+		spec:                                  spec,
+		replicas:                              make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.KernelReplica, numReplicas),
+		cleaned:                               make(chan struct{}),
+		connectionInfo:                        connectionInfo,
+		shellListenPort:                       shellListenPort,
+		iopubListenPort:                       iopubListenPort,
+		activeExecutionsByExecuteRequestMsgId: hashmap.NewConcurrentMap[*scheduling.ActiveExecution](32),
+		numActiveAddOperations:                0,
+		executionFailedCallback:               executionFailedCallback,
+		activeExecutionQueue:                  make(scheduling.ActiveExecutionQueue, 0, 16),
+		executionLatencyCallback:              executionLatencyCallback,
+		nextNodeId:                            int32(numReplicas + 1),
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)
@@ -228,6 +235,8 @@ func (c *DistributedKernelClient) SetActiveExecution(activeExecution *scheduling
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.activeExecutionsByExecuteRequestMsgId.Store(activeExecution.ExecuteRequestMessageId, activeExecution)
+
 	c.activeExecution = activeExecution
 }
 
@@ -275,6 +284,8 @@ func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostRes
 func (c *DistributedKernelClient) EnqueueActiveExecution(activeExecution *scheduling.ActiveExecution) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.activeExecutionsByExecuteRequestMsgId.Store(activeExecution.ExecuteRequestMessageId, activeExecution)
 
 	// If there is already an active execution, then enqueue the new one.
 	if c.activeExecution != nil {
@@ -764,9 +775,9 @@ func (c *DistributedKernelClient) executionFinished(replicaId int32) error {
 	if c.activeExecution != nil {
 		if c.activeExecution.HasValidOriginalSentTimestamp() {
 			latency := time.Since(c.activeExecution.OriginalSentTimestamp())
-			c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d. Total time elapsed since submission: %v.", c.activeExecution.ExecutionId(), c.id, replicaId, latency)
+			c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d. Total time elapsed since submission: %v.", c.activeExecution.ExecutionId, c.id, replicaId, latency)
 		} else {
-			c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d.", c.activeExecution.ExecutionId(), c.id, replicaId)
+			c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d.", c.activeExecution.ExecutionId, c.id, replicaId)
 		}
 
 		err := c.activeExecution.ReceivedLeadProposal(replicaId)
@@ -1089,8 +1100,12 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 
 	if c.activeExecution.HasValidOriginalSentTimestamp() {
 		var (
-			leadMessage types.MessageSMRLeadTask
-			latency     time.Duration
+			leadMessage               types.MessageSMRLeadTask
+			latency                   time.Duration
+			loaded                    bool
+			startedProcessingAt       time.Time
+			executeRequestMsgId       string
+			associatedActiveExecution *scheduling.ActiveExecution
 		)
 
 		frames := types.JupyterFrames(msg.Frames[msg.Offset:])
@@ -1100,22 +1115,33 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 			// Since we can't get the exact value, we'll approximate it using the current timestamp.
 			latency = time.Since(c.activeExecution.OriginalSentTimestamp())
 		} else {
-			startedProcessingAt := time.UnixMilli(leadMessage.UnixMilliseconds)
+			startedProcessingAt = time.UnixMilli(leadMessage.UnixMilliseconds)
+			executeRequestMsgId = leadMessage.ExecuteRequestMsgId
 
 			// Difference between when the code began executing in the kernel and when the
 			// associated "execute_request" message was actually sent.
 			latency = startedProcessingAt.Sub(c.activeExecution.OriginalSentTimestamp())
+			associatedActiveExecution, loaded = c.activeExecutionsByExecuteRequestMsgId.Load(executeRequestMsgId)
+			if !loaded {
+				c.log.Error("Cannot find active execution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...",
+					executeRequestMsgId, c.id)
+			}
 		}
 
-		c.log.Debug("Execution requested was submitted at %v, so it took %v for the request to begin being executed.",
-			c.activeExecution.OriginalSentTimestamp(), latency)
+		// If we weren't able to find (or even search for) the associated ActiveExecution, then print an error.
+		if associatedActiveExecution == nil {
+			c.log.Error("Unable to retrieve associated ActiveExecution...")
+		} else {
+			c.log.Debug("Execution requested was submitted at %v, so it took %v for the request to begin being executed.",
+				associatedActiveExecution.OriginalSentTimestamp(), latency)
 
-		if !c.activeExecution.HasValidWorkloadId() {
-			c.log.Warn("ActiveExecution had \"sent-at\" timestamp, but no workload ID...")
+			if !associatedActiveExecution.HasValidWorkloadId() {
+				c.log.Warn("ActiveExecution had \"sent-at\" timestamp, but no workload ID...")
+			}
+
+			// Record metrics in Prometheus.
+			c.executionLatencyCallback(latency, associatedActiveExecution.WorkloadId)
 		}
-
-		// Record metrics in Prometheus.
-		c.executionLatencyCallback(latency, c.activeExecution.WorkloadId())
 	} else {
 		c.log.Warn("ActiveExecution did not have original \"send\" timestamp available.")
 	}

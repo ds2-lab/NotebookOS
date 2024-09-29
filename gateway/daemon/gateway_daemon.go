@@ -998,7 +998,7 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 
 func (d *ClusterGatewayImpl) executionFailed(c *client.DistributedKernelClient) error {
 	execution := c.ActiveExecution()
-	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.", execution.ExecutionId(), execution.AttemptId(), c.ID())
+	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.", execution.ExecutionId, execution.AttemptId, c.ID())
 
 	return d.failureHandler(c)
 }
@@ -1130,7 +1130,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	}()
 
 	// We'll need this if the migration operation completes successfully.
-	nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), activeExecution.AttemptId()+1, c.Size(), msg)
+	nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), activeExecution.AttemptId+1, c.Size(), msg)
 
 	// Next, let's update the message so that we target the new replica.
 	_, _, offset := jupyter.ExtractDestFrame(msg.Frames)

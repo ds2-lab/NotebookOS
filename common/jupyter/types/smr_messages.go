@@ -54,6 +54,10 @@ type MessageSMRLeadTask struct {
 	// message was created (and thus approximates when it was sent and when the kernel began executing
 	// the user's code).
 	UnixMilliseconds int64 `json:"unix_milliseconds"`
+
+	// ExecuteRequestMsgId is the Jupyter msg_id (from the header) of the "execute_request"
+	// message that was used to submit the code execution request.
+	ExecuteRequestMsgId string `json:"execute_request_msg_id"`
 }
 
 type MessageSMRLeadAfterYield struct {
