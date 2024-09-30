@@ -41,6 +41,13 @@ const (
 	DefaultPrometheusInterval = time.Second * 5
 	// DefaultNumResendAttempts is the default number of attempts we'll resend a message before giving up.
 	DefaultNumResendAttempts = 3
+	// DefaultExecuteRequestQueueSize is the default capacity of outgoing "execute_request" message queues.
+	//
+	// Important note: if there are more concurrent execute_request messages sent than the capacity of the buffered
+	// channel that serves as the message queue, then the FCFS ordering of the messages cannot be guaranteed. Specifically,
+	// the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
+	// a FCFS manner.)
+	DefaultExecuteRequestQueueSize = 128
 )
 
 var (
@@ -52,6 +59,14 @@ var (
 	ErrExistingReplicaAlreadyRunning = status.Error(codes.Internal, "an existing replica of the target kernel is already running on this node")
 	ErrNilArgument                   = status.Error(codes.InvalidArgument, "one or more of the required arguments was nil")
 )
+
+// enqueuedExecuteRequestMessage encapsulates an "execute_request" *jupyter.JupyterMessage and a chan interface{}
+// used to notify the caller when the request has been submitted and a result has been returned.
+type enqueuedExecuteRequestMessage struct {
+	Msg           *jupyter.JupyterMessage
+	ResultChannel chan interface{}
+	Kernel        *client.KernelReplicaClient
+}
 
 // SchedulerDaemonImpl is the daemon that proxy requests to kernel replicas on local-host.
 //
@@ -88,6 +103,16 @@ type SchedulerDaemonImpl struct {
 	prometheusInterval time.Duration
 	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
 	prometheusPort int
+
+	// outgoingExecuteRequestQueue is used to send "execute_request" messages one-at-a-time to their target kernels.
+	outgoingExecuteRequestQueue hashmap.HashMap[string, chan *enqueuedExecuteRequestMessage]
+	// outgoingExecuteRequestQueueMutexes is a map of mutexes. Keys are kernel IDs. Values are the mutex for the
+	// associated kernel's outgoing "execute_request" message queue.
+	outgoingExecuteRequestQueueMutexes hashmap.HashMap[string, *sync.Mutex]
+	// executeRequestQueueStopChans is a map from kernel ID to the channel used to tell the goroutine responsible
+	// for forwarding that kernel's "execute_request" messages to stop running (such as when we are stopping
+	// the kernel replica).
+	executeRequestQueueStopChannels hashmap.HashMap[string, chan interface{}]
 
 	smrPort int
 
@@ -168,27 +193,30 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	ip := os.Getenv("POD_IP")
 
 	daemon := &SchedulerDaemonImpl{
-		connectionOptions:            connectionOptions,
-		transport:                    "tcp",
-		ip:                           ip,
-		nodeName:                     nodeName,
-		kernels:                      hashmap.NewCornelkMap[string, *client.KernelReplicaClient](1000),
-		kernelClientCreationChannels: hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](250),
-		kernelDebugPorts:             hashmap.NewCornelkMap[string, int](250),
-		availablePorts:               utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
-		closed:                       make(chan struct{}),
-		cleaned:                      make(chan struct{}),
-		kernelRegistryPort:           kernelRegistryPort,
-		smrPort:                      schedulerDaemonOptions.SMRPort,
-		virtualGpuPluginServer:       virtualGpuPluginServer,
-		deploymentMode:               types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
-		hdfsNameNodeEndpoint:         schedulerDaemonOptions.HdfsNameNodeEndpoint,
-		dockerStorageBase:            schedulerDaemonOptions.DockerStorageBase,
-		usingWSL:                     schedulerDaemonOptions.UsingWSL,
-		prometheusInterval:           time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
-		prometheusPort:               schedulerDaemonOptions.PrometheusPort,
-		numResendAttempts:            schedulerDaemonOptions.NumResendAttempts,
-		runKernelsInGdb:              schedulerDaemonOptions.RunKernelsInGdb,
+		connectionOptions:                  connectionOptions,
+		transport:                          "tcp",
+		ip:                                 ip,
+		nodeName:                           nodeName,
+		kernels:                            hashmap.NewCornelkMap[string, *client.KernelReplicaClient](128),
+		kernelClientCreationChannels:       hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](128),
+		kernelDebugPorts:                   hashmap.NewCornelkMap[string, int](256),
+		availablePorts:                     utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
+		closed:                             make(chan struct{}),
+		cleaned:                            make(chan struct{}),
+		kernelRegistryPort:                 kernelRegistryPort,
+		smrPort:                            schedulerDaemonOptions.SMRPort,
+		virtualGpuPluginServer:             virtualGpuPluginServer,
+		deploymentMode:                     types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
+		hdfsNameNodeEndpoint:               schedulerDaemonOptions.HdfsNameNodeEndpoint,
+		dockerStorageBase:                  schedulerDaemonOptions.DockerStorageBase,
+		usingWSL:                           schedulerDaemonOptions.UsingWSL,
+		prometheusInterval:                 time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
+		prometheusPort:                     schedulerDaemonOptions.PrometheusPort,
+		numResendAttempts:                  schedulerDaemonOptions.NumResendAttempts,
+		runKernelsInGdb:                    schedulerDaemonOptions.RunKernelsInGdb,
+		outgoingExecuteRequestQueue:        hashmap.NewCornelkMap[string, chan *enqueuedExecuteRequestMessage](128),
+		outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
+		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
 	}
 
 	for _, configFunc := range configs {
@@ -703,6 +731,15 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			// TODO: Handle this more gracefully.
 			return
 		}
+
+		// Buffered so we don't get stuck sending a "stop" notification to a goroutine that is processed an "execute_request" message.
+		executeRequestStopChan := make(chan interface{}, 1)
+		executeRequestQueue := make(chan *enqueuedExecuteRequestMessage, DefaultExecuteRequestQueueSize)
+		d.outgoingExecuteRequestQueue.Store(kernelReplicaSpec.Kernel.Id, executeRequestQueue)
+		d.outgoingExecuteRequestQueueMutexes.Store(kernelReplicaSpec.Kernel.Id, &sync.Mutex{})
+		d.executeRequestQueueStopChannels.Store(kernelReplicaSpec.Kernel.Id, executeRequestStopChan)
+
+		go d.executeRequestForwarder(executeRequestQueue, executeRequestStopChan, kernel)
 	} else {
 		kernelClientCreationChannel, loaded = d.kernelClientCreationChannels.Load(kernelReplicaSpec.Kernel.Id)
 		if !loaded {
@@ -1439,6 +1476,15 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, invocationError
 	}
 
+	// Buffered so we don't get stuck sending a "stop" notification to a goroutine that is processed an "execute_request" message.
+	executeRequestStopChan := make(chan interface{}, 1)
+	executeRequestQueue := make(chan *enqueuedExecuteRequestMessage, DefaultExecuteRequestQueueSize)
+	d.outgoingExecuteRequestQueue.Store(in.Kernel.Id, executeRequestQueue)
+	d.outgoingExecuteRequestQueueMutexes.Store(in.Kernel.Id, &sync.Mutex{})
+	d.executeRequestQueueStopChannels.Store(in.Kernel.Id, executeRequestStopChan)
+
+	go d.executeRequestForwarder(executeRequestQueue, executeRequestStopChan, kernel)
+
 	// Notify that the kernel client has been set up successfully.
 	kernelClientCreationChannel <- info
 
@@ -1522,6 +1568,16 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 			kernel.ReplicaID(), in.Id, err)
 		return nil, err
 	}
+
+	stopChan, loaded := d.executeRequestQueueStopChannels.Load(kernel.ID())
+	if !loaded {
+		d.log.Error("Unable to load \"stop channel\" for \"execute_request\" forwarder of replica %d of kernel %s",
+			kernel.ReplicaID(), kernel.ID())
+	} else {
+		// Tell the goroutine to stop.
+		stopChan <- struct{}{}
+	}
+
 	//_ = d.resourceManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
 	//_ = d.resourceManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
 
@@ -1732,15 +1788,23 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 		return domain.ErrKernelNotReady
 	}
 
-	// d.log.Debug("Shell message with %d frame(s) is targeting replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
-
 	// TODO(Ben): We'll inspect here to determine if the message is an execute_request.
 	// If it is, then we'll see if we have enough resources for the kernel to (potentially) execute the code.
 	// If not, we'll change the message's header to "yield_execute".
 	// If the message is an execute_request message, then we have some processing to do on it.
 	if msg.JupyterMessageType() == domain.ShellExecuteRequest {
-		msg = d.processExecuteRequest(msg, kernel) // , header, offset)
-		d.log.Debug("Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
+		resultChan := d.enqueueExecuteRequest(msg, kernel)
+
+		// Wait for the result.
+		res := <-resultChan
+
+		// Return the result as an error or nil if there was no error.
+		switch v := res.(type) {
+		case error:
+			return v.(error)
+		case struct{}:
+			return nil
+		}
 	} else { // Print a message about forwarding generic shell message.
 		d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
 
@@ -1757,6 +1821,8 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 		}
 	}
 
+	// IMPORTANT NOTE: The code below the if-else-statement above is NOT executed for "execute_request"
+	// messages. Those are enqueued and processed separately to avoid resource allocation issues.
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, msg, d.kernelResponseForwarder, func() {
 		cancel()
@@ -1766,6 +1832,133 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 	}
 
 	return nil
+}
+
+// enqueueExecuteRequest enqueues a given types.JupyterMessage (which must be an "execute_request" message) for
+// submission to the target kernel. Messages are dequeued and submitted in a FCFS manner by a separate goroutine.
+//
+// The reason for this is that we need to process "execute_request" messages one-at-a-time to avoid resource allocation
+// issues, in which we try to allocate resources to the same kernel multiple times upon the submission of concurrent
+// "execute_request" messages, and/or to avoid starving other locally-running kernel replicas by keeping the same
+// resources allocated to the same kernel replicas all the time.
+//
+// This function returns a channel used to notify the caller when the message has been sent.
+//
+// Important note: if there are more concurrent execute_request messages sent than the capacity of the buffered
+// channel that serves as the message queue, then the FCFS ordering of the messages cannot be guaranteed. Specifically,
+// the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
+// a FCFS manner.)
+func (d *SchedulerDaemonImpl) enqueueExecuteRequest(executeRequestMessage *jupyter.JupyterMessage, kernel *client.KernelReplicaClient) <-chan interface{} {
+	msgType := executeRequestMessage.JupyterMessageType()
+	if msgType != domain.ShellExecuteRequest {
+		log.Fatalf("Cannot enqueue Jupyter message of type \"%s\" in outgoing \"execute_request\" queue of kernel \"%s\".",
+			msgType, kernel.ID())
+	}
+
+	mutex, loaded := d.outgoingExecuteRequestQueueMutexes.Load(kernel.ID())
+	if !loaded {
+		errorMessage := fmt.Sprintf("Could not find \"execute_request\" queue mutex for kernel \"%s\"", kernel.ID())
+		d.notifyClusterGatewayAndPanic(
+			"Could Not Find \"execute_request\" Queue Mutex", errorMessage, errorMessage)
+		return nil // We won't reach this line; we panic in the call to notifyClusterGatewayAndPanic.
+	}
+
+	// Begin transaction on the outgoing "execute_request" queue for the target kernel.
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	queue, loaded := d.outgoingExecuteRequestQueue.Load(kernel.ID())
+	if !loaded {
+		d.log.Warn("No \"execute_request\" queue found for replica %d of kernel %s. Creating one now.",
+			kernel.ReplicaID(), kernel.ID()) // Should already have been made when kernel replica was first created.
+		queue = make(chan *enqueuedExecuteRequestMessage, DefaultExecuteRequestQueueSize)
+		d.outgoingExecuteRequestQueue.Store(kernel.ID(), queue)
+	}
+
+	resultChan := make(chan interface{})
+
+	queueLength := float64(len(queue))
+	warningThreshold := 0.75 * float64(cap(queue))
+	if queueLength > warningThreshold {
+		// If the queue is quite full, then we'll print a warning.
+		// Once the queue is full, the order in which future requests are processed is no longer guaranteed.
+		// Specifically, the order in which new items are added to the queue is non-deterministic.
+		// (Once in the queue, requests will still be processed in a FCFS manner.)
+		d.log.Warn("Enqueuing outbound \"execute_request\" targeting replica %d of kernel %s. Queue is almost full: %d/%d.",
+			kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
+	} else {
+		d.log.Debug("Enqueuing outbound \"execute_request\" targeting replica %d of kernel %s. Queue size: %d/%d.",
+			kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
+	}
+
+	// This could conceivably block, which would be fine.
+	queue <- &enqueuedExecuteRequestMessage{
+		Msg:           executeRequestMessage,
+		ResultChannel: resultChan,
+		Kernel:        kernel,
+	}
+
+	return resultChan
+}
+
+// executeRequestForwarder forwards Jupyter "execute_request" messages to a particular kernel replica
+// in a FCFS (first come, first served) manner.
+//
+// executeRequestForwarder is meant to be called in its own goroutine.
+//
+// Important note: if there are more concurrent execute_request messages sent than the capacity of the buffered
+// channel that serves as the message queue, then the FCFS ordering of the messages cannot be guaranteed. Specifically,
+// the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
+// a FCFS manner.)
+func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecuteRequestMessage, stopChan chan interface{}, kernel *client.KernelReplicaClient) {
+	d.log.Debug("\"execute_request\" forwarder for replica %d of kernel %s has started running.", kernel.ReplicaID(), kernel.ID())
+	for {
+		select {
+		case enqueuedMessage := <-queue:
+			{
+				// Sanity check.
+				// Ensure that the message is meant for the same kernel replica that this thread is responsible for.
+				if enqueuedMessage.Kernel.ID() != kernel.ID() {
+					errorMessage := fmt.Sprintf("Found enqueued \"execute_request\" message with mismatched kernel ID. "+
+						"Enqueued message kernel ID: \"%s\". Expected kernel ID: \"%s\"",
+						enqueuedMessage.Kernel.ID(), kernel.ID())
+					d.notifyClusterGatewayAndPanic("Enqueued \"execute_request\" with Mismatched Kernel ID", errorMessage, errorMessage)
+					return // We'll panic before this line is executed.
+				} else if enqueuedMessage.Kernel.ReplicaID() != kernel.ReplicaID() {
+					errorMessage := fmt.Sprintf("Found enqueued \"execute_request\" message targeting kernel \"%s\" with mismatched replica ID. "+
+						"Enqueued message replica ID: %d. Expected replica ID: %d",
+						kernel.ID(), enqueuedMessage.Kernel.ReplicaID(), kernel.ReplicaID())
+					d.notifyClusterGatewayAndPanic("Enqueued \"execute_request\" with Mismatched Replica ID", errorMessage, errorMessage)
+					return // We'll panic before this line is executed.
+				}
+
+				// Process the message.
+				processedMessage := d.processExecuteRequest(enqueuedMessage.Msg, enqueuedMessage.Kernel) // , header, offset)
+				d.log.Debug("Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s",
+					len(processedMessage.Frames), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID(), processedMessage)
+
+				// Send the message and post the result back to the caller via the channel included within
+				// the enqueued "execute_request" message.
+				ctx, cancel := context.WithCancel(context.Background())
+				if err := enqueuedMessage.Kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, processedMessage, d.kernelResponseForwarder, func() {
+					cancel()
+					d.log.Debug("Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
+						processedMessage.JupyterMessageType(), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID())
+				}); err != nil {
+					// Send the error back to the caller.
+					enqueuedMessage.ResultChannel <- err
+				} else {
+					// General notification that we're done, and there was no error.
+					enqueuedMessage.ResultChannel <- struct{}{}
+				}
+			}
+		case <-stopChan:
+			{
+				d.log.Debug("\"execute_request\" forwarder for kernel %s has been instructed to stop.", kernel.ID())
+				return
+			}
+		}
+	}
 }
 
 // Deallocate the GPU resources associated with the kernel.
