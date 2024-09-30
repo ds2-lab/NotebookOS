@@ -267,16 +267,16 @@ class Synchronizer:
             self._log.debug("Synchronizer::Ready(YIELD): Done with proposal protocol for yield. Result: %d" % res)
             return res
 
-    async def sync(self, execution_ast, source: Optional[str] = None, checkpointer: Optional[Checkpointer] = None):
+    async def sync(self, execution_ast, source: Optional[str] = None, checkpointer: Optional[Checkpointer] = None)->bool:
         """
         Note: `execution_ast` may be None if the user's code had a syntax error.
         TODO(Ben): See what happens if there are other errors, such as dividing by zero or array out-of-bounds.
         """
         self._log.debug("Synchronizing execution AST: %s" % str(execution_ast))
-        synclog = self._synclog
+        sync_log = self._synclog
         checkpointing = checkpointer is not None
         if checkpointing:
-            synclog = checkpointer
+            sync_log = checkpointer
 
         try:
             sync_ast: Optional[SynchronizedValue]
@@ -307,12 +307,12 @@ class Synchronizer:
                 self._syncing = False
 
             self._log.debug("Appending value \"%s\" now." % str(sync_ast))
-            await synclog.append(sync_ast)
+            await sync_log.append(sync_ast)
             self._log.debug("Successfully appended value \"%s\"." % str(sync_ast))
             for key in keys:
                 synced = synced + 1
                 self._log.debug("Syncing key \"%s\" now." % key)
-                await self.sync_key(synclog, key, self.global_ns[key],
+                await self.sync_key(sync_log, key, self.global_ns[key],
                                     end_execution=synced == expected,
                                     checkpointing=checkpointing, meta=meta)
                 self._log.debug("Successfully synchronized key \"%s\"." % key)
@@ -323,13 +323,16 @@ class Synchronizer:
             tb = traceback.format_exc()
             self._log.error("SyncError: {}".format(se))
             self._log.error(tb)
-
+            return False
         except Exception as e:
             tb = traceback.format_exc()
             self._log.error("Exception Encountered: %s" % str(e))
             self._log.error(tb)
+            return False
 
-    async def sync_key(self, synclog, key, val, end_execution=False, checkpointing=False, meta=None):
+        return True
+
+    async def sync_key(self, sync_log, key, val, end_execution=False, checkpointing=False, meta=None):
         if key in self._tags:
             existed = self._tags[key]
         else:
@@ -349,7 +352,7 @@ class Synchronizer:
         if checkpointing:
             sync_val = existed.dump(meta=meta)
         else:
-            # On checkpointing, the syncobject must have been available in tags.
+            # On checkpointing, the SyncObject must have been available in tags.
             # Get start time of the execution.
             # start_time = time.time()
             sync_val = existed.diff(val, meta=meta)
@@ -368,20 +371,20 @@ class Synchronizer:
             sync_val.set_election_term(self._ast.execution_count)
             sync_val.set_key(key)
             sync_val.set_should_end_execution(end_execution)
-            await synclog.append(sync_val)
+            await sync_log.append(sync_val)
         elif end_execution:
             # Synthesize end
-            await synclog.append(
+            await sync_log.append(
                 SynchronizedValue(None, None, election_term=self._ast.execution_count, should_end_execution=True,
                                   key=KEY_SYNC_END))
 
-    def should_checkpoint_callback(self, synclog: SyncLog) -> bool:
+    def should_checkpoint_callback(self, sync_log: SyncLog) -> bool:
         cp = False
-        if self.execution_count < 2 or self._syncing or synclog.num_changes < MIN_CHECKPOINT_LOGS:
+        if self.execution_count < 2 or self._syncing or sync_log.num_changes < MIN_CHECKPOINT_LOGS:
             pass
         else:
-            cp = (((self._opts & CHECKPOINT_AUTO) > 0 and synclog.num_changes >= len(self._tags.keys())) or
-                  ((self._opts & CHECKPOINT_ON_CHANGE) > 0 and synclog.num_changes > 0))
+            cp = (((self._opts & CHECKPOINT_AUTO) > 0 and sync_log.num_changes >= len(self._tags.keys())) or
+                  ((self._opts & CHECKPOINT_ON_CHANGE) > 0 and sync_log.num_changes > 0))
         # self._log.debug("in should_checkpoint_callback: {}".format(cp))
         return cp
 

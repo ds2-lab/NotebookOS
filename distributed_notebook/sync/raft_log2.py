@@ -1120,9 +1120,9 @@ class RaftLog(object):
             self.logger.error(f"Exception while starting or restarting election {target_term_number}: {ex}")
             raise ex  # Just re-raise the exception.
 
-        if self._last_completed_election is not None and target_term_number <= self._leader_term:
+        if self._last_completed_election is not None and self._leader_term >= target_term_number:
             self.logger.error(
-                f"Current leader term {self._leader_term} > specified target term {target_term_number}...")
+                f"Current leader term {self._leader_term} >= specified target term {target_term_number}...")
             return False
 
             # The proposal's term number must match the specified target term number.

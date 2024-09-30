@@ -1455,6 +1455,124 @@ var ClusterDashboard_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	KernelErrorReporter_Notify_FullMethodName = "/gateway.KernelErrorReporter/Notify"
+)
+
+// KernelErrorReporterClient is the client API for KernelErrorReporter service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+//
+// Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+// If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+// gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+// be submitted to the Cluster Dashboard.
+type KernelErrorReporterClient interface {
+	// Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
+	Notify(ctx context.Context, in *KernelNotification, opts ...grpc.CallOption) (*Void, error)
+}
+
+type kernelErrorReporterClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewKernelErrorReporterClient(cc grpc.ClientConnInterface) KernelErrorReporterClient {
+	return &kernelErrorReporterClient{cc}
+}
+
+func (c *kernelErrorReporterClient) Notify(ctx context.Context, in *KernelNotification, opts ...grpc.CallOption) (*Void, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Void)
+	err := c.cc.Invoke(ctx, KernelErrorReporter_Notify_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// KernelErrorReporterServer is the server API for KernelErrorReporter service.
+// All implementations must embed UnimplementedKernelErrorReporterServer
+// for forward compatibility.
+//
+// KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+//
+// Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+// If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+// gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+// be submitted to the Cluster Dashboard.
+type KernelErrorReporterServer interface {
+	// Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
+	Notify(context.Context, *KernelNotification) (*Void, error)
+	mustEmbedUnimplementedKernelErrorReporterServer()
+}
+
+// UnimplementedKernelErrorReporterServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedKernelErrorReporterServer struct{}
+
+func (UnimplementedKernelErrorReporterServer) Notify(context.Context, *KernelNotification) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Notify not implemented")
+}
+func (UnimplementedKernelErrorReporterServer) mustEmbedUnimplementedKernelErrorReporterServer() {}
+func (UnimplementedKernelErrorReporterServer) testEmbeddedByValue()                             {}
+
+// UnsafeKernelErrorReporterServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to KernelErrorReporterServer will
+// result in compilation errors.
+type UnsafeKernelErrorReporterServer interface {
+	mustEmbedUnimplementedKernelErrorReporterServer()
+}
+
+func RegisterKernelErrorReporterServer(s grpc.ServiceRegistrar, srv KernelErrorReporterServer) {
+	// If the following call pancis, it indicates UnimplementedKernelErrorReporterServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&KernelErrorReporter_ServiceDesc, srv)
+}
+
+func _KernelErrorReporter_Notify_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(KernelNotification)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KernelErrorReporterServer).Notify(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KernelErrorReporter_Notify_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KernelErrorReporterServer).Notify(ctx, req.(*KernelNotification))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// KernelErrorReporter_ServiceDesc is the grpc.ServiceDesc for KernelErrorReporter service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var KernelErrorReporter_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "gateway.KernelErrorReporter",
+	HandlerType: (*KernelErrorReporterServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Notify",
+			Handler:    _KernelErrorReporter_Notify_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "common/proto/gateway.proto",
+}
+
+const (
 	LocalGateway_SetID_FullMethodName                    = "/gateway.LocalGateway/SetID"
 	LocalGateway_StartKernel_FullMethodName              = "/gateway.LocalGateway/StartKernel"
 	LocalGateway_StartKernelReplica_FullMethodName       = "/gateway.LocalGateway/StartKernelReplica"

@@ -16,17 +16,19 @@ import uuid
 from multiprocessing import Process, Queue
 from threading import Lock
 from typing import Union, Optional, Dict, Any
-from prometheus_client import start_http_server
 
-from prometheus_client import Counter, Gauge, Histogram
-
+import grpc
 import zmq
 from ipykernel import jsonutil
 from ipykernel.ipkernel import IPythonKernel
 from jupyter_client.jsonutil import extract_dates
+from prometheus_client import Counter, Histogram
+from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined
 
 from .util import extract_header
+from ..gateway import gateway_pb2
+from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.election import Election
 
@@ -54,6 +56,11 @@ def sigterm_handler(sig, frame):
     sys.stdout.flush()
     sys.exit(0)
 
+
+ErrorNotification: int = 0
+WarningNotification: int = 1
+InfoNotification: int = 2
+SuccessNotification: int = 3
 
 signal.signal(signal.SIGABRT, sigabrt_handler)
 signal.signal(signal.SIGINT, sigint_handler)
@@ -122,6 +129,14 @@ def tracefunc(frame, event, arg, indent: list[int] = [0]):
         print("<" + "-" * indent[0], "exit function", frame.f_code.co_name, flush=True)
         indent[0] -= 2
     return tracefunc
+
+
+def gen_error_response(err):
+    return {'status': 'error',
+            'ename': str(type(err).__name__),
+            'evalue': str(err),
+            'traceback': [],
+            }
 
 
 class DistributedKernel(IPythonKernel):
@@ -227,30 +242,42 @@ class DistributedKernel(IPythonKernel):
         self.prometheus_thread = None
         self.prometheus_server = None
         self.source = None
+        self.kernel_notification_service_channel: Optional[grpc.Channel] = None
+        self.kernel_notification_service_stub: Optional[KernelErrorReporterStub] = None
 
         # Prometheus metrics.
-        self.num_yield_proposals: Counter = Counter("kernel_yield_proposals_total", "Total number of 'YIELD' proposals.")
-        self.num_lead_proposals: Counter = Counter("kernel_lead_proposals_total", "Total number of 'LEAD' proposals.")
+        self.num_yield_proposals: Counter = Counter(
+            namespace="distributed_cluster",
+            name="kernel_yield_proposals_total",
+            documentation="Total number of 'YIELD' proposals.")
+        self.num_lead_proposals: Counter = Counter(
+            namespace="distributed_cluster",
+            name="kernel_lead_proposals_total",
+            documentation="Total number of 'LEAD' proposals.")
         self.hdfs_read_latency_milliseconds: Histogram = Histogram(
-            "kernel_hdfs_read_latency_milliseconds",
-            "The amount of time the kernel spent reading data from HDFS.",
-            unit = "milliseconds",
-            buckets = [1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+            namespace="distributed_cluster",
+            name="kernel_hdfs_read_latency_milliseconds",
+            documentation="The amount of time the kernel spent reading data from HDFS.",
+            unit="milliseconds",
+            buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
         self.hdfs_write_latency_milliseconds: Histogram = Histogram(
-            "kernel_hdfs_write_latency_milliseconds",
-            "The amount of time the kernel spent writing data to HDFS.",
-            unit = "milliseconds",
-            buckets = [1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+            namespace="distributed_cluster",
+            name="kernel_hdfs_write_latency_milliseconds",
+            documentation="The amount of time the kernel spent writing data to HDFS.",
+            unit="milliseconds",
+            buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
         self.registration_time_milliseconds: Histogram = Histogram(
-            "kernel_registration_latency_milliseconds",
-            "The amount of time taken for kernel replicas to register with their local daemon",
-            unit = "milliseconds",
-            buckets = [1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+            namespace="distributed_cluster",
+            name="kernel_registration_latency_milliseconds",
+            documentation="The latency of a new kernel replica registering with its Local Daemon.",
+            unit="milliseconds",
+            buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
         self.execute_request_latency: Histogram = Histogram(
-            "kernel_execute_request_latency_milliseconds",
-            "Execution time of the kernels' execute_request method in milliseconds.",
-            unit = "milliseconds",
-            buckets = [10, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3 , 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
+            namespace="distributed_cluster",
+            name="kernel_execute_request_latency_milliseconds",
+            documentation="Execution time of the kernels' execute_request method in milliseconds.",
+            unit="milliseconds",
+            buckets=[10, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
@@ -376,6 +403,8 @@ class DistributedKernel(IPythonKernel):
         # TODO: Remove this after finish debugging the ACK stuff.
         # self.auth = None
 
+        self.prometheus_server, self.prometheus_thread = start_http_server(8089)
+
     def __init_tcp_server(self):
         self.local_tcp_server_queue: Queue = Queue()
         self.local_tcp_server_process: Process = Process(target=self.server_process,
@@ -411,9 +440,6 @@ class DistributedKernel(IPythonKernel):
             conn.close()
 
             # config_info:dict,
-
-    def initialize_prometheus_metrics(self):
-        self.prometheus_server, self.prometheus_thread = start_http_server(8000)
 
     def register_with_local_daemon(self, connection_info: dict, session_id: str):
         self.log.info("Registering with local daemon now.")
@@ -532,6 +558,23 @@ class DistributedKernel(IPythonKernel):
         assert (self.smr_nodes_map[self.smr_node_id] == (
                 self.hostname + ":" + str(self.smr_port)))
 
+        grpc_port: int = response_dict.get("grpc_port", -1)
+        if grpc_port == -1:
+            self.log.error("Received -1 for gRPC port from registration payload.")
+            exit(1)
+
+        # Establish gRPC connection with Local Daemon so that we can send notifications if/when errors occur.
+        self.kernel_notification_service_channel = grpc.insecure_channel(f"{local_daemon_service_name}:{grpc_port}")
+        self.kernel_notification_service_stub = KernelErrorReporterStub(self.kernel_notification_service_channel)
+
+        # self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+        #     title="Kernel Replica Registered with Local Daemon",
+        #     message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has registered with its Local Daemon.",
+        #     notificationType=InfoNotification,
+        #     kernelId=self.kernel_id,
+        #     replicaId=self.smr_node_id,
+        # ))
+
         self.daemon_registration_socket.close()
 
     def start(self):
@@ -584,6 +627,13 @@ class DistributedKernel(IPythonKernel):
             msg_deserialized = self.session.deserialize(msg_without_idents, content=False, copy=False)
         except Exception as ex:
             self.log.error(f"Received invalid SHELL message: {ex}")  # noqa: G201
+            self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+                title="Kernel Replica Received an Invalid Shell Message",
+                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid shell message: {ex}.",
+                notificationType=ErrorNotification,
+                kernelId=self.kernel_id,
+                replicaId=self.smr_node_id,
+            ))
 
             minlen = 5
             msg_list = t.cast(t.List[zmq.Message], msg)
@@ -660,6 +710,13 @@ class DistributedKernel(IPythonKernel):
             msg = self.session.deserialize(msg, content=True, copy=False)
         except Exception as ex:
             self.log.error(f"Received invalid CONTROL message: {ex}")  # noqa: G201
+            self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+                title="Kernel Replica Received an Invalid Control Message",
+                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid control message: {ex}.",
+                notificationType=ErrorNotification,
+                kernelId=self.kernel_id,
+                replicaId=self.smr_node_id,
+            ))
 
             minlen = 5
             msg_list = t.cast(t.List[zmq.Message], msg)
@@ -771,7 +828,7 @@ class DistributedKernel(IPythonKernel):
                 "Exception encountered during code execution: %s" % str(e))
 
             self.shell.execution_count = execution_count  # type: ignore
-            err_rsp = self.gen_error_response(e)
+            err_rsp = gen_error_response(e)
 
             assert isinstance(self.store, asyncio.Future)
             self.store.set_result(err_rsp)
@@ -956,6 +1013,13 @@ class DistributedKernel(IPythonKernel):
             silent = content.get("silent", False)
         except Exception as ex:
             self.log.error(f"Got bad msg: {parent}. Exception: {ex}")
+            self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+                title="Kernel Replica Received an Invalid \"yield_execute\" Message",
+                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid \"yield_execute\" message: {ex}.",
+                notificationType=ErrorNotification,
+                kernelId=self.kernel_id,
+                replicaId=self.smr_node_id,
+            ))
             return
 
         stop_on_error = content.get("stop_on_error", True)
@@ -997,7 +1061,7 @@ class DistributedKernel(IPythonKernel):
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
-                reply_content: dict[str, Any] = self.gen_error_response(err_failed_to_lead_execution)
+                reply_content: dict[str, Any] = gen_error_response(err_failed_to_lead_execution)
                 # reply_content['yield-reason'] = TODO(Ben): Add this once I figure out how to extract it from the message payloads.
             else:
                 self.log.error(
@@ -1008,7 +1072,7 @@ class DistributedKernel(IPythonKernel):
                                   {"term": self.synchronizer.execution_count + 1}, ident=self._topic(SMR_LEAD_TASK))
         except Exception as e:
             self.log.error(f"Error while yielding execution for term {current_term_number}: {e}")
-            reply_content = self.gen_error_response(e)
+            reply_content = gen_error_response(e)
             error_occurred = True
 
             # Flush output before sending the reply.
@@ -1164,9 +1228,21 @@ class DistributedKernel(IPythonKernel):
 
             # Synchronize
             coro = self.synchronizer.sync(self.execution_ast, self.source)
+
             self.execution_ast = None
             self.source = None
-            await coro
+
+            try:
+                await coro
+            except Exception as ex:
+                self.log.error(f"Synchronization failed: {ex}")
+                self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+                    title="Synchronization Error",
+                    message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has experienced a synchronization error: {ex}.",
+                    notificationType=ErrorNotification,
+                    kernelId=self.kernel_id,
+                    replicaId=self.smr_node_id,
+                ))
 
             assert self.execution_count is not None
             self.log.info("Synchronized. End of sync execution: {}".format(self.execution_count - 1))
@@ -1187,11 +1263,11 @@ class DistributedKernel(IPythonKernel):
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
 
-            return self.gen_error_response(eye)
+            return gen_error_response(eye)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
 
-            return self.gen_error_response(e)
+            return gen_error_response(e)
 
     async def do_shutdown(self, restart):
         self.log.info("Replica %d of kernel %s is shutting down.",
@@ -1216,7 +1292,7 @@ class DistributedKernel(IPythonKernel):
             except Exception as ex:
                 self.log.error(
                     "Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
-                return self.gen_error_response(ex), False
+                return gen_error_response(ex), False
 
             if not self.synclog_stopped:
                 self.log.info(
@@ -1287,7 +1363,7 @@ class DistributedKernel(IPythonKernel):
             # Attempt to close the HDFS client.
             self.synclog.closeHdfsClient()
 
-            return self.gen_error_response(e), False
+            return gen_error_response(e), False
 
         # Step 2: copy the data directory to HDFS
         try:
@@ -1310,7 +1386,7 @@ class DistributedKernel(IPythonKernel):
             # Attempt to close the HDFS client.
             self.synclog.closeHdfsClient()
 
-            return self.gen_error_response(e), False
+            return gen_error_response(e), False
 
         try:
             self.synclog.closeHdfsClient()
@@ -1380,7 +1456,7 @@ class DistributedKernel(IPythonKernel):
     async def do_add_replica(self, id, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""
         if not await self.check_persistent_store():
-            return self.gen_error_response(err_wait_persistent_store), False
+            return gen_error_response(err_wait_persistent_store), False
 
         self.log.info("Adding replica %d at addr %s now.", id, addr)
 
@@ -1392,7 +1468,7 @@ class DistributedKernel(IPythonKernel):
             return {'status': 'ok'}, True
         except Exception as e:
             self.log.error("A replica fails to join: {}...".format(e))
-            return self.gen_error_response(e), False
+            return gen_error_response(e), False
 
     # customized control message handlers
     async def add_replica_request(self, stream, ident, parent):
@@ -1409,7 +1485,7 @@ class DistributedKernel(IPythonKernel):
                 await self.persistent_store_cv.wait()
 
         if 'id' not in params or 'addr' not in params:
-            err_content: dict = self.gen_error_response(err_invalid_request)
+            err_content: dict = gen_error_response(err_invalid_request)
             self.session.send(stream, "add_replica_reply", err_content, parent, ident=ident)
             return
 
@@ -1438,7 +1514,7 @@ class DistributedKernel(IPythonKernel):
         For example, its attempt number(s) for the current term will be starting over.
         """
         if not await self.check_persistent_store():
-            return self.gen_error_response(err_wait_persistent_store), False
+            return gen_error_response(err_wait_persistent_store), False
 
         self.log.info("Updating replica %d with new addr %s now.", id, addr)
 
@@ -1450,7 +1526,7 @@ class DistributedKernel(IPythonKernel):
             return {'status': 'ok'}, True
         except Exception as e:
             self.log.error("Failed to update replica: {}...".format(e))
-            return self.gen_error_response(e), False
+            return gen_error_response(e), False
 
     async def update_replica_request(self, stream, ident, parent):
         """Update a replica to have a new address"""
@@ -1466,7 +1542,7 @@ class DistributedKernel(IPythonKernel):
                 await self.persistent_store_cv.wait()
 
         if 'id' not in params or 'addr' not in params:
-            return self.gen_error_response(err_invalid_request)
+            return gen_error_response(err_invalid_request)
 
         val = self.do_update_replica(params['id'], params['addr'])
         if inspect.isawaitable(val):
@@ -1495,10 +1571,17 @@ class DistributedKernel(IPythonKernel):
         Send an error report/message to our local daemon via our IOPub socket.
         """
         self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now...")
-        err_msg = self.session.send(self.iopub_socket, "error_report",
-                                    {"error": error_title, "message": error_message, "kernel_id": self.kernel_id},
-                                    ident=self._topic("error_report"))
-        self.log.debug(f"Sent 'error_report' message: {str(err_msg)}")
+        # err_msg = self.session.send(self.iopub_socket, "error_report",
+        #                             {"error": error_title, "message": error_message, "kernel_id": self.kernel_id},
+        #                             ident=self._topic("error_report"))
+        # self.log.debug(f"Sent 'error_report' message: {str(err_msg)}")
+        self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+            title=error_title,
+            message=error_message,
+            notificationType=ErrorNotification,
+            kernelId=self.kernel_id,
+            replicaId=self.smr_node_id,
+        ))
 
     def gen_simple_response(self, execution_count=0):
         return {'status': 'ok',
@@ -1506,13 +1589,6 @@ class DistributedKernel(IPythonKernel):
                 'execution_count': self.execution_count,
                 'payload': [],
                 'user_expressions': {},
-                }
-
-    def gen_error_response(self, err):
-        return {'status': 'error',
-                'ename': str(type(err).__name__),
-                'evalue': str(err),
-                'traceback': [],
                 }
 
     async def override_shell(self, store_path):

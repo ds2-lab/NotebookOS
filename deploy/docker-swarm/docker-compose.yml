@@ -84,6 +84,7 @@ services:
     ports:
       - "8500:8500"
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./prometheus:/etc/prometheus
       - prometheus_data:/prometheus/data
     command:
@@ -92,7 +93,7 @@ services:
     image: prom/prometheus:main
     container_name: prometheus
     restart: unless-stopped
-    user: "1000:1000"
+    user: 0:0
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

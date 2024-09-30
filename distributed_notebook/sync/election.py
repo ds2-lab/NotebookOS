@@ -148,6 +148,11 @@ class Election(object):
         del state["_pick_and_propose_winner_future"]
         del state["election_finished_condition"]
         del state["election_finished_condition_waiter_loop"]
+
+        self.logger.debug(f"Returning state dictionary containing {len(state)} entries:")
+        for key, val in state.items():
+            self.logger.debug(f"\"{key}\": {type(val).__name__}")
+
         return state
 
     def __setstate__(self, state):

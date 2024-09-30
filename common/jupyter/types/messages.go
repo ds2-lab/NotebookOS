@@ -19,7 +19,7 @@ const (
 
 	ErrorNotification   NotificationType = 0
 	WarningNotification NotificationType = 1
-	InfoNotfication     NotificationType = 2
+	InfoNotification    NotificationType = 2
 	SuccessNotification NotificationType = 3
 
 	JavascriptISOString = "2006-01-02T15:04:05.999Z07:00"

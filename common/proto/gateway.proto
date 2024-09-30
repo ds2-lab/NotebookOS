@@ -59,13 +59,13 @@ service DistributedCluster {
   rpc ListKernels(Void) returns (ListKernelsResponse) {}
 
   // Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
-    rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
+  rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
 
   // Return the current GPU resource metrics on the node.
-    rpc GetClusterActualGpuInfo(Void) returns (ClusterActualGpuInfo) {}
+  rpc GetClusterActualGpuInfo(Void) returns (ClusterActualGpuInfo) {}
 
   // Return the current vGPU (or "deflated GPU") resource metrics on the node.
-    rpc GetClusterVirtualGpuInfo(Void) returns (ClusterVirtualGpuInfo) {}
+  rpc GetClusterVirtualGpuInfo(Void) returns (ClusterVirtualGpuInfo) {}
 
   // MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
   // Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
@@ -410,6 +410,27 @@ message HostId {
   string nodeName = 2; // The name of the Kubernetes node that the Host is running on.
 }
 
+// KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+//
+// Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+// If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+// gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+// be submitted to the Cluster Dashboard.
+service KernelErrorReporter {
+  // Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
+  rpc Notify(KernelNotification) returns (Void) {}
+}
+
+// KernelNotification is very similar to Notification, but it also includes fields to specify the replica ID and
+// kernel ID of the kernel sending the notification.
+message KernelNotification {
+  string title = 1;
+  string message = 2;
+  int32 notificationType = 3;
+  string kernelId = 4;
+  int32 replicaId = 5;
+}
+
 // The Jupyter gateway service for host local kernels.
 service LocalGateway {
   // SetID sets the local gateway id and return old id for failure tolerance.
@@ -470,7 +491,7 @@ service LocalGateway {
 
   // Return the current vGPU allocations on this node.
   // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
-   rpc GetVirtualGpuAllocations(Void) returns (VirtualGpuAllocations) {}
+  rpc GetVirtualGpuAllocations(Void) returns (VirtualGpuAllocations) {}
 
   // Ensure that the next 'execute_request' for the specified kernel fails.
   // This is to be used exclusively for testing/debugging purposes.

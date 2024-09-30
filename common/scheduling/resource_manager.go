@@ -913,8 +913,8 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 	// the ReleaseCommittedResources method.
 	m.unsafeReleaseCommittedResources(allocation, nil)
 
-	m.log.Debug("Attempting to release the following committed resources from replica %d of kernel %s: %v",
-		replicaId, kernelId, allocation.ToSpecString())
+	m.log.Debug("Attempting to release the following committed resources from replica %d of kernel %s: %v. Current committed resource counts: %v.",
+		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.committedResources.String())
 
 	// Finally, we'll update the ResourceAllocation struct associated with this request.
 	// This involves updating its AllocationType field to be PendingAllocation.
@@ -923,8 +923,8 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 	// allocations.
 	m.unsafeDemoteCommittedAllocationToPendingAllocation(allocation)
 
-	m.log.Debug("Successfully released the following (previously) committed resources to replica %d of kernel %s: %v",
-		replicaId, kernelId, allocation.ToSpecString())
+	m.log.Debug("Successfully released the following (previously) committed resources to replica %d of kernel %s: %v. Updated committed resource counts: %v.",
+		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.committedResources.String())
 
 	// Update Prometheus metrics.
 	// m.resourceMetricsCallback(m.resourcesWrapper)

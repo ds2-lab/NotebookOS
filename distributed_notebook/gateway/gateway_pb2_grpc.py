@@ -1439,6 +1439,97 @@ class ClusterDashboard(object):
             _registered_method=True)
 
 
+class KernelErrorReporterStub(object):
+    """KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+
+    Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+    If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+    gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+    be submitted to the Cluster Dashboard.
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.Notify = channel.unary_unary(
+                '/gateway.KernelErrorReporter/Notify',
+                request_serializer=gateway__pb2.KernelNotification.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
+
+
+class KernelErrorReporterServicer(object):
+    """KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+
+    Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+    If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+    gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+    be submitted to the Cluster Dashboard.
+    """
+
+    def Notify(self, request, context):
+        """Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_KernelErrorReporterServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'Notify': grpc.unary_unary_rpc_method_handler(
+                    servicer.Notify,
+                    request_deserializer=gateway__pb2.KernelNotification.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'gateway.KernelErrorReporter', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('gateway.KernelErrorReporter', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class KernelErrorReporter(object):
+    """KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+
+    Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+    If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+    gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+    be submitted to the Cluster Dashboard.
+    """
+
+    @staticmethod
+    def Notify(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.KernelErrorReporter/Notify',
+            gateway__pb2.KernelNotification.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+
 class LocalGatewayStub(object):
     """The Jupyter gateway service for host local kernels.
     """

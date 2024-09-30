@@ -1045,7 +1045,7 @@ func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, mess
 		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
 			Title:            notificationName,
 			Message:          message,
-			NotificationType: int32(jupyter.InfoNotfication),
+			NotificationType: int32(jupyter.InfoNotification),
 		})
 
 		if err != nil {
@@ -1917,7 +1917,7 @@ func (d *ClusterGatewayImpl) SpoofNotifications(_ context.Context, _ *proto.Void
 	go func() {
 		d.notifyDashboard("Spoofed Error", "This is a made-up error message sent by the internalCluster Gateway.", jupyter.ErrorNotification)
 		d.notifyDashboard("Spoofed Warning", "This is a made-up warning message sent by the internalCluster Gateway.", jupyter.WarningNotification)
-		d.notifyDashboard("Spoofed Info Notification", "This is a made-up 'info' message sent by the internalCluster Gateway.", jupyter.InfoNotfication)
+		d.notifyDashboard("Spoofed Info Notification", "This is a made-up 'info' message sent by the internalCluster Gateway.", jupyter.InfoNotification)
 		d.notifyDashboard("Spoofed Success Notification", "This is a made-up 'success' message sent by the internalCluster Gateway.", jupyter.SuccessNotification)
 	}()
 

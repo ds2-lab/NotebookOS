@@ -150,8 +150,9 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 
 	// Initialize grpc server
 	srv := grpc.NewServer(gOpts...)
-	scheduler := New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort, devicePluginServer, nodeName)
+	scheduler := New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort, options.Port, devicePluginServer, nodeName)
 	proto.RegisterLocalGatewayServer(srv, scheduler)
+	proto.RegisterKernelErrorReporterServer(srv, scheduler)
 
 	// Initialize gRPC listener
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
@@ -166,11 +167,13 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	var numAttempts = 1
 	var provConn net.Conn
 	for !connectedToProvisioner && time.Since(start) < (time.Minute*1) {
-		globalLogger.Debug("Attempt #%d to connect to Provisioner (Gateway) at %s. Connection timeout: %v.", numAttempts, options.ProvisionerAddr, connectionTimeout)
+		globalLogger.Debug("Attempt #%d to connect to Provisioner (Gateway) at %s. Connection timeout: %v.",
+			numAttempts, options.ProvisionerAddr, connectionTimeout)
 		provConn, err = net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
 
 		if err != nil {
-			globalLogger.Warn("Failed to connect to provisioner at %s on attempt #%d: %v", options.ProvisionerAddr, numAttempts, err)
+			globalLogger.Warn("Failed to connect to provisioner at %s on attempt #%d: %v",
+				options.ProvisionerAddr, numAttempts, err)
 			numAttempts += 1
 			time.Sleep(time.Second * 3)
 		} else {
@@ -180,7 +183,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 
 	// Initialize connection to the provisioner
 	if !connectedToProvisioner {
-		lis.Close()
+		_ = lis.Close()
 		log.Fatalf("Failed to connect to provisioner after %d attempt(s). Most recent error: %v", numAttempts, err)
 	}
 

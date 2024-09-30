@@ -83,6 +83,7 @@ type SchedulerDaemonImpl struct {
 
 	schedulingPolicy string
 	proto.UnimplementedLocalGatewayServer
+	proto.UnimplementedKernelErrorReporterServer
 	router *router.Router
 
 	// Options
@@ -163,6 +164,9 @@ type SchedulerDaemonImpl struct {
 	// If true, then the kernels will be executed within GDB.
 	runKernelsInGdb bool
 
+	// kernelErrorReporterServerPort is the port on which the proto.KernelErrorReporterServer gRPC service is listening.
+	kernelErrorReporterServerPort int
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -189,7 +193,7 @@ type KernelRegistrationClient struct {
 	conn net.Conn
 }
 
-func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *domain.SchedulerDaemonOptions, kernelRegistryPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...domain.SchedulerDaemonConfig) *SchedulerDaemonImpl {
+func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *domain.SchedulerDaemonOptions, kernelRegistryPort int, kernelErrorReporterServerPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...domain.SchedulerDaemonConfig) *SchedulerDaemonImpl {
 	ip := os.Getenv("POD_IP")
 
 	daemon := &SchedulerDaemonImpl{
@@ -204,6 +208,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		closed:                             make(chan struct{}),
 		cleaned:                            make(chan struct{}),
 		kernelRegistryPort:                 kernelRegistryPort,
+		kernelErrorReporterServerPort:      kernelErrorReporterServerPort,
 		smrPort:                            schedulerDaemonOptions.SMRPort,
 		virtualGpuPluginServer:             virtualGpuPluginServer,
 		deploymentMode:                     types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
@@ -874,6 +879,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		"replicas":    response.Replicas,
 		"debug_port":  kernelDebugPort,
 		"status":      "ok",
+		"grpc_port":   d.kernelErrorReporterServerPort,
 	}
 
 	if response.PersistentId != nil && response.GetPersistentId() != "" {
@@ -2031,7 +2037,8 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		// Again, if the error is non-nil, that doesn't necessarily mean the system is in an error state.
 		// There are cases where we'll have told the replica to yield and did not reserve any resources for it.
 		// These are described in greater detail in the comment(s) above.
-		d.log.Debug("Successfully released committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
+		d.log.Debug("Successfully released committed resources from replica %d of kernel %s.",
+			kernelClient.ReplicaID(), kernel.ID())
 	}
 
 	if shouldCallTrainingStopped {
@@ -2529,6 +2536,27 @@ func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames
 	})
 
 	return nil
+}
+
+// Notify is an implementation of the proto.KernelErrorReporterServer gRPC interface. Specifically, Notify is used
+// by Jupyter kernel replicas running on the same scheduling.Host as this Local Daemon to notify when something occurs.
+// Typically, this API is used to inform the Local Daemon that an error has occurred, so that the Local Daemon can
+// in turn notify the Cluster Gateway, which can then send a notification to the Cluster Dashboard UI to inform the user.
+func (d *SchedulerDaemonImpl) Notify(ctx context.Context, notification *proto.KernelNotification) (*proto.Void, error) {
+	if notification.NotificationType == 0 {
+		d.log.Warn("Received error notification from replica %d of kernel %s. Title: %s. Message: %s.",
+			notification.ReplicaId, notification.KernelId, notification.Title, notification.Message)
+	} else {
+		d.log.Debug("Received notification from replica %d of kernel %s. Title: %s. Message: %s.",
+			notification.ReplicaId, notification.KernelId, notification.Title, notification.Message)
+	}
+
+	return d.provisioner.Notify(ctx, &proto.Notification{
+		Title:            notification.Title,
+		Message:          notification.Message,
+		NotificationType: notification.NotificationType,
+		Panicked:         false,
+	})
 }
 
 // notifyClusterGatewayOfError calls the internalCluster Gateway's 'Notify' gRPC method.

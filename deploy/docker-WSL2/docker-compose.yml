@@ -122,6 +122,7 @@ services:
     volumes:
       - ./prometheus:/etc/prometheus
       - prometheus_data:/prometheus/data
+      - /var/run/docker.sock:/var/run/docker.sock
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.listen-address=0.0.0.0:8500
@@ -129,7 +130,7 @@ services:
     image: prom/prometheus:main
     container_name: prometheus
     restart: unless-stopped
-    user: "1000:1000"
+    user: 0:0
     depends_on:
       init-prometheus:
         condition: service_completed_successfully
