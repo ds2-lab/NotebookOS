@@ -259,21 +259,6 @@ func (c *Container) ScaleOutPriority() float64 {
 func TrainingStartedInContainer[T types.ArbitraryResourceSnapshot](c *Container, snapshot types.HostResourceSnapshot[T]) error {
 	c.lastSpec = c.spec
 
-	// Update resource data on the Host.
-	// TODO: Should these just be updated either via "pushes" from the Local Daemon or "pulls" by the Cluster Gateway?
-	//outstandingResourcesAsDecimalSpec := types.ToDecimalSpec(c.outstandingResources)
-	//if err := c.host.SubtractFromPendingResources(outstandingResourcesAsDecimalSpec); err != nil {
-	//	return err
-	//}
-	//
-	//if err := c.host.SubtractFromIdleResources(outstandingResourcesAsDecimalSpec); err != nil {
-	//	return err
-	//}
-	//
-	//if err := c.host.AddToCommittedResources(outstandingResourcesAsDecimalSpec); err != nil {
-	//	return err
-	//}
-
 	if snapshot != nil {
 		err := ApplyResourceSnapshotToHost[T](c.host, snapshot)
 		if err != nil {
@@ -305,18 +290,24 @@ func TrainingStartedInContainer[T types.ArbitraryResourceSnapshot](c *Container,
 	return nil
 }
 
-// TrainingStopped should be called when the Container stops training.
-func (c *Container) TrainingStopped(snapshot types.HostResourceSnapshot[*ResourceSnapshot]) error {
+// ContainerStoppedTraining should be called when the Container stops training.
+//
+// This should be called by the Session's SessionStoppedTraining method.
+func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, snapshot types.HostResourceSnapshot[T]) error {
 	if err := c.transition(ContainerStateIdle); err != nil {
 		c.log.Error("Failed to transition Container to state %v because: %v", ContainerStateIdle, err)
 		return err
 	}
 
 	c.log.Debug("Training stopping. Outputting resources before training officially stops.")
-	c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
-	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs())
-	c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs())
-	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs())
+	c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
+		c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
+	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
+		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs())
+	c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
+		c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs())
+	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
+		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs())
 
 	c.outstandingResources = &types.Float64Spec{
 		GPUs:      types.GPUSpec(c.spec.GPU()),
@@ -326,51 +317,23 @@ func (c *Container) TrainingStopped(snapshot types.HostResourceSnapshot[*Resourc
 	c.spec = c.lastSpec
 
 	if snapshot != nil {
-		err := ApplyResourceSnapshotToHost[*ResourceSnapshot](c.host, snapshot)
+		err := ApplyResourceSnapshotToHost[T](c.host, snapshot)
 		if err != nil {
 			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
+		} else {
+			c.log.Debug("Training stopped. Outputting resources now that training has officially stopped.")
+			c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
+				c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
+			c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
+				c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs())
+			c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
+				c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs())
+			c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
+				c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs())
 		}
 	} else {
 		c.log.Warn("Received nil ResourceSnapshot. This should only happen if we're about to be terminated.")
 	}
-
-	// If we encounter errors while updating our Host's resources, then we'll force a synchronization of the Host's
-	// resources with its remote node now.
-	//var errorEncountered bool
-
-	//outstandingResourcesAsDecimalSpec := types.ToDecimalSpec(c.outstandingResources)
-	//if err := c.host.AddToPendingResources(outstandingResourcesAsDecimalSpec); err != nil {
-	//	c.log.Warn("Could not increment pending resources while stopping training because: %v", err)
-	//	errorEncountered = true
-	//}
-	//
-	//if err := c.host.AddToIdleResources(outstandingResourcesAsDecimalSpec); err != nil {
-	//	c.log.Warn("Could not increment idle resources while stopping training because: %v", err)
-	//	errorEncountered = true
-	//}
-	//
-	//if err := c.host.SubtractFromCommittedResources(outstandingResourcesAsDecimalSpec); err != nil {
-	//	c.log.Warn("Could not decrement committed resources while stopping training because: %v", err)
-	//	errorEncountered = true
-	//}
-
-	//if errorEncountered {
-	//	c.log.Debug("Host's resource info is too out-of-date. Forcibly refreshing now.")
-	//
-	//	err := c.host.SynchronizeResourceInformation()
-	//	if err != nil {
-	//		c.log.Error("Failed to forcibly synchronize Host's resource info because: %v", err)
-	//		return err
-	//	}
-	//
-	//	c.log.Debug("Successfully forced synchronization of Host's resource info.")
-	//}
-
-	c.log.Debug("Training stopped. Outputting resources now that training has officially stopped.")
-	c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
-	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs())
-	c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs())
-	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.", c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs())
 
 	return nil
 }

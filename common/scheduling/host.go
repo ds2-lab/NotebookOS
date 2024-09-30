@@ -610,14 +610,10 @@ func (h *Host) ContainerRemoved(container *Container) error {
 	h.pendingContainers.Sub(1)
 
 	if err := h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources)); err != nil {
-		h.log.Error("Could not cleanly remove Container %s from Host %s due to resource-related issue: %v",
+		h.log.Warn("Could not cleanly remove Container %s from Host %s due to resource-related issue: %v",
 			container.ContainerID(), h.ID, err)
 		return err
 	}
-
-	//h.pendingCPUs.Sub(container.OutstandingResources().CPU())
-	//h.pendingMemoryMb.Sub(container.OutstandingResources().MemoryMB())
-	//h.pendingGPUs.Sub(container.OutstandingResources().GPU())
 
 	h.log.Debug("Container %s was removed from Host %s.", container.String(), h.ID)
 

@@ -208,6 +208,12 @@ func (c *DistributedKernelClient) ActiveExecution() *scheduling.ActiveExecution 
 	return c.activeExecution
 }
 
+// GetActiveExecutionByExecuteRequestMsgId returns a pointer to the scheduling.ActiveExecution struct corresponding
+// to the Jupyter "execute_request" message with the given Jupyter message ID, if one exists.
+func (c *DistributedKernelClient) GetActiveExecutionByExecuteRequestMsgId(msgId string) (*scheduling.ActiveExecution, bool) {
+	return c.activeExecutionsByExecuteRequestMsgId.Load(msgId)
+}
+
 func (c *DistributedKernelClient) headerFromFrames(frames [][]byte) (*types.MessageHeader, error) {
 	jFrames := types.JupyterFrames(frames)
 	if err := jFrames.Validate(); err != nil {
@@ -241,7 +247,7 @@ func (c *DistributedKernelClient) SetActiveExecution(activeExecution *scheduling
 }
 
 // ExecutionComplete sets the current ActiveExecution to nil, or possibly to the next ActiveExecution in the queue,
-// if the queue is non-empty. This also calls TrainingStopped on the KernelReplicaClient that was performing the
+// if the queue is non-empty. This also calls SessionStoppedTraining on the KernelReplicaClient that was performing the
 // training.
 //
 // If there are any ActiveExecution structs enqueued, then the next struct is popped off the queue and
@@ -259,7 +265,7 @@ func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostRes
 		log.Fatalf("DistributedKernelClient %s has an active execution, but the active replica is nil: %v", c.id, c.activeExecution.String())
 	}
 
-	err := c.activeExecution.ActiveReplica.TrainingStopped(snapshot)
+	err := c.activeExecution.ActiveReplica.KernelStoppedTraining(snapshot)
 
 	if len(c.activeExecutionQueue) > 0 {
 		c.activeExecution = c.activeExecutionQueue.Dequeue()
@@ -547,32 +553,13 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 
 	delete(c.replicas, r.ReplicaID())
 
-	// The replica ID starts with 1.
-	// if int(r.ReplicaID()) > len(c.replicas) || c.replicas[r.ReplicaID()-1] != r {
-	// 	return host, scheduling.ErrReplicaNotFound
-	// }
-
-	// c.replicas[r.ReplicaID()-1] = nil
-	// c.size--
-
 	if r.(*KernelReplicaClient).IsTraining() {
-		err := r.(*KernelReplicaClient).TrainingStopped(nil)
+		err := r.(*KernelReplicaClient).KernelStoppedTraining(nil)
 		if err != nil {
 			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
 				r.ReplicaID(), err)
 		}
 	}
-
-	//container := r.Container()
-	//
-	//// If the Container is actively-training, then we need to call TrainingStopped
-	//// before removing it so that the resources are all returned appropriately.
-	//if container.IsTraining() {
-	//	err := container.TrainingStopped()
-	//	if err != nil {
-	//		c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v", r.ID(), r.ReplicaID(), err)
-	//	}
-	//}
 
 	err = host.ContainerRemoved(r.Container())
 	if err != nil {
@@ -764,7 +751,7 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.Ker
 	if msgErr.ErrName == types.MessageErrYieldExecution {
 		yielded = true
 		errors.Join()
-		err2 := c.handleExecutionYieldedNotification(replica.(*KernelReplicaClient), msgErr)
+		err2 := c.handleExecutionYieldedNotification(replica.(*KernelReplicaClient))
 		return errors.Join(err, err2), true
 	}
 
@@ -1189,16 +1176,22 @@ func (c *DistributedKernelClient) handleIOKernelStatus(replica *KernelReplicaCli
 	return nil
 }
 
-func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *KernelReplicaClient, msgErr types.MessageError) error {
-	yieldError := errors.New(msgErr.ErrValue)
-	c.log.Debug("Received 'YIELD' proposal from %v: %v", replica, yieldError)
-
+// handleExecutionYieldedNotification is called when we receive a 'YIELD' proposal from a replica of a kernel.
+// handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current scheduling.ActiveExecution
+// struct. If we find that we've received all three proposals, and they were ALL 'yield', then we'll handle the situation
+// according to the scheduling policy that we've been configured to use.
+func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *KernelReplicaClient) error {
 	if c.activeExecution != nil {
 		replicaId := replica.replicaId
-
 		err := c.activeExecution.ReceivedYieldProposal(replicaId)
+		c.log.Debug("Received 'YIELD' proposal from %v. Received %d/%d proposals from replicas of kernel %s.",
+			replica, c.activeExecution.NumProposalsReceived(), c.activeExecution.NumReplicas, replica.ID())
+
 		if errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
 			return c.handleFailedExecutionAllYielded()
+		} else {
+			c.log.Error("Unexpected error while processing 'YIELD' proposal from replica %d of kernel %s: %v",
+				replica.ReplicaID(), replica.ID(), err)
 		}
 
 		return err

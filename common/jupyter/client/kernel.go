@@ -235,13 +235,20 @@ func (c *KernelReplicaClient) LastTrainingTimePrometheusUpdate() time.Time {
 //
 // In the internalCluster Gateway, this is called in the handleSmrLeadTaskMessage method of DistributedKernelClient.
 func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[T]) error {
-	if c.isTraining {
-		c.log.Error("Cannot begin training; already training as of %v.", c.trainingStartedAt)
-		return fmt.Errorf("cannot start training; replica %d of kernel %s is already training as of %v", c.replicaId, c.id, c.trainingStartedAt)
-	}
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.isTraining {
+		c.log.Warn("Kernel %s is already training as of %v. Ending current training now. "+
+			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.id)
+
+		// We already locked the kernel above, so we can call the unsafe method directly here.
+		err := unsafeKernelStoppedTraining[T](c, snapshot)
+		if err != nil {
+			c.log.Error("Couldn't cleanly stop training for replica %d of kernel %s: %v", c.replicaId, c.id, err)
+			return err
+		}
+	}
 
 	c.isTraining = true
 	c.trainingStartedAt = time.Now()
@@ -259,11 +266,9 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 	return nil
 }
 
-// TrainingStopped should be called when the kernel associated with this client stops actively training.
-func (c *KernelReplicaClient) TrainingStopped(snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot]) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+// unsafeKernelStoppedTraining does the work of KernelStoppedTraining without acquiring the KernelReplicaClient's
+// mutex first (hence "unsafe").
+func unsafeKernelStoppedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[T]) error {
 	if !c.isTraining {
 		c.log.Error("Cannot stop training; already not training.")
 		return fmt.Errorf("cannot stop training; replica %d of kernel %s is already not training", c.replicaId, c.id)
@@ -273,11 +278,11 @@ func (c *KernelReplicaClient) TrainingStopped(snapshot commonTypes.HostResourceS
 
 	// The following code executes only on the internalCluster Gateway.
 	//
-	// If the Container is actively-training, then we need to call TrainingStopped
+	// If the Container is actively-training, then we need to call SessionStoppedTraining
 	// before removing it so that the resources are all returned appropriately.
 	if container := c.Container(); container != nil {
-		err := container.TrainingStopped(snapshot)
-		if err != nil {
+		p := scheduling.SessionStoppedTraining[T](container.Session(), snapshot)
+		if err := p.Error(); err != nil {
 			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
 				c.ID(), c.ReplicaID(), err)
 			return err
@@ -285,6 +290,14 @@ func (c *KernelReplicaClient) TrainingStopped(snapshot commonTypes.HostResourceS
 	}
 
 	return nil
+}
+
+// KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
+func (c *KernelReplicaClient) KernelStoppedTraining(snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot]) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return unsafeKernelStoppedTraining[*scheduling.ResourceSnapshot](c, snapshot)
 }
 
 // TrainingStartedAt returns the time at which the kernel associated with this client began actively training.

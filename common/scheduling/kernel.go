@@ -64,8 +64,8 @@ type Kernel interface {
 	// 	entity.Container.Stop(), Stop() will be implemented outside kernel abstraction. Close() cleans up the kernel resource after kernel stopped.
 	Close() error
 
-	// TrainingStopped should be called when the kernel associated with this client stops actively training.
-	TrainingStopped(snapshot types.HostResourceSnapshot[*ResourceSnapshot]) error
+	// KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
+	KernelStoppedTraining(snapshot types.HostResourceSnapshot[*ResourceSnapshot]) error
 
 	// SessionStartedTraining should be called when the kernel associated with this client begins actively training.
 	// TrainingStartedInContainer(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error

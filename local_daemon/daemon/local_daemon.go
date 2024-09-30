@@ -1990,8 +1990,8 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		// due to insufficient resources available prior to the replica's leader election.
 		releaseResourcesMustSucceed bool
 
-		// shouldCallTrainingStopped tells us whether to call TrainingStopped on the associated KernelClient.
-		// We need to call TrainingStopped if the replica was in fact leading its execution and therefore
+		// shouldCallTrainingStopped tells us whether to call SessionStoppedTraining on the associated KernelClient.
+		// We need to call SessionStoppedTraining if the replica was in fact leading its execution and therefore
 		// executing user-submitted code. If this wasn't the case, then the status of the message will be
 		// a jupyter.MessageStatusError status, and the error will be a jupyter.MessageErrYieldExecution error.
 		shouldCallTrainingStopped bool
@@ -2003,10 +2003,10 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	} else if msgErr.Status == jupyter.MessageStatusError {
 		d.log.Warn("Status of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status, msgErr.String())
 
-		// We should only call TrainingStopped if the replica was actively training.
+		// We should only call KernelStoppedTraining if the replica was actively training.
 		// We can check this by inspecting the type of error encoded in the "execute_reply" message.
 		// If it's a jupyter.MessageErrYieldExecution error, then the replica was NOT training,
-		// and therefore we should not call TrainingStopped on the associated KernelReplicaClient.
+		// and therefore we should not call KernelStoppedTraining on the associated KernelReplicaClient.
 		shouldCallTrainingStopped = msgErr.ErrName != jupyter.MessageErrYieldExecution
 	} else {
 		// This should never happen. So, if it does, then we'll panic.
@@ -2042,7 +2042,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	}
 
 	if shouldCallTrainingStopped {
-		_ = kernelClient.TrainingStopped(d.resourceManager.ResourcesSnapshot())
+		_ = kernelClient.KernelStoppedTraining(d.resourceManager.ResourcesSnapshot())
 		d.prometheusManager.TrainingTimeGaugeVec.
 			With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
 			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())

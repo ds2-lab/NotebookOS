@@ -48,11 +48,12 @@ func (q *ActiveExecutionQueue) Dequeue() *ActiveExecution {
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
 // Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
 type ActiveExecution struct {
-	ExecutionId             string // Unique ID identifying the execution request.
-	AttemptId               int    // Beginning at 1, identifies the "attempt number", in case we have to retry due to timeouts.
-	SessionId               string // The ID of the Jupyter session that initiated the request.
-	KernelId                string // ID of the associated kernel.
-	ExecuteRequestMessageId string // The Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
+	ExecutionId             string    // Unique ID identifying the execution request.
+	AttemptId               int       // Beginning at 1, identifies the "attempt number", in case we have to retry due to timeouts.
+	SessionId               string    // The ID of the Jupyter session that initiated the request.
+	KernelId                string    // ID of the associated kernel.
+	ExecuteRequestMessageId string    // The Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
+	CreatedAt               time.Time // The time at which this ActiveExecution was created.
 
 	NumReplicas int // The number of replicas that the kernel had with the execution request was originally received.
 
@@ -98,6 +99,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 		msg:                     msg,
 		ExecuteRequestMessageId: msg.JupyterMessageId(),
 		originallySentAtDecoded: false,
+		CreatedAt:               time.Now(),
 	}
 
 	metadata, err := msg.DecodeMetadata()
@@ -142,6 +144,17 @@ func (e *ActiveExecution) HasValidOriginalSentTimestamp() bool {
 // value of a time.Time struct.
 func (e *ActiveExecution) OriginalSentTimestamp() time.Time {
 	return e.originallySentAt
+}
+
+// OriginalTimestampOrCreatedAt returns the original timestamp at which the associated "execute_request" message
+// was sent, if this ActiveExecution has that information. If that information is presently unavailable, then
+// OriginalTimestampOrCreatedAt will simply return the timestamp at which this ActiveExecution struct was created.
+func (e *ActiveExecution) OriginalTimestampOrCreatedAt() time.Time {
+	if e.HasValidOriginalSentTimestamp() {
+		return e.originallySentAt
+	} else {
+		return e.CreatedAt
+	}
 }
 
 func (e *ActiveExecution) Msg() *types.JupyterMessage {

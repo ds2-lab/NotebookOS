@@ -303,7 +303,7 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 			[]byte(""),
 			header,
 			parentHeaderEncoded,
-			[]byte(fmt.Sprintf("%s (R: %s, L: %s)", socket.Name, s.Meta.IP, s.localIpAdderss)),
+			[]byte(fmt.Sprintf("%s (RemoteIP: %s, LocalIP: %s)", socket.Name, s.Meta.IP, s.localIpAdderss)),
 			[]byte(fmt.Sprintf("%s (%s)", time.Now().Format(time.RFC3339Nano), s.Name)))
 	} else {
 		ackMsg = zmq4.NewMsgFrom(
@@ -312,7 +312,7 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 			[]byte(""),
 			header,
 			parentHeaderEncoded,
-			[]byte(fmt.Sprintf("%s (R: %s, L: %s)", socket.Name, s.Meta.IP, s.localIpAdderss)),
+			[]byte(fmt.Sprintf("%s (RemoteIP: %s, LocalIP: %s)", socket.Name, s.Meta.IP, s.localIpAdderss)),
 			[]byte(fmt.Sprintf("%s (%s)", time.Now().Format(time.RFC3339Nano), s.Name)))
 	}
 

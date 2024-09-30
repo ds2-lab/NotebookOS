@@ -402,21 +402,23 @@ func SessionStartedTraining[T types.ArbitraryResourceSnapshot](s *Session, conta
 	return promise.Resolved(s.instance)
 }
 
-// TrainingStopped should be called when the actively-training Kernel replica of the Session stops training.
+// SessionStoppedTraining should be called when the actively-training Kernel replica of the Session stops training.
+//
+// This should be called by the KernelReplicaClient's KernelStoppedTraining method.
 //
 // Note: this method is thread-safe.
-func (s *Session) TrainingStopped(snapshot types.HostResourceSnapshot[*ResourceSnapshot]) promise.Promise {
+func SessionStoppedTraining[T types.ArbitraryResourceSnapshot](s *Session, snapshot types.HostResourceSnapshot[T]) promise.Promise {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.unsafeTrainingStopped(snapshot)
+	return UnsafeTrainingStopped(s, snapshot)
 }
 
-// unsafeTrainingStopped performs the work of TrainingStopped. It is to be called by TrainingStopped, and sometimes
+// UnsafeTrainingStopped performs the work of SessionStoppedTraining. It is to be called by SessionStoppedTraining, and sometimes
 // SessionStopped, after the Session's mutex has already been acquired.
 //
-// Note: this method is thread-safe.
-func (s *Session) unsafeTrainingStopped(snapshot types.HostResourceSnapshot[*ResourceSnapshot]) promise.Promise {
+// Note: this method is NOT thread-safe.
+func UnsafeTrainingStopped[T types.ArbitraryResourceSnapshot](s *Session, snapshot types.HostResourceSnapshot[T]) promise.Promise {
 	s.log.Debug("Training stopping. Current state: %s.", s.sessionState.String())
 
 	if err := s.transition(SessionStateIdle); err != nil {
@@ -429,7 +431,7 @@ func (s *Session) unsafeTrainingStopped(snapshot types.HostResourceSnapshot[*Res
 		return promise.Resolved(s.instance, ErrMissingTrainingContainer)
 	}
 
-	if err := s.trainingContainer.TrainingStopped(snapshot); err != nil {
+	if err := ContainerStoppedTraining(s.trainingContainer, snapshot); err != nil {
 		s.log.Error("Failed to stop training in active container: %v", err)
 		return promise.Resolved(s.instance, err)
 	}
@@ -519,17 +521,18 @@ func (s *Session) SessionStopped() promise.Promise {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If the Session is training, then we need to first call TrainingStopped to ensure that our local view(s) of
-	// resource usage on the Host on which the Session's active replica is training are consistent/correct.
 	if s.IsTraining() {
 		s.log.Debug("Currently training. Stopping training before stopping scheduling.Session.")
-		s.unsafeTrainingStopped(nil) // Call unsafeTrainingStopped directly, as we already have the mutex.
+		p := UnsafeTrainingStopped[*ResourceSnapshot](s, nil) // Call UnsafeTrainingStopped directly, as we already have the mutex.
+		if err := p.Error(); err != nil {
+			return promise.Resolved(nil, err)
+		}
 	}
 
 	// Transition to the 'SessionStateStopped' state.
 	if err := s.transition(SessionStateStopped); err != nil {
 		s.log.Warn("Failed to terminate session because: %v", err)
-		return promise.Resolved(s.instance, err)
+		return promise.Resolved(nil, err)
 	}
 
 	// Stop each replica of the Session, collecting any errors that we encounter.

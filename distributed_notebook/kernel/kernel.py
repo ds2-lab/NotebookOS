@@ -85,7 +85,7 @@ smr_port_default = 10000
 err_wait_persistent_store = RuntimeError(
     "Persistent store not ready, try again later.")
 err_failed_to_lead_execution = ExecutionYieldError(
-    "Failed to lead the exectuion.")
+    "Failed to lead the execution.")
 err_invalid_request = RuntimeError("Invalid request.")
 key_persistent_id = "persistent_id"
 enable_storage = True
@@ -248,32 +248,38 @@ class DistributedKernel(IPythonKernel):
         # Prometheus metrics.
         self.num_yield_proposals: Counter = Counter(
             namespace="distributed_cluster",
+            subsystem="jupyter",
             name="kernel_yield_proposals_total",
             documentation="Total number of 'YIELD' proposals.")
         self.num_lead_proposals: Counter = Counter(
             namespace="distributed_cluster",
+            subsystem="jupyter",
             name="kernel_lead_proposals_total",
             documentation="Total number of 'LEAD' proposals.")
         self.hdfs_read_latency_milliseconds: Histogram = Histogram(
             namespace="distributed_cluster",
+            subsystem="jupyter",
             name="kernel_hdfs_read_latency_milliseconds",
             documentation="The amount of time the kernel spent reading data from HDFS.",
             unit="milliseconds",
             buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
         self.hdfs_write_latency_milliseconds: Histogram = Histogram(
             namespace="distributed_cluster",
+            subsystem="jupyter",
             name="kernel_hdfs_write_latency_milliseconds",
             documentation="The amount of time the kernel spent writing data to HDFS.",
             unit="milliseconds",
             buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
         self.registration_time_milliseconds: Histogram = Histogram(
             namespace="distributed_cluster",
+            subsystem="jupyter",
             name="kernel_registration_latency_milliseconds",
             documentation="The latency of a new kernel replica registering with its Local Daemon.",
             unit="milliseconds",
             buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
         self.execute_request_latency: Histogram = Histogram(
             namespace="distributed_cluster",
+            subsystem="jupyter",
             name="kernel_execute_request_latency_milliseconds",
             documentation="Execution time of the kernels' execute_request method in milliseconds.",
             unit="milliseconds",
