@@ -22,6 +22,7 @@ services:
     image: scusemua/jupyter-debug:python3.12.6
     labels:
       app: "distributed_cluster"
+      component: "jupyter_server"
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
     ports:
       - "8888:8888"
@@ -38,6 +39,7 @@ services:
     image: scusemua/gateway:latest
     labels:
       app: "distributed_cluster"
+      component: "cluster_gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
@@ -63,6 +65,7 @@ services:
     image: scusemua/daemon:latest
     labels:
       app: "distributed_cluster"
+      component: "local_daemon"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base

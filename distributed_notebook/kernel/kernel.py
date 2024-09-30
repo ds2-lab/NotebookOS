@@ -16,6 +16,9 @@ import uuid
 from multiprocessing import Process, Queue
 from threading import Lock
 from typing import Union, Optional, Dict, Any
+from prometheus_client import start_http_server
+
+from prometheus_client import Counter, Gauge, Histogram
 
 import zmq
 from ipykernel import jsonutil
@@ -194,12 +197,6 @@ class DistributedKernel(IPythonKernel):
     smr_nodes_map: dict
 
     def __init__(self, **kwargs):
-        self.source = None
-        # Used to create strong references to tasks, such as notifying peer replicas that execution has complete.
-        self.background_tasks = set()
-        self.next_execute_request_msg_id: Optional[str] = None
-        self.old_run_cell = None
-        self.daemon_registration_socket = None
         faulthandler.enable()
         if super().log is not None:
             super().log.setLevel(logging.DEBUG)
@@ -222,6 +219,39 @@ class DistributedKernel(IPythonKernel):
 
         super().__init__(**kwargs)
 
+        # Used to create strong references to tasks, such as notifying peer replicas that execution has complete.
+        self.background_tasks = set()
+        self.next_execute_request_msg_id: Optional[str] = None
+        self.old_run_cell = None
+        self.daemon_registration_socket = None
+        self.prometheus_thread = None
+        self.prometheus_server = None
+        self.source = None
+
+        # Prometheus metrics.
+        self.num_yield_proposals: Counter = Counter("kernel_yield_proposals_total", "Total number of 'YIELD' proposals.")
+        self.num_lead_proposals: Counter = Counter("kernel_lead_proposals_total", "Total number of 'LEAD' proposals.")
+        self.hdfs_read_latency_milliseconds: Histogram = Histogram(
+            "kernel_hdfs_read_latency_milliseconds",
+            "The amount of time the kernel spent reading data from HDFS.",
+            unit = "milliseconds",
+            buckets = [1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+        self.hdfs_write_latency_milliseconds: Histogram = Histogram(
+            "kernel_hdfs_write_latency_milliseconds",
+            "The amount of time the kernel spent writing data to HDFS.",
+            unit = "milliseconds",
+            buckets = [1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+        self.registration_time_milliseconds: Histogram = Histogram(
+            "kernel_registration_latency_milliseconds",
+            "The amount of time taken for kernel replicas to register with their local daemon",
+            unit = "milliseconds",
+            buckets = [1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+        self.execute_request_latency: Histogram = Histogram(
+            "kernel_execute_request_latency_milliseconds",
+            "Execution time of the kernels' execute_request method in milliseconds.",
+            unit = "milliseconds",
+            buckets = [10, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3 , 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
+
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
         self.log.setLevel(logging.DEBUG)
@@ -237,18 +267,6 @@ class DistributedKernel(IPythonKernel):
             assert self.debugger is not None
         else:
             self.log.warning("The Debugger is NOT available/enabled.")
-
-        # sys.setprofile(tracefunc)
-
-        # self.log.info("TEST -- INFO")
-        # self.log.debug("TEST -- DEBUG")
-        # self.log.warning("TEST -- WARN")
-        # self.log.error("TEST -- ERROR")   
-        # self.log.critical("TEST -- CRITICAL")     
-
-        # self.log.info("Calling Go-level `PrintTestMessage` function now...")
-        # PrintTestMessage()
-        # self.log.info("Called Go-level `PrintTestMessage` function now...")
 
         self.received_message_ids: set = set()
 
@@ -390,6 +408,9 @@ class DistributedKernel(IPythonKernel):
             conn.close()
 
             # config_info:dict,
+
+    def initialize_prometheus_metrics(self):
+        self.prometheus_server, self.prometheus_thread = start_http_server(8000)
 
     def register_with_local_daemon(self, connection_info: dict, session_id: str):
         self.log.info("Registering with local daemon now.")
@@ -816,6 +837,8 @@ class DistributedKernel(IPythonKernel):
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
+        start_time: float = time.time()
+
         parent_header: dict[str, Any] = extract_header(parent)
 
         self.log.debug(
@@ -849,6 +872,10 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(f"Waiting for election {term_number} "
                        "to be totally finished before returning from execute_request function.")
         await task
+
+        end_time: float = time.time()
+        duration_ms: float = (end_time - start_time) * 1.0e3
+        self.execute_request_latency.observe(duration_ms)
 
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
         """ Respond to a 'ping kernel' Control request. """
@@ -962,6 +989,8 @@ class DistributedKernel(IPythonKernel):
 
             self.log.info(f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
+
+            self.num_yield_proposals.inc()
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
@@ -1090,6 +1119,8 @@ class DistributedKernel(IPythonKernel):
 
             self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
+
+            self.num_lead_proposals.inc()
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")

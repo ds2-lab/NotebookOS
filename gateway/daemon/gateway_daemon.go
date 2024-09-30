@@ -2434,9 +2434,12 @@ func (d *ClusterGatewayImpl) ClusterAge(_ context.Context, _ *proto.Void) (*prot
 	return &proto.ClusterAgeResponse{Age: d.createdAt.UnixMilli()}, nil
 }
 
-func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, workloadId string) {
+func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, workloadId string, kernelId string) {
 	d.gatewayPrometheusManager.JupyterTrainingStartLatency.
-		With(prometheus.Labels{"workload_id": workloadId}).
+		With(prometheus.Labels{
+			"workload_id": workloadId,
+			"kernel_id":   kernelId,
+		}).
 		Observe(float64(latency.Milliseconds()))
 }
 

@@ -49,7 +49,7 @@ type SessionManager interface {
 // of the original "execute_request". If it does, then it can calculate the latency between submission and when
 // the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 // so that a relevant Prometheus metric can be updated.
-type ExecutionLatencyCallback func(latency time.Duration, workloadId string)
+type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
 
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
 type ExecutionFailedCallback func(c *DistributedKernelClient) error
@@ -102,7 +102,7 @@ type DistributedKernelClient struct {
 	// activeExecutionsByExecuteRequestMsgId is a map used to keep track of all scheduling.ActiveExecutions
 	// processed by the kernel. The keys are the Jupyter message IDs of the "execute_request" messages
 	// sent by the client to submit code for execution.
-	activeExecutionsByExecuteRequestMsgId *hashmap.ConcurrentMap[string, *scheduling.ActiveExecution]
+	activeExecutionsByExecuteRequestMsgId *hashmap.CornelkMap[string, *scheduling.ActiveExecution]
 
 	// activeExecutionQueue is a queue of ActiveExecution structs corresponding to
 	// submitted/enqueued execution operations.
@@ -158,7 +158,7 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 		connectionInfo:                        connectionInfo,
 		shellListenPort:                       shellListenPort,
 		iopubListenPort:                       iopubListenPort,
-		activeExecutionsByExecuteRequestMsgId: hashmap.NewConcurrentMap[*scheduling.ActiveExecution](32),
+		activeExecutionsByExecuteRequestMsgId: hashmap.NewCornelkMap[string, *scheduling.ActiveExecution](32),
 		numActiveAddOperations:                0,
 		executionFailedCallback:               executionFailedCallback,
 		activeExecutionQueue:                  make(scheduling.ActiveExecutionQueue, 0, 16),
@@ -1140,7 +1140,7 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 			}
 
 			// Record metrics in Prometheus.
-			c.executionLatencyCallback(latency, associatedActiveExecution.WorkloadId)
+			c.executionLatencyCallback(latency, associatedActiveExecution.WorkloadId, kernelReplica.id)
 		}
 	} else {
 		c.log.Warn("ActiveExecution did not have original \"send\" timestamp available.")

@@ -12,6 +12,7 @@ services:
     image: scusemua/docker-hoster:latest
     labels:
       app: "distributed_cluster"
+      component: "docker_hoster"
     container_name: "docker-hoster"
     restart: unless-stopped
     volumes:
@@ -28,6 +29,7 @@ services:
     image: scusemua/jupyter-debug:latest
     labels:
       app: "distributed_cluster"
+      component: "jupyter_server"
       logging: "promtail"
       logging_jobname: "jupyter"
     container_name: "jupyter"
@@ -51,6 +53,7 @@ services:
     image: scusemua/gateway:latest
     labels:
       app: "distributed_cluster"
+      component: "cluster_gateway"
       logging: "promtail"
       logging_jobname: "jupyter"
     volumes:
@@ -89,6 +92,7 @@ services:
     image: scusemua/daemon:latest
     labels:
       app: "distributed_cluster"
+      component: "local_daemon"
       logging: "promtail"
       logging_jobname: "jupyter"
     volumes:
