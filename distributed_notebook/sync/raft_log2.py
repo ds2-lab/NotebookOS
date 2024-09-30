@@ -8,6 +8,7 @@ import threading
 import time
 import traceback
 from collections import OrderedDict
+from pickle import PickleError
 from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 
 import debugpy
@@ -731,7 +732,19 @@ class RaftLog(object):
             "last_completed_election": self._last_completed_election,
         }
 
-        return pickle.dumps(data_dict)
+        try:
+            serialized_data: bytes = pickle.dumps(data_dict)
+        except AttributeError as ex:
+            self.logger.error("Failed to pickle data dictionary due to AttributeError: {ex}")
+            raise ex
+        except PickleError as ex:
+            self.logger.error("Failed to pickle data dictionary due to PickleError: {ex}")
+            raise ex
+        except Exception as ex:
+            self.logger.error("Failed to pickle data dictionary due to unexpected exception: {ex}")
+            raise ex
+
+        return serialized_data
 
     def _load_and_apply_serialized_state(self) -> bool:
         """

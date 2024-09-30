@@ -128,7 +128,7 @@ class Election(object):
         #
         # This condition is also marked as complete if a notification is received that all replicas
         # proposed yield.
-        self.election_finished_condition = asyncio.Event()
+        self.election_finished_condition: Optional[asyncio.Event] = asyncio.Event()
         self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
         # The completion_reason specifies why notify was called on the election_finished_condition field.
@@ -146,6 +146,8 @@ class Election(object):
         """
         state = self.__dict__.copy()
         del state["_pick_and_propose_winner_future"]
+        del state["election_finished_condition"]
+        del state["election_finished_condition_waiter_loop"]
         return state
 
     def __setstate__(self, state):
@@ -154,6 +156,8 @@ class Election(object):
         """
         self.__dict__.update(state)
         self._pick_and_propose_winner_future: Optional[asyncio.Future[Any]] = None
+        self.election_finished_condition: Optional[asyncio.Event] = None
+        self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
     @property
     def num_discarded_vote_proposals(self)->int:
