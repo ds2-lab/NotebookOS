@@ -357,7 +357,10 @@ class DistributedKernel(IPythonKernel):
         skip_registration_override: bool = (os.environ.get("SKIP_REGISTRATION", "false").lower() == "true")
 
         if self.should_register_with_local_daemon and not skip_registration_override:
+            registration_start: float = time.time()
             self.register_with_local_daemon(connection_info, session_id)
+            registration_duration: float = (time.time() - registration_start) * 1.0e3
+            self.registration_time_milliseconds.observe(registration_duration)
             self.__init_tcp_server()
         else:
             self.log.warning("Skipping registration step with local daemon.")
@@ -1288,7 +1291,10 @@ class DistributedKernel(IPythonKernel):
 
         # Step 2: copy the data directory to HDFS
         try:
+            write_start: float = time.time()
             waldir_path: str = await self.synclog.write_data_dir_to_hdfs()
+            write_duration_ms: float = (time.time() - write_start) * 1.0e3
+            self.hdfs_write_latency_milliseconds.observe(write_duration_ms)
             self.log.info(
                 "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % waldir_path)
         except Exception as e:

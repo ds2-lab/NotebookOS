@@ -126,7 +126,7 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 		Namespace: "distributed_cluster",
 		Subsystem: "jupyter",
 		Name:      "session_training_start_latency_milliseconds",
-		Buckets:   []float64{100, 250, 500, 1e3, 5e3, 10e3, 30e3, 60e3, 120e3, 300e3},
+		Buckets:   []float64{50, 100, 200, 300, 400, 500, 750, 1e3, 2.5e3, 5e3, 10e3, 30e3, 60e3, 120e3, 300e3},
 	}, []string{"workload_id", "kernel_id"})
 
 	m.KernelMigrationLatencyHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{

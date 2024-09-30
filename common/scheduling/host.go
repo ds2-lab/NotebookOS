@@ -610,7 +610,7 @@ func (h *Host) ContainerRemoved(container *Container) error {
 	h.pendingContainers.Sub(1)
 
 	if err := h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources)); err != nil {
-		h.log.Error("Could not remove Container %s from Host %s due to resource-related issue: %v",
+		h.log.Error("Could not cleanly remove Container %s from Host %s due to resource-related issue: %v",
 			container.ContainerID(), h.ID, err)
 		return err
 	}
