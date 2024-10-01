@@ -3,7 +3,7 @@ package domain
 const (
 	ShellExecuteReply      = "execute_reply"
 	ShellExecuteRequest    = "execute_request"
-	ShellYieldExecute      = "yield_execute"
+	ShellYieldExecute      = "yield_request"
 	ShellKernelInfoRequest = "kernel_info_request"
 	ShellShutdownRequest   = "shutdown_request"
 

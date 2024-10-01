@@ -228,7 +228,7 @@ class DistributedKernel(IPythonKernel):
 
         self.msg_types = [
             *self.msg_types,
-            "yield_execute",
+            "yield_request",
             "ping_kernel_shell_request",
         ]
 
@@ -688,7 +688,7 @@ class DistributedKernel(IPythonKernel):
             self.log.warning(f"Received duplicate \"{msg_id}\" message with ID={msg_type}.")
 
             # Check if the message has a "ForceReprocess" field in its metadata frame with a value of "true".
-            # If so, then we'll reprocess it anyway -- as these are likely resubmitted 'yield_execute' or 'execute_request' messages.
+            # If so, then we'll reprocess it anyway -- as these are likely resubmitted 'yield_request' or 'execute_request' messages.
             metadata: dict[str, Any] = msg.get("metadata", {})
             if "force_reprocess" in metadata:
                 # Presumably this will be True, but if it isn't True, then we definitely shouldn't reprocess the message.
@@ -992,7 +992,7 @@ class DistributedKernel(IPythonKernel):
         Check the status of the previous election, and wait for it to complete if it isn't done yet.
         """
         term_number: int = self.synchronizer.execution_count
-        self.log.debug(f"yield_execute has been called. Checking status of previous election (term {term_number}).")
+        self.log.debug(f"yield_request has been called. Checking status of previous election (term {term_number}).")
         
         # If we've not yet created/held the first election, then we have nothing to check. 
         if not self.synchronizer.created_first_election():
@@ -1018,7 +1018,7 @@ class DistributedKernel(IPythonKernel):
                 error_message= str(ex)
             )
 
-    async def yield_execute(self, stream, ident, parent):
+    async def yield_request(self, stream, ident, parent):
         """
         Similar to the do_execute method, but this method ALWAYS proposes "YIELD" instead of "LEAD".
         Kernel replicas are directed to call this instead of do_execute by their local daemon if there are resource constraints
@@ -1040,7 +1040,7 @@ class DistributedKernel(IPythonKernel):
         self._associate_new_top_level_threads_with(parent_header)
         self.next_execute_request_msg_id: str = parent_header["msg_id"]
         self.log.debug(
-            f"yield_execute with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
+            f"yield_request with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
         self.log.debug("Parent: %s" % str(parent))
 
         if not self.session:
@@ -1053,8 +1053,8 @@ class DistributedKernel(IPythonKernel):
         except Exception as ex:
             self.log.error(f"Got bad msg: {parent}. Exception: {ex}")
             self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-                title="Kernel Replica Received an Invalid \"yield_execute\" Message",
-                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid \"yield_execute\" message: {ex}.",
+                title="Kernel Replica Received an Invalid \"yield_request\" Message",
+                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid \"yield_request\" message: {ex}.",
                 notificationType=ErrorNotification,
                 kernelId=self.kernel_id,
                 replicaId=self.smr_node_id,
@@ -1064,9 +1064,6 @@ class DistributedKernel(IPythonKernel):
         stop_on_error = content.get("stop_on_error", True)
 
         metadata = self.init_metadata(parent)
-
-        # Check the status of the last election before proceeding.
-        await self.check_previous_election()
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -1146,7 +1143,7 @@ class DistributedKernel(IPythonKernel):
             ident=ident,
         )
 
-        self.log.debug("Sent the following reply after yield_execute: %s" % reply_msg)
+        self.log.debug("Sent the following reply after yield_request: %s" % reply_msg)
 
         if not silent and error_occurred and stop_on_error:  # reply_msg["content"]["status"] == "error"
             self._abort_queues()
@@ -1159,11 +1156,11 @@ class DistributedKernel(IPythonKernel):
         #
         # Block until the leader finishes executing the code, or until we know that all replicas yielded,
         # in which case we can just return, as the code will presumably be resubmitted shortly.
-        # current_election: Election = self.synchronizer.current_election
-        # term_number: int = current_election.term_number
-        # self.log.debug(f"Waiting for election {term_number} "
-        #                "to be totally finished before returning from yield_execute function.")
-        # await self.synchronizer.wait_for_election_to_end(term_number)
+        current_election: Election = self.synchronizer.current_election
+        term_number: int = current_election.term_number
+        self.log.debug(f"Waiting for election {term_number} "
+                       "to be totally finished before returning from yield_request function.")
+        await self.synchronizer.wait_for_election_to_end(term_number)
 
     async def do_execute(
             self,

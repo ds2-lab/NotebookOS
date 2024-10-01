@@ -70,6 +70,7 @@ class RaftLog(object):
             raise ValueError("HDFS hostname is empty.")
 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
+        self.logger.setLevel(logging.DEBUG)
         self.logger.info("Creating RaftNode %d now." % id)
 
         if debug_port <= 1023 or debug_port >= 65535:
@@ -148,9 +149,9 @@ class RaftLog(object):
         self._change_handler: Optional[Callable[[SynchronizedValue], None]] = None
 
         # If we receive a proposal with a larger term number than our current election, then it is possible
-        # that we simply received the proposal before receiving the associated "execute_request" or "yield_execute" message 
+        # that we simply received the proposal before receiving the associated "execute_request" or "yield_request" message 
         # that would've prompted us to start the election locally. So, we'll just buffer the proposal for now, and when
-        # we receive the "execute_request" or "yield_execute" message, we'll process any buffered proposals at that point.
+        # we receive the "execute_request" or "yield_request" message, we'll process any buffered proposals at that point.
         #
         # This map maintains the buffered proposals. The mapping is from term number to a list of buffered proposals for that term.
         self._buffered_proposals: dict[int, List[LeaderElectionProposal]] = {}
@@ -306,8 +307,19 @@ class RaftLog(object):
                           f"{notification.election_term} from node {notification.proposer_id}.")
 
         with self._election_lock:
-            assert self.current_election.term_number == notification.election_term
-            assert self.leader_id == notification.proposer_id
+            if self.current_election.term_number != notification.election_term:
+                self.logger.error(f"Current election is for term {self.current_election.term_number}, "
+                                  f"but we just received a notification that election {notification.election_term} has finished...")
+                raise ValueError(f"Inconsistent term numbers. Current election: {self.current_election.term_number}. "
+                                 f"Notification: {notification.election_term}.")
+
+            if self.leader_id != notification.proposer_id:
+                self.logger.error(f"Current leader ID is {self.leader_id}, but we just received an "
+                                  f"\"election finished\" notification with proposer ID = {notification.proposer_id}...")
+                raise ValueError(f"Inconsistent leader ID and \"election finished\" notification proposer ID. "
+                                 f"Leader ID: {self.leader_id}. \"Election finished\" notification proposer ID: "
+                                 f"{notification.proposer_id}.")
+
             self.current_election.set_execution_complete()
 
         return GoNilError()
@@ -329,13 +341,13 @@ class RaftLog(object):
         # assert self._current_election is not None 
 
         # If we do not have an election upon receiving a proposal, then we buffer the proposal, as we presumably
-        # haven't received the associated 'execute_request' or 'yield_execute' message, whereas one of our peer
+        # haven't received the associated 'execute_request' or 'yield_request' message, whereas one of our peer
         # replicas did.
         #
         # Likewise, if we receive a proposal with a larger term number than our current election, then it is possible
-        # that we simply received the proposal before receiving the associated "execute_request" or "yield_execute" message 
+        # that we simply received the proposal before receiving the associated "execute_request" or "yield_request" message 
         # that would've prompted us to start the election locally. So, we'll just buffer the proposal for now, and when
-        # we receive the "execute_request" or "yield_execute" message, we'll process any buffered proposals at that point.
+        # we receive the "execute_request" or "yield_request" message, we'll process any buffered proposals at that point.
         #
         # Also, we check this first before checking if we should simply discard the proposal, in case we receive a legitimate, 
         # new execution request early for some reason. This shouldn't happen, but if it does, we can just buffer the request.
@@ -964,7 +976,7 @@ class RaftLog(object):
                         f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
                     raise ValueError(f"attempted to create new election while already having an active election")
 
-                # If we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_execute') ZMQ message.
+                # If we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_request') ZMQ message.
                 # During this delay, we may have received a committed proposal from another replica for this election, which prompted us to either create or restart the election at that point.
                 # So, if we have a current election already, and that election is in a non-active state, then we restart it.
                 # If we have a current election that is already active, then we should have at least one proposal already (otherwise, why would the election be active already?)

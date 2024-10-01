@@ -1798,7 +1798,7 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 
 	// TODO(Ben): We'll inspect here to determine if the message is an execute_request.
 	// If it is, then we'll see if we have enough resources for the kernel to (potentially) execute the code.
-	// If not, we'll change the message's header to "yield_execute".
+	// If not, we'll change the message's header to "yield_request".
 	// If the message is an execute_request message, then we have some processing to do on it.
 	if msg.JupyterMessageType() == domain.ShellExecuteRequest {
 		resultChan := d.enqueueExecuteRequest(msg, kernel)
@@ -1893,11 +1893,11 @@ func (d *SchedulerDaemonImpl) enqueueExecuteRequest(executeRequestMessage *jupyt
 		// Once the queue is full, the order in which future requests are processed is no longer guaranteed.
 		// Specifically, the order in which new items are added to the queue is non-deterministic.
 		// (Once in the queue, requests will still be processed in a FCFS manner.)
-		d.log.Warn("[gid=%d] Enqueuing outbound \"execute_request\" %s targeting replica %d of kernel %s. Queue is almost full: %d/%d.",
-			gid, executeRequestMessage.JupyterMessageId(), kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
+		d.log.Warn("[gid=%d] Enqueuing outbound \"execute_request\" %s targeting replica %d of kernel %s. Queue is almost full: %d/%d. IsTraining: %v.",
+			gid, executeRequestMessage.JupyterMessageId(), kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue), kernel.IsTraining())
 	} else {
-		d.log.Debug("[gid=%d] Enqueuing outbound \"execute_request\" %s targeting replica %d of kernel %s. Queue size: %d/%d.",
-			gid, executeRequestMessage.JupyterMessageId(), kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
+		d.log.Debug("[gid=%d] Enqueuing outbound \"execute_request\" %s targeting replica %d of kernel %s. Queue size: %d/%d. IsTraining: %v.",
+			gid, executeRequestMessage.JupyterMessageId(), kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue), kernel.IsTraining())
 	}
 
 	// This could conceivably block, which would be fine.
@@ -1944,13 +1944,14 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecut
 
 				// Process the message.
 				processedMessage := d.processExecuteRequest(enqueuedMessage.Msg, enqueuedMessage.Kernel) // , header, offset)
-				d.log.Debug("[gid=%d] Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s",
-					gid, len(processedMessage.Frames), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID(), processedMessage)
+				d.log.Debug("[gid=%d] Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s (IsTraining: %v): %s",
+					gid, len(processedMessage.Frames), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID(),
+					enqueuedMessage.Kernel.IsTraining(), processedMessage)
 
 				// Sanity check.
 				if enqueuedMessage.Kernel.IsTraining() {
-					log.Fatalf(utils.RedStyle.Render("Kernel %s is already training, even though we haven't sent the next \"execute_request\" yet. Started training at: %v (i.e., %v ago)."),
-						enqueuedMessage.Kernel.ID(), enqueuedMessage.Kernel.TrainingStartedAt(), time.Since(enqueuedMessage.Kernel.TrainingStartedAt()))
+					log.Fatalf(utils.RedStyle.Render("[gid=%d] Kernel %s is already training, even though we haven't sent the next \"execute_request\" yet. Started training at: %v (i.e., %v ago)."),
+						gid, enqueuedMessage.Kernel.ID(), enqueuedMessage.Kernel.TrainingStartedAt(), time.Since(enqueuedMessage.Kernel.TrainingStartedAt()))
 				}
 
 				// Record that we've sent this (although technically we haven't yet).
@@ -1961,7 +1962,7 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecut
 				ctx, cancel := context.WithCancel(context.Background())
 				if err := enqueuedMessage.Kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, processedMessage, d.kernelResponseForwarder, func() {
 					d.log.Debug("[gid=%d] Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling (though request may have succeeded already).",
-						gid, processedMessage.JupyterMessageType(), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID())
+						goid.Get(), processedMessage.JupyterMessageType(), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID())
 					cancel()
 				}); err != nil {
 					// Send the error back to the caller.
@@ -2061,11 +2062,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
 	}
 
-	matched := kernelClient.ReceivedExecuteReply(msg)
-	if !matched {
-		d.log.Error("Kernel %s did not match against \"execute_reply\" with JupyterID=\"%s\"",
-			kernelClient.ID(), msg.JupyterParentMessageId())
-	}
+	kernelClient.ReceivedExecuteReply(msg)
 
 	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
 	_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)
@@ -2089,37 +2086,39 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 // TODO: |
 // TODO: | For now, we're reserving resources.
 func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.KernelReplicaClient) *jupyter.JupyterMessage {
+	gid := goid.Get()
+
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	var targetReplicaId int32 = -1
 
-	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_execute" message.
+	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_request" message.
 	// This will force the replica to necessarily yield the execution to the other replicas.
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
 	var frames = jupyter.JupyterFrames(msg.Frames)
 	var metadataFrame = frames[msg.Offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
 
-	kernel.WaitForTrainingToStop()
-	d.log.Debug("Processing `execute_request` for idle kernel %s now.", kernel.ID())
+	kernel.WaitForRepliesToPendingExecuteRequests()
+	d.log.Debug("[gid=%d] Processing `execute_request` for idle kernel %s now.", gid, kernel.ID())
 
 	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
 	if len(metadataFrame.Frame()) > 0 {
 		// Unmarshal the frame.
 		err := metadataFrame.Decode(&metadataDict)
 		if err != nil {
-			d.log.Error("Error unmarshalling metadata frame for 'execute_request' message: %v", err)
+			d.log.Error("[gid=%d] Error unmarshalling metadata frame for 'execute_request' message: %v", gid, err)
 		} else {
-			d.log.Debug("Unmarshalled metadata frame for 'execute_request' message: %v", metadataDict)
+			d.log.Debug("[gid=%d] Unmarshalled metadata frame for 'execute_request' message: %v", gid, metadataDict)
 
 			// See if there are any notable custom arguments, such as a target replica.
 			if val, ok := metadataDict[domain.TargetReplicaArg]; ok {
 				targetReplicaAsFloat64, ok := val.(float64)
 				if !ok {
-					d.log.Error("Could not parse target replica ID in metadata ('%v') for 'execute_request' message: %v", val, err)
+					d.log.Error("[gid=%d] Could not parse target replica ID in metadata ('%v') for 'execute_request' message: %v", gid, val, err)
 					targetReplicaId = -1
 				} else {
 					targetReplicaId = int32(targetReplicaAsFloat64)
-					d.log.Debug("Found target replica argument for 'execute_request' message. Target replica: %d.", targetReplicaId)
+					d.log.Debug("[gid=%d] Found target replica argument for 'execute_request' message. Target replica: %d.", gid, targetReplicaId)
 				}
 			}
 		}
@@ -2154,15 +2153,16 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 		// We didn't want to bother reserving resources for this kernel replica if its either been explicitly told
 		// to yield, or if another replica of the same kernel was explicitly expected to yield. But now that we know
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
-		d.log.Debug("Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
-			kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
+		d.log.Debug("[gid=%d] Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
+			gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
 		resourceAllocationError := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
 		if resourceAllocationError != nil {
-			d.log.Warn("Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
-				kernel.ReplicaID(), kernel.ID(), resourceAllocationError.Error())
-			d.log.Warn("Replica %d of kernel %s requires the following resources: %s.",
-				kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-			d.log.Warn("The following resources are currently available on the node: %s.", idleResourcesBeforeReservation.String())
+			d.log.Warn("[gid=%d] Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
+				gid, kernel.ReplicaID(), kernel.ID(), resourceAllocationError.Error())
+			d.log.Warn("[gid=%d] Replica %d of kernel %s requires the following resources: %s.",
+				gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
+			d.log.Warn("[gid=%d] The following resources are currently available on the node: %s.",
+				gid, idleResourcesBeforeReservation.String())
 
 			// There are other errors that could be returned here aside from "insufficient resources".
 			// So, we should only set allocationFailedDueToInsufficientResources to false if the returned error is
@@ -2176,8 +2176,8 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 
 			shouldYield = true
 		} else {
-			d.log.Debug("Successfully reserved the following resources for replica %d of kernel %s in anticipation of its leader election: %s.",
-				kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
+			d.log.Debug("[gid=%d] Successfully reserved the following resources for replica %d of kernel %s in anticipation of its leader election: %s.",
+				gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
 			allocationFailedDueToInsufficientResources = false
 		}
 	}
@@ -2189,8 +2189,8 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	metadataDict["required-gpus"] = kernel.ResourceSpec().GPU()
 	metadataDict["required-millicpus"] = kernel.ResourceSpec().CPU()
 	metadataDict["required-memory-mb"] = kernel.ResourceSpec().MemoryMB()
-	d.log.Debug("Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %s.",
-		idleResourcesBeforeReservation.Millicpus.StringFixed(0), idleResourcesBeforeReservation.MemoryMb.StringFixed(4), idleResourcesBeforeReservation.GPUs.StringFixed(0))
+	d.log.Debug("[gid=%d] Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %s.",
+		gid, idleResourcesBeforeReservation.Millicpus.StringFixed(0), idleResourcesBeforeReservation.MemoryMb.StringFixed(4), idleResourcesBeforeReservation.GPUs.StringFixed(0))
 
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.
@@ -2199,31 +2199,34 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 		var reason domain.YieldReason
 		// Log message depends on which condition was true (first).
 		if differentTargetReplicaSpecified {
-			d.log.Debug("Replica %d of kernel %s is targeted, while we have replica %d running on this node.",
-				targetReplicaId, kernel.ID(), kernel.ReplicaID() /* Placeholder */)
+			d.log.Debug("[gid=%d] Replica %d of kernel %s is targeted, while we have replica %d running on this node.",
+				gid, targetReplicaId, kernel.ID(), kernel.ReplicaID() /* Placeholder */)
 			reason = domain.YieldDifferentReplicaTargeted
 		} else if kernel.SupposedToYieldNextExecutionRequest() {
-			d.log.Debug("Replica %d of kernel %s has been explicitly instructed to yield its next execution request.",
-				kernel.ReplicaID(), kernel.ID())
+			d.log.Debug("[gid=%d] Replica %d of kernel %s has been explicitly instructed to yield its next execution request.",
+				gid, kernel.ReplicaID(), kernel.ID())
 			reason = domain.YieldExplicitlyInstructed
 		} else if allocationFailedDueToInsufficientResources {
-			d.log.Debug("There are insufficient resources available for replica %d of kernel %s to train. Available: %s. Required: %s.",
-				kernel.ReplicaID(), kernel.ID(), idleResourcesBeforeReservation.String(), kernel.ResourceSpec().String())
+			d.log.Debug("[gid=%d] There are insufficient resources available for replica %d of kernel %s to train. Available: %s. Required: %s.",
+				gid, kernel.ReplicaID(), kernel.ID(), idleResourcesBeforeReservation.String(), kernel.ResourceSpec().String())
 			reason = domain.YieldInsufficientResourcesAvailable
 		} else {
-			d.log.Debug("Replica %d of kernel %s must propose 'yield' for some other unspecified reason.", kernel.ID(), kernel.ReplicaID())
+			d.log.Debug("[gid=%d] Replica %d of kernel %s must propose 'yield' for some other unspecified reason.",
+				gid, kernel.ReplicaID(), kernel.ID())
 			reason = domain.YieldUnspecifiedReason
 		}
 
 		metadataDict["yield-reason"] = reason
 
 		// Convert the message to a yield request.
-		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica in place of the original 'execute_request' message.
+		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica
+		// in place of the original 'execute_request' message.
 		msg, _ = d.convertExecuteRequestToYieldExecute(msg) // , header, offset)
 		frames = msg.Frames
 
-		// If we were told explicitly to YIELD this execution request via the `YieldNextExecutionRequest` API, then record that we've done this.
-		// Even if we're yielding for other reasons too, we should still record that we've done this.
+		// If we were told explicitly to YIELD this execution request via the `YieldNextExecutionRequest` API,
+		// then record that we've done this. Even if we're yielding for other reasons too, we should still
+		// record that we've done this.
 		if kernel.SupposedToYieldNextExecutionRequest() {
 			kernel.YieldedNextExecutionRequest()
 		}
@@ -2233,7 +2236,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	// as well as the reason that the request was yielded (if it was yielded).
 	err = frames[msg.Offset:].EncodeMetadata(metadataDict)
 	if err != nil {
-		d.log.Error("Failed to encode metadata frame because: %v", err)
+		d.log.Error("[gid=%d] Failed to encode metadata frame because: %v", gid, err)
 		d.notifyClusterGatewayAndPanic("Failed to Encode Metadata Frame", err.Error(), err)
 	}
 
@@ -2241,13 +2244,15 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(msg.Frames)
 	_, err = framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
 	if err != nil {
-		message := fmt.Sprintf("Failed to sign updated JupyterFrames for \"%s\" message because: %v", msg.JupyterMessageType(), err)
+		message := fmt.Sprintf("[gid=%d] Failed to sign updated JupyterFrames for \"%s\" message because: %v",
+			gid, msg.JupyterMessageType(), err)
 		d.notifyClusterGatewayAndPanic("Failed to Sign JupyterFrames", message, err)
 	}
 
 	if verified := jupyter.ValidateFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, msg.Offset, msg.Frames); !verified {
-		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
-		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
+		d.log.Error("[gid=%d] Failed to verify modified message with signature scheme '%v' and key '%v'",
+			gid, kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
+		d.log.Error("[gid=%d] This message will likely be rejected by the kernel:\n%v", gid, msg)
 	}
 
 	return msg
@@ -2366,9 +2371,9 @@ func (d *SchedulerDaemonImpl) ResourcesSnapshot(_ context.Context, _ *proto.Void
 	return snapshot, nil
 }
 
-// convertExecuteRequestToYieldExecute converts the given message to a "yield_execute" message.
+// convertExecuteRequestToYieldExecute converts the given message to a "yield_request" message.
 //
-// This will return a COPY of the original message with the type field modified to contact "yield_execute" instead of "execute_request".
+// This will return a COPY of the original message with the type field modified to contact "yield_request" instead of "execute_request".
 // On success, the returned error will be nil. If an error occurs, then the returned message will be nil, and the error will be non-nil.
 //
 // PRECONDITION: The given message must be an "execute_request" message.
@@ -2388,19 +2393,19 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 	// Create a JupyterFrames struct by wrapping with the message's frames.
 	jFrames := jupyter.JupyterFrames(newMessage.Frames)
 	if err = jFrames.Validate(); err != nil {
-		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while validating the existing frames: %v", err)
-		d.notifyClusterGatewayAndPanic("Failed to Validate \"yield_execute\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
+		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_request' message, specifically while validating the existing frames: %v", err)
+		d.notifyClusterGatewayAndPanic("Failed to Validate \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
 	}
 
-	// Replace the header with the new header (that has the 'yield_execute' MsgType).
+	// Replace the header with the new header (that has the 'yield_request' MsgType).
 	header, err := jMsg.GetHeader()
 	if err != nil {
 		panic(err)
 	}
 
 	if jFrames[jupyter.JupyterFrameHeader+jMsg.Offset], err = json.Marshal(header); err != nil {
-		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_execute' message, specifically while encoding the new message header: %v", err)
-		d.notifyClusterGatewayAndPanic("Failed to Encode Header for \"yield_execute\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
+		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_request' message, specifically while encoding the new message header: %v", err)
+		d.notifyClusterGatewayAndPanic("Failed to Encode Header for \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
 	}
 
 	// Replace the frames of the cloned message.

@@ -9,6 +9,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -755,14 +756,15 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.Ker
 	}
 
 	if msgErr.Status == types.MessageStatusOK {
-		//if msg.JupyterMessageType() == "execute_reply" {
-		// return c.markExecutionAsComplete(replicaId), false
-		//}
-		return nil, false
+		if msg.JupyterMessageType() == "execute_reply" {
+			replicaClient.ReceivedExecuteReply(msg)
+			return nil, false
+		}
 	}
 
 	err = errors.New(msgErr.ErrValue)
 	if msgErr.ErrName == types.MessageErrYieldExecution {
+		replicaClient.ReceivedExecuteReply(msg)
 		yielded = true
 		errors.Join()
 		err2 := c.handleExecutionYieldedNotification(replica.(*KernelReplicaClient), msg)
@@ -820,7 +822,9 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// defer cancel()
 	forwarder := func(replica scheduling.KernelInfo, typ types.MessageType, msg *types.JupyterMessage) (err error) {
 		c.log.Debug(utils.BlueStyle.Render("Received %s response from %v"), typ.String(), replica)
-		msg.ReplicaId = replica.(*KernelReplicaClient).replicaId
+
+		kernelClient := replica.(*KernelReplicaClient)
+		msg.ReplicaId = kernelClient.replicaId
 
 		if typ == types.ShellMessage {
 			// "Preprocess" the response, which involves checking if it is a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.
@@ -886,6 +890,10 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 		wg.Add(1)
 		go func(kernel scheduling.Kernel) {
+			if jMsg.JupyterMessageType() == domain.ShellExecuteRequest || jMsg.JupyterMessageType() == domain.ShellYieldExecute {
+				kernel.(*KernelReplicaClient).SentExecuteRequest(jMsg)
+			}
+
 			// TODO: If the ACKs fail on this and we reconnect and retry, the wg.Done may be called too many times.
 			// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 			// to be cleared after the context ends; we just do it on ACK timeout.

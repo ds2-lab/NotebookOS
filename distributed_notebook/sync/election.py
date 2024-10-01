@@ -169,8 +169,12 @@ class Election(object):
         """
         self.__dict__.update(state)
         self._pick_and_propose_winner_future: Optional[asyncio.Future[Any]] = None
-        # self.election_finished_event: Optional[asyncio.Event] = None
-        # self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
+        self.election_finished_event: Optional[asyncio.Event] = asyncio.Event()
+
+        try:
+            getattr(self, "election_finished_condition_waiter_loop")
+        except AttributeError :
+            self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
     @property
     def election_state(self)->ElectionState:
