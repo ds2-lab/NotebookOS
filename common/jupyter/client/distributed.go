@@ -1220,7 +1220,7 @@ func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *Ke
 		currentStatus = "non-current"
 	}
 	c.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
-		replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, c.activeExecution.NumProposalsReceived(), c.activeExecution.NumReplicas, replica.ID())
+		replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, associatedActiveExecution.NumProposalsReceived(), associatedActiveExecution.NumReplicas, replica.ID())
 
 	if errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
 		if currentStatus == "current" {
