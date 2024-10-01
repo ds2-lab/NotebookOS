@@ -1974,7 +1974,7 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecut
 	}
 }
 
-// Deallocate the GPU resources associated with the kernel.
+// processExecuteReply handles the logic of deallocating resources that have been committed to a kernel so that it could execute user-submitted code.
 func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, kernel scheduling.KernelInfo /*, offset int */) error {
 	kernelClient := kernel.(*client.KernelReplicaClient)
 	// Check if we need to release allocated GPUs.

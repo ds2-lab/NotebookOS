@@ -280,6 +280,15 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 	return nil
 }
 
+// NumPendingExecuteRequests returns the number of "execute_request" ZMQ messages that have been sent/forwarded to
+// the kernel, for which we have not yet received a response (i.e., an "execute_reply" message).
+func (c *KernelReplicaClient) NumPendingExecuteRequests() int {
+	c.outstandingExecuteRequestIdsMutex.Lock()
+	defer c.outstandingExecuteRequestIdsMutex.Unlock()
+
+	return c.outstandingExecuteRequestIds.Len()
+}
+
 // SentExecuteRequest records that an "execute_request" message has been sent to the kernel.
 //
 // ReceivedExecuteReply will panic if the given types.JupyterMessage is not an "execute_request" message/
@@ -857,14 +866,19 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 		return err
 	}
 
+	// If we're actively training, or if there are pending "execute_request" messages (i.e., "execute_request" messages
+	// that we've sent to the kernel but for which we have not yet received the corresponding "execute_reply"), then
+	// we should not require an ACK, as the kernel will be busy either executing user-submitted code or blocking until
+	// the leader replica has finished executing code (or they'll return with a failed election, either way).
 	requiresAck := types.ShouldMessageRequireAck(typ)
-	if c.isTraining && typ == types.ShellMessage {
+	pendingExecRequests := c.NumPendingExecuteRequests()
+	if (c.isTraining || pendingExecRequests > 0) && typ == types.ShellMessage {
 		// If we're currently training and the message is a Shell message, then we'll just not require an ACK.
 		// Jupyter doesn't normally use ACKs, so it's fine. The message can simply be resubmitted if necessary.
 		requiresAck = false
 
-		c.log.Warn(utils.YellowStyle.Render("Shell '%s' message %s (JupyterID=\"%s\") targeting actively-training kernel %s will NOT require an ACK."),
-			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), c.id)
+		c.log.Warn(utils.YellowStyle.Render("Shell '%s' message %s (JupyterID=\"%s\") targeting kernel %s will NOT require an ACK. IsTraining: %v. NumPendingExecRequests: %d."),
+			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), c.id, c.isTraining, pendingExecRequests)
 	}
 
 	// If the context is merely cancellable (without a specific deadline/timeout), then we'll just use the default request timeout.
