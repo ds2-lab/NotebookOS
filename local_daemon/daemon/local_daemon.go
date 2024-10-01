@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"log"
@@ -1855,10 +1856,11 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 // the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
 // a FCFS manner.)
 func (d *SchedulerDaemonImpl) enqueueExecuteRequest(executeRequestMessage *jupyter.JupyterMessage, kernel *client.KernelReplicaClient) <-chan interface{} {
+	gid := goid.Get()
 	msgType := executeRequestMessage.JupyterMessageType()
 	if msgType != domain.ShellExecuteRequest {
-		log.Fatalf("Cannot enqueue Jupyter message of type \"%s\" in outgoing \"execute_request\" queue of kernel \"%s\".",
-			msgType, kernel.ID())
+		log.Fatalf("[gid=%d] Cannot enqueue Jupyter message of type \"%s\" in outgoing \"execute_request\" queue of kernel \"%s\".",
+			gid, msgType, kernel.ID())
 	}
 
 	mutex, loaded := d.outgoingExecuteRequestQueueMutexes.Load(kernel.ID())
@@ -1875,8 +1877,8 @@ func (d *SchedulerDaemonImpl) enqueueExecuteRequest(executeRequestMessage *jupyt
 
 	queue, loaded := d.outgoingExecuteRequestQueue.Load(kernel.ID())
 	if !loaded {
-		d.log.Warn("No \"execute_request\" queue found for replica %d of kernel %s. Creating one now.",
-			kernel.ReplicaID(), kernel.ID()) // Should already have been made when kernel replica was first created.
+		d.log.Warn("[gid=%d] No \"execute_request\" queue found for replica %d of kernel %s. Creating one now.",
+			gid, kernel.ReplicaID(), kernel.ID()) // Should already have been made when kernel replica was first created.
 		queue = make(chan *enqueuedExecuteRequestMessage, DefaultExecuteRequestQueueSize)
 		d.outgoingExecuteRequestQueue.Store(kernel.ID(), queue)
 	}
@@ -1890,11 +1892,11 @@ func (d *SchedulerDaemonImpl) enqueueExecuteRequest(executeRequestMessage *jupyt
 		// Once the queue is full, the order in which future requests are processed is no longer guaranteed.
 		// Specifically, the order in which new items are added to the queue is non-deterministic.
 		// (Once in the queue, requests will still be processed in a FCFS manner.)
-		d.log.Warn("Enqueuing outbound \"execute_request\" targeting replica %d of kernel %s. Queue is almost full: %d/%d.",
-			kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
+		d.log.Warn("[gid=%d] Enqueuing outbound \"execute_request\" targeting replica %d of kernel %s. Queue is almost full: %d/%d.",
+			gid, kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
 	} else {
-		d.log.Debug("Enqueuing outbound \"execute_request\" targeting replica %d of kernel %s. Queue size: %d/%d.",
-			kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
+		d.log.Debug("[gid=%d] Enqueuing outbound \"execute_request\" targeting replica %d of kernel %s. Queue size: %d/%d.",
+			gid, kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
 	}
 
 	// This could conceivably block, which would be fine.
@@ -1917,7 +1919,8 @@ func (d *SchedulerDaemonImpl) enqueueExecuteRequest(executeRequestMessage *jupyt
 // the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
 // a FCFS manner.)
 func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecuteRequestMessage, stopChan chan interface{}, kernel *client.KernelReplicaClient) {
-	d.log.Debug("\"execute_request\" forwarder for replica %d of kernel %s has started running.", kernel.ReplicaID(), kernel.ID())
+	gid := goid.Get()
+	d.log.Debug("[gid=%d] \"execute_request\" forwarder for replica %d of kernel %s has started running.", gid, kernel.ReplicaID(), kernel.ID())
 	for {
 		select {
 		case enqueuedMessage := <-queue:
@@ -1940,16 +1943,16 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecut
 
 				// Process the message.
 				processedMessage := d.processExecuteRequest(enqueuedMessage.Msg, enqueuedMessage.Kernel) // , header, offset)
-				d.log.Debug("Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s",
-					len(processedMessage.Frames), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID(), processedMessage)
+				d.log.Debug("[gid=%d] Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s",
+					gid, len(processedMessage.Frames), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID(), processedMessage)
 
 				// Send the message and post the result back to the caller via the channel included within
 				// the enqueued "execute_request" message.
 				ctx, cancel := context.WithCancel(context.Background())
 				if err := enqueuedMessage.Kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, processedMessage, d.kernelResponseForwarder, func() {
 					cancel()
-					d.log.Debug("Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
-						processedMessage.JupyterMessageType(), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID())
+					d.log.Debug("[gid=%d] Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
+						gid, processedMessage.JupyterMessageType(), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID())
 				}); err != nil {
 					// Send the error back to the caller.
 					enqueuedMessage.ResultChannel <- err
@@ -1960,7 +1963,7 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecut
 			}
 		case <-stopChan:
 			{
-				d.log.Debug("\"execute_request\" forwarder for kernel %s has been instructed to stop.", kernel.ID())
+				d.log.Debug("[gid=%d] \"execute_request\" forwarder for kernel %s has been instructed to stop.", gid, kernel.ID())
 				return
 			}
 		}
@@ -2080,7 +2083,11 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	var metadataFrame = frames[msg.Offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
 
-	d.log.Debug("Processing `execute_request` for kernel %s now.", kernel.ID())
+	if kernel.IsTraining() {
+		d.log.Warn("Processing `execute_request` for actively-training kernel %s now...", kernel.ID())
+	} else {
+		d.log.Debug("Processing `execute_request` for idle kernel %s now.", kernel.ID())
+	}
 
 	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
 	if len(metadataFrame.Frame()) > 0 {
@@ -2134,7 +2141,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 		// We didn't want to bother reserving resources for this kernel replica if its either been explicitly told
 		// to yield, or if another replica of the same kernel was explicitly expected to yield. But now that we know
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
-		d.log.Debug("Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election.",
+		d.log.Debug("Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
 			kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
 		resourceAllocationFailure := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
 		if resourceAllocationFailure != nil {

@@ -876,7 +876,7 @@ class DistributedKernel(IPythonKernel):
         return store
 
     async def check_persistent_store(self):
-        """Check if persistent store is ready. If initializing, wait. The futrue return True if ready."""
+        """Check if persistent store is ready. If initializing, wait. The future return True if ready."""
         store = self.store
         if store is None:
             return False
@@ -1005,10 +1005,12 @@ class DistributedKernel(IPythonKernel):
         reply_content: Dict[str, Any] = {}
         error_occurred: bool = False  # Separate flag, since we raise an exception and generate an error response when we yield successfully.
 
-        self.log.info("DistributedKernel is preparing to yield the execution of some code to another replica.\n\n")
-        self.log.debug("Parent: %s" % str(parent))
         parent_header: dict[str, Any] = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
+        self.next_execute_request_msg_id: str = parent_header["msg_id"]
+        self.log.debug(
+            f"yield_execute with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
+        self.log.debug("Parent: %s" % str(parent))
 
         if not self.session:
             return
@@ -1041,6 +1043,7 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("yield_execute has been called.")
 
+        current_term_number: int = -1
         try:
             self.toggle_outstream(override=True, enable=False)
 
@@ -1048,7 +1051,7 @@ class DistributedKernel(IPythonKernel):
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
-            current_term_number: int = self.synchronizer.execution_count + 1
+            current_term_number = self.synchronizer.execution_count + 1
             self.log.info(f"Calling synchronizer.ready({current_term_number}) now with YIELD proposal.")
 
             # Pass 'True' for the 'lead' parameter to propose LEAD.

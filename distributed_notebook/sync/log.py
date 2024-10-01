@@ -1,6 +1,7 @@
 import datetime
 import time
 import uuid
+import asyncio
 from enum import Enum
 from typing import Tuple, Optional, Any
 from typing_extensions import Protocol, runtime_checkable
@@ -303,12 +304,18 @@ class SyncLog(Protocol):
         """Set the callback that will be called when the SyncLog decides to checkpoint.
           callback will be in the form callback(Checkpointer)."""
 
-    async def try_yield_execution(self, term) -> bool:
+    async def try_yield_execution(self, term_number: int) -> bool:
         """Request yield the update of a term to another replica."""
 
-    async def try_lead_execution(self, term) -> bool:
+    async def try_lead_execution(self, term_number: int) -> bool:
         """Request to lead the update of a term. A following append call
            without leading status will fail."""
+
+    async def set_election_waiter_ioloop(self, io_loop: asyncio.AbstractEventLoop, term_number: int):
+        """
+        Set the asyncio IOLoop that will be used when notifying the calling thread that the election of the
+        specified term number has completed.
+        """
 
     async def wait_for_election_to_end(self, term_number: int):
         """

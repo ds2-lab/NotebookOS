@@ -86,12 +86,12 @@ type KernelReplicaClient struct {
 	host                             *scheduling.Host // The host that the kernel replica is running on.
 	workloadId                       string           // workloadId is the ID of the workload associated with this kernel, if this kernel was created within a workload. This is populated after extracting the ID from the metadata frame of a Jupyter message.
 	workloadIdSet                    bool             // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
-	isTraining                       bool             // isTraining indicates whether the kernel associated with this client is actively training.
 	trainingStartedAt                time.Time        // trainingStartedAt is the time at which the kernel associated with this client began actively training.
 	lastTrainingTimePrometheusUpdate time.Time        // lastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated training time metric to Prometheus. We use this to determine how much more to increment the training time Prometheus metric when we stop training, since any additional training time since the last scheduled publish won't be pushed to Prometheus automatically by the publisher-goroutine.
+	isTraining                       bool             // isTraining indicates whether the kernel replica associated with this client is actively training.
+	// isSomeReplicaTraining            bool             // isSomeReplicaTraining indicates whether any replica of the kernel associated with this client is actively training, even if it is not the specific replica associated with this client.
 
-	// Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
-	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback
+	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback // Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
 
 	// If we successfully reconnect to a kernel and then fail to send the message again, then we call this.
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback
@@ -213,6 +213,12 @@ func (c *KernelReplicaClient) IsTraining() bool {
 	return c.isTraining
 }
 
+// IsSomeReplicaTraining returns a bool indicating  whether any replica of the kernel associated with this client is
+// actively training, even if it is not the specific replica associated with this client.
+//func (c *KernelReplicaClient) IsSomeReplicaTraining() bool {
+//	return c.isSomeReplicaTraining
+//}
+
 // SetLastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated
 // training time metric to Prometheus. We use this to determine how much more to increment the training time Prom
 // metric when we stop training, since any additional training time since the last scheduled publish won't be pushed
@@ -239,8 +245,8 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 	defer c.mu.Unlock()
 
 	if c.isTraining {
-		c.log.Warn("Kernel %s is already training as of %v. Ending current training now. "+
-			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.id)
+		c.log.Warn("Replica %d of kernel %s is already training as of %v. Ending current training now. "+
+			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.replicaId, c.id, c.trainingStartedAt)
 
 		// We already locked the kernel above, so we can call the unsafe method directly here.
 		err := unsafeKernelStoppedTraining[T](c, snapshot)
@@ -262,6 +268,8 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 			return err
 		}
 	}
+
+	c.log.Debug(utils.PurpleStyle.Render("Replica %d of kernel \"%s\" has STARTED training."), c.replicaId, c.id)
 
 	return nil
 }
@@ -288,6 +296,9 @@ func unsafeKernelStoppedTraining[T commonTypes.ArbitraryResourceSnapshot](c *Ker
 			return err
 		}
 	}
+
+	c.log.Debug(utils.LightPurpleStyle.Render("Replica %d of kernel \"%s\" has STOPPED training after %v."),
+		c.replicaId, c.id, time.Since(c.trainingStartedAt))
 
 	return nil
 }
@@ -842,7 +853,8 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 	err = sendRequest(request, socket)
 
 	if err != nil {
-		c.log.Warn("Failed to send request because: %v", err)
+		c.log.Warn("Failed to send %s \"%s\" request %s (JupyterID=%s) because: %s", socket.Type.String(),
+			request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err.Error())
 
 		// If the error is that we didn't receive any ACKs, then we'll try to reconnect to the kernel.
 		// If we reconnect successfully, then we'll try to send it again.

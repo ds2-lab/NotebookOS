@@ -58,6 +58,7 @@ services:
       logging_jobname: "gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /home/scusemua/gateway-runtime-state:/gateway-runtime-state
       - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/gateway/gateway.yml:/gateway.yml
       - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/local_daemon/daemon.yml:/local_daemon/daemon.yml
       - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/docker-compose.yml:/docker-compose.yml
@@ -173,7 +174,6 @@ services:
       - grafana_data:/var/lib/grafana
 
 volumes:
-  storage:
   coredumps_volume:
   prometheus_data:
   grafana_data:

@@ -247,10 +247,10 @@ func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, soc
 		ackChan <- struct{}{}
 		// s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
 	} else if ackChan == nil { // If ackChan is nil, then that means we weren't expecting an ACK in the first place.
-		s.Log.Error("[gid=%d] [3] Received ACK for %s \"%s\" message %s (JupyterID=\"%s\") via local socket %s [remoteSocket=%s]; however, we were not expecting an ACK for that message...",
+		s.Log.Warn("[gid=%d] [3] Received ACK for %s \"%s\" message %s (JupyterID=\"%s\") via local socket %s [remoteSocket=%s]; however, we were not expecting an ACK for that message...",
 			goroutineId, socket.Type.String(), jMsg.JupyterParentMessageType(), rspId, jMsg.JupyterParentMessageId(), socket.Name, socket.RemoteName)
 	} else if ackReceived {
-		s.Log.Error("[gid=%d] [4] Received ACK for %s message %s via local socket %s [remoteSocket=%s]; however, we already received an ACK for that message...",
+		s.Log.Warn("[gid=%d] [4] Received ACK for %s message %s via local socket %s [remoteSocket=%s]; however, we already received an ACK for that message...",
 			goroutineId, socket.Type.String(), rspId, socket.Name, socket.RemoteName)
 	} else if _, loaded = s.discardACKs.LoadAndDelete(rspId); !loaded {
 		// For messages that we explicitly indicate do not require an ACK, we make note of this, just for debugging purposes.
@@ -708,7 +708,7 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 
 	socket.InitPendingReq()
 	reqId := request.RequestId()
-	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message from %s to %s [remoteSocket=%s].", goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.JupyterMessageType(), request.SourceID(), request.DestinationId(), socket.RemoteName)
+	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message %s (JupyterID=%s) [remoteSocket=%s]. RequiresACK: %v.", goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), socket.RemoteName, request.RequiresAck())
 
 	// dest.Unlock()
 	if request.RequiresAck() {
@@ -819,6 +819,8 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 func (s *AbstractServer) waitForAck(request types.Request) bool {
 	// If there's no ACK required, then just return immediately.
 	if !request.RequiresAck() {
+		s.Log.Warn("%s \"%s\" request %s (JupyterID=%s) does not require an ACK. Returning immediately instead of waiting for an ACK.",
+			request.MessageType().String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId())
 		return true
 	}
 
@@ -831,6 +833,8 @@ func (s *AbstractServer) waitForAck(request types.Request) bool {
 			request.MessageType(), request.RequestId()))
 	}
 
+	s.Log.Debug("Waiting up to %v to receive ACK for %s \"%s\" message %s (JupyterID=%s).", request.AckTimeout(),
+		request.MessageType().String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId())
 	select {
 	case <-ackChan:
 		{
@@ -895,7 +899,7 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 
 		firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sent %s \"%s\" message with"), goroutineId, socket.Type.String(), request.JupyterMessageType())
 		secondPart := fmt.Sprintf("reqID=%v (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
-		thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("via %s. Attempt %d/%d. NumSends: %d. NumUniqueSends: %d. Message: %v"), socket.Name, request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), s.NumSends.Load(), s.NumUniqueSends.Load(), request.Payload().Msg)
+		thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("via %s. Attempt %d/%d. NumSends: %d. NumUniqueSends: %d. AckRequired: %v. Message: %v"), socket.Name, request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), s.NumSends.Load(), s.NumUniqueSends.Load(), request.RequiresAck(), request.Payload().Msg)
 		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 	}
 
@@ -947,9 +951,12 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 
 		// If the request requires an acknowledgement to be sent, then we'll wait for that acknowledgement.
 		// Otherwise, we'll return immediately.
-		if s.waitForAck(request) {
+		if request.RequiresAck() && s.waitForAck(request) {
 			// We were successful!
 			s.onAcknowledgementReceived(request, socket)
+			s.onSuccessfullySentMessage(request, socket, request.CurrentAttemptNumber())
+			return nil
+		} else if !request.RequiresAck() {
 			s.onSuccessfullySentMessage(request, socket, request.CurrentAttemptNumber())
 			return nil
 		}
@@ -964,6 +971,12 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 // onAcknowledgementReceived is to be called when an acknowledgement is received for the given Request within
 // the Request's configured time-out window.
 func (s *AbstractServer) onAcknowledgementReceived(request types.Request, socket *types.Socket) {
+	if !request.RequiresAck() {
+		s.Log.Error("We're recording that we successfully received an ACK for %s \"%s\" request %s (JupyterID=%s), but that request doesn't require an ACK...",
+			request.MessageType().String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId())
+		return
+	}
+
 	startTime, _ := request.BeganSendingAt()
 	ackReceivedLatency := time.Since(startTime)
 

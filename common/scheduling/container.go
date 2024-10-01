@@ -49,7 +49,7 @@ type Container struct {
 	containerState       ContainerState // The current state of the Container.
 	executions           atomic.Int32   // The number of training events processed by the Container.
 	outstandingResources types.Spec     // The number of GPUs required by the Container to train.
-	isTraining           bool           // Flag indicating whether the Container is actively training (true) or not (false).
+	trainingStartedAt    time.Time      // The time at which the Container started training.
 	startedAt            time.Time      // The time at which the Container was created.
 	addr                 string         // The address of the Container.
 
@@ -268,6 +268,7 @@ func TrainingStartedInContainer[T types.ArbitraryResourceSnapshot](c *Container,
 		log.Fatalf("Container %s did not receive Resource Snapshot on TrainingStartedInContainer...", c.id)
 	}
 
+	c.trainingStartedAt = time.Now()
 	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().NumGpus))
 	c.spec.UpdateSpecCPUs(c.Session().ResourceUtilization().CpuUtilization)
 	c.spec.UpdateSpecMemoryMB(c.Session().ResourceUtilization().MemoryUsageMb)
@@ -299,7 +300,7 @@ func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, s
 		return err
 	}
 
-	c.log.Debug("Training stopping. Outputting resources before training officially stops.")
+	c.log.Debug("Training stopping after %v. Outputting resources before training officially stops.", time.Since(c.trainingStartedAt))
 	c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
 		c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
 	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.",

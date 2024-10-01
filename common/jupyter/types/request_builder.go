@@ -38,7 +38,6 @@ type RequestBuilder struct {
 	///////////////
 
 	// Should the request require ACKs
-	// Default: true
 	requiresAck bool
 
 	// ackTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
@@ -120,7 +119,6 @@ type RequestBuilder struct {
 // NewRequestBuilder returns a pointer to the newly-created RequestBuilder struct.
 func NewRequestBuilder(parentContext context.Context, sourceId string, destId string, connectionInfo *ConnectionInfo) *RequestBuilder {
 	builder := &RequestBuilder{
-		// requiresAck:              true,
 		isBlocking:               true,
 		timeout:                  DefaultRequestTimeout, // Default value
 		hasTimeout:               false,

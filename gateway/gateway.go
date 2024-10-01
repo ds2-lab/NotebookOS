@@ -100,6 +100,8 @@ func finalize(fix bool, identity string, distributedCluster *daemon.DistributedC
 		return
 	}
 
+	log.Printf("[WARNING] Finalize called with fix=%v and identity=\"%s\"\n", fix, identity)
+
 	if err := recover(); err != nil {
 		logger.Error("%v", err)
 

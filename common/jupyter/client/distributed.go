@@ -124,6 +124,11 @@ type DistributedKernelClient struct {
 
 	session *scheduling.Session
 
+	// isTraining a bool indicating whether a replica of the associated kernel is actively training right now.
+	isTraining bool
+	// trainingStartedAt is the time at which a replica of the associated kernel began actively training.
+	trainingStartedAt time.Time
+
 	log     logger.Logger
 	mu      sync.RWMutex
 	closing int32
@@ -699,26 +704,8 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 // Process a response to a shell message. This is called before the handler that was passed when issuing the request.
 // Return true if the message is a 'yield' message (indicating that the replica yielded an execution).
 func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.KernelInfo, msg *types.JupyterMessage) (err error, yielded bool) {
-	// var (
-	// 	header             *types.MessageHeader
-	// 	jupyterMessageType string
-	// )
-
 	replicaClient := replica.(*KernelReplicaClient)
 	replicaId := replicaClient.replicaId
-
-	// _, header, _, err = types.HeaderFromMsg(msg)
-	// if err != nil {
-	// 	c.log.Error("Failed to extract header from ZMQ message sent by replica %d of kernel %s: %v", replicaId, c.id, err)
-	// 	return err, false
-	// }
-
-	// jupyterMessageType = header.MsgType
-	// if jupyterMessageType != KernelInfoReply {
-	// 	c.log.Debug("Received shell '%v' response from kernel %s: %v", jupyterMessageType, c.id, msg)
-	// } else { // We don't print the message if it is just a KernelInfoReply.
-	// 	c.log.Debug("Received shell '%v' response from kernel %s.", jupyterMessageType, c.id)
-	// }
 
 	jFrames, _ := types.SkipIdentitiesFrame(msg.Frames)
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
@@ -751,7 +738,7 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.Ker
 	if msgErr.ErrName == types.MessageErrYieldExecution {
 		yielded = true
 		errors.Join()
-		err2 := c.handleExecutionYieldedNotification(replica.(*KernelReplicaClient))
+		err2 := c.handleExecutionYieldedNotification(replica.(*KernelReplicaClient), msg)
 		return errors.Join(err, err2), true
 	}
 
@@ -1058,6 +1045,27 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 	return nil
 }
 
+// extractResourceSnapshotFromRequestMetadata extracts the *scheduling.ResourceWrapperSnapshot from the metadata
+// of the given Jupyter ZMQ message.
+//
+// The returned error will be nil on success. If a *scheduling.ResourceWrapperSnapshot could not be extracted from
+// the given/specified Jupyter ZMQ message, then the error will be non-nil.
+func (c *DistributedKernelClient) extractResourceSnapshotFromRequestMetadata(msg *types.JupyterMessage) (*scheduling.ResourceWrapperSnapshot, error) {
+	var snapshotWrapper *scheduling.MetadataResourceWrapperSnapshot
+	metadataFrame := types.JupyterFrames(msg.Frames[msg.Offset:]).MetadataFrame()
+	err := metadataFrame.Decode(&snapshotWrapper)
+	if err != nil {
+		c.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
+		return nil, err // TODO: Should I panic here?
+	}
+
+	snapshot := snapshotWrapper.ResourceWrapperSnapshot
+	c.log.Debug(utils.LightBlueStyle.Render("Extracted ResourceWrapperSnapshot from metadata frame of Jupyter \"%s\" message: %s"),
+		types.MessageTypeSMRLeadTask, snapshot.String())
+
+	return snapshot, nil
+}
+
 // handleSmrLeadTaskMessage handles an types.MessageTypeSMRLeadTask IO Pub message.
 // TODO: This logic is sort of buried away in a very non-obvious place...
 func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *KernelReplicaClient, msg *types.JupyterMessage) error {
@@ -1067,70 +1075,67 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 		log.Fatalf("Kernel %s has started training; however, its active execution is nil...", c.id)
 	}
 
-	c.activeExecution.ActiveReplica = kernelReplica
-
-	var snapshotWrapper *scheduling.MetadataResourceWrapperSnapshot
-	metadataFrame := types.JupyterFrames(msg.Frames[msg.Offset:]).MetadataFrame()
-	err := metadataFrame.Decode(&snapshotWrapper)
-	if err != nil {
-		c.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
-		return err // TODO: Should I panic here?
+	// Decode the types.MessageSMRLeadTask message.
+	var leadMessage types.MessageSMRLeadTask
+	frames := types.JupyterFrames(msg.Frames[msg.Offset:])
+	if err := frames.DecodeContent(&leadMessage); err != nil {
+		errorMessage := fmt.Sprintf("Failed to decode content of SMR Lead ZMQ message: %v\n", err)
+		log.Fatalf(utils.RedStyle.Render(errorMessage))
 	}
 
-	snapshot := snapshotWrapper.ResourceWrapperSnapshot
-	c.log.Debug(utils.LightBlueStyle.Render("Extracted ResourceWrapperSnapshot from metadata frame of Jupyter \"%s\" message: %s"),
-		types.MessageTypeSMRLeadTask, snapshot.String())
-	if err = KernelStartedTraining(kernelReplica, snapshot); err != nil {
-		c.log.Error("Failed to start training for kernel replica %s-%d: %v", c.id, kernelReplica.ReplicaID(), err)
-		panic(err)
+	// The time at which the kernel replica began executing the code.
+	startedProcessingAt := time.UnixMilli(leadMessage.UnixMilliseconds)
+
+	// The ID of the Jupyter "execute_request" message that initiated the associated training.
+	executeRequestMsgId := leadMessage.ExecuteRequestMsgId
+
+	// Ensure that the "smr_lead_task" message that we just got is associated with the current ActiveExecution struct.
+	if c.activeExecution.ExecuteRequestMessageId != executeRequestMsgId {
+		c.log.Error("Received 'smr_lead_task' notification for active execution associated with \"execute_request\" %s; "+
+			"however, the current active execution is associated with \"execute_request\" %s...",
+			executeRequestMsgId, c.activeExecution.ExecuteRequestMessageId)
+
+		// See if we can retrieve the ActiveExecution associated with the "smr_lead_task" message.
+		associatedActiveExecution, loaded := c.activeExecutionsByExecuteRequestMsgId.Load(executeRequestMsgId)
+		if !loaded {
+			log.Fatalf(utils.RedStyle.Render("[ERROR] Cannot find active execution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...\n"),
+				executeRequestMsgId, c.id)
+		} else {
+			c.log.Error("Received \"smr_lead_task\" notification for non-current ActiveExecution.")
+			c.log.Error("Current active execution: %s", c.activeExecution.String())
+			c.log.Error("Target active execution (of \"smr_lead_task\" message): %s", associatedActiveExecution.String())
+			log.Fatalf(utils.RedStyle.Render("[ERROR] Received \"smr_lead_task\" notification for non-current ActiveExecution.\n"))
+		}
 	}
 
 	if c.activeExecution.HasValidOriginalSentTimestamp() {
-		var (
-			leadMessage               types.MessageSMRLeadTask
-			latency                   time.Duration
-			loaded                    bool
-			startedProcessingAt       time.Time
-			executeRequestMsgId       string
-			associatedActiveExecution *scheduling.ActiveExecution
-		)
+		// Measure of the interactivity.
+		// The latency here is calculated as the difference between when the kernel replica began executing the
+		// user-submitted code, and the time at which the user's Jupyter client sent the "execute_request" message.
+		latency := startedProcessingAt.Sub(c.activeExecution.OriginalSentTimestamp())
 
-		frames := types.JupyterFrames(msg.Frames[msg.Offset:])
-		if err := frames.DecodeContent(&leadMessage); err != nil {
-			c.log.Error("Failed to decode content of SMR Lead ZMQ message: %v", err)
-
-			// Since we can't get the exact value, we'll approximate it using the current timestamp.
-			latency = time.Since(c.activeExecution.OriginalSentTimestamp())
+		// Record metrics in Prometheus.
+		if c.activeExecution.HasValidWorkloadId() {
+			c.executionLatencyCallback(latency, c.activeExecution.WorkloadId, kernelReplica.id)
 		} else {
-			startedProcessingAt = time.UnixMilli(leadMessage.UnixMilliseconds)
-			executeRequestMsgId = leadMessage.ExecuteRequestMsgId
-
-			// Difference between when the code began executing in the kernel and when the
-			// associated "execute_request" message was actually sent.
-			latency = startedProcessingAt.Sub(c.activeExecution.OriginalSentTimestamp())
-			associatedActiveExecution, loaded = c.activeExecutionsByExecuteRequestMsgId.Load(executeRequestMsgId)
-			if !loaded {
-				c.log.Error("Cannot find active execution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...",
-					executeRequestMsgId, c.id)
-			}
-		}
-
-		// If we weren't able to find (or even search for) the associated ActiveExecution, then print an error.
-		if associatedActiveExecution == nil {
-			c.log.Error("Unable to retrieve associated ActiveExecution...")
-		} else {
-			c.log.Debug("Execution requested was submitted at %v, so it took %v for the request to begin being executed.",
-				associatedActiveExecution.OriginalSentTimestamp(), latency)
-
-			if !associatedActiveExecution.HasValidWorkloadId() {
-				c.log.Warn("ActiveExecution had \"sent-at\" timestamp, but no workload ID...")
-			}
-
-			// Record metrics in Prometheus.
-			c.executionLatencyCallback(latency, associatedActiveExecution.WorkloadId, kernelReplica.id)
+			c.log.Warn("ActiveExecution had \"sent-at\" timestamp, but no workload ID...")
 		}
 	} else {
 		c.log.Warn("ActiveExecution did not have original \"send\" timestamp available.")
+	}
+
+	c.activeExecution.ActiveReplica = kernelReplica
+
+	// Extract the resource snapshot from the request.
+	snapshot, extractionError := c.extractResourceSnapshotFromRequestMetadata(msg)
+	if extractionError != nil {
+		panic(extractionError)
+	}
+
+	// Record that the kernel has started training.
+	if err := KernelStartedTraining(kernelReplica, snapshot); err != nil {
+		c.log.Error("Failed to start training for kernel replica %s-%d: %v", c.id, kernelReplica.ReplicaID(), err)
+		panic(err)
 	}
 
 	c.log.Debug("Session \"%s\" has successfully started training on replica %d.", c.id, kernelReplica.ReplicaID())
@@ -1180,25 +1185,58 @@ func (c *DistributedKernelClient) handleIOKernelStatus(replica *KernelReplicaCli
 // handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current scheduling.ActiveExecution
 // struct. If we find that we've received all three proposals, and they were ALL 'yield', then we'll handle the situation
 // according to the scheduling policy that we've been configured to use.
-func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *KernelReplicaClient) error {
-	if c.activeExecution != nil {
-		replicaId := replica.replicaId
-		err := c.activeExecution.ReceivedYieldProposal(replicaId)
-		c.log.Debug("Received 'YIELD' proposal from %v. Received %d/%d proposals from replicas of kernel %s.",
-			replica, c.activeExecution.NumProposalsReceived(), c.activeExecution.NumReplicas, replica.ID())
+func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *KernelReplicaClient, msg *types.JupyterMessage) error {
+	// targetExecuteRequestId is the Jupyter message ID of the "execute_request" message associated
+	// with the 'YIELD' proposal that we just received.
+	targetExecuteRequestId := msg.JupyterParentMessageId()
 
-		if errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
+	// It's possible we received a 'YIELD' proposal for an ActiveExecution different from the current one.
+	// So, retrieve the ActiveExecution associated with the 'YIELD' proposal (using the "execute_request" message IDs).
+	var associatedActiveExecution *scheduling.ActiveExecution
+	if c.activeExecution == nil {
+		c.log.Error("Received 'YIELD' proposal from %v, but we have no active execution...", replica)
+		associatedActiveExecution, _ = c.activeExecutionsByExecuteRequestMsgId.Load(targetExecuteRequestId)
+	} else if c.activeExecution.ExecuteRequestMessageId != targetExecuteRequestId {
+		c.log.Warn("Received 'YIELD' proposal for ActiveExecution associated with \"execute_request\" %s; however, current ActiveExecution is associated with \"execute_request\" %s...",
+			targetExecuteRequestId, c.activeExecution.ExecuteRequestMessageId)
+		associatedActiveExecution, _ = c.activeExecutionsByExecuteRequestMsgId.Load(targetExecuteRequestId)
+	} else {
+		associatedActiveExecution = c.activeExecution
+	}
+
+	// If we couldn't find the associated active execution at all, then we should panic. That's bad.
+	if associatedActiveExecution == nil {
+		log.Fatalf(utils.RedStyle.Render("Received 'YIELD' proposal from replica %d of kernel %s targeting unknown ActiveExecution associated with an \"execute_request\" message with msg_id=\"%s\"..."),
+			replica.ReplicaID(), replica.ID(), targetExecuteRequestId)
+	}
+
+	// Mark that we received the 'YIELD' proposal for the associated ActiveExecution.
+	err := associatedActiveExecution.ReceivedYieldProposal(replica.ReplicaID())
+
+	var currentStatus string
+	if associatedActiveExecution == c.activeExecution {
+		currentStatus = "current"
+	} else {
+		currentStatus = "non-current"
+	}
+	c.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
+		replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, c.activeExecution.NumProposalsReceived(), c.activeExecution.NumReplicas, replica.ID())
+
+	if errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
+		if currentStatus == "current" {
 			return c.handleFailedExecutionAllYielded()
 		} else {
-			c.log.Error("Unexpected error while processing 'YIELD' proposal from replica %d of kernel %s: %v",
-				replica.ReplicaID(), replica.ID(), err)
+			// This just really shouldn't happen...
+			log.Fatalf(utils.RedStyle.Render("[ERROR] All replicas have proposed 'YIELD' for non-current ActiveExecution associated with \"execute_request\" \"%s\"...\n"), targetExecuteRequestId)
 		}
+	} else if err != nil {
+		c.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\": %v",
+			replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, err)
 
 		return err
-	} else {
-		c.log.Error("Received 'YIELD' proposal from %v, but we have no active execution...", replica)
-		return ErrNoActiveExecution
 	}
+
+	return nil
 }
 
 // Handle a failed execution in which all replicas proposed 'YIELD'.

@@ -128,10 +128,18 @@ class Election(object):
         #
         # This condition is also marked as complete if a notification is received that all replicas
         # proposed yield.
-        self.election_finished_condition: Optional[asyncio.Event] = asyncio.Event()
+        self.election_finished_event: Optional[asyncio.Event] = asyncio.Event()
         self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
-        # The completion_reason specifies why notify was called on the election_finished_condition field.
+        # Used with the self.election_waiter_cond variable.
+        # self.election_waiter_mutex: Optional[asyncio.Lock] = asyncio.Lock()
+        # Used to notify the thread/coroutine attempting to set the self.election_finished_event Event
+        # that the self.election_finished_condition_waiter_loop field has been populated, as it is possible
+        # for the coroutine that sets the self.election_finished_event to try to do so before the other
+        # coroutine has had a chance to populate the self.election_finished_condition_waiter_loop field.
+        # self.election_waiter_cond: Optional[asyncio.Condition] = asyncio.Condition(lock = self.election_waiter_mutex)
+
+        # The completion_reason specifies why notify was called on the election_finished_event field.
         # The reasons can be that the leader has finished executing the user-submitted code for this election term,
         # or because all replicas proposed yield.
         self.completion_reason = "N/A"
@@ -146,7 +154,7 @@ class Election(object):
         """
         state = self.__dict__.copy()
         del state["_pick_and_propose_winner_future"]
-        del state["election_finished_condition"]
+        del state["election_finished_event"]
         del state["election_finished_condition_waiter_loop"]
 
         self.logger.debug(f"Returning state dictionary containing {len(state)} entries:")
@@ -161,8 +169,8 @@ class Election(object):
         """
         self.__dict__.update(state)
         self._pick_and_propose_winner_future: Optional[asyncio.Future[Any]] = None
-        self.election_finished_condition: Optional[asyncio.Event] = None
-        self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
+        # self.election_finished_event: Optional[asyncio.Event] = None
+        # self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
     @property
     def num_discarded_vote_proposals(self)->int:
@@ -361,7 +369,7 @@ class Election(object):
             self.logger.debug(f"Discarding proposals from ALL nodes with attempt number < {latest_attempt_number}.")
 
         num_discarded:int = 0
-        # Iterate over all of the proposals, checking which (if any) need to be discarded.
+        # Iterate over all the proposals, checking which (if any) need to be discarded.
         # We do this even if the proposal we just received did not overwrite an existing proposal (in case a proposal was lost).
         to_remove: List[int] = []
         for prop_id, prop in self._proposals.items():
@@ -474,7 +482,7 @@ class Election(object):
         self._num_restarts += 1
 
         self.completion_reason = "N/A"
-        self.election_finished_condition.clear() # Reset the asyncio.Event so that it can be reused.
+        self.election_finished_event.clear() # Reset the asyncio.Event so that it can be reused.
 
         # Repopulate the 'missing node IDs' set.
         self._missing_proposals.clear()
@@ -524,9 +532,9 @@ class Election(object):
                              "Election Finished condition is None...")
 
         # If (somehow) the running event loop is the same as the one in which the waiter is waiting,
-        # then we can call self.election_finished_condition.set() directly.
+        # then we can call self.election_finished_event.set() directly.
         #
-        # Otherwise, we have to use call_soon_threadsafe to call the self.election_finished_condition.set method.
+        # Otherwise, we have to use call_soon_threadsafe to call the self.election_finished_event.set method.
         current_event_loop: Optional[asyncio.AbstractEventLoop] = None
         try:
             current_event_loop = asyncio.get_running_loop()
@@ -534,17 +542,25 @@ class Election(object):
             pass
 
         if current_event_loop != self.election_finished_condition_waiter_loop:
-            self.election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_condition.set)
+            self.election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_event.set)
         else:
-            self.election_finished_condition.set()
+            self.election_finished_event.set()
 
     async def wait_for_election_to_end(self):
         """
         Wait for the election to end (or enter the failed state), either because the elected leader of this election
         successfully finished executing the user-submitted code, or because all replicas proposed YIELD.
         """
-        self.election_finished_condition_waiter_loop = asyncio.get_running_loop()
-        await self.election_finished_condition.wait()
+        #async with self.election_waiter_mutex:
+        #    self.election_finished_condition_waiter_loop = asyncio.get_running_loop()
+        #    self.election_waiter_cond.notify_all()
+
+        if self.election_finished_condition_waiter_loop is not None:
+            assert self.election_finished_condition_waiter_loop == asyncio.get_running_loop()
+        else:
+            self.election_finished_condition_waiter_loop = asyncio.get_running_loop()
+
+        await self.election_finished_event.wait()
 
     def set_execution_complete(self):
         """
@@ -572,13 +588,13 @@ class Election(object):
             pass
 
         # If (somehow) the running event loop is the same as the one in which the waiter is waiting,
-        # then we can call self.election_finished_condition.set() directly.
+        # then we can call self.election_finished_event.set() directly.
         #
-        # Otherwise, we have to use call_soon_threadsafe to call the self.election_finished_condition.set method.
+        # Otherwise, we have to use call_soon_threadsafe to call the self.election_finished_event.set method.
         if current_event_loop != self.election_finished_condition_waiter_loop:
-            self.election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_condition.set)
+            self.election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_event.set)
         else:
-            self.election_finished_condition.set()
+            self.election_finished_event.set()
 
         self.logger.debug(f"The code execution phase for election {self.term_number} has completed.")
 

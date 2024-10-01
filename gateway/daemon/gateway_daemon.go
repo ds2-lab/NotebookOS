@@ -776,7 +776,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	if host == nil {
-		log.Fatalf("Newly-connected host from addr=%s is nil.\n", incoming.RemoteAddr().String())
+		log.Fatalf(utils.RedStyle.Render("Newly-connected host from addr=%s is nil.\n"), incoming.RemoteAddr().String())
 	}
 
 	d.log.Info("Incoming host scheduler %s (node = %s) connected", host.ID, host.NodeName)
@@ -914,7 +914,8 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 	}
 
 	if addReplicaOp.Completed() {
-		log.Fatalf("Retrieved AddReplicaOperation %v targeting replica %d of kernel %s -- this operation has already completed.\n", addReplicaOp.OperationID(), smrReadyNotification.ReplicaId, kernelId)
+		log.Fatalf(utils.RedStyle.Render("Retrieved AddReplicaOperation %v targeting replica %d of kernel %s -- this operation has already completed.\n"),
+			addReplicaOp.OperationID(), smrReadyNotification.ReplicaId, kernelId)
 	}
 
 	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s [AddOperation.OperationID=%v]", smrReadyNotification.ReplicaId, kernelId, addReplicaOp.OperationID())
@@ -951,7 +952,8 @@ func (d *ClusterGatewayImpl) SmrNodeAdded(_ context.Context, replicaInfo *proto.
 	}
 
 	if op.Completed() {
-		log.Fatalf("Retrieved AddReplicaOperation %v targeting replica %d of kernel %s -- this operation has already completed.\n", op.OperationID(), replicaInfo.ReplicaId, kernelId)
+		log.Fatalf(utils.RedStyle.Render("Retrieved AddReplicaOperation %v targeting replica %d of kernel %s -- this operation has already completed.\n"),
+			op.OperationID(), replicaInfo.ReplicaId, kernelId)
 	}
 
 	op.SetReplicaJoinedSMR()
@@ -1059,6 +1061,7 @@ func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, mess
 
 // Used to issue an "error" notification to the internalCluster Dashboard.
 func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) {
+	sendStart := time.Now()
 	if d.clusterDashboard != nil {
 		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
 			Title:            errorName,
@@ -1069,7 +1072,7 @@ func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 		if err != nil {
 			d.log.Error("Failed to send \"%s\" error notification to internalCluster Dashboard because: %s", errorName, err.Error())
 		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=ERROR) notification to internalCluster Dashboard.", errorName)
+			d.log.Debug("Successfully sent \"%s\" (typ=ERROR) notification to internalCluster Dashboard in %v.", errorName, time.Since(sendStart))
 		}
 	}
 }
@@ -1486,7 +1489,8 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 
 	if in.NodeName == "" {
 		if !d.DockerMode() {
-			log.Fatalf("Replica %d of kernel %s does not have a valid node name.\n", replicaSpec.ReplicaId, in.KernelId)
+			log.Fatalf(utils.RedStyle.Render("Replica %d of kernel %s does not have a valid node name.\n"),
+				replicaSpec.ReplicaId, in.KernelId)
 		}
 
 		// In Docker mode, we'll just use the Host ID as the node name.
@@ -1683,7 +1687,8 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 
 	if nodeName == "" || nodeName == types.DockerNode {
 		if !d.DockerMode() {
-			log.Fatalf("Replica %d of kernel %s does not have a valid node name.\n", replicaSpec.ReplicaId, in.KernelId)
+			log.Fatalf(utils.RedStyle.Render("Replica %d of kernel %s does not have a valid node name.\n"),
+				replicaSpec.ReplicaId, in.KernelId)
 		}
 
 		// In Docker mode, we'll just use the Host ID as the node name.
@@ -2361,12 +2366,12 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 		// execution i+1 (i.e., out of order). When this happens, we just stop the current training upon receiving
 		// the "smr_lead_task" message for execution i+1. If and when we receive the "execute_reply" message for
 		// execution i (after we've already moved on to execution i+1), we discard the "old" "execute_reply" message.
-		d.log.Warn("Received \"execute_reply\" for \"execute_request\" \"%s\"; however, current execution is for \"execute_request\" \"%s\".",
-			msg.JupyterParentMessageId())
+		d.log.Error(utils.RedStyle.Render("Received \"execute_reply\" for \"execute_request\" \"%s\"; however, current execution is for \"execute_request\" \"%s\"."),
+			msg.JupyterParentMessageId(), activeExecution.ExecuteRequestMessageId)
 
 		oldActiveExecution, loaded := kernel.GetActiveExecutionByExecuteRequestMsgId(msg.JupyterParentMessageId())
 		if !loaded {
-			d.log.Error("Could not find old ActiveExecution associated with \"execute_request\" \"%s\"...", msg.JupyterParentMessageId())
+			d.log.Error(utils.RedStyle.Render("Could not find old ActiveExecution associated with \"execute_request\" \"%s\"..."), msg.JupyterParentMessageId())
 		} else if oldActiveExecution.OriginalTimestampOrCreatedAt().After(kernel.ActiveExecution().OriginalTimestampOrCreatedAt()) {
 			// If the "old" active execution -- the one associated with the Jupyter message ID of the "execute_request"
 			// for which we just received the subsequent/complementary "execute_reply -- has an original send timestamp
@@ -2381,9 +2386,12 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 			// So, what we'd like to do here is just discard/ignore the "execute_reply", as we received it late, and
 			// we already did the processing that is required. However, if the current execution is actually older than
 			// the execution associated with the "execute_reply" that we just received, then our assumptions are wrong!
-			d.notifyDashboardOfError("Old Active Execution Isn't Actually Old...", "Thought we received out-of-order \"smr_lead_task\" and \"execute_reply\" messages for execution i+1 and i respectively, but current execution is actually older than execution associated with the \"execute_reply\" message that we just received...")
-			log.Fatalf("Old active execution isn't actually old. Current execution: %v. \"Old\" execution: %v.\n",
+			errorMessage := fmt.Sprintf("Thought we received out-of-order \"smr_lead_task\" and \"execute_reply\" messages for execution i+1 and i respectively, but current execution is actually older than execution associated with the \"execute_reply\" message that we just received...")
+			d.notifyDashboardOfError("Old Active Execution Isn't Actually Old...", errorMessage)
+			d.log.Error(errorMessage)
+			d.log.Error(utils.RedStyle.Render("Old active execution isn't actually old. Current execution: %v. \"Old\" execution: %v.\n"),
 				activeExecution.String(), oldActiveExecution.String())
+			log.Fatalf(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
 		}
 	}
 
