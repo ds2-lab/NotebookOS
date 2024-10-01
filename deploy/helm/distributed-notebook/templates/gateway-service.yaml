@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    app: gateway
+  name: gateway
+spec: 
+  ports:
+    - name: dst-clstr-srvc
+      port: {{ .Values.gateway.distributed_cluster_service_port }}
+      targetPort: {{ .Values.gateway.distributed_cluster_service_port }}
+    - name: jupyter
+      port: {{ .Values.gateway.grpc_port }}
+      targetPort: {{ .Values.gateway.grpc_port }}
+    - name: provisioner
+      port: {{ .Values.gateway.provisioner_port }}
+      targetPort: {{ .Values.gateway.provisioner_port }}
+    - name: tcp
+      port: {{ .Values.local_daemon.network.service_port }}
+      protocol: TCP
+    - name: hb-port
+      port: {{ .Values.local_daemon.network.jupyter.hb_port }}
+    - name: control-port
+      port: {{ .Values.local_daemon.network.jupyter.control_port }}
+    - name: shell-port
+      port: {{ .Values.local_daemon.network.jupyter.shell_port }}
+    - name: stdin-port
+      port: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+    - name: iopub-port1
+      port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+    - name: iopub-port2
+      port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+    - name: ack-port 
+      port: {{ .Values.local_daemon.network.jupyter.ack_port }}
+    {{- $portsRequired := mul (div .Values.gateway.scheduler.max_actual_gpu_per_node .Values.gateway.scheduler.gpu_allocation_granularity) 2 | int -}}
+    {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
+    {{- range $i := until $portsRequired }}
+    - name: {{ printf "res-port-%d" $i }}
+      port: {{ $nextPort | int }}
+      {{- $nextPort = add $nextPort 1 | int}}
+    {{- end }}
+  selector:
+    app: gateway 
+  type: LoadBalancer
+status:
+  loadBalancer: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    app: gateway-provisioner
+  name: gateway-provisioner
+spec:
+  ports:
+    - name: provisioner
+      port: {{ .Values.gateway.grpc_port }}
+      targetPort: {{ .Values.gateway.grpc_port }}
+  selector:
+    app: gateway 
+  type: LoadBalancer
+status:
+  loadBalancer: {}

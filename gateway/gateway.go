@@ -1,52 +1,33 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
-	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 
-	"github.com/google/uuid"
-	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/opentracing/opentracing-go"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/keepalive"
+	"github.com/muesli/termenv"
 
-	"github.com/zhangjyr/distributed-notebook/common/consul"
-	"github.com/zhangjyr/distributed-notebook/common/core"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/tracing"
 	"github.com/zhangjyr/distributed-notebook/gateway/daemon"
-)
-
-const (
-	ServiceName = "gateway"
+	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 )
 
 var (
-	options Options = Options{}
-	logger          = config.GetLogger("")
-	sig             = make(chan os.Signal, 1)
+	options = domain.ClusterGatewayOptions{}
+	logger  = config.GetLogger("")
+	sig     = make(chan os.Signal, 1)
 )
 
-type Options struct {
-	config.LoggerOptions
-	types.ConnectionInfo
-	core.CoreOptions
-
-	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
-	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
-	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
-	Consuladdr      string `name:"consul" description:"Consul agent address."`
-}
-
 func init() {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 	// Set default options.
 	options.Port = 8080
@@ -54,141 +35,79 @@ func init() {
 	options.ConnectionInfo.Transport = "tcp"
 }
 
-func main() {
-	defer finalize(false)
+// Create and run the debug HTTP server.
+// We don't have any meaningful endpoints that we add directly.
+// But we include the following import statement at the top of this file:
+//
+//	_ "net/http/pprof"
+//
+// This adds several key debug endpoints.
+//
+// Important: this should be called from its own goroutine.
+func createAndStartDebugHttpServer() {
+	// http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// 	log.Printf("Received HTTP debug connection to '/'")
+	// 	w.WriteHeader(http.StatusOK)
+	// 	w.Write([]byte(fmt.Sprintf("%d - Hello\n", http.StatusOK)))
+	// })
 
-	var done sync.WaitGroup
+	// http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+	// 	log.Printf("Received HTTP debug connection to '/test'")
+	// 	w.WriteHeader(http.StatusOK)
+	// 	w.Write([]byte(fmt.Sprintf("%d - Test\n", http.StatusOK)))
+	// })
 
+	var address = fmt.Sprintf(":%d", options.DebugPort)
+	log.Printf("Serving debug HTTP server: %s\n", address)
+
+	if err := http.ListenAndServe(address, nil); err != nil {
+		log.Fatal("ListenAndServe: ", err)
+	}
+}
+
+// ValidateOptions ensures that the options/configuration is valid.
+func ValidateOptions() {
 	flags, err := config.ValidateOptions(&options)
-	if err == config.ErrPrintUsage {
+	if errors.Is(err, config.ErrPrintUsage) {
 		flags.PrintDefaults()
 		os.Exit(0)
 	} else if err != nil {
 		log.Fatal(err)
 	}
+}
 
-	logger.Info("Started gateway with options: %v", options)
+func main() {
+	defer finalize(false, "Main thread", nil)
 
-	var tracer opentracing.Tracer
-	var consulClient *consul.Client
-	if options.JaegerAddr != "" && options.Consuladdr != "" {
-		logger.Info("Initializing jaeger agent [service name: %v | host: %v]...", ServiceName, options.JaegerAddr)
+	var done sync.WaitGroup
 
-		tracer, err = tracing.Init(ServiceName, options.JaegerAddr)
-		if err != nil {
-			log.Fatalf("Got error while initializing jaeger agent: %v", err)
-		}
-		logger.Info("Jaeger agent initialized")
+	// Ensure that the options/configuration is valid.
+	ValidateOptions()
 
-		logger.Info("Initializing consul agent [host: %v]...", options.Consuladdr)
-		consulClient, err = consul.NewClient(options.Consuladdr)
-		if err != nil {
-			log.Fatalf("Got error while initializing consul agent: %v", err)
-		}
-		logger.Info("Consul agent initialized")
+	logger.Info("Starting Cluster Gateway with the following options: %v", options)
+
+	if options.DebugMode {
+		go createAndStartDebugHttpServer()
 	}
 
-	// Initialize listener
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
-	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
-	}
-
-	// Build grpc options
-	gOpts := []grpc.ServerOption{
-		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Timeout: 120 * time.Second,
-		}),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			PermitWithoutStream: true,
-		}),
-	}
-	if tracer != nil {
-		gOpts = append(gOpts, grpc.UnaryInterceptor(otgrpc.OpenTracingServerInterceptor(tracer)))
-	}
-	// if tlsopt := tls.GetServerOpt(); tlsopt != nil {
-	// 	opts = append(opts, tlsopt)
-	// }
-
-	// Initialize daemon
-	srv := daemon.New(&options.ConnectionInfo, func(srv *daemon.GatewayDaemon) {
-		srv.ClusterOptions = options.CoreOptions
-	})
-
-	// Listen on provisioner port
-	lisHost, err := srv.Listen("tcp", fmt.Sprintf(":%d", options.ProvisionerPort))
-	if err != nil {
-		log.Fatalf("Failed to listen on provisioner port: %v", err)
-	}
-
-	// Initialize internel grpc server
-	provisioner := grpc.NewServer(gOpts...)
-	gateway.RegisterClusterGatewayServer(provisioner, srv)
-	logger.Info("Provisioning server listening at %v", lisHost.Addr())
-
-	// Initialize Jupyter grpc server
-	registrar := grpc.NewServer(gOpts...)
-	gateway.RegisterLocalGatewayServer(registrar, srv)
-	logger.Info("Jupyter server listening at %v", lis.Addr())
-
-	// Register services in consul
-	if consulClient != nil {
-		err = consulClient.Register(ServiceName, uuid.New().String(), "", options.Port)
-		if err != nil {
-			log.Fatalf("Failed to register in consul: %v", err)
-		}
-		logger.Info("Successfully registered in consul")
-	}
-
-	// Start detecting stop signals
-	done.Add(1)
-	go func() {
-		<-sig
-		logger.Info("Shutting down...")
-		registrar.Stop()
-		provisioner.Stop()
-		srv.Close()
-		lisHost.Close()
-		lis.Close()
-
-		// logger.Info("listern closed...")
-		done.Done()
-	}()
-
-	// Start gRPC server
-	go func() {
-		defer finalize(true)
-		if err := registrar.Serve(lis); err != nil {
-			log.Fatalf("Error on serving jupyter connections: %v", err)
-		}
-	}()
-
-	// Start provisioning server
-	go func() {
-		defer finalize(true)
-		if err := provisioner.Serve(lisHost); err != nil {
-			log.Fatalf("Error on serving host scheduler connections: %v", err)
-		}
-	}()
-
-	// Start daemon
-	go func() {
-		defer finalize(true)
-		if err := srv.Start(); err != nil {
-			log.Fatalf("Error during daemon serving: %v", err)
-		}
-	}()
+	daemon.CreateAndStartClusterGatewayComponents(&options, &done, finalize, sig)
 
 	done.Wait()
 }
 
-func finalize(fix bool) {
+func finalize(fix bool, identity string, distributedCluster *daemon.DistributedCluster) {
 	if !fix {
 		return
 	}
 
+	log.Printf("[WARNING] Finalize called with fix=%v and identity=\"%s\"\n", fix, identity)
+
 	if err := recover(); err != nil {
 		logger.Error("%v", err)
+
+		if distributedCluster != nil {
+			distributedCluster.HandlePanic(identity, err)
+		}
 	}
 
 	sig <- syscall.SIGINT

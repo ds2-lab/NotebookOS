@@ -1,0 +1,38 @@
+# 4-node cluster config (3 worker nodes and 1 master node).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: distributed-notebook
+nodes:
+  - role: control-plane
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            system-reserved: memory=5Gi
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            system-reserved: memory=5Gi
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            system-reserved: memory=5Gi
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            system-reserved: memory=5Gi
+featureGates:
+  StatefulSetStartOrdinal: true
+  DynamicResourceAllocation: true
+  InPlacePodVerticalScaling: true

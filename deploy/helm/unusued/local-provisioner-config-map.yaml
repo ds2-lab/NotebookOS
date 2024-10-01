@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-provisioner-config 
+  namespace: default 
+data:
+  storageClassMap: |     
+    {{- range $classConfig := .Values.classes }}
+    {{ $classConfig.name }}:
+      hostDir: {{ $classConfig.hostDir }}
+      mountDir: {{ $classConfig.mountDir | default $classConfig.hostDir }}
+      {{- if $classConfig.blockCleanerCommand }}
+      blockCleanerCommand:
+      {{- range $val := $classConfig.blockCleanerCommand }}
+        - {{ $val | quote }}
+      {{- end}}
+      {{- end }}
+      {{- if $classConfig.volumeMode }}
+      volumeMode: {{ $classConfig.volumeMode }}
+      {{- end }}
+      {{- if $classConfig.fsType }}
+      fsType: {{ $classConfig.fsType }}
+      {{- end }}
+      {{- if $classConfig.namePattern }}
+      namePattern: {{ $classConfig.namePattern | quote }}
+      {{- end }}
+    {{- end }}

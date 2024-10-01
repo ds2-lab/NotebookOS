@@ -1,0 +1,19 @@
+<configuration>
+    <property>
+        <name>dfs.replication</name>
+        <value>1</value>
+    </property>
+    <property>
+        <name>dfs.namenode.name.dir</name>
+        <value>file:///home/hadoop/hadoopdata/hdfs/namenode</value>
+    </property>
+    <property>
+        <name>dfs.datanode.data.dir</name>
+        <value>file:///home/hadoop/hadoopdata/hdfs/datanode</value>
+    </property>
+    <property>
+        <!-- So we don't have to worry about anything permission-related. -->
+        <name>dfs.permissions</name>
+        <value>false</value>
+    </property>
+ </configuration>

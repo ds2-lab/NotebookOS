@@ -1,0 +1,194 @@
+{{- $root := . -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.local_daemon.network.local_service_name }}
+  labels:
+    app: local-daemon
+spec:
+  internalTrafficPolicy: Local
+  selector:
+    app: local-daemon
+  ports:
+  - name: tcp
+    port: {{ .Values.local_daemon.network.service_port }}
+  - name: hb-port
+    port: {{ .Values.local_daemon.network.jupyter.hb_port }}
+  - name: control-port
+    port: {{ .Values.local_daemon.network.jupyter.control_port }}
+  - name: shell-port
+    port: {{ .Values.local_daemon.network.jupyter.shell_port }}
+  - name: stdin-port
+    port: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+  - name: iopub-port1
+    port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+  - name: iopub-port2
+    port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+  - name: ack-port 
+    port: {{ .Values.local_daemon.network.jupyter.ack_port }}
+  {{- $portsRequired := mul (div .Values.gateway.scheduler.max_actual_gpu_per_node .Values.gateway.scheduler.gpu_allocation_granularity) 2 | int -}}
+  {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
+  {{- range $i := until $portsRequired }}
+  - name: {{ printf "res-port-%d" $i }}
+    port: {{ $nextPort | int }}
+    {{- $nextPort = add $nextPort 1 | int}}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.local_daemon.network.global_service_name }}
+  labels:
+    app: local-daemon # Still target the `local-daemon` app, but this service provides globally-visible networking.
+spec:
+  selector:
+    app: local-daemon # Still target the `local-daemon` app, but this service provides globally-visible networking.
+  ports:
+  - name: tcp
+    port: {{ .Values.local_daemon.network.service_port }}
+    protocol: TCP
+  - name: hb-port
+    port: {{ .Values.local_daemon.network.jupyter.hb_port }}
+  - name: control-port
+    port: {{ .Values.local_daemon.network.jupyter.control_port }}
+  - name: shell-port
+    port: {{ .Values.local_daemon.network.jupyter.shell_port }}
+  - name: stdin-port
+    port: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+  - name: iopub-port1
+    port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+  - name: iopub-port2
+    port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+  {{- $portsRequired := mul (div .Values.gateway.scheduler.max_actual_gpu_per_node .Values.gateway.scheduler.gpu_allocation_granularity) 2 | int -}}
+  {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
+  {{- range $i := until $portsRequired }}
+  - name: {{ printf "res-port-%d" $i }}
+    port: {{ $nextPort | int }}
+    {{- $nextPort = add $nextPort 1 | int}}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  creationTimestamp: null
+  name: local-daemon
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: local-daemon
+spec:
+  replicas: 10
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: local-daemon
+  serviceName: {{ .Values.local_daemon.network.global_service_name }}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: local-daemon
+    spec:
+      serviceAccount: local-daemon-service-account
+      serviceAccountName: local-daemon-service-account
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - local-daemon
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: local-daemon
+        image: {{ .Values.local_daemon.image }}:{{ .Values.local_daemon.image_tag }}
+        command: ["./local_daemon"]
+        args: ["-yaml", "{{ .Values.common.config_file_dir }}/daemon.yml", "-debug", "-v"]
+        resources: {}
+        serviceAccountName: local-daemon-service-account
+        ports:
+        - name: tcp
+          containerPort: {{ .Values.local_daemon.network.service_port }}
+        - name: hb-port
+          containerPort: {{ .Values.local_daemon.network.jupyter.hb_port }}
+        - name: control-port
+          containerPort: {{ .Values.local_daemon.network.jupyter.control_port }}
+        - name: shell-port
+          containerPort: {{ .Values.local_daemon.network.jupyter.shell_port }}
+        - name: stdin-port
+          containerPort: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+        - name: iopub-port1
+          containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+        - name: iopub-port2
+          containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+        {{- $portsRequired := mul (div .Values.gateway.scheduler.max_actual_gpu_per_node .Values.gateway.scheduler.gpu_allocation_granularity) 2 | int -}}
+        {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
+        {{- range $i := until $portsRequired }}
+        - name: {{ printf "res-port-%d" $i }}
+          containerPort: {{ $nextPort | int }}
+          {{- $nextPort = add $nextPort 1 | int}}
+        {{- end }}
+        volumeMounts:
+          - name: node-local
+            mountPath: "{{ .Values.common.node_local_pvc_mount_point }}"
+          - name: daemon-config-file
+            mountPath: "{{ .Values.common.config_file_dir }}/daemon.yml"
+            subPath: daemon.yml
+          - name: device-plugin
+            mountPath: "/var/lib/kubelet/device-plugins/"
+          - name: pod-resources
+            mountPath: "/var/lib/kubelet/pod-resources/"
+        env:
+          - name: NUM_RESOURCE_PORTS
+            value: "{{ printf "%d" (div .Values.gateway.scheduler.max_actual_gpu_per_node .Values.gateway.scheduler.gpu_allocation_granularity ) }}"
+          - name: POD_NAME # The full name of the Pod.
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name 
+          - name: NODE_NAME # The full name of the Node.
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: ORDINAL_NUMBER # The Pod's oridinal with respect to the containing StatefulSet.
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+          - name: HOST_MOUNT_DIR
+            value: /data
+          - name: KERNEL_IMAGE
+            value: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag }}
+          - name: KERNEL_TEMP_BASE
+            value: /data
+          - name: SHARED_CONFIG_DIR
+            value: "{{ .Values.common.config_file_dir }}"
+      restartPolicy: Always
+      volumes:
+        - name: daemon-config-file
+          configMap:
+            name: daemon-configmap 
+            defaultMode: 384
+        - name: pod-resources # Used for DevicePlugin implementation.
+          hostPath:
+            type: Directory
+            path: "/var/lib/kubelet/pod-resources/"
+        - name: device-plugin # Used for DevicePlugin implementation.
+          hostPath:
+            type: Directory
+            path: "/var/lib/kubelet/device-plugins/"
+  volumeClaimTemplates: # This will be used to create a unique PVC for each of the LocalDaemon pods.
+    - metadata:
+        name: node-local
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 128Mi
+status: {}

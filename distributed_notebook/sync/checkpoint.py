@@ -1,6 +1,6 @@
 import pickle
 
-from .log import SyncValue
+from .log import SynchronizedValue
 
 class Checkpoint:
   def __init__(self, file):
@@ -17,7 +17,7 @@ class Checkpoint:
     """Set the term to checkpoint. False if any error."""
     return True
 
-  async def append(self, val: SyncValue):
+  async def append(self, val: SynchronizedValue):
     """Append the difference of the value of specified key to the synchronization queue"""
     if val.key is not None:
       self._pickler.dump(val)

@@ -2,7 +2,7 @@ import os
 import pickle
 from typing import Tuple
 
-from .log import SyncLog, SyncValue
+from .log import SyncLog, SynchronizedValue
 
 FILELOG_ARCHIVE = "lineage.dat"
 CHECKPOINT_ARCHIVE = "checkpoint.dat"
@@ -134,37 +134,37 @@ class FileLog:
       self.logs.append([])
     return True
 
-  async def append(self, val: SyncValue):
+  async def append(self, val: SynchronizedValue):
     """Append the difference of the value of specified key to the synchronization queue"""
     if val.key is not None:
-      relative_path = self.get_path(val.term, val)
+      relative_path = self.get_path(val.election_term, val)
       filepath = os.path.join(self.store, relative_path)
       self.ensure_path(os.path.dirname(filepath))
 
       with open(filepath, "wb") as file:
         pickle.dump(val, file)
 
-      self.term = val.term
+      self.term = val.election_term
       # In some cases, log slot may not be allocated, so we don't need to update the number of changes.
-      if len(self.logs) > val.term-self.skip_terms-1:
-        self.logs[val.term-self.skip_terms-1].append(relative_path)
+      if len(self.logs) > val.election_term-self.skip_terms-1:
+        self.logs[val.election_term-self.skip_terms-1].append(relative_path)
       # Update if not first term or the checkpoint term: self.term == self.skip_terms + 1
-      if val.term > self.skip_terms + 1:
+      if val.election_term > self.skip_terms + 1:
         self._num_changes = self._num_changes + 1
 
-    if val.end:
+    if val.should_end_execution:
       # Call save without filename, so inherited classes may customize default value of save().
       self.save()
 
     return relative_path
 
-  def _load(self, filepath: str) -> SyncValue:
+  def _load(self, filepath: str) -> SynchronizedValue:
     """Load the value of the specified filepath."""
     with open(os.path.join(self.store, filepath), "rb") as file:
       return pickle.load(file)
 
   def on_change(self, handler):
-    """Register handler function that will be callbacked on changing of value. handler will be in the form listerner(key, val: SyncValue)"""
+    """Register handler function that will be callbacked on changing of value. handler will be in the form listerner(key, val: SynchronizedValue)"""
     self._handlers.append(handler)
 
     if self.term == 0:
@@ -174,7 +174,7 @@ class FileLog:
     """Synchronization changes since specified execution counter."""
     self.restore(FILELOG_ARCHIVE)
 
-  def reset(self, term, logs: Tuple[SyncValue]):
+  def reset(self, term, logs: Tuple[SynchronizedValue]):
     """Clear logs equal and before specified term and replaced with specified logs"""
     self.term = term
     self.skip_terms = term - 1
@@ -186,9 +186,9 @@ class FileLog:
 
   def ensure_path(self, base_path):
     if not os.path.exists(base_path):
-      os.makedirs(base_path, 0o750)
+      os.makedirs(base_path, 0o750, exist_ok=True)
 
-  def get_path(self, term, val: SyncValue):
+  def get_path(self, term, val: SynchronizedValue):
     # TODO: Sanitize the key.
     return os.path.join("t{}".format(term), val.key)
 
@@ -210,6 +210,6 @@ class FileCheckpoint(FileLog):
     self.term = term
     return True
 
-  def get_path(self, term, val: SyncValue):
+  def get_path(self, term, val: SynchronizedValue):
     # TODO: Sanitize the key.
     return os.path.join("c{}".format(term), val.key)

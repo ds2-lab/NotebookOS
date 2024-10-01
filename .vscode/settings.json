@@ -1,0 +1,14 @@
+{
+    "python.defaultInterpreterPath": "/usr/bin/python3",
+    "[go]": {
+        "editor.insertSpaces": true,
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "golang.go",
+        "editor.formatOnSaveMode": "file"
+    },
+    "gopls": {
+        "ui.semanticTokens": true
+    },
+    "python.analysis.typeCheckingMode": "basic",
+    "makefile.configureOnOpen": false
+}

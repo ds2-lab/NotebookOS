@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: daemon-configmap
+  namespace: default
+data:
+  daemon.yml: |
+    kernel-registry-port: {{ .Values.local_daemon.network.jupyter.kernel_registry_port }} 
+    port: {{ .Values.local_daemon.network.port }}
+    provisioner-port: {{ .Values.gateway.provisioner_port }}
+    distributed-cluster-service-port: {{ .Values.gateway.distributed_cluster_service_port }}
+    provisioner: "gateway:{{ .Values.gateway.provisioner_port }}"
+    hb-port: {{ .Values.local_daemon.network.jupyter.hb_port }}
+    control-port: {{ .Values.local_daemon.network.jupyter.control_port }}
+    shell-port: {{ .Values.local_daemon.network.jupyter.shell_port }}
+    stdin-port: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+    iopub-port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+    iosub-port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+    ack-port: {{ .Values.local_daemon.network.jupyter.ack_port }}
+    hdfs-namenode-endpoint: {{ .Values.hdfs.namenode_endpoint }}
+    debug: {{ .Values.common.debug }}
+    direct: false
+    num-replicas: 3
+    max-subscribed-ratio: 7.0
+    local-daemon-service-name: {{ .Values.local_daemon.network.local_service_name }}
+    global-daemon-service-name: {{ .Values.local_daemon.network.global_service_name }}
+    local-daemon-service-port: {{ .Values.local_daemon.network.service_port }}
+    ipython-config-path: {{ .Values.common.ipython_config_path }}
+    smr-port: {{ .Values.smr.port }}
+    kube-namespace: {{ .Values.namespace }}
+    max-actual-gpu-per-node: {{ .Values.gateway.scheduler.max_actual_gpu_per_node }}
+    starting-resource-port: {{ .Values.local_daemon.network.jupyter.starting_resource_port }}
+    num-resource-ports: {{ mul (div .Values.gateway.scheduler.max_actual_gpu_per_node .Values.gateway.scheduler.gpu_allocation_granularity) 2 }}
+    use-stateful-set: {{ .Values.common.use_stateful_set }}
+    device-plugin-path: {{ .Values.local_daemon.device_plugin.path }}
+    notebook-image-name: {{ .Values.notebook_server.image }}
+    notebook-image-tag: {{ .Values.notebook_server.image_tag }}
+    scheduler-http-port: {{ .Values.gateway.scheduler.scheduler_http_port }}
+    scheduling-policy: {{ .Values.gateway.scheduler.scheduling_policy }}
+    subscribed-ratio-update-interval: {{ .Values.gateway.scheduler.subscribed_ratio_update_interval }}
+    num-virtual-gpus-per-node: {{ .Values.gateway.scheduler.num_virtual_gpus_per_node }}
+    scaling-factor: {{ .Values.gateway.scheduler.scaling_factor }}
+    scaling-interval: {{ .Values.gateway.scheduler.scaling_interval }}
+    scaling-limit: {{ .Values.gateway.scheduler.scaling_limit }}
+    scaling-in-limit: {{ .Values.gateway.scheduler.scaling_in_limit }}
+    predictive_autoscaling: {{ .Values.gateway.scheduler.predictive_autoscaling }}
+    scaling-buffer-size: {{ .Values.gateway.scheduler.scaling_buffer_size }}
+    min_cluster_nodes: {{ .Values.gateway.scheduler.min_kubernetes_nodes }}
+    max_cluster_nodes: {{ .Values.gateway.scheduler.max_kubernetes_nodes }}
+    gpus-per-host: {{ .Values.gateway.scheduler.max_actual_gpu_per_node}}
+    deployment_mode: "kubernetes"
+    local_mode: {{ .Values.common.local_mode }}
+    execution-time-sampling-window: 10
+    migration-time-sampling-window: 10
+    prometheus_interval: {{ .Values.prometheus.prometheus_interval }}
+    prometheus_port: {{ .Values.prometheus.prometheus_port }}
+    num_resend_attempts: {{ .Values.common.num_resend_attempts }}

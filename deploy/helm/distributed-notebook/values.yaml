@@ -1,0 +1,153 @@
+replicaCount: 1
+
+namespace: default
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+workload_driver:
+  image: scusemua/workload-driver
+  image_tag: latest
+
+service:
+  type: ClusterIP
+  port: 80
+
+hdfs:
+  namenode_endpoint: "172.17.0.1:9000"
+
+gateway:
+  grpc_port: 8080
+  provisioner_port: 8081
+  image: scusemua/gateway
+  image_tag: latest
+  distributed_cluster_service_port: 8079
+  scheduler:
+    scheduler_http_port: 8078
+    scheduling_policy: "static" # Options are "default", "static", "dynamic-v3", and "dynamic-v4".
+    max_actual_gpu_per_node: 8 # the number of actual GPUs per node
+    num_virtual_gpus_per_node: 72 # 8 GPUs per Node * 3 Oversubscription Factor * 3 Replicas.
+    gpu_allocation_granularity: 1 # the smallest gpu allocation that can be made (set to 1 for whole-gpu allocations rather than fractional allocations)
+    min_kubernetes_nodes: 4 # the minimum number of nodes (cannot go below this)
+    max_kubernetes_nodes: 32 # the maximum number of nodes; if negative, then unbounded
+    subscribed_ratio_update_interval: 1.0 # The interval to update the subscribed ratio.
+    scaling_factor: 1.05 # how many hosts the cluster will provision based on busy resources
+    scaling_interval: 30 # Interval to call validateCapacity, 0 to disable routing scaling.
+    scaling_limit: 1.10 # how many hosts the cluster will provision at maximum based on busy resources
+    scaling_in_limit: 2.0 # the maximum number of hosts we can remove in a single operation
+    predictive_autoscaling: true # whether adding additional hosts is enabled or not
+    scaling_buffer_size: 3 # how many extra hosts we provision so that we can quickly scale if needed.
+    execution_time_sampling_window: 10
+    migration_time_sampling_window: 10
+
+scheduler_extender:
+  image: scusemua/scheduler_extender
+  image_tag: latest
+  port: 80
+  config_map_name: scheduler-extender-configuration
+  config_file_name: config.yaml
+
+notebook_server:
+  port: 8888
+  image: scusemua/jupyter
+  image_tag: latest
+
+local_daemon:
+  image: scusemua/daemon
+  image_tag: latest
+  device_plugin:
+    path: /var/lib/kubelet/device-plugins/
+    # port: 8079
+  network:
+    port: 8080
+    local_service_name: local-daemon-network
+    global_service_name: daemon-network
+    service_port: 8075
+    jupyter:
+      kernel_registry_port: 8075
+      hb_port: 9000
+      control_port: 9001
+      shell_port: 9002
+      stdin_port: 9003
+      iopub_port1: 9004
+      iopub_port2: 9005
+      ack_port: 9006
+      starting_resource_port: 9007
+
+smr:
+  port: 8080
+
+common:
+  config_file_dir: "/kernel-configmap"
+  ipython_config_path: "/home/jovyan/.ipython/profile_default/ipython_config.json"
+  node_local_pvc_mount_point: "node_local"
+  use_stateful_set: false # If true, use StatefulSets for the distributed kernel replica pods. If false, use CloneSets.
+  debug: true
+  local_mode: false
+  num_resend_attempts: 1
+
+prometheus:
+  prometheus_interval: 15
+  prometheus_port: 8089
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+resources: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+# Configuration for classes of static volumes.
+# classes:
+#   - name: local-storage # Defines name of storage classes.
+#     # Path on the host where local volumes of this storage class are mounted
+#     # under.
+#     hostDir: /data
+#     # Optionally specify mount path of local volumes. By default, we use same
+#     # path as hostDir in container.
+#     # mountDir: /mnt/local-storage
+#     # The volume mode of created PersistentVolume object. Default to Filesystem
+#     # if not specified.
+#     volumeMode: Filesystem
+#     # Filesystem type to mount.
+#     # It applies only when the source path is a block device,
+#     # and desire volume mode is Filesystem.
+#     # Must be a filesystem type supported by the host operating system.
+#     fsType: ext4
+#     # File name pattern to discover. By default, discover all file names.
+#     namePattern: "*"
+#     # Restrict topology of provisioned volumes to specific labels
+#     allowedTopologies:
+#     blockCleanerCommand:
+#       #  Run shred utility for 2 iterations.
+#       - "/scripts/shred.sh"
+#       - "2"

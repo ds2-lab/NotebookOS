@@ -1,0 +1,26 @@
+[project]
+name = "Distributed-Notebook"
+description = "A package containing a distributed jupyter kernel and associated provisioner."
+requires-python = ">=3.11"
+dynamic = ["version", "readme"]
+authors = [
+    {name = "Jingyuan Zhang", email = "jzhang33@gmu.edu"},
+    {name = "Benjamin Carver", email = "bcarver2@gmu.edu"}
+]
+maintainers = [
+    {name = "Benjamin Carver", email = "bcarver2@gmu.edu"}
+]
+dependencies = [
+    "jupyter_client>=7.4",
+    "traitlets>=5.1",
+    "grpcio>=1.64",
+    "protobuf>=5.27.1"
+]
+
+[tool.setuptools]
+py-modules = [
+    "distributed_notebook"
+]
+
+[project.entry-points."jupyter_client.kernel_provisioners"]
+gateway-provisioner = "distributed_notebook.provisioner.gateway_provisioner:GatewayProvisioner"

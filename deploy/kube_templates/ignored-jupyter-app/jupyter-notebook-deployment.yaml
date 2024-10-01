@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    app: jupyter-notebook
+  name: jupyter-notebook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jupyter-notebook
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.0 (40646f47)
+      creationTimestamp: null
+      labels:
+        app: jupyter-notebook
+    spec:
+      containers:
+        - image: quay.io/jupyter/scipy-notebook:latest
+          name: JupyterNotebook
+          ports:
+            - containerPort: 8888
+          resources: {}
+          volumeMounts:
+            - mountPath: /home/jovyan
+              name: jupyter-notebook-claim0
+            - mountPath: /home/jovyan/distibuted-notebook
+              name: jupyter-notebook-claim1
+          env:
+            - name: NODE_NAME # The full name of the Node.
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: JUPYTER_ALLOW_INSECURE_WRITES
+              value: "true"
+      restartPolicy: Always
+      volumes:
+        - name: jupyter-notebook-claim0
+          persistentVolumeClaim:
+            claimName: jupyter-claim0
+        - name: jupyter-notebook-claim1
+          persistentVolumeClaim:
+            claimName: jupyter-notebook-claim1
+status: {}

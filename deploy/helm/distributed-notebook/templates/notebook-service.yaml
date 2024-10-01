@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    app: jupyter-notebook
+  name: jupyter-notebook
+spec:
+  ports:
+    - name: nb-server
+      port: {{ .Values.notebook_server.port }}
+    - name: tcp
+      port: {{ .Values.local_daemon.network.service_port }}
+      protocol: TCP
+    - name: hb-port
+      port: {{ .Values.local_daemon.network.jupyter.hb_port }}
+    - name: control-port
+      port: {{ .Values.local_daemon.network.jupyter.control_port }}
+    - name: shell-port
+      port: {{ .Values.local_daemon.network.jupyter.shell_port }}
+    - name: stdin-port
+      port: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+    - name: iopub-port1
+      port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+    - name: iopub-port2
+      port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+    - name: ack-port 
+      port: {{ .Values.local_daemon.network.jupyter.ack_port }}
+  selector:
+    app: jupyter-notebook 
+  type: LoadBalancer
+status:
+  loadBalancer: {}

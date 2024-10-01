@@ -11,7 +11,7 @@ type BaseHashMap[K any, V any] interface {
 	LoadOrStore(K, V) (val V, loaded bool)
 	CompareAndSwap(K, V, V) (val V, swapped bool)
 
-	// Range iterates over the map's key/value pairs, if the callback function returns false, iteration stops.
+	// Range iterates over the map's key/value pairs, if the callback function returns true, iteration stops.
 	Range(func(K, V) (contd bool))
 
 	Store(K, V)

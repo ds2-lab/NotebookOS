@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    app: gateway
+    component: kube-scheduler
+  name: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.0 (40646f47)
+        app: gateway
+      creationTimestamp: null
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - image: {{ .Values.gateway.image }}:{{ .Values.gateway.image_tag }}
+          name: gateway
+          command: ["./gateway"]
+          args: ["-yaml", "{{ .Values.common.config_file_dir }}/daemon.yml", "-debug"]
+          resources: {}
+          ports:
+          - name: dst-clstr-srvc
+            containerPort: {{ .Values.gateway.distributed_cluster_service_port }}
+          - name: tcp
+            containerPort: {{ .Values.local_daemon.network.service_port }}
+          - name: hb-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.hb_port }}
+          - name: control-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.control_port }}
+          - name: shell-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.shell_port }}
+          - name: stdin-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+          - name: iopub-port1
+            containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+          - name: iopub-port2
+            containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+          - name: ack-port 
+            containerPort: {{ .Values.local_daemon.network.jupyter.ack_port }}
+          - name: jupyter
+            containerPort: {{ .Values.gateway.grpc_port }}
+          - name: provisioner
+            containerPort: {{ .Values.gateway.provisioner_port }}
+          {{- $portsRequired := mul (div .Values.gateway.scheduler.max_actual_gpu_per_node .Values.gateway.scheduler.gpu_allocation_granularity) 2 | int -}}
+          {{- $nextPort := .Values.local_daemon.network.jupyter.starting_resource_port | int -}}
+          {{- range $i := until $portsRequired }}
+          - name: {{ printf "res-port-%d" $i }}
+            containerPort: {{ $nextPort | int }}
+            {{- $nextPort = add $nextPort 1 | int}}
+          {{- end }}
+          volumeMounts:
+            - name: gateway-config-file
+              mountPath: "{{ .Values.common.config_file_dir }}/daemon.yml"
+              subPath: daemon.yml
+          env:
+            - name: SHARED_CONFIG_DIR
+              value: "{{ .Values.common.config_file_dir }}"
+            - name: IPYTHON_CONFIG_PATH
+              value: {{ .Values.common.ipython_config_path }}
+            - name: NODE_NAME # The full name of the Node.
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name 
+        - name: scheduler-ctr
+          image: registry.k8s.io/kube-scheduler:v1.29.2
+          imagePullPolicy: Always
+          args:
+          - kube-scheduler
+          - --config=/scheduler-extender/config.yaml
+          - --bind-address=0.0.0.0
+          - --feature-gates=StatefulSetStartOrdinal=true
+          - --leader-elect=true
+          - -v=4
+          volumeMounts:
+            - name: kube-scheduler-config
+              mountPath: /scheduler-extender
+        - name: scheduler-extender-ctr
+          image: {{ .Values.scheduler_extender.image }}:{{ .Values.scheduler_extender.image_tag }}
+          imagePullPolicy: Always
+          command: ["./scheduler_extender"]
+          args: ["-yaml", "{{ .Values.scheduler_extender.config_map_name }}/{{ .Values.scheduler_extender.config_file_name }}", "-debug"]
+          volumeMounts:
+            - name: "{{ .Values.scheduler_extender.config_map_name }}"
+              mountPath: "{{ .Values.scheduler_extender.config_map_name }}/{{ .Values.scheduler_extender.config_file_name }}"
+              subPath: "{{ .Values.scheduler_extender.config_file_name }}"
+          livenessProbe:
+            httpGet:
+              path: /version
+              port: 80
+          readinessProbe:
+            httpGet:
+              path: /version
+              port: 80
+          ports:
+            - containerPort: 80
+      restartPolicy: Always
+      serviceAccountName: scheduler-extender 
+      volumes:
+        - name: gateway-config-file
+          configMap:
+            name: daemon-configmap 
+            defaultMode: 384
+        - name: kube-scheduler-config
+          configMap:
+            name: kube-scheduler-config
+        - name: {{ .Values.scheduler_extender.config_map_name }}
+          configMap:
+            name: {{ .Values.scheduler_extender.config_map_name }}
+status: {}

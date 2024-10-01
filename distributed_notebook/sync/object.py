@@ -6,7 +6,7 @@ import logging
 from typing import Generator, Tuple, Optional, Any, Callable
 from typing_extensions import Protocol, runtime_checkable
 
-from .log import SyncValue, OP_SYNC_PUT, OP_SYNC_ADD
+from .log import SynchronizedValue, OP_SYNC_PUT, OP_SYNC_ADD
 from .referer import EMPTY_TUPLE, SyncReferer, SyncRID, _T
 from .profiler import PickleProfiler
 
@@ -16,25 +16,25 @@ class Pickled(Protocol):
 
 @runtime_checkable
 class SyncObject(Protocol):
-  def dump(self, meta=None) -> SyncValue: # type: ignore
+  def dump(self, meta=None) -> SynchronizedValue: # type: ignore
     """Get a view of the object for checkpoint."""
 
-  def diff(self, raw, meta=None) -> Optional[SyncValue]: # type: ignore
+  def diff(self, raw, meta=None) -> Optional[SynchronizedValue]: # type: ignore
     """Update the object with new raw object and get the difference view for synchronization"""
 
-  def update(self, val: SyncValue) -> Any:
+  def update(self, val: SynchronizedValue) -> Any:
     """Apply the difference view to the object"""
 
 
 @runtime_checkable
 class SyncStreamObject(Protocol):
-  def dump(self, meta=None) -> Generator[SyncValue, None, None]: # type: ignore
+  def dump(self, meta=None) -> Generator[SynchronizedValue, None, None]: # type: ignore
     """Get a view of the object for checkpoint in the form of a stream."""
 
-  def diff(self, raw, meta=None) -> Generator[SyncValue, None, None]: # type: ignore
+  def diff(self, raw, meta=None) -> Generator[SynchronizedValue, None, None]: # type: ignore
     """Update the object with new raw object and get the difference stream for synchronization"""
 
-  def update(self, vals: Tuple[SyncValue]) -> Any:
+  def update(self, vals: Tuple[SynchronizedValue]) -> Any:
     """Apply the difference stream to the object"""
 
 class SyncObjectMeta:
@@ -68,12 +68,12 @@ class SyncObjectWrapper:
     if unpickler is not None:
       self._unpickler = unpickler
 
-  def dump(self, meta=None) -> SyncValue:
+  def dump(self, meta=None) -> SynchronizedValue:
     """Get a view of the object for checkpoint."""
     pickled, prmap, hash = self.get_hash(self.raw, self.batch_from_meta(meta))
-    return SyncValue(hash, pickled, prmap=prmap)
+    return SynchronizedValue(hash, pickled, prmap=prmap)
   
-  def diff(self, raw, meta=None) -> Optional[SyncValue]:
+  def diff(self, raw, meta=None) -> Optional[SynchronizedValue]:
     """Update the object with new raw object and get the difference view for synchronization"""
     pickled, prmap, hash = self.get_hash(raw, self.batch_from_meta(meta))
     # print("old {}:{}, new {}:{}, match:{}".format(self.raw, self._hash, raw, hash, hash == self._hash))
@@ -83,17 +83,17 @@ class SyncObjectWrapper:
         op = OP_SYNC_PUT
       self._hash = hash
       self.raw = raw
-      return SyncValue(hash, pickled, prmap=prmap, op=op)
+      return SynchronizedValue(hash, pickled, prmap=prmap, operation=op)
 
     return None
 
-  def update(self, val: SyncValue) -> Any:
+  def update(self, val: SynchronizedValue) -> Any:
     """Apply the difference view to the object"""
     if val.tag == self._hash:
       return self.raw
 
-    if type(val.val) == bytes:
-      buff = io.BytesIO(val.val)
+    if type(val.data) == bytes:
+      buff = io.BytesIO(val.data)
       unpickler = self._unpickler(buff)
       unpickler.persistent_load = self._referer.dereference(buff, val.prmap, unpickler=unpickler)
       diff = unpickler.load()
@@ -104,7 +104,7 @@ class SyncObjectWrapper:
       #   print("tag updated")
       #   val.tag = tag
     else:
-      diff = val.val
+      diff = val.data
     
     self._hash = val.tag
     self.raw = diff

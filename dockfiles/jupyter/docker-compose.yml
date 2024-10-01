@@ -1,10 +1,13 @@
 version: '2'
 services:
   Python:
-    image: jupyter/scipy-notebook:latest
-#    environment:
-#     - GRANT_SUDO=yes
-#    user: root
+    image: quay.io/jupyter/scipy-notebook:latest
+    environment:
+      GRANT_SUDO: "yes"
+      CHOWN_HOME: "yes"
+      CHOWN_HOME_OPTS: -R
+      JUPYTER_ALLOW_INSECURE_WRITES: true 
+    user: root
     ports:
      - "8888:8888"
     volumes:

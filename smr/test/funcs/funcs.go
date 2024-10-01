@@ -9,7 +9,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/zhangjyr/gopy/_examples/cpkg"
+	"github.com/scusemua/gopy/_examples/cpkg"
 )
 
 type ByteCallback func(*[]byte, string)

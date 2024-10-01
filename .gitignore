@@ -6,7 +6,14 @@ __pycache__/
 # C extensions
 *.so
 
-# Distribution / packaging
+.idea/*
+
+# virtualenv
+venv/
+ENV/
+distributed-notebook/
+
+# Distribution The / packaging
 .Python
 build/
 develop-eggs/
@@ -138,3 +145,9 @@ demo_notebook/.jupyter
 .bash_history
 demo_notebook/.local
 bin
+
+distributed_notebook_bak_maybeworked/*
+distributed_notebook_bak2/*
+
+dockfiles/gateway/gateway
+dockfiles/local_daemon/scheduler

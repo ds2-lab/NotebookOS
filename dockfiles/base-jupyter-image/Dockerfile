@@ -1,0 +1,79 @@
+FROM quay.io/jupyter/base-notebook:latest
+# FROM quay.io/jupyter/scipy-notebook:latest
+
+# IMPORTANT: This is expected to be built using the provided Makefile from the build context ../.. 
+
+ENV LANG=C.UTF-8 \
+    TZ=Etc/UTC \
+    JUPYTER_ALLOW_INSECURE_WRITES=1 \
+    GOTRACEBACK=CRASH  \
+    PYTHONFAULTHANDLER=1 
+    # PYTHONASYNCIODEBUG=1
+
+# Switch to root to build debug-enabled version of python
+USER root:root
+
+RUN sudo apt-get update 
+
+RUN sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
+
+WORKDIR /tmp 
+RUN wget https://www.python.org/ftp/python/3.12.6/Python-3.12.6.tgz 
+RUN tar -xf Python-3.12.6.tgz
+WORKDIR /tmp/Python-3.12.6
+RUN mkdir debug 
+WORKDIR /tmp/Python-3.12.6/debug
+RUN ../configure --with-pydebug --enable-shared 
+RUN make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG" 
+RUN make -j$(nproc) altinstall
+
+RUN sudo apt-get clean
+
+RUN mv /tmp/Python-3.12.6/ /home/jovyan/Python-3.12.6/ 
+RUN chown -R jovyan /home/jovyan/Python-3.12.6/ 
+RUN chmod -R 777 /home/jovyan/Python-3.12.6/  
+
+ENV LD_LIBRARY_PATH=/home/jovyan/Python-3.12.6/debug
+
+# Install amd version of pytorch and torchvision
+# RUN python3 -m pip install torch torchvision
+# RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0 debugpy
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==5.28.1 grpcio==1.66.1 grpcio-tools==1.66.1 debugpy
+
+# Switch back to jovyan
+USER jovyan:users
+
+# Prepare directories to have them owned by the user jovyan
+RUN mkdir -p /home/jovyan/.ipython/profile_default
+
+# Switch to root to install the kernel
+USER root:root
+
+# Prepare directories to have them owned by the user jovyan
+RUN mkdir -p /storage && chown jovyan:users /storage
+
+# For debugging.
+RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vim gdb screen -y
+# RUN python3 -m pip install kubernetes 
+
+# Install frontend extension.
+# RUN cd /home/jovyan \
+#     && git clone https://github.com/Scusemua/DistributedKernelFrontendExtension.git \
+#     && cd ./DistributedKernelFrontendExtension \
+#     && pip install .
+
+# RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
+# RUN chmod -R 777 /home/jovyan/datasets/*
+
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install --upgrade ipyflow
+
+# Install Golang for debugging.
+RUN cd /tmp && wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+
+RUN mkdir /cores
+RUN chmod -R 777 /cores 
+RUN chown jovyan /cores
+
+# Update path.
+ENV PATH=/usr/local/go/bin:/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin

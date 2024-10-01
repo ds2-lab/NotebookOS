@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  creationTimestamp: null
+  labels:
+    app: local-daemon-pvc-claim0
+    type: local
+  name: local-daemon-pvc-claim0
+spec:
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce # The volume can be mounted as read-write by a single node.
+  resources:
+    requests:
+      storage: { { .Values.local_daemon.pvc_size: "" }: "" }
+  storageClassName: local-storage
+  local:
+    path: /mnt/disks/k8s-local-storage
+  nodeAffinity:
+    required:
+status: {}

@@ -1,9 +1,9 @@
 import sys
 import traceback
 
-def print_trace():
+def print_trace(limit = 5):
   _, _, exc_traceback = sys.exc_info()
-  traceback.print_tb(exc_traceback, limit=5, file=sys.stdout)
+  traceback.print_tb(exc_traceback, limit=limit, file=sys.stdout)
 
 class SyncError(Exception):
   """Base exception class for errors generated in sync module."""

@@ -1,10 +1,12 @@
 package client
 
 import (
+	"errors"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
 	"reflect"
 	"sync"
-
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
 const (
@@ -14,6 +16,8 @@ const (
 type MessageTopicRecognizer[R any, T any] func(msg R) (string, T)
 
 type MessageBrokerHandler[S any, T any, R any] func(source S, msg T, raw R) error
+
+type KernelMessageBrokerHandler = MessageBrokerHandler[scheduling.Kernel, types.JupyterFrames, *types.JupyterMessage]
 
 // MessageBroker is a general message broker that offers simple event handling.
 // Users will need to provide the type of message source(S), raw message(R), normalized message(T), and a topic recognizer.
@@ -97,7 +101,7 @@ func (broker *MessageBroker[S, R, T]) findInHandlers(needle MessageBrokerHandler
 }
 
 func (broker *MessageBroker[S, R, T]) shouldStop(err error) (error, bool) {
-	if err == types.ErrStopPropagation {
+	if errors.Is(err, commonTypes.ErrStopPropagation) {
 		return nil, true
 	} else if err != nil {
 		return err, true

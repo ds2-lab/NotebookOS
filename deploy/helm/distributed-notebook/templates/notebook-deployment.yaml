@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    app: jupyter-notebook
+  name: jupyter-notebook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jupyter-notebook
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.0 (40646f47)
+      creationTimestamp: null
+      labels:
+        app: jupyter-notebook
+    spec:
+      containers:
+        - args:
+            - start-notebook.sh
+            - --NotebookApp.token=
+            - --log-level=DEBUG
+          image: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag}}
+          name: jupyter-notebook 
+          resources: {}
+          volumeMounts:
+          - mountPath: /tmp/cores
+            name: core-dump-path
+          ports:
+          - name: nb-server
+            containerPort: {{ .Values.notebook_server.port }}
+          - name: tcp
+            containerPort: {{ .Values.local_daemon.network.service_port }}
+          - name: hb-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.hb_port }}
+          - name: control-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.control_port }}
+          - name: shell-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.shell_port }}
+          - name: stdin-port
+            containerPort: {{ .Values.local_daemon.network.jupyter.stdin_port }}
+          - name: iopub-port1
+            containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
+          - name: iopub-port2
+            containerPort: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
+          - name: jupyter
+            containerPort: {{ .Values.gateway.grpc_port }}
+          - name: provisioner
+            containerPort: {{ .Values.gateway.provisioner_port }}
+          - name: ack-port 
+            containerPort: {{ .Values.local_daemon.network.jupyter.ack_port }}
+      volumes:
+        - name: core-dump-path
+          hostPath:
+            path: /home/core-dump 
+      restartPolicy: Always
+status: {}
