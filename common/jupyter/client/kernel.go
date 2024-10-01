@@ -93,6 +93,8 @@ type KernelReplicaClient struct {
 	isTraining                        bool                                           // isTraining indicates whether the kernel replica associated with this client is actively training.
 	outstandingExecuteRequestIds      hashmap.HashMap[string, *types.JupyterMessage] // outstandingExecuteRequestIds is a map from Jupyter message ID to the message, containing execute requests sent to this kernel (whose replies have not yet been received).
 	outstandingExecuteRequestIdsMutex sync.Mutex                                     // outstandingExecuteRequestIdsMutex ensures atomic access to outstandingExecuteRequestIds.
+	trainingFinishedCond              *sync.Cond                                     // Used to notify the goroutine responsible for sending "execute_requests" to the kernel that the kernel has finished training.
+	trainingFinishedMu                sync.Mutex                                     // Goes with the trainingFinishedCond field.
 
 	// isSomeReplicaTraining            bool             // isSomeReplicaTraining indicates whether any replica of the kernel associated with this client is actively training, even if it is not the specific replica associated with this client.
 
@@ -203,6 +205,8 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 
 	client.log.Debug("Created new Kernel Client with spec %v, connection info %v.", spec, info)
 
+	client.trainingFinishedCond = sync.NewCond(&client.trainingFinishedMu)
+
 	return client
 }
 
@@ -216,7 +220,30 @@ func (c *KernelReplicaClient) SetContainer(container *scheduling.Container) {
 
 // IsTraining returns a bool indicating whether the kernel associated with this client is actively training.
 func (c *KernelReplicaClient) IsTraining() bool {
+	c.trainingFinishedMu.Lock()
+	defer c.trainingFinishedMu.Unlock()
+
 	return c.isTraining
+}
+
+// WaitForTrainingToStop blocks until the kernel stops training (via the KernelReplicaClient's sync.Cond variable).
+//
+// If the kernel is already not training when WaitForTrainingToStop is called, then WaitForTrainingToStop will
+// return immediately.
+func (c *KernelReplicaClient) WaitForTrainingToStop() {
+	// The trainingFinishedCond field of the KernelReplicaClient uses the trainingFinishedMu mutex.
+	c.trainingFinishedMu.Lock()
+	defer c.trainingFinishedMu.Unlock()
+
+	// If the kernel is not training right now, then we can return immediately.
+	if !c.isTraining {
+		return
+	}
+
+	// Block until we're woken up and notified that the kernel is done training.
+	for c.isTraining {
+		c.trainingFinishedCond.Wait()
+	}
 }
 
 // IsSomeReplicaTraining returns a bool indicating  whether any replica of the kernel associated with this client is
@@ -250,7 +277,9 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.isTraining {
+	// It's possible for isTraining to change values after we check here, but if it does, then that's fine.
+	// unsafeKernelStoppedTraining will just return immediately without an error if isTraining is false.
+	if c.IsTraining() {
 		c.log.Warn("Replica %d of kernel %s is already training as of %v. Ending current training now. "+
 			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.replicaId, c.id, c.trainingStartedAt)
 
@@ -262,7 +291,9 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 		}
 	}
 
+	c.trainingFinishedMu.Lock()
 	c.isTraining = true
+	c.trainingFinishedMu.Unlock()
 	c.trainingStartedAt = time.Now()
 
 	// The following code is only executed within the internalCluster Gateway.
@@ -306,10 +337,12 @@ func (c *KernelReplicaClient) SentExecuteRequest(msg *types.JupyterMessage) {
 	if numOutstandingRequests > 1 {
 		// Print a warning, as we shouldn't be sending concurrent execute requests to the kernel, and we just recorded
 		// that an execute request has been resolved, yet there is still at least one outstanding "execute_request"...
-		c.log.Warn(utils.OrangeStyle.Render("Recorded that \"execute_request\" message \"%s\" has been (or is about to be) sent to kernel %s. Number of outstanding \"execute_request\" messages: %d."),
+		c.log.Warn(utils.OrangeStyle.Render("Recorded that \"execute_request\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
+			"Updated number of outstanding \"execute_request\" messages: %d."),
 			msg.JupyterMessageId(), c.id, c.outstandingExecuteRequestIds.Len())
 	} else {
-		c.log.Debug("Recorded that \"execute_request\" message \"%s\" has been (or is about to be) sent to kernel %s. Number of outstanding \"execute_request\" messages: %d.",
+		c.log.Debug("Recorded that \"execute_request\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
+			"Updated number of outstanding \"execute_request\" messages: %d.",
 			msg.JupyterMessageId(), c.id, c.outstandingExecuteRequestIds.Len())
 	}
 }
@@ -334,10 +367,12 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *types.JupyterMessage) bo
 	if numOutstandingRequests > 0 {
 		// Print a warning, as we shouldn't be sending concurrent execute requests to the kernel, and we just recorded
 		// that an execute request has been resolved, yet there is still at least one outstanding "execute_request"...
-		c.log.Warn(utils.OrangeStyle.Render("Recorded that a reply to \"execute_request\" message \"%s\" has been received from kernel %s. Number of outstanding \"execute_request\" messages: %d."),
+		c.log.Warn(utils.OrangeStyle.Render("Recorded that a reply to \"execute_request\" message \"%s\" has been received from kernel %s. "+
+			"Updated number of outstanding \"execute_request\" messages: %d."),
 			msg.JupyterParentMessageId(), c.id, c.outstandingExecuteRequestIds.Len())
 	} else {
-		c.log.Debug("Recorded that a reply to \"execute_request\" message \"%s\" has been received from kernel %s. Number of outstanding \"execute_request\" messages: %d.",
+		c.log.Debug("Recorded that a reply to \"execute_request\" message \"%s\" has been received from kernel %s. "+
+			"Updated number of outstanding \"execute_request\" messages: %d.",
 			msg.JupyterParentMessageId(), c.id, c.outstandingExecuteRequestIds.Len())
 	}
 
@@ -345,14 +380,23 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *types.JupyterMessage) bo
 }
 
 // unsafeKernelStoppedTraining does the work of KernelStoppedTraining without acquiring the KernelReplicaClient's
-// mutex first (hence "unsafe").
+// mutex first (hence "unsafe"). This function DOES acquire the mutex that controls access to the isTraining field
+// of the KernelReplicaClient, however. It may also acquire other mutexes -- just not the "main" mutex of the
+// KernelReplicaClient struct.
+//
+// If the kernel is already not training, then this method just returns immediately (without an error).
 func unsafeKernelStoppedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[T]) error {
+	c.trainingFinishedMu.Lock()
 	if !c.isTraining {
-		c.log.Error("Cannot stop training; already not training.")
-		return fmt.Errorf("cannot stop training; replica %d of kernel %s is already not training", c.replicaId, c.id)
+		c.log.Warn("Cannot stop training; already not training.")
+		c.trainingFinishedMu.Unlock()
+		return nil
 	}
 
 	c.isTraining = false
+	// Notify everybody that the kernel has finished training.
+	c.trainingFinishedCond.Broadcast()
+	c.trainingFinishedMu.Unlock()
 
 	// The following code executes only on the internalCluster Gateway.
 	//
@@ -872,13 +916,13 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 	// the leader replica has finished executing code (or they'll return with a failed election, either way).
 	requiresAck := types.ShouldMessageRequireAck(typ)
 	pendingExecRequests := c.NumPendingExecuteRequests()
-	if (c.isTraining || pendingExecRequests > 0) && typ == types.ShellMessage {
+	if (c.IsTraining() || pendingExecRequests > 0) && typ == types.ShellMessage {
 		// If we're currently training and the message is a Shell message, then we'll just not require an ACK.
 		// Jupyter doesn't normally use ACKs, so it's fine. The message can simply be resubmitted if necessary.
 		requiresAck = false
 
-		c.log.Warn(utils.YellowStyle.Render("Shell '%s' message %s (JupyterID=\"%s\") targeting kernel %s will NOT require an ACK. IsTraining: %v. NumPendingExecRequests: %d."),
-			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), c.id, c.isTraining, pendingExecRequests)
+		c.log.Debug(utils.PurpleStyle.Render("Shell '%s' message %s (JupyterID=\"%s\") targeting kernel %s will NOT require an ACK. IsTraining: %v. NumPendingExecRequests: %d."),
+			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), c.id, c.IsTraining(), pendingExecRequests)
 	}
 
 	// If the context is merely cancellable (without a specific deadline/timeout), then we'll just use the default request timeout.

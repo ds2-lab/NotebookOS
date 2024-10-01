@@ -292,6 +292,17 @@ class SyncLog(Protocol):
         :return: the current election, if one exists
         """
 
+    @property
+    def created_first_election(self):
+        """
+        :return: return a boolean indicating whether we've created the first election yet.
+        """
+
+    def get_election(self, term_number: int):
+        """
+        :return: the current election with the specified term number, if one exists.
+        """
+
     def start(self, handler):
         """Register change handler, restore internel states, and start monitoring changes.
           handler will be in the form listerner(key, val: SyncValue)"""

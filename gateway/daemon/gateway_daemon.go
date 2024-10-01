@@ -2347,6 +2347,14 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 	return nil
 }
 
+// processExecutionReply handles the scheduling and resource allocation/de-allocation logic required when a
+// kernel finishes executing user-submitted code.
+//
+// TODO: Will there be race conditions here if we've sent multiple "execute_request" messages to the kernel?
+// TODO: Could we receive a notification that a subsequent training has started before getting the reply that the last train completed?
+// TODO: If so, how can we handle these out-of-order requests? We can associate trainings with Jupyter message IDs so that, if we get a >>
+// TODO: >> training stopped notification, then it needs to match up with the current training, maybe in a queue structure, so that out-of-order >>
+// TODO: >> messages can be handled properly.
 func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter.JupyterMessage) error {
 	d.log.Debug("Received execute-reply from kernel %s.", kernelId)
 
@@ -2408,23 +2416,16 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 		return err // TODO: Should I panic here?
 	}
 
-	snapshot := snapshotWrapper.ResourceWrapperSnapshot
-	if snapshot != nil {
+	if snapshotWrapper.ResourceWrapperSnapshot != nil {
 		d.log.Debug(utils.LightBlueStyle.Render("Extracted ResourceWrapperSnapshot from metadata frame of Jupyter \"%s\" message: %s"),
-			ShellExecuteReply, snapshot.String())
+			ShellExecuteReply, snapshotWrapper.ResourceWrapperSnapshot.String())
 	} else {
 		d.log.Warn(utils.OrangeStyle.Render("Jupyter \"%s\" did not contain an \"%s\" entry..."), msg.JupyterMessageType(), scheduling.ResourceSnapshotMetadataKey)
 	}
-	if _, err := kernel.ExecutionComplete(snapshot); err != nil {
+
+	if _, err := kernel.ExecutionComplete(snapshotWrapper.ResourceWrapperSnapshot, msg); err != nil {
 		return err
 	}
-
-	// Record that the Session has stopped training.
-	// TODO: Will there be race conditions here if we've sent multiple "execute_request" messages to the kernel?
-	// TODO: Could we receive a notification that a subsequent training has started before getting the reply that the last train completed?
-	// TODO: If so, how can we handle these out-of-order requests? We can associate trainings with Jupyter message IDs so that, if we get a >>
-	// TODO: >> training stopped notification, then it needs to match up with the current training, maybe in a queue structure, so that out-of-order >>
-	// TODO: >> messages can be handled properly.
 
 	return nil
 }

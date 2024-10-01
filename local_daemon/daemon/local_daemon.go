@@ -1947,6 +1947,12 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecut
 				d.log.Debug("[gid=%d] Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s",
 					gid, len(processedMessage.Frames), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID(), processedMessage)
 
+				// Sanity check.
+				if enqueuedMessage.Kernel.IsTraining() {
+					log.Fatalf(utils.RedStyle.Render("Kernel %s is already training, even though we haven't sent the next \"execute_request\" yet. Started training at: %v (i.e., %v ago)."),
+						enqueuedMessage.Kernel.ID(), enqueuedMessage.Kernel.TrainingStartedAt(), time.Since(enqueuedMessage.Kernel.TrainingStartedAt()))
+				}
+
 				// Record that we've sent this (although technically we haven't yet).
 				kernel.SentExecuteRequest(processedMessage)
 
@@ -1954,9 +1960,9 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecut
 				// the enqueued "execute_request" message.
 				ctx, cancel := context.WithCancel(context.Background())
 				if err := enqueuedMessage.Kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, processedMessage, d.kernelResponseForwarder, func() {
-					cancel()
-					d.log.Debug("[gid=%d] Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
+					d.log.Debug("[gid=%d] Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling (though request may have succeeded already).",
 						gid, processedMessage.JupyterMessageType(), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID())
+					cancel()
 				}); err != nil {
 					// Send the error back to the caller.
 					enqueuedMessage.ResultChannel <- err
@@ -2093,11 +2099,8 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	var metadataFrame = frames[msg.Offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
 
-	if kernel.IsTraining() {
-		d.log.Warn("Processing `execute_request` for actively-training kernel %s now...", kernel.ID())
-	} else {
-		d.log.Debug("Processing `execute_request` for idle kernel %s now.", kernel.ID())
-	}
+	kernel.WaitForTrainingToStop()
+	d.log.Debug("Processing `execute_request` for idle kernel %s now.", kernel.ID())
 
 	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
 	if len(metadataFrame.Frame()) > 0 {
@@ -2139,8 +2142,8 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 
 	// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
 	var (
-		err                          error
-		sufficientResourcesAvailable bool
+		err                                        error
+		allocationFailedDueToInsufficientResources bool
 	)
 
 	// Create a snapshot of the available idle resources on this node prior to our (potential) attempt
@@ -2162,17 +2165,20 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 			d.log.Warn("The following resources are currently available on the node: %s.", idleResourcesBeforeReservation.String())
 
 			// There are other errors that could be returned here aside from "insufficient resources".
-			// So, we should only set sufficientResourcesAvailable to false if the returned error is
+			// So, we should only set allocationFailedDueToInsufficientResources to false if the returned error is
 			// in fact an "insufficient resources" type of error.
 			if errors.As(resourceAllocationError, &scheduling.InsufficientResourcesError{}) {
-				sufficientResourcesAvailable = false
+				allocationFailedDueToInsufficientResources = true
+			} else {
+				// Technically there may also be insufficient resources, but that wasn't why the allocation failed.
+				allocationFailedDueToInsufficientResources = false
 			}
 
 			shouldYield = true
 		} else {
 			d.log.Debug("Successfully reserved the following resources for replica %d of kernel %s in anticipation of its leader election: %s.",
 				kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-			sufficientResourcesAvailable = true
+			allocationFailedDueToInsufficientResources = false
 		}
 	}
 
@@ -2200,7 +2206,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 			d.log.Debug("Replica %d of kernel %s has been explicitly instructed to yield its next execution request.",
 				kernel.ReplicaID(), kernel.ID())
 			reason = domain.YieldExplicitlyInstructed
-		} else if !sufficientResourcesAvailable {
+		} else if allocationFailedDueToInsufficientResources {
 			d.log.Debug("There are insufficient resources available for replica %d of kernel %s to train. Available: %s. Required: %s.",
 				kernel.ReplicaID(), kernel.ID(), idleResourcesBeforeReservation.String(), kernel.ResourceSpec().String())
 			reason = domain.YieldInsufficientResourcesAvailable

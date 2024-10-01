@@ -987,6 +987,37 @@ class DistributedKernel(IPythonKernel):
         )
         self.log.debug(f"Sent ping_reply (shell): {str(reply_msg)}")
 
+    async def check_previous_election(self):
+        """
+        Check the status of the previous election, and wait for it to complete if it isn't done yet.
+        """
+        term_number: int = self.synchronizer.execution_count
+        self.log.debug(f"yield_execute has been called. Checking status of previous election (term {term_number}).")
+        
+        # If we've not yet created/held the first election, then we have nothing to check. 
+        if not self.synchronizer.created_first_election():
+            return 
+
+        try:
+            if not self.synchronizer.is_election_finished(term_number):
+                self.log.warning(f"Previous election (term {term_number}) has not finished yet. "
+                                 f"Waiting for that election to finish before proceeding.")
+
+                # Wait for the last election to end.
+                await self.synchronizer.wait_for_election_to_end(term_number)
+        except ValueError as ex:
+            self.log.warning(f"Encountered ValueError while checking status of previous election: {ex}")
+            self.report_error(
+                error_title = f"ValueError While Checking Status of Election {term_number}",
+                error_message= str(ex)
+            )
+        except Exception as ex:
+            self.log.error(f"Error encountered while checking status of previous election: {ex}")
+            self.report_error(
+                error_title = f"Unexpected {type(ex).__name__} While Checking Status of Election {term_number}",
+                error_message= str(ex)
+            )
+
     async def yield_execute(self, stream, ident, parent):
         """
         Similar to the do_execute method, but this method ALWAYS proposes "YIELD" instead of "LEAD".
@@ -1034,14 +1065,15 @@ class DistributedKernel(IPythonKernel):
 
         metadata = self.init_metadata(parent)
 
+        # Check the status of the last election before proceeding.
+        await self.check_previous_election()
+
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
         if not silent:
             assert self.execution_count is not None
             self.execution_count += 1
             self._publish_execute_input(code, parent, self.execution_count)
-
-        self.log.debug("yield_execute has been called.")
 
         current_term_number: int = -1
         try:
@@ -1119,13 +1151,19 @@ class DistributedKernel(IPythonKernel):
         if not silent and error_occurred and stop_on_error:  # reply_msg["content"]["status"] == "error"
             self._abort_queues()
 
+        # Commented-out:
+        #
+        # Do this at the beginning instead.
+        #
+        #
+        #
         # Block until the leader finishes executing the code, or until we know that all replicas yielded,
         # in which case we can just return, as the code will presumably be resubmitted shortly.
-        current_election: Election = self.synchronizer.current_election
-        term_number: int = current_election.term_number
-        self.log.debug(f"Waiting for election {term_number} "
-                       "to be totally finished before returning from yield_execute function.")
-        await self.synchronizer.wait_for_election_to_end(term_number)
+        # current_election: Election = self.synchronizer.current_election
+        # term_number: int = current_election.term_number
+        # self.log.debug(f"Waiting for election {term_number} "
+        #                "to be totally finished before returning from yield_execute function.")
+        # await self.synchronizer.wait_for_election_to_end(term_number)
 
     async def do_execute(
             self,
@@ -1173,6 +1211,9 @@ class DistributedKernel(IPythonKernel):
                 self.persistent_id = self.shell.user_ns['persistent_id']
                 code = "persistent_id = \"%s\"" % self.persistent_id
                 await asyncio.ensure_future(self.init_persistent_store(code))
+
+        # Check the status of the last election before proceeding.
+        await self.check_previous_election()
 
         try:
             self.toggle_outstream(override=True, enable=False)

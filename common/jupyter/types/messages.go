@@ -137,6 +137,10 @@ type JupyterMessage struct {
 	*zmq4.Msg
 	JupyterFrames
 
+	// ReplicaId is the replica of the kernel that received the message.
+	// This should be assigned a value in the forwarder function defined in the DistributedKernelClient's
+	// RequestWithHandlerAndReplicas method.
+	ReplicaId     int32
 	RequestId     string
 	DestinationId string
 	Offset        int
@@ -177,6 +181,7 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 
 	return &JupyterMessage{
 		Msg:                 msg,
+		ReplicaId:           -1,
 		JupyterFrames:       JupyterFrames(msg.Frames),
 		header:              nil, // &header,
 		parentHeader:        nil, // &parentHeader,

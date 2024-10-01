@@ -132,6 +132,9 @@ class RaftLog(object):
 
         self.logger.info(f"Successfully created LogNode {id}.")
 
+        # Indicates whether we've created the first Election / at least one Election
+        self.__created_first_election:bool = False
+
         # Mapping from term number to the election associated with that term. 
         self._elections: Dict[int, Election] = {}
         # The current/active election.
@@ -308,6 +311,13 @@ class RaftLog(object):
             self.current_election.set_execution_complete()
 
         return GoNilError()
+
+    @property
+    def created_first_election(self):
+        """
+        :return: return a boolean indicating whether we've created the first election yet.
+        """
+        return self.__created_first_election
 
     def __handle_proposal(self, proposal: LeaderElectionProposal, received_at: float = 0) -> bytes:
         """Handle a committed LEAD/YIELD proposal.
@@ -911,6 +921,12 @@ class RaftLog(object):
         else:
             return True, False
 
+    def get_election(self, term_number: int):
+        """
+        :return: the current election with the specified term number, if one exists. Otherwise, returns None.
+        """
+        return self._elections[term_number]
+
     def _get_or_create_election(self, term_number: int = -1, latest_attempt_number: int = -1):
         """
         First, try to create and register a new election with the given term number.
@@ -974,14 +990,14 @@ class RaftLog(object):
                     f"attempted to create new election with term number smaller than previous election's term number ({term_number} < {self._current_election.term_number})")
             elif self._current_election is not None and not self._current_election.voting_phase_completed_successfully:
                 self.logger.error(
-                    f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet finished its voting phase.")
+                    f"Current election with term number {self._current_election.term_number} is in state {self._current_election.election_state}; it has not yet finished its voting phase.")
                 raise ValueError(
-                    f"current election (term number: {self._current_election.term_number}) has not yet finished its voting phase (current state: {self._current_election._election_state})")
+                    f"current election (term number: {self._current_election.term_number}) has not yet finished its voting phase (current state: {self._current_election.election_state})")
             elif self._current_election is not None and not self._current_election.code_execution_completed_successfully:
                 self.logger.error(
-                    f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet finished the execution phase.")
+                    f"Current election with term number {self._current_election.term_number} is in state {self._current_election.election_state}; it has not yet finished the execution phase.")
                 raise ValueError(
-                    f"current election (term number: {self._current_election.term_number}) has not yet finished the execution phase (current state: {self._current_election._election_state})")
+                    f"current election (term number: {self._current_election.term_number}) has not yet finished the execution phase (current state: {self._current_election.election_state})")
             else:
                 # Create a new election. We don't have an existing election to restart/use.
                 election: Election = Election(term_number, self._num_replicas)
@@ -995,6 +1011,10 @@ class RaftLog(object):
                     assert self._last_completed_election.voting_phase_completed_successfully
 
                 self.logger.info(f"Created new election with term number {term_number}")
+
+                # Flip this flag to True once we've created the first Election.
+                if not self.__created_first_election:
+                    self.__created_first_election = True
 
     async def _create_election_proposal(self, key: ElectionProposalKey, term_number: int) -> LeaderElectionProposal:
         """
