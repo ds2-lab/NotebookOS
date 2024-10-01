@@ -170,7 +170,9 @@ func (e *ActiveExecution) SetExecuted() {
 }
 
 func (e *ActiveExecution) String() string {
-	return fmt.Sprintf("ActiveExecution[ID=%s,Kernel=%s,Session=%s,ExecuteRequestMsgId=%s,Attempt=%d,NumReplicas=%d,numLeadProposals=%d,numYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v,OriginalSendTimestamp=%v,CreatedAtTimestamp=%v]", e.ExecutionId, e.KernelId, e.SessionId, e.ExecuteRequestMessageId, e.AttemptId, e.NumReplicas, e.numLeadProposals, e.numYieldProposals, e.nextAttempt == nil, e.previousAttempt == nil, e.originallySentAt, e.CreatedAt)
+	return fmt.Sprintf("ActiveExecution[ID=%s,Kernel=%s,Session=%s,ExecuteRequestMsgId=%s,Attempt=%d,NumReplicas=%d,"+
+		"numLeadProposals=%d,numYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v,OriginalSendTimestamp=%v,CreatedAtTimestamp=%v,Executed=%v]",
+		e.ExecutionId, e.KernelId, e.SessionId, e.ExecuteRequestMessageId, e.AttemptId, e.NumReplicas, e.numLeadProposals, e.numYieldProposals, e.nextAttempt == nil, e.previousAttempt == nil, e.originallySentAt, e.CreatedAt, e.executed)
 }
 
 func (e *ActiveExecution) ReceivedLeadProposal(smrNodeId int32) error {
