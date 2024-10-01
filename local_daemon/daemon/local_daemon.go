@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -1892,11 +1893,11 @@ func (d *SchedulerDaemonImpl) enqueueExecuteRequest(executeRequestMessage *jupyt
 		// Once the queue is full, the order in which future requests are processed is no longer guaranteed.
 		// Specifically, the order in which new items are added to the queue is non-deterministic.
 		// (Once in the queue, requests will still be processed in a FCFS manner.)
-		d.log.Warn("[gid=%d] Enqueuing outbound \"execute_request\" targeting replica %d of kernel %s. Queue is almost full: %d/%d.",
-			gid, kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
+		d.log.Warn("[gid=%d] Enqueuing outbound \"execute_request\" %s targeting replica %d of kernel %s. Queue is almost full: %d/%d.",
+			gid, executeRequestMessage.JupyterMessageId(), kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
 	} else {
-		d.log.Debug("[gid=%d] Enqueuing outbound \"execute_request\" targeting replica %d of kernel %s. Queue size: %d/%d.",
-			gid, kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
+		d.log.Debug("[gid=%d] Enqueuing outbound \"execute_request\" %s targeting replica %d of kernel %s. Queue size: %d/%d.",
+			gid, executeRequestMessage.JupyterMessageId(), kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue))
 	}
 
 	// This could conceivably block, which would be fine.
@@ -1945,6 +1946,9 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecut
 				processedMessage := d.processExecuteRequest(enqueuedMessage.Msg, enqueuedMessage.Kernel) // , header, offset)
 				d.log.Debug("[gid=%d] Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s: %s",
 					gid, len(processedMessage.Frames), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID(), processedMessage)
+
+				// Record that we've sent this (although technically we haven't yet).
+				kernel.SentExecuteRequest(processedMessage)
 
 				// Send the message and post the result back to the caller via the channel included within
 				// the enqueued "execute_request" message.
@@ -2051,6 +2055,12 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
 	}
 
+	matched := kernelClient.ReceivedExecuteReply(msg)
+	if !matched {
+		d.log.Error("Kernel %s did not match against \"execute_reply\" with JupyterID=\"%s\"",
+			kernelClient.ID(), msg.JupyterParentMessageId())
+	}
+
 	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
 	_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)
 
@@ -2143,15 +2153,22 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
 		d.log.Debug("Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
 			kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-		resourceAllocationFailure := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
-		if resourceAllocationFailure != nil {
+		resourceAllocationError := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
+		if resourceAllocationError != nil {
 			d.log.Warn("Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
-				kernel.ReplicaID(), kernel.ID(), resourceAllocationFailure.Error())
+				kernel.ReplicaID(), kernel.ID(), resourceAllocationError.Error())
 			d.log.Warn("Replica %d of kernel %s requires the following resources: %s.",
 				kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
 			d.log.Warn("The following resources are currently available on the node: %s.", idleResourcesBeforeReservation.String())
+
+			// There are other errors that could be returned here aside from "insufficient resources".
+			// So, we should only set sufficientResourcesAvailable to false if the returned error is
+			// in fact an "insufficient resources" type of error.
+			if errors.As(resourceAllocationError, &scheduling.InsufficientResourcesError{}) {
+				sufficientResourcesAvailable = false
+			}
+
 			shouldYield = true
-			sufficientResourcesAvailable = false
 		} else {
 			d.log.Debug("Successfully reserved the following resources for replica %d of kernel %s in anticipation of its leader election: %s.",
 				kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
@@ -2166,7 +2183,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	metadataDict["required-gpus"] = kernel.ResourceSpec().GPU()
 	metadataDict["required-millicpus"] = kernel.ResourceSpec().CPU()
 	metadataDict["required-memory-mb"] = kernel.ResourceSpec().MemoryMB()
-	d.log.Debug("Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %d.",
+	d.log.Debug("Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %s.",
 		idleResourcesBeforeReservation.Millicpus.StringFixed(0), idleResourcesBeforeReservation.MemoryMb.StringFixed(4), idleResourcesBeforeReservation.GPUs.StringFixed(0))
 
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
@@ -2187,6 +2204,9 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 			d.log.Debug("There are insufficient resources available for replica %d of kernel %s to train. Available: %s. Required: %s.",
 				kernel.ReplicaID(), kernel.ID(), idleResourcesBeforeReservation.String(), kernel.ResourceSpec().String())
 			reason = domain.YieldInsufficientResourcesAvailable
+		} else {
+			d.log.Debug("Replica %d of kernel %s must propose 'yield' for some other unspecified reason.", kernel.ID(), kernel.ReplicaID())
+			reason = domain.YieldUnspecifiedReason
 		}
 
 		metadataDict["yield-reason"] = reason

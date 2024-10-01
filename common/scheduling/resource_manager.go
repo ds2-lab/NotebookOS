@@ -352,8 +352,6 @@ func (m *ResourceManager) ResourcesSnapshot() *ResourceWrapperSnapshot {
 		SpecResources:      m.resourcesWrapper.specResourcesSnapshot(snapshotId),
 	}
 
-	m.log.Debug("Created *ArbitraryResourceSnapshot with ID=%d.", snapshot.SnapshotId)
-
 	return snapshot
 }
 
@@ -389,8 +387,6 @@ func (m *ResourceManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapshot 
 		CommittedResources: m.resourcesWrapper.committedProtoResourcesSnapshot(snapshotId),
 		SpecResources:      m.resourcesWrapper.specProtoResourcesSnapshot(snapshotId),
 	}
-
-	m.log.Debug("Created *proto.NodeResourcesSnapshot with ID=%d.", snapshot.SnapshotId)
 
 	return snapshot
 }
@@ -901,7 +897,7 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 		// However, if we already knew that there were insufficient resources available prior to the leader election,
 		// then we'll not have reserved any, and the call to ReleaseCommittedResources will "fail" (as there won't
 		// be any committed resources to release). In this case, it's not an error.
-		m.log.Warn("Found existing resource allocation for replica %d of kernel %s; "+
+		m.log.Debug("Found existing resource allocation for replica %d of kernel %s; "+
 			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
 			replicaId, kernelId, allocation.AllocationType.String(), CommittedAllocation.String())
 		return fmt.Errorf("%w: expected '%s', found '%s'",

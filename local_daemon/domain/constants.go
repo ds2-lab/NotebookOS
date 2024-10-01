@@ -20,6 +20,7 @@ const (
 	YieldInsufficientResourcesAvailable YieldReason = "YieldInsufficientResourcesAvailable" // Yield because there are not enough resources (Millicpus, memory, and/or GPUs) available.
 	YieldDifferentReplicaTargeted       YieldReason = "YieldDifferentReplicaTargeted"       // Yield because another replica was explicitly targeted.
 	YieldExplicitlyInstructed           YieldReason = "YieldExplicitlyInstructed"           // Yield because we were explicitly instructed to yield.
+	YieldUnspecifiedReason              YieldReason = "YieldUnspecifiedReason"              // Yield for some other reason.
 )
 
 type YieldReason string

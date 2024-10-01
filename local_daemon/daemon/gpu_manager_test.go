@@ -1,6 +1,7 @@
 package daemon_test
 
 import (
+	"errors"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	. "github.com/onsi/ginkgo/v2"
@@ -49,7 +50,7 @@ var _ = Describe("GPU Manager Tests", func() {
 
 			err := manager.AllocateGPUs(tooManyGPUsDecimal, 1, kernel1)
 			Expect(err).ToNot(BeNil())
-			Expect(err).To(Equal(scheduling.ErrInsufficientGPUs))
+			Expect(errors.Is(err, scheduling.InsufficientResourcesError{})).To(BeTrue())
 		})
 
 		It("should return an error when deallocating GPUs that were never allocated in the first place", func() {
