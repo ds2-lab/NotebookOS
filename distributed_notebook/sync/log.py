@@ -195,6 +195,25 @@ class LeaderElectionProposal(SynchronizedValue):
         """
         return self._key
 
+class BufferedLeaderElectionProposal(object):
+    """
+    This simply wraps a LeaderElectionProposal along with the timestamp at which the proposal was originally received.
+    The purpose is so we can pass the correct timestamp when we eventually process the buffered proposal.
+    """
+    def __init__(self, proposal: LeaderElectionProposal, received_at: float = time.time()):
+        self._proposal: LeaderElectionProposal = proposal
+        self._received_at: float = received_at
+
+    @property
+    def proposal(self)->LeaderElectionProposal:
+        """
+        :return: the `LeaderElectionProposal` that is wrapped by this `BufferedLeaderElectionProposal` instance.
+        """
+        return self._proposal
+
+    @property
+    def received_at(self)->float:
+        return self._received_at
 
 class LeaderElectionVote(SynchronizedValue):
     """
@@ -246,6 +265,22 @@ class LeaderElectionVote(SynchronizedValue):
         """
         return self._proposed_node_id == -1
 
+class BufferedLeaderElectionVote(object):
+    """
+    This simply wraps a LeaderElectionVote along with the timestamp at which the vote was originally received.
+    The purpose is so we can pass the correct timestamp when we eventually process the buffered vote.
+    """
+    def __init__(self, vote: LeaderElectionVote, received_at: float = time.time()):
+        self._vote: LeaderElectionVote = vote
+        self._received_at: float = received_at
+
+    @property
+    def vote(self)->LeaderElectionVote:
+        return self._vote
+
+    @property
+    def received_at(self)->float:
+        return self._received_at
 
 class SyncValue:
     """A value for log proposal."""

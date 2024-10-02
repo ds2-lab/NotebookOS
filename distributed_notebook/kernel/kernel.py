@@ -875,7 +875,7 @@ class DistributedKernel(IPythonKernel):
         # await self.smr_ready() 
 
         # TODO(Ben): Should this go before the "smr_ready" send?
-        # It probably shouldn't matter -- or if it does, then more synchronization is recuired.
+        # It probably shouldn't matter -- or if it does, then more synchronization is required.
         async with self.persistent_store_cv:
             self.persistent_store_cv.notify_all()
 
@@ -1301,7 +1301,7 @@ class DistributedKernel(IPythonKernel):
                 ))
 
             assert self.execution_count is not None
-            self.log.info("Synchronized. End of sync execution: {}".format(self.execution_count - 1))
+            self.log.info("Synchronized. End of sync execution: {}".format(term_number))
 
             # Add task to the set. This creates a strong reference.
             # We don't await this here so that we can go ahead and send the shell response back.
@@ -1309,7 +1309,7 @@ class DistributedKernel(IPythonKernel):
             #
             # TODO: Is this okay, or should we await this before returning?
             task: asyncio.Task = asyncio.create_task(
-                self.synchronizer.notify_execution_complete(self.execution_count - 1))
+                self.synchronizer.notify_execution_complete(term_number))
 
             # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
             # the set after completion.
@@ -1417,7 +1417,7 @@ class DistributedKernel(IPythonKernel):
                               error_message=str(e))
 
             # Attempt to close the HDFS client.
-            self.synclog.closeHdfsClient()
+            self.synclog.close_hdfs_client()
 
             return gen_error_response(e), False
 
@@ -1440,12 +1440,12 @@ class DistributedKernel(IPythonKernel):
             self.report_error("Failed to Write HDFS Data Directory", error_message=str(e))
 
             # Attempt to close the HDFS client.
-            self.synclog.closeHdfsClient()
+            self.synclog.close_hdfs_client()
 
             return gen_error_response(e), False
 
         try:
-            self.synclog.closeHdfsClient()
+            self.synclog.close_hdfs_client()
         except Exception as e:
             self.log.error("Failed to close the HDFS client within the LogNode.")
             tb: list[str] = traceback.format_exception(e)
