@@ -97,7 +97,8 @@ type DistributedKernelClient struct {
 
 	nextNodeId int32
 
-	// activeExecution is the current execution request that is being processed by the kernels.
+	// activeExecution is the current execution request that should be being processed by the kernels,
+	// assuming the Local Daemons forward the requests in the correct order.
 	activeExecution *scheduling.ActiveExecution
 
 	// activeExecutionsByExecuteRequestMsgId is a map used to keep track of all scheduling.ActiveExecutions
@@ -325,18 +326,25 @@ func (c *DistributedKernelClient) EnqueueActiveExecution(activeExecution *schedu
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.log.Debug("Setting or enqueuing new ActiveExecution targeting kernel %s for \"execute_request\" \"%s\"",
+		c.id, activeExecution.ExecuteRequestMessageId)
+
 	c.activeExecutionsByExecuteRequestMsgId.Store(activeExecution.ExecuteRequestMessageId, activeExecution)
 
 	// If there is already an active execution, then enqueue the new one.
 	if c.activeExecution != nil {
-		c.log.Debug("Found non-nil active execution. Enqueuing new active execution.")
+		c.log.Debug("Found non-nil ActiveExec for kernel %s. Enqueuing new ActiveExec for \"execute_request\" \"%s\".",
+			c.id, activeExecution.ExecuteRequestMessageId)
 		c.activeExecutionQueue = append(c.activeExecutionQueue, activeExecution)
 		return true
-	}
+	} else {
+		c.log.Debug("No ActiveExec for kernel %s. Assigning ActiveExec targeting \"execute_request\" \"%s\".",
+			c.id, activeExecution.ExecuteRequestMessageId)
 
-	// There's no active execution currently, so just set the value.
-	c.activeExecution = activeExecution
-	return false
+		// There's no active execution currently, so just set the value.
+		c.activeExecution = activeExecution
+		return false
+	}
 }
 
 // ResetID resets the kernel ID.

@@ -244,6 +244,7 @@ class DistributedKernel(IPythonKernel):
         self.source = None
         self.kernel_notification_service_channel: Optional[grpc.Channel] = None
         self.kernel_notification_service_stub: Optional[KernelErrorReporterStub] = None
+        self.message_acknowledgements_enabled: bool = True # default to True
 
         # Prometheus metrics.
         self.num_yield_proposals: Counter = Counter(
@@ -546,17 +547,22 @@ class DistributedKernel(IPythonKernel):
         else:
             self.log.debug("We should NOT read data from HDFS.")
 
-        # if "data_directory" in response_dict:
-        #     self.log.info("Received path to data directory in HDFS from registration: \"%s\"" %
-        #                   response_dict["data_directory"])
-        # self.hdfs_data_directory = response_dict["data_directory"]
-
         if "debug_port" in response_dict:
             self.debug_port: int = int(response_dict["debug_port"])
             self.log.info(f"Assigned debug port to {self.debug_port}")
         else:
             self.log.warning("No \"debug_port\" entry found in response from local daemon.")
             self.debug_port: int = -1
+
+        if "message_acknowledgements_enabled" in response_dict:
+            self.message_acknowledgements_enabled = bool(response_dict["message_acknowledgements_enabled"])
+
+            if self.message_acknowledgements_enabled:
+                self.log.debug("Message acknowledgements are enabled.")
+            else:
+                self.log.debug("Message acknowledgements are disabled.")
+        else:
+            self.log.warning("No \"message_acknowledgements_enabled\" entry in response from local daemon.")
 
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
@@ -887,7 +893,10 @@ class DistributedKernel(IPythonKernel):
             return True
 
     def send_ack(self, stream, msg_type: str, msg_id: str, ident, parent, stream_name: str = ""):
-        # self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
+        # If message acknowledgements are disabled, then just return immediately.
+        if not self.message_acknowledgements_enabled:
+            return
+
         ack_msg = self.session.send(  # type:ignore[assignment]
             stream,
             "ACK",

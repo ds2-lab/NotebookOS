@@ -132,7 +132,7 @@ type KernelReplicaClient struct {
 // argument is nil, then NewKernelReplicaClient will panic.
 func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *types.ConnectionInfo, componentId string,
 	addSourceKernelFrames bool, numResendAttempts int, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
-	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback,
+	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool,
 	persistentId string, hostId string, host *scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
 	messagingMetricsProvider metrics.MessagingMetricsProvider, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *KernelReplicaClient {
@@ -186,6 +186,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			s.ReconnectOnAckFailure = true
 			s.PrependId = false
 			s.ComponentId = componentId
+			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
 			s.MessagingMetricsProvider = messagingMetricsProvider
 			s.Name = fmt.Sprintf("KernelReplicaClient-%s", spec.Kernel.Id)
 
@@ -982,7 +983,7 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 	}
 
 	builder := types.NewRequestBuilder(parentContext, c.id, c.id, c.client.Meta).
-		WithAckRequired(requiresAck).
+		WithAckRequired(requiresAck && c.MessageAcknowledgementsEnabled()).
 		WithMessageType(typ).
 		WithBlocking(true).
 		WithTimeout(timeout).

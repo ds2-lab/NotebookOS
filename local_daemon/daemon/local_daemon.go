@@ -158,6 +158,12 @@ type SchedulerDaemonImpl struct {
 	// When using Docker mode, we assign "debug ports" to kernels so that they can serve a Go HTTP server for debugging.
 	kernelDebugPorts hashmap.HashMap[string, int]
 
+	// MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements
+	// for the ZMQ messages that we're forwarding back and forth between the Cluster Gateway and kernel replicas.
+	//
+	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
+	MessageAcknowledgementsEnabled bool
+
 	// Indicates whether we're running within WSL (Windows Subsystem for Linux).
 	// If we are, then there is some additional configuration required for the kernel containers in order for
 	// them to be able to connect to HDFS running in the host (WSL).
@@ -224,6 +230,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		outgoingExecuteRequestQueue:        hashmap.NewCornelkMap[string, chan *enqueuedExecuteRequestMessage](128),
 		outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
 		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
+		MessageAcknowledgementsEnabled:     schedulerDaemonOptions.MessageAcknowledgementsEnabled,
 	}
 
 	for _, configFunc := range configs {
@@ -232,7 +239,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 
 	config.InitLogger(&daemon.log, daemon)
 
-	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon,
+	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, daemon.MessageAcknowledgementsEnabled,
 		fmt.Sprintf("LocalDaemon_%s", nodeName), true, metrics.LocalDaemon)
 
 	if daemon.numResendAttempts <= 0 {
@@ -711,8 +718,8 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
 		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id, true,
 			d.numResendAttempts, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName,
-			d.smrReadyCallback, d.smrNodeAddedCallback, "", d.id, nil, metrics.LocalDaemon, false,
-			false, d.prometheusManager, d.kernelReconnectionFailed,
+			d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "",
+			d.id, nil, metrics.LocalDaemon, false, false, d.prometheusManager, d.kernelReconnectionFailed,
 			d.kernelRequestResubmissionFailedAfterReconnection)
 
 		kernelConnectionInfo, err = d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
@@ -876,12 +883,13 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	kernelDebugPort, _ = d.kernelDebugPorts.Load(kernel.ID())
 
 	payload := map[string]interface{}{
-		"smr_node_id": response.Id,
-		"hostname":    remoteIp,
-		"replicas":    response.Replicas,
-		"debug_port":  kernelDebugPort,
-		"status":      "ok",
-		"grpc_port":   d.kernelErrorReporterServerPort,
+		"smr_node_id":                      response.Id,
+		"hostname":                         remoteIp,
+		"replicas":                         response.Replicas,
+		"debug_port":                       kernelDebugPort,
+		"status":                           "ok",
+		"grpc_port":                        d.kernelErrorReporterServerPort,
+		"message_acknowledgements_enabled": d.MessageAcknowledgementsEnabled,
 	}
 
 	if response.PersistentId != nil && response.GetPersistentId() != "" {
@@ -1469,8 +1477,8 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 
 	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, true, d.numResendAttempts,
 		listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
-		"", d.id, nil, metrics.LocalDaemon, false, false, d.prometheusManager,
-		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		d.MessageAcknowledgementsEnabled, "", d.id, nil, metrics.LocalDaemon, false,
+		false, d.prometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 	d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
 		in.ReplicaId, kernel.ID(), listenPorts)
@@ -1941,12 +1949,13 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecut
 					d.notifyClusterGatewayAndPanic("Enqueued \"execute_request\" with Mismatched Replica ID", errorMessage, errorMessage)
 					return // We'll panic before this line is executed.
 				}
+				d.log.Debug("[gid=%d] Dequeued shell \"execute_request\" message %s (JupyterID=%s) targeting kernel %s.",
+					enqueuedMessage.Msg.RequestId, enqueuedMessage.Msg.JupyterMessageId(), enqueuedMessage.Kernel.ID())
 
 				// Process the message.
 				processedMessage := d.processExecuteRequest(enqueuedMessage.Msg, enqueuedMessage.Kernel) // , header, offset)
-				d.log.Debug("[gid=%d] Forwarding shell 'execution-request' with %d frames to replica %d of kernel %s (IsTraining: %v): %s",
-					gid, len(processedMessage.Frames), enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID(),
-					enqueuedMessage.Kernel.IsTraining(), processedMessage)
+				d.log.Debug("[gid=%d] Forwarding shell \"execute_request\" to replica %d of kernel %s: %s",
+					gid, enqueuedMessage.Kernel.ReplicaID(), enqueuedMessage.Kernel.ID(), processedMessage)
 
 				// Sanity check.
 				if enqueuedMessage.Kernel.IsTraining() {
@@ -2526,7 +2535,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelInfo
 	}
 
 	builder := jupyter.NewRequestBuilder(context.Background(), from.ID(), from.ID(), connectionInfo).
-		WithAckRequired(jupyter.ShouldMessageRequireAck(typ) && requiresAck).
+		WithAckRequired(jupyter.ShouldMessageRequireAck(typ) && requiresAck && d.MessageAcknowledgementsEnabled).
 		WithMessageType(typ).
 		WithBlocking(true).
 		WithTimeout(jupyter.DefaultRequestTimeout).

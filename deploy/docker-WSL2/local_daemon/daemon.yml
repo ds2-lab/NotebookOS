@@ -50,3 +50,4 @@ prometheus_interval: 15
 prometheus_port: 8089
 num_resend_attempts: 1
 run_kernels_in_gdb: false
+acks_enabled: true

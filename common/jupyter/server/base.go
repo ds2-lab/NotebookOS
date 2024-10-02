@@ -73,6 +73,10 @@ func (s *BaseServer) SetIOPubSocket(iopub *types.Socket) error {
 	return nil
 }
 
+func (s *BaseServer) MessageAcknowledgementsEnabled() bool {
+	return s.server.MessageAcknowledgementsEnabled
+}
+
 // Context returns the context of this server.
 func (s *BaseServer) Context() context.Context {
 	return s.server.Ctx

@@ -34,8 +34,8 @@ type Router struct {
 	handlers []RouterMessageHandler
 }
 
-func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider, name string,
-	shouldAckMessages bool, nodeType metrics.NodeType) *Router {
+func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider, messageAcknowledgementsEnabled bool,
+	name string, shouldAckMessages bool, nodeType metrics.NodeType) *Router {
 
 	router := &Router{
 		name: name,
@@ -59,6 +59,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			s.PrependId = true
 			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages
+			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
 			s.Name = fmt.Sprintf("Router-%s", name)
 		}),
 	}

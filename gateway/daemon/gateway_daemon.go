@@ -227,6 +227,12 @@ type ClusterGatewayImpl struct {
 	// The name of the Docker network that the container is running within. Only used in Docker mode.
 	dockerNetworkName string
 
+	// MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements
+	// for the ZMQ messages that we're forwarding back and forth between the Jupyter Server and the Local Daemons.
+	//
+	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
+	MessageAcknowledgementsEnabled bool
+
 	// gatewayPrometheusManager serves Prometheus metrics and responds to HTTP GET queries
 	// issued by Grafana to create Grafana Variables for use in creating Grafana Dashboards.
 	gatewayPrometheusManager *metrics.GatewayPrometheusManager
@@ -260,6 +266,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		hdfsNameNodeEndpoint:                  clusterDaemonOptions.HdfsNameNodeEndpoint,
 		dockerNetworkName:                     clusterDaemonOptions.DockerNetworkName,
 		numResendAttempts:                     clusterDaemonOptions.NumResendAttempts,
+		MessageAcknowledgementsEnabled:        clusterDaemonOptions.MessageAcknowledgementsEnabled,
 		prometheusInterval:                    time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
 	}
 	for _, configFunc := range configs {
@@ -267,7 +274,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	}
 	config.InitLogger(&clusterGateway.log, clusterGateway)
 	clusterGateway.router = router.New(context.Background(), clusterGateway.connectionOptions, clusterGateway,
-		"ClusterGatewayRouter", false, metrics.ClusterGateway)
+		clusterGateway.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false, metrics.ClusterGateway)
 
 	clusterGateway.gatewayPrometheusManager = metrics.NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, clusterGateway)
 	err := clusterGateway.gatewayPrometheusManager.Start()
@@ -1500,8 +1507,9 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(),
 		d.id, false, d.numResendAttempts, -1, -1, in.PodName, in.NodeName,
-		nil, nil, kernel.PersistentID(), in.HostId, host, metrics.ClusterGateway, true,
-		true, d.gatewayPrometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
+		host, metrics.ClusterGateway, true, true, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
+		d.kernelRequestResubmissionFailedAfterReconnection)
 
 	err := replica.Validate()
 	if err != nil {
@@ -1698,8 +1706,8 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), d.id,
 		false, d.numResendAttempts, -1, -1, kernelPodName, nodeName, nil,
-		nil, kernel.PersistentID(), hostId, host, metrics.ClusterGateway, true, true,
-		d.gatewayPrometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
+		true, true, d.gatewayPrometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 	session, ok := d.cluster.Sessions().Load(kernelId)
 	if !ok {
