@@ -148,6 +148,15 @@ class Election(object):
 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(term_number))
 
+    def __str__(self):
+        return (f"Election[Term={self.term_number},"
+                f"State={self.election_state},"
+                f"AttemptNumber={self.current_attempt_number},"
+                f"TotalProposalsReceived={self.num_proposals_received},"
+                f"NumProposalsDiscarded={self.num_discarded_vote_proposals},"
+                f"NumProposalsAccepted={self.num_proposals_accepted}"
+                f"]")
+
     def __getstate__(self):
         """
         Override so that we can omit any non-pickle-able fields, such as the `_pick_and_propose_winner_future` field.
@@ -759,7 +768,9 @@ class Election(object):
         latest_attempt_number:int = proposal.attempt_number
 
         if proposal.election_term != self.term_number:
-            raise ValueError(f"\"{proposal.key}\" proposal from node {proposal.proposer_id} (ts={datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')}) is from term {proposal.election_term}, whereas this election is for term {self.term_number}.")
+            raise ValueError(f"\"{proposal.key}\" proposal from node {proposal.proposer_id} "
+                             f"(ts={datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')}) "
+                             f"is from term {proposal.election_term}, whereas this election is for term {self.term_number}.")
 
         # Update the current attempt number if the newly-received proposal has a greater attempt number than any of the other proposals that we've seen so far.
         if latest_attempt_number > self._current_attempt_number:

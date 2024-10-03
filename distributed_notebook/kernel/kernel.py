@@ -1630,11 +1630,23 @@ class DistributedKernel(IPythonKernel):
         # err_msg = self.session.send(self.iopub_socket, "error_report",
         #                             {"error": error_title, "message": error_message, "kernel_id": self.kernel_id},
         #                             ident=self._topic("error_report"))
-        # self.log.debug(f"Sent 'error_report' message: {str(err_msg)}")
         self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
             title=error_title,
             message=error_message,
             notificationType=ErrorNotification,
+            kernelId=self.kernel_id,
+            replicaId=self.smr_node_id,
+        ))
+
+    def send_notification(self, notification_title: str = "", notification_body: str = "", notification_type:int = 2):
+        if notification_type < 0 or notification_type > 3:
+            raise ValueError(f"Invalid notification type specified: \"%d\"", notification_type)
+
+        self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now...")
+        self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+            title=notification_title,
+            message=notification_body,
+            notificationType=notification_type,
             kernelId=self.kernel_id,
             replicaId=self.smr_node_id,
         ))
@@ -1731,6 +1743,7 @@ class DistributedKernel(IPythonKernel):
         try:
             self.synclog = RaftLog(self.smr_node_id,
                                    base_path=store,
+                                   kernel_id = self.kernel_id,
                                    num_replicas=self.num_replicas,
                                    hdfs_hostname=self.hdfs_namenode_hostname,
                                    should_read_data_from_hdfs=self.should_read_data_from_hdfs,
@@ -1739,7 +1752,8 @@ class DistributedKernel(IPythonKernel):
                                    peer_ids=ids,
                                    join=self.smr_join,
                                    debug_port=self.debug_port,
-                                   report_error_callback=self.report_error)
+                                   report_error_callback=self.report_error,
+                                   send_notification_func=self.send_notification)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
 

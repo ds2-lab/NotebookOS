@@ -54,6 +54,7 @@ class RaftLog(object):
     def __init__(
             self,
             id: int,
+            kernel_id: str,
             base_path: str = "/store",
             hdfs_hostname: str = "172.17.0.1:9000",
             # data_directory: str = "/storage",
@@ -64,8 +65,9 @@ class RaftLog(object):
             join: bool = False,
             debug_port: int = 8464,
             heartbeat_tick: int = 10,  # Raft-related
-            election_tick: int = 1, # Raft-related
-            report_error_callback: Callable[[str, str], None] = None
+            election_tick: int = 1,  # Raft-related
+            report_error_callback: Callable[[str, str], None] = None,
+            send_notification_func: Callable[[str, str, int], None] = None,
     ):
         self._shouldSnapshotCallback = None
         if len(hdfs_hostname) == 0:
@@ -81,6 +83,8 @@ class RaftLog(object):
             else:
                 raise ValueError("Invalid debug port specified.")
 
+        self._kernel_id = kernel_id
+
         # The term that the leader is expecting.
         self._expected_term: int = 0
         # Updated after a LEAD call. This is the term of the LEADER. Used to check if received proposals are old/new. 
@@ -93,6 +97,7 @@ class RaftLog(object):
         self._num_replicas: int = num_replicas
         self._last_winner_id: int = -1
         self._report_error_callback = report_error_callback
+        self._send_notification_func = send_notification_func
 
         try:
             self._create_persistent_store_directory(base_path)
@@ -255,14 +260,19 @@ class RaftLog(object):
         :param buffered_vote: if True, then we're handling a buffered vote proposal, and thus we should not buffer it again.
         """
         if self.needs_to_catch_up:
-            if vote.election_term >= self._leader_term_before_migration:
+            if vote.election_term >= self._leader_term_before_migration and vote.attempt_number > self._current_election.current_attempt_number:
                 # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
-                self.logger.warning(f"Received vote for term {vote.election_term}, which is >= the election "
-                                    f"term prior to our migration (i.e., {self._leader_term_before_migration}). "
-                                    f"Buffering vote now.")
+                self.logger.warning(
+                    f"Received vote from term {vote.election_term} with attempt number {vote.attempt_number}, "
+                    f"which is >= the election term prior to our migration (i.e., {self._leader_term_before_migration}). "
+                    f"Buffering vote now.")
                 self.__buffer_vote(vote, received_at=received_at)
+                sys.stderr.flush()
+                sys.stdout.flush()
+                return GoNilError()
             else:
-                self.logger.debug(f"Discarding old LeaderElectionVote from term {vote.election_term}, "
+                self.logger.debug(f"Discarding old LeaderElectionVote from term {vote.election_term} "
+                                  f"with attempt number {vote.attempt_number}, "
                                   f"as we need to catch-up: {vote}")
                 sys.stderr.flush()
                 sys.stdout.flush()
@@ -380,16 +390,20 @@ class RaftLog(object):
         if self.needs_to_catch_up:
             if notification.election_term >= self._leader_term_before_migration:
                 # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
-                self.logger.warning(f"Received ExecutionCompleteNotification for term {notification.election_term}, "
-                                    f"which is >= the election term prior to our migration "
-                                    f"(i.e., {self._leader_term_before_migration}). But the election shouldn't be able "
-                                    f"to end until we've caught-up and started participating again...")
-                raise ValueError(f"Received ExecutionCompleteNotification for term {notification.election_term}, "
+                self.logger.warning(f"Received ExecutionCompleteNotification from term {notification.election_term} "
+                                    f"with attempt number {notification.attempt_number}, which is >= the election term "
+                                    f"prior to our migration (i.e., {self._leader_term_before_migration}). "
+                                    f"But the election shouldn't be able to end until we've caught-up and started "
+                                    f"participating again...")
+                raise ValueError(f"Received ExecutionCompleteNotification from term {notification.election_term} "
+                                 f"with attempt number {notification.attempt_number}, "
                                  f"which is >= the election term prior to our migration "
                                  f"(i.e., {self._leader_term_before_migration}).")
             else:
-                self.logger.debug(f"Discarding old ExecutionCompleteNotification from term {notification.election_term}, "
-                                  f"as we need to catch-up: {notification}")
+                self.logger.debug(
+                    f"Discarding old ExecutionCompleteNotification from term {notification.election_term} "
+                    f"with attempt number {notification.attempt_number}, "
+                    f"as we need to catch-up: {notification}")
                 sys.stderr.flush()
                 sys.stdout.flush()
                 return GoNilError()
@@ -467,14 +481,20 @@ class RaftLog(object):
             return self.__buffer_proposal(proposal, received_at=received_at)
 
         if self.needs_to_catch_up:
-            if proposal.election_term >= self._leader_term_before_migration:
+            if proposal.election_term >= self._leader_term_before_migration and proposal.attempt_number > self._current_election.current_attempt_number:
                 # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
-                self.logger.warning(f"Received proposal for term {proposal.election_term}, which is >= the election "
-                                    f"term prior to our migration (i.e., {self._leader_term_before_migration}). "
-                                    f"Buffering proposal now.")
+                self.logger.warning(f"Received proposal from term {proposal.election_term} "
+                                    f"with attempt number {proposal.attempt_number}, "
+                                    f"which is >= the election term prior to our migration "
+                                    f"(i.e., {self._leader_term_before_migration}). Buffering proposal now.")
                 self.__buffer_proposal(proposal, received_at=received_at)
+                sys.stderr.flush()
+                sys.stdout.flush()
+                return GoNilError()
             else:
-                self.logger.debug(f"Discarding old LeaderElectionProposal, as we need to catch-up: {proposal}")
+                self.logger.debug(f"Discarding old LeaderElectionProposal from term {proposal.election_term} "
+                                  f"with attempt number {proposal.attempt_number}, "
+                                  f"as we need to catch-up: {proposal}")
                 sys.stderr.flush()
                 sys.stdout.flush()
                 return GoNilError()
@@ -631,7 +651,9 @@ class RaftLog(object):
             print_trace(limit=10)
             sys.stderr.flush()
             sys.stdout.flush()
-            self._report_error_callback(type(ex).__name__, str(ex))
+            self._report_error_callback(
+                "Exception While Processing Committed Value",
+                f"{type(ex).__name__}: {str(ex)}")
         finally:
             self.logger.debug(f"Returning from self._valueCommitted with value: {ret}")
             sys.stderr.flush()
@@ -859,6 +881,7 @@ class RaftLog(object):
         This return value of this function should be passed to the `self._log_node.WriteDataDirectoryToHDFS` function.
         """
         data_dict: dict = {
+            "kernel_id": self._kernel_id,
             "proposed_values": self._proposed_values,
             "buffered_proposals": self._buffered_proposals,
             "leader_term": self._leader_term,
@@ -894,34 +917,6 @@ class RaftLog(object):
                If no serialized state was loaded, then this simply returns False. 
         """
         self.logger.debug("Loading and applying serialized state. First, retrieving serialized state from LogNode.")
-
-        # PrintTestMessage()
-
-        # a = bytes([0, 1, 2, 3])
-        # self.logger.debug(f"Python bytes: {a}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-        # b = CreateBytes(10)
-        # self.logger.debug(f"Go slice: {b}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-        # c = CreateBytes(0)
-        # self.logger.debug(f"Go slice: {c}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-
-        # self.logger.debug(f"Python bytes to Go: {Slice_byte.from_bytes(a)}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-        # self.logger.debug(f"Go bytes to Python ([3,4,5]): {bytes(Slice_byte([3, 4, 5]))}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-        # self.logger.debug(f"Go bytes to Python (b): {bytes(b)}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-        # self.logger.debug(f"Go bytes to Python (c): {bytes(c)}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
 
         if self._log_node is None:
             self.logger.error("LogNode is None. Cannot retrieve serialized state.")
@@ -977,9 +972,6 @@ class RaftLog(object):
         self._elections = data_dict["elections"]
         self._current_election = data_dict["current_election"]
         self._last_completed_election = data_dict["last_completed_election"]
-
-        # If true, then the "remote updates" that we're receiving are us catching up to where we were before a migration/eviction was triggered.
-        # self._catchingUpAfterMigration = True 
 
         # The value of _leader_term before a migration/eviction was triggered.
         self._leader_term_before_migration: int = data_dict["leader_term"]
@@ -1397,7 +1389,7 @@ class RaftLog(object):
 
             self.logger.debug(
                 "RaftLog %d: Appending decision proposal for term %s now." % (
-                self._node_id, voteProposal.election_term))
+                    self._node_id, voteProposal.election_term))
             await self._append_election_vote(voteProposal)
             self.logger.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (
                 self._node_id, voteProposal.election_term))
@@ -1477,6 +1469,12 @@ class RaftLog(object):
 
         await self.append(self._catchup_value)
         await self._catchup_future  # Wait for the value to be committed.
+
+        if self._send_notification_func is not None:
+            self._send_notification_func(
+                "Caught Up After Migration",
+                f"Replica {self._node_id} of Kernel {self._kernel_id} has caught-up to its peers following a migration operation.",
+                2)
 
         # Reset these fields after we're done.
         self._catchup_future = None
