@@ -220,6 +220,13 @@ class RaftLog(object):
         # As soon as we call `RaftLog::start`, we could begin receiving proposals, so we need this state to exist now.
         # (We compare committed values against `self._catchup_value` when `self._need_to_catch_up` is true.)
         if self._needs_to_catch_up:
+            # We pass the last election term, as we don't want to win the current election.
+            # That is, if we pass self._leader_term_before_migration + 1 as the election term,
+            # then all our peers will set their leader_term fields to _leader_term_before_migration + 1,
+            # and then when we try to restart the election, the term of the election to be restarted,
+            # which is equal to _leader_term_before_migration + 1, will be equal to _leader_term_before_migration
+            # + 1. And that's wrong. If we're holding an election, then the leader_term is supposed to be
+            # less than the term of the election. We're electing a leader for that term.
             self._catchup_value = SynchronizedValue(None, None, proposer_id=self._node_id, key=KEY_CATCHUP,
                                                     election_term=self._leader_term_before_migration,
                                                     should_end_execution=False, operation=KEY_CATCHUP)
@@ -260,11 +267,11 @@ class RaftLog(object):
         :param buffered_vote: if True, then we're handling a buffered vote proposal, and thus we should not buffer it again.
         """
         if self.needs_to_catch_up:
-            if vote.election_term >= self._leader_term_before_migration and vote.attempt_number > self._current_election.current_attempt_number:
+            if vote.election_term > self._leader_term_before_migration and vote.attempt_number > self._current_election.current_attempt_number:
                 # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
                 self.logger.warning(
-                    f"Received vote from term {vote.election_term} with attempt number {vote.attempt_number}, "
-                    f"which is >= the election term prior to our migration (i.e., {self._leader_term_before_migration}). "
+                    f"Received vote from term {vote.election_term} (with attempt number {vote.attempt_number})."
+                    f"The vote's term is > the election term prior to our migration (i.e., {self._leader_term_before_migration}). "
                     f"Buffering vote now.")
                 self.__buffer_vote(vote, received_at=received_at)
                 sys.stderr.flush()
@@ -388,11 +395,10 @@ class RaftLog(object):
                           f"{notification.election_term} from node {notification.proposer_id}.")
 
         if self.needs_to_catch_up:
-            if notification.election_term >= self._leader_term_before_migration:
+            if notification.election_term > self._leader_term_before_migration:
                 # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
                 self.logger.warning(f"Received ExecutionCompleteNotification from term {notification.election_term} "
-                                    f"with attempt number {notification.attempt_number}, which is >= the election term "
-                                    f"prior to our migration (i.e., {self._leader_term_before_migration}). "
+                                    f"which is > the election term prior to our migration (i.e., {self._leader_term_before_migration}). "
                                     f"But the election shouldn't be able to end until we've caught-up and started "
                                     f"participating again...")
                 raise ValueError(f"Received ExecutionCompleteNotification from term {notification.election_term} "
@@ -481,11 +487,11 @@ class RaftLog(object):
             return self.__buffer_proposal(proposal, received_at=received_at)
 
         if self.needs_to_catch_up:
-            if proposal.election_term >= self._leader_term_before_migration and proposal.attempt_number > self._current_election.current_attempt_number:
+            if proposal.election_term > self._leader_term_before_migration and proposal.attempt_number > self._current_election.current_attempt_number:
                 # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
                 self.logger.warning(f"Received proposal from term {proposal.election_term} "
-                                    f"with attempt number {proposal.attempt_number}, "
-                                    f"which is >= the election term prior to our migration "
+                                    f"(with attempt number {proposal.attempt_number})."
+                                    f"The proposal's term is > the election term prior to our migration "
                                     f"(i.e., {self._leader_term_before_migration}). Buffering proposal now.")
                 self.__buffer_proposal(proposal, received_at=received_at)
                 sys.stderr.flush()
@@ -569,7 +575,6 @@ class RaftLog(object):
             # It will sleep until the discardAt time expires, at which point a decision needs to be made.
             # If a decision was already made for that election, then the `decide_election` function will simply return.
             asyncio.run_coroutine_threadsafe(decide_election(), self._future_io_loop)
-            # self._future_io_loop.call_soon_threadsafe(decide_election)
 
         self.logger.debug(
             f"Received {self._current_election.num_proposals_received} proposal(s) and discarded {self._current_election.num_discarded_proposals} proposal(s) so far during term {self._current_election.term_number}.")
@@ -690,22 +695,28 @@ class RaftLog(object):
 
             if committedValue.key == KEY_CATCHUP and committedValue.proposer_id == self._node_id and committedValue.id == self._catchup_value.id:
                 self.logger.debug(
-                    f"Received our catch-up value (ID={committedValue.id}, timestamp={committedValue.timestamp}, election term={committedValue.election_term}). We must be caught-up!")
+                    f"Received our catch-up value (ID={committedValue.id}, timestamp={committedValue.timestamp}, "
+                    f"election term={committedValue.election_term}). We must be caught up!\n\n\n")
                 sys.stderr.flush()
                 sys.stdout.flush()
 
                 if self._leader_term_before_migration != committedValue.election_term:
                     self.logger.error(
-                        f"The leader term before migration was {self._leader_term_before_migration}, while the committed catch-up value has term {committedValue.election_term}. They should be equal.")
+                        f"The leader term before migration was {self._leader_term_before_migration}, "
+                        f"while the committed \"catch-up\" value has term {committedValue.election_term}. "
+                        f"The term of the \"catch-up\" value should be equal to last leader term.")
+                        # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
                     sys.stderr.flush()
                     sys.stdout.flush()
                     raise ValueError(
-                        f"The leader term before migration was {self._leader_term_before_migration}, while the committed catch-up value has term {committedValue.election_term}. They should be equal.")
+                        f"The leader term before migration was {self._leader_term_before_migration}, "
+                        f"while the committed \"catch-up\" value has term {committedValue.election_term}. "
+                        f"The term of the \"catch-up\" value should be equal to last leader term.")
+                        # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
 
                 self._needs_to_catch_up = False
 
                 self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, committedValue)
-                # self._catchup_future.set_result(committedValue)
                 self._catchup_value = None
 
                 self.logger.debug("Scheduled setting of result of catch-up value on catchup future.")
@@ -1468,6 +1479,9 @@ class RaftLog(object):
             raise ValueError("\"catchup\" future is None")
 
         await self.append(self._catchup_value)
+
+        self.logger.debug("We've successfully proposed & appended our \"catch up\" value.")
+
         await self._catchup_future  # Wait for the value to be committed.
 
         if self._send_notification_func is not None:
@@ -1476,10 +1490,12 @@ class RaftLog(object):
                 f"Replica {self._node_id} of Kernel {self._kernel_id} has caught-up to its peers following a migration operation.",
                 2)
 
+        self.logger.debug("We've successfully caught up to our peer replicas.")
+
         # Reset these fields after we're done.
         self._catchup_future = None
         self._catchup_io_loop = None
-        self._catchup_value = None  # This should already be None at this point; we set it to None in the 'value committted' handler.
+        self._catchup_value = None  # This should already be None at this point; we set it to None in the 'value committed' handler.
 
     async def append(self, value: SynchronizedValue):
         """

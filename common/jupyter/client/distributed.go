@@ -476,11 +476,6 @@ func (c *DistributedKernelClient) Replicas() []scheduling.KernelReplica {
 	for _, replica := range c.replicas {
 		ret = append(ret, replica)
 	}
-	// for i := 0; i < c.size; i++ {
-	// 	if c.replicas[i] != nil {
-	// 		ret = append(ret, c.replicas[i])
-	// 	}
-	// }
 
 	return ret
 }

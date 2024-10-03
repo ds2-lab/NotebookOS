@@ -148,6 +148,9 @@ class Election(object):
 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(term_number))
 
+    def __repr__(self):
+        return self.__str__()
+
     def __str__(self):
         return (f"Election[Term={self.term_number},"
                 f"State={self.election_state},"

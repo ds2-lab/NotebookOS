@@ -690,15 +690,17 @@ class DistributedKernel(IPythonKernel):
         msg_id = msg["header"]["msg_id"]
         msg_type = msg["header"]["msg_type"]
         if msg_id in self.received_message_ids:
-            # Is it safe to assume a msg_id will not be resubmitted?
-            self.log.warning(f"Received duplicate \"{msg_id}\" message with ID={msg_type}.")
-
             # Check if the message has a "ForceReprocess" field in its metadata frame with a value of "true".
             # If so, then we'll reprocess it anyway -- as these are likely resubmitted 'yield_request' or 'execute_request' messages.
             metadata: dict[str, Any] = msg.get("metadata", {})
             if "force_reprocess" in metadata:
+                force_reprocess: bool = metadata["force_reprocess"]
+                self.log.warning(f"Received duplicate \"{msg_id}\" message with ID={msg_type} and \"force_reprocess\" equal to {force_reprocess}.")
                 # Presumably this will be True, but if it isn't True, then we definitely shouldn't reprocess the message.
-                return metadata["force_reprocess"]
+                return force_reprocess
+            else:
+                self.log.warning(f"Received duplicate \"{msg_id}\" message with ID={msg_type} and no "
+                                 f"\"force_reprocess\" entry in the request's metadata...")
 
             return False
         else:
@@ -1001,7 +1003,7 @@ class DistributedKernel(IPythonKernel):
         Check the status of the previous election, and wait for it to complete if it isn't done yet.
         """
         term_number: int = self.synchronizer.execution_count
-        self.log.debug(f"yield_request has been called. Checking status of previous election (term {term_number}).")
+        self.log.debug(f"Checking status of previous election (term {term_number}).")
         
         # If we've not yet created/held the first election, then we have nothing to check. 
         if not self.synchronizer.created_first_election():
@@ -1642,7 +1644,7 @@ class DistributedKernel(IPythonKernel):
         if notification_type < 0 or notification_type > 3:
             raise ValueError(f"Invalid notification type specified: \"%d\"", notification_type)
 
-        self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now...")
+        self.log.debug(f"Sending \"{notification_title}\" notification of type {notification_type} now...")
         self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
             title=notification_title,
             message=notification_body,
@@ -1691,7 +1693,8 @@ class DistributedKernel(IPythonKernel):
         # The catch-up process involves appending a new value and waiting until it gets committed. This cannot be done until the RaftLog has started.
         # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
         if self.synclog.needs_to_catch_up:
-            self.log.debug("RaftLog needs to propose new value.")
+            self.log.debug("RaftLog will need to propose a \"catch up\" value "
+                           "so that it can tell when it has caught up with its peers.")
             await self.synclog.catchup_with_peers()
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).

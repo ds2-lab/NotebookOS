@@ -1094,10 +1094,12 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	//
 	// Randomly select a replica to migrate.
 	targetReplica := rand.Intn(c.Size()) + 1
-	d.log.Debug("Static Failure Handler: migrating replica %d of kernel %s now.", targetReplica, c.ID())
+	d.log.Debug(utils.LightBlueStyle.Render("Static Failure Handler: migrating replica %d of kernel %s now."),
+		targetReplica, c.ID())
 
 	// Notify the cluster dashboard that we're performing a migration.
-	go d.notifyDashboardOfError("ErrAllReplicasProposedYield", fmt.Sprintf("all replicas of kernel %s proposed 'YIELD' during execution", c.ID()))
+	go d.notifyDashboardOfError(fmt.Sprintf("All Replicas of Kernel \"%s\" Have Proposed 'YIELD'", c.ID()),
+		fmt.Sprintf("All replicas of kernel %s proposed 'YIELD' during code execution.", c.ID()))
 
 	// TODO: There could be race conditions here with how we are creating and linking and assigning the ...
 	// TODO: ... ActiveExecution structs here. That is, if we receive additional "execute_request" messages during ...
@@ -1134,10 +1136,12 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 		resp, err := d.MigrateKernelReplica(context.TODO(), req)
 
 		if err != nil {
-			d.log.Error("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s", targetReplica, c.ID(), err.Error())
+			d.log.Error(utils.RedStyle.Render("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s"),
+				targetReplica, c.ID(), err.Error())
 			errorChan <- err
 		} else {
-			d.log.Debug("Static Failure Handler: successfully migrated replica %d of kernel %s to host %s.", targetReplica, c.ID(), resp.Hostname)
+			d.log.Debug(utils.GreenStyle.Render("Static Failure Handler: successfully migrated replica %d of kernel %s to host %s."),
+				targetReplica, c.ID(), resp.Hostname)
 		}
 
 		waitGroup.Done()
@@ -1206,7 +1210,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	activeExecution.LinkNextAttempt(nextExecutionAttempt)
 	c.SetActiveExecution(nextExecutionAttempt)
 
-	d.log.Debug("Resubmitting 'execute_request' message targeting kernel %s now.", c.ID())
+	d.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), c.ID())
 	err = d.ShellHandler(c, msg)
 	if err != nil {
 		d.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
@@ -2367,7 +2371,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 // TODO: >> training stopped notification, then it needs to match up with the current training, maybe in a queue structure, so that out-of-order >>
 // TODO: >> messages can be handled properly.
 func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter.JupyterMessage) error {
-	d.log.Debug("Received execute-reply from kernel %s.", kernelId)
+	d.log.Debug("Received execute_reply from kernel %s.", kernelId)
 
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
@@ -2443,7 +2447,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 
 func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.DistributedKernelClient) error {
 	kernelId := kernel.ID()
-	d.log.Debug("Forwarding shell EXECUTE_REQUEST message to kernel %s: %s", kernelId, msg)
+	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg)
 
 	activeExecution := scheduling.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
 	_ = kernel.EnqueueActiveExecution(activeExecution)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/connectivity"
 	"strings"
 	"sync/atomic"
@@ -169,7 +170,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 					SchedulingCompletedAt: time.Now(),
 					KernelId:              in.Id,
 					ReplicaId:             int32(replicaId),
-					HostId:                targetHost.ID,
+					Host:                  targetHost,
 					Error:                 schedulingError,
 					Successful:            false,
 				}
@@ -179,7 +180,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 					SchedulingCompletedAt: time.Now(),
 					KernelId:              in.Id,
 					ReplicaId:             int32(replicaId),
-					HostId:                targetHost.ID,
+					Host:                  targetHost,
 					Error:                 nil,
 					Successful:            true,
 				}
@@ -215,6 +216,9 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 
 	// Schedule a replica of the kernel on each of the candidate hosts.
 	resultChan := s.scheduleKernelReplicas(in, hosts)
+
+	// Keep track of the hosts that we've unlocked so that we don't unlock them multiple times.
+	unlockedHosts := hashmap.NewCornelkMap[string, *Host](len(hosts))
 
 	// Keep looping until we've received all responses or the context times-out.
 	responsesReceived := make([]*schedulingNotification, 0, len(hosts))
@@ -258,12 +262,12 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 					}
 
 					replicasScheduled = append(replicasScheduled, notification.ReplicaId)
-					hostsWithOrphanedReplica = append(hostsWithOrphanedReplica, notification.HostId)
+					hostsWithOrphanedReplica = append(hostsWithOrphanedReplica, notification.Host.ID)
 
 					// Write the replica ID.
 					replicasScheduledBuilder.WriteString(fmt.Sprintf("%d", notification.ReplicaId))
 					// Write the host ID.
-					hostsWithOrphanedReplicaBuilder.WriteString(fmt.Sprintf("Host %s", notification.HostId))
+					hostsWithOrphanedReplicaBuilder.WriteString(fmt.Sprintf("Host %s", notification.Host.ID))
 
 					// If this is not the last replica ID that we'll be writing out...
 					if (idx + 1) < len(responsesReceived) {
@@ -290,6 +294,14 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 				s.log.Error("As such, the following Hosts have orphaned replicas of kernel %s scheduled onto them: %s",
 					in.Id, hostsWithOrphanedReplicaBuilder.String())
 
+				// Make sure to unlock all the Hosts.
+				for _, host := range hosts {
+					if _, loaded := unlockedHosts.Load(host.ID); !loaded {
+						host.UnlockScheduling()
+						unlockedHosts.Store(host.ID, host)
+					}
+				}
+
 				return &ErrorDuringScheduling{
 					UnderlyingError:           err,
 					HostsWithOrphanedReplicas: hostsWithOrphanedReplica,
@@ -301,18 +313,41 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 			{
 				if !notification.Successful {
 					s.log.Error("Error while launching at least one of the replicas of kernel %s: %v", in.Id, notification.Error)
+
+					// Make sure to unlock all the Hosts.
+					for _, host := range hosts {
+						if _, loaded := unlockedHosts.Load(host.ID); !loaded {
+							host.UnlockScheduling()
+							unlockedHosts.Store(host.ID, host)
+						}
+					}
+
 					return notification.Error
+				}
+
+				if _, loaded := unlockedHosts.Load(notification.Host.ID); !loaded {
+					notification.Host.UnlockScheduling()
+					unlockedHosts.Store(notification.Host.ID, notification.Host)
 				}
 
 				responsesReceived = append(responsesReceived, notification)
 				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s. %d/%d replicas scheduled. Time elapsed: %v.",
-					notification.ReplicaId, in.Id, notification.HostId, len(responsesReceived), responsesRequired, time.Since(st))
+					notification.ReplicaId, in.Id, notification.Host.ID, len(responsesReceived), responsesRequired, time.Since(st))
 			}
 		}
 	}
 
 	s.log.Debug("Successfully scheduled all %d replica(s) of kernel %s in %v.",
 		s.opts.NumReplicas, in.Id, time.Since(st))
+
+	// Make sure to unlock all the Hosts.
+	for _, host := range hosts {
+		if _, loaded := unlockedHosts.Load(host.ID); !loaded {
+			host.UnlockScheduling()
+			unlockedHosts.Store(host.ID, host)
+		}
+	}
+
 	return nil
 }
 

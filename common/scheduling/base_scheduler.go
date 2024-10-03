@@ -40,8 +40,8 @@ type schedulingNotification struct {
 	// for the particular replica of the associated kernel.
 	SchedulingCompletedAt time.Time
 
-	// HostId is the ID of the Host onto which a replica was scheduled.
-	HostId string
+	// Host is the Host on which the kernel was scheduled (or attempted to be scheduled).
+	Host *Host
 
 	// KernelId is the ID of the kernel for which a replica was scheduled.
 	KernelId string
@@ -192,7 +192,10 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 			numHostsRequired := s.opts.NumReplicas - len(hosts)
 			s.log.Debug("Will attempt to provision %d new host(s).", numHostsRequired)
 
-			s.cluster.RequestHosts(ctx, int32(numHostsRequired))
+			p := s.cluster.RequestHosts(ctx, int32(numHostsRequired))
+			if err := p.Error(); err != nil {
+				s.log.Error("Cluster failed to provision %d additional host(s) for us because: %v", numHostsRequired, err)
+			}
 
 			numTries += 1
 
@@ -213,6 +216,13 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 	if len(hosts) < s.opts.NumReplicas {
 		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...",
 			s.opts.NumReplicas, kernelSpec.Id, numTries)
+
+		// We need to release the scheduling lock on any of the hosts that we did find,
+		// since we're aborting this scheduling operation.
+		for _, host := range hosts {
+			host.UnlockScheduling()
+		}
+
 		return nil, fmt.Errorf("%w: could only find at-most %d/%d required hosts to serve replicas of kernel %s",
 			ErrInsufficientHostsAvailable, bestAttempt, s.opts.NumReplicas, kernelSpec.Id)
 	}
