@@ -186,9 +186,12 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 				}
 			}
 
+			// Commented out:
+			// We handle the unlocking in the other method (the one that calls scheduleKernelReplicas).
+			//
 			// Unlock scheduling for the host. We've finished the current scheduling operation, and we've synchronized
 			// its resource state (we'll only have done that in the case where the scheduling of the replica succeeded).
-			targetHost.UnlockScheduling()
+			// targetHost.UnlockScheduling()
 
 			// Synchronize the resource information for the Host.
 			if schedulingError == nil /* i.e., if we scheduled successfully up above */ {
