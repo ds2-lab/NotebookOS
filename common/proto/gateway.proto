@@ -352,10 +352,11 @@ message PingInstruction {
 }
 
 message Notification {
-  string title = 1;
-  string message = 2;
-  int32 notificationType = 3;
-  bool panicked = 4;
+  string id = 1;
+  string title = 2;
+  string message = 3;
+  int32 notificationType = 4;
+  bool panicked = 5;
 }
 
 // Used to register the ResourceSpec to be used by a particular kernel.

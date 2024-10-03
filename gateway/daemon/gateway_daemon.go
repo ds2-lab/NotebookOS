@@ -1020,6 +1020,7 @@ func (d *ClusterGatewayImpl) defaultFailureHandler(_ *client.DistributedKernelCl
 func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ jupyter.NotificationType) {
 	if d.clusterDashboard != nil {
 		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            notificationName,
 			Message:          notificationMessage,
 			NotificationType: int32(typ),
@@ -1053,6 +1054,7 @@ func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeN
 func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) {
 	if d.clusterDashboard != nil {
 		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            notificationName,
 			Message:          message,
 			NotificationType: int32(jupyter.InfoNotification),
@@ -1071,6 +1073,7 @@ func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 	sendStart := time.Now()
 	if d.clusterDashboard != nil {
 		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            errorName,
 			Message:          errorMessage,
 			NotificationType: int32(jupyter.ErrorNotification),
@@ -2723,7 +2726,8 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 		}
 	}
 
-	d.log.Debug("[gid=%d] Forwarding %v response from kernel %s via %s: %v", goroutineId, typ, from.ID(), socket.Name, msg)
+	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v response from kernel %s via %s: %v"),
+		goroutineId, typ, from.ID(), socket.Name, msg)
 	sendStart := time.Now()
 	err := socket.Send(*msg.Msg)
 	sendDuration := time.Since(sendStart)
@@ -2737,7 +2741,8 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 			style = utils.OrangeStyle
 		}
 
-		d.log.Warn(style.Render("Sending %s \"%s\" message %s took %v."), msg.JupyterMessageType(), msg.RequestId, sendDuration)
+		d.log.Warn(style.Render("Forwarding %s \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s took %v."),
+			socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), sendDuration)
 	}
 
 	if metricError := d.gatewayPrometheusManager.SentMessage(d.id, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
@@ -2749,7 +2754,8 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 	}
 
 	if err != nil {
-		d.log.Error("[gid=%d] Error while forwarding %v response from kernel %s via %s: %s", goroutineId, typ, from.ID(), socket.Name, err.Error())
+		d.log.Error(utils.RedStyle.Render("[gid=%d] Error while forwarding %v \"%s\" response %s (JupyterID=\"%s\") from kernel %s via %s: %s"),
+			goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, err.Error())
 	}
 
 	return err // Will be nil on success.

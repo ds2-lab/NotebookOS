@@ -999,20 +999,7 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 		return err
 	}
 
-	sendRequest := func(req types.Request, sock *types.Socket) error {
-		if req == nil {
-			panic("Cannot send nil request.")
-		}
-
-		if sock == nil {
-			panic(fmt.Sprintf("Cannot send request on nil socket. Request: %v", sock))
-		}
-
-		return c.client.Request(req, sock)
-	}
-
-	// Add timeout if necessary.
-	err = sendRequest(request, socket)
+	err = c.client.Request(request, socket)
 
 	if err != nil {
 		c.log.Warn("Failed to send %s \"%s\" request %s (JupyterID=%s) because: %s", socket.Type.String(),
@@ -1047,11 +1034,7 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 				panic(fmt.Sprintf("Recreated %v socket is equal to original %v socket for replica %d of kernel %s.", typ.String(), typ.String(), c.replicaId, c.id))
 			}
 
-			// Create a new child context, as the previous child context will have been cancelled.
-			// childContext, _ := context.WithCancel(parentContext)
-			// defer cancel2()
-
-			secondAttemptErr := sendRequest(request, recreatedSocket)
+			secondAttemptErr := c.client.Request(request, recreatedSocket)
 			if secondAttemptErr != nil {
 				c.log.Error("Failed to resubmit %v message after successfully reconnecting: %v", typ, secondAttemptErr)
 				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, request.Payload(), secondAttemptErr)

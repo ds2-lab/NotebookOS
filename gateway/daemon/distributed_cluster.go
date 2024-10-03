@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"github.com/google/uuid"
 	"net"
 	"sync/atomic"
 
@@ -55,6 +56,7 @@ func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{})
 	}
 
 	_, err := dc.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		Id:               uuid.NewString(),
 		Title:            fmt.Sprintf("%s panicked.", identity),
 		Message:          fmt.Sprintf("%v", fatalErr),
 		NotificationType: int32(types.ErrorNotification),

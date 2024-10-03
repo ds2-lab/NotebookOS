@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
@@ -616,6 +617,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		d.log.Error(errorMessage)
 		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
 		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            "Failed to Register Kernel.",
 			Message:          errorMessage,
 			NotificationType: 0,
@@ -632,6 +634,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		d.log.Error(errorMessage)
 		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
 		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            "Failed to Register Kernel.",
 			Message:          errorMessage,
 			NotificationType: 0,
@@ -662,6 +665,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 
 	if connInfo == nil {
 		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            "Received nil Connection Info from Kernel",
 			Message:          fmt.Sprintf("The connection info sent in the registration payload of kernel at address %s is nil.", remoteIp),
 			NotificationType: 0,
@@ -684,6 +688,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	listenPorts, err := d.availablePorts.RequestPorts()
 	if err != nil {
 		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            "Unable to Assign \"Listen\" Ports for New Kernel",
 			Message:          fmt.Sprintf("Unable to assign \"listen\" ports for new replica %d of kernel %s because: %s.", registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err.Error()),
 			NotificationType: 0,
@@ -727,6 +732,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			errorMessage := fmt.Sprintf("Failed to initialize replica %d of kernel %s because: %v", registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err)
 			d.log.Error(errorMessage)
 			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:               uuid.NewString(),
 				Title:            "Failed to Register Kernel.",
 				Message:          errorMessage,
 				NotificationType: 0,
@@ -856,6 +862,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		errorMessage := fmt.Sprintf("ResourceSpec for kernel %s is nil.", kernel.ID())
 		d.log.Error(errorMessage)
 		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            "Null Resource Spec",
 			Message:          errorMessage,
 			NotificationType: 0,
@@ -937,6 +944,7 @@ func (d *SchedulerDaemonImpl) notifyClusterGatewayAndPanic(errorTitle string, er
 	defer cancel()
 
 	d.notifyClusterGatewayOfError(ctx, &proto.Notification{
+		Id:               uuid.NewString(),
 		Title:            errorTitle,
 		Message:          errorBody,
 		NotificationType: 0,
@@ -964,6 +972,7 @@ func (d *SchedulerDaemonImpl) kernelReconnectionFailed(kernel *client.KernelRepl
 	d.log.Error(errorMessage)
 
 	go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
+		Id:               uuid.NewString(),
 		Title:            "Connection to Kernel Lost & Reconnection Failed",
 		Message:          errorMessage,
 		NotificationType: 0,
@@ -990,6 +999,7 @@ func (d *SchedulerDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(k
 	d.log.Error(errorMessage)
 
 	go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
+		Id:               uuid.NewString(),
 		Title:            "Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed",
 		Message:          errorMessage,
 		NotificationType: 0,
@@ -1458,6 +1468,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	connInfo, invocationError := kernelInvoker.InvokeWithContext(ctx, in)
 	if invocationError != nil {
 		go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            fmt.Sprintf("Failed to Create Container for Kernel %s-%d", in.Kernel.Id, in.ReplicaId),
 			Message:          invocationError.Error(),
 			NotificationType: 0,
@@ -1950,7 +1961,7 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecut
 					return // We'll panic before this line is executed.
 				}
 				d.log.Debug("[gid=%d] Dequeued shell \"execute_request\" message %s (JupyterID=%s) targeting kernel %s.",
-					enqueuedMessage.Msg.RequestId, enqueuedMessage.Msg.JupyterMessageId(), enqueuedMessage.Kernel.ID())
+					gid, enqueuedMessage.Msg.RequestId, enqueuedMessage.Msg.JupyterMessageId(), enqueuedMessage.Kernel.ID())
 
 				// Process the message.
 				processedMessage := d.processExecuteRequest(enqueuedMessage.Msg, enqueuedMessage.Kernel) // , header, offset)
@@ -2051,6 +2062,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 			kernelClient.ReplicaID(), kernel.ID(), err)
 		d.log.Error(errorMessage)
 		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            "Failed to Release Committed Resources",
 			Message:          errorMessage,
 			NotificationType: 0,
@@ -2107,6 +2119,9 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	var metadataFrame = frames[msg.Offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
 
+	// This ensures that we send "execute_request" messages one-at-a-time.
+	// We wait until any pending "execute_request" messages receive an "execute_reply"
+	// response before we can forward this next "execute_request".
 	kernel.WaitForRepliesToPendingExecuteRequests()
 	d.log.Debug("[gid=%d] Processing `execute_request` for idle kernel %s now.", gid, kernel.ID())
 
@@ -2576,6 +2591,7 @@ func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames
 	}
 
 	go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
+		Id:               uuid.NewString(),
 		Title:            errorReport.ErrorTitle,
 		Message:          errorReport.ErrorMessage,
 		NotificationType: 0,
@@ -2599,6 +2615,7 @@ func (d *SchedulerDaemonImpl) Notify(ctx context.Context, notification *proto.Ke
 	}
 
 	return d.provisioner.Notify(ctx, &proto.Notification{
+		Id:               uuid.NewString(),
 		Title:            notification.Title,
 		Message:          notification.Message,
 		NotificationType: notification.NotificationType,
@@ -2657,6 +2674,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 			d.log.Error("Our attempt to promote reserved resources of replica %d of kernel %s failed because: %v.",
 				kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err)
 			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:    uuid.NewString(),
 				Title: "Promotion of Resource Reservation Failed",
 				Message: fmt.Sprintf("Could not promote resource reservation for replica %d of kernel %s because: %v",
 					kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID(), err),
@@ -2678,6 +2696,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames
 		// TODO(Ben): Need a better way to propagate errors back to the user, either at the Jupyter Notebook or the Workload Driver.
 		kernelReplicaClient := kernel.(*client.KernelReplicaClient)
 		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            "Kernel Replica Lead Execution After Yielding",
 			Message:          fmt.Sprintf("Replica %d of kernel %s was selected to lead an execution after explicitly yielding.", kernelReplicaClient.ReplicaID(), kernelReplicaClient.ID()),
 			NotificationType: 0,
@@ -2705,6 +2724,7 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 			jupyter.MessageTypeSMRLeadTask, decodeError)
 		d.log.Error(errorMessage)
 		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
 			Title:            "Failed to Decode Metadata Frame of Jupyter Message",
 			Message:          errorMessage,
 			NotificationType: 0,
@@ -2739,6 +2759,7 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 				kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
 			d.log.Error(errorMessage)
 			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:               uuid.NewString(),
 				Title:            "Failed to Validate Modified Jupyter Message with Resource Snapshot",
 				Message:          fmt.Sprintf(errorMessage),
 				NotificationType: 0,

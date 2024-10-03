@@ -1738,7 +1738,8 @@ class DistributedKernel(IPythonKernel):
                                    peer_addrs=addrs,
                                    peer_ids=ids,
                                    join=self.smr_join,
-                                   debug_port=self.debug_port)
+                                   debug_port=self.debug_port,
+                                   report_error_callback=self.report_error)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
 

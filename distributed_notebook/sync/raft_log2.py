@@ -26,6 +26,7 @@ from ..smr.smr import LogNode, NewLogNode, NewConfig, NewBytes, WriteCloser, Rea
 
 MAX_MEMORY_OBJECT = 1024 * 1024
 
+
 class writeCloser:
     def __init__(self, wc: WriteCloser):
         self.wc = wc
@@ -63,7 +64,8 @@ class RaftLog(object):
             join: bool = False,
             debug_port: int = 8464,
             heartbeat_tick: int = 10,  # Raft-related
-            election_tick: int = 1  # Raft-related
+            election_tick: int = 1, # Raft-related
+            report_error_callback: Callable[[str, str], None] = None
     ):
         self._shouldSnapshotCallback = None
         if len(hdfs_hostname) == 0:
@@ -90,6 +92,7 @@ class RaftLog(object):
         self._offloader: FileLog = FileLog(self._persistent_store_path)
         self._num_replicas: int = num_replicas
         self._last_winner_id: int = -1
+        self._report_error_callback = report_error_callback
 
         try:
             self._create_persistent_store_directory(base_path)
@@ -134,7 +137,7 @@ class RaftLog(object):
         self.logger.info(f"Successfully created LogNode {id}.")
 
         # Indicates whether we've created the first Election / at least one Election
-        self.__created_first_election:bool = False
+        self.__created_first_election: bool = False
 
         # Mapping from term number to the election associated with that term. 
         self._elections: Dict[int, Election] = {}
@@ -233,17 +236,17 @@ class RaftLog(object):
             os.makedirs(path, 0o750, exist_ok=True)  # It's OK if it already exists.
             self.logger.debug(f"Created persistent store directory \"{path}\" (or it already exists).")
 
-    def __buffer_vote(self, vote: LeaderElectionVote, received_at:float = time.time())->bytes:
+    def __buffer_vote(self, vote: LeaderElectionVote, received_at: float = time.time()) -> bytes:
         # Save the vote in the "buffered votes" dictionary.
         with self._buffered_votes_lock:
             buffered_votes: List[BufferedLeaderElectionVote] = self._buffered_votes.get(vote.election_term, [])
-            buffered_votes.append(BufferedLeaderElectionVote(vote = vote, received_at = received_at))
+            buffered_votes.append(BufferedLeaderElectionVote(vote=vote, received_at=received_at))
             self._buffered_votes[vote.election_term] = buffered_votes
             sys.stderr.flush()
             sys.stdout.flush()
             return GoNilError()
 
-    def __handle_vote(self, vote: LeaderElectionVote, received_at=time.time(), buffered_vote:bool = True) -> bytes:
+    def __handle_vote(self, vote: LeaderElectionVote, received_at=time.time(), buffered_vote: bool = True) -> bytes:
         """
         Handle a vote proposal.
 
@@ -252,11 +255,18 @@ class RaftLog(object):
         :param buffered_vote: if True, then we're handling a buffered vote proposal, and thus we should not buffer it again.
         """
         if self.needs_to_catch_up:
-            # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
-            self.logger.warning(f"Discarding LeaderElectionVote, as we need to catch-up: {vote}")
-            sys.stderr.flush()
-            sys.stdout.flush()
-            return GoNilError()
+            if vote.election_term >= self._leader_term_before_migration:
+                # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
+                self.logger.warning(f"Received vote for term {vote.election_term}, which is >= the election "
+                                    f"term prior to our migration (i.e., {self._leader_term_before_migration}). "
+                                    f"Buffering vote now.")
+                self.__buffer_vote(vote, received_at=received_at)
+            else:
+                self.logger.debug(f"Discarding old LeaderElectionVote from term {vote.election_term}, "
+                                  f"as we need to catch-up: {vote}")
+                sys.stderr.flush()
+                sys.stdout.flush()
+                return GoNilError()
 
         # If we do not have an election upon receiving a vote, then we buffer the vote, as we presumably
         # haven't received the associated 'execute_request' or 'yield_request' message, whereas one of our peer
@@ -282,7 +292,7 @@ class RaftLog(object):
             if not buffered_vote:
                 raise ValueError("We're already handling a buffered vote. We should not be trying to buffer it again!")
 
-            return self.__buffer_vote(vote, received_at = received_at)
+            return self.__buffer_vote(vote, received_at=received_at)
         elif vote.election_term > self._current_election.term_number:
             self.logger.warning(f"Received vote for node \"{vote.proposed_node_id}\" from node {vote.proposer_id} "
                                 f"from future election term {vote.election_term} "
@@ -295,7 +305,7 @@ class RaftLog(object):
             if not buffered_vote:
                 raise ValueError("We're already handling a buffered vote. We should not be trying to buffer it again!")
 
-            return self.__buffer_vote(vote, received_at = received_at)
+            return self.__buffer_vote(vote, received_at=received_at)
 
         self.logger.debug(f"Received VOTE: {str(vote)}")
 
@@ -367,6 +377,23 @@ class RaftLog(object):
         self.logger.debug(f"Received \"execution complete\" notification for election term "
                           f"{notification.election_term} from node {notification.proposer_id}.")
 
+        if self.needs_to_catch_up:
+            if notification.election_term >= self._leader_term_before_migration:
+                # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
+                self.logger.warning(f"Received ExecutionCompleteNotification for term {notification.election_term}, "
+                                    f"which is >= the election term prior to our migration "
+                                    f"(i.e., {self._leader_term_before_migration}). But the election shouldn't be able "
+                                    f"to end until we've caught-up and started participating again...")
+                raise ValueError(f"Received ExecutionCompleteNotification for term {notification.election_term}, "
+                                 f"which is >= the election term prior to our migration "
+                                 f"(i.e., {self._leader_term_before_migration}).")
+            else:
+                self.logger.debug(f"Discarding old ExecutionCompleteNotification from term {notification.election_term}, "
+                                  f"as we need to catch-up: {notification}")
+                sys.stderr.flush()
+                sys.stdout.flush()
+                return GoNilError()
+
         with self._election_lock:
             if self.current_election.term_number != notification.election_term:
                 self.logger.error(f"Current election is for term {self.current_election.term_number}, "
@@ -392,11 +419,12 @@ class RaftLog(object):
         """
         return self.__created_first_election
 
-    def __buffer_proposal(self, proposal: LeaderElectionProposal, received_at:float = time.time())->bytes:
+    def __buffer_proposal(self, proposal: LeaderElectionProposal, received_at: float = time.time()) -> bytes:
         # Save the proposal in the "buffered proposals" mapping.
         with self._buffered_proposals_lock:
-            buffered_proposals: List[BufferedLeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
-            buffered_proposals.append(BufferedLeaderElectionProposal(proposal = proposal, received_at = received_at))
+            buffered_proposals: List[BufferedLeaderElectionProposal] = self._buffered_proposals.get(
+                proposal.election_term, [])
+            buffered_proposals.append(BufferedLeaderElectionProposal(proposal=proposal, received_at=received_at))
             self._buffered_proposals[proposal.election_term] = buffered_proposals
             sys.stderr.flush()
             sys.stdout.flush()
@@ -429,21 +457,27 @@ class RaftLog(object):
                                 f"Current election is None? {self._current_election is None}. "
                                 f"Proposal term: {proposal.election_term}. Will buffer proposal for now. "
                                 f"Proposal: {str(proposal)}")
-            return self.__buffer_proposal(proposal, received_at = received_at)
+            return self.__buffer_proposal(proposal, received_at=received_at)
         elif proposal.election_term > self._current_election.term_number:
             self.logger.warning(f"Received proposal \"{proposal.key}\" from node {proposal.proposer_id} "
                                 f"from future election term {proposal.election_term} "
                                 f"while local election is for term {self._current_election.term_number}. "
                                 f"Match: {self._node_id == proposal.proposer_id}. Will buffer proposal for now. "
                                 f"Proposal: {str(proposal)}")
-            return self.__buffer_proposal(proposal, received_at = received_at)
+            return self.__buffer_proposal(proposal, received_at=received_at)
 
         if self.needs_to_catch_up:
-            # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
-            self.logger.warning(f"Discarding LeaderElectionProposal, as we need to catch-up: {proposal}")
-            sys.stderr.flush()
-            sys.stdout.flush()
-            return GoNilError()
+            if proposal.election_term >= self._leader_term_before_migration:
+                # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
+                self.logger.warning(f"Received proposal for term {proposal.election_term}, which is >= the election "
+                                    f"term prior to our migration (i.e., {self._leader_term_before_migration}). "
+                                    f"Buffering proposal now.")
+                self.__buffer_proposal(proposal, received_at=received_at)
+            else:
+                self.logger.debug(f"Discarding old LeaderElectionProposal, as we need to catch-up: {proposal}")
+                sys.stderr.flush()
+                sys.stdout.flush()
+                return GoNilError()
 
         if self._future_io_loop is None:
             try:
@@ -549,7 +583,8 @@ class RaftLog(object):
         try:
             # Select a winner.
             with self._election_lock:
-                id_of_winner_to_propose: int = self._current_election.pick_winner_to_propose(last_winner_id=self._last_winner_id)
+                id_of_winner_to_propose: int = self._current_election.pick_winner_to_propose(
+                    last_winner_id=self._last_winner_id)
 
             if id_of_winner_to_propose > 0:
                 assert self._election_decision_future is not None
@@ -596,6 +631,7 @@ class RaftLog(object):
             print_trace(limit=10)
             sys.stderr.flush()
             sys.stdout.flush()
+            self._report_error_callback(type(ex).__name__, str(ex))
         finally:
             self.logger.debug(f"Returning from self._valueCommitted with value: {ret}")
             sys.stderr.flush()
@@ -1121,7 +1157,8 @@ class RaftLog(object):
         attempt_number: int = 1
 
         # Get the existing proposals for the specified term.
-        existing_proposals: OrderedDict[int, LeaderElectionProposal] = self._proposed_values.get(term_number, OrderedDict())
+        existing_proposals: OrderedDict[int, LeaderElectionProposal] = self._proposed_values.get(term_number,
+                                                                                                 OrderedDict())
 
         # If there is at least one existing proposal for the specified term, then we'll get the most-recent proposal's attempt number.
         if len(existing_proposals) > 0:
@@ -1276,7 +1313,8 @@ class RaftLog(object):
         # Process any buffered votes and proposals that we may have received.
         # If we have any buffered votes, then we'll process those first, as that'll presumably be all we need to do.
         buffered_votes: List[BufferedLeaderElectionVote] = self._buffered_votes.get(proposal.election_term, [])
-        buffered_proposals: List[BufferedLeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
+        buffered_proposals: List[BufferedLeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term,
+                                                                                                [])
 
         # If skip_proposals is True, then we'll skip both any buffered proposals, and we'll just elect not to
         # propose something ourselves. skip_proposals is set to True if we have a buffered vote that decides
@@ -1292,7 +1330,8 @@ class RaftLog(object):
                           f"buffered vote(s) for election {election_term}.")
 
         if len(buffered_votes) > 0:
-            self.logger.debug(f"Processing the {len(buffered_votes)} buffered vote(s) for election {election_term} now.")
+            self.logger.debug(
+                f"Processing the {len(buffered_votes)} buffered vote(s) for election {election_term} now.")
             for i, buffered_vote in enumerate(buffered_votes):
                 self.logger.debug(
                     f"Handling buffered vote {i + 1}/{len(buffered_votes)} during election term {election_term}: {buffered_vote}")
@@ -1303,13 +1342,15 @@ class RaftLog(object):
                 num_buffered_votes_processed += 1
 
                 if self._current_election.voting_phase_completed_successfully:
-                    self.logger.debug(f"Voting phase for current election ({election_term}) voting phase has ended after "
-                                      f"processing buffered vote #{i}.")
+                    self.logger.debug(
+                        f"Voting phase for current election ({election_term}) voting phase has ended after "
+                        f"processing buffered vote #{i}.")
                     skip_proposals = True
                     break
                 else:
-                    self.logger.debug(f"Voting phase for current election {election_term} has not ended after processing "
-                                      f"buffered vote #{i}.")
+                    self.logger.debug(
+                        f"Voting phase for current election {election_term} has not ended after processing "
+                        f"buffered vote #{i}.")
 
         if num_buffered_votes_processed > 0:
             self.logger.debug(f"Finished processing buffered votes for election {election_term}. "
@@ -1317,7 +1358,8 @@ class RaftLog(object):
 
         if not skip_proposals:
             if len(buffered_proposals) > 0:
-                self.logger.debug(f"Processing the {len(buffered_proposals)} buffered proposal(s) for election {election_term} now.")
+                self.logger.debug(
+                    f"Processing the {len(buffered_proposals)} buffered proposal(s) for election {election_term} now.")
                 for i, buffered_proposal in enumerate(buffered_proposals):
                     self.logger.debug(
                         f"Handling buffered proposal {i + 1}/{len(buffered_proposals)} during election term {election_term}: {buffered_proposal}")
@@ -1354,13 +1396,15 @@ class RaftLog(object):
                 return False
 
             self.logger.debug(
-                "RaftLog %d: Appending decision proposal for term %s now." % (self._node_id, voteProposal.election_term))
+                "RaftLog %d: Appending decision proposal for term %s now." % (
+                self._node_id, voteProposal.election_term))
             await self._append_election_vote(voteProposal)
             self.logger.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (
                 self._node_id, voteProposal.election_term))
         else:
-            self.logger.debug(f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
-                              f"for election {election_term}.")
+            self.logger.debug(
+                f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
+                f"for election {election_term}.")
 
         # Validate the term
         wait, is_leading = self._is_leading(target_term_number)
@@ -1759,7 +1803,8 @@ class RaftLog(object):
         # or because all replicas proposed "yield".
         self.logger.debug("Waiting for current election to end (or fail).")
         await self.current_election.wait_for_election_to_end()
-        self.logger.debug(f"Election {term_number} has finished (or failed): {self.current_election.completion_reason}.")
+        self.logger.debug(
+            f"Election {term_number} has finished (or failed): {self.current_election.completion_reason}.")
 
     async def notify_execution_complete(self, term_number: int):
         """
