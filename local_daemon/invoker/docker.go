@@ -345,9 +345,8 @@ func (ivk *DockerInvoker) Close() error {
 	cmd.Stderr = &errb
 
 	if err := cmd.Run(); err != nil {
-		ivk.log.Error("[Error] Failed to stop container/kenel %s: %v\n", ivk.containerName, err)
-		ivk.log.Error("STDOUT: %s", outb.String())
-		ivk.log.Error("STDERR: %s", errb.String())
+		errrorMessage := errb.String()
+		ivk.log.Error("Failed to stop container/kenel %s: %v\n", ivk.containerName, errrorMessage)
 		return err
 	}
 
@@ -362,7 +361,7 @@ func (ivk *DockerInvoker) Close() error {
 
 	// Rename the stopped Container so that we can create a new one with the same name in its place.
 	idx := 0
-	for idx < 50 /* TODO: This is bad/highly inefficient and will also break if a Container is migrated more than 50 times. */ {
+	for idx < 512 /* This is inefficient and will break if we migrate a container > 512 times. */ {
 		renameCmdStr := strings.ReplaceAll(dockerRenameCmd, VarContainerName, ivk.containerName)
 		newName := fmt.Sprintf("%s-old-%d", ivk.containerName, idx)
 		renameCmdStr = strings.ReplaceAll(renameCmdStr, VarContainerNewName, newName)
@@ -370,14 +369,22 @@ func (ivk *DockerInvoker) Close() error {
 		ivk.log.Debug("Renaming (stopped) container %s via %s.", ivk.containerName, renameArgv)
 		renameCmd := exec.CommandContext(context.Background(), renameArgv[0], renameArgv[1:]...)
 
-		var renameOutb, renameErrb bytes.Buffer
-		renameCmd.Stdout = &renameOutb
-		renameCmd.Stderr = &renameErrb
+		var renameStdoutBuffer, renameStderrBuffer bytes.Buffer
+		renameCmd.Stdout = &renameStdoutBuffer
+		renameCmd.Stderr = &renameStderrBuffer
 
 		if err := renameCmd.Run(); err != nil {
-			ivk.log.Error("[Error] Failed to rename container %s: %v\n", ivk.containerName, err)
-			ivk.log.Error("STDOUT: %s", renameOutb.String())
-			ivk.log.Error("STDERR: %s", renameErrb.String())
+			errorMessage := renameStderrBuffer.String()
+			ivk.log.Warn("Failed to rename container %s: %v\n", ivk.containerName, errorMessage)
+
+			// If the error is simply because this container name is already in-use, then we'll retry with another name.
+			if strings.HasSuffix(errorMessage, "You have to remove (or rename) that container to be able to reuse that name.") {
+				ivk.log.Warn("Will retry using a different name for the old container.")
+			} else {
+				ivk.log.Error("This Docker error is unexpected. Unsure how to recover.")
+				return fmt.Errorf(errorMessage)
+			}
+
 			idx += 1
 			continue
 		} else {
