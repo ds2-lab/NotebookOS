@@ -248,7 +248,6 @@ func (c *DistributedKernelClient) SetActiveExecution(activeExecution *scheduling
 	defer c.mu.Unlock()
 
 	c.activeExecutionsByExecuteRequestMsgId.Store(activeExecution.ExecuteRequestMessageId, activeExecution)
-
 	c.activeExecution = activeExecution
 }
 
@@ -347,7 +346,11 @@ func (c *DistributedKernelClient) EnqueueActiveExecution(attemptId int, msg *typ
 		c.activeExecution.LinkNextAttempt(nextExecutionAttempt)
 
 		// Replace the current execution attempt with the new one.
-		c.SetActiveExecution(nextExecutionAttempt)
+		c.activeExecution = nextExecutionAttempt
+
+		// Replace the entry in the mapping with the next attempt.
+		// We can still access the previous attempt by following the "previous attempt" link.
+		c.activeExecutionsByExecuteRequestMsgId.Store(nextExecutionAttempt.ExecuteRequestMessageId, nextExecutionAttempt)
 
 		c.log.Debug("Created, linked, and set next ActiveExecution attempt (#%d) for \"execute_request\" \"%s\" for Kernel %s: %v",
 			nextExecutionAttempt.AttemptId, nextExecutionAttempt.ExecuteRequestMessageId, c.id, nextExecutionAttempt)

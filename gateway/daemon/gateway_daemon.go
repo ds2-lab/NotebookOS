@@ -1143,6 +1143,9 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	}()
 
 	// Next, let's update the message so that we target the new replica.
+	// We do this now, before calling waitGroup.Wait(), just to overlap the two tasks
+	// (the kernel starting + registering and us updating the "execute_request" Jupyter
+	// message for resubmission).
 	_, _, offset := jupyter.ExtractDestFrame(msg.Frames)
 	var frames jupyter.JupyterFrames = msg.Frames
 	var metadataFrame = frames[offset:].MetadataFrame()
@@ -1197,12 +1200,6 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 			// Do nothing. The migration operation completed successfully.
 		}
 	}
-
-	// Link the previous active execution with the current one.
-	//nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), activeExecution.AttemptId+1, c.Size(), msg)
-	//nextExecutionAttempt.LinkPreviousAttempt(activeExecution)
-	//activeExecution.LinkNextAttempt(nextExecutionAttempt)
-	//c.SetActiveExecution(nextExecutionAttempt)
 
 	d.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), c.ID())
 	err = d.ShellHandler(c, msg)

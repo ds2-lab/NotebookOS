@@ -826,30 +826,70 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	numTries := 0
 	maxNumTries := 3
 
-	var response *proto.KernelRegistrationNotificationResponse
 	// TODO: Figure out a better way to handle this. As of right now, we really cannot recover from this.
-	for numTries < maxNumTries {
-		response, err = d.provisioner.NotifyKernelRegistered(ctx, kernelRegistrationNotification)
-		if err != nil {
-			d.log.Error("Error encountered while notifying Gateway of kernel registration (attempt %d/%d): %s", numTries+1, maxNumTries, err.Error())
-			numTries += 1
+	var response *proto.KernelRegistrationNotificationResponse
+	for response == nil && numTries < maxNumTries {
+		notificationContext, cancel := context.WithTimeout(ctx, time.Second*30)
 
-			if numTries < maxNumTries {
-				time.Sleep(time.Second * time.Duration(numTries))
+		respChan := make(chan interface{}, 1)
+		go func(reqContext context.Context) {
+			response, err = d.provisioner.NotifyKernelRegistered(reqContext, kernelRegistrationNotification)
+			if err != nil {
+				respChan <- err
+			} else {
+				respChan <- response
 			}
-			continue
-		} else if response == nil {
-			d.log.Error("Failed to notify Gateway of kernel registration (attempt %d/%d).", numTries+1, maxNumTries)
-			numTries += 1
+		}(notificationContext)
 
-			if numTries < maxNumTries {
-				time.Sleep(time.Second * time.Duration(numTries))
+		select {
+		case <-notificationContext.Done(): // Timed out.
+			{
+				err = notificationContext.Err()
+				if err != nil {
+					d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
+						kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
+				}
+
+				cancel()
+				numTries += 1
+
+				if numTries < maxNumTries {
+					time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
+				}
+
+				continue // Try again.
 			}
-			continue
-		}
+		case v := <-respChan: // Got a response. Could be an error.
+			{
+				switch v.(type) {
+				case error: // Error.
+					{
+						err = v.(error)
+						if err != nil {
+							d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
+								kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
+						}
 
-		break
-	}
+						cancel()
+						numTries += 1
+
+						if numTries < maxNumTries {
+							time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
+						}
+
+						continue // Try again.
+					}
+				case *proto.KernelRegistrationNotificationResponse: // Actual response.
+					{
+						response = v.(*proto.KernelRegistrationNotificationResponse)
+						break
+					}
+				} // switch v.(type)
+			} // case v := <-respChan
+		} // select
+
+		cancel()
+	} // for response == nil && numTries < maxNumTries
 
 	if response == nil {
 		d.log.Error("Failed to notify Gateway of kernel registration after %d attempts.", maxNumTries)
