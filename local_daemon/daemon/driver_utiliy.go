@@ -125,7 +125,7 @@ func getNameOfDockerContainer() string {
 		return types.DockerNode
 	}
 
-	containerName := stdoutBuffer.String()
+	containerName := strings.TrimSpace(stdoutBuffer.String())
 	globalLogger.Debug("Resolved container name: \"%s\"", containerName)
 	return containerName
 }

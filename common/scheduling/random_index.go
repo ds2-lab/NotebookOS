@@ -302,13 +302,13 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 		// If indeed it is new, then we'll add it to the host map.
 		if _, loaded := hostsMap[candidateHost.ID]; !loaded {
 			if criteriaFunc == nil || criteriaFunc(candidateHost) {
-				index.log.Debug("Found candidate: host %s", candidateHost.ID)
+				index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.NodeName, candidateHost.ID)
 				hostsMap[candidateHost.ID] = candidateHost
 			} else {
-				index.log.Debug("Host %s failed supplied criteria function. Rejecting.", candidateHost.ID)
+				index.log.Debug("Host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.NodeName, candidateHost.ID)
 			}
 		} else {
-			index.log.Warn("Found duplicate: host %s (we must've generated a new permutation)", candidateHost.ID)
+			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)", candidateHost.NodeName, candidateHost.ID)
 		}
 	}
 
