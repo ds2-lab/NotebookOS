@@ -625,8 +625,9 @@ class DistributedKernel(IPythonKernel):
         future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
         self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
-        # future.set_result(self.gen_simple_response())
-        self.log.info(f"Persistent store confirmed: {self.store}")
+        self.log.info(f"Persistent store confirmed on start: {self.store}")
+
+        faulthandler.dump_traceback(file=sys.stderr)
 
     async def dispatch_shell(self, msg):
         self.log.debug(f"Received SHELL message: {msg}")
@@ -856,8 +857,8 @@ class DistributedKernel(IPythonKernel):
 
         self.log.info(
             "Initializing the Persistent Store with Persistent ID: \"%s\"" % persistent_id)
-        self.log.info("Full path of Persistent Store: \"%s\"" % store)
-        self.log.info("Disabling `outstream` now.")
+        self.log.debug("Full path of Persistent Store: \"%s\"" % store)
+        self.log.debug("Disabling `outstream` now.")
 
         sys.stderr.flush()
         sys.stdout.flush()
@@ -865,13 +866,13 @@ class DistributedKernel(IPythonKernel):
         # Disable outstream
         self.toggle_outstream(override=True, enable=False)
 
-        self.log.info("Disabled `outstream`.")
-        self.log.info("Overriding shell hooks now.")
+        self.log.debug("Disabled `outstream`.")
+        self.log.debug("Overriding shell hooks now.")
 
         # Override shell hooks
         await self.override_shell(store)
 
-        self.log.info("Overrode shell hooks.")
+        self.log.debug("Overrode shell hooks.")
 
         # Notify the client that the SMR is ready.
         # await self.smr_ready() 
@@ -879,6 +880,7 @@ class DistributedKernel(IPythonKernel):
         # TODO(Ben): Should this go before the "smr_ready" send?
         # It probably shouldn't matter -- or if it does, then more synchronization is required.
         async with self.persistent_store_cv:
+            self.log.debug("Calling `notify_all` on the Persistent Store condition variable.")
             self.persistent_store_cv.notify_all()
 
         return store
@@ -1385,7 +1387,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Preparing for migration of replica %d of kernel %s.",
                       self.smr_node_id, self.kernel_id)
 
-        # We don't want to remove this node from the SMR raft cluster when we shutdown the kernel,
+        # We don't want to remove this node from the SMR raft cluster when we shut down the kernel,
         # as we're migrating the replica and want to reuse the ID when the raft process resumes
         # on another node.
         self.remove_on_shutdown = False
