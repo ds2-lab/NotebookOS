@@ -2103,9 +2103,7 @@ func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo, ta
 		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
 	}
 
-	var numSeconds = 5
-	d.log.Debug("Done removing replica %d of kernel %s. Sleeping for %d seconds.", in.ReplicaId, in.KernelId, numSeconds)
-	time.Sleep(time.Second * time.Duration(numSeconds))
+	d.log.Debug("Done removing replica %d of kernel %s.", in.ReplicaId, in.KernelId)
 
 	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
 	opts := NewAddReplicaWaitOptions(true, true, true)
