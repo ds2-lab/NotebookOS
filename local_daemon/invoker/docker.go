@@ -378,7 +378,7 @@ func (ivk *DockerInvoker) Close() error {
 			ivk.log.Warn("Failed to rename container %s: %v\n", ivk.containerName, errorMessage)
 
 			// If the error is simply because this container name is already in-use, then we'll retry with another name.
-			if strings.HasSuffix(errorMessage, "You have to remove (or rename) that container to be able to reuse that name.") {
+			if strings.Contains(errorMessage, "You have to remove (or rename) that container to be able to reuse that name.") {
 				ivk.log.Warn("Will retry using a different name for the old container.")
 			} else {
 				ivk.log.Error("This Docker error is unexpected. Unsure how to recover.")
