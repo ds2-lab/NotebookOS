@@ -1759,7 +1759,7 @@ func (d *SchedulerDaemonImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.J
 	}
 
 	// Handle ShutdownRequest
-	if msg.JupyterMessageType() == domain.ShellShutdownRequest {
+	if msg.JupyterMessageType() == jupyter.ShellShutdownRequest {
 		go func() {
 			kernelStatus, err := d.getInvoker(kernel).Wait() // Wait() will detect the kernel status and the cleanup() will clean kernel automatically.
 			_, _ = d.statusErrorf(kernel, kernelStatus, err)
@@ -1783,7 +1783,7 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 	session := msg.JupyterSession()
 	kernel, ok := d.kernels.Load(session)
 	msgType := msg.JupyterMessageType()
-	if !ok && (msgType == domain.ShellKernelInfoRequest || msgType == domain.ShellExecuteRequest) {
+	if !ok && (msgType == jupyter.ShellKernelInfoRequest || msgType == jupyter.ShellExecuteRequest) {
 		// Register kernel on ShellKernelInfoRequest
 		if msg.DestinationId == "" {
 			return domain.ErrKernelIDRequired
@@ -1819,7 +1819,7 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 	// If it is, then we'll see if we have enough resources for the kernel to (potentially) execute the code.
 	// If not, we'll change the message's header to "yield_request".
 	// If the message is an execute_request message, then we have some processing to do on it.
-	if msg.JupyterMessageType() == domain.ShellExecuteRequest {
+	if msg.JupyterMessageType() == jupyter.ShellExecuteRequest {
 		resultChan := d.enqueueExecuteRequest(msg, kernel)
 
 		// Wait for the result.
@@ -1878,7 +1878,7 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 func (d *SchedulerDaemonImpl) enqueueExecuteRequest(executeRequestMessage *jupyter.JupyterMessage, kernel *client.KernelReplicaClient) <-chan interface{} {
 	gid := goid.Get()
 	msgType := executeRequestMessage.JupyterMessageType()
-	if msgType != domain.ShellExecuteRequest {
+	if msgType != jupyter.ShellExecuteRequest {
 		log.Fatalf("[gid=%d] Cannot enqueue Jupyter message of type \"%s\" in outgoing \"execute_request\" queue of kernel \"%s\".",
 			gid, msgType, kernel.ID())
 	}
@@ -2412,7 +2412,7 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 	jMsg := jupyter.NewJupyterMessage(&newMessage)
 
 	// Change the message header.
-	jMsg.SetMessageType(domain.ShellYieldExecute)
+	jMsg.SetMessageType(jupyter.ShellYieldExecute)
 
 	// Create a JupyterFrames struct by wrapping with the message's frames.
 	jFrames := jupyter.JupyterFrames(newMessage.Frames)
@@ -2540,7 +2540,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelInfo
 		// 	d.processExecuteReply(msg, from, offset)
 		// }
 
-		if msg.JupyterMessageType() == domain.ShellExecuteReply {
+		if msg.JupyterMessageType() == jupyter.ShellExecuteReply {
 			err := d.processExecuteReply(msg, from)
 			if err != nil {
 				d.log.Error("Error while processing 'execute_reply' message from %s: %v", from.String(), err)

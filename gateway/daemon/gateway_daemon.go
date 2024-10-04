@@ -46,14 +46,9 @@ import (
 )
 
 const (
-	ShellExecuteRequest    = "execute_request"
-	ShellExecuteReply      = "execute_reply"
-	ShellYieldExecute      = "yield_request"
-	ShellKernelInfoRequest = "kernel_info_request"
-	ShellShutdownRequest   = "shutdown_request"
-	KubernetesKernelName   = "kernel-%s"
-	ConnectionFileFormat   = "connection-%s-*.json" // "*" is a placeholder for random string
-	ConfigFileFormat       = "config-%s-*.json"     // "*" is a placeholder for random string
+	KubernetesKernelName = "kernel-%s"
+	ConnectionFileFormat = "connection-%s-*.json" // "*" is a placeholder for random string
+	ConfigFileFormat     = "config-%s-*.json"     // "*" is a placeholder for random string
 
 	ErrorHostname = "ERROR" // We return this from certain gRPC calls when there's an error.
 
@@ -1147,9 +1142,6 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 		waitGroup.Done()
 	}()
 
-	// We'll need this if the migration operation completes successfully.
-	nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), activeExecution.AttemptId+1, c.Size(), msg)
-
 	// Next, let's update the message so that we target the new replica.
 	_, _, offset := jupyter.ExtractDestFrame(msg.Frames)
 	var frames jupyter.JupyterFrames = msg.Frames
@@ -1206,9 +1198,11 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 		}
 	}
 
-	nextExecutionAttempt.LinkPreviousAttempt(activeExecution)
-	activeExecution.LinkNextAttempt(nextExecutionAttempt)
-	c.SetActiveExecution(nextExecutionAttempt)
+	// Link the previous active execution with the current one.
+	//nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), activeExecution.AttemptId+1, c.Size(), msg)
+	//nextExecutionAttempt.LinkPreviousAttempt(activeExecution)
+	//activeExecution.LinkNextAttempt(nextExecutionAttempt)
+	//c.SetActiveExecution(nextExecutionAttempt)
 
 	d.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), c.ID())
 	err = d.ShellHandler(c, msg)
@@ -2309,7 +2303,7 @@ func (d *ClusterGatewayImpl) kernelShellHandler(kernel scheduling.KernelInfo, _ 
 
 func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	kernel, ok := d.kernels.Load(msg.JupyterSession())
-	if !ok && (msg.JupyterMessageType() == ShellKernelInfoRequest || msg.JupyterMessageType() == ShellExecuteRequest) {
+	if !ok && (msg.JupyterMessageType() == jupyter.ShellKernelInfoRequest || msg.JupyterMessageType() == jupyter.ShellExecuteRequest) {
 		// Register kernel on ShellKernelInfoRequest
 		if msg.DestinationId == "" {
 			return ErrKernelIDRequired
@@ -2317,7 +2311,8 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 
 		kernel, ok = d.kernels.Load(msg.DestinationId)
 		if !ok {
-			d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
+			d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v",
+				msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 			return ErrKernelNotFound
 		}
 
@@ -2325,7 +2320,8 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 		d.kernels.Store(msg.JupyterSession(), kernel)
 	}
 	if kernel == nil {
-		d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v", msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
+		d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v",
+			msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
 		if len(msg.DestinationId) == 0 {
 			d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Type, msg)
@@ -2346,7 +2342,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 		return ErrKernelNotReady
 	}
 
-	if msg.JupyterMessageType() == ShellExecuteRequest {
+	if msg.JupyterMessageType() == jupyter.ShellExecuteRequest {
 		err := d.processExecuteRequest(msg, kernel)
 		if err != nil {
 			return err
@@ -2433,7 +2429,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 
 	if snapshotWrapper.ResourceWrapperSnapshot != nil {
 		d.log.Debug(utils.LightBlueStyle.Render("Extracted ResourceWrapperSnapshot from metadata frame of Jupyter \"%s\" message: %s"),
-			ShellExecuteReply, snapshotWrapper.ResourceWrapperSnapshot.String())
+			jupyter.ShellExecuteReply, snapshotWrapper.ResourceWrapperSnapshot.String())
 	} else {
 		d.log.Warn(utils.OrangeStyle.Render("Jupyter \"%s\" did not contain an \"%s\" entry..."), msg.JupyterMessageType(), scheduling.ResourceSnapshotMetadataKey)
 	}
@@ -2449,10 +2445,8 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 	kernelId := kernel.ID()
 	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg)
 
-	activeExecution := scheduling.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
-	_ = kernel.EnqueueActiveExecution(activeExecution)
-
-	d.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", kernelId, activeExecution)
+	// activeExecution := scheduling.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
+	_ = kernel.EnqueueActiveExecution(1, msg)
 
 	session, ok := d.cluster.Sessions().Load(kernelId)
 	if !ok {
@@ -2721,7 +2715,7 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 	}
 
 	if typ == jupyter.ShellMessage {
-		if msg.JupyterMessageType() == ShellExecuteReply {
+		if msg.JupyterMessageType() == jupyter.ShellExecuteReply {
 			err := d.processExecutionReply(from.ID(), msg)
 			if err != nil {
 				go d.notifyDashboardOfError("Error While Processing \"execute_reply\" Message", err.Error())

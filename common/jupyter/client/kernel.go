@@ -9,7 +9,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -362,7 +361,7 @@ func (c *KernelReplicaClient) SentExecuteRequest(msg *types.JupyterMessage) {
 	c.pendingExecuteRequestIdsMutex.Lock()
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 
-	if msg.JupyterMessageType() != domain.ShellExecuteRequest && msg.JupyterMessageType() != domain.ShellYieldExecute {
+	if msg.JupyterMessageType() != types.ShellExecuteRequest && msg.JupyterMessageType() != types.ShellYieldExecute {
 		log.Fatalf(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
 	}
 
@@ -392,7 +391,7 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *types.JupyterMessage) {
 	c.pendingExecuteRequestIdsMutex.Lock()
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 
-	if msg.JupyterMessageType() != domain.ShellExecuteReply {
+	if msg.JupyterMessageType() != types.ShellExecuteReply {
 		log.Fatalf(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
 	}
 

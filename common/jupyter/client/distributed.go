@@ -9,7 +9,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -315,35 +314,71 @@ func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostRes
 	}
 }
 
-// EnqueueActiveExecution will set the ActiveExecution of the DistributedKernelClient to the
-// given ActiveExecution if the DistributedKernelClient currently has no ActiveExecution. In this case,
+// EnqueueActiveExecution will set the scheduling.ActiveExecution of the DistributedKernelClient to the
+// given ActiveExecution if the DistributedKernelClient currently has no scheduling.ActiveExecution. In this case,
 // EnqueueActiveExecution will return false.
 //
-// If the DistributedKernelClient already has an ActiveExecution, then the ActiveExecution passed
-// as an argument to the SetActiveExecution method will instead be enqueued. In this case,
-// EnqueueActiveExecution will return true.
-func (c *DistributedKernelClient) EnqueueActiveExecution(activeExecution *scheduling.ActiveExecution) bool {
+// EnqueueActiveExecution returns a pointer to the new scheduling.ActiveExecution struct if one was created.
+//
+// If we are resubmitting an "execute_request" following a migration, then this will not create and return a new
+// (pointer to a) scheduling.ActiveExecution struct, as the current active execution can simply be reused.
+func (c *DistributedKernelClient) EnqueueActiveExecution(attemptId int, msg *types.JupyterMessage) *scheduling.ActiveExecution {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.log.Debug("Setting or enqueuing new ActiveExecution targeting kernel %s for \"execute_request\" \"%s\"",
-		c.id, activeExecution.ExecuteRequestMessageId)
+	if msg.JupyterMessageType() != types.ShellExecuteRequest {
+		log.Fatalf(utils.RedStyle.Render("Invalid or unexpected Jupyter message type of message passed to EnqueueActiveExecution: \"%s\". Message must have type \"%s\"."),
+			msg.JupyterMessageType(), types.ShellExecuteRequest)
+	}
 
-	c.activeExecutionsByExecuteRequestMsgId.Store(activeExecution.ExecuteRequestMessageId, activeExecution)
+	// Check if the Jupyter message ID for the "execute_request" associated with the current active execution
+	// matches the message ID of the "execute_request" passed to EnqueueActiveExecution. If so, then we will
+	// do a quick sanity check that we've already attempted (and failed) the current active execution, and then
+	// we'll just return.
+	if c.activeExecution != nil && c.activeExecution.ExecuteRequestMessageId == msg.JupyterMessageId() {
+		c.log.Debug("Jupyter message ID of given \"execute_request\" matches that of current active execution (ID=\"%s\")",
+			msg.JupyterMessageId())
+
+		// Create the next execution attempt.
+		nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), c.activeExecution.AttemptId+1, c.Size(), msg)
+
+		// Link the previous active execution with the current one (in both directions).
+		nextExecutionAttempt.LinkPreviousAttempt(c.activeExecution)
+		c.activeExecution.LinkNextAttempt(nextExecutionAttempt)
+
+		// Replace the current execution attempt with the new one.
+		c.SetActiveExecution(nextExecutionAttempt)
+
+		c.log.Debug("Created, linked, and set next ActiveExecution attempt (#%d) for \"execute_request\" \"%s\" for Kernel %s: %v",
+			nextExecutionAttempt.AttemptId, nextExecutionAttempt.ExecuteRequestMessageId, c.id, nextExecutionAttempt)
+
+		// Return the next execution attempt.
+		return nextExecutionAttempt
+	}
+
+	newActiveExecution := scheduling.NewActiveExecution(c.id, attemptId, c.Size(), msg)
+
+	c.log.Debug("Setting or enqueuing new ActiveExecution targeting kernel %s for new \"execute_request\" \"%s\"",
+		c.id, newActiveExecution.ExecuteRequestMessageId)
+
+	c.activeExecutionsByExecuteRequestMsgId.Store(newActiveExecution.ExecuteRequestMessageId, newActiveExecution)
 
 	// If there is already an active execution, then enqueue the new one.
 	if c.activeExecution != nil {
 		c.log.Debug("Found non-nil ActiveExec for kernel %s. Enqueuing new ActiveExec for \"execute_request\" \"%s\".",
-			c.id, activeExecution.ExecuteRequestMessageId)
-		c.activeExecutionQueue = append(c.activeExecutionQueue, activeExecution)
-		return true
+			c.id, newActiveExecution.ExecuteRequestMessageId)
+		c.activeExecutionQueue = append(c.activeExecutionQueue, newActiveExecution)
+		c.log.Debug("Created and enqueued new ActiveExecution in Kernel %s's queue (which now has size=%d): %v",
+			c.id, len(c.activeExecutionQueue), newActiveExecution)
+		return newActiveExecution
 	} else {
 		c.log.Debug("No ActiveExec for kernel %s. Assigning ActiveExec targeting \"execute_request\" \"%s\".",
-			c.id, activeExecution.ExecuteRequestMessageId)
+			c.id, newActiveExecution.ExecuteRequestMessageId)
 
 		// There's no active execution currently, so just set the value.
-		c.activeExecution = activeExecution
-		return false
+		c.activeExecution = newActiveExecution
+		c.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", c.id, newActiveExecution)
+		return newActiveExecution
 	}
 }
 
@@ -893,7 +928,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 		wg.Add(1)
 		go func(kernel scheduling.Kernel) {
-			if jMsg.JupyterMessageType() == domain.ShellExecuteRequest || jMsg.JupyterMessageType() == domain.ShellYieldExecute {
+			if jMsg.JupyterMessageType() == types.ShellExecuteRequest || jMsg.JupyterMessageType() == types.ShellYieldExecute {
 				kernel.(*KernelReplicaClient).SentExecuteRequest(jMsg)
 			}
 

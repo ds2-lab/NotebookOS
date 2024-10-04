@@ -14,6 +14,11 @@ import (
 const (
 	MessageHeaderDefaultUsername = "username"
 
+	ShellExecuteRequest        = "execute_request"
+	ShellExecuteReply          = "execute_reply"
+	ShellYieldExecute          = "yield_request"
+	ShellKernelInfoRequest     = "kernel_info_request"
+	ShellShutdownRequest       = "shutdown_request"
 	MessageTypeShutdownRequest = "shutdown_request"
 	MessageTypeShutdownReply   = "shutdown_reply"
 
