@@ -463,7 +463,6 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			case error:
 				err = v
 			case *types.JupyterMessage:
-				//jMsg := types.NewJupyterMessage(v)
 				jMsg := v
 
 				if (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && !jMsg.IsAck() {
@@ -731,13 +730,16 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 
 	socket.InitPendingReq()
 	reqId := request.RequestId()
-	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message %s (JupyterID=%s) [remoteSocket=%s]. RequiresACK: %v.", goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), socket.RemoteName, request.RequiresAck())
+	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message %s (JupyterID=%s) [remoteSocket=%s]. RequiresACK: %v.",
+		goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.JupyterMessageType(), request.RequestId(),
+		request.JupyterMessageId(), socket.RemoteName, request.RequiresAck())
 
 	// dest.Unlock()
 	if request.RequiresAck() {
 		_, alreadyRegistered := s.RegisterAck(request.RequestId())
 		if alreadyRegistered {
-			s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.JupyterMessageType())
+			s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."),
+				goroutineId, socket.Type, reqId, jMsg.JupyterMessageType())
 		}
 	} else {
 		// Record that we don't need an ACK for this request.
@@ -934,6 +936,76 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 	return nil
 }
 
+// AddOrUpdateRequestTraceToJupyterMessage will add a RequestTrace to the given types.JupyterMessage's metadata frame.
+// If there is already a RequestTrace within the types.JupyterMessage's metadata frame, then no change is made.
+//
+// AddOrUpdateRequestTraceToJupyterMessage returns true if a RequestTrace is serialized into the types.JupyterMessage's
+// metadata frame. If there is already a RequestTrace encoded within the metadata frame, then false is returned.
+//
+// If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
+// returned, and the boolean returned along with the error is always false.
+func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.JupyterMessage, timestamp time.Time) (*metrics.RequestTrace, bool, error) {
+	var (
+		wrapper      *metrics.JupyterRequestTraceFrame
+		requestTrace *metrics.RequestTrace
+		added        bool
+	)
+
+	jupyterFrames := types.JupyterFrames(msg.Frames)
+	if len(jupyterFrames[msg.Offset:]) <= types.JupyterFrameRequestTrace {
+		for len(jupyterFrames[msg.Offset:]) <= types.JupyterFrameRequestTrace {
+			s.Log.Debug("Jupyter \"%s\" request has just %d frames. Adding additional frame. Offset: %d.",
+				msg.JupyterMessageType(), len(msg.Frames), msg.Offset)
+
+			// If the request doesn't already have a JupyterFrameRequestTrace frame, then we'll add one.
+			jupyterFrames = append(jupyterFrames, make([]byte, 0))
+		}
+
+		// The metadata did not already contain a RequestTrace.
+		// Let's first create one.
+		requestTrace = metrics.NewRequestTrace()
+		added = true
+
+		// Then we'll populate the sort of metadata fields of the RequestTrace.
+		requestTrace.MessageId = msg.JupyterMessageId()
+		requestTrace.MessageType = msg.JupyterMessageType()
+		requestTrace.KernelId = msg.JupyterSession()
+
+		// Create the wrapper/frame itself.
+		wrapper = &metrics.JupyterRequestTraceFrame{RequestTrace: requestTrace}
+	} else {
+		s.Log.Debug("Extracting Jupyter RequestTrace frame from \"%s\" message.", msg.JupyterMessageType())
+
+		err := json.Unmarshal(jupyterFrames[msg.Offset+types.JupyterFrameRequestTrace], &wrapper)
+		if err != nil {
+			return nil, false, err
+		}
+
+		requestTrace = wrapper.RequestTrace
+		if requestTrace == nil {
+			return nil, false, fmt.Errorf("decoded JupyterRequestTraceFrame, but the included RequestTrace is nil")
+		}
+	}
+
+	// Update the appropriate timestamp field of the RequestTrace.
+	requestTrace.PopulateNextField(timestamp.UnixMilli(), s.Log)
+
+	marshalledFrame, err := json.Marshal(wrapper)
+	if err != nil {
+		return nil, false, err
+	}
+
+	jupyterFrames[msg.Offset+types.JupyterFrameRequestTrace] = marshalledFrame
+
+	s.Log.Debug("Added RequestTrace to Jupyter \"%s\" message.", msg.JupyterMessageType())
+	s.Log.Debug("RequestTrace: %s.", requestTrace.String())
+	s.Log.Debug("Updated frames: %s.", jupyterFrames.String())
+
+	msg.Frames = jupyterFrames
+
+	return requestTrace, added, nil
+}
+
 // sendRequestWithRetries encapsulates the logic of sending the given types.Request using the given types.Socket
 // in a reliable way; that is, sendRequestWithRetries will resubmit the given types.Request if an ACK is not received
 // within the types.Request's configured timeout window, up to the types.Request's configured maximum number of attempts.
@@ -945,6 +1017,18 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 	// We only want to record the "unique send" metric once per message sent (i.e., don't include resubmissions).
 	recordedUniqueSend := false
 	request.SendStarting()
+
+	// We only want to add traces to Shell, Control, and a subset of IOPub messages.
+	if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && (request.JupyterMessageType() != "stream") && (request.JupyterMessageType() != "status")) {
+		s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
+			socket.Type.String(), request.JupyterMessageType())
+		_, _, err := s.addOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now())
+		if err != nil {
+			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
+			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
+			panic(err)
+		}
+	}
 
 	// We'll loop until the send operation is successful, or until we run out of attempts.
 	// The logic for stopping the loop is implemented in onNoAcknowledgementReceived.
@@ -1134,11 +1218,11 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 	var msg interface{}
 	for {
 		got, err := socket.Recv()
+		receivedAt := time.Now()
 
 		if err == nil {
 			// Deserialize the message now so we can print some debug info + inspect if it is an ACK.
 			jMsg := types.NewJupyterMessage(&got)
-			msg = jMsg
 
 			// If the message is just an ACK, then we'll spawn another goroutine to handle it and keep polling.
 			if jMsg.IsAck() {
@@ -1154,9 +1238,20 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 				continue
 			}
 
-			if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && jMsg.JupyterMessageType() != "stream") {
+			if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && (jMsg.JupyterMessageType() != "stream") && (jMsg.JupyterMessageType() != "status")) {
 				s.Log.Debug("[gid=%d] Poller received new %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\").", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), jMsg.JupyterSession())
+
+				// We only want to add traces to Shell, Control, and a subset of IOPub messages.
+				s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
+					socket.Type.String(), jMsg.JupyterMessageType())
+				_, _, err := s.addOrUpdateRequestTraceToJupyterMessage(jMsg, receivedAt)
+				if err != nil {
+					s.Log.Error("Failed to add RequestTrace to JupyterMessage: %v.", err)
+					panic(err)
+				}
 			}
+
+			msg = jMsg
 		} else {
 			msg = err
 			// s.Log.Error("[gid=%d] Received error upon trying to read %v message: %v", goroutineId, socket.Type, err)

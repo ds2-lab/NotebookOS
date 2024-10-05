@@ -26,6 +26,11 @@ const (
 	JupyterFrameMetadata
 	JupyterFrameContent
 	JupyterFrameBuffers
+
+	// JupyterFrameRequestTrace is the index of the first "buffer" frame,
+	// which contains a RequestTrace to track the overhead at each
+	// stage of processing the request.
+	JupyterFrameRequestTrace = 6
 )
 
 var (

@@ -255,7 +255,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	cmd = strings.ReplaceAll(cmd, VarKernelId, spec.Kernel.Id)
 	cmd = strings.ReplaceAll(cmd, VarSessionId, spec.Kernel.Session)
 	cmd = strings.ReplaceAll(cmd, VarSpecCpu, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Cpu))
-	cmd = strings.ReplaceAll(cmd, VarSpecMemory, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Memory))
+	cmd = strings.ReplaceAll(cmd, VarSpecMemory, fmt.Sprintf("%f", spec.Kernel.ResourceSpec.Memory))
 	cmd = strings.ReplaceAll(cmd, VarSpecGpu, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Gpu))
 	cmd = strings.ReplaceAll(cmd, VarDebugPort, fmt.Sprintf("%d", ivk.kernelDebugPort))
 	cmd = strings.ReplaceAll(cmd, VarKernelDebugPyPort, fmt.Sprintf("%d", ivk.kernelDebugPort+1000))

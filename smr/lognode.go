@@ -204,12 +204,12 @@ type LogNode struct {
 	snapshotter      LogSnapshotter
 	snapshotterReady chan LogSnapshotter // signals when snapshotter is ready
 
-	snapCount uint64
-	transport *rafthttp.Transport
-	started   bool
-	stopc     chan struct{} // signals proposal channel closed
-	httpstopc chan struct{} // signals http server to shutdown
-	httpdonec chan struct{} // signals http server shutdown complete
+	snapCount       uint64
+	transport       *rafthttp.Transport
+	started         bool
+	stopChannel     chan struct{} // signals proposal channel closed
+	httpStopChannel chan struct{} // signals http server to shut down
+	httpDoneChannel chan struct{} // signals http server shutdown complete
 
 	// Bridges
 	config *LogNodeConfig
@@ -281,9 +281,9 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 		id:                     id,
 		join:                   join,
 		snapCount:              defaultSnapshotCount,
-		stopc:                  make(chan struct{}),
-		httpstopc:              make(chan struct{}),
-		httpdonec:              make(chan struct{}),
+		stopChannel:            make(chan struct{}),
+		httpStopChannel:        make(chan struct{}),
+		httpDoneChannel:        make(chan struct{}),
 		numChanges:             0,
 		deniedChanges:          0,
 		proposalRegistry:       hashmap.NewConcurrentMap[smrContext](32),
@@ -430,7 +430,7 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 			progressChan <- DoneString
 		}(ctx)
 
-		tickInterval := time.Duration(10 * time.Second)
+		tickInterval := 10 * time.Second
 		ticker := time.NewTicker(tickInterval)
 		noProgress := 0
 		done := false
@@ -449,7 +449,7 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 			case <-ticker.C:
 				{
 					noProgress += 1
-					node.sugaredLogger.Warn("Progress has not been made in roughly %v.", time.Duration(tickInterval*time.Duration(noProgress)))
+					node.sugaredLogger.Warn("Progress has not been made in roughly %v.", tickInterval*time.Duration(noProgress))
 					continue
 				}
 			case <-ctx.Done():
@@ -654,7 +654,7 @@ func (node *LogNode) manageNode(ctx smrContext) error {
 	select {
 	case node.confChangeC <- ctx.(*confChangeContext):
 		return nil
-	case <-node.stopc:
+	case <-node.stopChannel:
 		return ErrClosed
 	}
 }
@@ -673,7 +673,9 @@ func (node *LogNode) WaitToClose() (lastErr error) {
 	return
 }
 
-// Close: This does NOT close the HDFS client.
+// Close closes the LogNode.
+//
+// NOTE: Close does NOT close the HDFS client.
 // This is because, when migrating a raft cluster member, we must first stop the raft
 // node before copying the contents of its data directory.
 func (node *LogNode) Close() error {
@@ -714,10 +716,10 @@ func (node *LogNode) close() {
 	node.proposeC, node.confChangeC = nil, nil
 
 	if !node.started {
-		close(node.stopc)
+		close(node.stopChannel)
 	} else {
 		// Signal the routine that depends on input channels to stop.
-		// Will trigger the close(stopc).
+		// Will trigger the close(stopChannel).
 		if proposeC != nil {
 			select {
 			case proposeC <- nil:
@@ -906,7 +908,7 @@ func (node *LogNode) readDirectoryFromHdfs(dir string, progressChan chan<- strin
 
 		if info.IsDir() {
 			// node.sugaredLogger.Debugf("Found remote directory '%s'", path)
-			err := os.MkdirAll(path, os.FileMode(int(0777)))
+			err := os.MkdirAll(path, os.FileMode(0777))
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
 				node.sugaredLogger.Errorf("Exception encountered while trying to create local directory '%s': %v", path, err)
@@ -966,7 +968,7 @@ func (node *LogNode) ReadDataDirectoryFromHDFS(ctx context.Context, progressChan
 // writeRaftLogSerializedStateToHdfs writes the RaftLog's serialized state to HDFS.
 func (node *LogNode) writeRaftLogSerializedStateToHdfs(serializedState []byte) error {
 	serializedStateFileDir := filepath.Join(node.dataDir, SerializedStateDirectory)
-	err := node.hdfsClient.MkdirAll(serializedStateFileDir, os.FileMode(int(0777)))
+	err := node.hdfsClient.MkdirAll(serializedStateFileDir, os.FileMode(0777))
 	if err != nil {
 		// If we return an error from this function, then WalkDir will stop entirely and return that error.
 		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory for serialized RaftLog states '%s': %v", serializedStateFileDir, err), zap.String("directory", serializedStateFileDir), zap.Error(err))
@@ -1059,7 +1061,7 @@ func (node *LogNode) writeLocalDirectoryToHdfs(dir string) error {
 		// Note: the first entry found is the base directory passed to filepath.WalkDir (node.data_dir in this case).
 		if d.IsDir() {
 			node.logger.Info(fmt.Sprintf("Found local directory '%s'", path), zap.String("directory", path))
-			err := node.hdfsClient.MkdirAll(path, os.FileMode(int(0777)))
+			err := node.hdfsClient.MkdirAll(path, os.FileMode(0777))
 			if err != nil {
 				// If we return an error from this function, then WalkDir will stop entirely and return that error.
 				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory '%s': %v", path, err), zap.String("directory", path), zap.Error(err))
@@ -1162,14 +1164,14 @@ func (node *LogNode) writeDataDirectoryToHDFSImpl(serializedState []byte, resolv
 
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
 	debug.SetPanicOnFault(true)
-	err := node.hdfsClient.MkdirAll(node.waldir, os.FileMode(int(0777)))
+	err := node.hdfsClient.MkdirAll(node.waldir, os.FileMode(0777))
 	if err != nil {
 		// If we return an error from this function, then WalkDir will stop entirely and return that error.
 		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory for node's WAL directory '%s': %v", node.waldir, err), zap.String("wal-directory", node.waldir), zap.Error(err))
 		return
 	}
 
-	err = node.hdfsClient.MkdirAll(node.snapdir, os.FileMode(int(0777)))
+	err = node.hdfsClient.MkdirAll(node.snapdir, os.FileMode(0777))
 	if err != nil {
 		// If we return an error from this function, then WalkDir will stop entirely and return that error.
 		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory for node's snapshot directory '%s': %v", node.snapdir, err), zap.String("snapdir-directory", node.snapdir), zap.Error(err))
@@ -1275,7 +1277,7 @@ func (node *LogNode) publishEntries(entries []raftpb.Entry) (<-chan struct{}, bo
 		applyDoneC = make(chan struct{})
 		select {
 		case node.commitC <- &commit{data, applyDoneC}:
-		case <-node.stopc:
+		case <-node.stopChannel:
 			return nil, false
 		}
 
@@ -1435,8 +1437,8 @@ func (node *LogNode) stopServing() {
 func (node *LogNode) stopHTTP() {
 	node.logger.Warn("Stopping HTTP server now.")
 	node.transport.Stop()
-	close(node.httpstopc)
-	<-node.httpdonec
+	close(node.httpStopChannel)
+	<-node.httpDoneChannel
 
 }
 
@@ -1486,7 +1488,7 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	if applyDoneC != nil {
 		select {
 		case <-applyDoneC:
-		case <-node.stopc:
+		case <-node.stopChannel:
 			return
 		}
 	}
@@ -1607,7 +1609,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 
 		node.logger.Info("Client closed channel(s). Shutting down Raft (if it isn't already shutdown).")
 		// client closed channel; shutdown raft if not already
-		close(node.stopc)
+		close(node.stopChannel)
 	}()
 	node.started = true
 
@@ -1633,7 +1635,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 					}
 				}
 				close(commit.applyDoneC)
-			case <-node.stopc:
+			case <-node.stopChannel:
 				return
 			}
 		}
@@ -1699,7 +1701,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 			node.writeError(err)
 			node.close()
 
-		case <-node.stopc:
+		case <-node.stopChannel:
 			node.sugaredLogger.Warnf("LogNode %d is stopping now.", node.id)
 
 			node.stopServing()
@@ -1722,7 +1724,7 @@ func (node *LogNode) processMessages(ms []raftpb.Message) []raftpb.Message {
 
 func (node *LogNode) serveRaft() {
 	defer finalize()
-	defer close(node.httpdonec)
+	defer close(node.httpDoneChannel)
 
 	peerUrl, err := url.Parse(node.peers[node.id])
 	if err != nil {
@@ -1730,7 +1732,7 @@ func (node *LogNode) serveRaft() {
 		return
 	}
 
-	ln, err := newStoppableListener(peerUrl.Host, node.httpstopc)
+	ln, err := newStoppableListener(peerUrl.Host, node.httpStopChannel)
 	if err != nil {
 		node.logFatalf("LogNode: Failed to listen rafthttp (%v)", err)
 		return
@@ -1740,7 +1742,7 @@ func (node *LogNode) serveRaft() {
 
 	err = (&http.Server{Handler: node.transport.Handler()}).Serve(ln)
 	select {
-	case <-node.httpstopc:
+	case <-node.httpStopChannel:
 	default:
 		node.logFatalf("LogNode: Failed to serve rafthttp (%v)", err)
 	}
@@ -1782,7 +1784,7 @@ func (node *LogNode) sendProposal(proposal smrContext) error {
 	select {
 	case node.proposeC <- proposal.(*proposalContext):
 		return nil
-	case <-node.stopc:
+	case <-node.stopChannel:
 		return ErrClosed
 	}
 }

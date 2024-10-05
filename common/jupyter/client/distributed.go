@@ -917,10 +917,11 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
 	_, reqId, jOffset := types.ExtractDestFrame(jMsg.Frames)
 	if reqId == "" {
-		c.log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %v.", c.id, jOffset, types.JupyterFrames(jMsg.Frames).String())
-		// jMsg.Frames, _ = types.AddDestFrame(jMsg.Frames, c.id, jOffset)
+		c.log.Debug("Adding destination '%s' to frames now. Old frames (%d): %v.",
+			c.id, len(jMsg.Frames), types.JupyterFrames(jMsg.Frames).String())
 		jMsg.AddDestinationId(c.id)
-		c.log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", c.id, jOffset, types.JupyterFrames(jMsg.Frames).String())
+		c.log.Debug("Added destination '%s' to frames at offset %d. New frames (%d): %v.",
+			c.id, jOffset, len(jMsg.Frames), types.JupyterFrames(jMsg.Frames).String())
 	}
 
 	var wg sync.WaitGroup
