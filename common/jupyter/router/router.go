@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"strings"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
-	"github.com/mason-leap-lab/go-utils/config"
-
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
@@ -62,11 +61,11 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			s.DebugMode = debugMode
 			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
 			s.Name = fmt.Sprintf("Router-%s", name)
+			config.InitLogger(&s.Log, s.Name)
 		}),
 	}
 	router.BaseServer = router.server.Server()
 	router.handlers = make([]RouterMessageHandler, len(router.server.Sockets.All))
-	config.InitLogger(&router.server.Log, router)
 	if provider != nil {
 		router.AddHandler(types.ControlMessage, provider.ControlHandler)
 		router.AddHandler(types.ShellMessage, provider.ShellHandler)
