@@ -367,7 +367,7 @@ message Pong {
   string id = 1;
   bool success = 2;
   string msg = 3; // For adding extra details if the ping fails.
-  optional RequestTrace requestTrace = 4;
+  repeated RequestTrace requestTraces = 4;
 }
 
 message RequestTrace {

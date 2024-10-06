@@ -575,8 +575,9 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	} else {
 		d.log.Error("Invalid socket type specified: \"%s\"", in.SocketType)
 		return &proto.Pong{
-			Id:      kernelId,
-			Success: false,
+			Id:            kernelId,
+			Success:       false,
+			RequestTraces: nil,
 		}, types.ErrInvalidSocketType
 	}
 
@@ -584,8 +585,9 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	if !loaded {
 		d.log.Error("Received 'ping-kernel' request for unknown kernel \"%s\"...", kernelId)
 		return &proto.Pong{
-			Id:      kernelId,
-			Success: false,
+			Id:            kernelId,
+			Success:       false,
+			RequestTraces: nil,
 		}, ErrKernelNotFound
 	}
 
@@ -597,10 +599,11 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	frames := jupyter.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messageType, kernel.Sessions()[0])
 
 	// If DebugMode is enabled, then add a buffers frame with a RequestTrace.
+	var requestTrace *proto.RequestTrace
 	if d.DebugMode {
 		frames = append(frames, make([]byte, 0))
 
-		requestTrace := proto.NewRequestTrace()
+		requestTrace = proto.NewRequestTrace()
 
 		// Then we'll populate the sort of metadata fields of the RequestTrace.
 		requestTrace.MessageId = msgId
@@ -625,26 +628,31 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	if err != nil {
 		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v", kernelId, kernel.ConnectionInfo().SignatureScheme, err)
 		return &proto.Pong{
-			Id:      kernelId,
-			Success: false,
+			Id:            kernelId,
+			Success:       false,
+			RequestTraces: nil,
 		}, ErrFailedToVerifyMessage
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 	defer cancel()
 
-	doneChan := make(chan struct{})
+	respChan := make(chan interface{})
 
 	startTime := time.Now()
 	var numRepliesReceived atomic.Int32
 	responseHandler := func(from scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 		latestNumRepliesReceived := numRepliesReceived.Add(1)
-		d.log.Debug("Received %s ping_reply from kernel %s for message \"%s\". Received %d/3 replies. Time elapsed: %v.",
-			typ.String(), from.ID(), msgId, latestNumRepliesReceived, time.Since(startTime))
 
 		// Notify that all replies have been received.
-		if latestNumRepliesReceived == 3 {
-			doneChan <- struct{}{}
+		if msg.RequestTrace != nil {
+			d.log.Debug("Received %s ping_reply from kernel %s for message \"%s\". Received %d/3 replies. Time elapsed: %v. Request trace: %s.",
+				typ.String(), from.ID(), msgId, latestNumRepliesReceived, time.Since(startTime), msg.RequestTrace.String())
+			respChan <- msg.RequestTrace
+		} else {
+			d.log.Debug("Received %s ping_reply from kernel %s for message \"%s\". Received %d/3 replies. Time elapsed: %v.",
+				typ.String(), from.ID(), msgId, latestNumRepliesReceived, time.Since(startTime))
+			respChan <- struct{}{}
 		}
 
 		return nil
@@ -655,36 +663,53 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	if err != nil {
 		d.log.Error("Error while issuing %s '%s' request %s (JupyterID=%s) to kernel %s: %v", socketType.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), kernel.ID(), err)
 		return &proto.Pong{
-			Id:      kernelId,
-			Success: false,
+			Id:            kernelId,
+			Success:       false,
+			RequestTraces: nil,
 		}, err
 	}
 
-	select {
-	case <-ctx.Done():
-		{
-			err := ctx.Err()
-			if err != nil {
-				errorMessage := fmt.Sprintf("'ping-kernel' %v request for kernel %s failed after receiving %d/3 replies for ping message \"%s\": %v",
-					socketType.String(), kernelId, numRepliesReceived.Load(), msgId, err)
+	requestTraces := make([]*proto.RequestTrace, 0, d.ClusterOptions.NumReplicas)
+
+	for numRepliesReceived.Load() < int32(d.ClusterOptions.NumReplicas) {
+		select {
+		case <-ctx.Done():
+			{
+				err := ctx.Err()
+
+				var errorMessage string
+				if err != nil {
+					errorMessage = fmt.Sprintf("'ping-kernel' %v request for kernel %s failed after receiving %d/3 replies for ping message \"%s\": %v",
+						socketType.String(), kernelId, numRepliesReceived.Load(), msgId, err)
+				} else {
+					errorMessage = fmt.Sprintf("'ping-kernel' %v request for kernel %s timed-out after receiving %d/3 replies for ping message \"%s\".",
+						socketType.String(), kernelId, numRepliesReceived.Load(), msgId)
+				}
 				d.log.Error(errorMessage)
+
 				return &proto.Pong{
-					Id:      kernelId,
-					Success: false,
-					Msg:     errorMessage,
+					Id:            kernelId,
+					Success:       false,
+					Msg:           errorMessage,
+					RequestTraces: requestTraces,
 				}, types.ErrRequestTimedOut
 			}
-		}
-	case <-doneChan:
-		{
-			d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s for ping message \"%s\" in %v.",
-				socketType.String(), kernelId, msgId, time.Since(startTime))
+		case v := <-respChan:
+			{
+				requestTrace, ok := v.(*proto.RequestTrace)
+				if ok {
+					requestTraces = append(requestTraces, requestTrace)
+				}
+			}
 		}
 	}
 
+	d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s for ping message \"%s\" in %v.",
+		socketType.String(), kernelId, msgId, time.Since(startTime))
 	return &proto.Pong{
-		Id:      kernelId,
-		Success: true,
+		Id:            kernelId,
+		Success:       true,
+		RequestTraces: requestTraces,
 	}, nil
 }
 
@@ -1547,7 +1572,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(),
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo),
 		d.id, false, d.numResendAttempts, -1, -1, in.PodName, in.NodeName,
 		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
 		host, metrics.ClusterGateway, true, true, d.DebugMode, d.gatewayPrometheusManager,
@@ -1746,7 +1771,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), d.id,
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), d.id,
 		false, d.numResendAttempts, -1, -1, kernelPodName, nodeName, nil,
 		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
 		true, true, d.DebugMode, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
@@ -1841,13 +1866,7 @@ func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMess
 	if !loaded {
 		d.log.Warn("No request log entry found for request with Jupyter message ID \"%s\"", in.MessageId)
 		return &proto.QueryMessageResponse{
-			MessageId:               in.MessageId,
-			MessageType:             in.MessageType,
-			KernelId:                in.KernelId,
-			GatewayReceivedRequest:  -1,
-			GatewayForwardedRequest: -1,
-			GatewayReceivedReply:    -1,
-			GatewayForwardedReply:   -1,
+			RequestTrace: entry.RequestTrace,
 		}, nil
 	}
 

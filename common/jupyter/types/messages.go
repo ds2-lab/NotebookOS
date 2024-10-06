@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"strings"
 
@@ -149,6 +150,8 @@ type JupyterMessage struct {
 	RequestId     string
 	DestinationId string
 	Offset        int
+
+	RequestTrace *proto.RequestTrace
 
 	header       *MessageHeader
 	parentHeader *MessageHeader

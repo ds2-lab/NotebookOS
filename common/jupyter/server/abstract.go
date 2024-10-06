@@ -1029,6 +1029,7 @@ func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 	s.Log.Debug("Updated frames: %s.", jupyterFrames.String())
 
 	msg.Frames = jupyterFrames
+	msg.RequestTrace = requestTrace
 
 	return requestTrace, added, nil
 }
