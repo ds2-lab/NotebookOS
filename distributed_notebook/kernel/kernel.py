@@ -1579,12 +1579,14 @@ class DistributedKernel(IPythonKernel):
         if isinstance(buffers, memoryview):
             buffers_bytes: bytes = buffers.tobytes()
             buffers_string: str = str(buffers_bytes)
-            self.log.debug(f"Contents of buffers: {buffers_string}")
+            self.log.debug(f"Contents of buffers (string): {buffers_string}")
             buffers = json.loads(buffers_string)
             self.log.debug(f"Contents of buffers after JSON decoding: {buffers}")
             return buffers
         else:
             self.log.debug(f"Contents of buffers: {str(buffers)}")
+            buffers = json.loads(str(buffers))
+            self.log.debug(f"Contents of buffers after JSON decoding: {buffers}")
             return buffers
 
     def extract_and_return_request_trace(self, msg: dict[str, Any], received_at: float)->Optional[dict[str, Any]]:

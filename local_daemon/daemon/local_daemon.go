@@ -245,6 +245,12 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 
 	config.InitLogger(&daemon.log, daemon)
 
+	if daemon.DebugMode {
+		daemon.log.Debug("Running in DebugMode.")
+	} else {
+		daemon.log.Debug("Not running in DebugMode.")
+	}
+
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, daemon.MessageAcknowledgementsEnabled,
 		fmt.Sprintf("LocalDaemon_%s", nodeName), true, metrics.LocalDaemon, daemon.DebugMode)
 

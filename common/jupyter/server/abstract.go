@@ -185,7 +185,7 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 	}
 
 	if server.DebugMode {
-		server.Log.Debug("Running in DebugMode.")
+		server.Log.Debug("Server is running in DebugMode. Will maintain a RequestLog and embed RequestTraces in ZMQ messages.")
 		server.RequestLog = metrics.NewRequestLog()
 	}
 

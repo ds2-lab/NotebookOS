@@ -273,6 +273,13 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		configFunc(clusterGateway)
 	}
 	config.InitLogger(&clusterGateway.log, clusterGateway)
+
+	if clusterGateway.DebugMode {
+		clusterGateway.log.Debug("Running in DebugMode.")
+	} else {
+		clusterGateway.log.Debug("Not running in DebugMode.")
+	}
+
 	clusterGateway.router = router.New(context.Background(), clusterGateway.connectionOptions, clusterGateway,
 		clusterGateway.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,
 		metrics.ClusterGateway, clusterGateway.DebugMode)
