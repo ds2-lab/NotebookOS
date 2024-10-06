@@ -67,6 +67,10 @@ type AbstractServer struct {
 	// logger
 	Log logger.Logger
 
+	// DebugMode is a config parameter. When enabled, the server will embed metrics.RequestTrace structs
+	// in the first "buffer" frame of Jupyter ZMQ messages.
+	DebugMode bool
+
 	// PrependId is used when sending ACKs. Basically, if this server uses Router sockets, then we need to prepend the ID to the messages.
 	// Some servers use Dealer sockets, which don't need to prepend the ID.
 	PrependId bool
@@ -139,6 +143,9 @@ type AbstractServer struct {
 	// Normally, the message will simply be resubmitted. If PanicOnFirstFailedSend is true, then the server will
 	// instead panic, rather than resend the message.
 	PanicOnFirstFailedSend bool
+
+	// RequestLog is used to track the status/progress of requests when in DebugMode.
+	RequestLog *metrics.RequestLog
 }
 
 func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeType, init func(server *AbstractServer)) *AbstractServer {
@@ -175,6 +182,11 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 		defer conn.Close()
 		localAddr := conn.LocalAddr().(*net.UDPAddr)
 		server.localIpAdderss = localAddr.IP.String()
+	}
+
+	if server.DebugMode {
+		server.Log.Debug("Running in DebugMode.")
+		server.RequestLog = metrics.NewRequestLog()
 	}
 
 	return server
@@ -944,7 +956,11 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 //
 // If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
 // returned, and the boolean returned along with the error is always false.
-func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.JupyterMessage, timestamp time.Time) (*metrics.RequestTrace, bool, error) {
+func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.JupyterMessage, socket *types.Socket, timestamp time.Time) (*metrics.RequestTrace, bool, error) {
+	if !s.DebugMode {
+		return nil, false, fmt.Errorf("DebugMode is not enabled, so the embedding of RequestTraces into ZMQ messages is disabled.s")
+	}
+
 	var (
 		wrapper      *metrics.JupyterRequestTraceFrame
 		requestTrace *metrics.RequestTrace
@@ -973,6 +989,12 @@ func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 
 		// Create the wrapper/frame itself.
 		wrapper = &metrics.JupyterRequestTraceFrame{RequestTrace: requestTrace}
+
+		err := s.RequestLog.AddEntry(msg, socket, requestTrace)
+		if err != nil {
+			s.Log.Error("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
+				socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterParentMessageId(), err)
+		}
 	} else {
 		s.Log.Debug("Extracting Jupyter RequestTrace frame from \"%s\" message.", msg.JupyterMessageType())
 
@@ -1006,6 +1028,32 @@ func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 	return requestTrace, added, nil
 }
 
+// shouldAddRequestTrace returns true if the AbstractServer should embed or update an existing metrics.RequestTrace
+// struct within the first "buffer" frame of a Jupyter message.
+func (s *AbstractServer) shouldAddRequestTrace(msg *types.JupyterMessage, socket *types.Socket) bool {
+	if msg == nil {
+		panic("JupyterMessage is nil when evaluating whether to add RequestTrace.")
+	}
+
+	if socket == nil {
+		panic("Socket is nil when evaluating whether to add RequestTrace.")
+	}
+
+	if !s.DebugMode {
+		return false
+	}
+
+	if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage {
+		return true
+	}
+
+	if socket.Type == types.IOMessage && msg.JupyterMessageType() != "stream" && msg.JupyterMessageType() != "status" {
+		return true
+	}
+
+	return false
+}
+
 // sendRequestWithRetries encapsulates the logic of sending the given types.Request using the given types.Socket
 // in a reliable way; that is, sendRequestWithRetries will resubmit the given types.Request if an ACK is not received
 // within the types.Request's configured timeout window, up to the types.Request's configured maximum number of attempts.
@@ -1019,10 +1067,10 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 	request.SendStarting()
 
 	// We only want to add traces to Shell, Control, and a subset of IOPub messages.
-	if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && (request.JupyterMessageType() != "stream") && (request.JupyterMessageType() != "status")) {
+	if s.shouldAddRequestTrace(request.Payload(), socket) {
 		s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 			socket.Type.String(), request.JupyterMessageType())
-		_, _, err := s.addOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now())
+		_, _, err := s.addOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now())
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
 			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
@@ -1238,13 +1286,13 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 				continue
 			}
 
-			if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && (jMsg.JupyterMessageType() != "stream") && (jMsg.JupyterMessageType() != "status")) {
+			if s.shouldAddRequestTrace(jMsg, socket) {
 				s.Log.Debug("[gid=%d] Poller received new %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\").", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), jMsg.JupyterSession())
 
 				// We only want to add traces to Shell, Control, and a subset of IOPub messages.
 				s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 					socket.Type.String(), jMsg.JupyterMessageType())
-				_, _, err := s.addOrUpdateRequestTraceToJupyterMessage(jMsg, receivedAt)
+				_, _, err := s.addOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt)
 				if err != nil {
 					s.Log.Error("Failed to add RequestTrace to JupyterMessage: %v.", err)
 					panic(err)

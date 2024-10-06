@@ -13,4 +13,6 @@ type CommonOptions struct {
 	SchedulingPolicy               string `name:"scheduling-policy"                json:"scheduling-policy"                 yaml:"scheduling-policy"                   description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
 	HdfsNameNodeEndpoint           string `name:"hdfs-namenode-endpoint"           json:"hdfs-namenode-endpoint"            yaml:"hdfs-namenode-endpoint"              description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
 	SMRPort                        int    `name:"smr-port"                         json:"smr-port"                          yaml:"smr-port"                            description:"Port used by the state machine replication (SMR) protocol."`
+	DebugMode                      bool   `name:"debug_mode"                       json:"debug_mode"                        yaml:"debug_mode"                          description:"Enable the debug HTTP server."`
+	DebugPort                      int    `name:"debug_port"                       json:"debug_port"                        yaml:"debug_port"                          description:"The port for the debug HTTP server."`
 }

@@ -138,7 +138,7 @@ type DistributedKernelClient struct {
 
 func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 	connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-	executionFailedCallback ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
+	debugMode bool, executionFailedCallback ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
 	messagingMetricsProvider metrics.MessagingMetricsProvider) *DistributedKernelClient {
 
 	kernel := &DistributedKernelClient{
@@ -153,6 +153,7 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 			s.ShouldAckMessages = false
 			s.ReconnectOnAckFailure = false
 			s.ComponentId = hostId
+			s.DebugMode = debugMode
 			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
 			s.MessagingMetricsProvider = messagingMetricsProvider
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))

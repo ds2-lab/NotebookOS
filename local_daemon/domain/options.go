@@ -21,7 +21,6 @@ type LocalDaemonOptions struct {
 	JaegerAddr         string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr         string `name:"consul" description:"Consul agent address."`
 	NodeName           string `name:"node_name" description:"Node name used only for debugging in local mode."`
-	DebugMode          bool   `name:"debug_mode" description:"Enable the debug HTTP server."`
 	DebugPort          int    `name:"debug_port" description:"The port for the debug HTTP server."`
 }
 

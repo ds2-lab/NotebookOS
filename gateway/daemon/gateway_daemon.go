@@ -107,6 +107,10 @@ type FailureHandler func(c *client.DistributedKernelClient) error
 type ClusterGatewayImpl struct {
 	sync.Mutex
 
+	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
+	// as the request history.
+	DebugMode bool
+
 	id string
 	// createdAt is the time at which the ClusterGatewayImpl struct was created.
 	createdAt time.Time
@@ -246,6 +250,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		createdAt:                             time.Now(),
 		transport:                             "tcp",
 		ip:                                    opts.IP,
+		DebugMode:                             clusterDaemonOptions.CommonOptions.DebugMode,
 		availablePorts:                        utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
 		kernels:                               hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
 		kernelIdToKernel:                      hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
@@ -269,7 +274,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	}
 	config.InitLogger(&clusterGateway.log, clusterGateway)
 	clusterGateway.router = router.New(context.Background(), clusterGateway.connectionOptions, clusterGateway,
-		clusterGateway.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false, metrics.ClusterGateway)
+		clusterGateway.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,
+		metrics.ClusterGateway, clusterGateway.DebugMode)
 
 	clusterGateway.gatewayPrometheusManager = metrics.NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, clusterGateway)
 	err := clusterGateway.gatewayPrometheusManager.Start()
@@ -1284,7 +1290,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 
 	// Initialize kernel with new context.
 	kernel := client.NewDistributedKernel(context.Background(), in, d.ClusterOptions.NumReplicas, d.id,
-		d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.executionFailed,
+		d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.DebugMode, d.executionFailed,
 		d.executionLatencyCallback, d.gatewayPrometheusManager)
 
 	d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
@@ -1506,8 +1512,8 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, in.ConnectionInfo.ConnectionInfo(),
 		d.id, false, d.numResendAttempts, -1, -1, in.PodName, in.NodeName,
 		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
-		host, metrics.ClusterGateway, true, true, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
-		d.kernelRequestResubmissionFailedAfterReconnection)
+		host, metrics.ClusterGateway, true, true, d.DebugMode, d.gatewayPrometheusManager,
+		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 	err := replica.Validate()
 	if err != nil {
@@ -1705,7 +1711,8 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, connectionInfo.ConnectionInfo(), d.id,
 		false, d.numResendAttempts, -1, -1, kernelPodName, nodeName, nil,
 		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
-		true, true, d.gatewayPrometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		true, true, d.DebugMode, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
+		d.kernelRequestResubmissionFailedAfterReconnection)
 
 	session, ok := d.cluster.Sessions().Load(kernelId)
 	if !ok {
@@ -1775,6 +1782,78 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 
 	waitGroup.Notify()
 	return response, nil
+}
+
+// QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
+// and what the status of that message is (i.e., sent, response received, etc.)
+func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMessageRequest) (*proto.QueryMessageResponse, error) {
+	if !d.DebugMode {
+		d.log.Warn("Received QueryMessage request, but we're not running in DebugMode.")
+		return nil, status.Errorf(codes.Internal, "DebugMode is not enabled; cannot query messages")
+	}
+
+	if in.MessageId == "" {
+		d.log.Warn("QueryMessage request did not contain a Message ID.")
+		return nil, status.Errorf(codes.InvalidArgument,
+			"you must specify a Jupyter message ID when querying for the status of a particular message")
+	}
+
+	requestLog := d.router.RequestLog()
+	entry, loaded := requestLog.EntriesByJupyterMsgId.Load(in.MessageId)
+	if !loaded {
+		d.log.Warn("No request log entry found for request with Jupyter message ID \"%s\"", in.MessageId)
+		return &proto.QueryMessageResponse{
+			MessageId:               in.MessageId,
+			MessageType:             in.MessageType,
+			KernelId:                in.KernelId,
+			GatewayReceivedRequest:  -1,
+			GatewayForwardedRequest: -1,
+			GatewayReceivedReply:    -1,
+			GatewayForwardedReply:   -1,
+		}, nil
+	}
+
+	// Make sure the Jupyter message types match (if the caller specified a Jupyter message type).
+	if in.MessageType != "" && in.MessageType != entry.JupyterMessageType {
+		d.log.Warn("Found request log entry for request with Jupyter message ID \"%s\", but request had type \"%s\" whereas the request type is \"%s\"",
+			in.MessageId, entry.JupyterMessageType, in.MessageType)
+		return nil, status.Errorf(codes.InvalidArgument,
+			"found request log entry for request with Jupyter message ID \"%s\", but request had type \"%s\" whereas the request type is \"%s\"",
+			in.MessageId, entry.JupyterMessageType, in.MessageType)
+	}
+
+	// Make sure the Kernel IDs types match (if the caller specified a Jupyter kernel ID).
+	if in.KernelId != "" && in.KernelId != entry.KernelId {
+		d.log.Warn("Found request log entry for request with Jupyter message ID \"%s\", but request is targeting kernel \"%s\" whereas the specified kernel ID is \"%s\"",
+			in.MessageId, entry.KernelId, in.KernelId)
+		return nil, status.Errorf(codes.InvalidArgument,
+			"found request log entry for request with Jupyter message ID \"%s\", but request is targeting kernel \"%s\" whereas the specified kernel ID is \"%s\"",
+			in.MessageId, entry.KernelId, in.KernelId)
+	}
+
+	// Make sure that the RequestTrace is non-nil. If it is, then we'll panic.
+	requestTrace := entry.RequestTrace
+	if requestTrace == nil {
+		errorMessage := fmt.Sprintf("RequestTrace field of RequestLogEntry for request \"%s\" of type \"%s\" targeting kernel \"%s\" is nil.",
+			in.MessageId, entry.JupyterMessageType, entry.KernelId)
+		d.notifyDashboardOfError("RequestLogEntry's RequestTrace Field is Nil", errorMessage)
+		panic(utils.RedStyle.Render(errorMessage))
+	}
+
+	d.log.Debug("Received QueryMessage request for Jupyter %s \"%s\" request with JupyterID=\"%s\" targeting kernel \"%s\"",
+		entry.MessageType.String(), entry.JupyterMessageType, entry.JupyterMessageId, entry.KernelId)
+	// Build the response.
+	resp := &proto.QueryMessageResponse{
+		MessageId:               in.MessageId,
+		MessageType:             entry.JupyterMessageType, // Use the field on the entry, as the caller may not have specified this
+		KernelId:                entry.KernelId,           // Use the field on the entry, as the caller may not have specified this
+		GatewayReceivedRequest:  requestTrace.RequestReceivedByGateway,
+		GatewayForwardedRequest: requestTrace.RequestSentByGateway,
+		GatewayReceivedReply:    requestTrace.ReplyReceivedByGateway,
+		GatewayForwardedReply:   requestTrace.ReplySentByGateway,
+	}
+
+	return resp, nil
 }
 
 // RegisterDashboard is called by the internalCluster Dashboard backend server to both verify that a connection has been

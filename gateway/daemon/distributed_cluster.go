@@ -279,3 +279,9 @@ func (dc *DistributedCluster) ClusterAge(ctx context.Context, in *proto.Void) (*
 func (dc *DistributedCluster) ModifyClusterNodes(ctx context.Context, in *proto.ModifyClusterNodesRequest) (*proto.ModifyClusterNodesResponse, error) {
 	return dc.gatewayDaemon.ModifyClusterNodes(ctx, in)
 }
+
+// QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
+// and what the status of that message is (i.e., sent, response received, etc.)
+func (dc *DistributedCluster) QueryMessage(ctx context.Context, in *proto.QueryMessageRequest) (*proto.QueryMessageResponse, error) {
+	return dc.gatewayDaemon.QueryMessage(ctx, in)
+}

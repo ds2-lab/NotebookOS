@@ -487,6 +487,11 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.GetLocalDaemonNodeIDsResponse.FromString,
                 _registered_method=True)
+        self.QueryMessage = channel.unary_unary(
+                '/gateway.DistributedCluster/QueryMessage',
+                request_serializer=gateway__pb2.QueryMessageRequest.SerializeToString,
+                response_deserializer=gateway__pb2.QueryMessageResponse.FromString,
+                _registered_method=True)
 
 
 class DistributedClusterServicer(object):
@@ -672,6 +677,14 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def QueryMessage(self, request, context):
+        """QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
+        and what the status of that message is (i.e., sent, response received, etc.)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DistributedClusterServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -779,6 +792,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.GetLocalDaemonNodeIDs,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.GetLocalDaemonNodeIDsResponse.SerializeToString,
+            ),
+            'QueryMessage': grpc.unary_unary_rpc_method_handler(
+                    servicer.QueryMessage,
+                    request_deserializer=gateway__pb2.QueryMessageRequest.FromString,
+                    response_serializer=gateway__pb2.QueryMessageResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1350,6 +1368,33 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/GetLocalDaemonNodeIDs',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.GetLocalDaemonNodeIDsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def QueryMessage(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/QueryMessage',
+            gateway__pb2.QueryMessageRequest.SerializeToString,
+            gateway__pb2.QueryMessageResponse.FromString,
             options,
             channel_credentials,
             insecure,

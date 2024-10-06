@@ -82,6 +82,10 @@ type SchedulerDaemonImpl struct {
 	id       string
 	nodeName string
 
+	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
+	// as the request history.
+	DebugMode bool
+
 	virtualGpuPluginServer device.VirtualGpuPluginServer
 
 	schedulingPolicy string
@@ -224,6 +228,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		hdfsNameNodeEndpoint:               schedulerDaemonOptions.HdfsNameNodeEndpoint,
 		dockerStorageBase:                  schedulerDaemonOptions.DockerStorageBase,
 		usingWSL:                           schedulerDaemonOptions.UsingWSL,
+		DebugMode:                          schedulerDaemonOptions.CommonOptions.DebugMode,
 		prometheusInterval:                 time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
 		prometheusPort:                     schedulerDaemonOptions.PrometheusPort,
 		numResendAttempts:                  schedulerDaemonOptions.NumResendAttempts,
@@ -241,7 +246,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	config.InitLogger(&daemon.log, daemon)
 
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, daemon.MessageAcknowledgementsEnabled,
-		fmt.Sprintf("LocalDaemon_%s", nodeName), true, metrics.LocalDaemon)
+		fmt.Sprintf("LocalDaemon_%s", nodeName), true, metrics.LocalDaemon, daemon.DebugMode)
 
 	if daemon.numResendAttempts <= 0 {
 		daemon.log.Error("Invalid number of message resend attempts specified: %d. Defaulting to %d.",
@@ -724,8 +729,8 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id, true,
 			d.numResendAttempts, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName,
 			d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "",
-			d.id, nil, metrics.LocalDaemon, false, false, d.prometheusManager, d.kernelReconnectionFailed,
-			d.kernelRequestResubmissionFailedAfterReconnection)
+			d.id, nil, metrics.LocalDaemon, false, false, d.DebugMode,
+			d.prometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 		kernelConnectionInfo, err = d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
 		if err != nil {
@@ -1529,7 +1534,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, true, d.numResendAttempts,
 		listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
 		d.MessageAcknowledgementsEnabled, "", d.id, nil, metrics.LocalDaemon, false,
-		false, d.prometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
 
 	d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
 		in.ReplicaId, kernel.ID(), listenPorts)

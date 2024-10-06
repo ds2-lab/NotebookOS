@@ -133,7 +133,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	addSourceKernelFrames bool, numResendAttempts int, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool,
 	persistentId string, hostId string, host *scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
-	messagingMetricsProvider metrics.MessagingMetricsProvider, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback,
+	debugMode bool, messagingMetricsProvider metrics.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
@@ -167,7 +167,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		hostId:                               hostId,
 		pendingExecuteRequestIds:             hashmap.NewCornelkMap[string, *types.JupyterMessage](64),
 		isGatewayClient:                      isGatewayClient,
-		connectionRevalidationFailedCallback: connectionRevalidationFailedCallback,
+		connectionRevalidationFailedCallback: connRevalFailedCallback,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
 		client: server.New(ctx, info, nodeType, func(s *server.AbstractServer) {
 			var remoteComponentName string
@@ -188,6 +188,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
 			s.MessagingMetricsProvider = messagingMetricsProvider
 			s.Name = fmt.Sprintf("KernelReplicaClient-%s", spec.Kernel.Id)
+			s.DebugMode = debugMode
 
 			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */
 			s.ShouldAckMessages = shouldAckMessages

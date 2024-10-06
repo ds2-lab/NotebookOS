@@ -86,7 +86,7 @@ func main() {
 
 	logger.Info("Starting Cluster Gateway with the following options: %v", options)
 
-	if options.DebugMode {
+	if options.ClusterDaemonOptions.CommonOptions.DebugMode {
 		go createAndStartDebugHttpServer()
 	}
 

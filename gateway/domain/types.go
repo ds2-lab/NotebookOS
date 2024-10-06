@@ -39,7 +39,7 @@ func (k MetadataKey) String() string {
 type ClusterDaemonOptions struct {
 	scheduling.ClusterSchedulerOptions `yaml:",inline"`
 	configuration.CommonOptions        `yaml:",inline"`
-	
+
 	LocalDaemonServiceName        string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
 	LocalDaemonServicePort        int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
 	GlobalDaemonServiceName       string `name:"global-daemon-service-name"       json:"global-daemon-service-name"        yaml:"global-daemon-service-name"          description:"Name of the Kubernetes service that manages the global networking of local daemons."`
@@ -120,8 +120,6 @@ type ClusterGatewayOptions struct {
 	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
 	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr      string `name:"consul" description:"Consul agent address."`
-	DebugMode       bool   `name:"debug_mode" description:"Enable the debug HTTP server."`
-	DebugPort       int    `name:"debug_port" description:"The port for the debug HTTP server."`
 	// DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
 }
 

@@ -83,7 +83,7 @@ func main() {
 
 	logger.Info("Starting local daemon (scheduler daemon) with options: %v", options)
 
-	if options.DebugMode {
+	if options.SchedulerDaemonOptions.CommonOptions.DebugMode {
 		go createAndStartDebugHttpServer()
 	}
 

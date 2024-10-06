@@ -133,6 +133,46 @@ service DistributedCluster {
 
   // GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
   rpc GetLocalDaemonNodeIDs(Void) returns (GetLocalDaemonNodeIDsResponse) {}
+
+  // QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
+  // and what the status of that message is (i.e., sent, response received, etc.)
+  rpc QueryMessage(QueryMessageRequest) returns (QueryMessageResponse) {}
+}
+
+// QueryMessageRequest is passed to the MessageExists gRPC function.
+//
+// It encapsulates a request concerning the existence/status of a particular ZMQ message.
+message QueryMessageRequest {
+  // The Jupyter message ID.
+  string messageId = 1;
+  // The Jupyter message type.
+  string messageType = 2;
+  // The target kernel.
+  string kernelId = 3;
+}
+
+// QueryMessageResponse is returned by the gRPC function.
+//
+// It encodes the existence/status of the specified or requested ZMQ message.
+message QueryMessageResponse {
+  // The Jupyter message ID.
+  string messageId = 1;
+  // The Jupyter message type.
+  string messageType = 2;
+  // The target kernel.
+  string kernelId = 3;
+  // GatewayReceivedRequest is the unix milliseconds at which the gateway received the request (from the Jupyter server).
+  // If -1, then the gateway never received the request.
+  int64 gatewayReceivedRequest = 4;
+  // GatewayForwardedRequest is the unix milliseconds at which the gateway forwarded the request to the local daemon(s).
+  // If -1, then the gateway never received the request.
+  int64 gatewayForwardedRequest = 5;
+  // GatewayReceivedReply is the unix milliseconds at which the gateway received the reply of the requested message.
+  // If -1, then the gateway never received the reply.
+  int64 gatewayReceivedReply = 6;
+  // GatewayForwardedReply is the unix milliseconds at which the gateway forwarded the reply of the requested message.
+  // If -1, then the gateway never forwarded the reply.
+  int64 gatewayForwardedReply = 7;
 }
 
 // gRPC service provided by the Dashboard and "used" by the Cluster Gateway
