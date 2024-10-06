@@ -155,24 +155,7 @@ message QueryMessageRequest {
 //
 // It encodes the existence/status of the specified or requested ZMQ message.
 message QueryMessageResponse {
-  // The Jupyter message ID.
-  string messageId = 1;
-  // The Jupyter message type.
-  string messageType = 2;
-  // The target kernel.
-  string kernelId = 3;
-  // GatewayReceivedRequest is the unix milliseconds at which the gateway received the request (from the Jupyter server).
-  // If -1, then the gateway never received the request.
-  int64 gatewayReceivedRequest = 4;
-  // GatewayForwardedRequest is the unix milliseconds at which the gateway forwarded the request to the local daemon(s).
-  // If -1, then the gateway never received the request.
-  int64 gatewayForwardedRequest = 5;
-  // GatewayReceivedReply is the unix milliseconds at which the gateway received the reply of the requested message.
-  // If -1, then the gateway never received the reply.
-  int64 gatewayReceivedReply = 6;
-  // GatewayForwardedReply is the unix milliseconds at which the gateway forwarded the reply of the requested message.
-  // If -1, then the gateway never forwarded the reply.
-  int64 gatewayForwardedReply = 7;
+  RequestTrace requestTrace = 1;
 }
 
 // gRPC service provided by the Dashboard and "used" by the Cluster Gateway
@@ -384,6 +367,23 @@ message Pong {
   string id = 1;
   bool success = 2;
   string msg = 3; // For adding extra details if the ping fails.
+  optional RequestTrace requestTrace = 4;
+}
+
+message RequestTrace {
+  string messageId = 1;
+  string messageType = 2;
+  string kernelId = 3;
+  int64 requestReceivedByGateway = 4;
+  int64 requestSentByGateway = 5;
+  int64 requestReceivedByLocalDaemon = 6;
+  int64 requestSentByLocalDaemon = 7;
+  int64 requestReceivedByKernelReplica = 8;
+  int64 replySentByKernelReplica = 9;
+  int64 replyReceivedByLocalDaemon = 10;
+  int64 replySentByLocalDaemon = 11;
+  int64 replyReceivedByGateway = 12;
+  int64 replySentByGateway = 13;
 }
 
 message PingInstruction {

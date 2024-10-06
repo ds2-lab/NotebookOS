@@ -1,4 +1,4 @@
-package metrics
+package proto
 
 import (
 	"encoding/json"
@@ -29,36 +29,6 @@ func (f *JupyterRequestTraceFrame) String() string {
 	return string(m)
 }
 
-type RequestTrace struct {
-	// MessageId is the Jupyter message ID of the associated request.
-	MessageId string `json:"msg_id"`
-
-	// MessageType is the Jupyter message type of the associated request.
-	MessageType string `json:"msg_type"`
-
-	// KernelId is the ID of the kernel that is the target recipient of the associated request.
-	KernelId string `json:"kernel_id"`
-
-	// ReplicaId is the ID of the particular kernel replica that received this trace.
-	// ReplicaId int32 `json:"replica_id"`
-
-	// RequestReceivedByGateway is the time at which the associated Request was received by the Cluster Gateway.
-	RequestReceivedByGateway int64 `json:"request_received_by_gateway"`
-
-	// RequestReceivedByGateway is the time at which the associated Request was forwarded to the Local Daemons
-	// by the Cluster Gateway.
-	RequestSentByGateway int64 `json:"request_sent_by_gateway"`
-
-	RequestReceivedByLocalDaemon   int64 `json:"request_received_by_local_daemon"`
-	RequestSentByLocalDaemon       int64 `json:"request_sent_by_local_daemon"`
-	RequestReceivedByKernelReplica int64 `json:"request_received_by_kernel_replica"`
-	ReplySentByKernelReplica       int64 `json:"reply_sent_by_kernel_replica"`
-	ReplyReceivedByLocalDaemon     int64 `json:"reply_received_by_local_daemon"`
-	ReplySentByLocalDaemon         int64 `json:"reply_sent_by_local_daemon"`
-	ReplyReceivedByGateway         int64 `json:"reply_received_by_gateway"`
-	ReplySentByGateway             int64 `json:"reply_sent_by_gateway"`
-}
-
 // NewRequestTrace creates a new RequestTrace and returns a pointer to it.
 //
 // The RequestTrace struct has all of its timing fields initialized to -1.
@@ -75,15 +45,6 @@ func NewRequestTrace() *RequestTrace {
 		ReplySentByLocalDaemon:         DefaultTraceTimingValue,
 		ReplyReceivedByLocalDaemon:     DefaultTraceTimingValue,
 	}
-}
-
-func (rt *RequestTrace) String() string {
-	m, err := json.Marshal(rt)
-	if err != nil {
-		panic(err)
-	}
-
-	return string(m)
 }
 
 // PopulateNextField populates the next field with the given unix milliseconds timestamp and returns true.

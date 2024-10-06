@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"io"
 	"log"
 	"math"
@@ -956,14 +957,14 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 //
 // If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
 // returned, and the boolean returned along with the error is always false.
-func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.JupyterMessage, socket *types.Socket, timestamp time.Time) (*metrics.RequestTrace, bool, error) {
+func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.JupyterMessage, socket *types.Socket, timestamp time.Time) (*proto.RequestTrace, bool, error) {
 	if !s.DebugMode {
 		return nil, false, fmt.Errorf("DebugMode is not enabled, so the embedding of RequestTraces into ZMQ messages is disabled.s")
 	}
 
 	var (
-		wrapper      *metrics.JupyterRequestTraceFrame
-		requestTrace *metrics.RequestTrace
+		wrapper      *proto.JupyterRequestTraceFrame
+		requestTrace *proto.RequestTrace
 		added        bool
 	)
 
@@ -979,7 +980,7 @@ func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 
 		// The metadata did not already contain a RequestTrace.
 		// Let's first create one.
-		requestTrace = metrics.NewRequestTrace()
+		requestTrace = proto.NewRequestTrace()
 		added = true
 
 		// Then we'll populate the sort of metadata fields of the RequestTrace.
@@ -988,7 +989,7 @@ func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 		requestTrace.KernelId = msg.JupyterSession()
 
 		// Create the wrapper/frame itself.
-		wrapper = &metrics.JupyterRequestTraceFrame{RequestTrace: requestTrace}
+		wrapper = &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
 
 		err := s.RequestLog.AddEntry(msg, socket, requestTrace)
 		if err != nil {

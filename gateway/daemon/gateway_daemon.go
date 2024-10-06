@@ -600,7 +600,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	if d.DebugMode {
 		frames = append(frames, make([]byte, 0))
 
-		requestTrace := metrics.NewRequestTrace()
+		requestTrace := proto.NewRequestTrace()
 
 		// Then we'll populate the sort of metadata fields of the RequestTrace.
 		requestTrace.MessageId = msgId
@@ -609,7 +609,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		requestTrace.RequestReceivedByGateway = receivedAt.UnixMilli()
 
 		// Create the wrapper/frame itself.
-		wrapper := &metrics.JupyterRequestTraceFrame{RequestTrace: requestTrace}
+		wrapper := &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
 
 		marshalledFrame, err := json.Marshal(&wrapper)
 		if err != nil {
@@ -621,7 +621,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		frames[jupyter.JupyterFrameRequestTrace] = marshalledFrame
 	}
 
-	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
+	msg.Frames, err = frames[0:jupyter.JupyterFrameRequestTrace].SignByConnectionInfo(kernel.ConnectionInfo())
 	if err != nil {
 		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v", kernelId, kernel.ConnectionInfo().SignatureScheme, err)
 		return &proto.Pong{
@@ -1882,13 +1882,7 @@ func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMess
 		entry.MessageType.String(), entry.JupyterMessageType, entry.JupyterMessageId, entry.KernelId)
 	// Build the response.
 	resp := &proto.QueryMessageResponse{
-		MessageId:               in.MessageId,
-		MessageType:             entry.JupyterMessageType, // Use the field on the entry, as the caller may not have specified this
-		KernelId:                entry.KernelId,           // Use the field on the entry, as the caller may not have specified this
-		GatewayReceivedRequest:  requestTrace.RequestReceivedByGateway,
-		GatewayForwardedRequest: requestTrace.RequestSentByGateway,
-		GatewayReceivedReply:    requestTrace.ReplyReceivedByGateway,
-		GatewayForwardedReply:   requestTrace.ReplySentByGateway,
+		RequestTrace: requestTrace,
 	}
 
 	return resp, nil

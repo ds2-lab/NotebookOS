@@ -6,6 +6,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"sync"
 )
@@ -46,7 +47,7 @@ func NewRequestLog() *RequestLog {
 }
 
 // AddEntry adds a RequestLogEntry to the RequestLog for the specified JupyterMessage.
-func (l *RequestLog) AddEntry(msg *types.JupyterMessage, socket *types.Socket, trace *RequestTrace) error {
+func (l *RequestLog) AddEntry(msg *types.JupyterMessage, socket *types.Socket, trace *proto.RequestTrace) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -96,5 +97,5 @@ type RequestLogEntry struct {
 	MessageType        types.MessageType
 	KernelId           string
 
-	RequestTrace *RequestTrace
+	RequestTrace *proto.RequestTrace
 }

@@ -637,8 +637,8 @@ class DistributedKernel(IPythonKernel):
             return
         content = {"status": "ok"}
         content.update(self.kernel_info)
-        buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
-        msg = self.session.send(stream, "kernel_info_reply", content, parent, ident, buffers = buffers)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        msg = self.session.send(stream, "kernel_info_reply", content, parent, ident, buffers=buffers)
         self.log.debug(f"Sent \"kernel_info_reply\" message: {msg}")
 
     async def dispatch_shell(self, msg):
@@ -784,7 +784,7 @@ class DistributedKernel(IPythonKernel):
         sys.stdout.flush()
 
         buffers: dict[str, Any] = msg.get("buffers", {})
-        buffers = self.decode_buffers(buffers)
+        buffers = self.decode_request_trace_from_buffers(buffers)
         if "request_trace" in buffers:
             request_trace = buffers["request_trace"]
             request_trace["request_received_by_kernel_replica"] = received_at
@@ -948,12 +948,12 @@ class DistributedKernel(IPythonKernel):
 
         self.next_execute_request_msg_id: str = parent_header["msg_id"]
         self.next_execute_request_buffers: str = parent.get("buffers", {})
-        self.next_execute_request_buffers = self.decode_buffers(self.next_execute_request_buffers)
+        self.next_execute_request_buffers = self.decode_request_trace_from_buffers(self.next_execute_request_buffers)
 
         self.log.debug("parent: %s", str(parent))
         self.log.debug("ident: %s" % str(ident))
 
-        buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, self.shell_received_at)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, self.shell_received_at)
 
         await super().execute_request(stream, ident, parent)
 
@@ -986,7 +986,7 @@ class DistributedKernel(IPythonKernel):
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
         """ Respond to a 'ping kernel' Control request. """
         self.log.debug("Ping-Kernel (CONTROL) received.")
-        buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "ping_reply",
@@ -1019,7 +1019,7 @@ class DistributedKernel(IPythonKernel):
     async def ping_kernel_shell_request(self, stream, ident, parent):
         """ Respond to a 'ping kernel' Shell request. """
         self.log.debug("Ping-Kernel (SHELL) received.")
-        buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "ping_reply",
@@ -1080,7 +1080,7 @@ class DistributedKernel(IPythonKernel):
         reply_content: Dict[str, Any] = {}
         error_occurred: bool = False  # Separate flag, since we raise an exception and generate an error response when we yield successfully.
 
-        buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, self.shell_received_at)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, self.shell_received_at)
 
         parent_header: dict[str, Any] = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
@@ -1152,7 +1152,7 @@ class DistributedKernel(IPythonKernel):
                     f"I've been selected to lead this execution ({self.shell.execution_count}), but I'm supposed to yield!")
 
                 buffers = parent.get("buffers", {})
-                buffers = self.decode_buffers(buffers)
+                buffers = self.decode_request_trace_from_buffers(buffers)
                 if "request_trace" in buffers:
                     request_trace = buffers["request_trace"]
                     request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
@@ -1314,7 +1314,8 @@ class DistributedKernel(IPythonKernel):
                 request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
 
             self.session.send(self.iopub_socket, SMR_LEAD_TASK, content,
-                              ident=self._topic(SMR_LEAD_TASK), buffers = self.next_execute_request_buffers)  # type: ignore
+                              ident=self._topic(SMR_LEAD_TASK),
+                              buffers=self.next_execute_request_buffers)  # type: ignore
 
             self.log.debug("Executing the following code now: %s" % code)
 
@@ -1559,7 +1560,7 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Sending 'prepare_to_migrate_reply' response now.")
 
-        buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         sent_message = self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident,
                                          buffers=buffers)
 
@@ -1582,53 +1583,70 @@ class DistributedKernel(IPythonKernel):
             self.log.error("A replica fails to join: {}...".format(e))
             return gen_error_response(e), False
 
-    def decode_buffers(self, buffers):
+    def decode_request_trace_from_buffers(self, buffers):
+        """
+        Attempt to decode a RequestTrace from the first buffers frame.
+
+        If the decoding is successful, then the RequestTrace is converted back to a list[bytes].
+        """
         if isinstance(buffers, list):
-            self.log.debug(f"Buffers is a list: {buffers}")
-            buffers = buffers[0]
+            if len(buffers) > 0:
+                self.log.debug(f"Buffers is a list: {buffers}")
+                buffers = buffers[0]
+            else:
+                self.log.debug(f"Buffers is an empty list")
+                return buffers
+
+            self.log.debug(f"0th element of the buffers list: {buffers}")
 
         if isinstance(buffers, memoryview):
             buffers_bytes: bytes = buffers.tobytes()
-            buffers_string: str = str(buffers_bytes)
+            buffers_string: str = buffers_bytes.decode('utf-8')
+            self.log.debug(f"Contents of buffers (memoryview->decoded utf-8 string): {buffers_string}")
+        elif isinstance(buffers, bytes):
+            buffers_string: str = buffers.decode('utf-8')
+            self.log.debug(f"Contents of buffers (decoded utf-8 string): {buffers_string}")
         else:
             buffers_string: str = str(buffers)
-
-        self.log.debug(f"Contents of buffers (as string): {buffers_string}")
+            self.log.debug(f"Contents of buffers (as string): {buffers_string}")
 
         try:
             buffers_json = json.loads(buffers_string)
-            self.log.debug(f"Contents of buffers after JSON decoding: {buffers}")
+            self.log.debug(f"Contents of buffers after JSON decoding: {buffers_json}")
             return buffers_json
         except json.decoder.JSONDecodeError as ex:
-            self.log.warn(f"Failed to decode buffers using JSON because: {ex}")
+            self.log.warning(f"Failed to decode buffers using JSON because: {ex}")
 
         return buffers
 
-    def extract_and_return_request_trace(self, msg: dict[str, Any], received_at: float)->Optional[dict[str, Any]]:
+    def extract_and_process_request_trace(self, msg: dict[str, Any], received_at: float) -> Optional[list[bytes]]:
         """
         Attempt to extract the RequestTrace dictionary from the (first) buffers frame of the request.
 
         If successful, populate the RequestTrace with an "request_received_by_kernel_replica" entry or an
         "reply_sent_by_kernel_replica" entry depending on whether a positive value was passed for the
-        received_at argument.
+        received_at argument. Then, re-encode the RequestTrace and return a value in the Buffers format that
+        can be directly passed to the Session class' send method.
 
         Returns:
-            The buffers frame (as a dictionary) if one was extracted from the given message.
+            If the extraction of the request trace was successful, then a value in the Buffers format that
+            can be directly passed to the Session class' send method.
 
             Otherwise, this returns None.
         """
         buffers: dict[str, Any] = msg.get("buffers", {})
-        buffers = self.decode_buffers(buffers)
+        request_trace_frame = self.decode_request_trace_from_buffers(buffers)
 
-        if isinstance(buffers, dict) and "request_trace" in buffers:
+        if isinstance(buffers, dict) and "request_trace" in request_trace_frame:
             request_trace: dict[str, Any] = buffers["request_trace"]
 
             if received_at > 0:
                 request_trace["request_received_by_kernel_replica"] = received_at
             else:
-                request_trace["reply_sent_by_kernel_replica"] = time.time()* 1.0e3
+                request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
 
-            return request_trace
+            request_trace_encoded:str = json.dumps(request_trace)
+            return [request_trace_encoded.encode('utf-8')]
 
         return None
 
@@ -1649,7 +1667,7 @@ class DistributedKernel(IPythonKernel):
         if 'id' not in params or 'addr' not in params:
             err_content: dict = gen_error_response(err_invalid_request)
 
-            buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
             self.session.send(stream, "add_replica_reply", err_content, parent, ident=ident, buffers=buffers)
             return
 
@@ -1658,7 +1676,7 @@ class DistributedKernel(IPythonKernel):
         if success:
             self.log.debug("Notifying session that SMR node was added.")
 
-            buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
             self.session.send(self.iopub_socket, "smr_node_added",
                               {"success": True, "persistent_id": self.persistent_id, "id": params[
                                   'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
@@ -1666,13 +1684,13 @@ class DistributedKernel(IPythonKernel):
         else:
             self.log.debug("Notifying session that SMR node addition failed.")
 
-            buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
             self.session.send(self.iopub_socket, "smr_node_added",
                               {"success": False, "persistent_id": self.persistent_id, "id": params[
                                   'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
                               ident=self._topic("smr_node_added"), buffers=buffers)  # type: ignore
 
-        buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         self.session.send(stream, "add_replica_reply", content, parent, ident=ident, buffers=buffers)  # type: ignore
 
     async def do_update_replica(self, replicaId, addr) -> tuple:
@@ -1722,7 +1740,7 @@ class DistributedKernel(IPythonKernel):
         if success:
             self.log.debug("Notifying session that SMR node was updated.")
 
-            buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
             self.session.send(self.iopub_socket, "smr_node_updated",
                               {"success": True, "persistent_id": self.persistent_id, "id": params[
                                   'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
@@ -1730,13 +1748,13 @@ class DistributedKernel(IPythonKernel):
         else:
             self.log.debug("Notifying session that SMR node update failed.")
 
-            buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
             self.session.send(self.iopub_socket, "smr_node_updated",
                               {"success": False, "persistent_id": self.persistent_id, "id": params[
                                   'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
                               ident=self._topic("smr_node_updated"), buffers=buffers)  # type: ignore
 
-        buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         self.session.send(stream, "update_replica_reply",
                           content, parent, ident=ident, buffers=buffers)  # type: ignore
 
