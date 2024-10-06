@@ -237,7 +237,6 @@ class DistributedKernel(IPythonKernel):
         # Used to create strong references to tasks, such as notifying peer replicas that execution has complete.
         self.background_tasks = set()
         self.next_execute_request_msg_id: Optional[str] = None
-        self.next_execute_request_buffers: Optional[dict[str, Any]] = None
         self.old_run_cell = None
         self.daemon_registration_socket = None
         self.prometheus_thread = None
@@ -783,11 +782,12 @@ class DistributedKernel(IPythonKernel):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        buffers: dict[str, Any] = msg.get("buffers", {})
-        buffers = self.decode_request_trace_from_buffers(buffers)
-        if "request_trace" in buffers:
-            request_trace = buffers["request_trace"]
-            request_trace["request_received_by_kernel_replica"] = received_at
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(msg, received_at)
+        # buffers: dict[str, Any] = msg.get("buffers", {})
+        # buffers = self.decode_request_trace_from_buffers(buffers)
+        # if "request_trace" in buffers:
+        #     request_trace = buffers["request_trace"]
+        #     request_trace["request_received_by_kernel_replica"] = received_at
 
         # Set the parent message for side effects.
         self.set_parent(idents, msg, channel="control")
@@ -945,10 +945,6 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug(
             f"execute_request with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
-
-        self.next_execute_request_msg_id: str = parent_header["msg_id"]
-        self.next_execute_request_buffers: str = parent.get("buffers", {})
-        self.next_execute_request_buffers = self.decode_request_trace_from_buffers(self.next_execute_request_buffers)
 
         self.log.debug("parent: %s", str(parent))
         self.log.debug("ident: %s" % str(ident))
@@ -1151,11 +1147,12 @@ class DistributedKernel(IPythonKernel):
                 self.log.error(
                     f"I've been selected to lead this execution ({self.shell.execution_count}), but I'm supposed to yield!")
 
-                buffers = parent.get("buffers", {})
-                buffers = self.decode_request_trace_from_buffers(buffers)
-                if "request_trace" in buffers:
-                    request_trace = buffers["request_trace"]
-                    request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
+                buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+                # buffers = parent.get("buffers", {})
+                # buffers = self.decode_request_trace_from_buffers(buffers)
+                # if "request_trace" in buffers:
+                #     request_trace = buffers["request_trace"]
+                #     request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
 
                 # Notify the client that we will lead the execution (which is bad, in this case, as we were supposed to yield.)
                 self.session.send(self.iopub_socket, "smr_lead_after_yield",
@@ -1188,9 +1185,11 @@ class DistributedKernel(IPythonKernel):
         reply_content: dict[str, Any] = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
-        if "request_trace" in buffers:
-            request_trace = buffers["request_trace"]
-            request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
+        # if "request_trace" in buffers:
+        #     request_trace = buffers["request_trace"]
+        #     request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "execute_reply",
@@ -1309,13 +1308,8 @@ class DistributedKernel(IPythonKernel):
                 "execute_request_msg_id": self.next_execute_request_msg_id
             }
 
-            if "request_trace" in self.next_execute_request_buffers:
-                request_trace = self.next_execute_request_buffers["request_trace"]
-                request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
-
             self.session.send(self.iopub_socket, SMR_LEAD_TASK, content,
-                              ident=self._topic(SMR_LEAD_TASK),
-                              buffers=self.next_execute_request_buffers)  # type: ignore
+                              ident=self._topic(SMR_LEAD_TASK))  # type: ignore
 
             self.log.debug("Executing the following code now: %s" % code)
 
@@ -1377,6 +1371,8 @@ class DistributedKernel(IPythonKernel):
             return gen_error_response(eye)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
+
+            self.report_error("Execution Error", str(e))
 
             return gen_error_response(e)
 

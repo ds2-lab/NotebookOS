@@ -971,8 +971,8 @@ func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 	jupyterFrames := types.JupyterFrames(msg.Frames)
 	if len(jupyterFrames[msg.Offset:]) <= types.JupyterFrameRequestTrace {
 		for len(jupyterFrames[msg.Offset:]) <= types.JupyterFrameRequestTrace {
-			s.Log.Debug("Jupyter \"%s\" request has just %d frames. Adding additional frame. Offset: %d.",
-				msg.JupyterMessageType(), len(msg.Frames), msg.Offset)
+			s.Log.Debug("Jupyter \"%s\" request has just %d frames (after skipping identities frame). Adding additional frame. Offset: %d.",
+				msg.JupyterMessageType(), len(msg.Frames[msg.Offset:]), msg.Offset)
 
 			// If the request doesn't already have a JupyterFrameRequestTrace frame, then we'll add one.
 			jupyterFrames = append(jupyterFrames, make([]byte, 0))
@@ -994,7 +994,7 @@ func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 		err := s.RequestLog.AddEntry(msg, socket, requestTrace)
 		if err != nil {
 			s.Log.Error("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
-				socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterParentMessageId(), err)
+				socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
 		}
 
 		s.Log.Debug("Added RequestTrace to Jupyter \"%s\" message.", msg.JupyterMessageType())
