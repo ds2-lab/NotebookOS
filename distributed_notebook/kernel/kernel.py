@@ -246,6 +246,7 @@ class DistributedKernel(IPythonKernel):
         self.kernel_notification_service_channel: Optional[grpc.Channel] = None
         self.kernel_notification_service_stub: Optional[KernelErrorReporterStub] = None
         self.message_acknowledgements_enabled: bool = True  # default to True
+        self.shell_received_at: float = None
 
         # Prometheus metrics.
         self.num_yield_proposals: Counter = Counter(
@@ -630,9 +631,18 @@ class DistributedKernel(IPythonKernel):
 
         faulthandler.dump_traceback(file=sys.stderr)
 
+    async def kernel_info_request(self, stream, ident, parent):
+        """Handle a kernel info request."""
+        if not self.session:
+            return
+        content = {"status": "ok"}
+        content.update(self.kernel_info)
+        buffers: Optional[dict[str, Any]] = self.extract_and_return_request_trace(parent, -1)
+        msg = self.session.send(stream, "kernel_info_reply", content, parent, ident, buffers = buffers)
+        self.log.debug(f"Sent \"kernel_info_reply\" message: {msg}")
+
     async def dispatch_shell(self, msg):
         self.shell_received_at: float = time.time() * 1.0e3
-        self.log.debug(f"Received SHELL message: {msg}")
         sys.stderr.flush()
         sys.stdout.flush()
         assert self.session is not None
@@ -642,7 +652,8 @@ class DistributedKernel(IPythonKernel):
             # Pass False for content so we don't store the digest and get a duplicate_signature error later.
             msg_deserialized: dict[str, Any] = self.session.deserialize(msg_without_idents, content=False, copy=False)
         except Exception as ex:
-            self.log.error(f"Received invalid SHELL message: {ex}")  # noqa: G201
+            self.log.error(f"Received invalid SHELL message: {msg}")  # noqa: G201
+            self.log.error(f"Shell message is invalid because: {ex}")
             self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
                 title="Kernel Replica Received an Invalid Shell Message",
                 message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid shell message: {ex}.",
@@ -1579,15 +1590,19 @@ class DistributedKernel(IPythonKernel):
         if isinstance(buffers, memoryview):
             buffers_bytes: bytes = buffers.tobytes()
             buffers_string: str = str(buffers_bytes)
-            self.log.debug(f"Contents of buffers (string): {buffers_string}")
-            buffers = json.loads(buffers_string)
-            self.log.debug(f"Contents of buffers after JSON decoding: {buffers}")
-            return buffers
         else:
-            self.log.debug(f"Contents of buffers: {str(buffers)}")
-            buffers = json.loads(str(buffers))
+            buffers_string: str = str(buffers)
+
+        self.log.debug(f"Contents of buffers (as string): {buffers_string}")
+
+        try:
+            buffers_json = json.loads(buffers_string)
             self.log.debug(f"Contents of buffers after JSON decoding: {buffers}")
-            return buffers
+            return buffers_json
+        except json.decoder.JSONDecodeError as ex:
+            self.log.warn(f"Failed to decode buffers using JSON because: {ex}")
+
+        return buffers
 
     def extract_and_return_request_trace(self, msg: dict[str, Any], received_at: float)->Optional[dict[str, Any]]:
         """
@@ -1605,7 +1620,7 @@ class DistributedKernel(IPythonKernel):
         buffers: dict[str, Any] = msg.get("buffers", {})
         buffers = self.decode_buffers(buffers)
 
-        if "request_trace" in buffers:
+        if isinstance(buffers, dict) and "request_trace" in buffers:
             request_trace: dict[str, Any] = buffers["request_trace"]
 
             if received_at > 0:

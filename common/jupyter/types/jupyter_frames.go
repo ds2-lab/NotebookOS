@@ -85,8 +85,21 @@ func NewJupyterFramesWithReservation(numReserved int) JupyterFrames {
 
 func NewJupyterFramesWithHeader(msgType string, session string) JupyterFrames {
 	frames := NewJupyterFramesWithReservation(1)
-	frames.EncodeHeader(&MessageHeader{
+	_ = frames.EncodeHeader(&MessageHeader{
 		MsgID:    uuid.New().String(),
+		Username: MessageHeaderDefaultUsername,
+		Session:  session,
+		Date:     time.Now().UTC().Format(time.RFC3339Nano),
+		MsgType:  JupyterMessageType(msgType),
+		Version:  SMRVersion,
+	})
+	return frames
+}
+
+func NewJupyterFramesWithHeaderAndSpecificMessageId(msgId string, msgType string, session string) JupyterFrames {
+	frames := NewJupyterFramesWithReservation(1)
+	_ = frames.EncodeHeader(&MessageHeader{
+		MsgID:    msgId,
 		Username: MessageHeaderDefaultUsername,
 		Session:  session,
 		Date:     time.Now().UTC().Format(time.RFC3339Nano),

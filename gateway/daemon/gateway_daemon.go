@@ -561,6 +561,7 @@ func (wg *registrationWaitGroups) Wait() {
 }
 
 func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error) {
+	receivedAt := time.Now()
 	kernelId := in.KernelId
 
 	var messageType string
@@ -589,10 +590,37 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	}
 
 	var (
-		msg zmq4.Msg
-		err error
+		msgId = uuid.NewString()
+		msg   zmq4.Msg
+		err   error
 	)
-	frames := jupyter.NewJupyterFramesWithHeader(messageType, kernel.Sessions()[0])
+	frames := jupyter.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messageType, kernel.Sessions()[0])
+
+	// If DebugMode is enabled, then add a buffers frame with a RequestTrace.
+	if d.DebugMode {
+		frames = append(frames, make([]byte, 0))
+
+		requestTrace := metrics.NewRequestTrace()
+
+		// Then we'll populate the sort of metadata fields of the RequestTrace.
+		requestTrace.MessageId = msgId
+		requestTrace.MessageType = messageType
+		requestTrace.KernelId = kernelId
+		requestTrace.RequestReceivedByGateway = receivedAt.UnixMilli()
+
+		// Create the wrapper/frame itself.
+		wrapper := &metrics.JupyterRequestTraceFrame{RequestTrace: requestTrace}
+
+		marshalledFrame, err := json.Marshal(&wrapper)
+		if err != nil {
+			d.log.Error("Failed to marshall RequestTraceWrapper when creating %s \"%s\" request \"%s\".",
+				msgId, socketType.String(), messageType)
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+
+		frames[jupyter.JupyterFrameRequestTrace] = marshalledFrame
+	}
+
 	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
 	if err != nil {
 		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v", kernelId, kernel.ConnectionInfo().SignatureScheme, err)
@@ -611,7 +639,8 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	var numRepliesReceived atomic.Int32
 	responseHandler := func(from scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 		latestNumRepliesReceived := numRepliesReceived.Add(1)
-		d.log.Debug("Received %s ping_reply from kernel %s. Received %d/3 replies. Time elapsed: %v.", typ.String(), from.ID(), latestNumRepliesReceived, time.Since(startTime))
+		d.log.Debug("Received %s ping_reply from kernel %s for message \"%s\". Received %d/3 replies. Time elapsed: %v.",
+			typ.String(), from.ID(), msgId, latestNumRepliesReceived, time.Since(startTime))
 
 		// Notify that all replies have been received.
 		if latestNumRepliesReceived == 3 {
@@ -636,7 +665,8 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		{
 			err := ctx.Err()
 			if err != nil {
-				errorMessage := fmt.Sprintf("'ping-kernel' %v request for kernel %s failed after receiving %d/3 replies: %v", socketType.String(), kernelId, numRepliesReceived.Load(), err)
+				errorMessage := fmt.Sprintf("'ping-kernel' %v request for kernel %s failed after receiving %d/3 replies for ping message \"%s\": %v",
+					socketType.String(), kernelId, numRepliesReceived.Load(), msgId, err)
 				d.log.Error(errorMessage)
 				return &proto.Pong{
 					Id:      kernelId,
@@ -647,7 +677,8 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		}
 	case <-doneChan:
 		{
-			d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s in %v.", socketType.String(), kernelId, time.Since(startTime))
+			d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s for ping message \"%s\" in %v.",
+				socketType.String(), kernelId, msgId, time.Since(startTime))
 		}
 	}
 
