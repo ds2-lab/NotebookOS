@@ -2573,8 +2573,6 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, 
 	// activeExecution := scheduling.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
 	_ = kernel.EnqueueActiveExecution(1, msg)
 
-	fmt.Printf("kernelID: \"%s\"\n", kernelId)
-
 	session, ok := d.cluster.GetSession(kernelId)
 	if !ok {
 		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
