@@ -9,5 +9,5 @@ import (
 
 func TestProxy(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Jupyter Server Suite")
+	RunSpecs(t, "Jupyter Server Test Suite")
 }

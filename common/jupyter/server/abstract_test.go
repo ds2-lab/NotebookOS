@@ -97,11 +97,11 @@ var _ = Describe("AbstractServer", func() {
 	Context("Reliable Message Delivery", func() {
 		It("Will re-send messages until an ACK is received", func() {
 			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, types.ShellMessage, gomock.Any()).MaxTimes(1)
-			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MinTimes(4).MaxTimes(4)
+			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MinTimes(3).MaxTimes(3)
 			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
 			clientMetricsProvider.EXPECT().AddMessageE2ELatencyObservation(gomock.Any(), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
 			clientMetricsProvider.EXPECT().AddAckReceivedLatency(gomock.Any(), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(int(3), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(float64(3), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
 
 			err := server.Listen(server.Sockets.Shell)
 			Expect(err).To(BeNil())
@@ -286,16 +286,21 @@ var _ = Describe("AbstractServer", func() {
 
 			// When no ACK is received, the server waits 5 seconds, then sleeps for a bit, then retries.
 			wg.Wait()
-			Expect(client.NumAcknowledgementsReceived()).To(Equal(1))
+			Expect(client.NumAcknowledgementsReceived()).To(Equal(int32(1)))
 			Expect(serverMessagesReceived).To(Equal(3))
 
-			err = client.Sockets.Shell.Close()
-			Expect(err).To(BeNil())
-			err = server.Sockets.Shell.Close()
-			Expect(err).To(BeNil())
+			_ = client.Sockets.Shell.Close()
+			_ = server.Sockets.Shell.Close()
 		})
 
 		It("Will halt the retry procedure upon receiving an ACK.", func() {
+			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, types.ShellMessage, gomock.Any()).MaxTimes(1)
+			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MinTimes(1).MaxTimes(1)
+			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddMessageE2ELatencyObservation(gomock.Any(), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddAckReceivedLatency(gomock.Any(), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(float64(1), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
+
 			err := server.Listen(server.Sockets.Shell)
 			Expect(err).To(BeNil())
 
@@ -322,19 +327,18 @@ var _ = Describe("AbstractServer", func() {
 				idFrame := (*msg.JupyterFrames.Frames)[0]
 
 				// Respond with ACK.
-				reply := zmq4.NewMsgFrom(idFrame,
+				ackResponse := zmq4.NewMsgFrom(idFrame,
 					getDestFrame(DEST_KERNEL_ID, "a98c"),
 					[]byte("<IDS|MSG>"),
 					[]byte(""),
 					header,
-					[]byte(""),
-					[]byte(""),
+					*msg.HeaderFrame(),
 					[]byte(""),
 					[]byte(""))
 
-				server.Log.Info("Responding to message with ACK: %v", reply)
+				server.Log.Info("Responding to message with ACK: %v", ackResponse)
 
-				err := info.Socket(typ).Send(reply)
+				err := info.Socket(typ).Send(ackResponse)
 				Expect(err).To(BeNil())
 
 				wg.Done()
@@ -345,20 +349,31 @@ var _ = Describe("AbstractServer", func() {
 				headerMap2["msg_type"] = "kernel_info_reply"
 				header2, _ := json.Marshal(&headerMap2)
 
+				bufferFrame := *msg.JupyterFrames.BuffersFrame()
+
 				// Respond with "actual" message.
-				reply2 := zmq4.NewMsgFrom(idFrame,
+				actualResponse := zmq4.NewMsgFrom(idFrame,
 					getDestFrame(DEST_KERNEL_ID, "a98c"),
 					[]byte("<IDS|MSG>"),
 					[]byte(""),
 					header2,
-					[]byte("2"),
+					*msg.HeaderFrame(),
 					[]byte(""),
 					[]byte(""),
-					[]byte(""))
+					bufferFrame)
 
-				server.Log.Info("Now sending \"actual\" response: %v", reply2)
+				jMsg := types.NewJupyterMessage(&actualResponse)
+				_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
+				Expect(err).To(BeNil())
+				_, added, reqErr := server.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.UnixMilli(1541568360))
+				Expect(added).To(BeFalse())
+				fmt.Printf("reqErr: %v\n", reqErr)
+				GinkgoWriter.Printf("reqErr: %v\n", reqErr)
+				Expect(reqErr).To(BeNil())
 
-				err = info.Socket(typ).Send(reply2)
+				server.Log.Debug("Now sending \"actual\" response: %v", jMsg)
+
+				err = info.Socket(typ).Send(*jMsg.Msg)
 				Expect(err).To(BeNil())
 
 				wg.Done()
@@ -370,8 +385,9 @@ var _ = Describe("AbstractServer", func() {
 
 			go server.Serve(server, server.Sockets.Shell, handleServerMessage)
 
+			msgId := uuid.NewString()
 			headerMap := make(map[string]string)
-			headerMap["msg_id"] = uuid.NewString()
+			headerMap["msg_id"] = msgId
 			headerMap["session"] = DEST_KERNEL_ID
 			headerMap["date"] = "2018-11-07T00:25:00.073876Z"
 			headerMap["msg_type"] = "kernel_info_request"
@@ -386,6 +402,50 @@ var _ = Describe("AbstractServer", func() {
 				[]byte(""),
 				[]byte(""))
 			_, err = types.NewJupyterFramesFromBytes(&msg.Frames).Sign(signatureScheme, []byte(kernelKey))
+
+			requestReceivedByGateway := time.Now().UnixMilli()
+			requestReceivedByGatewayTs := time.UnixMilli(requestReceivedByGateway)
+			jMsg := types.NewJupyterMessage(&msg)
+			fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame: %d\nMsg.Frames length: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), len(msg.Frames))
+			requestTrace, added, err := client.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByGatewayTs)
+			Expect(requestTrace).ToNot(BeNil())
+			Expect(added).To(BeTrue())
+			Expect(err).To(BeNil())
+			Expect(client.RequestLog.Size()).To(Equal(1))
+			Expect(client.RequestLog.EntriesByRequestId.Len()).To(Equal(1))
+			Expect(client.RequestLog.EntriesByJupyterMsgId.Len()).To(Equal(1))
+			Expect(client.RequestLog.RequestsPerKernel.Len()).To(Equal(1))
+			Expect(jMsg.JupyterFrames.Len()).To(Equal(8))
+			Expect(jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false)).To(Equal(7))
+
+			fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame: %d\nMsg.Frames length: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), len(msg.Frames))
+
+			requests, loaded := client.RequestLog.RequestsPerKernel.Load(DEST_KERNEL_ID)
+			Expect(loaded).To(Equal(true))
+			Expect(requests).ToNot(BeNil())
+			Expect(requests.Len()).To(Equal(1))
+
+			Expect(requestTrace.MessageId).To(Equal(msgId))
+			Expect(requestTrace.MessageType).To(Equal(types.ShellKernelInfoRequest))
+			Expect(requestTrace.KernelId).To(Equal(DEST_KERNEL_ID))
+
+			m, err := json.Marshal(&proto.JupyterRequestTraceFrame{RequestTrace: requestTrace})
+			Expect(err).To(BeNil())
+
+			fmt.Printf("jMsg.JupyterFrames[%d+%d]: %s\n", jMsg.Offset(), types.JupyterFrameRequestTrace, string((*jMsg.JupyterFrames.Frames)[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
+			fmt.Printf("Marshalled RequestTrace: %s\n", string(m))
+			Expect((*jMsg.JupyterFrames.Frames)[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]).To(Equal(m))
+			Expect(requestTrace.RequestReceivedByGateway).To(Equal(requestReceivedByGateway))
+			Expect(requestTrace.RequestSentByGateway).To(Equal(proto.DefaultTraceTimingValue))
+			Expect(requestTrace.RequestReceivedByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
+			Expect(requestTrace.RequestSentByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
+			Expect(requestTrace.RequestReceivedByKernelReplica).To(Equal(proto.DefaultTraceTimingValue))
+			Expect(requestTrace.ReplySentByKernelReplica).To(Equal(proto.DefaultTraceTimingValue))
+			Expect(requestTrace.ReplyReceivedByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
+			Expect(requestTrace.ReplySentByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
+			Expect(requestTrace.ReplyReceivedByGateway).To(Equal(proto.DefaultTraceTimingValue))
+			Expect(requestTrace.ReplySentByGateway).To(Equal(proto.DefaultTraceTimingValue))
+
 			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 				client.Log.Info("Client received %v message: %v", typ, msg)
 				wg.Done()
@@ -411,13 +471,11 @@ var _ = Describe("AbstractServer", func() {
 			Expect(err).To(BeNil())
 
 			wg.Wait()
-			Expect(client.NumAcknowledgementsReceived()).To(Equal(1))
+			Expect(client.NumAcknowledgementsReceived()).To(Equal(int32(1)))
 			Expect(serverMessagesReceived).To(Equal(1))
 
-			err = client.Sockets.Shell.Close()
-			Expect(err).To(BeNil())
-			err = server.Sockets.Shell.Close()
-			Expect(err).To(BeNil())
+			_ = client.Sockets.Shell.Close()
+			_ = server.Sockets.Shell.Close()
 		})
 	})
 })
