@@ -186,7 +186,7 @@ type SchedulerDaemonImpl struct {
 }
 
 type KernelRegistrationPayload struct {
-	SignatureScheme string                  `json:"signature_scheme"`
+	SignatureScheme string                  `json:"signatureScheme"`
 	Key             string                  `json:"key"`
 	Kernel          *proto.KernelSpec       `json:"kernel,omitempty"`
 	ReplicaId       int32                   `json:"replicaId,omitempty"`
@@ -2157,7 +2157,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 // TODO: | concurrent code executions running on the same node)?
 // TODO: |
 // TODO: | For now, we're reserving resources.
-func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.KernelReplicaClient) *jupyter.JupyterMessage {
+func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel client.AbstractKernelClient) *jupyter.JupyterMessage {
 	gid := goid.Get()
 
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
@@ -2463,7 +2463,7 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 	jMsg := jupyter.NewJupyterMessage(&newMessage)
 
 	// Change the message header.
-	jMsg.SetMessageType(jupyter.ShellYieldExecute)
+	jMsg.SetMessageType(jupyter.ShellYieldRequest)
 
 	// Create a JupyterFrames struct by wrapping with the message's frames.
 	jFrames := jupyter.JupyterFrames(newMessage.Frames)

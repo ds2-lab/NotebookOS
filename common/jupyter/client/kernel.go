@@ -362,7 +362,7 @@ func (c *KernelReplicaClient) SentExecuteRequest(msg *types.JupyterMessage) {
 	c.pendingExecuteRequestIdsMutex.Lock()
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 
-	if msg.JupyterMessageType() != types.ShellExecuteRequest && msg.JupyterMessageType() != types.ShellYieldExecute {
+	if msg.JupyterMessageType() != types.ShellExecuteRequest && msg.JupyterMessageType() != types.ShellYieldRequest {
 		log.Fatalf(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
 	}
 

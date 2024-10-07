@@ -1736,8 +1736,8 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", hostId)) // TODO(Ben): Handle gracefully.
 	}
 
-	if kernel.NumActiveAddOperations() >= 1 {
-		d.log.Debug("There is/are %d active add-replica operation(s) targeting kernel %s. Assuming currently-registering replica is for an add-replica operation.", kernel.NumActiveAddOperations(), kernel.ID())
+	if kernel.NumActiveMigrationOperations() >= 1 {
+		d.log.Debug("There is/are %d active add-replica operation(s) targeting kernel %s. Assuming currently-registering replica is for an add-replica operation.", kernel.NumActiveMigrationOperations(), kernel.ID())
 		// Must be holding the main mutex before calling handleAddedReplicaRegistration.
 		// It will release the lock.
 		result, err := d.handleAddedReplicaRegistration(in, kernel, waitGroup)
@@ -2566,14 +2566,16 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 	return nil
 }
 
-func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel *client.DistributedKernelClient) error {
+func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel client.AbstractDistributedKernelClient) error {
 	kernelId := kernel.ID()
 	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg)
 
 	// activeExecution := scheduling.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
 	_ = kernel.EnqueueActiveExecution(1, msg)
 
-	session, ok := d.cluster.Sessions().Load(kernelId)
+	fmt.Printf("kernelID: \"%s\"\n", kernelId)
+
+	session, ok := d.cluster.GetSession(kernelId)
 	if !ok {
 		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
 		return fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)

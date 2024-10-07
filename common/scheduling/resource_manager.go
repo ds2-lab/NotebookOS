@@ -391,6 +391,15 @@ func (m *ResourceManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapshot 
 	return snapshot
 }
 
+// DebugSetIdleGPUs is a method used in unit tests to set the idle GPUs available within the ResourceManager
+// to a specific value (typically zero).
+func (m *ResourceManager) DebugSetIdleGPUs(value float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.resourcesWrapper.idleResources.gpus = decimal.NewFromFloat(value)
+}
+
 // updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
 // updatePrometheusResourceMetrics is used as a callback by the GPU/Resource Manager.
 func (m *ResourceManager) unsafeUpdatePrometheusResourceMetrics() {

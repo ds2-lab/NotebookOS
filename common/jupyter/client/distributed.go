@@ -471,8 +471,28 @@ func (c *DistributedKernelClient) Size() int {
 	return len(c.replicas) // c.size
 }
 
-// NumActiveAddOperations returns the number of active migrations of the associated kernel's replicas.
-func (c *DistributedKernelClient) NumActiveAddOperations() int {
+// NumActiveExecutionOperations returns the number of scheduling.ActiveExecution structs registered with
+// the kernel. This counts both the current scheduling.ActiveExecution as well as the length of the queue of
+// scheduling.ActiveExecution structs.
+//
+// This method is thread safe.
+func (c *DistributedKernelClient) NumActiveExecutionOperations() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var numActiveExecutions int
+
+	if c.activeExecution != nil && !c.activeExecution.HasExecuted() {
+		numActiveExecutions += 1
+	}
+
+	numActiveExecutions += len(c.activeExecutionQueue)
+
+	return numActiveExecutions
+}
+
+// NumActiveMigrationOperations returns the number of active migrations of the associated kernel's replicas.
+func (c *DistributedKernelClient) NumActiveMigrationOperations() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -933,7 +953,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 		wg.Add(1)
 		go func(kernel scheduling.Kernel) {
-			if jMsg.JupyterMessageType() == types.ShellExecuteRequest || jMsg.JupyterMessageType() == types.ShellYieldExecute {
+			if jMsg.JupyterMessageType() == types.ShellExecuteRequest || jMsg.JupyterMessageType() == types.ShellYieldRequest {
 				kernel.(*KernelReplicaClient).SentExecuteRequest(jMsg)
 			}
 

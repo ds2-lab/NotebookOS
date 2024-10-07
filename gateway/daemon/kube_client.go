@@ -1146,12 +1146,12 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *prot
 								"command": []string{"/kernel-entrypoint/kernel-entrypoint.sh"},
 								"resources": map[string]interface{}{
 									"limits": map[string]interface{}{
-										"memory":                         fmt.Sprintf("%dMi", kernelResourceRequirements.Memory),
+										"memory":                         fmt.Sprintf("%fMi", kernelResourceRequirements.Memory),
 										"cpu":                            fmt.Sprintf("%dm", kernelResourceRequirements.Cpu),
 										"ds2-lab.github.io/deflated-gpu": fmt.Sprintf("%d", kernelResourceRequirements.Gpu),
 									},
 									"requests": map[string]interface{}{
-										"memory":                         fmt.Sprintf("%dMi", kernelResourceRequirements.Memory),
+										"memory":                         fmt.Sprintf("%fMi", kernelResourceRequirements.Memory),
 										"cpu":                            fmt.Sprintf("%dm", kernelResourceRequirements.Cpu),
 										"ds2-lab.github.io/deflated-gpu": fmt.Sprintf("%d", kernelResourceRequirements.Gpu),
 									},
@@ -1261,7 +1261,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *prot
 									},
 									{
 										"name":  "SPEC_MEM",
-										"value": fmt.Sprintf("%d", kernelResourceRequirements.Memory),
+										"value": fmt.Sprintf("%f", kernelResourceRequirements.Memory),
 									},
 									{
 										"name":  "SPEC_GPU",

@@ -17,7 +17,7 @@ const (
 
 	ShellExecuteRequest        = "execute_request"
 	ShellExecuteReply          = "execute_reply"
-	ShellYieldExecute          = "yield_request"
+	ShellYieldRequest          = "yield_request"
 	ShellKernelInfoRequest     = "kernel_info_request"
 	ShellShutdownRequest       = "shutdown_request"
 	MessageTypeShutdownRequest = "shutdown_request"
@@ -60,10 +60,19 @@ type NotificationType int32
 
 // Message represents an entire message in a high-level structure.
 type Message struct {
-	Header       MessageHeader
-	ParentHeader MessageHeader
-	Metadata     map[string]interface{}
-	Content      interface{}
+	Header       MessageHeader          `json:"header"`
+	ParentHeader MessageHeader          `json:"parent_header"`
+	Metadata     map[string]interface{} `json:"metadata"`
+	Content      interface{}            `json:"content"`
+}
+
+func (msg *Message) String() string {
+	m, err := json.Marshal(msg)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
 }
 
 // MessageHeader is a Jupyter message header.
@@ -76,6 +85,15 @@ type MessageHeader struct {
 	Date     string             `json:"date"`
 	MsgType  JupyterMessageType `json:"msg_type"`
 	Version  string             `json:"version"`
+}
+
+func (header *MessageHeader) String() string {
+	m, err := json.Marshal(header)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
 }
 
 type MessageKernelStatus struct {

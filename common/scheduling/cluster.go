@@ -148,6 +148,9 @@ type Cluster interface {
 	// Sessions returns a mapping from session ID to Session.
 	Sessions() hashmap.HashMap[string, *Session]
 
+	// GetSession returns the Session with the specified ID.
+	GetSession(sessionID string) (AbstractSession, bool)
+
 	// RequestHosts requests n Host instances to be launched and added to the Cluster, where n >= 1.
 	//
 	// If n is 0, then this returns immediately.
