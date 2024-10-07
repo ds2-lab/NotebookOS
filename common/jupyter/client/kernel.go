@@ -877,7 +877,6 @@ func (c *KernelReplicaClient) InitializeShellForwarder(handler scheduling.Kernel
 
 	c.shell = shell
 	go c.client.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
-		// msg.Frames, _ = types.AddDestFrame(msg.Frames, c.id, jupyter.JOffsetAutoDetect)
 		msg.AddDestinationId(c.id)
 		return handler(c, typ, msg)
 	})
@@ -1164,18 +1163,11 @@ func (c *KernelReplicaClient) getWaitResponseOption(key string) interface{} {
 }
 
 func (c *KernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage) (topic string, jFrames types.JupyterFrames) {
-	// _, jOffset := types.SkipIdentitiesFrame(msg.Frames)
-	// jFrames = msg.Frames[jOffset:]
-	// if jOffset == 0 {
-	// 	return "", jFrames
-	// }
-
-	jFrames = msg.ToJFrames()
-	if msg.Offset == 0 {
+	if msg.Offset() == 0 {
 		return "", jFrames
 	}
 
-	rawTopic := msg.Frames[ /*jOffset*/ msg.Offset-1]
+	rawTopic := (*msg.JupyterFrames.Frames)[ /*jOffset*/ msg.Offset()-1]
 	matches := types.IOTopicStatusRecognizer.FindSubmatch(rawTopic)
 	if len(matches) > 0 {
 		return string(matches[2]), jFrames

@@ -119,7 +119,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.JupyterFrames(unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(&unsignedFrames)
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			msg := &zmq4.Msg{
 				Frames: frames,
@@ -152,7 +152,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.JupyterFrames(unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(&unsignedFrames)
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 
 			msg := &zmq4.Msg{
@@ -162,7 +162,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			jMsg := types.NewJupyterMessage(msg)
 			Expect(jMsg.RequestId).To(Equal(reqId))
 			Expect(jMsg.DestinationId).To(Equal(kernelId))
-			Expect(jMsg.Offset).To(Equal(1))
+			Expect(jMsg.Offset()).To(Equal(1))
 
 			session.EXPECT().IsTraining().Return(false).MaxTimes(1)
 			session.EXPECT().SetExpectingTraining().Return(promise.Resolved(nil)).MaxTimes(1)
@@ -209,7 +209,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.JupyterFrames(unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(&unsignedFrames)
 			frames, err := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			msg := &zmq4.Msg{
@@ -219,7 +219,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			jMsg := types.NewJupyterMessage(msg)
 			Expect(jMsg.RequestId).To(Equal(reqId))
 			Expect(jMsg.DestinationId).To(Equal(kernelId))
-			Expect(jMsg.Offset).To(Equal(1))
+			Expect(jMsg.Offset()).To(Equal(1))
 
 			// We'll just call this multiple times.
 			requestLogHelper := func(server *server.AbstractServer) {
@@ -238,9 +238,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				m, err := json.Marshal(&proto.JupyterRequestTraceFrame{RequestTrace: trace})
 				Expect(err).To(BeNil())
 
-				fmt.Printf("jMsg.Frames[%d+%d]: %s\n", jMsg.Offset, types.JupyterFrameRequestTrace, string(jMsg.Frames[jMsg.Offset+types.JupyterFrameRequestTrace]))
+				fmt.Printf("jMsg.JupyterFrames[%d+%d]: %s\n", jMsg.Offset(), types.JupyterFrameRequestTrace, string((*jMsg.JupyterFrames.Frames)[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
 				fmt.Printf("Marshalled RequestTrace: %s\n", string(m))
-				Expect(jMsg.Frames[jMsg.Offset+types.JupyterFrameRequestTrace]).To(Equal(m))
+				Expect((*jMsg.JupyterFrames.Frames)[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]).To(Equal(m))
 			}
 
 			requestReceivedByGateway := int64(257894000000)
@@ -250,7 +250,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(added).To(BeTrue())
 			Expect(err).To(BeNil())
 			requestLogHelper(abstractServer)
-			Expect(len(jMsg.Frames)).To(Equal(8))
+			Expect(jMsg.JupyterFrames.Len()).To(Equal(8))
+			Expect(jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false)).To(Equal(7))
 
 			requests, loaded := abstractServer.RequestLog.RequestsPerKernel.Load(kernelId)
 			Expect(loaded).To(Equal(true))

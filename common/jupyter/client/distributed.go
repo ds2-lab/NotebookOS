@@ -221,22 +221,6 @@ func (c *DistributedKernelClient) GetActiveExecutionByExecuteRequestMsgId(msgId 
 	return c.activeExecutionsByExecuteRequestMsgId.Load(msgId)
 }
 
-func (c *DistributedKernelClient) headerFromFrames(frames [][]byte) (*types.MessageHeader, error) {
-	jFrames := types.JupyterFrames(frames)
-	if err := jFrames.Validate(); err != nil {
-		c.log.Error("Failed to validate message frames while extracting header: %v", err)
-		return nil, err
-	}
-
-	var header types.MessageHeader
-	if err := jFrames.DecodeHeader(&header); err != nil {
-		c.log.Error("Failed to decode message header \"%v\" from message frames: %v", string(jFrames[types.JupyterFrameHeader]), err)
-		return nil, err
-	}
-
-	return &header, nil
-}
-
 func (c *DistributedKernelClient) ExecutionFailedCallback() ExecutionFailedCallback {
 	return c.executionFailedCallback
 }
@@ -728,7 +712,6 @@ func (c *DistributedKernelClient) InitializeShellForwarder(handler scheduling.Ke
 
 	go c.server.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
 		msg.AddDestinationId(c.KernelSpec().Id)
-		// msg.Frames, _ = types.AddDestFrame(msg.Frames, c.KernelSpec().Id, jupyter.JOffsetAutoDetect)
 		c.log.Debug("Received shell message via DistributedShellForwarder. Message: %v", msg)
 		return handler(srv.(*DistributedKernelClient), typ, msg)
 	})
@@ -798,20 +781,19 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.Ker
 	replicaClient := replica.(*KernelReplicaClient)
 	replicaId := replicaClient.replicaId
 
-	jFrames, _ := types.SkipIdentitiesFrame(msg.Frames)
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
-	if len(jFrames) < 5 {
+	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
 		c.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)", replicaId, c.id)
 		return types.ErrInvalidJupyterMessage, false
 	}
 
-	if len(jFrames[types.JupyterFrameContent]) == 0 {
+	if len(*msg.JupyterFrames.ContentFrame()) == 0 {
 		c.log.Warn("Received shell '%v' response with empty content.", msg.JupyterMessageType())
 		return nil, false
 	}
 
 	var msgErr types.MessageError
-	err = json.Unmarshal(jFrames[types.JupyterFrameContent], &msgErr)
+	err = json.Unmarshal(*msg.JupyterFrames.ContentFrame(), &msgErr)
 	if err != nil {
 		c.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", replicaId, c.id, err)
 		return err, false
@@ -936,13 +918,13 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	}
 
 	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
-	_, reqId, jOffset := types.ExtractDestFrame(jMsg.Frames)
+	_, reqId, jOffset := jMsg.JupyterFrames.ExtractDestFrame(true)
 	if reqId == "" {
 		c.log.Debug("Adding destination '%s' to frames now. Old frames (%d): %v.",
-			c.id, len(jMsg.Frames), types.JupyterFrames(jMsg.Frames).String())
+			c.id, jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.String())
 		jMsg.AddDestinationId(c.id)
 		c.log.Debug("Added destination '%s' to frames at offset %d. New frames (%d): %v.",
-			c.id, jOffset, len(jMsg.Frames), types.JupyterFrames(jMsg.Frames).String())
+			c.id, jOffset, jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.String())
 	}
 
 	var wg sync.WaitGroup
@@ -1158,7 +1140,7 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 // the given/specified Jupyter ZMQ message, then the error will be non-nil.
 func (c *DistributedKernelClient) extractResourceSnapshotFromRequestMetadata(msg *types.JupyterMessage) (*scheduling.ResourceWrapperSnapshot, error) {
 	var snapshotWrapper *scheduling.MetadataResourceWrapperSnapshot
-	metadataFrame := types.JupyterFrames(msg.Frames[msg.Offset:]).MetadataFrame()
+	metadataFrame := msg.JupyterFrames.MetadataFrame()
 	err := metadataFrame.Decode(&snapshotWrapper)
 	if err != nil {
 		c.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
@@ -1183,8 +1165,7 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 
 	// Decode the types.MessageSMRLeadTask message.
 	var leadMessage types.MessageSMRLeadTask
-	frames := types.JupyterFrames(msg.Frames[msg.Offset:])
-	if err := frames.DecodeContent(&leadMessage); err != nil {
+	if err := msg.JupyterFrames.DecodeContent(&leadMessage); err != nil {
 		errorMessage := fmt.Sprintf("Failed to decode content of SMR Lead ZMQ message: %v\n", err)
 		log.Fatalf(utils.RedStyle.Render(errorMessage))
 	}

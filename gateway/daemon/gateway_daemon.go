@@ -601,7 +601,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	// If DebugMode is enabled, then add a buffers frame with a RequestTrace.
 	var requestTrace *proto.RequestTrace
 	if d.DebugMode {
-		frames = append(frames, make([]byte, 0))
+		*frames.Frames = append(*frames.Frames, make([]byte, 0))
 
 		requestTrace = proto.NewRequestTrace()
 
@@ -621,10 +621,10 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 
-		frames[jupyter.JupyterFrameRequestTrace] = marshalledFrame
+		(*frames.Frames)[jupyter.JupyterFrameRequestTrace] = marshalledFrame
 	}
 
-	msg.Frames, err = frames[0:jupyter.JupyterFrameRequestTrace].SignByConnectionInfo(kernel.ConnectionInfo())
+	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
 	if err != nil {
 		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v", kernelId, kernel.ConnectionInfo().SignatureScheme, err)
 		return &proto.Pong{
@@ -1044,7 +1044,7 @@ func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel *client.KernelRepli
 		messageType = "N/A"
 	}
 
-	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.Type, messageType, reconnectionError)
+	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.Msg.Type, messageType, reconnectionError)
 	d.log.Error(errorMessage)
 
 	go d.notifyDashboardOfError("Connection to Kernel Lost & Reconnection Failed", errorMessage)
@@ -1215,9 +1215,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	// We do this now, before calling waitGroup.Wait(), just to overlap the two tasks
 	// (the kernel starting + registering and us updating the "execute_request" Jupyter
 	// message for resubmission).
-	_, _, offset := jupyter.ExtractDestFrame(msg.Frames)
-	var frames jupyter.JupyterFrames = msg.Frames
-	var metadataFrame = frames[offset:].MetadataFrame()
+	metadataFrame := msg.JupyterFrames.MetadataFrame()
 	var metadataDict map[string]interface{}
 
 	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
@@ -1236,21 +1234,20 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	// Specify the target replica.
 	metadataDict[TargetReplicaArg] = targetReplica
 	metadataDict[ForceReprocessArg] = true
-	err := frames[offset:].EncodeMetadata(metadataDict)
+	err := msg.JupyterFrames.EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("Failed to encode metadata frame because: %v", err)
 		return err
 	}
 
 	// Regenerate the signature.
-	framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(msg.Frames)
-	if _, err := framesWithoutIdentities.Sign(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
+	if _, err := msg.JupyterFrames.Sign(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
 		// Ignore the error; just log it.
 		d.log.Warn("Failed to sign frames because %v", err)
 	}
 
 	// Ensure that the frames are now correct.
-	if verified := d.verifyFrames([]byte(c.ConnectionInfo().Key), c.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
+	if verified := d.verifyFrames([]byte(c.ConnectionInfo().Key), c.ConnectionInfo().SignatureScheme, msg.JupyterFrames); !verified {
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", c.ConnectionInfo().SignatureScheme, c.ConnectionInfo().Key)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
 		return ErrFailedToVerifyMessage
@@ -1281,15 +1278,15 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	return nil
 }
 
-func (d *ClusterGatewayImpl) verifyFrames(signkey []byte, signatureScheme string, offset int, frames jupyter.JupyterFrames) bool {
-	expect, err := frames.CreateSignature(signatureScheme, signkey, offset)
+func (d *ClusterGatewayImpl) verifyFrames(signKey []byte, signatureScheme string, frames *jupyter.JupyterFrames) bool {
+	expect, err := frames.CreateSignature(signatureScheme, signKey)
 	if err != nil {
 		d.log.Error("Error when creating signature to verify JFrames: %v", err)
 		return false
 	}
 
-	signature := make([]byte, hex.DecodedLen(len(frames[offset+jupyter.JupyterFrameSignature])))
-	if _, err = hex.Decode(signature, frames[offset+jupyter.JupyterFrameSignature]); err != nil {
+	signature := make([]byte, hex.DecodedLen(len((*frames.Frames)[frames.Offset+jupyter.JupyterFrameSignature])))
+	if _, err = hex.Decode(signature, (*frames.Frames)[frames.Offset+jupyter.JupyterFrameSignature]); err != nil {
 		d.log.Error("Failed to decode Jupyter message/signature because: %v", err)
 		d.log.Error("Erroneous message/frames: %s", frames.String())
 	}
@@ -2449,7 +2446,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 			msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
 		if len(msg.DestinationId) == 0 {
-			d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Type, msg)
+			d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Msg.Type, msg)
 			debug.PrintStack()
 		}
 
@@ -2543,10 +2540,10 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
 
 	var snapshotWrapper *scheduling.MetadataResourceWrapperSnapshot
-	metadataFrame := msg.Frames[msg.Offset+jupyter.JupyterFrameMetadata]
+	metadataFrame := msg.JupyterFrames.MetadataFrame()
 	d.log.Debug("Attempting to decode metadata frame of Jupyter \"%s\" message %s (JupyterID=%s): %s",
-		msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), string(metadataFrame))
-	err := json.Unmarshal(metadataFrame, &snapshotWrapper)
+		msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), string(*metadataFrame))
+	err := json.Unmarshal(*metadataFrame, &snapshotWrapper)
 	if err != nil {
 		d.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
 		return err // TODO: Should I panic here?
@@ -2658,36 +2655,6 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 	return &proto.Void{}, nil
 }
 
-// idFromMsg extracts the kernel id or session id from the ZMQ message.
-// func (d *ClusterGatewayImpl) idFromMsg(msg *jupyter.JupyterMessage) (id string, sessId bool, err error) {
-// 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
-// 	if kernelId != "" {
-// 		return kernelId, false, nil
-// 	}
-
-// 	header, err := d.headerFromFrames(msg.Frames[offset:])
-// 	if err != nil {
-// 		return "", false, err
-// 	}
-
-// 	return header.Session, true, nil
-// }
-
-func (d *ClusterGatewayImpl) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
-	jFrames := jupyter.JupyterFrames(frames)
-	if err := jFrames.Validate(); err != nil {
-		d.log.Error(utils.RedStyle.Render("[ERROR] Failed to validate message frames while extracting header from message: %v"), err)
-		return nil, err
-	}
-
-	var header jupyter.MessageHeader
-	if err := jFrames.DecodeHeader(&header); err != nil {
-		return nil, err
-	}
-
-	return &header, nil
-}
-
 // Return the add-replica operation associated with the given Kernel ID and SMR Node ID of the new replica.
 //
 // This looks for the most-recently-added AddReplicaOperation associated with the specified replica of the specified kernel.
@@ -2717,33 +2684,8 @@ func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 	return nil, false
 }
 
-// idFromMsg extracts the kernel id or session id from the ZMQ message.
-func (d *ClusterGatewayImpl) kernelIdAndTypeFromMsg(msg *jupyter.JupyterMessage) (id string, messageType string, sessId bool, err error) {
-	kernelId, _, offset := jupyter.ExtractDestFrame(msg.Frames)
-	header, err := d.headerFromFrames(msg.Frames[offset:])
-	if err != nil {
-		return "", "", false, err
-	}
-
-	if kernelId == "" {
-		d.log.Error("Extracted empty string for kernel ID from message. Will try using session ID instead.")
-		kernelId = header.Session
-	}
-
-	return kernelId, string(header.MsgType), true, nil
-}
-
 // Extract the Kernel ID and the message type from the given ZMQ message.
 func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *jupyter.JupyterMessage) (kernel *client.DistributedKernelClient, messageType string, err error) {
-	// var (
-	// 	kernelId string
-	// )
-
-	// kernelId, messageType, _, err = d.kernelIdAndTypeFromMsg(msg)
-	// if err != nil {
-	// 	return nil, messageType, err
-	// }
-
 	// This is initially the kernel's ID, which is the DestID field of the message.
 	// But we may not have set a destination ID field within the message yet.
 	// In this case, we'll fall back to the session ID within the message's Jupyter header.

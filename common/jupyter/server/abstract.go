@@ -243,7 +243,7 @@ func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, soc
 	s.numAcksReceived.Add(1)
 
 	if len(rspId) == 0 {
-		_, rspId, _ = types.ExtractDestFrame(jMsg.Frames) // Redundant, will optimize later.
+		_, rspId, _ = jMsg.JupyterFrames.ExtractDestFrame(false) // Redundant, will optimize later.
 	}
 
 	if len(rspId) == 0 {
@@ -333,7 +333,7 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 	var ackMsg zmq4.Msg
 	if s.PrependId {
 		ackMsg = zmq4.NewMsgFrom(
-			msg.Frames[0],
+			(*msg.JupyterFrames.Frames)[0],
 			[]byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, msg.DestinationId, msg.RequestId)),
 			[]byte("<IDS|MSG>"),
 			[]byte(""),
@@ -398,12 +398,10 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 func (s *AbstractServer) tryHandleSpecialMessage(jMsg *types.JupyterMessage, socket *types.Socket) (bool, error) {
 	// This is generally unused for now; we don't do anything special for Golang frontends as of right now.
 	if s.isMessageGolangFrontendRegistrationRequest(jMsg, socket.Type) {
-		jFrames := jMsg.ToJFrames()
-
-		s.Log.Debug("Golang frontend registration JFrames: %v", jFrames)
+		s.Log.Debug("Golang frontend registration JFrames: %v", jMsg.JupyterFrames)
 
 		var messageContent map[string]interface{}
-		err := jFrames.DecodeContent(&messageContent)
+		err := jMsg.JupyterFrames.DecodeContent(&messageContent)
 		if err != nil {
 			s.Log.Error("Failed to decode content of 'golang_frontend_registration_request' message because: %v", err)
 			return false, err
@@ -907,6 +905,12 @@ func (s *AbstractServer) printSendLatencyWarning(sendDuration time.Duration, msg
 // If the send operation fails, then the types.Request is transitioned to an error state, and the associated
 // error is returned.
 func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket) error {
+	s.Log.Debug(utils.PurpleStyle.Render("Sending message: %s."), request.Payload().JupyterFrames.String())
+	s.Log.Debug(utils.LightPurpleStyle.Render("Sending message: %v."), request.Payload().MsgToString())
+
+	s.Log.Debug("JupyterFrames Frames: %p\n", request.Payload().JupyterFrames.Frames)
+	s.Log.Debug("Msg Frames: %p\n", request.Payload().Msg.Frames)
+
 	// Send the request.
 	sendStart := time.Now()
 	err := socket.Send(*request.Payload().Msg)
@@ -957,7 +961,7 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 //
 // If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
 // returned, and the boolean returned along with the error is always false.
-func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.JupyterMessage, socket *types.Socket, timestamp time.Time) (*proto.RequestTrace, bool, error) {
+func (s *AbstractServer) AddOrUpdateRequestTraceToJupyterMessage(msg *types.JupyterMessage, socket *types.Socket, timestamp time.Time) (*proto.RequestTrace, bool, error) {
 	if !s.DebugMode {
 		return nil, false, fmt.Errorf("DebugMode is not enabled, so the embedding of RequestTraces into ZMQ messages is disabled.s")
 	}
@@ -968,14 +972,16 @@ func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 		added        bool
 	)
 
-	jupyterFrames := types.JupyterFrames(msg.Frames)
-	if len(jupyterFrames[msg.Offset:]) <= types.JupyterFrameRequestTrace {
-		for len(jupyterFrames[msg.Offset:]) <= types.JupyterFrameRequestTrace {
-			s.Log.Debug("Jupyter \"%s\" request has just %d frames (after skipping identities frame). Adding additional frame. Offset: %d.",
-				msg.JupyterMessageType(), len(msg.Frames[msg.Offset:]), msg.Offset)
+	fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\n", msg.JupyterFrames.LenWithoutIdentitiesFrame(false))
+	fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame(true): %d\n", msg.JupyterFrames.LenWithoutIdentitiesFrame(true))
+
+	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) <= types.JupyterFrameRequestTrace {
+		for msg.JupyterFrames.LenWithoutIdentitiesFrame(false) <= types.JupyterFrameRequestTrace {
+			s.Log.Debug("Jupyter \"%s\" request has just %d frames (after skipping identities frame). Adding additional frame. Offset: %d. Frames: %s",
+				msg.JupyterMessageType(), len((*msg.JupyterFrames.Frames)[msg.JupyterFrames.Offset:]), msg.Offset(), msg.JupyterFrames.String())
 
 			// If the request doesn't already have a JupyterFrameRequestTrace frame, then we'll add one.
-			jupyterFrames = append(jupyterFrames, make([]byte, 0))
+			*msg.JupyterFrames.Frames = append(*msg.JupyterFrames.Frames, make([]byte, 0))
 		}
 
 		// The metadata did not already contain a RequestTrace.
@@ -999,10 +1005,15 @@ func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 
 		s.Log.Debug("Added RequestTrace to Jupyter \"%s\" message.", msg.JupyterMessageType())
 	} else {
-		s.Log.Debug("Extracting Jupyter RequestTrace frame from \"%s\" message.", msg.JupyterMessageType())
+		s.Log.Debug("Extracting Jupyter RequestTrace frame from \"%s\" message (offset=%d): %s", msg.JupyterMessageType(), msg.JupyterFrames.Offset, msg.JupyterFrames.String())
+		fmt.Printf("Extracting Jupyter RequestTrace frame from \"%s\" message (offset=%d): %s\n", msg.JupyterMessageType(), msg.JupyterFrames.Offset, msg.JupyterFrames.String())
 
-		err := json.Unmarshal(jupyterFrames[msg.Offset+types.JupyterFrameRequestTrace], &wrapper)
+		err := json.Unmarshal((*msg.JupyterFrames.Frames)[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace], &wrapper)
 		if err != nil {
+			s.Log.Error("Failed to JSON-decode RequestTrace from Frame #%d because: %v", msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace, err)
+			s.Log.Error("Frame #%d: %s\n", msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace,
+				string((*msg.JupyterFrames.Frames)[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
+			s.Log.Error("Frames: %s\n", msg.MsgToString())
 			return nil, false, err
 		}
 
@@ -1021,14 +1032,14 @@ func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 
 	marshalledFrame, err := json.Marshal(wrapper)
 	if err != nil {
+		s.Log.Error("Failed to JSON-encode RequestTrace because: %v", err)
 		return nil, false, err
 	}
 
-	jupyterFrames[msg.Offset+types.JupyterFrameRequestTrace] = marshalledFrame
+	(*msg.JupyterFrames.Frames)[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace] = marshalledFrame
 
-	s.Log.Debug("Updated frames: %s.", jupyterFrames.String())
+	s.Log.Debug("Updated frames: %s.", msg.JupyterFrames.String())
 
-	msg.Frames = jupyterFrames
 	msg.RequestTrace = requestTrace
 
 	return requestTrace, added, nil
@@ -1076,7 +1087,7 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 	if s.shouldAddRequestTrace(request.Payload(), socket) {
 		s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 			socket.Type.String(), request.JupyterMessageType())
-		_, _, err := s.addOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now())
+		_, _, err := s.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now())
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
 			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
@@ -1299,7 +1310,7 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 					// We only want to add traces to Shell, Control, and a subset of IOPub messages.
 					s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 						socket.Type.String(), jMsg.JupyterMessageType())
-					_, _, err := s.addOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt)
+					_, _, err := s.AddOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt)
 					if err != nil {
 						s.Log.Error("Failed to add RequestTrace to JupyterMessage: %v.", err)
 						panic(err)
@@ -1341,22 +1352,6 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 	}
 }
 
-func (s *AbstractServer) headerFromMessage(msg *zmq4.Msg, offset int) (*types.MessageHeader, error) {
-	jFrames := types.JupyterFrames(msg.Frames[offset:])
-	if err := jFrames.Validate(); err != nil {
-		s.Log.Error("Failed to validate message frames while extracting header: %v", err)
-		return nil, err
-	}
-
-	var header types.MessageHeader
-	if err := jFrames.DecodeHeader(&header); err != nil {
-		s.Log.Error("Failed to decode message header \"%s\" from message frames: %v", string(jFrames[types.JupyterFrameHeader]), err)
-		return nil, err
-	}
-
-	return &header, nil
-}
-
 //func (s *AbstractServer) isMessageAnAck(msg *types.JupyterMessage, typ types.MessageType) bool {
 //	// ACKs are only sent for Shell/Control messages.
 //	if typ != types.ShellMessage && typ != types.ControlMessage {
@@ -1386,7 +1381,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDe
 
 		if pendingRequests != nil {
 			// We do not assume that the types.RequestDest implements the auto-detect feature.
-			_, rspId, offset := types.ExtractDestFrame(msg.Frames)
+			_, rspId, _ := msg.JupyterFrames.ExtractDestFrame(true)
 			if rspId == "" {
 				s.Log.Warn("Unexpected response without request ID, fallback to default handler.")
 				// Unexpected response without request ID, fallback to default handler.
@@ -1397,15 +1392,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDe
 
 				// Automatically remove destination kernel ID frame.
 				if shouldDestFrameBeRemoved {
-					originalLength := len(msg.Frames)
-					msg.Frames = types.RemoveDestFrame(msg.Frames, offset)
-					if len(msg.Frames) < originalLength {
-						// Adjust the offset.
-						diff := originalLength - len(msg.Frames)
-						s.Log.Debug("Adjusting Offset of Jupyter \"%s\" message %s (JupyterID=%s) by %d (original=%d, target=%d).",
-							msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), diff, msg.Offset, msg.Offset-diff)
-						msg.Offset -= diff
-					}
+					msg.JupyterFrames.RemoveDestFrame(true)
 				}
 
 				// Remove pending request and return registered handler. If timeout, the handler will be nil.

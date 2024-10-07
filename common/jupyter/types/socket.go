@@ -161,7 +161,7 @@ func NewSocketWithHandlerAndRemoteName(socket zmq4.Socket, port int, typ Message
 }
 
 //func (s *Socket) Recv() (zmq4.Msg, error) {
-//	msg, err := s.Socket.Recv()
+//	Msg, err := s.Socket.Recv()
 //
 //	if err != nil {
 //		s.mu.Lock()
@@ -169,7 +169,7 @@ func NewSocketWithHandlerAndRemoteName(socket zmq4.Socket, port int, typ Message
 //		s.mu.Unlock()
 //	}
 //
-//	return msg, err
+//	return Msg, err
 //}
 
 func (s *Socket) Send(msg zmq4.Msg) error {

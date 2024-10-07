@@ -173,9 +173,8 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 		}
 	} else if s.sampleMsg != nil {
 		// TODO: Not working here, need to regenerate the signature.
-		jFrames, _ := types.SkipIdentitiesFrame(s.sampleMsg.Frames)
-		jFrames.ContentFrame().Set([]byte(fmt.Sprintf(KernelStatusFrameTemplate, status)))
-		_, signError := jFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+		s.sampleMsg.JupyterFrames.ContentFrame().Set([]byte(fmt.Sprintf(KernelStatusFrameTemplate, status)))
+		_, signError := s.sampleMsg.JupyterFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 		if signError != nil {
 			fmt.Printf(utils.RedStyle.Render("[ERROR] Error while publishing AggregateKernelStatus: %v\n"), err)
 			return

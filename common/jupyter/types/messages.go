@@ -136,13 +136,7 @@ type ZmqMessage interface {
 }
 
 func extractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int) {
-	jOffset = 0
-	if len(frames) >= 1 {
-		// Jupyter messages start from "<IDS|MSG>" frame.
-		for jOffset < len(frames) && string(frames[jOffset]) != "<IDS|MSG>" {
-			jOffset++
-		}
-	}
+	_, jOffset = SkipIdentitiesFrame(frames)
 
 	if jOffset > 0 {
 		matches := jupyter.ZMQDestFrameRecognizer.FindStringSubmatch(string(frames[jOffset-1]))
@@ -158,8 +152,12 @@ func extractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int
 // JupyterMessage is a wrapper around ZMQ4 messages, specifically Jupyter ZMQ4 messages.
 // We encode the message ID and message type for convenience.
 type JupyterMessage struct {
-	*zmq4.Msg
-	JupyterFrames
+	// Msg is the *zmq4.Msg struct that is wrapped by the JupyterMessage.
+	Msg *zmq4.Msg
+
+	// JupyterFrames is a wrapper around the [][]byte from the *zmq4.Msg field.
+	// JupyterFrames provides a bunch of helper/utility methods for manipulating the [][]byte.
+	JupyterFrames *JupyterFrames
 
 	// ReplicaId is the replica of the kernel that received the message.
 	// This should be assigned a value in the forwarder function defined in the DistributedKernelClient's
@@ -167,7 +165,6 @@ type JupyterMessage struct {
 	ReplicaId     int32
 	RequestId     string
 	DestinationId string
-	Offset        int
 
 	RequestTrace *proto.RequestTrace
 
@@ -203,20 +200,44 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 		return nil
 	}
 
-	destId, reqId, offset := extractDestFrame(msg.Frames)
+	destId, reqId, _ := extractDestFrame(msg.Frames)
 
 	return &JupyterMessage{
 		Msg:                 msg,
 		ReplicaId:           -1,
-		JupyterFrames:       JupyterFrames(msg.Frames),
+		JupyterFrames:       NewJupyterFramesFromBytes(&msg.Frames),
 		header:              nil, // &header,
 		parentHeader:        nil, // &parentHeader,
 		DestinationId:       destId,
-		Offset:              offset,
 		RequestId:           reqId,
 		headerDecoded:       false,
 		parentHeaderDecoded: false,
 	}
+}
+
+// MsgToString returns the Frames of the Msg field as a string.
+func (m *JupyterMessage) MsgToString() string {
+	if len(m.Msg.Frames) == 0 {
+		return "[]"
+	}
+
+	s := "["
+	for i, frame := range m.Msg.Frames {
+		s += "\"" + string(frame) + "\""
+
+		if i+1 < len(m.Msg.Frames) {
+			s += ", "
+		}
+	}
+
+	s += "]"
+
+	return s
+}
+
+// Offset returns the offset of the underlying JupyterFrames.
+func (m *JupyterMessage) Offset() int {
+	return m.JupyterFrames.Offset
 }
 
 // SetSignatureScheme sets the signature scheme of the JupyterMessage.
@@ -244,7 +265,7 @@ func (m *JupyterMessage) DecodeMetadata() (map[string]interface{}, error) {
 		return m.metadata, nil
 	}
 
-	err := json.Unmarshal(m.Frames[m.Offset+JupyterFrameMetadata], &m.metadata)
+	err := m.JupyterFrames.DecodeMetadata(&m.metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -286,8 +307,8 @@ func (m *JupyterMessage) IsAck() bool {
 	return m.JupyterMessageType() == MessageTypeACK
 }
 
-func (m *JupyterMessage) AddDestinationId(destID string) (reqID string, jOffset int) {
-	m.Frames, reqID, jOffset = AddDestFrame(m.Frames, destID, jupyter.JOffsetAutoDetect)
+func (m *JupyterMessage) AddDestinationId(destID string) (string, int) {
+	reqID := m.JupyterFrames.AddDestFrame(destID, true)
 
 	if len(m.RequestId) > 0 && m.RequestId != reqID {
 		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Overwriting existing RequestId \"%s\" of JupyterMessage with value \"%s\"\n"), m.RequestId, reqID)
@@ -299,11 +320,10 @@ func (m *JupyterMessage) AddDestinationId(destID string) (reqID string, jOffset 
 
 	m.RequestId = reqID
 	m.DestinationId = destID
-	m.Offset = jOffset
 
-	log.Printf("Added destination ID \"%s\" to JupyterMessage. Request ID: \"%s\". Offset: %d.\n", destID, reqID, jOffset)
+	log.Printf("Added destination ID \"%s\" to JupyterMessage. Request ID: \"%s\". Offset: %d.\n", destID, reqID, m.JupyterFrames.Offset)
 
-	return reqID, jOffset
+	return reqID, m.JupyterFrames.Offset
 }
 
 // GetParentHeader decodes/deserializes the Jupyter parent header.
@@ -318,14 +338,13 @@ func (m *JupyterMessage) GetParentHeader() *MessageHeader {
 	}
 
 	var parentHeader MessageHeader
-	jFrames := JupyterFrames(m.Frames[m.Offset:])
-	if err := jFrames.Validate(); err != nil {
+	if err := m.JupyterFrames.Validate(); err != nil {
 		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to validate message frames while extracting header: %v\n"), err)
 		return nil
 	}
 
-	if err := jFrames.DecodeParentHeader(&parentHeader); err != nil {
-		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header from frame \"%v\" because: %v\n"), string(jFrames[JupyterFrameHeader]), err)
+	if err := m.JupyterFrames.DecodeParentHeader(&parentHeader); err != nil {
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header from frame \"%v\" because: %v\n"), string((*m.JupyterFrames.Frames)[JupyterFrameHeader]), err)
 		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Message frames (for which we failed to decode parent header): %s\n"), m.Msg.String())
 	}
 
@@ -335,8 +354,12 @@ func (m *JupyterMessage) GetParentHeader() *MessageHeader {
 	return m.parentHeader
 }
 
-func (m *JupyterMessage) ParentHeaderFrame() JupyterFrame {
-	return JupyterFrames(m.Msg.Frames[m.Offset:])[JupyterFrameParentHeader]
+func (m *JupyterMessage) ParentHeaderFrame() *JupyterFrame {
+	return m.JupyterFrames.ParentHeaderFrame()
+}
+
+func (m *JupyterMessage) HeaderFrame() *JupyterFrame {
+	return m.JupyterFrames.HeaderFrame()
 }
 
 // GetHeader decodes/deserializes the Jupyter message header.
@@ -349,16 +372,18 @@ func (m *JupyterMessage) GetHeader() (*MessageHeader, error) {
 	if m.Msg == nil {
 		panic("Cannot decode header of JupyterMessage because the underlying ZMQ message is nil...")
 	}
+	if m.JupyterFrames == nil {
+		panic("Cannot decode header of JupyterMessage because the underlying JupyterFrames struct is nil...")
+	}
 
 	var header MessageHeader
-	jFrames := JupyterFrames(m.Frames[m.Offset:])
-	if err := jFrames.Validate(); err != nil {
+	if err := m.JupyterFrames.Validate(); err != nil {
 		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to validate message frames while extracting header: %v\n"), err)
 		return nil, err
 	}
 
-	if err := jFrames.DecodeHeader(&header); err != nil {
-		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to decode header from frame \"%v\" because: %v\n"), string(jFrames[JupyterFrameHeader]), err)
+	if err := m.JupyterFrames.DecodeHeader(&header); err != nil {
+		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to decode header from frame \"%v\" because: %v\n"), string((*m.JupyterFrames.Frames)[JupyterFrameHeader]), err)
 		fmt.Printf(utils.RedStyle.Render("[ERROR] Erroneous message: %s\n"), m.String())
 		return nil, err
 	}
@@ -367,10 +392,6 @@ func (m *JupyterMessage) GetHeader() (*MessageHeader, error) {
 	m.headerDecoded = true
 
 	return m.header, nil
-}
-
-func (m *JupyterMessage) ToJFrames() JupyterFrames {
-	return m.Frames[m.Offset:]
 }
 
 func (m *JupyterMessage) SetMessageType(typ string) {
@@ -470,5 +491,5 @@ func (m *JupyterMessage) JupyterParentMessageId() string {
 }
 
 func (m *JupyterMessage) String() string {
-	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's Frames=%s", m.RequestId, m.DestinationId, m.Offset, JupyterFrames(m.Frames).String())
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.String())
 }
