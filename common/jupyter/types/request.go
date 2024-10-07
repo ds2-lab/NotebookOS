@@ -453,7 +453,7 @@ func (r *BasicRequest) RequiresAck() bool {
 	// Sanity check. If we're set to require ACKs, then just validate that we're either a Control or a Shell message.
 	// If we're not, then that indicates a bug.
 	if r.requiresAck && !ShouldMessageRequireAck(r.messageType) {
-		panic(fmt.Sprintf("Illegal request. Type is %s, yet ACKs are required: %v", r.messageType, r.payload.Msg))
+		panic(fmt.Sprintf("Illegal request. Type is %s, yet ACKs are required: %v", r.messageType, r.payload.msg))
 	}
 
 	return r.requiresAck

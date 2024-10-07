@@ -38,7 +38,7 @@ func (s *BaseServer) AssignMessagingMetricsProvider(messagingMetricsProvider met
 	s.server.MessagingMetricsProvider = messagingMetricsProvider
 }
 
-// func (s *BaseServer) SendRequest(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
+// func (s *BaseServer) SendRequest(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
 // 	jMsg := types.NewJupyterMessage(req)
 // 	return s.server.SendRequest(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
 // }

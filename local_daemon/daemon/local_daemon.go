@@ -1123,7 +1123,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(_ context.Context, req *proto.Rep
 	}
 
 	d.log.Debug("Sending Jupyter 'prepare-to-migrate' request to replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
-	_msg := &zmq4.Msg{Frames: *frames.Frames}
+	_msg := &zmq4.Msg{Frames: frames.Frames}
 	jMsg := jupyter.NewJupyterMessage(_msg)
 	var requestWG sync.WaitGroup
 	requestWG.Add(1)
@@ -1132,7 +1132,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(_ context.Context, req *proto.Rep
 	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 		d.log.Debug("Received response from 'prepare-to-migrate' request.")
 
-		for i, frame := range *msg.JupyterFrames.Frames {
+		for i, frame := range msg.JupyterFrames.Frames {
 			d.log.Debug("Frame #%d: %s", i, string(frame))
 		}
 
@@ -1231,7 +1231,7 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Re
 		return proto.VOID, err
 	}
 
-	_msg := &zmq4.Msg{Frames: *frames.Frames}
+	_msg := &zmq4.Msg{Frames: frames.Frames}
 	jMsg := jupyter.NewJupyterMessage(_msg)
 
 	var currentNumTries = 0
@@ -1306,7 +1306,7 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 		return proto.VOID, err
 	}
 
-	_msg := &zmq4.Msg{Frames: *frames.Frames}
+	_msg := &zmq4.Msg{Frames: frames.Frames}
 	jMsg := jupyter.NewJupyterMessage(_msg)
 
 	var wg sync.WaitGroup
@@ -2440,15 +2440,14 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 	var err error
 
 	// Clone the original message.
-	var newMessage = msg.Msg.Clone()
+	var newMessage = msg.GetZmqMsg().Clone()
 	jMsg := jupyter.NewJupyterMessage(&newMessage)
 
 	// Change the message header.
 	jMsg.SetMessageType(jupyter.ShellYieldRequest)
 
 	// Create a JupyterFrames struct by wrapping with the message's frames.
-	jFrames := jupyter.NewJupyterFramesFromBytes(&newMessage.Frames)
-	if err = jFrames.Validate(); err != nil {
+	if err = jMsg.Validate(); err != nil {
 		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_request' message, specifically while validating the existing frames: %v", err)
 		d.notifyClusterGatewayAndPanic("Failed to Validate \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
 	}
@@ -2459,14 +2458,14 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 		panic(err)
 	}
 
-	if err := jFrames.EncodeHeader(&header); err != nil {
+	if err := jMsg.JupyterFrames.EncodeHeader(&header); err != nil {
 		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_request' message, specifically while encoding the new message header: %v", err)
 		d.notifyClusterGatewayAndPanic("Failed to Encode Header for \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
 	}
 
-	// Replace the frames of the cloned message.
-	newMessage.Frames = *jFrames.Frames
-	jMsg.Msg = &newMessage
+	// Replace the frames of the cloned message. I don't think this is really necessary, as we do this automatically,
+	// but whatever.
+	newMessage.Frames = jMsg.JupyterFrames.Frames
 
 	return jMsg, nil
 }

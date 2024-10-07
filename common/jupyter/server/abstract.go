@@ -333,7 +333,7 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 	var ackMsg zmq4.Msg
 	if s.PrependId {
 		ackMsg = zmq4.NewMsgFrom(
-			(*msg.JupyterFrames.Frames)[0],
+			msg.JupyterFrames.Frames[0],
 			[]byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, msg.DestinationId, msg.RequestId)),
 			[]byte("<IDS|MSG>"),
 			[]byte(""),
@@ -668,7 +668,7 @@ func (s *AbstractServer) replyWithError(originalMessage *types.JupyterMessage, s
 	}
 
 	sendStart := time.Now()
-	err = socket.Send(*(errorMessage.Msg))
+	err = socket.Send(*errorMessage.GetZmqMsg())
 	sendDuration := time.Since(sendStart)
 
 	s.NumSends.Add(1)
@@ -726,11 +726,6 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 	// ... and that the request's Payload is non-nil...
 	if request.Payload() == nil {
 		panic(fmt.Sprintf("[gid=%d] %s request payload is nil: %s", goroutineId, socket.Type.String(), request.String()))
-	}
-
-	// ... and that the payload's underlying ZMQ message is non-nil.
-	if request.Payload().Msg == nil {
-		panic(fmt.Sprintf("[gid=%d] Underlying ZMQ message of %s request payload is nil: %s.", goroutineId, socket.Type.String(), request.String()))
 	}
 
 	// Validate that the request has a non-nil payload.
@@ -898,7 +893,7 @@ func (s *AbstractServer) printSendLatencyWarning(sendDuration time.Duration, msg
 	}
 }
 
-// sendRequest sends the zmq4.Msg encapsulated by the types.Request on the given types.Socket.
+// sendRequest sends the zmq4.msg encapsulated by the types.Request on the given types.Socket.
 //
 // If the send operation is successful, then sendRequest returns nil.
 //
@@ -909,17 +904,20 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 	s.Log.Debug(utils.LightPurpleStyle.Render("Sending message: %v."), request.Payload().MsgToString())
 
 	s.Log.Debug("JupyterFrames Frames: %p\n", request.Payload().JupyterFrames.Frames)
-	s.Log.Debug("Msg Frames: %p\n", request.Payload().Msg.Frames)
+
+	zmqMsg := request.Payload().GetZmqMsg()
+	s.Log.Debug("msg Frames: %p\n", zmqMsg.Frames)
 
 	// Send the request.
 	sendStart := time.Now()
-	err := socket.Send(*request.Payload().Msg)
+	err := socket.Send(*zmqMsg)
 	sendDuration := time.Since(sendStart)
 
 	if err != nil {
 		// If there was an error sending the request, then print an error message and transition the request to the 'erred' state.
 		if _, transitionErr := request.SetErred(err); transitionErr != nil {
-			s.Log.Error("Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'erred' state: %v", request.MessageType(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), transitionErr)
+			s.Log.Error("Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'erred' state: %v",
+				request.MessageType(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), transitionErr)
 		}
 
 		return err
@@ -941,13 +939,15 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 
 		firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sent %s \"%s\" message with"), goroutineId, socket.Type.String(), request.JupyterMessageType())
 		secondPart := fmt.Sprintf("reqID=%v (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
-		thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("via %s. Attempt %d/%d. NumSends: %d. NumUniqueSends: %d. AckRequired: %v. Message: %v"), socket.Name, request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), s.NumSends.Load(), s.NumUniqueSends.Load(), request.RequiresAck(), request.Payload().Msg)
+		thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("via %s. Attempt %d/%d. NumSends: %d. NumUniqueSends: %d. AckRequired: %v. Message: %v"),
+			socket.Name, request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), s.NumSends.Load(), s.NumUniqueSends.Load(), request.RequiresAck(), request.Payload().JupyterFrames.String())
 		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 	}
 
 	// Record that the request has been submitted.
 	if _, err := request.SetSubmitted(); err != nil {
-		panic(fmt.Sprintf("Request transition to 'submitted' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
+		panic(fmt.Sprintf("Request transition to 'submitted' state failed for %s \"%s\" request %s (JupyterID=%s): %v",
+			socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
 	}
 
 	return nil
@@ -966,22 +966,22 @@ func (s *AbstractServer) AddOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 		return nil, false, fmt.Errorf("DebugMode is not enabled, so the embedding of RequestTraces into ZMQ messages is disabled.s")
 	}
 
+	s.Log.Debug("Adding or updating RequestTrace in Jupyter %s \"%s\" message \"%s\"",
+		socket.Type.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
+
 	var (
 		wrapper      *proto.JupyterRequestTraceFrame
 		requestTrace *proto.RequestTrace
 		added        bool
 	)
 
-	fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\n", msg.JupyterFrames.LenWithoutIdentitiesFrame(false))
-	fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame(true): %d\n", msg.JupyterFrames.LenWithoutIdentitiesFrame(true))
-
 	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) <= types.JupyterFrameRequestTrace {
 		for msg.JupyterFrames.LenWithoutIdentitiesFrame(false) <= types.JupyterFrameRequestTrace {
 			s.Log.Debug("Jupyter \"%s\" request has just %d frames (after skipping identities frame). Adding additional frame. Offset: %d. Frames: %s",
-				msg.JupyterMessageType(), len((*msg.JupyterFrames.Frames)[msg.JupyterFrames.Offset:]), msg.Offset(), msg.JupyterFrames.String())
+				msg.JupyterMessageType(), msg.JupyterFrames.LenWithoutIdentitiesFrame(false), msg.Offset(), msg.JupyterFrames.String())
 
 			// If the request doesn't already have a JupyterFrameRequestTrace frame, then we'll add one.
-			*msg.JupyterFrames.Frames = append(*msg.JupyterFrames.Frames, make([]byte, 0))
+			msg.JupyterFrames.Frames = append(msg.JupyterFrames.Frames, make([]byte, 0))
 		}
 
 		// The metadata did not already contain a RequestTrace.
@@ -1006,13 +1006,12 @@ func (s *AbstractServer) AddOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 		s.Log.Debug("Added RequestTrace to Jupyter \"%s\" message.", msg.JupyterMessageType())
 	} else {
 		s.Log.Debug("Extracting Jupyter RequestTrace frame from \"%s\" message (offset=%d): %s", msg.JupyterMessageType(), msg.JupyterFrames.Offset, msg.JupyterFrames.String())
-		fmt.Printf("Extracting Jupyter RequestTrace frame from \"%s\" message (offset=%d): %s\n", msg.JupyterMessageType(), msg.JupyterFrames.Offset, msg.JupyterFrames.String())
 
-		err := json.Unmarshal((*msg.JupyterFrames.Frames)[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace], &wrapper)
+		err := json.Unmarshal(msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace], &wrapper)
 		if err != nil {
 			s.Log.Error("Failed to JSON-decode RequestTrace from Frame #%d because: %v", msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace, err)
 			s.Log.Error("Frame #%d: %s\n", msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace,
-				string((*msg.JupyterFrames.Frames)[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
+				string(msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
 			s.Log.Error("Frames: %s\n", msg.MsgToString())
 			return nil, false, err
 		}
@@ -1036,7 +1035,7 @@ func (s *AbstractServer) AddOrUpdateRequestTraceToJupyterMessage(msg *types.Jupy
 		return nil, false, err
 	}
 
-	(*msg.JupyterFrames.Frames)[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace] = marshalledFrame
+	msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace] = marshalledFrame
 
 	s.Log.Debug("Updated frames: %s.", msg.JupyterFrames.String())
 
@@ -1287,7 +1286,8 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 
 		if err == nil {
 			// Deserialize the message now so we can print some debug info + inspect if it is an ACK.
-			jMsg := types.NewJupyterMessage(&got)
+			msg = types.NewJupyterMessage(&got)
+			jMsg := msg.(*types.JupyterMessage)
 
 			// If the message is just an ACK, then we'll spawn another goroutine to handle it and keep polling.
 			if jMsg.IsAck() {
@@ -1317,11 +1317,8 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 					}
 				}
 			}
-
-			msg = jMsg
 		} else {
 			msg = err
-			// s.Log.Error("[gid=%d] Received error upon trying to read %v message: %v", goroutineId, socket.Type, err)
 		}
 
 		select {
@@ -1332,6 +1329,7 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 			s.Log.Warn("[gid=%d] Polling on %s socket %s is stopping. Router is closed.", goroutineId, socket.Type.String(), socket.Name)
 			return
 		}
+
 		// Quit on error.
 		if err != nil {
 			// s.Log.Warn("[gid=%d] Polling is stopping. Received error: %v", goroutineId, err)

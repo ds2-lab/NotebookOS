@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/hmac"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -601,7 +599,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	// If DebugMode is enabled, then add a buffers frame with a RequestTrace.
 	var requestTrace *proto.RequestTrace
 	if d.DebugMode {
-		*frames.Frames = append(*frames.Frames, make([]byte, 0))
+		frames.Frames = append(frames.Frames, make([]byte, 0))
 
 		requestTrace = proto.NewRequestTrace()
 
@@ -621,7 +619,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 
-		(*frames.Frames)[jupyter.JupyterFrameRequestTrace] = marshalledFrame
+		frames.Frames[jupyter.JupyterFrameRequestTrace] = marshalledFrame
 	}
 
 	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
@@ -1044,7 +1042,7 @@ func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel *client.KernelRepli
 		messageType = "N/A"
 	}
 
-	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.Msg.Type, messageType, reconnectionError)
+	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), messageType, reconnectionError)
 	d.log.Error(errorMessage)
 
 	go d.notifyDashboardOfError("Connection to Kernel Lost & Reconnection Failed", errorMessage)
@@ -1247,8 +1245,9 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	}
 
 	// Ensure that the frames are now correct.
-	if verified := d.verifyFrames([]byte(c.ConnectionInfo().Key), c.ConnectionInfo().SignatureScheme, msg.JupyterFrames); !verified {
-		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", c.ConnectionInfo().SignatureScheme, c.ConnectionInfo().Key)
+	if err := msg.JupyterFrames.Verify(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
+		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v': %v",
+			c.ConnectionInfo().SignatureScheme, c.ConnectionInfo().Key, err)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
 		return ErrFailedToVerifyMessage
 	}
@@ -1276,27 +1275,6 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	}
 
 	return nil
-}
-
-func (d *ClusterGatewayImpl) verifyFrames(signKey []byte, signatureScheme string, frames *jupyter.JupyterFrames) bool {
-	expect, err := frames.CreateSignature(signatureScheme, signKey)
-	if err != nil {
-		d.log.Error("Error when creating signature to verify JFrames: %v", err)
-		return false
-	}
-
-	signature := make([]byte, hex.DecodedLen(len((*frames.Frames)[frames.Offset+jupyter.JupyterFrameSignature])))
-	if _, err = hex.Decode(signature, (*frames.Frames)[frames.Offset+jupyter.JupyterFrameSignature]); err != nil {
-		d.log.Error("Failed to decode Jupyter message/signature because: %v", err)
-		d.log.Error("Erroneous message/frames: %s", frames.String())
-	}
-	verified := hmac.Equal(expect, signature)
-
-	if !verified {
-		d.log.Error("Failed to verify JFrames.\nExpect: '%v'\nSignature: '%v'", expect, signature)
-	}
-
-	return verified
 }
 
 func (d *ClusterGatewayImpl) dynamicV3FailureHandler(_ *client.DistributedKernelClient) error {
@@ -2446,7 +2424,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 			msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
 		if len(msg.DestinationId) == 0 {
-			d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Msg.Type, msg)
+			d.log.Error("Extracted empty kernel ID from ZMQ \"%s\" message: %v", msg.JupyterMessageType(), msg)
 			debug.PrintStack()
 		}
 
@@ -2722,30 +2700,11 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *jupyter.JupyterMessage) (
 	return kernel, messageType, nil
 }
 
-// func (d *ClusterGatewayImpl) kernelFromMsg(msg *jupyter.JupyterMessage) (client.DistributedKernelClient, error) {
-// 	kernelId, header, err := d.headerFromMsg(msg)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	kernel, ok := d.kernels.Load(kernelId)
-// 	if !ok {
-// 		d.log.Error("Cannot find kernel \"%s\" specified in %v message %s of type '%v'. Message: %v", kernelId, header.MsgType, header.MsgID, header.MsgType, msg)
-// 		return nil, ErrKernelNotFound
-// 	}
-
-// 	if kernel.Status() != jupyter.KernelStatusRunning {
-// 		return kernel, ErrKernelNotReady
-// 	}
-
-// 	return kernel, nil
-// }
-
 func (d *ClusterGatewayImpl) forwardRequest(kernel *client.DistributedKernelClient, typ jupyter.MessageType, msg *jupyter.JupyterMessage) (err error) {
 	goroutineId := goid.Get()
 	// var messageType string
 	if kernel == nil {
-		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting unknown kernel/session. Inspecting now: %v"), goroutineId, typ.String(), msg.Msg.String())
+		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting unknown kernel/session. Inspecting now: %v"), goroutineId, typ.String(), msg.JupyterFrames.String())
 		kernel, _ /* messageType */, err = d.kernelAndTypeFromMsg(msg)
 	} else {
 		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting kernel %s. Inspecting now..."), goroutineId, typ.String(), kernel.ID())
@@ -2793,8 +2752,9 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 
 	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v response from kernel %s via %s: %v"),
 		goroutineId, typ, from.ID(), socket.Name, msg)
+	zmqMsg := *msg.GetZmqMsg()
 	sendStart := time.Now()
-	err := socket.Send(*msg.Msg)
+	err := socket.Send(zmqMsg)
 	sendDuration := time.Since(sendStart)
 
 	// Display a warning if the send operation took a while.

@@ -1167,7 +1167,7 @@ func (c *KernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage) (to
 		return "", jFrames
 	}
 
-	rawTopic := (*msg.JupyterFrames.Frames)[ /*jOffset*/ msg.Offset()-1]
+	rawTopic := msg.JupyterFrames.Frames[ /*jOffset*/ msg.Offset()-1]
 	matches := types.IOTopicStatusRecognizer.FindSubmatch(rawTopic)
 	if len(matches) > 0 {
 		return string(matches[2]), jFrames
@@ -1177,7 +1177,7 @@ func (c *KernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage) (to
 }
 
 func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.Kernel, _ types.JupyterFrames, msg *types.JupyterMessage) error {
-	return kernel.Socket(types.IOMessage).Send(*msg.Msg)
+	return kernel.Socket(types.IOMessage).Send(*msg.GetZmqMsg())
 }
 
 func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {

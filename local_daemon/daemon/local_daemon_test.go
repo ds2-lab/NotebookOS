@@ -109,7 +109,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", domain.TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(&unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			err := jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -142,7 +142,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames := types.NewJupyterFramesFromBytes(&unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			err := jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -178,7 +178,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames := types.NewJupyterFramesFromBytes(&unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			err := jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -215,7 +215,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte("{}"), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames1 := types.NewJupyterFramesFromBytes(&unsignedFrames1)
+			jFrames1 := types.NewJupyterFramesFromBytes(unsignedFrames1)
 			frames1, err := jFrames1.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			Expect(frames1).ToNot(BeNil())
@@ -229,7 +229,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte("{}"), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames2 := types.NewJupyterFramesFromBytes(&unsignedFrames2)
+			jFrames2 := types.NewJupyterFramesFromBytes(unsignedFrames2)
 			frames2, err := jFrames2.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			Expect(frames2).ToNot(BeNil())
@@ -267,7 +267,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames := types.NewJupyterFramesFromBytes(&unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			err = jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))

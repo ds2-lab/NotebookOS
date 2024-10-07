@@ -203,22 +203,6 @@ func (b *RequestBuilder) WithRemoveDestFrame(shouldDestFrameBeRemoved bool) *Req
 // Required //
 //////////////
 
-// WithPayload sets the payload of the message.
-//
-// Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
-func (b *RequestBuilder) WithPayload(msg *zmq4.Msg) *RequestBuilder {
-	if msg == nil {
-		panic(fmt.Sprintf("Cannot assign nil payload for request. SourceID: %s. DestID: %s. ConnectionInfo: %v.", b.sourceId, b.destinationId, b.connectionInfo))
-	}
-
-	msg, reqId, _ := b.extractAndAddDestFrame(b.destinationId, msg)
-
-	b.payload = NewJupyterMessage(msg)
-	b.requestId = reqId
-
-	return b
-}
-
 // WithJMsgPayload sets the payload of the message.
 //
 // Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
@@ -286,7 +270,7 @@ func (b *RequestBuilder) WithMessageHandler(handler MessageHandler) *RequestBuil
 func (b *RequestBuilder) extractAndAddDestFrame(destId string, msg *zmq4.Msg) (*zmq4.Msg, string, int) {
 	// Slightly inefficient. We call SkipIdentities both in NewJupyterFramesFromBytes and ExtractDestFrame.
 	// (And again several times in AddDestFrame...)
-	jFrames := NewJupyterFramesFromBytes(&msg.Frames)
+	jFrames := NewJupyterFramesFromBytes(msg.Frames)
 
 	// Normalize the request, we do not assume that the types.RequestDest implements the auto-detect feature.
 	_, reqId, _ := jFrames.ExtractDestFrame(false)

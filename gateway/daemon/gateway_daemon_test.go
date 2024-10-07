@@ -119,7 +119,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(&unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			msg := &zmq4.Msg{
 				Frames: frames,
@@ -152,7 +152,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(&unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 
 			msg := &zmq4.Msg{
@@ -209,7 +209,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(&unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			frames, err := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			msg := &zmq4.Msg{
@@ -238,9 +238,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				m, err := json.Marshal(&proto.JupyterRequestTraceFrame{RequestTrace: trace})
 				Expect(err).To(BeNil())
 
-				fmt.Printf("jMsg.JupyterFrames[%d+%d]: %s\n", jMsg.Offset(), types.JupyterFrameRequestTrace, string((*jMsg.JupyterFrames.Frames)[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
+				fmt.Printf("jMsg.JupyterFrames[%d+%d]: %s\n", jMsg.Offset(), types.JupyterFrameRequestTrace, string(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
 				fmt.Printf("Marshalled RequestTrace: %s\n", string(m))
-				Expect((*jMsg.JupyterFrames.Frames)[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]).To(Equal(m))
+				Expect(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]).To(Equal(m))
 			}
 
 			requestReceivedByGateway := int64(257894000000)

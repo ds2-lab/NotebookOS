@@ -1245,7 +1245,7 @@ func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ
 			}
 		default:
 			{
-				return c.server.Sockets.IO.Send(*msg.Msg)
+				return c.server.Sockets.IO.Send(*msg.GetZmqMsg())
 			}
 		}
 	default:
@@ -1337,7 +1337,7 @@ func (c *DistributedKernelClient) handleFailedExecutionAllYielded() error {
 func (c *DistributedKernelClient) pubIOMessage(msg *types.JupyterMessage, status string, _ string) error {
 	// c.log.Debug("Publishing %v status(%s:%s): %v", types.IOMessage, status, how, msg)
 	c.lastBStatusMsg = msg
-	err := c.server.Sockets.IO.Send(*msg.Msg)
+	err := c.server.Sockets.IO.Send(*msg.GetZmqMsg())
 
 	// Initiate idle status collection.
 	if status == types.MessageKernelStatusBusy {
