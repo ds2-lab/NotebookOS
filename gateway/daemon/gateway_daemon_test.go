@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/mock_scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
@@ -37,15 +38,15 @@ var _ = Describe("Cluster Gateway Tests", func() {
 	)
 
 	BeforeEach(func() {
-		clusterGateway = &ClusterGatewayImpl{
-			cluster: cluster,
-		}
-		config.InitLogger(&clusterGateway.log, clusterGateway)
-
 		mockCtrl = gomock.NewController(GinkgoT())
 		kernel = mock_client.NewMockAbstractDistributedKernelClient(mockCtrl)
 		cluster = mock_scheduling.NewMockCluster(mockCtrl)
 		session = mock_scheduling.NewMockAbstractSession(mockCtrl)
+
+		clusterGateway = &ClusterGatewayImpl{
+			cluster: cluster,
+		}
+		config.InitLogger(&clusterGateway.log, clusterGateway)
 
 		kernel.EXPECT().ConnectionInfo().Return(&types.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
 		kernel.EXPECT().KernelSpec().Return(&proto.KernelSpec{
@@ -112,6 +113,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Type:   zmq4.UsrMsg,
 			}
 			jMsg := types.NewJupyterMessage(msg)
+
+			session.EXPECT().IsTraining().Return(false).MaxTimes(1)
+			session.EXPECT().SetExpectingTraining().Return(promise.Resolved(nil)).MaxTimes(1)
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			err = clusterGateway.processExecuteRequest(jMsg, kernel)
