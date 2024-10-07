@@ -18,13 +18,14 @@ from .election import Election
 from .errors import print_trace, SyncError, GoError, GoNilError
 from .file_log import FileLog
 from .future import Future
-from .log import SynchronizedValue, LeaderElectionVote, LeaderElectionProposal, ElectionProposalKey, \
-    KEY_CATCHUP, ExecutionCompleteNotification
+from .log import SynchronizedValue, LeaderElectionVote, BufferedLeaderElectionVote, LeaderElectionProposal, \
+    BufferedLeaderElectionProposal, ElectionProposalKey, KEY_CATCHUP, ExecutionCompleteNotification
 from .reader import readCloser
 from ..smr.go import Slice_string, Slice_int, Slice_byte
 from ..smr.smr import LogNode, NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser
 
 MAX_MEMORY_OBJECT = 1024 * 1024
+
 
 class writeCloser:
     def __init__(self, wc: WriteCloser):
@@ -53,6 +54,7 @@ class RaftLog(object):
     def __init__(
             self,
             id: int,
+            kernel_id: str,
             base_path: str = "/store",
             hdfs_hostname: str = "172.17.0.1:9000",
             # data_directory: str = "/storage",
@@ -63,13 +65,16 @@ class RaftLog(object):
             join: bool = False,
             debug_port: int = 8464,
             heartbeat_tick: int = 10,  # Raft-related
-            election_tick: int = 1  # Raft-related
+            election_tick: int = 1,  # Raft-related
+            report_error_callback: Callable[[str, str], None] = None,
+            send_notification_func: Callable[[str, str, int], None] = None,
     ):
         self._shouldSnapshotCallback = None
         if len(hdfs_hostname) == 0:
             raise ValueError("HDFS hostname is empty.")
 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
+        self.logger.setLevel(logging.DEBUG)
         self.logger.info("Creating RaftNode %d now." % id)
 
         if debug_port <= 1023 or debug_port >= 65535:
@@ -77,6 +82,8 @@ class RaftLog(object):
                 self.logger.warning("Debug port specified as -1. Golang HTTP debug server will be disabled.")
             else:
                 raise ValueError("Invalid debug port specified.")
+
+        self._kernel_id = kernel_id
 
         # The term that the leader is expecting.
         self._expected_term: int = 0
@@ -89,6 +96,8 @@ class RaftLog(object):
         self._offloader: FileLog = FileLog(self._persistent_store_path)
         self._num_replicas: int = num_replicas
         self._last_winner_id: int = -1
+        self._report_error_callback = report_error_callback
+        self._send_notification_func = send_notification_func
 
         try:
             self._create_persistent_store_directory(base_path)
@@ -132,6 +141,9 @@ class RaftLog(object):
 
         self.logger.info(f"Successfully created LogNode {id}.")
 
+        # Indicates whether we've created the first Election / at least one Election
+        self.__created_first_election: bool = False
+
         # Mapping from term number to the election associated with that term. 
         self._elections: Dict[int, Election] = {}
         # The current/active election.
@@ -145,12 +157,23 @@ class RaftLog(object):
         self._change_handler: Optional[Callable[[SynchronizedValue], None]] = None
 
         # If we receive a proposal with a larger term number than our current election, then it is possible
-        # that we simply received the proposal before receiving the associated "execute_request" or "yield_execute" message 
+        # that we simply received the proposal before receiving the associated "execute_request" or "yield_request" message 
         # that would've prompted us to start the election locally. So, we'll just buffer the proposal for now, and when
-        # we receive the "execute_request" or "yield_execute" message, we'll process any buffered proposals at that point.
+        # we receive the "execute_request" or "yield_request" message, we'll process any buffered proposals at that point.
         #
         # This map maintains the buffered proposals. The mapping is from term number to a list of buffered proposals for that term.
-        self._buffered_proposals: dict[int, List[LeaderElectionProposal]] = {}
+        self._buffered_proposals: dict[int, List[BufferedLeaderElectionProposal]] = {}
+        # Ensures atomic access to the _buffered_proposals dictionary (required because we may be switching between
+        # multiple Python threads/goroutines that are accessing the _buffered_proposals dictionary).
+        self._buffered_proposals_lock: threading.Lock = threading.Lock()
+
+        # _buffered_votes serves the same purpose as _buffered_proposals, but _buffered_votes is for LeaderElectionVote
+        # objects, whereas _buffered_proposals is for LeaderElectionProposal objects.
+        self._buffered_votes: dict[int, List[BufferedLeaderElectionVote]] = {}
+        # Ensures atomic access to the _buffered_votes dictionary (required because we may be switching between
+        # multiple Python threads/goroutines that are accessing the _buffered_votes dictionary).
+        self._buffered_votes_lock: threading.Lock = threading.Lock()
+
         # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
         self._proposed_values: OrderedDict[int, OrderedDict[int, LeaderElectionProposal]] = OrderedDict()
 
@@ -197,6 +220,13 @@ class RaftLog(object):
         # As soon as we call `RaftLog::start`, we could begin receiving proposals, so we need this state to exist now.
         # (We compare committed values against `self._catchup_value` when `self._need_to_catch_up` is true.)
         if self._needs_to_catch_up:
+            # We pass the last election term, as we don't want to win the current election.
+            # That is, if we pass self._leader_term_before_migration + 1 as the election term,
+            # then all our peers will set their leader_term fields to _leader_term_before_migration + 1,
+            # and then when we try to restart the election, the term of the election to be restarted,
+            # which is equal to _leader_term_before_migration + 1, will be equal to _leader_term_before_migration
+            # + 1. And that's wrong. If we're holding an election, then the leader_term is supposed to be
+            # less than the term of the election. We're electing a leader for that term.
             self._catchup_value = SynchronizedValue(None, None, proposer_id=self._node_id, key=KEY_CATCHUP,
                                                     election_term=self._leader_term_before_migration,
                                                     should_end_execution=False, operation=KEY_CATCHUP)
@@ -204,7 +234,7 @@ class RaftLog(object):
             self._catchup_io_loop.set_debug(True)
             self._catchup_future = self._catchup_io_loop.create_future()
             self.logger.debug(
-                f"Created new 'catchup value' with ID={self._catchup_value.id}, timestamp={self._catchup_value._timestamp}, and election term={self._catchup_value.election_term}.")
+                f"Created new 'catchup value' with ID={self._catchup_value.id}, timestamp={self._catchup_value.timestamp}, and election term={self._catchup_value.election_term}.")
 
         sys.stderr.flush()
         sys.stdout.flush()
@@ -218,21 +248,83 @@ class RaftLog(object):
             os.makedirs(path, 0o750, exist_ok=True)  # It's OK if it already exists.
             self.logger.debug(f"Created persistent store directory \"{path}\" (or it already exists).")
 
-    def __handle_vote(self, vote: LeaderElectionVote, received_at=time.time()) -> bytes:
-        if self.needs_to_catch_up:
-            # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
-            self.logger.warning(f"Discarding LeaderElectionVote, as we need to catch-up: {vote}")
+    def __buffer_vote(self, vote: LeaderElectionVote, received_at: float = time.time()) -> bytes:
+        # Save the vote in the "buffered votes" dictionary.
+        with self._buffered_votes_lock:
+            buffered_votes: List[BufferedLeaderElectionVote] = self._buffered_votes.get(vote.election_term, [])
+            buffered_votes.append(BufferedLeaderElectionVote(vote=vote, received_at=received_at))
+            self._buffered_votes[vote.election_term] = buffered_votes
             sys.stderr.flush()
             sys.stdout.flush()
             return GoNilError()
 
-        self.logger.debug(f"Received VOTE: {str(vote)}")
+    def __handle_vote(self, vote: LeaderElectionVote, received_at=time.time(), buffered_vote: bool = True) -> bytes:
+        """
+        Handle a vote proposal.
 
+        :param vote: the vote proposal that we've received.
+        :param received_at: the time at which we received the vote proposal.
+        :param buffered_vote: if True, then we're handling a buffered vote proposal, and thus we should not buffer it again.
+        """
+        if self.needs_to_catch_up:
+            if vote.election_term > self._leader_term_before_migration and vote.attempt_number > self._current_election.current_attempt_number:
+                # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
+                self.logger.warning(
+                    f"Received vote from term {vote.election_term} (with attempt number {vote.attempt_number})."
+                    f"The vote's term is > the election term prior to our migration (i.e., {self._leader_term_before_migration}). "
+                    f"Buffering vote now.")
+                self.__buffer_vote(vote, received_at=received_at)
+                sys.stderr.flush()
+                sys.stdout.flush()
+                return GoNilError()
+            else:
+                self.logger.debug(f"Discarding old LeaderElectionVote from term {vote.election_term} "
+                                  f"with attempt number {vote.attempt_number}, "
+                                  f"as we need to catch-up: {vote}")
+                sys.stderr.flush()
+                sys.stdout.flush()
+                return GoNilError()
+
+        # If we do not have an election upon receiving a vote, then we buffer the vote, as we presumably
+        # haven't received the associated 'execute_request' or 'yield_request' message, whereas one of our peer
+        # replicas did.
+        #
+        # Likewise, if we receive a vote with a larger term number than our current election, then it is possible
+        # that we simply received the vote before receiving the associated "execute_request" or "yield_request" message
+        # that would've prompted us to start the election locally. So, we'll just buffer the vote for now, and when
+        # we receive the "execute_request" or "yield_request" message, we'll process any buffered proposals and
+        # buffered votes at that point.
+        #
+        # Also, we check this first before checking if we should simply discard the vote, in case we receive a legitimate,
+        # new execution request early for some reason. This shouldn't happen, but if it does, we can just buffer the request.
         if self._current_election is None:
-            self.logger.error(f"Current election is None, even though we just received a vote... vote: {vote}")
-            sys.stderr.flush()
-            sys.stdout.flush()
-            raise ValueError(f"Received 'VOTE' proposal with null current election. Vote: {str(vote)}")
+            self.logger.warning(f"Received vote for node \"{vote.proposed_node_id}\" from node {vote.proposer_id} "
+                                f"while our local election is None. Match: {self._node_id == vote.proposer_id}. "
+                                f"Current election is None? {self._current_election is None}. "
+                                f"Proposal term: {vote.election_term}. Will buffer vote for now. "
+                                f"Proposal: {str(vote)}")
+
+            # This is basically just a sanity check to make sure we don't somehow get
+            # stuck in a loop of buffering the same vote(s) over and over again.
+            if not buffered_vote:
+                raise ValueError("We're already handling a buffered vote. We should not be trying to buffer it again!")
+
+            return self.__buffer_vote(vote, received_at=received_at)
+        elif vote.election_term > self._current_election.term_number:
+            self.logger.warning(f"Received vote for node \"{vote.proposed_node_id}\" from node {vote.proposer_id} "
+                                f"from future election term {vote.election_term} "
+                                f"while local election is for term {self._current_election.term_number}. "
+                                f"Match: {self._node_id == vote.proposer_id}. Will buffer vote for now. "
+                                f"Proposal: {str(vote)}")
+
+            # This is basically just a sanity check to make sure we don't somehow get
+            # stuck in a loop of buffering the same vote(s) over and over again.
+            if not buffered_vote:
+                raise ValueError("We're already handling a buffered vote. We should not be trying to buffer it again!")
+
+            return self.__buffer_vote(vote, received_at=received_at)
+
+        self.logger.debug(f"Received VOTE: {str(vote)}")
 
         # The first 'VOTE' proposal received during the term automatically wins.
         with self._election_lock:
@@ -302,12 +394,61 @@ class RaftLog(object):
         self.logger.debug(f"Received \"execution complete\" notification for election term "
                           f"{notification.election_term} from node {notification.proposer_id}.")
 
+        if self.needs_to_catch_up:
+            if notification.election_term > self._leader_term_before_migration:
+                # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
+                self.logger.warning(f"Received ExecutionCompleteNotification from term {notification.election_term} "
+                                    f"which is > the election term prior to our migration (i.e., {self._leader_term_before_migration}). "
+                                    f"But the election shouldn't be able to end until we've caught-up and started "
+                                    f"participating again...")
+                raise ValueError(f"Received ExecutionCompleteNotification from term {notification.election_term} "
+                                 f"with attempt number {notification.attempt_number}, "
+                                 f"which is >= the election term prior to our migration "
+                                 f"(i.e., {self._leader_term_before_migration}).")
+            else:
+                self.logger.debug(
+                    f"Discarding old ExecutionCompleteNotification from term {notification.election_term} "
+                    f"with attempt number {notification.attempt_number}, "
+                    f"as we need to catch-up: {notification}")
+                sys.stderr.flush()
+                sys.stdout.flush()
+                return GoNilError()
+
         with self._election_lock:
-            assert self.current_election.term_number == notification.election_term
-            assert self.leader_id == notification.proposer_id
+            if self.current_election.term_number != notification.election_term:
+                self.logger.error(f"Current election is for term {self.current_election.term_number}, "
+                                  f"but we just received a notification that election {notification.election_term} has finished...")
+                raise ValueError(f"Inconsistent term numbers. Current election: {self.current_election.term_number}. "
+                                 f"Notification: {notification.election_term}.")
+
+            if self.leader_id != notification.proposer_id:
+                self.logger.error(f"Current leader ID is {self.leader_id}, but we just received an "
+                                  f"\"election finished\" notification with proposer ID = {notification.proposer_id}...")
+                raise ValueError(f"Inconsistent leader ID and \"election finished\" notification proposer ID. "
+                                 f"Leader ID: {self.leader_id}. \"Election finished\" notification proposer ID: "
+                                 f"{notification.proposer_id}.")
+
             self.current_election.set_execution_complete()
 
         return GoNilError()
+
+    @property
+    def created_first_election(self):
+        """
+        :return: return a boolean indicating whether we've created the first election yet.
+        """
+        return self.__created_first_election
+
+    def __buffer_proposal(self, proposal: LeaderElectionProposal, received_at: float = time.time()) -> bytes:
+        # Save the proposal in the "buffered proposals" mapping.
+        with self._buffered_proposals_lock:
+            buffered_proposals: List[BufferedLeaderElectionProposal] = self._buffered_proposals.get(
+                proposal.election_term, [])
+            buffered_proposals.append(BufferedLeaderElectionProposal(proposal=proposal, received_at=received_at))
+            self._buffered_proposals[proposal.election_term] = buffered_proposals
+            sys.stderr.flush()
+            sys.stdout.flush()
+            return GoNilError()
 
     def __handle_proposal(self, proposal: LeaderElectionProposal, received_at: float = 0) -> bytes:
         """Handle a committed LEAD/YIELD proposal.
@@ -319,35 +460,50 @@ class RaftLog(object):
         # assert self._current_election is not None 
 
         # If we do not have an election upon receiving a proposal, then we buffer the proposal, as we presumably
-        # haven't received the associated 'execute_request' or 'yield_execute' message, whereas one of our peer
+        # haven't received the associated 'execute_request' or 'yield_request' message, whereas one of our peer
         # replicas did.
         #
         # Likewise, if we receive a proposal with a larger term number than our current election, then it is possible
-        # that we simply received the proposal before receiving the associated "execute_request" or "yield_execute" message 
+        # that we simply received the proposal before receiving the associated "execute_request" or "yield_request" message 
         # that would've prompted us to start the election locally. So, we'll just buffer the proposal for now, and when
-        # we receive the "execute_request" or "yield_execute" message, we'll process any buffered proposals at that point.
+        # we receive the "execute_request" or "yield_request" message, we'll process any buffered proposals and
+        # buffered votes at that point.
         #
         # Also, we check this first before checking if we should simply discard the proposal, in case we receive a legitimate, 
         # new execution request early for some reason. This shouldn't happen, but if it does, we can just buffer the request.
-        if self._current_election is None or proposal.election_term > self._current_election.term_number:
-            self.logger.warning(f"Received proposal \"{proposal.key}\" from node {proposal.proposer_id}: {str(proposal)}. "
-                                f"Match: {self._node_id == proposal.proposer_id}. "
+        if self._current_election is None:
+            self.logger.warning(f"Received proposal \"{proposal.key}\" from node {proposal.proposer_id} "
+                                f"while our local election is None. Match: {self._node_id == proposal.proposer_id}. "
                                 f"Current election is None? {self._current_election is None}. "
-                                f"Proposal term: {proposal.election_term}. ")
-            # Save the proposal in the "buffered proposals" mapping.
-            buffered_proposals: List[LeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
-            buffered_proposals.append(proposal)
-            self._buffered_proposals[proposal.election_term] = buffered_proposals
-            sys.stderr.flush()
-            sys.stdout.flush()
-            return GoNilError()
+                                f"Proposal term: {proposal.election_term}. Will buffer proposal for now. "
+                                f"Proposal: {str(proposal)}")
+            return self.__buffer_proposal(proposal, received_at=received_at)
+        elif proposal.election_term > self._current_election.term_number:
+            self.logger.warning(f"Received proposal \"{proposal.key}\" from node {proposal.proposer_id} "
+                                f"from future election term {proposal.election_term} "
+                                f"while local election is for term {self._current_election.term_number}. "
+                                f"Match: {self._node_id == proposal.proposer_id}. Will buffer proposal for now. "
+                                f"Proposal: {str(proposal)}")
+            return self.__buffer_proposal(proposal, received_at=received_at)
 
         if self.needs_to_catch_up:
-            # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
-            self.logger.warning(f"Discarding LeaderElectionProposal, as we need to catch-up: {proposal}")
-            sys.stderr.flush()
-            sys.stdout.flush()
-            return GoNilError()
+            if proposal.election_term > self._leader_term_before_migration and proposal.attempt_number > self._current_election.current_attempt_number:
+                # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
+                self.logger.warning(f"Received proposal from term {proposal.election_term} "
+                                    f"(with attempt number {proposal.attempt_number})."
+                                    f"The proposal's term is > the election term prior to our migration "
+                                    f"(i.e., {self._leader_term_before_migration}). Buffering proposal now.")
+                self.__buffer_proposal(proposal, received_at=received_at)
+                sys.stderr.flush()
+                sys.stdout.flush()
+                return GoNilError()
+            else:
+                self.logger.debug(f"Discarding old LeaderElectionProposal from term {proposal.election_term} "
+                                  f"with attempt number {proposal.attempt_number}, "
+                                  f"as we need to catch-up: {proposal}")
+                sys.stderr.flush()
+                sys.stdout.flush()
+                return GoNilError()
 
         if self._future_io_loop is None:
             try:
@@ -409,7 +565,7 @@ class RaftLog(object):
                     _pick_and_propose_winner_future.set_result(1)  # Generic result set here
                 except asyncio.InvalidStateError:
                     self.logger.error(
-                        "Future for picking and proposing a winner of election term {} has already been resolved...")
+                        f"Future for picking and proposing a winner of election term {current_term} has already been resolved...")
 
             if self._future_io_loop is None:
                 self.logger.error("Future IO loop is None. Cannot schedule `resolve()` future on loop.")
@@ -419,7 +575,6 @@ class RaftLog(object):
             # It will sleep until the discardAt time expires, at which point a decision needs to be made.
             # If a decision was already made for that election, then the `decide_election` function will simply return.
             asyncio.run_coroutine_threadsafe(decide_election(), self._future_io_loop)
-            # self._future_io_loop.call_soon_threadsafe(decide_election)
 
         self.logger.debug(
             f"Received {self._current_election.num_proposals_received} proposal(s) and discarded {self._current_election.num_discarded_proposals} proposal(s) so far during term {self._current_election.term_number}.")
@@ -435,7 +590,9 @@ class RaftLog(object):
         """
         Try to select a winner to propose for the current election.
 
-        Return True if a winner was selected for proposal (including just proposing 'FAILURE' due to all nodes proposing 'YIELD); otherwise, return False. 
+        Returns:
+            True if a winner was selected for proposal (including just proposing 'FAILURE' due to all nodes
+            proposing 'YIELD'); otherwise, return False.
         """
         if self._current_election is None:
             raise ValueError(f"cannot try to pick winner for election {term_number}; current election field is null.")
@@ -451,18 +608,19 @@ class RaftLog(object):
         try:
             # Select a winner.
             with self._election_lock:
-                id: int = self._current_election.pick_winner_to_propose(last_winner_id=self._last_winner_id)
+                id_of_winner_to_propose: int = self._current_election.pick_winner_to_propose(
+                    last_winner_id=self._last_winner_id)
 
-            if id > 0:
+            if id_of_winner_to_propose > 0:
                 assert self._election_decision_future is not None
                 self.logger.debug(
-                    f"Will propose that node {id} win the election in term {self._current_election.term_number}.")
+                    f"Will propose that node {id_of_winner_to_propose} win the election in term {self._current_election.term_number}.")
                 self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result,
-                                                          LeaderElectionVote(proposed_node_id=id,
+                                                          LeaderElectionVote(proposed_node_id=id_of_winner_to_propose,
                                                                              proposer_id=self._node_id,
                                                                              election_term=term_number,
                                                                              attempt_number=self._current_election.current_attempt_number))
-                # self._election_decision_future.set_result(LeaderElectionVote(proposed_node_id = id, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
+                # self._election_decision_future.set_result(LeaderElectionVote(proposed_node_id = id_of_winner_to_propose, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
                 return True
             else:
                 assert self._election_decision_future is not None
@@ -498,6 +656,9 @@ class RaftLog(object):
             print_trace(limit=10)
             sys.stderr.flush()
             sys.stdout.flush()
+            self._report_error_callback(
+                "Exception While Processing Committed Value",
+                f"{type(ex).__name__}: {str(ex)}")
         finally:
             self.logger.debug(f"Returning from self._valueCommitted with value: {ret}")
             sys.stderr.flush()
@@ -534,22 +695,28 @@ class RaftLog(object):
 
             if committedValue.key == KEY_CATCHUP and committedValue.proposer_id == self._node_id and committedValue.id == self._catchup_value.id:
                 self.logger.debug(
-                    f"Received our catch-up value (ID={committedValue.id}, timestamp={committedValue._timestamp}, election term={committedValue.election_term}). We must be caught-up!")
+                    f"Received our catch-up value (ID={committedValue.id}, timestamp={committedValue.timestamp}, "
+                    f"election term={committedValue.election_term}). We must be caught up!\n\n\n")
                 sys.stderr.flush()
                 sys.stdout.flush()
 
                 if self._leader_term_before_migration != committedValue.election_term:
                     self.logger.error(
-                        f"The leader term before migration was {self._leader_term_before_migration}, while the committed catch-up value has term {committedValue.election_term}. They should be equal.")
+                        f"The leader term before migration was {self._leader_term_before_migration}, "
+                        f"while the committed \"catch-up\" value has term {committedValue.election_term}. "
+                        f"The term of the \"catch-up\" value should be equal to last leader term.")
+                        # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
                     sys.stderr.flush()
                     sys.stdout.flush()
                     raise ValueError(
-                        f"The leader term before migration was {self._leader_term_before_migration}, while the committed catch-up value has term {committedValue.election_term}. They should be equal.")
+                        f"The leader term before migration was {self._leader_term_before_migration}, "
+                        f"while the committed \"catch-up\" value has term {committedValue.election_term}. "
+                        f"The term of the \"catch-up\" value should be equal to last leader term.")
+                        # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
 
                 self._needs_to_catch_up = False
 
                 self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, committedValue)
-                # self._catchup_future.set_result(committedValue)
                 self._catchup_value = None
 
                 self.logger.debug("Scheduled setting of result of catch-up value on catchup future.")
@@ -725,6 +892,7 @@ class RaftLog(object):
         This return value of this function should be passed to the `self._log_node.WriteDataDirectoryToHDFS` function.
         """
         data_dict: dict = {
+            "kernel_id": self._kernel_id,
             "proposed_values": self._proposed_values,
             "buffered_proposals": self._buffered_proposals,
             "leader_term": self._leader_term,
@@ -760,34 +928,6 @@ class RaftLog(object):
                If no serialized state was loaded, then this simply returns False. 
         """
         self.logger.debug("Loading and applying serialized state. First, retrieving serialized state from LogNode.")
-
-        # PrintTestMessage()
-
-        # a = bytes([0, 1, 2, 3])
-        # self.logger.debug(f"Python bytes: {a}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-        # b = CreateBytes(10)
-        # self.logger.debug(f"Go slice: {b}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-        # c = CreateBytes(0)
-        # self.logger.debug(f"Go slice: {c}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-
-        # self.logger.debug(f"Python bytes to Go: {Slice_byte.from_bytes(a)}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-        # self.logger.debug(f"Go bytes to Python ([3,4,5]): {bytes(Slice_byte([3, 4, 5]))}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-        # self.logger.debug(f"Go bytes to Python (b): {bytes(b)}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
-        # self.logger.debug(f"Go bytes to Python (c): {bytes(c)}")
-        # sys.stderr.flush()
-        # sys.stdout.flush()
 
         if self._log_node is None:
             self.logger.error("LogNode is None. Cannot retrieve serialized state.")
@@ -843,9 +983,6 @@ class RaftLog(object):
         self._elections = data_dict["elections"]
         self._current_election = data_dict["current_election"]
         self._last_completed_election = data_dict["last_completed_election"]
-
-        # If true, then the "remote updates" that we're receiving are us catching up to where we were before a migration/eviction was triggered.
-        # self._catchingUpAfterMigration = True 
 
         # The value of _leader_term before a migration/eviction was triggered.
         self._leader_term_before_migration: int = data_dict["leader_term"]
@@ -911,6 +1048,12 @@ class RaftLog(object):
         else:
             return True, False
 
+    def get_election(self, term_number: int):
+        """
+        :return: the current election with the specified term number, if one exists. Otherwise, returns None.
+        """
+        return self._elections[term_number]
+
     def _get_or_create_election(self, term_number: int = -1, latest_attempt_number: int = -1):
         """
         First, try to create and register a new election with the given term number.
@@ -948,7 +1091,7 @@ class RaftLog(object):
                         f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
                     raise ValueError(f"attempted to create new election while already having an active election")
 
-                # If we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_execute') ZMQ message.
+                # If we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_request') ZMQ message.
                 # During this delay, we may have received a committed proposal from another replica for this election, which prompted us to either create or restart the election at that point.
                 # So, if we have a current election already, and that election is in a non-active state, then we restart it.
                 # If we have a current election that is already active, then we should have at least one proposal already (otherwise, why would the election be active already?)
@@ -969,19 +1112,25 @@ class RaftLog(object):
                     self._current_election.restart(latest_attempt_number=latest_attempt_number)
             elif self._current_election is not None and self._current_election.term_number > term_number:
                 self.logger.error(
-                    f"Creating new election with term number {term_number} despite already previous election having a larger term number of {self._current_election.term_number}")
+                    f"Attempted to create new election with term number {term_number} despite already previous election "
+                    f"having a larger term number of {self._current_election.term_number}")
                 raise ValueError(
-                    f"attempted to create new election with term number smaller than previous election's term number ({term_number} < {self._current_election.term_number})")
+                    f"Attempted to create new election with term number smaller than previous election's term number "
+                    f"({term_number} < {self._current_election.term_number})")
             elif self._current_election is not None and not self._current_election.voting_phase_completed_successfully:
                 self.logger.error(
-                    f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet finished its voting phase.")
+                    f"Current election with term number {self._current_election.term_number} is in state "
+                    f"{self._current_election.election_state}; it has not yet finished its voting phase.")
                 raise ValueError(
-                    f"current election (term number: {self._current_election.term_number}) has not yet finished its voting phase (current state: {self._current_election._election_state})")
+                    f"Current election (term number: {self._current_election.term_number}) has not yet finished its "
+                    f"voting phase (current state: {self._current_election.election_state})")
             elif self._current_election is not None and not self._current_election.code_execution_completed_successfully:
                 self.logger.error(
-                    f"Current election with term number {self._current_election.term_number} is in state {self._current_election._election_state}; it has not yet finished the execution phase.")
+                    f"Current election with term number {self._current_election.term_number} is in state "
+                    f"{self._current_election.election_state}; it has not yet finished the execution phase.")
                 raise ValueError(
-                    f"current election (term number: {self._current_election.term_number}) has not yet finished the execution phase (current state: {self._current_election._election_state})")
+                    f"Current election (term number: {self._current_election.term_number}) has not yet finished the "
+                    f"execution phase (current state: {self._current_election.election_state})")
             else:
                 # Create a new election. We don't have an existing election to restart/use.
                 election: Election = Election(term_number, self._num_replicas)
@@ -996,6 +1145,10 @@ class RaftLog(object):
 
                 self.logger.info(f"Created new election with term number {term_number}")
 
+                # Flip this flag to True once we've created the first Election.
+                if not self.__created_first_election:
+                    self.__created_first_election = True
+
     async def _create_election_proposal(self, key: ElectionProposalKey, term_number: int) -> LeaderElectionProposal:
         """
         Create and register a proposal for the current term.
@@ -1007,7 +1160,8 @@ class RaftLog(object):
         attempt_number: int = 1
 
         # Get the existing proposals for the specified term.
-        existing_proposals: Dict[int, LeaderElectionProposal] = self._proposed_values.get(term_number, OrderedDict())
+        existing_proposals: OrderedDict[int, LeaderElectionProposal] = self._proposed_values.get(term_number,
+                                                                                                 OrderedDict())
 
         # If there is at least one existing proposal for the specified term, then we'll get the most-recent proposal's attempt number.
         if len(existing_proposals) > 0:
@@ -1159,39 +1313,101 @@ class RaftLog(object):
         _election_decision_future: asyncio.Future[Any] = self._election_decision_future
         _leading_future: asyncio.Future[int] = self._leading_future
 
-        buffered_proposals: List[LeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
-        for i, buffered_proposal in enumerate(buffered_proposals):
+        # Process any buffered votes and proposals that we may have received.
+        # If we have any buffered votes, then we'll process those first, as that'll presumably be all we need to do.
+        buffered_votes: List[BufferedLeaderElectionVote] = self._buffered_votes.get(proposal.election_term, [])
+        buffered_proposals: List[BufferedLeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term,
+                                                                                                [])
+
+        # If skip_proposals is True, then we'll skip both any buffered proposals, and we'll just elect not to
+        # propose something ourselves. skip_proposals is set to True if we have a buffered vote that decides
+        # the election for us.
+        skip_proposals: bool = False
+
+        num_buffered_proposals_processed: int = 0
+        num_buffered_votes_processed: int = 0
+
+        election_term: int = self._current_election.term_number
+
+        self.logger.debug(f"There are {len(buffered_proposals)} buffered proposal(s) and {len(buffered_votes)} "
+                          f"buffered vote(s) for election {election_term}.")
+
+        if len(buffered_votes) > 0:
             self.logger.debug(
-                f"Handling buffered proposal {i + 1}/{len(buffered_proposals)} during election term {self._current_election.term_number}: {buffered_proposal}")
-            # TODO: Is it OK to just pass the current time for `received_at`? Or should I save the time at which it was received and buffered, and pass that instead?
-            self.__handle_proposal(buffered_proposal, received_at=time.time())
+                f"Processing the {len(buffered_votes)} buffered vote(s) for election {election_term} now.")
+            for i, buffered_vote in enumerate(buffered_votes):
+                self.logger.debug(
+                    f"Handling buffered vote {i + 1}/{len(buffered_votes)} during election term {election_term}: {buffered_vote}")
+                # TODO: Is it OK to just pass the current time for `received_at`? Or should I save the time at which it was received and buffered, and pass that instead?
+                self.__handle_vote(buffered_vote.vote, received_at=buffered_vote.received_at)
+                self.logger.debug(
+                    f"Handled buffered vote {i + 1}/{len(buffered_votes)} during election term {election_term}.")
+                num_buffered_votes_processed += 1
 
-        await self._append_election_proposal(proposal)
+                if self._current_election.voting_phase_completed_successfully:
+                    self.logger.debug(
+                        f"Voting phase for current election ({election_term}) voting phase has ended after "
+                        f"processing buffered vote #{i}.")
+                    skip_proposals = True
+                    break
+                else:
+                    self.logger.debug(
+                        f"Voting phase for current election {election_term} has not ended after processing "
+                        f"buffered vote #{i}.")
 
-        voteProposal: LeaderElectionVote = await _election_decision_future
-        self._election_decision_future = None
+        if num_buffered_votes_processed > 0:
+            self.logger.debug(f"Finished processing buffered votes for election {election_term}. "
+                              f"Processed {num_buffered_votes_processed}/{len(buffered_votes)} buffered vote(s).")
 
-        # Validate that the term number matches the current election.
-        if voteProposal.election_term != self._current_election.term_number:
-            raise ValueError(
-                f"received LeaderElectionVote with mis-matched term number ({voteProposal.election_term}) compared to current election term number ({self._current_election.term_number})")
+        if not skip_proposals:
+            if len(buffered_proposals) > 0:
+                self.logger.debug(
+                    f"Processing the {len(buffered_proposals)} buffered proposal(s) for election {election_term} now.")
+                for i, buffered_proposal in enumerate(buffered_proposals):
+                    self.logger.debug(
+                        f"Handling buffered proposal {i + 1}/{len(buffered_proposals)} during election term {election_term}: {buffered_proposal}")
+                    # TODO: Is it OK to just pass the current time for `received_at`? Or should I save the time at which it was received and buffered, and pass that instead?
+                    self.__handle_proposal(buffered_proposal.proposal, received_at=buffered_proposal.received_at)
+                    self.logger.debug(
+                        f"Handled buffered proposal {i + 1}/{len(buffered_proposals)} during election term {election_term}.")
+                    num_buffered_proposals_processed += 1
 
-        if voteProposal.election_failed:
+            if num_buffered_proposals_processed > 0 or num_buffered_votes_processed > 0:
+                self.logger.debug(f"Preparing to propose our own value for election {election_term} "
+                                  f"after processing {num_buffered_proposals_processed} buffered proposal(s) "
+                                  f"and {num_buffered_votes_processed} buffered votes.")
+
+            await self._append_election_proposal(proposal)
+
+            voteProposal: LeaderElectionVote = await _election_decision_future
+            self._election_decision_future = None
+
+            # Validate that the term number matches the current election.
+            if voteProposal.election_term != election_term:
+                raise ValueError(
+                    f"received LeaderElectionVote with mis-matched term number ({voteProposal.election_term}) compared to current election term number ({election_term})")
+
+            if voteProposal.election_failed:
+                self.logger.debug(
+                    "RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'." % self._node_id)
+
+                with self._election_lock:
+                    self._current_election.election_failed()
+
+                # None of the replicas proposed 'LEAD'
+                # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
+                return False
+
             self.logger.debug(
-                "RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'." % self._node_id)
-
-            with self._election_lock:
-                self._current_election.election_failed()
-
-            # None of the replicas proposed 'LEAD'
-            # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
-            return False
-
-        self.logger.debug(
-            "RaftLog %d: Appending decision proposal for term %s now." % (self._node_id, voteProposal.election_term))
-        await self._append_election_vote(voteProposal)
-        self.logger.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (
-            self._node_id, voteProposal.election_term))
+                "RaftLog %d: Appending decision proposal for term %s now." % (
+                    self._node_id, voteProposal.election_term))
+            await self._append_election_vote(voteProposal)
+            self.logger.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (
+                self._node_id, voteProposal.election_term))
+        else:
+            self.logger.debug(
+                f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
+                f"for election {election_term}.")
 
         # Validate the term
         wait, is_leading = self._is_leading(target_term_number)
@@ -1263,12 +1479,23 @@ class RaftLog(object):
             raise ValueError("\"catchup\" future is None")
 
         await self.append(self._catchup_value)
+
+        self.logger.debug("We've successfully proposed & appended our \"catch up\" value.")
+
         await self._catchup_future  # Wait for the value to be committed.
+
+        if self._send_notification_func is not None:
+            self._send_notification_func(
+                "Caught Up After Migration",
+                f"Replica {self._node_id} of Kernel {self._kernel_id} has caught-up to its peers following a migration operation.",
+                2)
+
+        self.logger.debug("We've successfully caught up to our peer replicas.")
 
         # Reset these fields after we're done.
         self._catchup_future = None
         self._catchup_io_loop = None
-        self._catchup_value = None  # This should already be None at this point; we set it to None in the 'value committted' handler.
+        self._catchup_value = None  # This should already be None at this point; we set it to None in the 'value committed' handler.
 
     async def append(self, value: SynchronizedValue):
         """
@@ -1452,7 +1679,7 @@ class RaftLog(object):
         self.logger.info("Successfully started RaftLog and LogNode.")
 
     # Close the LogNode's HDFS client.
-    def closeHdfsClient(self) -> None:
+    def close_hdfs_client(self) -> None:
         self.logger.info(">> CALLING INTO GO CODE (_log_node.CloseHdfsClient)")
         sys.stderr.flush()
         sys.stdout.flush()
@@ -1590,7 +1817,8 @@ class RaftLog(object):
         # or because all replicas proposed "yield".
         self.logger.debug("Waiting for current election to end (or fail).")
         await self.current_election.wait_for_election_to_end()
-        self.logger.debug(f"Election {term_number} has finished (or failed): {self.current_election.completion_reason}.")
+        self.logger.debug(
+            f"Election {term_number} has finished (or failed): {self.current_election.completion_reason}.")
 
     async def notify_execution_complete(self, term_number: int):
         """

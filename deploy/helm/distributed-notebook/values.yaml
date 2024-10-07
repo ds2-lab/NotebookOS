@@ -97,6 +97,7 @@ common:
   debug: true
   local_mode: false
   num_resend_attempts: 1
+  message_acknowledgements_enabled: true
 
 prometheus:
   prometheus_interval: 15

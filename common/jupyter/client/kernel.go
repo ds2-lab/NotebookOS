@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/petermattis/goid"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -72,23 +74,29 @@ type KernelReplicaClient struct {
 	busyStatus                       string
 	lastBStatusMsg                   *types.JupyterMessage
 	iobroker                         *MessageBroker[scheduling.Kernel, *types.JupyterMessage, types.JupyterFrames]
-	shell                            *types.Socket    // Listener.
-	iopub                            *types.Socket    // Listener.
-	numResendAttempts                int              // Number of times to try resending a message before giving up.
-	addSourceKernelFrames            bool             // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelReplicaClient's kernel ID.
-	shellListenPort                  int              // Port that the KernelReplicaClient::shell socket listens on.
-	iopubListenPort                  int              // Port that the KernelReplicaClient::iopub socket listens on.
-	podOrContainerName               string           // Name of the Pod or Container housing the associated distributed kernel replica container.
-	nodeName                         string           // Name of the node that the Pod or Container is running on.
-	ready                            bool             // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
-	yieldNextExecutionRequest        bool             // If true, then we will yield the next 'execute_request'.
-	hostId                           string           // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
-	host                             *scheduling.Host // The host that the kernel replica is running on.
-	workloadId                       string           // workloadId is the ID of the workload associated with this kernel, if this kernel was created within a workload. This is populated after extracting the ID from the metadata frame of a Jupyter message.
-	workloadIdSet                    bool             // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
-	trainingStartedAt                time.Time        // trainingStartedAt is the time at which the kernel associated with this client began actively training.
-	lastTrainingTimePrometheusUpdate time.Time        // lastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated training time metric to Prometheus. We use this to determine how much more to increment the training time Prometheus metric when we stop training, since any additional training time since the last scheduled publish won't be pushed to Prometheus automatically by the publisher-goroutine.
-	isTraining                       bool             // isTraining indicates whether the kernel replica associated with this client is actively training.
+	shell                            *types.Socket                                  // Listener.
+	iopub                            *types.Socket                                  // Listener.
+	numResendAttempts                int                                            // Number of times to try resending a message before giving up.
+	addSourceKernelFrames            bool                                           // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelReplicaClient's kernel ID.
+	shellListenPort                  int                                            // Port that the KernelReplicaClient::shell socket listens on.
+	iopubListenPort                  int                                            // Port that the KernelReplicaClient::iopub socket listens on.
+	podOrContainerName               string                                         // Name of the Pod or Container housing the associated distributed kernel replica container.
+	nodeName                         string                                         // Name of the node that the Pod or Container is running on.
+	ready                            bool                                           // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
+	yieldNextExecutionRequest        bool                                           // If true, then we will yield the next 'execute_request'.
+	hostId                           string                                         // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
+	host                             *scheduling.Host                               // The host that the kernel replica is running on.
+	workloadId                       string                                         // workloadId is the ID of the workload associated with this kernel, if this kernel was created within a workload. This is populated after extracting the ID from the metadata frame of a Jupyter message.
+	workloadIdSet                    bool                                           // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
+	trainingStartedAt                time.Time                                      // trainingStartedAt is the time at which the kernel associated with this client began actively training.
+	lastTrainingTimePrometheusUpdate time.Time                                      // lastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated training time metric to Prometheus. We use this to determine how much more to increment the training time Prometheus metric when we stop training, since any additional training time since the last scheduled publish won't be pushed to Prometheus automatically by the publisher-goroutine.
+	isTraining                       bool                                           // isTraining indicates whether the kernel replica associated with this client is actively training.
+	pendingExecuteRequestIds         hashmap.HashMap[string, *types.JupyterMessage] // pendingExecuteRequestIds is a map from Jupyter message ID to the message, containing execute requests sent to this kernel (whose replies have not yet been received).
+	pendingExecuteRequestIdsMutex    sync.Mutex                                     // pendingExecuteRequestIdsMutex ensures atomic access to pendingExecuteRequestIds.
+	pendingExecuteRequestCond        *sync.Cond                                     // Used to notify goroutines when the number of outstanding/pending "execute_request" messages reaches 0.
+	trainingFinishedCond             *sync.Cond                                     // Used to notify the goroutine responsible for sending "execute_requests" to the kernel that the kernel has finished training.
+	trainingFinishedMu               sync.Mutex                                     // Goes with the trainingFinishedCond field.
+
 	// isSomeReplicaTraining            bool             // isSomeReplicaTraining indicates whether any replica of the kernel associated with this client is actively training, even if it is not the specific replica associated with this client.
 
 	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback // Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
@@ -123,9 +131,9 @@ type KernelReplicaClient struct {
 // argument is nil, then NewKernelReplicaClient will panic.
 func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *types.ConnectionInfo, componentId string,
 	addSourceKernelFrames bool, numResendAttempts int, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
-	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback,
+	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool,
 	persistentId string, hostId string, host *scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
-	messagingMetricsProvider metrics.MessagingMetricsProvider, connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback,
+	debugMode bool, messagingMetricsProvider metrics.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
@@ -157,8 +165,9 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		yieldNextExecutionRequest:            false,
 		host:                                 host,
 		hostId:                               hostId,
+		pendingExecuteRequestIds:             hashmap.NewCornelkMap[string, *types.JupyterMessage](64),
 		isGatewayClient:                      isGatewayClient,
-		connectionRevalidationFailedCallback: connectionRevalidationFailedCallback,
+		connectionRevalidationFailedCallback: connRevalFailedCallback,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
 		client: server.New(ctx, info, nodeType, func(s *server.AbstractServer) {
 			var remoteComponentName string
@@ -176,8 +185,10 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			s.ReconnectOnAckFailure = true
 			s.PrependId = false
 			s.ComponentId = componentId
+			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
 			s.MessagingMetricsProvider = messagingMetricsProvider
 			s.Name = fmt.Sprintf("KernelReplicaClient-%s", spec.Kernel.Id)
+			s.DebugMode = debugMode
 
 			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */
 			s.ShouldAckMessages = shouldAckMessages
@@ -197,6 +208,9 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 
 	client.log.Debug("Created new Kernel Client with spec %v, connection info %v.", spec, info)
 
+	client.trainingFinishedCond = sync.NewCond(&client.trainingFinishedMu)
+	client.pendingExecuteRequestCond = sync.NewCond(&client.pendingExecuteRequestIdsMutex)
+
 	return client
 }
 
@@ -209,8 +223,61 @@ func (c *KernelReplicaClient) SetContainer(container *scheduling.Container) {
 }
 
 // IsTraining returns a bool indicating whether the kernel associated with this client is actively training.
+//
+// IsTraining checks the value of the isTraining field atomically.
 func (c *KernelReplicaClient) IsTraining() bool {
+	c.trainingFinishedMu.Lock()
+	defer c.trainingFinishedMu.Unlock()
+
 	return c.isTraining
+}
+
+// WaitForTrainingToStop blocks until the kernel stops training (via the KernelReplicaClient's sync.Cond variable).
+//
+// If the kernel is already not training when WaitForTrainingToStop is called, then WaitForTrainingToStop will
+// return immediately.
+func (c *KernelReplicaClient) WaitForTrainingToStop() {
+	gid := goid.Get()
+
+	// The trainingFinishedCond field of the KernelReplicaClient uses the trainingFinishedMu mutex.
+	c.trainingFinishedMu.Lock()
+	defer c.trainingFinishedMu.Unlock()
+
+	// If the kernel is not training right now, then we can return immediately.
+	if !c.isTraining {
+		return
+	}
+
+	// Block until we're woken up and notified that the kernel is done training.
+	for c.isTraining {
+		c.log.Debug("[gid=%d] Replica %d of kernel %s is currently training. Waiting for training to stop.", gid, c.replicaId, c.id)
+		c.trainingFinishedCond.Wait()
+	}
+}
+
+// WaitForRepliesToPendingExecuteRequests blocks until all outstanding/pending "execute_request" messages sent to the kernel
+// have received their "execute_reply" response.
+//
+// If there are no outstanding/pending "execute_request" messages WaitForRepliesToPendingExecuteRequests is called, then
+// WaitForRepliesToPendingExecuteRequests will return immediately.
+func (c *KernelReplicaClient) WaitForRepliesToPendingExecuteRequests() {
+	gid := goid.Get()
+
+	// The trainingFinishedCond field of the KernelReplicaClient uses the trainingFinishedMu mutex.
+	c.pendingExecuteRequestIdsMutex.Lock()
+	defer c.pendingExecuteRequestIdsMutex.Unlock()
+
+	// If the kernel is not training right now, then we can return immediately.
+	if c.pendingExecuteRequestIds.Len() == 0 {
+		return
+	}
+
+	// Block until we're woken up and notified that the kernel is done training.
+	for c.pendingExecuteRequestIds.Len() > 0 {
+		c.log.Debug("[gid=%d] Replica %d of kernel %s currently has %d outstanding \"execute_request\" message(s). "+
+			"Waiting for \"execute_reply\" responses to be received.", gid, c.replicaId, c.id, c.pendingExecuteRequestIds.Len())
+		c.pendingExecuteRequestCond.Wait()
+	}
 }
 
 // IsSomeReplicaTraining returns a bool indicating  whether any replica of the kernel associated with this client is
@@ -244,7 +311,9 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.isTraining {
+	// It's possible for isTraining to change values after we check here, but if it does, then that's fine.
+	// unsafeKernelStoppedTraining will just return immediately without an error if isTraining is false.
+	if c.IsTraining() {
 		c.log.Warn("Replica %d of kernel %s is already training as of %v. Ending current training now. "+
 			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.replicaId, c.id, c.trainingStartedAt)
 
@@ -256,7 +325,9 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 		}
 	}
 
+	c.trainingFinishedMu.Lock()
 	c.isTraining = true
+	c.trainingFinishedMu.Unlock()
 	c.trainingStartedAt = time.Now()
 
 	// The following code is only executed within the internalCluster Gateway.
@@ -274,15 +345,101 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 	return nil
 }
 
+// NumPendingExecuteRequests returns the number of "execute_request" ZMQ messages that have been sent/forwarded to
+// the kernel, for which we have not yet received a response (i.e., an "execute_reply" message).
+func (c *KernelReplicaClient) NumPendingExecuteRequests() int {
+	c.pendingExecuteRequestIdsMutex.Lock()
+	defer c.pendingExecuteRequestIdsMutex.Unlock()
+
+	return c.pendingExecuteRequestIds.Len()
+}
+
+// SentExecuteRequest records that an "execute_request" message has been sent to the kernel.
+//
+// SentExecuteRequest will panic if the given types.JupyterMessage is not an "execute_request"
+// message or a "yield_request" message.
+func (c *KernelReplicaClient) SentExecuteRequest(msg *types.JupyterMessage) {
+	c.pendingExecuteRequestIdsMutex.Lock()
+	defer c.pendingExecuteRequestIdsMutex.Unlock()
+
+	if msg.JupyterMessageType() != types.ShellExecuteRequest && msg.JupyterMessageType() != types.ShellYieldRequest {
+		log.Fatalf(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+	}
+
+	c.pendingExecuteRequestIds.Store(msg.JupyterMessageId(), msg)
+
+	numOutstandingRequests := c.pendingExecuteRequestIds.Len()
+	if numOutstandingRequests > 1 {
+		// Print a warning, as we shouldn't be sending concurrent execute requests to the kernel, and we just recorded
+		// that an execute request has been resolved, yet there is still at least one outstanding "execute_request"...
+		c.log.Warn(utils.OrangeStyle.Render("Recorded that \"execute_request\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
+			"Updated number of outstanding \"execute_request\" messages: %d."),
+			msg.JupyterMessageId(), c.id, c.pendingExecuteRequestIds.Len())
+	} else {
+		c.log.Debug("Recorded that \"execute_request\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
+			"Updated number of outstanding \"execute_request\" messages: %d.",
+			msg.JupyterMessageId(), c.id, c.pendingExecuteRequestIds.Len())
+	}
+}
+
+// ReceivedExecuteReply is used to record that an "execute_reply" message has been received from the kernel.
+//
+// ReceivedExecuteReply will panic if the given types.JupyterMessage is not an "execute_reply" message.
+//
+// If there is no associated "execute_request" or "yield_request" message to match against, then this will just
+// print an error message but will not panic (for now).
+func (c *KernelReplicaClient) ReceivedExecuteReply(msg *types.JupyterMessage) {
+	c.pendingExecuteRequestIdsMutex.Lock()
+	defer c.pendingExecuteRequestIdsMutex.Unlock()
+
+	if msg.JupyterMessageType() != types.ShellExecuteReply {
+		log.Fatalf(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+	}
+
+	_, found := c.pendingExecuteRequestIds.LoadAndDelete(msg.JupyterParentMessageId())
+	if !found {
+		c.log.Error(utils.RedStyle.Render("[ERROR] Kernel %s did not match against \"execute_reply\" with JupyterID=\"%s\""),
+			c.ID(), msg.JupyterParentMessageId())
+	}
+
+	numOutstandingRequests := c.pendingExecuteRequestIds.Len()
+	if numOutstandingRequests == 0 {
+		c.log.Debug("\"execute_reply\" message \"%s\" received from kernel %s. Outstanding \"execute_request\" messages: %d.",
+			msg.JupyterParentMessageId(), c.id, c.pendingExecuteRequestIds.Len())
+
+		if found {
+			// Notify any waiters that there are no more outstanding requests.
+			c.pendingExecuteRequestCond.Broadcast()
+		} else {
+			c.log.Warn("Because there was no matching \"execute_request\" or \"yield_request\" request matching " +
+				"the given \"execute_reply\", we will not be broadcasting on the associated condition variable...")
+		}
+	} else {
+		// Print a warning, as we shouldn't be sending concurrent execute requests to the kernel, and we just recorded
+		// that an execute request has been resolved, yet there is still at least one outstanding "execute_request"...
+		c.log.Debug("\"execute_reply\" message \"%s\" received from kernel %s. Outstanding \"execute_request\" messages: %d.",
+			msg.JupyterParentMessageId(), c.id, c.pendingExecuteRequestIds.Len())
+	}
+}
+
 // unsafeKernelStoppedTraining does the work of KernelStoppedTraining without acquiring the KernelReplicaClient's
-// mutex first (hence "unsafe").
+// mutex first (hence "unsafe"). This function DOES acquire the mutex that controls access to the isTraining field
+// of the KernelReplicaClient, however. It may also acquire other mutexes -- just not the "main" mutex of the
+// KernelReplicaClient struct.
+//
+// If the kernel is already not training, then this method just returns immediately (without an error).
 func unsafeKernelStoppedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[T]) error {
+	c.trainingFinishedMu.Lock()
 	if !c.isTraining {
-		c.log.Error("Cannot stop training; already not training.")
-		return fmt.Errorf("cannot stop training; replica %d of kernel %s is already not training", c.replicaId, c.id)
+		c.log.Warn("Cannot stop training; already not training.")
+		c.trainingFinishedMu.Unlock()
+		return nil
 	}
 
 	c.isTraining = false
+	// Notify everybody that the kernel has finished training.
+	c.trainingFinishedCond.Broadcast()
+	c.trainingFinishedMu.Unlock()
 
 	// The following code executes only on the internalCluster Gateway.
 	//
@@ -796,14 +953,19 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 		return err
 	}
 
+	// If we're actively training, or if there are pending "execute_request" messages (i.e., "execute_request" messages
+	// that we've sent to the kernel but for which we have not yet received the corresponding "execute_reply"), then
+	// we should not require an ACK, as the kernel will be busy either executing user-submitted code or blocking until
+	// the leader replica has finished executing code (or they'll return with a failed election, either way).
 	requiresAck := types.ShouldMessageRequireAck(typ)
-	if c.isTraining && typ == types.ShellMessage {
+	pendingExecRequests := c.NumPendingExecuteRequests()
+	if (c.IsTraining() || pendingExecRequests > 0) && typ == types.ShellMessage {
 		// If we're currently training and the message is a Shell message, then we'll just not require an ACK.
 		// Jupyter doesn't normally use ACKs, so it's fine. The message can simply be resubmitted if necessary.
 		requiresAck = false
 
-		c.log.Warn(utils.YellowStyle.Render("Shell '%s' message %s (JupyterID=\"%s\") targeting actively-training kernel %s will NOT require an ACK."),
-			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), c.id)
+		c.log.Debug(utils.PurpleStyle.Render("Shell '%s' message %s (JupyterID=\"%s\") targeting kernel %s will NOT require an ACK. IsTraining: %v. NumPendingExecRequests: %d."),
+			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), c.id, c.IsTraining(), pendingExecRequests)
 	}
 
 	// If the context is merely cancellable (without a specific deadline/timeout), then we'll just use the default request timeout.
@@ -821,7 +983,7 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 	}
 
 	builder := types.NewRequestBuilder(parentContext, c.id, c.id, c.client.Meta).
-		WithAckRequired(requiresAck).
+		WithAckRequired(requiresAck && c.MessageAcknowledgementsEnabled()).
 		WithMessageType(typ).
 		WithBlocking(true).
 		WithTimeout(timeout).
@@ -837,20 +999,7 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 		return err
 	}
 
-	sendRequest := func(req types.Request, sock *types.Socket) error {
-		if req == nil {
-			panic("Cannot send nil request.")
-		}
-
-		if sock == nil {
-			panic(fmt.Sprintf("Cannot send request on nil socket. Request: %v", sock))
-		}
-
-		return c.client.Request(req, sock)
-	}
-
-	// Add timeout if necessary.
-	err = sendRequest(request, socket)
+	err = c.client.Request(request, socket)
 
 	if err != nil {
 		c.log.Warn("Failed to send %s \"%s\" request %s (JupyterID=%s) because: %s", socket.Type.String(),
@@ -885,11 +1034,7 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 				panic(fmt.Sprintf("Recreated %v socket is equal to original %v socket for replica %d of kernel %s.", typ.String(), typ.String(), c.replicaId, c.id))
 			}
 
-			// Create a new child context, as the previous child context will have been cancelled.
-			// childContext, _ := context.WithCancel(parentContext)
-			// defer cancel2()
-
-			secondAttemptErr := sendRequest(request, recreatedSocket)
+			secondAttemptErr := c.client.Request(request, recreatedSocket)
 			if secondAttemptErr != nil {
 				c.log.Error("Failed to resubmit %v message after successfully reconnecting: %v", typ, secondAttemptErr)
 				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, request.Payload(), secondAttemptErr)

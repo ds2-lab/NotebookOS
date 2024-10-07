@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -136,7 +137,11 @@ func (s *AggregateKernelStatus) Reduce(replicaId int32, status string, msg *type
 	// Trigger handler for late messages.
 	if resolved && s.lastErr != nil {
 		s.lastErr = nil
-		publish(msg, status, fmt.Sprintf("Late resolution: %s", how))
+		err := publish(msg, status, fmt.Sprintf("Late resolution: %s", how))
+		if err != nil {
+			fmt.Printf(utils.RedStyle.Render("[ERROR] Error while publishing AggregateKernelStatus: %v\n"), err)
+			return
+		}
 	}
 }
 
@@ -153,7 +158,7 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 
 	if err == nil {
 		ret, err := s.Result()
-		// Double-check the promise error. Possibilities are the promise can be reseted with promise.ErrReset.
+		// Double-check the promise error. Possibilities are the promise can be reset with promise.ErrReset.
 		if err != nil || ret == nil {
 			// s.kernel.log.Warn("Failed to obtain status result. Error: %v", err)
 			return
@@ -161,14 +166,25 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 		statusMsg := ret.(*StatusMsg)
 		s.status = statusMsg.Status
 		// s.kernel.log.Debug("Publishing status \"%v\" for kernel %s; how \"%v\"", statusMsg.Status, s.kernel.id, statusMsg.How)
-		publish(statusMsg.JupyterMessage, statusMsg.Status, statusMsg.How)
+		err = publish(statusMsg.JupyterMessage, statusMsg.Status, statusMsg.How)
+		if err != nil {
+			fmt.Printf(utils.RedStyle.Render("[ERROR] Error while publishing AggregateKernelStatus: %v\n"), err)
+			return
+		}
 	} else if s.sampleMsg != nil {
 		// TODO: Not working here, need to regenerate the signature.
 		jFrames, _ := types.SkipIdentitiesFrame(s.sampleMsg.Frames)
 		jFrames.ContentFrame().Set([]byte(fmt.Sprintf(KernelStatusFrameTemplate, status)))
-		jFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
-		// s.kernel.log.Debug("Publishing sample status \"%v\" for kernel %s; how \"%v\"", status, s.kernel.id, s.sampleMsg)
-		publish(s.sampleMsg, status, "Synthesized status")
+		_, signError := jFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
+		if signError != nil {
+			fmt.Printf(utils.RedStyle.Render("[ERROR] Error while publishing AggregateKernelStatus: %v\n"), err)
+			return
+		}
+		err := publish(s.sampleMsg, status, "Synthesized status")
+		if err != nil {
+			fmt.Printf(utils.RedStyle.Render("[ERROR] Error while publishing AggregateKernelStatus: %v\n"), err)
+			return
+		}
 	}
 
 	// Or, do nothing.
@@ -203,20 +219,20 @@ func (s *AggregateKernelStatus) match(replicaId int32, status string, msg *types
 		if !s.allowViolation {
 			how = fmt.Sprintf("violated %s status", s.expectingStatus)
 			retStatus = status
-			s.Resolve(&StatusMsg{Status: retStatus, JupyterMessage: msg, How: how})
+			_, _ = s.Resolve(&StatusMsg{Status: retStatus, JupyterMessage: msg, How: how})
 			return how, retStatus, true
 		} else if collected >= s.collecting {
 			// We've collected all status without violation or reaching expected number of matches. Stop without changing status.
 			how = fmt.Sprintf("not collected sufficient(%d/%d) %s status", atomic.LoadInt32(&s.matches), s.expectingMatches, s.expectingStatus)
 			retStatus = s.status
-			s.Resolve(&StatusMsg{Status: retStatus, JupyterMessage: msg, How: how})
+			_, _ = s.Resolve(&StatusMsg{Status: retStatus, JupyterMessage: msg, How: how})
 			return how, retStatus, true
 		}
 	} else if atomic.AddInt32(&s.matches, 1) >= s.expectingMatches {
 		// We've reached expected number of matches, update status and stop.
 		how = fmt.Sprintf("collected sufficient(%d/%d) %s status", atomic.LoadInt32(&s.matches), s.expectingMatches, s.expectingStatus)
 		retStatus = s.expectingStatus
-		s.Resolve(&StatusMsg{Status: retStatus, JupyterMessage: msg, How: how})
+		_, _ = s.Resolve(&StatusMsg{Status: retStatus, JupyterMessage: msg, How: how})
 		return how, retStatus, true
 	}
 

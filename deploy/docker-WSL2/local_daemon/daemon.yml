@@ -44,9 +44,11 @@ gpus-per-host: 8
 local_mode: false
 deployment_mode: "docker-compose"
 debug_port: 9996
+debug_mode: true
 docker-storage-base: "/storage"
 using-wsl: true 
 prometheus_interval: 15
 prometheus_port: 8089
 num_resend_attempts: 1
 run_kernels_in_gdb: false
+acks_enabled: false

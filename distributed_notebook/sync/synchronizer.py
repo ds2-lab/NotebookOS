@@ -179,6 +179,15 @@ class Synchronizer:
         # Failed to lead the term
         return 0
 
+    def created_first_election(self)->bool:
+        """
+        :return: return a boolean indicating whether we've created the first election yet.
+        """
+        if self._synclog is None:
+            raise ValueError("Cannot check if we've created first election, as the SyncLog is None...")
+
+        return self._synclog.created_first_election
+
     @property
     def current_election(self):
         """
@@ -188,6 +197,28 @@ class Synchronizer:
             return None
 
         return self._synclog.current_election
+
+    def get_election(self, term_number:int):
+        """
+        :return: return the election with the given term number, or None if no such election exists.
+        """
+        return self._synclog.get_election(term_number)
+
+    def is_election_finished(self, term_number: int)->bool:
+        """
+        Checks if the election with the specified term number has completed.
+
+        Raises a ValueError if there is no election with the specified term number or if the sync log is None.
+        """
+        if self._synclog is None:
+            raise ValueError(f"Cannot check status of election {term_number}; SynchronizationLog is None.")
+
+        election:Election = self.get_election(term_number)
+
+        if election is None:
+            raise ValueError(f"Could not find election with term number {term_number}")
+
+        return election.voting_phase_completed_successfully and election.code_execution_completed_successfully
 
     async def propose_yield(self, execution_count: int) -> int:
         """Propose to yield the next execution to another replica.

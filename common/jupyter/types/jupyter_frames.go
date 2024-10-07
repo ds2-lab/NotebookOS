@@ -26,6 +26,11 @@ const (
 	JupyterFrameMetadata
 	JupyterFrameContent
 	JupyterFrameBuffers
+
+	// JupyterFrameRequestTrace is the index of the first "buffer" frame,
+	// which contains a RequestTrace to track the overhead at each
+	// stage of processing the request.
+	JupyterFrameRequestTrace = 6
 )
 
 var (
@@ -80,8 +85,21 @@ func NewJupyterFramesWithReservation(numReserved int) JupyterFrames {
 
 func NewJupyterFramesWithHeader(msgType string, session string) JupyterFrames {
 	frames := NewJupyterFramesWithReservation(1)
-	frames.EncodeHeader(&MessageHeader{
+	_ = frames.EncodeHeader(&MessageHeader{
 		MsgID:    uuid.New().String(),
+		Username: MessageHeaderDefaultUsername,
+		Session:  session,
+		Date:     time.Now().UTC().Format(time.RFC3339Nano),
+		MsgType:  JupyterMessageType(msgType),
+		Version:  SMRVersion,
+	})
+	return frames
+}
+
+func NewJupyterFramesWithHeaderAndSpecificMessageId(msgId string, msgType string, session string) JupyterFrames {
+	frames := NewJupyterFramesWithReservation(1)
+	_ = frames.EncodeHeader(&MessageHeader{
+		MsgID:    msgId,
 		Username: MessageHeaderDefaultUsername,
 		Session:  session,
 		Date:     time.Now().UTC().Format(time.RFC3339Nano),
@@ -244,7 +262,7 @@ func (frames JupyterFrames) CreateSignature(signatureScheme string, key []byte, 
 
 func (frames JupyterFrames) signWithOffset(signkey []byte, offset int) []byte {
 	mac := hmac.New(sha256.New, signkey)
-	for _, msgpart := range frames[JupyterFrameHeader+offset:] {
+	for _, msgpart := range frames[JupyterFrameHeader+offset : JupyterFrameBuffers+offset] {
 		mac.Write(msgpart)
 	}
 	return mac.Sum(nil)
@@ -252,10 +270,23 @@ func (frames JupyterFrames) signWithOffset(signkey []byte, offset int) []byte {
 
 func (frames JupyterFrames) sign(signkey []byte) []byte {
 	mac := hmac.New(sha256.New, signkey)
-	for _, msgpart := range frames[JupyterFrameHeader:] {
+	for _, msgpart := range frames[JupyterFrameHeader:JupyterFrameBuffers] {
 		mac.Write(msgpart)
 	}
 	return mac.Sum(nil)
+}
+
+func SkipIdentitiesFrameAndOmitBufferFrames(frames [][]byte) (JupyterFrames, int) {
+	if len(frames) == 0 {
+		return frames, 0
+	}
+
+	i := 0
+	// Jupyter messages start from "<IDS|MSG>" frame.
+	for i < len(frames) && string(frames[i]) != "<IDS|MSG>" {
+		i++
+	}
+	return frames[i : i+JupyterFrameBuffers], i
 }
 
 func SkipIdentitiesFrame(frames [][]byte) (JupyterFrames, int) {

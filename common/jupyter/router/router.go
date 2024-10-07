@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"strings"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
-	"github.com/mason-leap-lab/go-utils/config"
-
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
@@ -34,8 +33,8 @@ type Router struct {
 	handlers []RouterMessageHandler
 }
 
-func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider, name string,
-	shouldAckMessages bool, nodeType metrics.NodeType) *Router {
+func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider, messageAcknowledgementsEnabled bool,
+	name string, shouldAckMessages bool, nodeType metrics.NodeType, debugMode bool) *Router {
 
 	router := &Router{
 		name: name,
@@ -59,12 +58,14 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			s.PrependId = true
 			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages
+			s.DebugMode = debugMode
+			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
 			s.Name = fmt.Sprintf("Router-%s", name)
+			config.InitLogger(&s.Log, s.Name)
 		}),
 	}
 	router.BaseServer = router.server.Server()
 	router.handlers = make([]RouterMessageHandler, len(router.server.Sockets.All))
-	config.InitLogger(&router.server.Log, router)
 	if provider != nil {
 		router.AddHandler(types.ControlMessage, provider.ControlHandler)
 		router.AddHandler(types.ShellMessage, provider.ShellHandler)
@@ -99,6 +100,10 @@ func (g *Router) ShouldAckMessages() bool {
 
 func (g *Router) ConnectionInfo() *types.ConnectionInfo {
 	return g.server.Meta
+}
+
+func (g *Router) RequestLog() *metrics.RequestLog {
+	return g.server.RequestLog
 }
 
 // String returns the information for logging.

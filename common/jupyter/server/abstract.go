@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"io"
 	"log"
 	"math"
@@ -67,9 +68,19 @@ type AbstractServer struct {
 	// logger
 	Log logger.Logger
 
+	// DebugMode is a config parameter. When enabled, the server will embed metrics.RequestTrace structs
+	// in the first "buffer" frame of Jupyter ZMQ messages.
+	DebugMode bool
+
 	// PrependId is used when sending ACKs. Basically, if this server uses Router sockets, then we need to prepend the ID to the messages.
 	// Some servers use Dealer sockets, which don't need to prepend the ID.
 	PrependId bool
+
+	// MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements
+	// for the ZMQ messages that we're forwarding back and forth between the server components.
+	//
+	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
+	MessageAcknowledgementsEnabled bool
 
 	// MessageQueueCapacity is the amount that the message queue (which is a chan) is buffered
 	//MessageQueueCapacity int
@@ -133,6 +144,9 @@ type AbstractServer struct {
 	// Normally, the message will simply be resubmitted. If PanicOnFirstFailedSend is true, then the server will
 	// instead panic, rather than resend the message.
 	PanicOnFirstFailedSend bool
+
+	// RequestLog is used to track the status/progress of requests when in DebugMode.
+	RequestLog *metrics.RequestLog
 }
 
 func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeType, init func(server *AbstractServer)) *AbstractServer {
@@ -140,18 +154,19 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 	ctx, cancelCtx = context.WithCancel(ctx)
 
 	server := &AbstractServer{
-		Meta:                   info,
-		Ctx:                    ctx,
-		CancelCtx:              cancelCtx,
-		Sockets:                &types.JupyterSocket{},
-		UseJitter:              true,
-		MaxSleepInterval:       time.Second * 5,
-		RequestTimeout:         time.Second * 60,
-		acksReceived:           hashmap.NewSyncMap[string, bool](),
-		ackChannels:            hashmap.NewSyncMap[string, chan struct{}](),
-		discardACKs:            hashmap.NewSyncMap[string, struct{}](),
-		nodeType:               nodeType,
-		PanicOnFirstFailedSend: false,
+		Meta:                           info,
+		Ctx:                            ctx,
+		CancelCtx:                      cancelCtx,
+		MessageAcknowledgementsEnabled: true, // Default to true
+		Sockets:                        &types.JupyterSocket{},
+		UseJitter:                      true,
+		MaxSleepInterval:               time.Second * 5,
+		RequestTimeout:                 time.Second * 60,
+		acksReceived:                   hashmap.NewSyncMap[string, bool](),
+		ackChannels:                    hashmap.NewSyncMap[string, chan struct{}](),
+		discardACKs:                    hashmap.NewSyncMap[string, struct{}](),
+		nodeType:                       nodeType,
+		PanicOnFirstFailedSend:         false,
 	}
 	init(server)
 	server.Sockets.All = [5]*types.Socket{server.Sockets.HB, server.Sockets.Control, server.Sockets.Shell, server.Sockets.Stdin, server.Sockets.IO}
@@ -168,6 +183,11 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 		defer conn.Close()
 		localAddr := conn.LocalAddr().(*net.UDPAddr)
 		server.localIpAdderss = localAddr.IP.String()
+	}
+
+	if server.DebugMode {
+		server.Log.Debug("Server is running in DebugMode. Will maintain a RequestLog and embed RequestTraces in ZMQ messages.")
+		server.RequestLog = metrics.NewRequestLog()
 	}
 
 	return server
@@ -215,6 +235,11 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, socket *types.Socket) {
 	goroutineId := goid.Get()
 
+	if !s.MessageAcknowledgementsEnabled {
+		s.Log.Warn("Received ACK even though ACKs are disabled. The ACK will be discarded. ACK: %s", jMsg.String())
+		return
+	}
+
 	s.numAcksReceived.Add(1)
 
 	if len(rspId) == 0 {
@@ -246,13 +271,12 @@ func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, soc
 		// s.Log.Debug("Notifying ACK: %v (%v): %v", rspId, socket.Type, msg)
 		ackChan <- struct{}{}
 		// s.Log.Debug("Notified ACK: %v (%v): %v", rspId, socket.Type, msg)
-	} else if ackChan == nil { // If ackChan is nil, then that means we weren't expecting an ACK in the first place.
-		s.Log.Warn("[gid=%d] [3] Received ACK for %s \"%s\" message %s (JupyterID=\"%s\") via local socket %s [remoteSocket=%s]; however, we were not expecting an ACK for that message...",
-			goroutineId, socket.Type.String(), jMsg.JupyterParentMessageType(), rspId, jMsg.JupyterParentMessageId(), socket.Name, socket.RemoteName)
 	} else if ackReceived {
-		s.Log.Warn("[gid=%d] [4] Received ACK for %s message %s via local socket %s [remoteSocket=%s]; however, we already received an ACK for that message...",
+		s.Log.Warn("[gid=%d] [4] Duplicate ACK received for %s message %s via local socket %s [remoteSocket=%s]",
 			goroutineId, socket.Type.String(), rspId, socket.Name, socket.RemoteName)
-	} else if _, loaded = s.discardACKs.LoadAndDelete(rspId); !loaded {
+	} else if ackChan == nil {
+		// If ackChan is nil, then that means we weren't expecting an ACK in the first place.
+		//
 		// For messages that we explicitly indicate do not require an ACK, we make note of this, just for debugging purposes.
 		// If we receive an ACK for a message, and we have no "ack channel" registered for that message, then we just do a sanity
 		// check and look in the `discardACKs` map to see if we know that we didn't want an ACK for this. If we managed to
@@ -263,12 +287,24 @@ func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, soc
 		// to not wait for an ACK before returning -- and to not resend if no ACKs are received. Not requiring an ACK
 		// does not prevent ACKs from being transmitted. In the future, we could embed a piece of metadata in the request
 		// that says "you don't need to ACK this message" if we really don't want the ACK to be sent for whatever reason.)
-		s.Log.Warn("[gid=%d] Received unexpected ACK for %s \"%s\" message %s (JupyterID=\"%s\").",
-			goroutineId, socket.Type.String(), jMsg.JupyterParentMessageType(), rspId, jMsg.JupyterParentMessageId())
+		if _, loaded = s.discardACKs.LoadAndDelete(rspId); !loaded {
+			s.Log.Warn("[gid=%d] [3] Unexpected (and unwelcome) ACK received for %s \"%s\" message %s (JupyterID=\"%s\") via local socket %s [remoteSocket=%s]",
+				goroutineId, socket.Type.String(), jMsg.JupyterParentMessageType(), rspId, jMsg.JupyterParentMessageId(), socket.Name, socket.RemoteName)
+		} else {
+			s.Log.Warn("[gid=%d] Unexpected (but welcome) ACK received for %s \"%s\" message %s (JupyterID=\"%s\").",
+				goroutineId, socket.Type.String(), jMsg.JupyterParentMessageType(), rspId, jMsg.JupyterParentMessageId())
+		}
+	} else {
+		s.Log.Error(utils.RedStyle.Render("No conditions matched for ACK message: %s"), jMsg.String())
 	}
 }
 
 func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket) error {
+	// If ACKs are disabled, just return immediately.
+	if !s.MessageAcknowledgementsEnabled {
+		return nil
+	}
+
 	goroutineId := goid.Get()
 
 	// If we should ACK the message, then we'll ACK it.
@@ -440,11 +476,10 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			case error:
 				err = v
 			case *types.JupyterMessage:
-				//jMsg := types.NewJupyterMessage(v)
 				jMsg := v
 
 				if (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && !jMsg.IsAck() {
-					firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Processing %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
+					firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Handling %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
 					secondPart := fmt.Sprintf("'%s' (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()))
 					thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
 					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
@@ -708,13 +743,16 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 
 	socket.InitPendingReq()
 	reqId := request.RequestId()
-	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message %s (JupyterID=%s) [remoteSocket=%s]. RequiresACK: %v.", goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), socket.RemoteName, request.RequiresAck())
+	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message %s (JupyterID=%s) [remoteSocket=%s]. RequiresACK: %v.",
+		goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.JupyterMessageType(), request.RequestId(),
+		request.JupyterMessageId(), socket.RemoteName, request.RequiresAck())
 
 	// dest.Unlock()
 	if request.RequiresAck() {
 		_, alreadyRegistered := s.RegisterAck(request.RequestId())
 		if alreadyRegistered {
-			s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."), goroutineId, socket.Type, reqId, jMsg.JupyterMessageType())
+			s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Already listening for ACKs for %v request %s. Current request with that ID is a \"%s\" message."),
+				goroutineId, socket.Type, reqId, jMsg.JupyterMessageType())
 		}
 	} else {
 		// Record that we don't need an ACK for this request.
@@ -911,6 +949,117 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 	return nil
 }
 
+// AddOrUpdateRequestTraceToJupyterMessage will add a RequestTrace to the given types.JupyterMessage's metadata frame.
+// If there is already a RequestTrace within the types.JupyterMessage's metadata frame, then no change is made.
+//
+// AddOrUpdateRequestTraceToJupyterMessage returns true if a RequestTrace is serialized into the types.JupyterMessage's
+// metadata frame. If there is already a RequestTrace encoded within the metadata frame, then false is returned.
+//
+// If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
+// returned, and the boolean returned along with the error is always false.
+func (s *AbstractServer) addOrUpdateRequestTraceToJupyterMessage(msg *types.JupyterMessage, socket *types.Socket, timestamp time.Time) (*proto.RequestTrace, bool, error) {
+	if !s.DebugMode {
+		return nil, false, fmt.Errorf("DebugMode is not enabled, so the embedding of RequestTraces into ZMQ messages is disabled.s")
+	}
+
+	var (
+		wrapper      *proto.JupyterRequestTraceFrame
+		requestTrace *proto.RequestTrace
+		added        bool
+	)
+
+	jupyterFrames := types.JupyterFrames(msg.Frames)
+	if len(jupyterFrames[msg.Offset:]) <= types.JupyterFrameRequestTrace {
+		for len(jupyterFrames[msg.Offset:]) <= types.JupyterFrameRequestTrace {
+			s.Log.Debug("Jupyter \"%s\" request has just %d frames (after skipping identities frame). Adding additional frame. Offset: %d.",
+				msg.JupyterMessageType(), len(msg.Frames[msg.Offset:]), msg.Offset)
+
+			// If the request doesn't already have a JupyterFrameRequestTrace frame, then we'll add one.
+			jupyterFrames = append(jupyterFrames, make([]byte, 0))
+		}
+
+		// The metadata did not already contain a RequestTrace.
+		// Let's first create one.
+		requestTrace = proto.NewRequestTrace()
+		added = true
+
+		// Then we'll populate the sort of metadata fields of the RequestTrace.
+		requestTrace.MessageId = msg.JupyterMessageId()
+		requestTrace.MessageType = msg.JupyterMessageType()
+		requestTrace.KernelId = msg.JupyterSession()
+
+		// Create the wrapper/frame itself.
+		wrapper = &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
+
+		err := s.RequestLog.AddEntry(msg, socket, requestTrace)
+		if err != nil {
+			s.Log.Error("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
+				socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
+		}
+
+		s.Log.Debug("Added RequestTrace to Jupyter \"%s\" message.", msg.JupyterMessageType())
+	} else {
+		s.Log.Debug("Extracting Jupyter RequestTrace frame from \"%s\" message.", msg.JupyterMessageType())
+
+		err := json.Unmarshal(jupyterFrames[msg.Offset+types.JupyterFrameRequestTrace], &wrapper)
+		if err != nil {
+			return nil, false, err
+		}
+
+		requestTrace = wrapper.RequestTrace
+		if requestTrace == nil {
+			return nil, false, fmt.Errorf("decoded JupyterRequestTraceFrame, but the included RequestTrace is nil")
+		}
+
+		s.Log.Debug("Extracted existing RequestTrace from Jupyter \"%s\" message.", msg.JupyterMessageType())
+	}
+
+	// Update the appropriate timestamp field of the RequestTrace.
+	requestTrace.PopulateNextField(timestamp.UnixMilli(), s.Log)
+
+	s.Log.Debug("New/updated RequestTrace: %s.", requestTrace.String())
+
+	marshalledFrame, err := json.Marshal(wrapper)
+	if err != nil {
+		return nil, false, err
+	}
+
+	jupyterFrames[msg.Offset+types.JupyterFrameRequestTrace] = marshalledFrame
+
+	s.Log.Debug("Updated frames: %s.", jupyterFrames.String())
+
+	msg.Frames = jupyterFrames
+	msg.RequestTrace = requestTrace
+
+	return requestTrace, added, nil
+}
+
+// shouldAddRequestTrace returns true if the AbstractServer should embed or update an existing metrics.RequestTrace
+// struct within the first "buffer" frame of a Jupyter message.
+func (s *AbstractServer) shouldAddRequestTrace(msg *types.JupyterMessage, socket *types.Socket) bool {
+	if msg == nil {
+		panic("JupyterMessage is nil when evaluating whether to add RequestTrace.")
+	}
+
+	if socket == nil {
+		panic("Socket is nil when evaluating whether to add RequestTrace.")
+	}
+
+	if !s.DebugMode {
+		return false
+	}
+
+	if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage {
+		return true
+	}
+
+	if socket.Type == types.IOMessage && msg.JupyterMessageType() != "stream" && msg.JupyterMessageType() != "status" {
+		return true
+	}
+
+	return false
+}
+
 // sendRequestWithRetries encapsulates the logic of sending the given types.Request using the given types.Socket
 // in a reliable way; that is, sendRequestWithRetries will resubmit the given types.Request if an ACK is not received
 // within the types.Request's configured timeout window, up to the types.Request's configured maximum number of attempts.
@@ -922,6 +1071,18 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 	// We only want to record the "unique send" metric once per message sent (i.e., don't include resubmissions).
 	recordedUniqueSend := false
 	request.SendStarting()
+
+	// We only want to add traces to Shell, Control, and a subset of IOPub messages.
+	if s.shouldAddRequestTrace(request.Payload(), socket) {
+		s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
+			socket.Type.String(), request.JupyterMessageType())
+		_, _, err := s.addOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now())
+		if err != nil {
+			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
+			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
+			panic(err)
+		}
+	}
 
 	// We'll loop until the send operation is successful, or until we run out of attempts.
 	// The logic for stopping the loop is implemented in onNoAcknowledgementReceived.
@@ -951,12 +1112,12 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 
 		// If the request requires an acknowledgement to be sent, then we'll wait for that acknowledgement.
 		// Otherwise, we'll return immediately.
-		if request.RequiresAck() && s.waitForAck(request) {
+		if s.MessageAcknowledgementsEnabled && request.RequiresAck() && s.waitForAck(request) {
 			// We were successful!
 			s.onAcknowledgementReceived(request, socket)
 			s.onSuccessfullySentMessage(request, socket, request.CurrentAttemptNumber())
 			return nil
-		} else if !request.RequiresAck() {
+		} else if !s.MessageAcknowledgementsEnabled || !request.RequiresAck() {
 			s.onSuccessfullySentMessage(request, socket, request.CurrentAttemptNumber())
 			return nil
 		}
@@ -997,6 +1158,13 @@ func (s *AbstractServer) onAcknowledgementReceived(request types.Request, socket
 // within the Request's configured time-out window.
 func (s *AbstractServer) onNoAcknowledgementReceived(request types.Request, socket *types.Socket) error {
 	goroutineId := goid.Get()
+
+	// If ACKs are disabled, then just return immediately.
+	if !s.MessageAcknowledgementsEnabled {
+		s.Log.Warn("onNoAcknowledgementReceived handler called for %s \"%s\" request %s despite the fact that ACKs are disabled...",
+			socket.Type.String(), request.JupyterMessageType(), request.RequestId())
+		return nil
+	}
 
 	// Just to avoid going through the process of sleeping and updating the header if that was our last try.
 	if (request.CurrentAttemptNumber() + 1) >= request.MaxNumAttempts() {
@@ -1059,7 +1227,7 @@ func (s *AbstractServer) onNoAcknowledgementReceived(request types.Request, sock
 func (s *AbstractServer) SendRequest(request types.Request, socket *types.Socket) error {
 	// If the message requires an ACK, then we'll try sending it multiple times.
 	// Otherwise, we'll just send it the one time.
-	if request.RequiresAck() {
+	if s.MessageAcknowledgementsEnabled && request.RequiresAck() {
 		s.acksReceived.Store(request.RequestId(), false)
 	}
 
@@ -1104,11 +1272,11 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 	var msg interface{}
 	for {
 		got, err := socket.Recv()
+		receivedAt := time.Now()
 
 		if err == nil {
 			// Deserialize the message now so we can print some debug info + inspect if it is an ACK.
 			jMsg := types.NewJupyterMessage(&got)
-			msg = jMsg
 
 			// If the message is just an ACK, then we'll spawn another goroutine to handle it and keep polling.
 			if jMsg.IsAck() {
@@ -1124,9 +1292,22 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 				continue
 			}
 
-			if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && jMsg.JupyterMessageType() != "stream") {
+			if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && jMsg.JupyterMessageType() != "stream" && jMsg.JupyterMessageType() != "status") {
 				s.Log.Debug("[gid=%d] Poller received new %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\").", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), jMsg.JupyterSession())
+
+				if s.DebugMode {
+					// We only want to add traces to Shell, Control, and a subset of IOPub messages.
+					s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
+						socket.Type.String(), jMsg.JupyterMessageType())
+					_, _, err := s.addOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt)
+					if err != nil {
+						s.Log.Error("Failed to add RequestTrace to JupyterMessage: %v.", err)
+						panic(err)
+					}
+				}
 			}
+
+			msg = jMsg
 		} else {
 			msg = err
 			// s.Log.Error("[gid=%d] Received error upon trying to read %v message: %v", goroutineId, socket.Type, err)

@@ -106,6 +106,11 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 	return cluster
 }
 
+// GetSession returns the Session with the specified ID.
+func (c *BaseCluster) GetSession(sessionID string) (AbstractSession, bool) {
+	return c.sessions.Load(sessionID)
+}
+
 // Sessions returns a mapping from session ID to Session.
 func (c *BaseCluster) Sessions() hashmap.HashMap[string, *Session] {
 	return c.sessions

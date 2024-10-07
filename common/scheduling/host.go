@@ -311,13 +311,23 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 
 func (h *Host) LockScheduling() {
 	h.schedulingMutex.Lock()
+	//h.log.Debug("Locked scheduling for Host %s (ID=%s).", h.NodeName, h.ID)
 }
 
 func (h *Host) TryLockScheduling() bool {
+	//if h.schedulingMutex.TryLock() {
+	//	h.log.Debug("Tried and successfully locked scheduling for Host %s (ID=%s).", h.NodeName, h.ID)
+	//	return true
+	//} else {
+	//	h.log.Debug("Tried and UNsuccessfully locked scheduling for Host %s (ID=%s).", h.NodeName, h.ID)
+	//	return false
+	//}
+
 	return h.schedulingMutex.TryLock()
 }
 
 func (h *Host) UnlockScheduling() {
+	//h.log.Debug("Unlocking scheduling for Host %s (ID=%s).", h.NodeName, h.ID)
 	h.schedulingMutex.Unlock()
 }
 
@@ -386,8 +396,8 @@ func (h *Host) SynchronizeResourceInformation() error {
 		return err
 	}
 
-	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Unlock()
+	h.LockScheduling()
+	defer h.UnlockScheduling()
 
 	err = unsafeApplyResourceSnapshotToHost[*proto.ResourcesSnapshot](h, snapshot)
 	if err != nil {

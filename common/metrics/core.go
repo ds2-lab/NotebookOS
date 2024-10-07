@@ -300,7 +300,9 @@ func (m *basePrometheusManager) HandleRequest(c *gin.Context) {
 func (m *basePrometheusManager) initializeHttpServer() {
 	m.engine = gin.New()
 
-	m.engine.Use(gin.Logger())
+	// Commented-out for now as I don't want the log messages for Prometheus requests.
+	// m.engine.Use(gin.Logger())
+	m.engine.Use(gin.Recovery())
 	m.engine.Use(cors.Default())
 
 	m.engine.GET("/variables/:variable_name", m.HandleVariablesRequest)

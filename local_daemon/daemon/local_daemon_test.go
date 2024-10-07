@@ -3,6 +3,8 @@ package daemon
 import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	types2 "github.com/zhangjyr/distributed-notebook/common/types"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/mason-leap-lab/go-utils/config"
@@ -20,7 +22,7 @@ import (
 )
 
 const (
-	signature_scheme string = "hmac-sha256"
+	signatureScheme string = "hmac-sha256"
 )
 
 var _ = Describe("Local Daemon Tests", func() {
@@ -28,34 +30,36 @@ var _ = Describe("Local Daemon Tests", func() {
 		schedulerDaemon  *SchedulerDaemonImpl
 		vgpuPluginServer device.VirtualGpuPluginServer
 		mockCtrl         *gomock.Controller
-		kernel           *mock_client.MockKernelReplicaClient
-		kernel_key       = "23d90942-8c3de3a713a5c3611792b7a5"
-		gpuManager       *GpuManager
-
-		numGPUs int64 = 8
+		kernel           *mock_client.MockAbstractKernelClient
+		kernelKey        = "23d90942-8c3de3a713a5c3611792b7a5"
+		resourceManager  *scheduling.ResourceManager
 	)
 
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		vgpuPluginServer = mock_device.NewMockVirtualGpuPluginServer(mockCtrl)
-		kernel = mock_client.NewMockKernelReplicaClient(mockCtrl)
-		gpuManager = NewGpuManager(numGPUs)
+		kernel = mock_client.NewMockAbstractKernelClient(mockCtrl)
+		resourceManager = scheduling.NewResourceManager(&types2.DecimalSpec{
+			GPUs:      decimal.NewFromFloat(8),
+			Millicpus: decimal.NewFromFloat(64000),
+			MemoryMb:  decimal.NewFromFloat(8000),
+		})
 
 		schedulerDaemon = &SchedulerDaemonImpl{
 			transport:              "tcp",
-			kernels:                hashmap.NewCornelkMap[string, client.KernelReplicaClient](1000),
+			kernels:                hashmap.NewCornelkMap[string, *client.KernelReplicaClient](1000),
 			closed:                 make(chan struct{}),
 			cleaned:                make(chan struct{}),
-			resourceManager:        gpuManager,
+			resourceManager:        resourceManager,
 			virtualGpuPluginServer: vgpuPluginServer,
 		}
 		config.InitLogger(&schedulerDaemon.log, schedulerDaemon)
 
-		kernel.EXPECT().ConnectionInfo().Return(&types.ConnectionInfo{SignatureScheme: signature_scheme, Key: kernel_key}).AnyTimes()
+		kernel.EXPECT().ConnectionInfo().Return(&types.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
 		kernel.EXPECT().KernelSpec().Return(&proto.KernelSpec{
 			Id:              "66902bac-9386-432e-b1b9-21ac853fa1c9",
 			Session:         "10cb49c9-b17e-425e-9bc1-ee3ff66e6974",
-			SignatureScheme: signature_scheme,
+			SignatureScheme: signatureScheme,
 			Key:             "23d90942-8c3de3a713a5c3611792b7a5",
 			ResourceSpec: &proto.ResourceSpec{
 				Gpu:    2,
@@ -63,13 +67,14 @@ var _ = Describe("Local Daemon Tests", func() {
 				Memory: 1000,
 			},
 		}).AnyTimes()
-		kernel.EXPECT().ResourceSpec().Return(&proto.ResourceSpec{
-			Gpu:    2,
-			Cpu:    100,
-			Memory: 1000,
+		kernel.EXPECT().ResourceSpec().Return(&types2.DecimalSpec{
+			GPUs:      decimal.NewFromFloat(2),
+			Millicpus: decimal.NewFromFloat(100),
+			MemoryMb:  decimal.NewFromFloat(1000),
 		}).AnyTimes()
 		kernel.EXPECT().ReplicaID().Return(int32(1)).AnyTimes()
 		kernel.EXPECT().ID().Return("66902bac-9386-432e-b1b9-21ac853fa1c9").AnyTimes()
+		kernel.EXPECT().WaitForRepliesToPendingExecuteRequests().AnyTimes()
 	})
 
 	Context("Processing 'execute_request' messages", func() {
@@ -93,7 +98,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			// }).AnyTimes()
 		})
 
-		It("Should convert the 'execute_request' message to a 'yeild_request' message if there is a different replica specified as the target", func() {
+		It("Should convert the 'execute_request' message to a 'yield_request' message if there is a different replica specified as the target", func() {
 			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 
 			unsignedFrames := [][]byte{
@@ -104,31 +109,31 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", domain.TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jframes := types.JupyterFrames(unsignedFrames)
-			jframes.EncodeHeader(header)
-			frames, _ := jframes.Sign(signature_scheme, []byte(kernel_key))
+			jFrames := types.JupyterFrames(unsignedFrames)
+			err := jFrames.EncodeHeader(header)
+			Expect(err).To(BeNil())
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			msg := &zmq4.Msg{
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
 			jMsg := types.NewJupyterMessage(msg)
-			// processedMessage := schedulerDaemon.processExecuteRequest(msg, kernel, header, offset)
 			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
 
-			jframesProcessed := types.JupyterFrames(processedMessage.Frames)
-			headerFrame := jframesProcessed.HeaderFrame()
-			var header types.MessageHeader
-			err := headerFrame.Decode(&header)
+			jFramesProcessed := types.JupyterFrames(processedMessage.Frames)
+			headerFrame := jFramesProcessed.HeaderFrame()
+			var header *types.MessageHeader
+			err = headerFrame.Decode(&header)
 
-			GinkgoWriter.Printf("Header: %v\n", header)
+			GinkgoWriter.Printf("Header: %s\n", header.String())
 
 			Expect(err).To(BeNil())
-			Expect(header.MsgType).To(Equal(domain.ShellYieldExecute))
+			Expect(header.MsgType.String()).To(Equal(types.ShellYieldRequest))
 		})
 
-		It("Should convert the 'execute_request' message to a 'yeild_request' message if there are insufficient GPUs available", func() {
+		It("Should convert the 'execute_request' message to a 'yield_request' message if there are insufficient GPUs available", func() {
 			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 
 			unsignedFrames := [][]byte{
@@ -139,33 +144,35 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jframes := types.JupyterFrames(unsignedFrames)
-			jframes.EncodeHeader(header)
-			frames, _ := jframes.Sign(signature_scheme, []byte(kernel_key))
+			jFrames := types.JupyterFrames(unsignedFrames)
+			err := jFrames.EncodeHeader(header)
+			Expect(err).To(BeNil())
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			msg := &zmq4.Msg{
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
 			jMsg := types.NewJupyterMessage(msg)
+
 			// Make it so that there are no idle GPUs available.
-			gpuManager.idleGPUs = ZeroDecimal.Copy()
+			resourceManager.DebugSetIdleGPUs(0)
 
 			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
 
-			jframesProcessed := types.JupyterFrames(processedMessage.Frames)
-			headerFrame := jframesProcessed.HeaderFrame()
+			jFramesProcessed := types.JupyterFrames(processedMessage.Frames)
+			headerFrame := jFramesProcessed.HeaderFrame()
 			var header types.MessageHeader
-			err := headerFrame.Decode(&header)
+			err = headerFrame.Decode(&header)
 
 			GinkgoWriter.Printf("Header: %v\n", header)
 
 			Expect(err).To(BeNil())
-			Expect(header.MsgType).To(Equal(domain.ShellYieldExecute))
+			Expect(header.MsgType.String()).To(Equal(types.ShellYieldRequest))
 		})
 
-		It("Should correctly return a 'yield_execute' message if the kernel is set to yield the next execute request.", func() {
+		It("Should correctly return a 'yield_request' message if the kernel is set to yield the next execute request.", func() {
 			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(true).AnyTimes()
 			kernel.EXPECT().YieldedNextExecutionRequest().Times(1)
 			unsignedFrames := [][]byte{
@@ -176,30 +183,31 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jframes := types.JupyterFrames(unsignedFrames)
-			jframes.EncodeHeader(header)
-			frames, _ := jframes.Sign(signature_scheme, []byte(kernel_key))
+			jFrames := types.JupyterFrames(unsignedFrames)
+			err := jFrames.EncodeHeader(header)
+			Expect(err).To(BeNil())
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			msg := &zmq4.Msg{
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
 			jMsg := types.NewJupyterMessage(msg)
 			// Make it so that there are no idle GPUs available.
-			gpuManager.idleGPUs = ZeroDecimal.Copy()
+			resourceManager.DebugSetIdleGPUs(0)
 
 			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
 
-			jframesProcessed := types.JupyterFrames(processedMessage.Frames)
-			headerFrame := jframesProcessed.HeaderFrame()
+			jFramesProcessed := types.JupyterFrames(processedMessage.Frames)
+			headerFrame := jFramesProcessed.HeaderFrame()
 			var header types.MessageHeader
-			err := headerFrame.Decode(&header)
+			err = headerFrame.Decode(&header)
 
 			GinkgoWriter.Printf("Header: %v\n", header)
 
 			Expect(err).To(BeNil())
-			Expect(header.MsgType).To(Equal(domain.ShellYieldExecute))
+			Expect(header.MsgType.String()).To(Equal(types.ShellYieldRequest))
 		})
 
 		It("Should correctly return two different signatures when the Jupyter message's header is changed by modifying the date.", func() {
@@ -214,8 +222,8 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte("{}"), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jframes1 := types.JupyterFrames(unsignedFrames1)
-			frames1, err := jframes1.Sign(signature_scheme, []byte(kernel_key))
+			jFrames1 := types.JupyterFrames(unsignedFrames1)
+			frames1, err := jFrames1.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			Expect(frames1).ToNot(BeNil())
 			signature1 := frames1[types.JupyterFrameSignature]
@@ -228,8 +236,8 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte("{}"), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jframes2 := types.JupyterFrames(unsignedFrames2)
-			frames2, err := jframes2.Sign(signature_scheme, []byte(kernel_key))
+			jFrames2 := types.JupyterFrames(unsignedFrames2)
+			frames2, err := jFrames2.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			Expect(frames2).ToNot(BeNil())
 			signature2 := frames2[types.JupyterFrameSignature]
@@ -244,6 +252,20 @@ var _ = Describe("Local Daemon Tests", func() {
 			kernel.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 			kernel.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
 
+			err := resourceManager.KernelReplicaScheduled(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec())
+			Expect(err).To(BeNil())
+
+			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
+			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(0))
+			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(0))
+			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(0))
+
+			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+			Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+			Expect(resourceManager.CommittedGPUs().Equals(decimal.Zero)).To(BeTrue())
+			Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
+			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(8))).To(BeTrue())
+
 			unsignedFrames := [][]byte{
 				[]byte("<IDS|MSG>"), /* Frame start */
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"), /* Signature */
@@ -252,9 +274,10 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jframes := types.JupyterFrames(unsignedFrames)
-			jframes.EncodeHeader(header)
-			frames, _ := jframes.Sign(signature_scheme, []byte(kernel_key))
+			jFrames := types.JupyterFrames(unsignedFrames)
+			err = jFrames.EncodeHeader(header)
+			Expect(err).To(BeNil())
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			msg := &zmq4.Msg{
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
@@ -268,9 +291,10 @@ var _ = Describe("Local Daemon Tests", func() {
 			processedFrames := types.JupyterFrames(processedMessage.Frames)
 			metadataFrame := processedFrames.MetadataFrame()
 			var metadata map[string]interface{}
-			err := metadataFrame.Decode(&metadata)
+			err = metadataFrame.Decode(&metadata)
+			GinkgoWriter.Printf("metadata: %v\n", metadata)
 			Expect(err).To(BeNil())
-			Expect(len(metadata)).To(Equal(1))
+			Expect(len(metadata)).To(Equal(6))
 
 			headerFrame := processedFrames.HeaderFrame()
 			var header types.MessageHeader
@@ -279,19 +303,21 @@ var _ = Describe("Local Daemon Tests", func() {
 			GinkgoWriter.Printf("Header: %v\n", header)
 
 			Expect(err).To(BeNil())
-			Expect(header.MsgType).To(Equal(domain.ShellExecuteRequest))
+			Expect(header.MsgType.String()).To(Equal(types.ShellExecuteRequest))
 
 			By("Creating a pending allocation for the associated kernel")
 
-			GinkgoWriter.Printf("NumPendingAllocations: %d\n", gpuManager.NumPendingAllocations())
-			GinkgoWriter.Printf("PendingGPUs: %s\n", gpuManager.PendingGPUs().StringFixed(0))
-			GinkgoWriter.Printf("IdleGPUs: %s\n", gpuManager.IdleGPUs().StringFixed(0))
-			GinkgoWriter.Printf("resourceManager.GetPendingGPUsAssociatedWithKernel(%d, %s): %s\n", kernel.ReplicaID(), kernel.ID(), gpuManager.GetPendingGPUsAssociatedWithKernel(kernel.ReplicaID(), kernel.ID()).StringFixed(0))
+			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
+			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(0))
+			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(0))
+			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(0))
 
-			Expect(gpuManager.NumPendingAllocations()).To(Equal(1))
-			Expect(gpuManager.PendingGPUs()).To(Equal(decimal.NewFromFloat(2)))
-			Expect(gpuManager.IdleGPUs()).To(Equal(decimal.NewFromFloat(6)))
-			Expect(gpuManager.GetPendingGPUsAssociatedWithKernel(kernel.ReplicaID(), kernel.ID())).To(Equal(decimal.NewFromFloat(2)))
+			Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
+			Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
+			Expect(resourceManager.CommittedGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
+			Expect(resourceManager.PendingGPUs().Equals(decimal.Zero)).To(BeTrue())
+			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(6))).To(BeTrue())
+			// Expect(resourceManager.GetPendingGPUsAssociatedWithKernel(kernel.ReplicaID(), kernel.ID())).To(Equal(decimal.NewFromFloat(2)))
 		})
 	})
 })

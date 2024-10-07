@@ -133,6 +133,29 @@ service DistributedCluster {
 
   // GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
   rpc GetLocalDaemonNodeIDs(Void) returns (GetLocalDaemonNodeIDsResponse) {}
+
+  // QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
+  // and what the status of that message is (i.e., sent, response received, etc.)
+  rpc QueryMessage(QueryMessageRequest) returns (QueryMessageResponse) {}
+}
+
+// QueryMessageRequest is passed to the MessageExists gRPC function.
+//
+// It encapsulates a request concerning the existence/status of a particular ZMQ message.
+message QueryMessageRequest {
+  // The Jupyter message ID.
+  string messageId = 1;
+  // The Jupyter message type.
+  string messageType = 2;
+  // The target kernel.
+  string kernelId = 3;
+}
+
+// QueryMessageResponse is returned by the gRPC function.
+//
+// It encodes the existence/status of the specified or requested ZMQ message.
+message QueryMessageResponse {
+  RequestTrace requestTrace = 1;
 }
 
 // gRPC service provided by the Dashboard and "used" by the Cluster Gateway
@@ -344,6 +367,23 @@ message Pong {
   string id = 1;
   bool success = 2;
   string msg = 3; // For adding extra details if the ping fails.
+  repeated RequestTrace requestTraces = 4;
+}
+
+message RequestTrace {
+  string messageId = 1;
+  string messageType = 2;
+  string kernelId = 3;
+  int64 requestReceivedByGateway = 4;
+  int64 requestSentByGateway = 5;
+  int64 requestReceivedByLocalDaemon = 6;
+  int64 requestSentByLocalDaemon = 7;
+  int64 requestReceivedByKernelReplica = 8;
+  int64 replySentByKernelReplica = 9;
+  int64 replyReceivedByLocalDaemon = 10;
+  int64 replySentByLocalDaemon = 11;
+  int64 replyReceivedByGateway = 12;
+  int64 replySentByGateway = 13;
 }
 
 message PingInstruction {
@@ -352,10 +392,11 @@ message PingInstruction {
 }
 
 message Notification {
-  string title = 1;
-  string message = 2;
-  int32 notificationType = 3;
-  bool panicked = 4;
+  string id = 1;
+  string title = 2;
+  string message = 3;
+  int32 notificationType = 4;
+  bool panicked = 5;
 }
 
 // Used to register the ResourceSpec to be used by a particular kernel.

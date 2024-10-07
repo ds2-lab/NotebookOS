@@ -43,6 +43,7 @@ max_cluster_nodes: 32
 gpus-per-host: 8
 local_mode: false
 deployment_mode: "docker-swarm"
+debug_mode: true
 debug_port: 9996
 docker-storage-base: "/storage"
 using-wsl: true 
@@ -50,3 +51,4 @@ prometheus_interval: 15
 prometheus_port: 8089
 num_resend_attempts: 1
 run_kernels_in_gdb: false
+acks_enabled: true

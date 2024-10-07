@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/zhangjyr/distributed-notebook/common/configuration"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
@@ -37,24 +38,17 @@ func (k MetadataKey) String() string {
 
 type ClusterDaemonOptions struct {
 	scheduling.ClusterSchedulerOptions `yaml:",inline"`
-	LocalDaemonServiceName             string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
-	LocalDaemonServicePort             int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
-	GlobalDaemonServiceName            string `name:"global-daemon-service-name"       json:"global-daemon-service-name"        yaml:"global-daemon-service-name"          description:"Name of the Kubernetes service that manages the global networking of local daemons."`
-	GlobalDaemonServicePort            int    `name:"global-daemon-service-port"       json:"global-daemon-service-port"        yaml:"global-daemon-service-port"          description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
-	SMRPort                            int    `name:"smr-port"                         json:"smr-port"                          yaml:"smr-port"                            description:"Port used by the state machine replication (SMR) protocol."`
-	KubeNamespace                      string `name:"kubernetes-namespace"             json:"kubernetes-namespace"              yaml:"kubernetes-namespace"                description:"Kubernetes namespace that all of these components reside in."`
-	UseStatefulSet                     bool   `name:"use-stateful-set"                 json:"use-stateful-set"                  yaml:"use-stateful-set"                    description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
-	HdfsNameNodeEndpoint               string `name:"hdfs-namenode-endpoint"           json:"hdfs-namenode-endpoint"            yaml:"hdfs-namenode-endpoint"              description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
-	SchedulingPolicy                   string `name:"scheduling-policy"                json:"scheduling-policy"                 yaml:"scheduling-policy"                   description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
-	NotebookImageName                  string `name:"notebook-image-name"              json:"notebook-image-name"               yaml:"notebook-image-name"                 description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
-	NotebookImageTag                   string `name:"notebook-image-tag"               json:"notebook-image-tag"                yaml:"notebook-image-tag"                  description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`  // Tag to use for the jupyter notebook/kernel image
-	DistributedClusterServicePort      int    `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
-	DeploymentMode                     string `name:"deployment_mode"                  json:"deployment_mode"                   yaml:"deployment_mode"                     description:"Options are 'docker-compose', 'docker-swarm', and 'kubernetes'."`
-	UsingWSL                           bool   `name:"using-wsl"                        json:"using-wsl"                         yaml:"using-wsl"                           description:"Flag indicating whether we're running within WSL2 (Windows Subsystem for Linux). Requires additional networking configuring for the Docker containers."`
-	DockerNetworkName                  string `name:"docker_network_name"              json:"docker_network_name"               yaml:"docker_network_name"                 description:"The name of the Docker network that the container is running within. Only used in Docker mode."`
-	PrometheusInterval                 int    `name:"prometheus_interval"              json:"prometheus_interval"               yaml:"prometheus_interval"                 description:"Frequency in seconds of how often to publish metrics to Prometheus. So, setting this to 5 means we publish metrics roughly every 5 seconds."`
-	PrometheusPort                     int    `name:"prometheus_port"                  json:"prometheus_port"                   yaml:"prometheus_port"                     description:"The port on which this local daemon will serve Prometheus metrics. Default/suggested: 8089."`
-	NumResendAttempts                  int    `name:"num_resend_attempts"              json:"num_resend_attempts"               yaml:"num_resend_attempts"                 description:"The number of times to attempt to resend a message before giving up."`
+	configuration.CommonOptions        `yaml:",inline"`
+
+	LocalDaemonServiceName        string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
+	LocalDaemonServicePort        int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
+	GlobalDaemonServiceName       string `name:"global-daemon-service-name"       json:"global-daemon-service-name"        yaml:"global-daemon-service-name"          description:"Name of the Kubernetes service that manages the global networking of local daemons."`
+	GlobalDaemonServicePort       int    `name:"global-daemon-service-port"       json:"global-daemon-service-port"        yaml:"global-daemon-service-port"          description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
+	KubeNamespace                 string `name:"kubernetes-namespace"             json:"kubernetes-namespace"              yaml:"kubernetes-namespace"                description:"Kubernetes namespace that all of these components reside in."`
+	UseStatefulSet                bool   `name:"use-stateful-set"                 json:"use-stateful-set"                  yaml:"use-stateful-set"                    description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
+	NotebookImageName             string `name:"notebook-image-name"              json:"notebook-image-name"               yaml:"notebook-image-name"                 description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
+	NotebookImageTag              string `name:"notebook-image-tag"               json:"notebook-image-tag"                yaml:"notebook-image-tag"                  description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`  // Tag to use for the jupyter notebook/kernel image
+	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
 }
 
 // ValidateClusterDaemonOptions ensures that the values of certain configuration parameters are consistent with respect
@@ -126,8 +120,6 @@ type ClusterGatewayOptions struct {
 	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
 	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr      string `name:"consul" description:"Consul agent address."`
-	DebugMode       bool   `name:"debug_mode" description:"Enable the debug HTTP server."`
-	DebugPort       int    `name:"debug_port" description:"The port for the debug HTTP server."`
 	// DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
 }
 

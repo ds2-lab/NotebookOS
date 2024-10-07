@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/configuration"
 
 	"github.com/mason-leap-lab/go-utils/config"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
@@ -20,8 +21,6 @@ type LocalDaemonOptions struct {
 	JaegerAddr         string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr         string `name:"consul" description:"Consul agent address."`
 	NodeName           string `name:"node_name" description:"Node name used only for debugging in local mode."`
-	DebugMode          bool   `name:"debug_mode" description:"Enable the debug HTTP server."`
-	DebugPort          int    `name:"debug_port" description:"The port for the debug HTTP server."`
 }
 
 func (o LocalDaemonOptions) String() string {
@@ -31,19 +30,13 @@ func (o LocalDaemonOptions) String() string {
 type SchedulerDaemonConfig func(SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
+	configuration.CommonOptions `yaml:",inline"`
+
 	// If the scheduler serves jupyter notebook directly, set this to true.
-	DirectServer         bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
-	SMRPort              int    `name:"smr_port" description:"Port used by the SMR protocol."`
-	NumGPUs              int64  `name:"max-actual-gpu-per-node" json:"max-actual-gpu-per-node" yaml:"max-actual-gpu-per-node" description:"The total number of GPUs that should be available on each node."`
-	SchedulingPolicy     string `name:"scheduling-policy" description:"The scheduling policy to use. Options are 'default, 'static', and 'dynamic'."`
-	DeploymentMode       string `name:"deployment_mode" description:"Options are 'docker' and 'kubernetes'."`
-	HdfsNameNodeEndpoint string `name:"hdfs-namenode-endpoint" description:"Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this."`
-	DockerStorageBase    string `name:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
-	UsingWSL             bool   `name:"using-wsl" description:"Flag indicating whether we're running within WSL2 (Windows Subsystem for Linux). Requires additional networking configuring for the Docker containers."`
-	PrometheusInterval   int    `name:"prometheus_interval" description:"Frequency in seconds of how often to publish metrics to Prometheus. So, setting this to 5 means we publish metrics roughly every 5 seconds."`
-	PrometheusPort       int    `name:"prometheus_port" description:"The port on which this local daemon will serve Prometheus metrics. Default/suggested: 8089."`
-	NumResendAttempts    int    `name:"num_resend_attempts" description:"The number of times to attempt to resend a message before giving up."`
-	RunKernelsInGdb      bool   `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
+	DirectServer      bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
+	NumGPUs           int64  `name:"max-actual-gpu-per-node" json:"max-actual-gpu-per-node" yaml:"max-actual-gpu-per-node" description:"The total number of GPUs that should be available on each node."`
+	DockerStorageBase string `name:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
+	RunKernelsInGdb   bool   `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
 }
 
 // IsKubernetesMode returns true if the deployment mode is specified as "kubernetes".

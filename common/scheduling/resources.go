@@ -59,14 +59,20 @@ const (
 var (
 	// ErrInsufficientMemory indicates that there was insufficient memory resources available to validate/support/serve
 	// the given resource request/types.Spec.
+	//
+	// Deprecated: use InsufficientResourcesError instead.
 	ErrInsufficientMemory = errors.New("insufficient memory resources available")
 
 	// ErrInsufficientCPUs indicates that there was insufficient CPU resources available to validate/support/serve
 	// the given resource request/types.Spec.
+	//
+	// Deprecated: use InsufficientResourcesError instead.
 	ErrInsufficientCPUs = errors.New("insufficient CPU resources available")
 
 	// ErrInsufficientGPUs indicates that there was insufficient GPU resources available to validate/support/serve
 	// the given resource request/types.Spec.
+	//
+	// Deprecated: use InsufficientResourcesError instead.
 	ErrInsufficientGPUs = errors.New("insufficient GPU resources available")
 
 	// ErrInvalidSnapshot is a general error message indicating that the application of a snapshot has failed.
@@ -76,6 +82,47 @@ var (
 	// If the source and target ResourceStatus values do not match, then the snapshot will be rejected.
 	ErrIncompatibleResourceStatus = errors.New("source and target ResourceStatus values are not the same")
 )
+
+// InsufficientResourcesError is a custom error type that is used to indicate that resources could not be
+// allocated because there are insufficient resources available for one or more resources (CPU, GPU, or RAM).
+type InsufficientResourcesError struct {
+	// AvailableResources are the resources that were available on the node at the time that the
+	// failed allocation was attempted.
+	AvailableResources types.Spec
+	// RequestedResources are the resources that were requested, and that could not be fulfilled in their entirety.
+	RequestedResources types.Spec
+	// OffendingResourceKinds is a slice containing each ResourceKind for which there were insufficient
+	// resources available (and thus that particular ResourceKind contributed to the inability of the node
+	// to fulfill the resource request).
+	OffendingResourceKinds []ResourceKind
+}
+
+// NewInsufficientResourcesError constructs a new InsufficientResourcesError struct and returns a pointer to it.
+func NewInsufficientResourcesError(avail types.Spec, req types.Spec, kinds []ResourceKind) *InsufficientResourcesError {
+	return &InsufficientResourcesError{
+		AvailableResources:     avail,
+		RequestedResources:     req,
+		OffendingResourceKinds: kinds,
+	}
+}
+
+func (e InsufficientResourcesError) Error() string {
+	return e.String()
+}
+
+func (e InsufficientResourcesError) Is(other error) bool {
+	var insufficientResourcesError *InsufficientResourcesError
+	if !errors.As(other, &insufficientResourcesError) {
+		return false
+	}
+
+	return true
+}
+
+func (e InsufficientResourcesError) String() string {
+	return fmt.Sprintf("InsufficientResourcesError[Available=%s,Requested=%s]",
+		e.AvailableResources.String(), e.RequestedResources.String())
+}
 
 // ResourceKind can be one of CPU, GPU, or Memory
 type ResourceKind string
@@ -735,27 +782,21 @@ func (res *resources) ValidateWithError(spec types.Spec) error {
 	sufficientCPUsAvailable := res.millicpus.GreaterThanOrEqual(decimalSpec.Millicpus)
 	sufficientMemoryAvailable := res.memoryMB.GreaterThanOrEqual(decimalSpec.MemoryMb)
 
-	errs := make([]error, 0)
+	offendingKinds := make([]ResourceKind, 0)
 	if !sufficientGPUsAvailable {
-		err := fmt.Errorf("%w: available=%s,required=%s",
-			ErrInsufficientGPUs, res.gpus.StringFixed(0), decimalSpec.GPUs.StringFixed(0))
-		errs = append(errs, err)
+		offendingKinds = append(offendingKinds, GPU)
 	}
 
 	if !sufficientCPUsAvailable {
-		err := fmt.Errorf("%w: available=%s,required=%s",
-			ErrInsufficientCPUs, res.millicpus.StringFixed(0), decimalSpec.Millicpus.StringFixed(0))
-		errs = append(errs, err)
+		offendingKinds = append(offendingKinds, CPU)
 	}
 
 	if !sufficientMemoryAvailable {
-		err := fmt.Errorf("%w: available=%s,required=%s",
-			ErrInsufficientMemory, res.memoryMB.StringFixed(0), decimalSpec.MemoryMb.StringFixed(0))
-		errs = append(errs, err)
+		offendingKinds = append(offendingKinds, Memory)
 	}
 
-	if len(errs) > 0 {
-		return errors.Join(errs...)
+	if len(offendingKinds) > 0 {
+		return NewInsufficientResourcesError(res.ToDecimalSpec(), spec, offendingKinds)
 	} else {
 		return nil
 	}

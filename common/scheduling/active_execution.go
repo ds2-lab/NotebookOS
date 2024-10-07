@@ -42,7 +42,7 @@ func (q *ActiveExecutionQueue) Dequeue() *ActiveExecution {
 
 // ActiveExecution encapsulates the submission of a single 'execute_request' message for a particular kernel.
 // We observe the results of the SMR proposal protocol and take action accordingly, depending upon the results.
-// For example, if all replicas of the kernel issue 'YIELD' proposals, then we will need to perform some sort of
+// For example, if all replicas of the kernel issue 'YIELD' roles, then we will need to perform some sort of
 // scheduling action, depending upon what scheduling policy we're using.
 //
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
@@ -57,8 +57,8 @@ type ActiveExecution struct {
 
 	NumReplicas int // The number of replicas that the kernel had with the execution request was originally received.
 
-	numLeadProposals  int // Number of 'LEAD' proposals issued.
-	numYieldProposals int // Number of 'YIELD' proposals issued.
+	numLeadRoles  int // Number of 'LEAD' roles issued.
+	numYieldRoles int // Number of 'YIELD' roles issued.
 
 	// originallySentAt is the time at which the "execute_request" message associated with this ActiveExecution
 	// was actually sent by the Jupyter client. We can only recover this if the client is an instance of our
@@ -76,7 +76,7 @@ type ActiveExecution struct {
 	WorkloadId    string
 	workloadIdSet bool
 
-	proposals map[int32]string // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
+	roles map[int32]string // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
 
 	nextAttempt     *ActiveExecution // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
 	previousAttempt *ActiveExecution // The retry that preceded this one, if this is not the first attempt.
@@ -91,7 +91,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 		ExecutionId:             uuid.NewString(),
 		SessionId:               msg.JupyterSession(),
 		AttemptId:               attemptId,
-		proposals:               make(map[int32]string, 3),
+		roles:                   make(map[int32]string, 3),
 		KernelId:                kernelId,
 		NumReplicas:             numReplicas,
 		nextAttempt:             nil,
@@ -171,40 +171,42 @@ func (e *ActiveExecution) SetExecuted() {
 
 func (e *ActiveExecution) String() string {
 	return fmt.Sprintf("ActiveExecution[ID=%s,Kernel=%s,Session=%s,ExecuteRequestMsgId=%s,Attempt=%d,NumReplicas=%d,"+
-		"numLeadProposals=%d,numYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v,OriginalSendTimestamp=%v,CreatedAtTimestamp=%v,Executed=%v]",
-		e.ExecutionId, e.KernelId, e.SessionId, e.ExecuteRequestMessageId, e.AttemptId, e.NumReplicas, e.numLeadProposals, e.numYieldProposals, e.nextAttempt == nil, e.previousAttempt == nil, e.originallySentAt, e.CreatedAt, e.executed)
+		"numLeadRoles=%d,numYieldRoles=%d,HasNextAttempt=%v,HasPrevAttempt=%v,OriginalSendTimestamp=%v,CreatedAtTimestamp=%v,Executed=%v]",
+		e.ExecutionId, e.KernelId, e.SessionId, e.ExecuteRequestMessageId, e.AttemptId, e.NumReplicas, e.numLeadRoles, e.numYieldRoles, e.nextAttempt == nil, e.previousAttempt == nil, e.originallySentAt, e.CreatedAt, e.executed)
 }
 
-func (e *ActiveExecution) ReceivedLeadProposal(smrNodeId int32) error {
-	if _, ok := e.proposals[smrNodeId]; ok {
+// ReceivedLeadNotification records that the specified kernel replica lead the election and executed the code.
+func (e *ActiveExecution) ReceivedLeadNotification(smrNodeId int32) error {
+	if _, ok := e.roles[smrNodeId]; ok {
 		return ErrProposalAlreadyReceived
 	}
 
-	e.proposals[smrNodeId] = KeyLead
-	e.numLeadProposals += 1
+	e.roles[smrNodeId] = KeyLead
+	e.numLeadRoles += 1
 
 	return nil
 }
 
-func (e *ActiveExecution) ReceivedYieldProposal(smrNodeId int32) error {
-	if _, ok := e.proposals[smrNodeId]; ok {
+// ReceivedYieldNotification records that the specified replica ultimately yielded and did not lead the election.
+func (e *ActiveExecution) ReceivedYieldNotification(smrNodeId int32) error {
+	if _, ok := e.roles[smrNodeId]; ok {
 		return ErrProposalAlreadyReceived
 	}
 
-	e.proposals[smrNodeId] = KeyYield
-	e.numYieldProposals += 1
+	e.roles[smrNodeId] = KeyYield
+	e.numYieldRoles += 1
 
-	if e.numYieldProposals == e.NumReplicas {
+	if e.numYieldRoles == e.NumReplicas {
 		return ErrExecutionFailedAllYielded
 	}
 
 	return nil
 }
 
-// NumProposalsReceived does not count duplicate proposals received multiple times from the same node.
+// NumRolesReceived does not count duplicate roles received multiple times from the same node.
 // It's more like the number of unique replicas from which we've received a proposal.
-func (e *ActiveExecution) NumProposalsReceived() int {
-	return e.numLeadProposals + e.numYieldProposals
+func (e *ActiveExecution) NumRolesReceived() int {
+	return e.numLeadRoles + e.numYieldRoles
 }
 
 func (e *ActiveExecution) LinkPreviousAttempt(previousAttempt *ActiveExecution) {

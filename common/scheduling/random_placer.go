@@ -155,6 +155,8 @@ func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 				// or we locked them and found they couldn't serve our kernel replica.
 				//
 				// We only bother with this step if we've still not found enough hosts.
+				// If len(hosts) >= numReplicas, then we're going to return, so we don't need to bother
+				// with cleaning up the `removeFromFailedToLock` hosts.
 				if len(hosts) < numReplicas {
 					// Iterate over each of the hosts that we were able to lock and remove it from the mapping.
 					for _, host := range removeFromFailedToLock {

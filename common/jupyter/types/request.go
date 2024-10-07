@@ -640,8 +640,8 @@ func (r *BasicRequest) PrepareForResubmission() error {
 		return err
 	}
 
-	// Regenerate the signature.
-	_, err = jFrames[jOffset:].Sign(r.connectionInfo.SignatureScheme, []byte(r.connectionInfo.Key))
+	// Regenerate the signature. Don't include the buffer frames as part of the signature.
+	_, err = jFrames[jOffset:jOffset+JupyterFrameRequestTrace].Sign(r.connectionInfo.SignatureScheme, []byte(r.connectionInfo.Key))
 	if err != nil {
 		return err
 	}

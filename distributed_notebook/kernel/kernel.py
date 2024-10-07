@@ -228,7 +228,7 @@ class DistributedKernel(IPythonKernel):
 
         self.msg_types = [
             *self.msg_types,
-            "yield_execute",
+            "yield_request",
             "ping_kernel_shell_request",
         ]
 
@@ -244,6 +244,8 @@ class DistributedKernel(IPythonKernel):
         self.source = None
         self.kernel_notification_service_channel: Optional[grpc.Channel] = None
         self.kernel_notification_service_stub: Optional[KernelErrorReporterStub] = None
+        self.message_acknowledgements_enabled: bool = True  # default to True
+        self.shell_received_at: float = None
 
         # Prometheus metrics.
         self.num_yield_proposals: Counter = Counter(
@@ -546,17 +548,22 @@ class DistributedKernel(IPythonKernel):
         else:
             self.log.debug("We should NOT read data from HDFS.")
 
-        # if "data_directory" in response_dict:
-        #     self.log.info("Received path to data directory in HDFS from registration: \"%s\"" %
-        #                   response_dict["data_directory"])
-        # self.hdfs_data_directory = response_dict["data_directory"]
-
         if "debug_port" in response_dict:
             self.debug_port: int = int(response_dict["debug_port"])
             self.log.info(f"Assigned debug port to {self.debug_port}")
         else:
             self.log.warning("No \"debug_port\" entry found in response from local daemon.")
             self.debug_port: int = -1
+
+        if "message_acknowledgements_enabled" in response_dict:
+            self.message_acknowledgements_enabled = bool(response_dict["message_acknowledgements_enabled"])
+
+            if self.message_acknowledgements_enabled:
+                self.log.debug("Message acknowledgements are enabled.")
+            else:
+                self.log.debug("Message acknowledgements are disabled.")
+        else:
+            self.log.warning("No \"message_acknowledgements_enabled\" entry in response from local daemon.")
 
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
@@ -619,20 +626,33 @@ class DistributedKernel(IPythonKernel):
         future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
         self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
-        # future.set_result(self.gen_simple_response())
-        self.log.info(f"Persistent store confirmed: {self.store}")
+        self.log.info(f"Persistent store confirmed on start: {self.store}")
+
+        faulthandler.dump_traceback(file=sys.stderr)
+
+    async def kernel_info_request(self, stream, ident, parent):
+        """Handle a kernel info request."""
+        if not self.session:
+            return
+        content = {"status": "ok"}
+        content.update(self.kernel_info)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        msg = self.session.send(stream, "kernel_info_reply", content, parent, ident, buffers=buffers)
+        self.log.debug(f"Sent \"kernel_info_reply\" message: {msg}")
 
     async def dispatch_shell(self, msg):
-        self.log.debug(f"Received SHELL message: {msg}")
+        self.shell_received_at: float = time.time() * 1.0e3
         sys.stderr.flush()
         sys.stdout.flush()
         assert self.session is not None
 
         idents, msg_without_idents = self.session.feed_identities(msg, copy=False)
         try:
-            msg_deserialized = self.session.deserialize(msg_without_idents, content=False, copy=False)
+            # Pass False for content so we don't store the digest and get a duplicate_signature error later.
+            msg_deserialized: dict[str, Any] = self.session.deserialize(msg_without_idents, content=False, copy=False)
         except Exception as ex:
-            self.log.error(f"Received invalid SHELL message: {ex}")  # noqa: G201
+            self.log.error(f"Received invalid SHELL message: {msg}")  # noqa: G201
+            self.log.error(f"Shell message is invalid because: {ex}")
             self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
                 title="Kernel Replica Received an Invalid Shell Message",
                 message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid shell message: {ex}.",
@@ -684,15 +704,18 @@ class DistributedKernel(IPythonKernel):
         msg_id = msg["header"]["msg_id"]
         msg_type = msg["header"]["msg_type"]
         if msg_id in self.received_message_ids:
-            # Is it safe to assume a msg_id will not be resubmitted?
-            self.log.warning(f"Received duplicate \"{msg_id}\" message with ID={msg_type}.")
-
             # Check if the message has a "ForceReprocess" field in its metadata frame with a value of "true".
-            # If so, then we'll reprocess it anyway -- as these are likely resubmitted 'yield_execute' or 'execute_request' messages.
+            # If so, then we'll reprocess it anyway -- as these are likely resubmitted 'yield_request' or 'execute_request' messages.
             metadata: dict[str, Any] = msg.get("metadata", {})
             if "force_reprocess" in metadata:
+                force_reprocess: bool = metadata["force_reprocess"]
+                self.log.warning(
+                    f"Received duplicate \"{msg_id}\" message with ID={msg_type} and \"force_reprocess\" equal to {force_reprocess}.")
                 # Presumably this will be True, but if it isn't True, then we definitely shouldn't reprocess the message.
-                return metadata["force_reprocess"]
+                return force_reprocess
+            else:
+                self.log.warning(f"Received duplicate \"{msg_id}\" message with ID={msg_type} and no "
+                                 f"\"force_reprocess\" entry in the request's metadata...")
 
             return False
         else:
@@ -707,6 +730,8 @@ class DistributedKernel(IPythonKernel):
         
         We overrode it so that we can send ACKs.
         """
+        received_at: float = time.time() * 1.0e3
+
         if not self.session:
             self.log.error("We have no session. Cannot process control message...")
             return
@@ -756,6 +781,13 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(f"Received control message {msg_id} of type \"{msg_type}\"")
         sys.stderr.flush()
         sys.stdout.flush()
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(msg, received_at)
+        # buffers: dict[str, Any] = msg.get("buffers", {})
+        # buffers = self.decode_request_trace_from_buffers(buffers)
+        # if "request_trace" in buffers:
+        #     request_trace = buffers["request_trace"]
+        #     request_trace["request_received_by_kernel_replica"] = received_at
 
         # Set the parent message for side effects.
         self.set_parent(idents, msg, channel="control")
@@ -848,8 +880,8 @@ class DistributedKernel(IPythonKernel):
 
         self.log.info(
             "Initializing the Persistent Store with Persistent ID: \"%s\"" % persistent_id)
-        self.log.info("Full path of Persistent Store: \"%s\"" % store)
-        self.log.info("Disabling `outstream` now.")
+        self.log.debug("Full path of Persistent Store: \"%s\"" % store)
+        self.log.debug("Disabling `outstream` now.")
 
         sys.stderr.flush()
         sys.stdout.flush()
@@ -857,20 +889,21 @@ class DistributedKernel(IPythonKernel):
         # Disable outstream
         self.toggle_outstream(override=True, enable=False)
 
-        self.log.info("Disabled `outstream`.")
-        self.log.info("Overriding shell hooks now.")
+        self.log.debug("Disabled `outstream`.")
+        self.log.debug("Overriding shell hooks now.")
 
         # Override shell hooks
         await self.override_shell(store)
 
-        self.log.info("Overrode shell hooks.")
+        self.log.debug("Overrode shell hooks.")
 
         # Notify the client that the SMR is ready.
         # await self.smr_ready() 
 
         # TODO(Ben): Should this go before the "smr_ready" send?
-        # It probably shouldn't matter -- or if it does, then more synchronization is recuired.
+        # It probably shouldn't matter -- or if it does, then more synchronization is required.
         async with self.persistent_store_cv:
+            self.log.debug("Calling `notify_all` on the Persistent Store condition variable.")
             self.persistent_store_cv.notify_all()
 
         return store
@@ -887,7 +920,10 @@ class DistributedKernel(IPythonKernel):
             return True
 
     def send_ack(self, stream, msg_type: str, msg_id: str, ident, parent, stream_name: str = ""):
-        # self.log.debug(f"Sending 'ACK' for {msg_type} message \"{msg_id}\".")
+        # If message acknowledgements are disabled, then just return immediately.
+        if not self.message_acknowledgements_enabled:
+            return
+
         ack_msg = self.session.send(  # type:ignore[assignment]
             stream,
             "ACK",
@@ -910,10 +946,10 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(
             f"execute_request with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
 
-        self.next_execute_request_msg_id: str = parent_header["msg_id"]
-
         self.log.debug("parent: %s", str(parent))
         self.log.debug("ident: %s" % str(ident))
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, self.shell_received_at)
 
         await super().execute_request(stream, ident, parent)
 
@@ -946,12 +982,14 @@ class DistributedKernel(IPythonKernel):
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
         """ Respond to a 'ping kernel' Control request. """
         self.log.debug("Ping-Kernel (CONTROL) received.")
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "ping_reply",
             {"timestamp": time.time()},
             parent,
             metadata={},
+            buffers=buffers,
             ident=ident,
         )
         faulthandler.dump_traceback(file=sys.stderr)
@@ -977,17 +1015,50 @@ class DistributedKernel(IPythonKernel):
     async def ping_kernel_shell_request(self, stream, ident, parent):
         """ Respond to a 'ping kernel' Shell request. """
         self.log.debug("Ping-Kernel (SHELL) received.")
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "ping_reply",
             {"timestamp": time.time()},
             parent,
             metadata={},
+            buffers=buffers,
             ident=ident,
         )
         self.log.debug(f"Sent ping_reply (shell): {str(reply_msg)}")
 
-    async def yield_execute(self, stream, ident, parent):
+    async def check_previous_election(self):
+        """
+        Check the status of the previous election, and wait for it to complete if it isn't done yet.
+        """
+        term_number: int = self.synchronizer.execution_count
+        self.log.debug(f"Checking status of previous election (term {term_number}).")
+
+        # If we've not yet created/held the first election, then we have nothing to check. 
+        if not self.synchronizer.created_first_election():
+            return
+
+        try:
+            if not self.synchronizer.is_election_finished(term_number):
+                self.log.warning(f"Previous election (term {term_number}) has not finished yet. "
+                                 f"Waiting for that election to finish before proceeding.")
+
+                # Wait for the last election to end.
+                await self.synchronizer.wait_for_election_to_end(term_number)
+        except ValueError as ex:
+            self.log.warning(f"Encountered ValueError while checking status of previous election: {ex}")
+            self.report_error(
+                error_title=f"ValueError While Checking Status of Election {term_number}",
+                error_message=str(ex)
+            )
+        except Exception as ex:
+            self.log.error(f"Error encountered while checking status of previous election: {ex}")
+            self.report_error(
+                error_title=f"Unexpected {type(ex).__name__} While Checking Status of Election {term_number}",
+                error_message=str(ex)
+            )
+
+    async def yield_request(self, stream, ident, parent):
         """
         Similar to the do_execute method, but this method ALWAYS proposes "YIELD" instead of "LEAD".
         Kernel replicas are directed to call this instead of do_execute by their local daemon if there are resource constraints
@@ -1005,11 +1076,13 @@ class DistributedKernel(IPythonKernel):
         reply_content: Dict[str, Any] = {}
         error_occurred: bool = False  # Separate flag, since we raise an exception and generate an error response when we yield successfully.
 
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, self.shell_received_at)
+
         parent_header: dict[str, Any] = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)
         self.next_execute_request_msg_id: str = parent_header["msg_id"]
         self.log.debug(
-            f"yield_execute with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
+            f"yield_request with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
         self.log.debug("Parent: %s" % str(parent))
 
         if not self.session:
@@ -1022,8 +1095,8 @@ class DistributedKernel(IPythonKernel):
         except Exception as ex:
             self.log.error(f"Got bad msg: {parent}. Exception: {ex}")
             self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-                title="Kernel Replica Received an Invalid \"yield_execute\" Message",
-                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid \"yield_execute\" message: {ex}.",
+                title="Kernel Replica Received an Invalid \"yield_request\" Message",
+                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid \"yield_request\" message: {ex}.",
                 notificationType=ErrorNotification,
                 kernelId=self.kernel_id,
                 replicaId=self.smr_node_id,
@@ -1040,8 +1113,6 @@ class DistributedKernel(IPythonKernel):
             assert self.execution_count is not None
             self.execution_count += 1
             self._publish_execute_input(code, parent, self.execution_count)
-
-        self.log.debug("yield_execute has been called.")
 
         current_term_number: int = -1
         try:
@@ -1076,9 +1147,17 @@ class DistributedKernel(IPythonKernel):
                 self.log.error(
                     f"I've been selected to lead this execution ({self.shell.execution_count}), but I'm supposed to yield!")
 
+                buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+                # buffers = parent.get("buffers", {})
+                # buffers = self.decode_request_trace_from_buffers(buffers)
+                # if "request_trace" in buffers:
+                #     request_trace = buffers["request_trace"]
+                #     request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
+
                 # Notify the client that we will lead the execution (which is bad, in this case, as we were supposed to yield.)
                 self.session.send(self.iopub_socket, "smr_lead_after_yield",
-                                  {"term": self.synchronizer.execution_count + 1}, ident=self._topic(SMR_LEAD_TASK))
+                                  {"term": self.synchronizer.execution_count + 1}, ident=self._topic(SMR_LEAD_TASK),
+                                  buffers=buffers)
         except Exception as e:
             self.log.error(f"Error while yielding execution for term {current_term_number}: {e}")
             reply_content = gen_error_response(e)
@@ -1105,26 +1184,39 @@ class DistributedKernel(IPythonKernel):
         # Send the reply.
         reply_content: dict[str, Any] = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
+
+        # if "request_trace" in buffers:
+        #     request_trace = buffers["request_trace"]
+        #     request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "execute_reply",
             reply_content,
             parent,
             metadata=metadata,
+            buffers=buffers,
             ident=ident,
         )
 
-        self.log.debug("Sent the following reply after yield_execute: %s" % reply_msg)
+        self.log.debug("Sent the following reply after yield_request: %s" % reply_msg)
 
         if not silent and error_occurred and stop_on_error:  # reply_msg["content"]["status"] == "error"
             self._abort_queues()
 
+        # Commented-out:
+        #
+        # Do this at the beginning instead.
+        #
+        #
+        #
         # Block until the leader finishes executing the code, or until we know that all replicas yielded,
         # in which case we can just return, as the code will presumably be resubmitted shortly.
         current_election: Election = self.synchronizer.current_election
         term_number: int = current_election.term_number
         self.log.debug(f"Waiting for election {term_number} "
-                       "to be totally finished before returning from yield_execute function.")
+                       "to be totally finished before returning from yield_request function.")
         await self.synchronizer.wait_for_election_to_end(term_number)
 
     async def do_execute(
@@ -1174,6 +1266,9 @@ class DistributedKernel(IPythonKernel):
                 code = "persistent_id = \"%s\"" % self.persistent_id
                 await asyncio.ensure_future(self.init_persistent_store(code))
 
+        # Check the status of the last election before proceeding.
+        await self.check_previous_election()
+
         try:
             self.toggle_outstream(override=True, enable=False)
 
@@ -1212,6 +1307,7 @@ class DistributedKernel(IPythonKernel):
                 "unix_milliseconds": time.time_ns() // 1_000_000,
                 "execute_request_msg_id": self.next_execute_request_msg_id
             }
+
             self.session.send(self.iopub_socket, SMR_LEAD_TASK, content,
                               ident=self._topic(SMR_LEAD_TASK))  # type: ignore
 
@@ -1254,7 +1350,7 @@ class DistributedKernel(IPythonKernel):
                 ))
 
             assert self.execution_count is not None
-            self.log.info("Synchronized. End of sync execution: {}".format(self.execution_count - 1))
+            self.log.info("Synchronized. End of sync execution: {}".format(term_number))
 
             # Add task to the set. This creates a strong reference.
             # We don't await this here so that we can go ahead and send the shell response back.
@@ -1262,7 +1358,7 @@ class DistributedKernel(IPythonKernel):
             #
             # TODO: Is this okay, or should we await this before returning?
             task: asyncio.Task = asyncio.create_task(
-                self.synchronizer.notify_execution_complete(self.execution_count - 1))
+                self.synchronizer.notify_execution_complete(term_number))
 
             # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
             # the set after completion.
@@ -1275,6 +1371,8 @@ class DistributedKernel(IPythonKernel):
             return gen_error_response(eye)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
+
+            self.report_error("Execution Error", str(e))
 
             return gen_error_response(e)
 
@@ -1336,7 +1434,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Preparing for migration of replica %d of kernel %s.",
                       self.smr_node_id, self.kernel_id)
 
-        # We don't want to remove this node from the SMR raft cluster when we shutdown the kernel,
+        # We don't want to remove this node from the SMR raft cluster when we shut down the kernel,
         # as we're migrating the replica and want to reuse the ID when the raft process resumes
         # on another node.
         self.remove_on_shutdown = False
@@ -1370,7 +1468,7 @@ class DistributedKernel(IPythonKernel):
                               error_message=str(e))
 
             # Attempt to close the HDFS client.
-            self.synclog.closeHdfsClient()
+            self.synclog.close_hdfs_client()
 
             return gen_error_response(e), False
 
@@ -1393,12 +1491,12 @@ class DistributedKernel(IPythonKernel):
             self.report_error("Failed to Write HDFS Data Directory", error_message=str(e))
 
             # Attempt to close the HDFS client.
-            self.synclog.closeHdfsClient()
+            self.synclog.close_hdfs_client()
 
             return gen_error_response(e), False
 
         try:
-            self.synclog.closeHdfsClient()
+            self.synclog.close_hdfs_client()
         except Exception as e:
             self.log.error("Failed to close the HDFS client within the LogNode.")
             tb: list[str] = traceback.format_exception(e)
@@ -1458,26 +1556,95 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Sending 'prepare_to_migrate_reply' response now.")
 
-        sent_message = self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        sent_message = self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident,
+                                         buffers=buffers)
 
         self.log.debug("Sent 'prepare_to_migrate_reply message: %s" % str(sent_message))
 
-    async def do_add_replica(self, id, addr) -> tuple[dict, bool]:
+    async def do_add_replica(self, replicaId, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""
         if not await self.check_persistent_store():
             return gen_error_response(err_wait_persistent_store), False
 
-        self.log.info("Adding replica %d at addr %s now.", id, addr)
+        self.log.info("Adding replica %d at addr %s now.", replicaId, addr)
 
         # We didn't check if synclog is ready
         try:
-            await self.synclog.add_node(id, "http://{}".format(addr))
+            await self.synclog.add_node(replicaId, "http://{}".format(addr))
             self.log.info(
-                "Replica {} at {} has joined the SMR cluster.".format(id, addr))
+                "Replica {} at {} has joined the SMR cluster.".format(replicaId, addr))
             return {'status': 'ok'}, True
         except Exception as e:
             self.log.error("A replica fails to join: {}...".format(e))
             return gen_error_response(e), False
+
+    def decode_request_trace_from_buffers(self, buffers):
+        """
+        Attempt to decode a RequestTrace from the first buffers frame.
+
+        If the decoding is successful, then the RequestTrace is converted back to a list[bytes].
+        """
+        if isinstance(buffers, list):
+            if len(buffers) > 0:
+                self.log.debug(f"Buffers is a list: {buffers}")
+                buffers = buffers[0]
+            else:
+                self.log.debug(f"Buffers is an empty list")
+                return buffers
+
+            self.log.debug(f"0th element of the buffers list: {buffers}")
+
+        if isinstance(buffers, memoryview):
+            buffers_bytes: bytes = buffers.tobytes()
+            buffers_string: str = buffers_bytes.decode('utf-8')
+            self.log.debug(f"Contents of buffers (memoryview->decoded utf-8 string): {buffers_string}")
+        elif isinstance(buffers, bytes):
+            buffers_string: str = buffers.decode('utf-8')
+            self.log.debug(f"Contents of buffers (decoded utf-8 string): {buffers_string}")
+        else:
+            buffers_string: str = str(buffers)
+            self.log.debug(f"Contents of buffers (as string): {buffers_string}")
+
+        try:
+            buffers_json = json.loads(buffers_string)
+            self.log.debug(f"Contents of buffers after JSON decoding: {buffers_json}")
+            return buffers_json
+        except json.decoder.JSONDecodeError as ex:
+            self.log.warning(f"Failed to decode buffers using JSON because: {ex}")
+
+        return buffers
+
+    def extract_and_process_request_trace(self, msg: dict[str, Any], received_at: float) -> Optional[list[bytes]]:
+        """
+        Attempt to extract the RequestTrace dictionary from the (first) buffers frame of the request.
+
+        If successful, populate the RequestTrace with an "request_received_by_kernel_replica" entry or an
+        "reply_sent_by_kernel_replica" entry depending on whether a positive value was passed for the
+        received_at argument. Then, re-encode the RequestTrace and return a value in the Buffers format that
+        can be directly passed to the Session class' send method.
+
+        Returns:
+            If the extraction of the request trace was successful, then a value in the Buffers format that
+            can be directly passed to the Session class' send method.
+
+            Otherwise, this returns None.
+        """
+        buffers: dict[str, Any] = msg.get("buffers", {})
+        request_trace_frame = self.decode_request_trace_from_buffers(buffers)
+
+        if isinstance(buffers, dict) and "request_trace" in request_trace_frame:
+            request_trace: dict[str, Any] = buffers["request_trace"]
+
+            if received_at > 0:
+                request_trace["request_received_by_kernel_replica"] = received_at
+            else:
+                request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
+
+            request_trace_encoded:str = json.dumps(request_trace)
+            return [request_trace_encoded.encode('utf-8')]
+
+        return None
 
     # customized control message handlers
     async def add_replica_request(self, stream, ident, parent):
@@ -1495,27 +1662,34 @@ class DistributedKernel(IPythonKernel):
 
         if 'id' not in params or 'addr' not in params:
             err_content: dict = gen_error_response(err_invalid_request)
-            self.session.send(stream, "add_replica_reply", err_content, parent, ident=ident)
+
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+            self.session.send(stream, "add_replica_reply", err_content, parent, ident=ident, buffers=buffers)
             return
 
         content, success = await self.do_add_replica(params['id'], params['addr'])
 
         if success:
             self.log.debug("Notifying session that SMR node was added.")
+
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
             self.session.send(self.iopub_socket, "smr_node_added",
                               {"success": True, "persistent_id": self.persistent_id, "id": params[
                                   'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
-                              ident=self._topic("smr_node_added"))  # type: ignore
+                              ident=self._topic("smr_node_added"), buffers=buffers)  # type: ignore
         else:
             self.log.debug("Notifying session that SMR node addition failed.")
+
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
             self.session.send(self.iopub_socket, "smr_node_added",
                               {"success": False, "persistent_id": self.persistent_id, "id": params[
                                   'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
-                              ident=self._topic("smr_node_added"))  # type: ignore
+                              ident=self._topic("smr_node_added"), buffers=buffers)  # type: ignore
 
-        self.session.send(stream, "add_replica_reply", content, parent, ident=ident)  # type: ignore
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        self.session.send(stream, "add_replica_reply", content, parent, ident=ident, buffers=buffers)  # type: ignore
 
-    async def do_update_replica(self, id, addr) -> tuple:
+    async def do_update_replica(self, replicaId, addr) -> tuple:
         """
         Update a replica to have a new address
         
@@ -1525,13 +1699,13 @@ class DistributedKernel(IPythonKernel):
         if not await self.check_persistent_store():
             return gen_error_response(err_wait_persistent_store), False
 
-        self.log.info("Updating replica %d with new addr %s now.", id, addr)
+        self.log.info("Updating replica %d with new addr %s now.", replicaId, addr)
 
         # We didn't check if synclog is ready
         try:
-            await self.synclog.update_node(id, "http://{}".format(addr))
+            await self.synclog.update_node(replicaId, "http://{}".format(addr))
             self.log.info(
-                "Replica {} at {} has been updated.".format(id, addr))
+                "Replica {} at {} has been updated.".format(replicaId, addr))
             return {'status': 'ok'}, True
         except Exception as e:
             self.log.error("Failed to update replica: {}...".format(e))
@@ -1561,19 +1735,24 @@ class DistributedKernel(IPythonKernel):
 
         if success:
             self.log.debug("Notifying session that SMR node was updated.")
+
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
             self.session.send(self.iopub_socket, "smr_node_updated",
                               {"success": True, "persistent_id": self.persistent_id, "id": params[
                                   'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
-                              ident=self._topic("smr_node_updated"))  # type: ignore
+                              ident=self._topic("smr_node_updated"), buffers=buffers)  # type: ignore
         else:
             self.log.debug("Notifying session that SMR node update failed.")
+
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
             self.session.send(self.iopub_socket, "smr_node_updated",
                               {"success": False, "persistent_id": self.persistent_id, "id": params[
                                   'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
-                              ident=self._topic("smr_node_updated"))  # type: ignore
+                              ident=self._topic("smr_node_updated"), buffers=buffers)  # type: ignore
 
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         self.session.send(stream, "update_replica_reply",
-                          content, parent, ident=ident)  # type: ignore
+                          content, parent, ident=ident, buffers=buffers)  # type: ignore
 
     def report_error(self, error_title: str = "", error_message: str = ""):
         """
@@ -1583,11 +1762,23 @@ class DistributedKernel(IPythonKernel):
         # err_msg = self.session.send(self.iopub_socket, "error_report",
         #                             {"error": error_title, "message": error_message, "kernel_id": self.kernel_id},
         #                             ident=self._topic("error_report"))
-        # self.log.debug(f"Sent 'error_report' message: {str(err_msg)}")
         self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
             title=error_title,
             message=error_message,
             notificationType=ErrorNotification,
+            kernelId=self.kernel_id,
+            replicaId=self.smr_node_id,
+        ))
+
+    def send_notification(self, notification_title: str = "", notification_body: str = "", notification_type: int = 2):
+        if notification_type < 0 or notification_type > 3:
+            raise ValueError(f"Invalid notification type specified: \"%d\"", notification_type)
+
+        self.log.debug(f"Sending \"{notification_title}\" notification of type {notification_type} now...")
+        self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+            title=notification_title,
+            message=notification_body,
+            notificationType=notification_type,
             kernelId=self.kernel_id,
             replicaId=self.smr_node_id,
         ))
@@ -1632,7 +1823,8 @@ class DistributedKernel(IPythonKernel):
         # The catch-up process involves appending a new value and waiting until it gets committed. This cannot be done until the RaftLog has started.
         # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
         if self.synclog.needs_to_catch_up:
-            self.log.debug("RaftLog needs to propose new value.")
+            self.log.debug("RaftLog will need to propose a \"catch up\" value "
+                           "so that it can tell when it has caught up with its peers.")
             await self.synclog.catchup_with_peers()
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
@@ -1684,6 +1876,7 @@ class DistributedKernel(IPythonKernel):
         try:
             self.synclog = RaftLog(self.smr_node_id,
                                    base_path=store,
+                                   kernel_id=self.kernel_id,
                                    num_replicas=self.num_replicas,
                                    hdfs_hostname=self.hdfs_namenode_hostname,
                                    should_read_data_from_hdfs=self.should_read_data_from_hdfs,
@@ -1691,7 +1884,9 @@ class DistributedKernel(IPythonKernel):
                                    peer_addrs=addrs,
                                    peer_ids=ids,
                                    join=self.smr_join,
-                                   debug_port=self.debug_port)
+                                   debug_port=self.debug_port,
+                                   report_error_callback=self.report_error,
+                                   send_notification_func=self.send_notification)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
 

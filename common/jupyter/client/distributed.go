@@ -96,7 +96,8 @@ type DistributedKernelClient struct {
 
 	nextNodeId int32
 
-	// activeExecution is the current execution request that is being processed by the kernels.
+	// activeExecution is the current execution request that should be being processed by the kernels,
+	// assuming the Local Daemons forward the requests in the correct order.
 	activeExecution *scheduling.ActiveExecution
 
 	// activeExecutionsByExecuteRequestMsgId is a map used to keep track of all scheduling.ActiveExecutions
@@ -137,7 +138,7 @@ type DistributedKernelClient struct {
 
 func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 	connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-	executionFailedCallback ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
+	debugMode bool, executionFailedCallback ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
 	messagingMetricsProvider metrics.MessagingMetricsProvider) *DistributedKernelClient {
 
 	kernel := &DistributedKernelClient{
@@ -152,6 +153,7 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 			s.ShouldAckMessages = false
 			s.ReconnectOnAckFailure = false
 			s.ComponentId = hostId
+			s.DebugMode = debugMode
 			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
 			s.MessagingMetricsProvider = messagingMetricsProvider
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
@@ -247,7 +249,6 @@ func (c *DistributedKernelClient) SetActiveExecution(activeExecution *scheduling
 	defer c.mu.Unlock()
 
 	c.activeExecutionsByExecuteRequestMsgId.Store(activeExecution.ExecuteRequestMessageId, activeExecution)
-
 	c.activeExecution = activeExecution
 }
 
@@ -260,18 +261,46 @@ func (c *DistributedKernelClient) SetActiveExecution(activeExecution *scheduling
 // ExecutionComplete returns true.
 //
 // If there are no ActiveExecution structs enqueued, then ExecutionComplete returns false.
-func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot]) (bool, error) {
+func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot], msg *types.JupyterMessage) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.activeExecution == nil {
-		log.Fatalf("DistributedKernelClient %s does not have a non-nil active execution...", c.id)
+		log.Fatalf(utils.RedStyle.Render("[ERROR] DistributedKernelClient %s does not have an active execution at all..."), c.id)
 	} else if c.activeExecution.ActiveReplica == nil {
-		log.Fatalf("DistributedKernelClient %s has an active execution, but the active replica is nil: %v", c.id, c.activeExecution.String())
+		log.Fatalf(utils.RedStyle.Render("[ERROR] DistributedKernelClient %s has an active execution, but the active replica is nil: %v"),
+			c.id, c.activeExecution.String())
 	}
 
-	err := c.activeExecution.ActiveReplica.KernelStoppedTraining(snapshot)
+	if msg.ReplicaId == -1 {
+		log.Fatalf(utils.RedStyle.Render("[ERROR] Cannot determine which replica \"execute_reply\" %s message came from..."),
+			msg.JupyterMessageId())
+	}
 
+	var (
+		associatedExecution *scheduling.ActiveExecution
+		loaded              bool
+	)
+	if msg.JupyterParentMessageId() != c.activeExecution.ExecuteRequestMessageId {
+		c.log.Error("Received \"execute_reply\" targeting active execution \"%s\" of kernel %s; however, current active execution has \"execute_request\" ID = \"%s\"",
+			msg.JupyterParentMessageId(), c.id, c.activeExecution.ExecuteRequestMessageId)
+
+		associatedExecution, loaded = c.activeExecutionsByExecuteRequestMsgId.Load(msg.JupyterParentMessageId())
+		if !loaded {
+			log.Fatalf(utils.RedStyle.Render("[ERROR] Cannot find active execution associated with \"execute_request\" \"%s\", for which we just received an \"execute_reply\"...",
+				msg.JupyterParentMessageId()))
+		}
+	} else {
+		associatedExecution = c.activeExecution
+	}
+
+	err := c.markExecutionAsComplete(associatedExecution, msg.ReplicaId)
+	if err != nil {
+		c.log.Error("Exception encountered while recording that active execution has finished: %v", err)
+		return false, err
+	}
+
+	err = c.activeExecution.ActiveReplica.KernelStoppedTraining(snapshot)
 	if len(c.activeExecutionQueue) > 0 {
 		c.activeExecution = c.activeExecutionQueue.Dequeue()
 		c.log.Debug("Popped next ActiveExecution off of queue and assigned it as current ActiveExecution: %v",
@@ -285,29 +314,76 @@ func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostRes
 	}
 }
 
-// EnqueueActiveExecution will set the ActiveExecution of the DistributedKernelClient to the
-// given ActiveExecution if the DistributedKernelClient currently has no ActiveExecution. In this case,
+// EnqueueActiveExecution will set the scheduling.ActiveExecution of the DistributedKernelClient to the
+// given ActiveExecution if the DistributedKernelClient currently has no scheduling.ActiveExecution. In this case,
 // EnqueueActiveExecution will return false.
 //
-// If the DistributedKernelClient already has an ActiveExecution, then the ActiveExecution passed
-// as an argument to the SetActiveExecution method will instead be enqueued. In this case,
-// EnqueueActiveExecution will return true.
-func (c *DistributedKernelClient) EnqueueActiveExecution(activeExecution *scheduling.ActiveExecution) bool {
+// EnqueueActiveExecution returns a pointer to the new scheduling.ActiveExecution struct if one was created.
+//
+// If we are resubmitting an "execute_request" following a migration, then this will not create and return a new
+// (pointer to a) scheduling.ActiveExecution struct, as the current active execution can simply be reused.
+func (c *DistributedKernelClient) EnqueueActiveExecution(attemptId int, msg *types.JupyterMessage) *scheduling.ActiveExecution {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.activeExecutionsByExecuteRequestMsgId.Store(activeExecution.ExecuteRequestMessageId, activeExecution)
+	if msg.JupyterMessageType() != types.ShellExecuteRequest {
+		log.Fatalf(utils.RedStyle.Render("Invalid or unexpected Jupyter message type of message passed to EnqueueActiveExecution: \"%s\". Message must have type \"%s\"."),
+			msg.JupyterMessageType(), types.ShellExecuteRequest)
+	}
+
+	// Check if the Jupyter message ID for the "execute_request" associated with the current active execution
+	// matches the message ID of the "execute_request" passed to EnqueueActiveExecution. If so, then we will
+	// do a quick sanity check that we've already attempted (and failed) the current active execution, and then
+	// we'll just return.
+	if c.activeExecution != nil && c.activeExecution.ExecuteRequestMessageId == msg.JupyterMessageId() {
+		c.log.Debug("Jupyter message ID of given \"execute_request\" matches that of current active execution (ID=\"%s\")",
+			msg.JupyterMessageId())
+
+		// Create the next execution attempt.
+		nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), c.activeExecution.AttemptId+1, c.Size(), msg)
+
+		// Link the previous active execution with the current one (in both directions).
+		nextExecutionAttempt.LinkPreviousAttempt(c.activeExecution)
+		c.activeExecution.LinkNextAttempt(nextExecutionAttempt)
+
+		// Replace the current execution attempt with the new one.
+		c.activeExecution = nextExecutionAttempt
+
+		// Replace the entry in the mapping with the next attempt.
+		// We can still access the previous attempt by following the "previous attempt" link.
+		c.activeExecutionsByExecuteRequestMsgId.Store(nextExecutionAttempt.ExecuteRequestMessageId, nextExecutionAttempt)
+
+		c.log.Debug("Created, linked, and set next ActiveExecution attempt (#%d) for \"execute_request\" \"%s\" for Kernel %s: %v",
+			nextExecutionAttempt.AttemptId, nextExecutionAttempt.ExecuteRequestMessageId, c.id, nextExecutionAttempt)
+
+		// Return the next execution attempt.
+		return nextExecutionAttempt
+	}
+
+	newActiveExecution := scheduling.NewActiveExecution(c.id, attemptId, c.Size(), msg)
+
+	c.log.Debug("Setting or enqueuing new ActiveExecution targeting kernel %s for new \"execute_request\" \"%s\"",
+		c.id, newActiveExecution.ExecuteRequestMessageId)
+
+	c.activeExecutionsByExecuteRequestMsgId.Store(newActiveExecution.ExecuteRequestMessageId, newActiveExecution)
 
 	// If there is already an active execution, then enqueue the new one.
 	if c.activeExecution != nil {
-		c.log.Debug("Found non-nil active execution. Enqueuing new active execution.")
-		c.activeExecutionQueue = append(c.activeExecutionQueue, activeExecution)
-		return true
-	}
+		c.log.Debug("Found non-nil ActiveExec for kernel %s. Enqueuing new ActiveExec for \"execute_request\" \"%s\".",
+			c.id, newActiveExecution.ExecuteRequestMessageId)
+		c.activeExecutionQueue = append(c.activeExecutionQueue, newActiveExecution)
+		c.log.Debug("Created and enqueued new ActiveExecution in Kernel %s's queue (which now has size=%d): %v",
+			c.id, len(c.activeExecutionQueue), newActiveExecution)
+		return newActiveExecution
+	} else {
+		c.log.Debug("No ActiveExec for kernel %s. Assigning ActiveExec targeting \"execute_request\" \"%s\".",
+			c.id, newActiveExecution.ExecuteRequestMessageId)
 
-	// There's no active execution currently, so just set the value.
-	c.activeExecution = activeExecution
-	return false
+		// There's no active execution currently, so just set the value.
+		c.activeExecution = newActiveExecution
+		c.log.Debug("Created and assigned new ActiveExecution to Kernel %s: %v", c.id, newActiveExecution)
+		return newActiveExecution
+	}
 }
 
 // ResetID resets the kernel ID.
@@ -395,8 +471,28 @@ func (c *DistributedKernelClient) Size() int {
 	return len(c.replicas) // c.size
 }
 
-// NumActiveAddOperations returns the number of active migrations of the associated kernel's replicas.
-func (c *DistributedKernelClient) NumActiveAddOperations() int {
+// NumActiveExecutionOperations returns the number of scheduling.ActiveExecution structs registered with
+// the kernel. This counts both the current scheduling.ActiveExecution as well as the length of the queue of
+// scheduling.ActiveExecution structs.
+//
+// This method is thread safe.
+func (c *DistributedKernelClient) NumActiveExecutionOperations() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var numActiveExecutions int
+
+	if c.activeExecution != nil && !c.activeExecution.HasExecuted() {
+		numActiveExecutions += 1
+	}
+
+	numActiveExecutions += len(c.activeExecutionQueue)
+
+	return numActiveExecutions
+}
+
+// NumActiveMigrationOperations returns the number of active migrations of the associated kernel's replicas.
+func (c *DistributedKernelClient) NumActiveMigrationOperations() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -439,11 +535,6 @@ func (c *DistributedKernelClient) Replicas() []scheduling.KernelReplica {
 	for _, replica := range c.replicas {
 		ret = append(ret, replica)
 	}
-	// for i := 0; i < c.size; i++ {
-	// 	if c.replicas[i] != nil {
-	// 		ret = append(ret, c.replicas[i])
-	// 	}
-	// }
 
 	return ret
 }
@@ -728,14 +819,14 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.Ker
 
 	if msgErr.Status == types.MessageStatusOK {
 		if msg.JupyterMessageType() == "execute_reply" {
-			return c.executionFinished(replicaId), false
+			replicaClient.ReceivedExecuteReply(msg)
+			return nil, false
 		}
-		return nil, false
 	}
 
 	err = errors.New(msgErr.ErrValue)
-
 	if msgErr.ErrName == types.MessageErrYieldExecution {
+		replicaClient.ReceivedExecuteReply(msg)
 		yielded = true
 		errors.Join()
 		err2 := c.handleExecutionYieldedNotification(replica.(*KernelReplicaClient), msg)
@@ -745,28 +836,35 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.Ker
 	return err, false
 }
 
-func (c *DistributedKernelClient) executionFinished(replicaId int32) error {
-	if c.activeExecution != nil {
-		if c.activeExecution.HasValidOriginalSentTimestamp() {
-			latency := time.Since(c.activeExecution.OriginalSentTimestamp())
-			c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d. Total time elapsed since submission: %v.", c.activeExecution.ExecutionId, c.id, replicaId, latency)
-		} else {
-			c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d.", c.activeExecution.ExecutionId, c.id, replicaId)
-		}
-
-		err := c.activeExecution.ReceivedLeadProposal(replicaId)
-		if err != nil {
-			return err
-		}
-
-		c.activeExecution.SetExecuted()
-		return nil
-	} else {
-		return ErrNoActiveExecution
+// markExecutionAsComplete records that the ActiveExecution of the DistributedKernelClient has been executed.
+func (c *DistributedKernelClient) markExecutionAsComplete(execution *scheduling.ActiveExecution, replicaId int32) error {
+	if execution == nil {
+		panic("Execution is nil.")
 	}
+
+	if execution.HasValidOriginalSentTimestamp() {
+		latency := time.Since(c.activeExecution.OriginalSentTimestamp())
+		c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d. Total time elapsed since submission: %v.",
+			execution.ExecutionId, c.id, replicaId, latency)
+	} else {
+		c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d.",
+			execution.ExecutionId, c.id, replicaId)
+	}
+
+	err := execution.ReceivedLeadNotification(replicaId)
+	if err != nil {
+		return err
+	}
+
+	execution.SetExecuted()
+	return nil
 }
 
 // RequestWithHandlerAndReplicas sends a request to specified replicas and handles the response.
+//
+// The forwarder function defined within this method must assign a value to the types.JupyterMessage's ReplicaId
+// field. Importantly, it should assign a value to the received response from the kernel, not the jMsg parameter
+// (of the DistributedKernelClient::RequestWithHandlerAndReplicas method) that is being sent out.
 func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, typ types.MessageType, jMsg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
 	// Broadcast to all replicas if no replicas are specified.
 	if len(replicas) == 0 {
@@ -786,6 +884,9 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// defer cancel()
 	forwarder := func(replica scheduling.KernelInfo, typ types.MessageType, msg *types.JupyterMessage) (err error) {
 		c.log.Debug(utils.BlueStyle.Render("Received %s response from %v"), typ.String(), replica)
+
+		kernelClient := replica.(*KernelReplicaClient)
+		msg.ReplicaId = kernelClient.replicaId
 
 		if typ == types.ShellMessage {
 			// "Preprocess" the response, which involves checking if it is a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.
@@ -837,10 +938,11 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
 	_, reqId, jOffset := types.ExtractDestFrame(jMsg.Frames)
 	if reqId == "" {
-		c.log.Debug("Adding destination '%s' to frames at offset %d now. Old frames: %v.", c.id, jOffset, types.JupyterFrames(jMsg.Frames).String())
-		// jMsg.Frames, _ = types.AddDestFrame(jMsg.Frames, c.id, jOffset)
+		c.log.Debug("Adding destination '%s' to frames now. Old frames (%d): %v.",
+			c.id, len(jMsg.Frames), types.JupyterFrames(jMsg.Frames).String())
 		jMsg.AddDestinationId(c.id)
-		c.log.Debug("Added destination '%s' to frames at offset %d. New frames: %v.", c.id, jOffset, types.JupyterFrames(jMsg.Frames).String())
+		c.log.Debug("Added destination '%s' to frames at offset %d. New frames (%d): %v.",
+			c.id, jOffset, len(jMsg.Frames), types.JupyterFrames(jMsg.Frames).String())
 	}
 
 	var wg sync.WaitGroup
@@ -851,6 +953,10 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 		wg.Add(1)
 		go func(kernel scheduling.Kernel) {
+			if jMsg.JupyterMessageType() == types.ShellExecuteRequest || jMsg.JupyterMessageType() == types.ShellYieldRequest {
+				kernel.(*KernelReplicaClient).SentExecuteRequest(jMsg)
+			}
+
 			// TODO: If the ACKs fail on this and we reconnect and retry, the wg.Done may be called too many times.
 			// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 			// to be cleared after the context ends; we just do it on ACK timeout.
@@ -1211,7 +1317,7 @@ func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *Ke
 	}
 
 	// Mark that we received the 'YIELD' proposal for the associated ActiveExecution.
-	err := associatedActiveExecution.ReceivedYieldProposal(replica.ReplicaID())
+	err := associatedActiveExecution.ReceivedYieldNotification(replica.ReplicaID())
 
 	var currentStatus string
 	if associatedActiveExecution == c.activeExecution {
@@ -1220,7 +1326,7 @@ func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *Ke
 		currentStatus = "non-current"
 	}
 	c.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
-		replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, associatedActiveExecution.NumProposalsReceived(), associatedActiveExecution.NumReplicas, replica.ID())
+		replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, associatedActiveExecution.NumRolesReceived(), associatedActiveExecution.NumReplicas, replica.ID())
 
 	if errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
 		if currentStatus == "current" {

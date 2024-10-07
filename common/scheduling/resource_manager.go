@@ -352,8 +352,6 @@ func (m *ResourceManager) ResourcesSnapshot() *ResourceWrapperSnapshot {
 		SpecResources:      m.resourcesWrapper.specResourcesSnapshot(snapshotId),
 	}
 
-	m.log.Debug("Created *ArbitraryResourceSnapshot with ID=%d.", snapshot.SnapshotId)
-
 	return snapshot
 }
 
@@ -390,9 +388,16 @@ func (m *ResourceManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapshot 
 		SpecResources:      m.resourcesWrapper.specProtoResourcesSnapshot(snapshotId),
 	}
 
-	m.log.Debug("Created *proto.NodeResourcesSnapshot with ID=%d.", snapshot.SnapshotId)
-
 	return snapshot
+}
+
+// DebugSetIdleGPUs is a method used in unit tests to set the idle GPUs available within the ResourceManager
+// to a specific value (typically zero).
+func (m *ResourceManager) DebugSetIdleGPUs(value float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.resourcesWrapper.idleResources.gpus = decimal.NewFromFloat(value)
 }
 
 // updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
@@ -901,7 +906,7 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 		// However, if we already knew that there were insufficient resources available prior to the leader election,
 		// then we'll not have reserved any, and the call to ReleaseCommittedResources will "fail" (as there won't
 		// be any committed resources to release). In this case, it's not an error.
-		m.log.Warn("Found existing resource allocation for replica %d of kernel %s; "+
+		m.log.Debug("Found existing resource allocation for replica %d of kernel %s; "+
 			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
 			replicaId, kernelId, allocation.AllocationType.String(), CommittedAllocation.String())
 		return fmt.Errorf("%w: expected '%s', found '%s'",

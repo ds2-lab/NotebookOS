@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"strings"
 )
 
@@ -60,6 +61,22 @@ type ConnectionInfo struct {
 	Key                  string `json:"key"`
 	StartingResourcePort int    `json:"starting_resource_port" name:"starting-resource-port" description:"The first 'resource port'. Resource ports are the ports exposed by the Kubernetes services that are available for ZMQ sockets to listen on."`
 	NumResourcePorts     int    `json:"num_resource_ports" name:"num-resource-ports" description:"The total number of available resource ports. If the 'starting-port' is 9006 and there are 20 resource ports, then the following ports are available: 9006, 9007, 9008, ..., 9024, 9025, 9026. Resource ports are the ports exposed by the Kubernetes services that are available for ZMQ sockets to listen on."`
+}
+
+// ConnectionInfoFromKernelConnectionInfo converts the given *proto.KernelConnectionInfo to a *ConnectionInfo.
+func ConnectionInfoFromKernelConnectionInfo(ci *proto.KernelConnectionInfo) *ConnectionInfo {
+	return &ConnectionInfo{
+		IP:              ci.Ip,
+		ControlPort:     int(ci.ControlPort),
+		ShellPort:       int(ci.ShellPort),
+		StdinPort:       int(ci.StdinPort),
+		IOSubPort:       int(ci.IosubPort),
+		IOPubPort:       int(ci.IopubPort),
+		HBPort:          int(ci.HbPort),
+		Transport:       ci.Transport,
+		SignatureScheme: ci.SignatureScheme,
+		Key:             ci.Key,
+	}
 }
 
 func (ci ConnectionInfo) String() string {
