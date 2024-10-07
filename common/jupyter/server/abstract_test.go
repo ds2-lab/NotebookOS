@@ -7,6 +7,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/mock_metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"go.uber.org/mock/gomock"
 	"sync"
 	"time"
@@ -151,6 +152,8 @@ var _ = Describe("AbstractServer", func() {
 
 				server.Log.Info("Responding to message with ACK: %v", ackResponse)
 
+				time.Sleep(time.Millisecond * 5)
+
 				err := info.Socket(typ).Send(ackResponse)
 				Expect(err).To(BeNil())
 
@@ -177,7 +180,7 @@ var _ = Describe("AbstractServer", func() {
 				jMsg := types.NewJupyterMessage(&actualResponse)
 				_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 				Expect(err).To(BeNil())
-				_, added, reqErr := server.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.UnixMilli(1541568360))
+				requestTrace, added, reqErr := server.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.Now())
 				Expect(added).To(BeFalse())
 				fmt.Printf("reqErr: %v\n", reqErr)
 				GinkgoWriter.Printf("reqErr: %v\n", reqErr)
@@ -185,8 +188,26 @@ var _ = Describe("AbstractServer", func() {
 
 				server.Log.Info("Now sending \"actual\" response: %v", actualResponse)
 
+				time.Sleep(time.Millisecond * 5)
+
 				err = info.Socket(typ).Send(actualResponse)
 				Expect(err).To(BeNil())
+
+				Expect(requestTrace.RequestReceivedByGateway > 0).To(BeTrue())
+				Expect(requestTrace.RequestSentByGateway > 0).To(BeTrue())
+				Expect(requestTrace.RequestReceivedByLocalDaemon > 0).To(BeTrue())
+				Expect(requestTrace.RequestSentByLocalDaemon > 0).To(BeTrue())
+				Expect(requestTrace.RequestReceivedByKernelReplica).To(Equal(proto.DefaultTraceTimingValue))
+				Expect(requestTrace.ReplySentByKernelReplica).To(Equal(proto.DefaultTraceTimingValue))
+				Expect(requestTrace.ReplyReceivedByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
+				Expect(requestTrace.ReplySentByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
+				Expect(requestTrace.ReplyReceivedByGateway).To(Equal(proto.DefaultTraceTimingValue))
+				Expect(requestTrace.ReplySentByGateway).To(Equal(proto.DefaultTraceTimingValue))
+
+				Expect(requestTrace.RequestSentByGateway > requestTrace.RequestReceivedByGateway).To(BeTrue())
+				// Greater than or equal because local send is superfast.
+				Expect(requestTrace.RequestReceivedByLocalDaemon >= requestTrace.RequestSentByGateway).To(BeTrue())
+				Expect(requestTrace.RequestSentByLocalDaemon > requestTrace.RequestReceivedByLocalDaemon).To(BeTrue())
 
 				wg.Done()
 
@@ -215,11 +236,10 @@ var _ = Describe("AbstractServer", func() {
 				[]byte(""),
 				[]byte(""))
 
-			requestReceivedByGateway := time.Now().UnixMilli()
-			requestReceivedByGatewayTs := time.UnixMilli(requestReceivedByGateway)
+			requestReceivedByGateway := time.Now()
 			jMsg := types.NewJupyterMessage(&msg)
 			fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame: %d\nMsg.Frames length: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), len(msg.Frames))
-			requestTrace, added, err := client.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByGatewayTs)
+			requestTrace, added, err := client.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByGateway)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
 			Expect(err).To(BeNil())
@@ -247,7 +267,7 @@ var _ = Describe("AbstractServer", func() {
 			fmt.Printf("jMsg.JupyterFrames[%d+%d]: %s\n", jMsg.Offset(), types.JupyterFrameRequestTrace, string((*jMsg.JupyterFrames.Frames)[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
 			fmt.Printf("Marshalled RequestTrace: %s\n", string(m))
 			Expect((*jMsg.JupyterFrames.Frames)[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]).To(Equal(m))
-			Expect(requestTrace.RequestReceivedByGateway).To(Equal(requestReceivedByGateway))
+			Expect(requestTrace.RequestReceivedByGateway).To(Equal(requestReceivedByGateway.UnixMilli()))
 			Expect(requestTrace.RequestSentByGateway).To(Equal(proto.DefaultTraceTimingValue))
 			Expect(requestTrace.RequestReceivedByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
 			Expect(requestTrace.RequestSentByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
@@ -266,7 +286,7 @@ var _ = Describe("AbstractServer", func() {
 
 			builder := types.NewRequestBuilder(context.Background(), client.id, client.id, client.ConnectionInfo()).
 				WithAckRequired(true).
-				WithAckTimeout(time.Millisecond * 2000).
+				WithAckTimeout(time.Millisecond * 1000).
 				WithMessageType(types.ShellMessage).
 				WithBlocking(true).
 				WithTimeout(types.DefaultRequestTimeout).
@@ -280,6 +300,7 @@ var _ = Describe("AbstractServer", func() {
 			Expect(err).To(BeNil())
 
 			fmt.Printf("Request frames: %s\n", request.Payload().JupyterFrames.String())
+			time.Sleep(time.Millisecond * 5)
 
 			err = client.Request(request, client.Sockets.Shell)
 			Expect(err).To(BeNil())
@@ -338,6 +359,8 @@ var _ = Describe("AbstractServer", func() {
 
 				server.Log.Info("Responding to message with ACK: %v", ackResponse)
 
+				time.Sleep(time.Millisecond * 5)
+
 				err := info.Socket(typ).Send(ackResponse)
 				Expect(err).To(BeNil())
 
@@ -365,7 +388,7 @@ var _ = Describe("AbstractServer", func() {
 				jMsg := types.NewJupyterMessage(&actualResponse)
 				_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 				Expect(err).To(BeNil())
-				_, added, reqErr := server.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.UnixMilli(1541568360))
+				requestTrace, added, reqErr := server.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.Now())
 				Expect(added).To(BeFalse())
 				fmt.Printf("reqErr: %v\n", reqErr)
 				GinkgoWriter.Printf("reqErr: %v\n", reqErr)
@@ -373,8 +396,28 @@ var _ = Describe("AbstractServer", func() {
 
 				server.Log.Debug("Now sending \"actual\" response: %v", jMsg)
 
+				time.Sleep(time.Millisecond * 5)
+
 				err = info.Socket(typ).Send(*jMsg.Msg)
 				Expect(err).To(BeNil())
+
+				server.Log.Debug(utils.LightBlueStyle.Render("RequestTrace: %s"), requestTrace.String())
+
+				Expect(requestTrace.RequestReceivedByGateway > 0).To(BeTrue())
+				Expect(requestTrace.RequestSentByGateway > 0).To(BeTrue())
+				Expect(requestTrace.RequestReceivedByLocalDaemon > 0).To(BeTrue())
+				Expect(requestTrace.RequestSentByLocalDaemon > 0).To(BeTrue())
+				Expect(requestTrace.RequestReceivedByKernelReplica).To(Equal(proto.DefaultTraceTimingValue))
+				Expect(requestTrace.ReplySentByKernelReplica).To(Equal(proto.DefaultTraceTimingValue))
+				Expect(requestTrace.ReplyReceivedByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
+				Expect(requestTrace.ReplySentByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
+				Expect(requestTrace.ReplyReceivedByGateway).To(Equal(proto.DefaultTraceTimingValue))
+				Expect(requestTrace.ReplySentByGateway).To(Equal(proto.DefaultTraceTimingValue))
+
+				Expect(requestTrace.RequestSentByGateway > requestTrace.RequestReceivedByGateway).To(BeTrue())
+				// Greater than or equal because local send is superfast.
+				Expect(requestTrace.RequestReceivedByLocalDaemon >= requestTrace.RequestSentByGateway).To(BeTrue())
+				Expect(requestTrace.RequestSentByLocalDaemon > requestTrace.RequestReceivedByLocalDaemon).To(BeTrue())
 
 				wg.Done()
 
@@ -403,11 +446,10 @@ var _ = Describe("AbstractServer", func() {
 				[]byte(""))
 			_, err = types.NewJupyterFramesFromBytes(&msg.Frames).Sign(signatureScheme, []byte(kernelKey))
 
-			requestReceivedByGateway := time.Now().UnixMilli()
-			requestReceivedByGatewayTs := time.UnixMilli(requestReceivedByGateway)
+			now := time.Now()
 			jMsg := types.NewJupyterMessage(&msg)
 			fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame: %d\nMsg.Frames length: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), len(msg.Frames))
-			requestTrace, added, err := client.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByGatewayTs)
+			requestTrace, added, err := client.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, now)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
 			Expect(err).To(BeNil())
@@ -432,10 +474,8 @@ var _ = Describe("AbstractServer", func() {
 			m, err := json.Marshal(&proto.JupyterRequestTraceFrame{RequestTrace: requestTrace})
 			Expect(err).To(BeNil())
 
-			fmt.Printf("jMsg.JupyterFrames[%d+%d]: %s\n", jMsg.Offset(), types.JupyterFrameRequestTrace, string((*jMsg.JupyterFrames.Frames)[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
-			fmt.Printf("Marshalled RequestTrace: %s\n", string(m))
 			Expect((*jMsg.JupyterFrames.Frames)[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]).To(Equal(m))
-			Expect(requestTrace.RequestReceivedByGateway).To(Equal(requestReceivedByGateway))
+			Expect(requestTrace.RequestReceivedByGateway).To(Equal(now.UnixMilli()))
 			Expect(requestTrace.RequestSentByGateway).To(Equal(proto.DefaultTraceTimingValue))
 			Expect(requestTrace.RequestReceivedByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
 			Expect(requestTrace.RequestSentByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
@@ -465,6 +505,8 @@ var _ = Describe("AbstractServer", func() {
 				WithPayload(&msg)
 			request, err := builder.BuildRequest()
 			Expect(err).To(BeNil())
+
+			time.Sleep(time.Millisecond * 5)
 
 			err = client.Request(request, client.Sockets.Shell)
 			// err = client.Request(context.Background(), client, client.Sockets.Shell, &msg, client, client, clientHandleMessage, func() {}, func(key string) interface{} { return true }, true)
