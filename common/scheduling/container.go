@@ -302,14 +302,14 @@ func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, s
 	}
 
 	c.log.Debug("Training stopping after %v. Outputting resources before training officially stops.", time.Since(c.trainingStartedAt))
-	c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
-		c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
-	c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
-		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs())
-	c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
-		c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs())
-	c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
-		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs())
+	c.log.Debug("Outstanding CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+		c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU(), c.outstandingResources.VRAM())
+	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
+	c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+		c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs(), c.host.Stats().IdleVRAM())
+	c.log.Debug("Committed CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs(), c.host.Stats().CommittedVRAM())
 
 	c.outstandingResources = &types.Float64Spec{
 		GPUs:      c.spec.GPU(),
@@ -325,14 +325,14 @@ func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, s
 			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
 		} else {
 			c.log.Debug("Training stopped. Outputting resources now that training has officially stopped.")
-			c.log.Debug("Outstanding CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
-				c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU())
-			c.log.Debug("Pending CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
-				c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs())
-			c.log.Debug("Idle CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
-				c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs())
-			c.log.Debug("Committed CPU: %.2f, Memory: %.2f, GPUs: %.2f.",
-				c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs())
+			c.log.Debug("Outstanding CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+				c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU(), c.outstandingResources.VRAM())
+			c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+				c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
+			c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+				c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs(), c.host.Stats().IdleVRAM())
+			c.log.Debug("Committed CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+				c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs(), c.host.Stats().CommittedVRAM())
 		}
 	} else {
 		c.log.Warn("Received nil ResourceSnapshot. This should only happen if we're about to be terminated.")

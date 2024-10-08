@@ -474,6 +474,16 @@ func (m *ResourceManager) SpecMemoryMB() decimal.Decimal {
 	return m.resourcesWrapper.SpecResources().MemoryMbAsDecimal().Copy()
 }
 
+// SpecVRAM returns the amount of VRAM (in GB) that is configured/present on this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) SpecVRAM() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.SpecResources().VRAMAsDecimal().Copy()
+}
+
 // SpecResources returns a snapshot of the current quantities of spec resources available
 // on this node at the time at which the SpecResources method is called.
 func (m *ResourceManager) SpecResources() *types.DecimalSpec {
@@ -510,6 +520,16 @@ func (m *ResourceManager) IdleMemoryMB() decimal.Decimal {
 	return m.resourcesWrapper.IdleResources().MemoryMbAsDecimal().Copy()
 }
 
+// IdleVRamGB returns the amount of VRAM (in GB) that is uncommitted and therefore available on this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) IdleVRamGB() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.IdleResources().VRAMAsDecimal().Copy()
+}
+
 // IdleResources returns a snapshot of the current quantities of idle resources available
 // on this node at the time at which the IdleResources method is called.
 func (m *ResourceManager) IdleResources() *types.DecimalSpec {
@@ -544,6 +564,16 @@ func (m *ResourceManager) CommittedMemoryMB() decimal.Decimal {
 	defer m.mu.Unlock()
 
 	return m.resourcesWrapper.CommittedResources().MemoryMbAsDecimal().Copy()
+}
+
+// CommittedVRamGB returns the amount of VRAM (in GB) that is actively committed and allocated to replicas that are scheduled onto this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) CommittedVRamGB() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.CommittedResources().VRAMAsDecimal().Copy()
 }
 
 // CommittedResources returns a snapshot of the current quantities of committed resources available
@@ -589,6 +619,20 @@ func (m *ResourceManager) PendingMemoryMB() decimal.Decimal {
 	defer m.mu.Unlock()
 
 	return m.resourcesWrapper.PendingResources().MemoryMbAsDecimal().Copy()
+}
+
+// PendingVRAM returns the sum of the outstanding VRAM of all replicas scheduled onto this node, in GB.
+// Pending VRAM is not allocated or committed to a particular replica yet.
+// The time at which resources are actually committed to a replica depends upon the policy being used.
+// In some cases, they're committed immediately.
+// In other cases, they're committed only when the replica is actively training.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) PendingVRAM() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.PendingResources().VRAMAsDecimal().Copy()
 }
 
 // PendingResources returns a snapshot of the current quantities of pending resources available

@@ -200,6 +200,12 @@ type ResourceState interface {
 	// The units are vGPUs, where 1 vGPU = 1 GPU.
 	GPUsAsDecimal() decimal.Decimal
 
+	// VRAM returns the amount of VRAM (in GB).
+	VRAM() float64
+	// VRAMAsDecimal returns a copy of the decimal.Decimal that precisely & accurately encodes the amount of VRAM.
+	// The units are gigabytes (GB).
+	VRAMAsDecimal() decimal.Decimal
+
 	// String returns a string representation of the ResourceState suitable for logging.
 	String() string
 
@@ -267,7 +273,7 @@ func (s *ResourceSnapshot) String() string {
 type resources struct {
 	sync.Mutex // Enables atomic access to each individual field.
 
-	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this resources.
+	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this resources struct.
 	lastAppliedSnapshotId int32
 
 	resourceStatus ResourceStatus  // resourceStatus is the ResourceStatus represented/encoded by this struct.
@@ -656,6 +662,23 @@ func (res *resources) SetMemoryMB(memoryMB decimal.Decimal) {
 	res.memoryMB = memoryMB
 }
 
+// VRAM returns the amount of VRAM (in GB).
+func (res *resources) VRAM() float64 {
+	res.Lock()
+	defer res.Unlock()
+
+	return res.vramGB.InexactFloat64()
+}
+
+// VRAMAsDecimal returns a copy of the decimal.Decimal that precisely & accurately encodes the amount of VRAM.
+// The units are gigabytes (GB).
+func (res *resources) VRAMAsDecimal() decimal.Decimal {
+	res.Lock()
+	defer res.Unlock()
+
+	return res.vramGB.Copy()
+}
+
 func (res *resources) GPUs() float64 {
 	res.Lock()
 	defer res.Unlock()
@@ -668,20 +691,6 @@ func (res *resources) GPUsAsDecimal() decimal.Decimal {
 	defer res.Unlock()
 
 	return res.gpus.Copy()
-}
-
-func (res *resources) VRAM() float64 {
-	res.Lock()
-	defer res.Unlock()
-
-	return res.vramGB.InexactFloat64()
-}
-
-func (res *resources) VRAMAsDecimal() decimal.Decimal {
-	res.Lock()
-	defer res.Unlock()
-
-	return res.vramGB.Copy()
 }
 
 // SetGpus sets the number of GPUs to a copy of the specified decimal.Decimal value.
