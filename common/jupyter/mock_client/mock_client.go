@@ -701,7 +701,7 @@ func (m *MockAbstractKernelClient) EXPECT() *MockAbstractKernelClientMockRecorde
 }
 
 // AddIOHandler mocks base method.
-func (m *MockAbstractKernelClient) AddIOHandler(topic string, handler client.MessageBrokerHandler[scheduling.Kernel, types.JupyterFrames, *types.JupyterMessage]) error {
+func (m *MockAbstractKernelClient) AddIOHandler(topic string, handler client.MessageBrokerHandler[scheduling.Kernel, *types.JupyterFrames, *types.JupyterMessage]) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddIOHandler", topic, handler)
 	ret0, _ := ret[0].(error)

@@ -73,7 +73,7 @@ type KernelReplicaClient struct {
 	status                           types.KernelStatus
 	busyStatus                       string
 	lastBStatusMsg                   *types.JupyterMessage
-	iobroker                         *MessageBroker[scheduling.Kernel, *types.JupyterMessage, types.JupyterFrames]
+	iobroker                         *MessageBroker[scheduling.Kernel, *types.JupyterMessage, *types.JupyterFrames]
 	shell                            *types.Socket                                  // Listener.
 	iopub                            *types.Socket                                  // Listener.
 	numResendAttempts                int                                            // Number of times to try resending a message before giving up.
@@ -915,7 +915,7 @@ func (c *KernelReplicaClient) InitializeIOForwarder() (*types.Socket, error) {
 
 // AddIOHandler adds a handler for a specific IOPub topic.
 // The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
-func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, types.JupyterFrames, *types.JupyterMessage]) error {
+func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, *types.JupyterFrames, *types.JupyterMessage]) error {
 	if c.iobroker == nil {
 		return ErrIOPubNotStarted
 	}
@@ -1162,25 +1162,25 @@ func (c *KernelReplicaClient) getWaitResponseOption(key string) interface{} {
 	return nil
 }
 
-func (c *KernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage) (topic string, jFrames types.JupyterFrames) {
+func (c *KernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage) (string, *types.JupyterFrames) {
 	if msg.Offset() == 0 {
-		return "", jFrames
+		return "", nil
 	}
 
 	rawTopic := msg.JupyterFrames.Frames[ /*jOffset*/ msg.Offset()-1]
 	matches := types.IOTopicStatusRecognizer.FindSubmatch(rawTopic)
 	if len(matches) > 0 {
-		return string(matches[2]), jFrames
+		return string(matches[2]), msg.JupyterFrames
 	}
 
-	return string(rawTopic), jFrames
+	return string(rawTopic), msg.JupyterFrames
 }
 
-func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.Kernel, _ types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.Kernel, _ *types.JupyterFrames, msg *types.JupyterMessage) error {
 	return kernel.Socket(types.IOMessage).Send(*msg.GetZmqMsg())
 }
 
-func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames *types.JupyterFrames, msg *types.JupyterMessage) error {
 	var status types.MessageKernelStatus
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling IO kernel status: %v", err)
@@ -1219,7 +1219,7 @@ func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames t
 // 	return types.ErrStopPropagation
 // }
 
-func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames types.JupyterFrames, _ *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames *types.JupyterFrames, _ *types.JupyterMessage) error {
 	var nodeAddedMessage types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR node added: %v", err)
@@ -1239,7 +1239,7 @@ func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, fr
 	return commonTypes.ErrStopPropagation
 }
 
-func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.Kernel, frames types.JupyterFrames, _ *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.Kernel, frames *types.JupyterFrames, _ *types.JupyterMessage) error {
 	var nodeReadyMessage types.MessageSMRReady
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR ready: %v", err)

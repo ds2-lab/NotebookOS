@@ -1256,7 +1256,7 @@ func (c *DistributedKernelClient) handleMsg(replica types.JupyterServerInfo, typ
 	return ErrHandlerNotImplemented
 }
 
-func (c *DistributedKernelClient) handleIOKernelStatus(replica *KernelReplicaClient, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *DistributedKernelClient) handleIOKernelStatus(replica *KernelReplicaClient, frames *types.JupyterFrames, msg *types.JupyterMessage) error {
 	err := replica.handleIOKernelStatus(replica, frames, msg)
 	if err != nil {
 		return err

@@ -2579,7 +2579,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelInfo
 	return nil // Will be nil on success.
 }
 
-func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames jupyter.JupyterFrames, _ *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames *jupyter.JupyterFrames, _ *jupyter.JupyterMessage) error {
 	var errorReport jupyter.ErrorReport
 	if err := frames.DecodeContent(&errorReport); err != nil {
 		d.log.Error("Failed to decode content of 'error report' message: %v", err)
@@ -2637,7 +2637,7 @@ func (d *SchedulerDaemonImpl) notifyClusterGatewayOfError(ctx context.Context, n
 	}
 }
 
-func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames jupyter.JupyterFrames, jMsg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames *jupyter.JupyterFrames, jMsg *jupyter.JupyterMessage) error {
 	messageType, err := frames.GetMessageType()
 	if err != nil {
 		d.log.Error("Failed to extract message type from SMR Lead ZMQ message: %v", err)
@@ -2772,7 +2772,7 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 	return snapshot, nil
 }
 
-func (d *SchedulerDaemonImpl) handleIgnoreMsg(kernel scheduling.Kernel, _ jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) handleIgnoreMsg(kernel scheduling.Kernel, _ *jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
 	d.log.Debug("%v ignores %v", kernel, raw)
 	return types.ErrStopPropagation
 }

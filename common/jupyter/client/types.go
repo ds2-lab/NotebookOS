@@ -113,7 +113,7 @@ type AbstractKernelClient interface {
 	ReconnectSocket(typ types2.MessageType) (*types2.Socket, error)
 	Validate() error
 	InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*types2.Socket, error)
-	AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, types2.JupyterFrames, *types2.JupyterMessage]) error
+	AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, *types2.JupyterFrames, *types2.JupyterMessage]) error
 	RequestWithHandler(ctx context.Context, _ string, typ types2.MessageType, msg *types2.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error
 	Close() error
 	GetHost() *scheduling.Host
