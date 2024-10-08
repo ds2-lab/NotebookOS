@@ -362,17 +362,36 @@ class DistributedKernel(IPythonKernel):
         if len(self.hdfs_namenode_hostname) == 0:
             raise ValueError("The HDFS hostname is empty. Was it specified in the configuration file?")
 
-        # The amount of CPU used by this kernel replica (when training) in millicpus (1/1000th of a CPU core).
-        self.spec_cpu: int = int(os.environ.get("SPEC_CPU", "0"))
-        # The amount of RAM used by this kernel replica (when training) in megabytes (MB).
-        self.spec_mem: float = int(os.environ.get("SPEC_MEM", "0"))
-        # The number of GPUs used by this kernel replica (when training).
-        self.spec_gpu: int = int(os.environ.get("SPEC_GPU", "0"))
-        # The amount of VRAM (i.e., GPU memory) used by this kernel replica (when training) in gigabytes (GB).
-        self.spec_vram: float = int(os.environ.get("SPEC_VRAM", "0"))
+        try:
+            # The amount of CPU used by this kernel replica (when training) in millicpus (1/1000th of a CPU core).
+            self.spec_cpu: int = int(float(os.environ.get("SPEC_CPU", "0")))
+        except ValueError as ex:
+            self.log.error(f"Failed to parse \"SPEC_CPU\" environment variable \"{os.environ.get('SPEC_CPU')}\" because: {ex}")
+            self.spec_cpu = 1
 
-        self.log.info("CPU: %s, Memory: %s, GPU: %s." %
-                      (self.spec_cpu, str(self.spec_mem), self.spec_gpu))
+        try:
+            # The amount of RAM used by this kernel replica (when training) in megabytes (MB).
+            self.spec_mem: float = float(os.environ.get("SPEC_MEM", "0"))
+        except ValueError as ex:
+            self.log.error(f"Failed to parse \"SPEC_MEM\" environment variable \"{os.environ.get('SPEC_MEM')}\" because: {ex}")
+            self.spec_mem = 128
+
+        try:
+            # The number of GPUs used by this kernel replica (when training).
+            self.spec_gpu: int = int(float(os.environ.get("SPEC_GPU", "0")))
+        except ValueError as ex:
+            self.log.error(f"Failed to parse \"SPEC_GPU\" environment variable \"{os.environ.get('SPEC_GPU')}\" because: {ex}")
+            self.spec_gpu = 1
+
+        try:
+            # The amount of VRAM (i.e., GPU memory) used by this kernel replica (when training) in gigabytes (GB).
+            self.spec_vram: float = float(os.environ.get("SPEC_VRAM", "0"))
+        except ValueError as ex:
+            self.log.error(f"Failed to parse \"SPEC_VRAM\" environment variable \"{os.environ.get('SPEC_VRAM')}\" because: {ex}")
+            self.spec_vram = 0.128
+
+        self.log.info("CPU: %s, Memory: %s, GPU: %s, VRAM: %s." %
+                      (self.spec_cpu, str(self.spec_mem), str(self.spec_gpu), str(self.spec_vram)))
 
         # This should only be accessed from the control IO loop (rather than the main/shell IO loop).
         self.persistent_store_cv = asyncio.Condition()
