@@ -667,13 +667,13 @@ class DistributedKernel(IPythonKernel):
             msg_list = t.cast(t.List[bytes], msg_list)
             msg_list = msg_list_beginning + msg_list[minlen:]
 
-            self.log.error(f"Invalid shell message: {msg_list}\n\n")
-
             message: dict = {}
             header = self.session.unpack(msg_list[1])
             message["header"] = extract_dates(header)
             msg_type = message["msg_type"]
             msg_id = message["msg_id"]
+
+            self.log.error(f"Invalid shell message \"{msg_id}\" of type \"{msg_type}\": {msg_list}\n\n")
 
             message["msg_id"] = header["msg_id"]
             message["msg_type"] = header["msg_type"]

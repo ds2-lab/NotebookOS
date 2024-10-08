@@ -253,6 +253,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(jMsg.JupyterFrames.Len()).To(Equal(8))
 			Expect(jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false)).To(Equal(7))
 
+			err = jMsg.JupyterFrames.Verify(signatureScheme, []byte(kernelKey))
+			Expect(err).To(BeNil())
+
 			requests, loaded := abstractServer.RequestLog.RequestsPerKernel.Load(kernelId)
 			Expect(loaded).To(Equal(true))
 			Expect(requests).ToNot(BeNil())
@@ -278,6 +281,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
 
+			err = jMsg.JupyterFrames.Verify(signatureScheme, []byte(kernelKey))
+			Expect(err).To(BeNil())
+
 			requestLogHelper(abstractServer)
 			requestTraceHelper(requestTrace)
 			Expect(requestTrace.RequestReceivedByGateway).To(Equal(requestReceivedByGateway))
@@ -296,6 +302,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			requestTrace, added, err = abstractServer.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByLocalDaemonTs)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
+			Expect(err).To(BeNil())
+
+			err = jMsg.JupyterFrames.Verify(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 
 			requestLogHelper(abstractServer)
@@ -318,6 +327,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
 
+			err = jMsg.JupyterFrames.Verify(signatureScheme, []byte(kernelKey))
+			Expect(err).To(BeNil())
+
 			requestLogHelper(abstractServer)
 			requestTraceHelper(requestTrace)
 			Expect(requestTrace.RequestReceivedByGateway).To(Equal(requestReceivedByGateway))
@@ -336,6 +348,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			requestTrace, added, err = abstractServer.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByKernelReplicaTs)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
+			Expect(err).To(BeNil())
+
+			err = jMsg.JupyterFrames.Verify(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 
 			requestLogHelper(abstractServer)
@@ -358,6 +373,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
 
+			err = jMsg.JupyterFrames.Verify(signatureScheme, []byte(kernelKey))
+			Expect(err).To(BeNil())
+
 			requestLogHelper(abstractServer)
 			requestTraceHelper(requestTrace)
 			Expect(requestTrace.RequestReceivedByGateway).To(Equal(requestReceivedByGateway))
@@ -376,6 +394,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			requestTrace, added, err = abstractServer.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, replyReceivedByLocalDaemonTs)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
+			Expect(err).To(BeNil())
+
+			err = jMsg.JupyterFrames.Verify(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 
 			requestLogHelper(abstractServer)
@@ -398,6 +419,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
 
+			err = jMsg.JupyterFrames.Verify(signatureScheme, []byte(kernelKey))
+			Expect(err).To(BeNil())
+
 			requestLogHelper(abstractServer)
 			requestTraceHelper(requestTrace)
 			Expect(requestTrace.RequestReceivedByGateway).To(Equal(requestReceivedByGateway))
@@ -418,6 +442,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
 
+			err = jMsg.JupyterFrames.Verify(signatureScheme, []byte(kernelKey))
+			Expect(err).To(BeNil())
+
 			requestLogHelper(abstractServer)
 			requestTraceHelper(requestTrace)
 			Expect(requestTrace.RequestReceivedByGateway).To(Equal(requestReceivedByGateway))
@@ -436,6 +463,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			requestTrace, added, err = abstractServer.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, replySentByGatewayTs)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
+			Expect(err).To(BeNil())
+
+			err = jMsg.JupyterFrames.Verify(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 
 			requestLogHelper(abstractServer)
