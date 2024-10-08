@@ -82,7 +82,7 @@ class SimulatedCheckpointer(object):
         self.name: str = name
 
         # Download rate in bytes/sec.
-        self.download_rate: float = download_rate
+        self.download_rate: int = download_rate
 
         # Upload rate in bytes/sec.
         self.upload_rate: int = upload_rate
@@ -319,7 +319,7 @@ alc
         start_time: float = time.time()
         success, estimated_time_required_ms = self.__simulate_network_io_operation(
             size_bytes = size_bytes,
-            base_rate = self.upload_rate,
+            base_rate = self.download_rate,
             rate_variance_percent = self.upload_variance_percent,
             failure_percentage_chance = self.write_failure_chance_percentage,
             operation_name = "download"
@@ -378,7 +378,7 @@ alc
     async_read_data = async_download_data  # alias for async_download_data
     async_write_data = async_upload_data  # alias for async_upload_data
 
-def main():
+def test_simulated_checkpointer():
     aws_s3 = SimulatedCheckpointer(
         name = "AWS S3",
         download_rate = 50_000_000,
@@ -389,9 +389,35 @@ def main():
         write_failure_chance_percentage = 0.0
     )
 
-    aws_s3.download_data(512_000_000)
-    print("\n\n")
-    aws_s3.upload_data(128_000_000)
+    aws_fsx = SimulatedCheckpointer(
+        name = "AWS FSx",
+        download_rate = 256_000_000,
+        upload_rate = 64_000_000,
+        download_variance_percent = 0.05,
+        upload_variance_percent = 0.05,
+        read_failure_chance_percentage = 0.0,
+        write_failure_chance_percentage = 0.0
+    )
 
-if __name__ == "__main__":
-    main()
+    size:int = 512_000_000
+    print(f"\n\n\n\n[AWS FSx] DOWNLOAD | SIZE={size} bytes ({size/1.0e6} MB)\n")
+    aws_fsx.download_data(size)
+
+    size:int = 10_000_000_000
+    print(f"\n\n\n\n[AWS FSx] DOWNLOAD | SIZE={size} bytes ({size/1.0e6} MB)\n")
+    aws_fsx.download_data(size)
+
+    size:int = 128_000_000
+    print(f"\n\n\n\n[AWS FSx] UPLOAD | SIZE={size} bytes ({size/1.0e6} MB)\n")
+    aws_fsx.upload_data(size)
+
+    size:int = 256_000_000
+    print(f"\n\n\n\n[AWS S3] DOWNLOAD | SIZE={size} bytes ({size/1.0e6} MB)\n")
+    aws_s3.download_data(size)
+
+    size:int = 64_000_000
+    print(f"\n\n\n\n[AWS S3] UPLOAD | SIZE={size} bytes ({size/1.0e6} MB)\n")
+    aws_s3.upload_data(size)
+
+# if __name__ == "__main__":
+#     test_simulated_checkpointer()
