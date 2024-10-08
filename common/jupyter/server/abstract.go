@@ -476,12 +476,12 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			case *types.JupyterMessage:
 				jMsg := v
 
-				//if (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && !jMsg.IsAck() {
-				firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Handling %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
-				secondPart := fmt.Sprintf("'%s' (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()))
-				thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
-				s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
-				//}
+				if (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && !jMsg.IsAck() {
+					firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Handling %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
+					secondPart := fmt.Sprintf("'%s' (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()))
+					thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
+					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+				}
 
 				// This checks if the message is an ACK.
 				keepProcessing, err := s.tryHandleSpecialMessage(jMsg, socket)
@@ -900,13 +900,15 @@ func (s *AbstractServer) printSendLatencyWarning(sendDuration time.Duration, msg
 // If the send operation fails, then the types.Request is transitioned to an error state, and the associated
 // error is returned.
 func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket) error {
-	s.Log.Debug(utils.PurpleStyle.Render("Sending message: %s."), request.Payload().JupyterFrames.String())
-	s.Log.Debug(utils.LightPurpleStyle.Render("Sending message: %v."), request.Payload().MsgToString())
-
-	s.Log.Debug("JupyterFrames Frames: %p\n", request.Payload().JupyterFrames.Frames)
-
+	// This updates the frames of the zmq4.Msg, assigning them to be the frames of the JupyterMessage/JupyterFrames.
 	zmqMsg := request.Payload().GetZmqMsg()
-	s.Log.Debug("msg Frames: %p\n", zmqMsg.Frames)
+
+	s.Log.Debug(
+		utils.PurpleStyle.Render(
+			"Sending %s \"%s\" message %s (JupyterID=\"%s\").\n\nJupyterFrames (%p): %s.\n\nzmq4.Msg Frames (%p): %s\n\n"),
+		socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(),
+		request.Payload().JupyterFrames.Frames, request.Payload().JupyterFrames.String(),
+		zmqMsg.Frames, types.FramesToString(zmqMsg.Frames))
 
 	// Send the request.
 	sendStart := time.Now()

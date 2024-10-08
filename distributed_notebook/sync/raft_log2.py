@@ -21,6 +21,7 @@ from .future import Future
 from .log import SynchronizedValue, LeaderElectionVote, BufferedLeaderElectionVote, LeaderElectionProposal, \
     BufferedLeaderElectionProposal, ElectionProposalKey, KEY_CATCHUP, ExecutionCompleteNotification
 from .reader import readCloser
+from ..logging import ColoredLogFormatter
 from ..smr.go import Slice_string, Slice_int, Slice_byte
 from ..smr.smr import LogNode, NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser
 
@@ -68,6 +69,7 @@ class RaftLog(object):
             election_tick: int = 1,  # Raft-related
             report_error_callback: Callable[[str, str], None] = None,
             send_notification_func: Callable[[str, str, int], None] = None,
+            hdfs_read_latency_callback: Optional[Callable[[int], None]] = None,
     ):
         self._shouldSnapshotCallback = None
         if len(hdfs_hostname) == 0:
@@ -75,6 +77,11 @@ class RaftLog(object):
 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
         self.logger.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(ColoredLogFormatter())
+        self.logger.addHandler(ch)
+
         self.logger.info("Creating RaftNode %d now." % id)
 
         if debug_port <= 1023 or debug_port >= 65535:
@@ -140,6 +147,15 @@ class RaftLog(object):
         sys.stdout.flush()
 
         self.logger.info(f"Successfully created LogNode {id}.")
+
+        hdfs_read_latency:int = self._log_node.HdfsReadLatencyMilliseconds()
+        if hdfs_read_latency > 0:
+            self.logger.debug(f"Retrieved HDFS read latency of {hdfs_read_latency} milliseconds from LogNode.")
+
+            if hdfs_read_latency_callback is not None:
+                hdfs_read_latency_callback(hdfs_read_latency)
+            else:
+                self.logger.warning("Callback for reporting HDFS read latency is None. Cannot report HDFS read latency.")
 
         # Indicates whether we've created the first Election / at least one Election
         self.__created_first_election: bool = False
@@ -531,14 +547,12 @@ class RaftLog(object):
                     raise ValueError("Current election is None in `decide_election` callback.")
 
                 current_term: int = self._current_election.term_number
-                self.logger.debug(f"decide_election called for election {current_term}.")
 
                 sleep_duration: float = _discard_after - time.time()
                 assert sleep_duration > 0
-                self.logger.debug(
-                    f"Sleeping for {sleep_duration} seconds in decide_election coroutine for election {current_term}.")
+                self.logger.debug(f"decide_election called for election {current_term}. "
+                                  f"Sleeping for {sleep_duration} seconds in decide_election coroutine for election {current_term}.")
                 await asyncio.sleep(sleep_duration)
-                self.logger.debug(f"Done sleeping in decide_election coroutine for election {current_term}.")
 
                 if _pick_and_propose_winner_future.done():
                     self.logger.debug(
@@ -660,7 +674,7 @@ class RaftLog(object):
                 "Exception While Processing Committed Value",
                 f"{type(ex).__name__}: {str(ex)}")
         finally:
-            self.logger.debug(f"Returning from self._valueCommitted with value: {ret}")
+            # self.logger.debug(f"Returning from self._valueCommitted with value: {ret}")
             sys.stderr.flush()
             sys.stdout.flush()
 

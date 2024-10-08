@@ -13,6 +13,7 @@ import time
 import traceback
 import typing as t
 import uuid
+from hmac import compare_digest
 from multiprocessing import Process, Queue
 from threading import Lock
 from typing import Union, Optional, Dict, Any
@@ -26,9 +27,11 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined
 
+from .execution_yield_error import ExecutionYieldError
 from .util import extract_header
 from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
+from ..logging import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.election import Election
 
@@ -66,14 +69,6 @@ signal.signal(signal.SIGABRT, sigabrt_handler)
 signal.signal(signal.SIGINT, sigint_handler)
 signal.signal(signal.SIGTERM, sigterm_handler)
 
-
-class ExecutionYieldError(Exception):
-    """Exception raised when execution is yielded."""
-
-    def __init__(self, message):
-        super().__init__(message)
-
-
 DeploymentMode_Kubernetes: str = "kubernetes"
 DeploymentMode_Docker: str = "docker"
 DeploymentMode_Local: str = "local"
@@ -93,33 +88,9 @@ enable_storage = True
 # Used as the value for an environment variable that was not set.
 UNAVAILABLE: str = "N/A"
 
-logging.basicConfig(level=logging.DEBUG,
-                    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
 
-
-# TODO(Ben): Fix this, potentially.
-class CustomFormatter(logging.Formatter):
-    grey = "\x1b[38;20m"
-    yellow = "\x1b[33;20m"
-    red = "\x1b[31;20m"
-    bold_red = "\x1b[31;1m"
-    reset = "\x1b[0m"
-    format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] "  # type: ignore
-    # format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
-
-    FORMATS = {
-        logging.DEBUG: grey + format + reset,  # type: ignore
-        logging.INFO: grey + format + reset,  # type: ignore
-        logging.WARNING: yellow + format + reset,  # type: ignore
-        logging.ERROR: red + format + reset,  # type: ignore
-        logging.CRITICAL: bold_red + format + reset  # type: ignore
-    }
-
-    def format(self, record):
-        log_fmt = self.FORMATS.get(record.levelno)
-        formatter = logging.Formatter(log_fmt)
-        return formatter.format(record)
-
+# logging.basicConfig(level=logging.DEBUG,
+#                    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
 
 def tracefunc(frame, event, arg, indent: list[int] = [0]):
     if event == "call":
@@ -285,15 +256,36 @@ class DistributedKernel(IPythonKernel):
             name="kernel_execute_request_latency_milliseconds",
             documentation="Execution time of the kernels' execute_request method in milliseconds.",
             unit="milliseconds",
-            buckets=[10, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
+            buckets=[10, 100, 250, 500, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
+                     6e9])
+        self.checkpointing_write_latency_milliseconds: Histogram = Histogram(
+            namespace="distributed_cluster",
+            subsystem="jupyter",
+            name="checkpointing_write_latency_milliseconds",
+            documentation="Latency in milliseconds of writing checkpointed state to external storage.",
+            unit="milliseconds",
+            buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
+        self.checkpointing_read_latency_milliseconds: Histogram = Histogram(
+            namespace="distributed_cluster",
+            subsystem="jupyter",
+            name="checkpointing_read_latency_milliseconds",
+            documentation="Latency in milliseconds of reading checkpointed state from external storage.",
+            unit="milliseconds",
+            buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
         self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
-        ch.setFormatter(CustomFormatter())
+        ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
+
+        self.log.debug("debug message")
+        self.log.info("info message")
+        self.log.warning("warning message")
+        self.log.error("error message")
+        self.log.critical("critical message")
 
         from ipykernel.debugger import _is_debugpy_available
         if _is_debugpy_available:
@@ -327,6 +319,12 @@ class DistributedKernel(IPythonKernel):
                 self.smr_nodes_map[i] = f"{host}:{self.smr_port}"
 
         self.log.info("Kwargs: %s" % str(kwargs))
+
+        self.checkpointing_enabled: bool = len(os.environ.get("SIMULATE_CHECKPOINTING_LATENCY", "")) > 0
+        if self.checkpointing_enabled:
+            self.log.debug("Checkpointing Latency Simulation is enabled.")
+        else:
+            self.log.debug("Checkpointing Latency Simulation is disabled.")
 
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
@@ -541,6 +539,7 @@ class DistributedKernel(IPythonKernel):
             self.log.info("Received persistent ID from registration: \"%s\"" % response_dict["persistent_id"])
             self.persistent_id = response_dict["persistent_id"]
 
+        # We'll also use this as an indicator of whether we should simulate additional checkpointing overhead.
         self.should_read_data_from_hdfs = response_dict.get("should_read_data_from_hdfs", False)
 
         if self.should_read_data_from_hdfs:
@@ -653,19 +652,12 @@ class DistributedKernel(IPythonKernel):
         except Exception as ex:
             self.log.error(f"Received invalid SHELL message: {msg}")  # noqa: G201
             self.log.error(f"Shell message is invalid because: {ex}")
-            self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-                title="Kernel Replica Received an Invalid Shell Message",
-                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid shell message: {ex}.",
-                notificationType=ErrorNotification,
-                kernelId=self.kernel_id,
-                replicaId=self.smr_node_id,
-            ))
 
-            minlen = 5
+            min_length = 5
             msg_list = t.cast(t.List[zmq.Message], msg)
-            msg_list_beginning = [bytes(msg.bytes) for msg in msg_list[:minlen]]
+            msg_list_beginning = [bytes(msg.bytes) for msg in msg_list[:min_length]]
             msg_list = t.cast(t.List[bytes], msg_list)
-            msg_list = msg_list_beginning + msg_list[minlen:]
+            msg_list = msg_list_beginning + msg_list[min_length:]
 
             message: dict = {}
             header = self.session.unpack(msg_list[1])
@@ -673,7 +665,26 @@ class DistributedKernel(IPythonKernel):
             msg_type = message["msg_type"]
             msg_id = message["msg_id"]
 
-            self.log.error(f"Invalid shell message \"{msg_id}\" of type \"{msg_type}\": {msg_list}\n\n")
+            if self.session.auth is not None:
+                signature = msg_list[0]
+                if signature:
+                    check = self.session.sign(msg_list[1:5])
+                    if not compare_digest(signature, check):
+                        self.log.error(
+                            "Shell \"{msg_type}\" message with ID=\"{msg_id}\" is invalid due to an incorrect signature.")
+                        self.log.error(
+                            "Signature generated from signing frames 1 through 5 of message does not produce "
+                            "the signature included within the message.")
+                        self.log.error(f"Signature included in message: \"{signature}\". "
+                                       f"Signature produced during verification process: \"{check}\".")
+                        self.log.error(f"Frames 1 through 5:")
+                        for i in range(1, 5, 1):
+                            self.log.error(f"Frame #{i}: {msg_list[i]}")
+                        self.log.error("All frames of message:")
+                        for i, frame in enumerate(msg_list):
+                            self.log.error(f"Frame #{i}: {frame}")
+            else:
+                self.log.error(f"Invalid shell message \"{msg_id}\" of type \"{msg_type}\": {msg_list}\n\n")
 
             message["msg_id"] = header["msg_id"]
             message["msg_type"] = header["msg_type"]
@@ -682,6 +693,15 @@ class DistributedKernel(IPythonKernel):
 
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
             self.send_ack(self.shell_stream, msg_type, msg_id, idents, message, stream_name="shell")  # Send an ACK.
+
+            self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+                title="Kernel Replica Received an Invalid Shell Message",
+                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid shell message: {ex}.",
+                notificationType=ErrorNotification,
+                kernelId=self.kernel_id,
+                replicaId=self.smr_node_id,
+            ))
+
             return
 
         # self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
@@ -783,11 +803,6 @@ class DistributedKernel(IPythonKernel):
         sys.stdout.flush()
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(msg, received_at)
-        # buffers: dict[str, Any] = msg.get("buffers", {})
-        # buffers = self.decode_request_trace_from_buffers(buffers)
-        # if "request_trace" in buffers:
-        #     request_trace = buffers["request_trace"]
-        #     request_trace["request_received_by_kernel_replica"] = received_at
 
         # Set the parent message for side effects.
         self.set_parent(idents, msg, channel="control")
@@ -944,10 +959,8 @@ class DistributedKernel(IPythonKernel):
         parent_header: dict[str, Any] = extract_header(parent)
 
         self.log.debug(
-            f"execute_request with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
-
-        self.log.debug("parent: %s", str(parent))
-        self.log.debug("ident: %s" % str(ident))
+            f"execute_request called for message with msg_id=\"{parent_header['msg_id']}\". "
+            f"identity frame(s): {str(ident)}")
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, self.shell_received_at)
         self.next_execute_request_msg_id: str = parent_header["msg_id"]
@@ -1149,11 +1162,6 @@ class DistributedKernel(IPythonKernel):
                     f"I've been selected to lead this execution ({self.shell.execution_count}), but I'm supposed to yield!")
 
                 buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
-                # buffers = parent.get("buffers", {})
-                # buffers = self.decode_request_trace_from_buffers(buffers)
-                # if "request_trace" in buffers:
-                #     request_trace = buffers["request_trace"]
-                #     request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
 
                 # Notify the client that we will lead the execution (which is bad, in this case, as we were supposed to yield.)
                 self.session.send(self.iopub_socket, "smr_lead_after_yield",
@@ -1185,10 +1193,6 @@ class DistributedKernel(IPythonKernel):
         # Send the reply.
         reply_content: dict[str, Any] = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
-
-        # if "request_trace" in buffers:
-        #     request_trace = buffers["request_trace"]
-        #     request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
@@ -1580,39 +1584,48 @@ class DistributedKernel(IPythonKernel):
             self.log.error("A replica fails to join: {}...".format(e))
             return gen_error_response(e), False
 
-    def decode_request_trace_from_buffers(self, buffers):
+    def decode_request_trace_from_buffers(
+            self,
+            buffers,
+            msg_id: str = "N/A",
+            msg_type: str = "N/A"
+    ):
         """
         Attempt to decode a RequestTrace from the first buffers frame.
 
         If the decoding is successful, then the RequestTrace is converted back to a list[bytes].
+
+        Args:
+            buffers: the buffers frame that we should try to decode.
+            msg_id: the ID of the message whose buffers frame we're decoding; optional, just used for logging.
+            msg_type: the type of the message whose buffers frame we're decoding; optional, just used for logging.
+
+        Returns:
+
         """
         if isinstance(buffers, list):
+            self.log.debug(f"Buffers is a list of length {len(buffers)} for \"{msg_type}\" message \"{msg_id}\".")
             if len(buffers) > 0:
-                self.log.debug(f"Buffers is a list: {buffers}")
                 buffers = buffers[0]
+                self.log.debug(f"First buffers frame of \"{msg_type}\" message \"{msg_id}\": {buffers}")
             else:
-                self.log.debug(f"Buffers is an empty list")
                 return buffers
 
-            self.log.debug(f"0th element of the buffers list: {buffers}")
-
         if isinstance(buffers, memoryview):
-            buffers_bytes: bytes = buffers.tobytes()
-            buffers_string: str = buffers_bytes.decode('utf-8')
-            self.log.debug(f"Contents of buffers (memoryview->decoded utf-8 string): {buffers_string}")
+            buffers: bytes = buffers.tobytes()
+            buffers: str = buffers.decode('utf-8')
         elif isinstance(buffers, bytes):
-            buffers_string: str = buffers.decode('utf-8')
-            self.log.debug(f"Contents of buffers (decoded utf-8 string): {buffers_string}")
+            buffers: str = buffers.decode('utf-8')
         else:
-            buffers_string: str = str(buffers)
-            self.log.debug(f"Contents of buffers (as string): {buffers_string}")
+            buffers: str = str(buffers)
 
         try:
-            buffers_json = json.loads(buffers_string)
-            self.log.debug(f"Contents of buffers after JSON decoding: {buffers_json}")
-            return buffers_json
+            buffers = json.loads(buffers)
+            self.log.debug(f"Successfully decoded buffers \"{msg_type}\" message \"{msg_id}\" using JSON: {buffers}")
         except json.decoder.JSONDecodeError as ex:
-            self.log.warning(f"Failed to decode buffers using JSON because: {ex}")
+            self.log.warning(
+                f"Failed to decode buffers of \"{msg_type}\" message \"{msg_id}\" using JSON because: {ex}")
+            self.log.debug(f"Returning buffers as-is for \"{msg_type}\" message \"{msg_id}\": {buffers}")
 
         return buffers
 
@@ -1620,7 +1633,7 @@ class DistributedKernel(IPythonKernel):
         """
         Attempt to extract the RequestTrace dictionary from the (first) buffers frame of the request.
 
-        If successful, populate the RequestTrace with an "request_received_by_kernel_replica" entry or an
+        If successful, populate the RequestTrace with a "request_received_by_kernel_replica" entry or an
         "reply_sent_by_kernel_replica" entry depending on whether a positive value was passed for the
         received_at argument. Then, re-encode the RequestTrace and return a value in the Buffers format that
         can be directly passed to the Session class' send method.
@@ -1631,8 +1644,21 @@ class DistributedKernel(IPythonKernel):
 
             Otherwise, this returns None.
         """
-        buffers: dict[str, Any] = msg.get("buffers", {})
-        request_trace_frame = self.decode_request_trace_from_buffers(buffers)
+        msg_header: dict[str, Any] = msg.get('header', {})
+        msg_type: str = msg_header.get('msg_type', "N/A")
+        msg_id: str = msg_header.get('msg_id', "N/A")
+        self.log.debug(f"Extracting buffers from \"{msg_type}\" message \"{msg_id}\" with {len(msg)} frames now...")
+
+        if "buffers" in msg:
+            self.log.debug(f"Found buffers frame in \"{msg_type}\" message \"{msg_id}\".")
+            buffers = msg["buffers"]
+        else:
+            frame_names: str = ", ".join(list(msg.keys()))
+            self.log.warning(f"No buffers frame found in \"{msg_type}\" message \"{msg_id}\". "
+                             f"Message only has the following frames: {frame_names}")
+            buffers = []
+
+        request_trace_frame = self.decode_request_trace_from_buffers(buffers, msg_id=msg_id, msg_type=msg_type)
 
         if isinstance(buffers, dict) and "request_trace" in request_trace_frame:
             request_trace: dict[str, Any] = buffers["request_trace"]
@@ -1642,7 +1668,7 @@ class DistributedKernel(IPythonKernel):
             else:
                 request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
 
-            request_trace_encoded:str = json.dumps(request_trace)
+            request_trace_encoded: str = json.dumps(request_trace)
             return [request_trace_encoded.encode('utf-8')]
 
         return None
@@ -1887,7 +1913,8 @@ class DistributedKernel(IPythonKernel):
                                    join=self.smr_join,
                                    debug_port=self.debug_port,
                                    report_error_callback=self.report_error,
-                                   send_notification_func=self.send_notification)
+                                   send_notification_func=self.send_notification,
+                                   hdfs_read_latency_callback=self.hdfs_read_latency_callback)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
 
@@ -1909,6 +1936,17 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Successfully created RaftLog.")
 
         return self.synclog
+
+    def hdfs_read_latency_callback(self, latency_ms: int):
+        """
+        This is a callback passed to the RaftLog so that it can publish the HDFS read latency to Prometheus.
+        Args:
+            latency_ms: the latency incurred by the LogNode's HDFS read operation(s).
+        """
+        if latency_ms < 0:
+            return
+
+        self.hdfs_read_latency_milliseconds.observe(latency_ms)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):
         self.log.debug("Running cell: %s" % str(raw_cell))

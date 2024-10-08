@@ -132,6 +132,10 @@ type SchedulerDaemonImpl struct {
 
 	log logger.Logger
 
+	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
+	// performing checkpointing after a migration (read) and after executing code (write).
+	SimulateCheckpointingLatency bool
+
 	// The IOPub socket that the Gateway subscribes to.
 	// All pub/sub messages are forwarded from kernels to the gateway (through us, the local daemon) using this socket.
 	// We wrap the messages in another message that just has a header that is the kernel ID.
@@ -237,6 +241,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
 		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
 		MessageAcknowledgementsEnabled:     schedulerDaemonOptions.MessageAcknowledgementsEnabled,
+		SimulateCheckpointingLatency:       schedulerDaemonOptions.SimulateCheckpointingLatency,
 	}
 
 	for _, configFunc := range configs {
@@ -722,11 +727,12 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	)
 	if d.deploymentMode == types.KubernetesMode {
 		invokerOpts := &invoker.DockerInvokerOptions{
-			HdfsNameNodeEndpoint: d.hdfsNameNodeEndpoint,
-			KernelDebugPort:      -1,
-			DockerStorageBase:    d.dockerStorageBase,
-			UsingWSL:             d.usingWSL,
-			RunKernelsInGdb:      d.runKernelsInGdb,
+			HdfsNameNodeEndpoint:         d.hdfsNameNodeEndpoint,
+			KernelDebugPort:              -1,
+			DockerStorageBase:            d.dockerStorageBase,
+			UsingWSL:                     d.usingWSL,
+			RunKernelsInGdb:              d.runKernelsInGdb,
+			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1480,11 +1486,12 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	var kernelInvoker invoker.KernelInvoker
 	if d.DockerMode() {
 		invokerOpts := &invoker.DockerInvokerOptions{
-			HdfsNameNodeEndpoint: d.hdfsNameNodeEndpoint,
-			KernelDebugPort:      int(in.DockerModeKernelDebugPort),
-			DockerStorageBase:    d.dockerStorageBase,
-			UsingWSL:             d.usingWSL,
-			RunKernelsInGdb:      d.runKernelsInGdb,
+			HdfsNameNodeEndpoint:         d.hdfsNameNodeEndpoint,
+			KernelDebugPort:              int(in.DockerModeKernelDebugPort),
+			DockerStorageBase:            d.dockerStorageBase,
+			UsingWSL:                     d.usingWSL,
+			RunKernelsInGdb:              d.runKernelsInGdb,
+			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.

@@ -1840,9 +1840,7 @@ func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMess
 	entry, loaded := requestLog.EntriesByJupyterMsgId.Load(in.MessageId)
 	if !loaded {
 		d.log.Warn("No request log entry found for request with Jupyter message ID \"%s\"", in.MessageId)
-		return &proto.QueryMessageResponse{
-			RequestTrace: entry.RequestTrace,
-		}, nil
+		return nil, status.Errorf(codes.InvalidArgument, "no request entry found in request log for entry with ID=\"%s\"", in.MessageId)
 	}
 
 	// Make sure the Jupyter message types match (if the caller specified a Jupyter message type).

@@ -75,22 +75,23 @@ var (
 
 type DockerInvoker struct {
 	LocalInvoker
-	connInfo                 *jupyter.ConnectionInfo
-	opts                     *DockerInvokerOptions
-	tempBase                 string
-	invokerCmd               string                           // Command used to create the Docker container.
-	containerName            string                           // Name of the launched container; this is the empty string before the container is launched.
-	dockerNetworkName        string                           // The name of the Docker network that the Local Daemon container is running within.
-	smrPort                  int                              // Port used by the SMR cluster.
-	closing                  int32                            // Indicates whether the container is closing/shutting down.
-	id                       string                           // Uniquely identifies this Invoker instance.
-	kernelDebugPort          int                              // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
-	hdfsNameNodeEndpoint     string                           // Endpoint of the HDFS NameNode.
-	dockerStorageBase        string                           // Base directory in which the persistent store data is stored.
-	containerCreatedAt       time.Time                        // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
-	containerCreated         bool                             // containerCreated is a bool indicating whether kernel the container has been created.
-	containerMetricsProvider metrics.ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
-	runKernelsInGdb          bool                             // If true, then the kernels will be run in GDB.
+	connInfo                     *jupyter.ConnectionInfo
+	opts                         *DockerInvokerOptions
+	tempBase                     string
+	invokerCmd                   string                           // Command used to create the Docker container.
+	containerName                string                           // Name of the launched container; this is the empty string before the container is launched.
+	dockerNetworkName            string                           // The name of the Docker network that the Local Daemon container is running within.
+	smrPort                      int                              // Port used by the SMR cluster.
+	closing                      int32                            // Indicates whether the container is closing/shutting down.
+	id                           string                           // Uniquely identifies this Invoker instance.
+	kernelDebugPort              int                              // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	hdfsNameNodeEndpoint         string                           // Endpoint of the HDFS NameNode.
+	dockerStorageBase            string                           // Base directory in which the persistent store data is stored.
+	containerCreatedAt           time.Time                        // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
+	containerCreated             bool                             // containerCreated is a bool indicating whether kernel the container has been created.
+	containerMetricsProvider     metrics.ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
+	simulateCheckpointingLatency bool                             // simulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of performing checkpointing after a migration (read) and after executing code (write).
+	runKernelsInGdb              bool                             // If true, then the kernels will be run in GDB.
 }
 
 type DockerInvokerOptions struct {
@@ -110,6 +111,10 @@ type DockerInvokerOptions struct {
 
 	// RunKernelsInGdb specifies that, if true, then the kernels will be run in GDB.
 	RunKernelsInGdb bool `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
+
+	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
+	// performing checkpointing after a migration (read) and after executing code (write).
+	SimulateCheckpointingLatency bool
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider metrics.ContainerMetricsProvider) *DockerInvoker {
@@ -125,17 +130,18 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	var dockerNetworkName = os.Getenv(DockerNetworkNameEnv)
 
 	invoker := &DockerInvoker{
-		connInfo:                 connInfo,
-		opts:                     opts,
-		tempBase:                 utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
-		smrPort:                  smrPort,
-		hdfsNameNodeEndpoint:     opts.HdfsNameNodeEndpoint,
-		id:                       uuid.NewString(),
-		kernelDebugPort:          opts.KernelDebugPort,
-		dockerNetworkName:        dockerNetworkName,
-		dockerStorageBase:        opts.DockerStorageBase,
-		runKernelsInGdb:          opts.RunKernelsInGdb,
-		containerMetricsProvider: containerMetricsProvider,
+		connInfo:                     connInfo,
+		opts:                         opts,
+		tempBase:                     utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
+		smrPort:                      smrPort,
+		hdfsNameNodeEndpoint:         opts.HdfsNameNodeEndpoint,
+		id:                           uuid.NewString(),
+		kernelDebugPort:              opts.KernelDebugPort,
+		dockerNetworkName:            dockerNetworkName,
+		dockerStorageBase:            opts.DockerStorageBase,
+		runKernelsInGdb:              opts.RunKernelsInGdb,
+		containerMetricsProvider:     containerMetricsProvider,
+		simulateCheckpointingLatency: opts.SimulateCheckpointingLatency,
 	}
 
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
@@ -145,6 +151,10 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 
 	if invoker.runKernelsInGdb {
 		invoker.invokerCmd = invoker.invokerCmd + " -e RUN_IN_GDB=1"
+	}
+
+	if invoker.simulateCheckpointingLatency {
+		invoker.invokerCmd = invoker.invokerCmd + " -e SIMULATE_CHECKPOINTING_LATENCY=1"
 	}
 
 	config.InitLogger(&invoker.log, invoker)

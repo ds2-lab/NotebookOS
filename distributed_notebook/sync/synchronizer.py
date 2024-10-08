@@ -11,6 +11,7 @@ from .errors import SyncError
 from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
+from ..logging import ColoredLogFormatter
 
 KEY_SYNC_AST = "_ast_"
 CHECKPOINT_AUTO = 1
@@ -44,6 +45,10 @@ class Synchronizer:
 
         self._log = logging.getLogger(__class__.__name__)
         self._log.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(ColoredLogFormatter())
+        self._log.addHandler(ch)
 
         self._log.debug("Finished setting callbacks for Synclog (within Synchronizer).")
 

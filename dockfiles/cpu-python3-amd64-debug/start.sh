@@ -26,6 +26,7 @@ unset_explicit_env_vars () {
     fi
 }
 
+ulimit -c unlimited
 
 # Default to starting bash if no command was specified
 if [ $# -eq 0 ]; then

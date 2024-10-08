@@ -7,6 +7,7 @@ from typing import Dict, Optional, List, Type, MutableMapping, Any
 from enum import Enum
 
 from .log import LeaderElectionVote, LeaderElectionProposal
+from ..logging import ColoredLogFormatter
 
 # Indicates that the election was completed because the elected leader finished executing the user-submitted code.
 ExecutionCompleted = "execution_completed"
@@ -147,6 +148,11 @@ class Election(object):
         # self._lock: threading.Lock = threading.Lock()
 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(term_number))
+        self.logger.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(ColoredLogFormatter())
+        self.logger.addHandler(ch)
 
     def __repr__(self):
         return self.__str__()

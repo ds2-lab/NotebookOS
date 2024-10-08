@@ -15,4 +15,5 @@ type CommonOptions struct {
 	SMRPort                        int    `name:"smr-port"                         json:"smr-port"                          yaml:"smr-port"                            description:"Port used by the state machine replication (SMR) protocol."`
 	DebugMode                      bool   `name:"debug_mode"                       json:"debug_mode"                        yaml:"debug_mode"                          description:"Enable the debug HTTP server."`
 	DebugPort                      int    `name:"debug_port"                       json:"debug_port"                        yaml:"debug_port"                          description:"The port for the debug HTTP server."`
+	SimulateCheckpointingLatency   bool   `name:"simulate_checkpointing_latency"   json:"simulate_checkpointing_latency"    yaml:"simulate_checkpointing_latency"      description:"If enabled, then kernels will simulate the latency of performing checkpointing after executing code (write) and after a migration (read)."`
 }

@@ -1,7 +1,8 @@
 import io
 import logging
-import uuid 
+import uuid
 
+from ..logging import ColoredLogFormatter
 from ..smr.smr import NewBytes, ReadCloser
 
 # TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.
@@ -20,6 +21,12 @@ class readCloser(io.IOBase):
     self.data_size:int = size 
 
     self.logger: logging.Logger = logging.getLogger(__class__.__name__ + "-" + str(uuid.uuid4())[0:5])
+
+    self.logger.setLevel(logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(ColoredLogFormatter())
+    self.logger.addHandler(ch)
 
     # buffered returns the number of buffered bytes
   def buffered(self) -> int:

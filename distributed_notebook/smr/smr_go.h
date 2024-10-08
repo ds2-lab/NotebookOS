@@ -340,26 +340,6 @@ extern long long int smr_ReadCloser_Read(long long int _handle, long long int p)
 extern char* smr_WriteCloser_Close(long long int _handle);
 extern long long int smr_WriteCloser_Write(long long int _handle, long long int p);
 
-// --- wrapping struct: smr.SMRContext ---
-//
-extern long long int smr_SMRContext_CTor();
-extern char* smr_SMRContext_ID(long long int _handle);
-extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
-
-// --- wrapping struct: smr.Bytes ---
-//
-extern long long int smr_Bytes_CTor();
-extern long long int smr_Bytes_Bytes(long long int _handle);
-extern long long int smr_Bytes_Len(long long int _handle);
-
-// --- wrapping struct: smr.IntRet ---
-//
-extern long long int smr_IntRet_CTor();
-extern long long int smr_IntRet_N_Get(long long int handle);
-extern void smr_IntRet_N_Set(long long int handle, long long int val);
-extern char* smr_IntRet_Err_Get(long long int handle);
-extern void smr_IntRet_Err_Set(long long int handle, char* val);
-
 // --- wrapping struct: smr.LogNode ---
 //
 extern long long int smr_LogNode_CTor();
@@ -376,7 +356,7 @@ extern void smr_LogNode_UpdateNode(long long int _handle, long long int id, char
 extern char* smr_LogNode_WaitToClose(long long int _handle);
 extern char* smr_LogNode_Close(long long int _handle);
 extern char* smr_LogNode_CloseHdfsClient(long long int _handle);
-extern void smr_LogNode_WriteDataDirectoryToHDFS(long long int _handle, long long int serialized_state, PyObject* resolve, char goRun);
+extern void smr_LogNode_WriteDataDirectoryToHDFS(long long int _handle, long long int serializedState, PyObject* resolve, char goRun);
 extern char* smr_LogNode_Process(long long int _handle, long long int ctx, long long int m);
 extern char smr_LogNode_IsIDRemoved(long long int _handle, long long unsigned int id);
 extern void smr_LogNode_ReportUnreachable(long long int _handle, long long unsigned int id, char goRun);
@@ -396,7 +376,27 @@ extern long long int smr_LogNodeConfig_WithRestoreCallback(long long int _handle
 extern long long int smr_LogNodeConfig_WithShouldSnapshotCallback(long long int _handle, PyObject* cb);
 extern long long int smr_LogNodeConfig_WithSnapshotCallback(long long int _handle, PyObject* cb);
 extern char* smr_LogNodeConfig_String(long long int _handle);
-extern long long int smr_NewLogNode(char* store_path, long long int id, char* hdfsHostname, char shouldLoadDataFromHdfs, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort);
+
+// --- wrapping struct: smr.SMRContext ---
+//
+extern long long int smr_SMRContext_CTor();
+extern char* smr_SMRContext_ID(long long int _handle);
+extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
+
+// --- wrapping struct: smr.Bytes ---
+//
+extern long long int smr_Bytes_CTor();
+extern long long int smr_Bytes_Bytes(long long int _handle);
+extern long long int smr_Bytes_Len(long long int _handle);
+
+// --- wrapping struct: smr.IntRet ---
+//
+extern long long int smr_IntRet_CTor();
+extern long long int smr_IntRet_N_Get(long long int handle);
+extern void smr_IntRet_N_Set(long long int handle, long long int val);
+extern char* smr_IntRet_Err_Get(long long int handle);
+extern void smr_IntRet_Err_Set(long long int handle, char* val);
+extern long long int smr_NewLogNode(char* storePath, long long int id, char* hdfsHostname, char shouldLoadDataFromHdfs, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort);
 extern long long int smr_NewConfig();
 extern long long int smr_CreateBytes(char len);
 extern void smr_PrintTestMessage(char goRun);

@@ -39,6 +39,26 @@ func (t JupyterMessageType) String() string {
 	return string(t)
 }
 
+// FramesToString returns a string of the given frames.
+func FramesToString(frames [][]byte) string {
+	if len(frames) == 0 {
+		return "[]"
+	}
+
+	s := "["
+	for i, frame := range frames {
+		s += "\"" + string(frame) + "\""
+
+		if i+1 < len(frames) {
+			s += ", "
+		}
+	}
+
+	s += "]"
+
+	return s
+}
+
 // GetBaseMessageType returns the base portion of the Jupyter message type.
 // The "base part" is best defined through an example:
 //

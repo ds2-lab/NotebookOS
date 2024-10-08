@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from .errors import SyncError
 from .log import SynchronizedValue
+from ..logging import ColoredLogFormatter
 
 ExplorerActionCopy = 0
 ExplorerActionPass = 1
@@ -27,7 +28,11 @@ class SyncAST(ast.NodeVisitor):
         self._globals = {}
         self._executions = 0
         self._log = logging.getLogger(__class__.__name__)
-        self._log.setLevel(logging.WARN)
+        self._log.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(ColoredLogFormatter())
+        self._log.addHandler(ch)
 
     def __getstate__(self):
         return self._tree, tuple(self._globals.keys()), self._executions
