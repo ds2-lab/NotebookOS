@@ -59,16 +59,16 @@ overrides = {
     "KernelHandler": DistributedKernelHandler,
 }
 
-print("\nSetting default handlers for Distributed Kernel Handler now.")
+# print("\nSetting default handlers for Distributed Kernel Handler now.")
 default_handlers: List[tuple] = []
 for path, cls in jupyter_kernel_handlers.default_handlers:
-    print("Path \"%s\" currently using handler \"%s\"" % (str(path), str(cls.__name__)), flush = True)
+    # print("Path \"%s\" currently using handler \"%s\"" % (str(path), str(cls.__name__)), flush = True)
     if cls.__name__ in overrides:
-        print("\tUsing modified handler %s in place of default handler %s for path \"%s\"" % (overrides[cls.__name__].__name__, cls.__name__, path), flush = True)
+        # print("\tUsing modified handler %s in place of default handler %s for path \"%s\"" % (overrides[cls.__name__].__name__, cls.__name__, path), flush = True)
         # Use the same named class from here if it exists
         default_handlers.append((path, overrides[cls.__name__]))
     else:
-        print("\tSticking with DEFAULT handler %s for path \"%s\"" % (cls.__name__, path), flush = True)
+        # print("\tSticking with DEFAULT handler %s for path \"%s\"" % (cls.__name__, path), flush = True)
         default_handlers.append((path, cls))
 
 for i in range(0, len(jupyter_kernel_handlers.default_handlers)):

@@ -6,7 +6,7 @@ class ColoredLogFormatter(logging.Formatter):
     red = "\x1b[31;20m"
     bold_red = "\x1b[31;1m"
     reset = "\x1b[0m"
-    format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] "  # type: ignore
+    format = "%(asctime)s [%(levelname)s] %(name)s [%(threadName)s (%(thread)d)]: %(message)s "  # type: ignore
 
     FORMATS = {
         logging.DEBUG: grey + format + reset,  # type: ignore

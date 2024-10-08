@@ -54,7 +54,7 @@ class RaftLog(object):
 
     def __init__(
             self,
-            id: int,
+            node_id: int,
             kernel_id: str,
             base_path: str = "/store",
             hdfs_hostname: str = "172.17.0.1:9000",
@@ -75,14 +75,14 @@ class RaftLog(object):
         if len(hdfs_hostname) == 0:
             raise ValueError("HDFS hostname is empty.")
 
-        self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(id))
+        self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(node_id))
         self.logger.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
         self.logger.addHandler(ch)
 
-        self.logger.info("Creating RaftNode %d now." % id)
+        self.logger.info("Creating RaftNode %d now." % node_id)
 
         if debug_port <= 1023 or debug_port >= 65535:
             if debug_port == -1:
@@ -99,7 +99,7 @@ class RaftLog(object):
         # The id of the leader.
         self._leader_id: int = 0
         self._persistent_store_path: str = base_path
-        self._node_id: int = id
+        self._node_id: int = node_id
         self._offloader: FileLog = FileLog(self._persistent_store_path)
         self._num_replicas: int = num_replicas
         self._last_winner_id: int = -1
@@ -123,7 +123,7 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        self._log_node = NewLogNode(self._persistent_store_path, id, hdfs_hostname, should_read_data_from_hdfs,
+        self._log_node = NewLogNode(self._persistent_store_path, node_id, hdfs_hostname, should_read_data_from_hdfs,
                                     Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
         self.logger.info("<< RETURNED FROM GO CODE (NewLogNode)")
         sys.stderr.flush()
@@ -146,7 +146,7 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        self.logger.info(f"Successfully created LogNode {id}.")
+        self.logger.info(f"Successfully created LogNode {node_id}.")
 
         hdfs_read_latency:int = self._log_node.HdfsReadLatencyMilliseconds()
         if hdfs_read_latency > 0:
