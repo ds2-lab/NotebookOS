@@ -70,7 +70,7 @@ func (l *RequestLog) Size() int {
 //
 // This method is NOT thread safe. It is meant to be called by Len and Size.
 func (l *RequestLog) unsafeLen() int {
-	return l.EntriesByRequestId.Len()
+	return l.EntriesByJupyterMsgId.Len()
 }
 
 // AddEntry adds a RequestLogEntry to the RequestLog for the specified JupyterMessage.
@@ -93,9 +93,11 @@ func (l *RequestLog) AddEntry(msg *types.JupyterMessage, socket *types.Socket, t
 			ErrRequestLogEntryExists, msgId)
 	}
 
-	if _, loaded := l.EntriesByRequestId.LoadOrStore(msg.RequestId, entry); loaded {
-		return fmt.Errorf("%w: entry already exists for request with request ID \"%s\"",
-			ErrRequestLogEntryExists, msg.RequestId)
+	if msg.RequestId != "" {
+		if _, loaded := l.EntriesByRequestId.LoadOrStore(msg.RequestId, entry); loaded {
+			return fmt.Errorf("%w: entry already exists for request with request ID \"%s\"",
+				ErrRequestLogEntryExists, msg.RequestId)
+		}
 	}
 
 	var (

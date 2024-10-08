@@ -1303,7 +1303,7 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 				continue
 			}
 
-			if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && jMsg.JupyterMessageType() != "stream" && jMsg.JupyterMessageType() != "status") {
+			if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && jMsg.JupyterMessageType() != "stream" && jMsg.JupyterMessageType() != "status" && jMsg.JupyterMessageType() != "execute_input") {
 				s.Log.Debug("[gid=%d] Poller received new %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\").", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), jMsg.JupyterSession())
 
 				if s.DebugMode {

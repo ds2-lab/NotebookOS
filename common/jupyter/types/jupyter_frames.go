@@ -310,7 +310,7 @@ func (frames *JupyterFrames) CreateSignature(signatureScheme string, key []byte)
 
 func (frames *JupyterFrames) sign(signKey []byte) []byte {
 	mac := hmac.New(sha256.New, signKey)
-	for _, msgPart := range (frames.Frames)[JupyterFrameHeader+frames.Offset : JupyterFrameBuffers] {
+	for _, msgPart := range (frames.Frames)[JupyterFrameHeader+frames.Offset : JupyterFrameBuffers+frames.Offset] {
 		mac.Write(msgPart)
 	}
 	return mac.Sum(nil)
