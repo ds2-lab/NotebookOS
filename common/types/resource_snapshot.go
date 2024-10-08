@@ -36,5 +36,6 @@ type ArbitraryResourceSnapshot interface {
 	GetMillicpus() int32
 	GetMemoryMb() float32
 	GetGpus() int32
+	GetVramGb() float32
 	GetSnapshotId() int32
 }

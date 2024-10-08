@@ -46,6 +46,11 @@ func (s *ResourceSpec) Mem() float64 {
 	return float64(s.GetMemory())
 }
 
+// VRAM returns the amount of GPU memory required in GB.
+func (s *ResourceSpec) VRAM() float64 {
+	return float64(s.GetVram())
+}
+
 // Validate checks that "this" Spec could "satisfy" the parameterized Spec.
 //
 // To "satisfy" a Spec means that all the resource values of "this" Spec are larger than that of the
@@ -60,7 +65,8 @@ func (x *KernelReplicaSpec) FullSpecFromKernelReplicaSpec() *types.Float64Spec {
 	return &types.Float64Spec{
 		Millicpus: float64(x.Kernel.ResourceSpec.Cpu),
 		MemoryMb:  float64(x.Kernel.ResourceSpec.Memory),
-		GPUs:      types.GPUSpec(x.Kernel.ResourceSpec.Gpu),
+		GPUs:      float64(x.Kernel.ResourceSpec.Gpu),
+		VRam:      float64(x.Kernel.ResourceSpec.Vram),
 	}
 }
 
@@ -77,5 +83,6 @@ func (x *KernelSpec) DecimalSpecFromKernelSpec() *types.DecimalSpec {
 		Millicpus: decimal.NewFromFloat(float64(x.ResourceSpec.Cpu)),
 		MemoryMb:  decimal.NewFromFloat(float64(x.ResourceSpec.Memory)),
 		GPUs:      decimal.NewFromFloat(float64(x.ResourceSpec.Gpu)),
+		VRam:      decimal.NewFromFloat(float64(x.ResourceSpec.Vram)),
 	}
 }

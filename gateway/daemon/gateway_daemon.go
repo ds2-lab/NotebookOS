@@ -402,7 +402,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	// Create the internalCluster Scheduler.
 	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
-	hostSpec := &types.Float64Spec{GPUs: types.GPUSpec(clusterSchedulerOptions.GpusPerHost), Millicpus: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}
+	hostSpec := &types.Float64Spec{
+		GPUs:      float64(clusterSchedulerOptions.GpusPerHost),
+		VRam:      scheduling.VramPerHostGb,
+		Millicpus: scheduling.MillicpusPerHost,
+		MemoryMb:  scheduling.MemoryMbPerHost,
+	}
 	if clusterGateway.KubernetesMode() {
 		clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
 		clusterGateway.containerWatcher = clusterGateway.kubeClient
@@ -819,7 +824,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	// Create a host scheduler client and register it.
 	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, d.cluster, d.gatewayPrometheusManager, gConn, d.localDaemonDisconnected)
+		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster, d.gatewayPrometheusManager, gConn, d.localDaemonDisconnected)
 
 	if err != nil {
 		d.log.Error("Failed to create host scheduler client: %v", err)

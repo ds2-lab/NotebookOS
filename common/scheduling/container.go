@@ -273,9 +273,10 @@ func TrainingStartedInContainer[T types.ArbitraryResourceSnapshot](c *Container,
 	c.spec.UpdateSpecCPUs(c.Session().ResourceUtilization().CpuUtilization)
 	c.spec.UpdateSpecMemoryMB(c.Session().ResourceUtilization().MemoryUsageMb)
 	c.outstandingResources = &types.Float64Spec{
-		GPUs:      types.GPUSpec(0),
+		GPUs:      0,
 		Millicpus: 0,
 		MemoryMb:  0,
+		VRam:      0,
 	}
 
 	// Processing a new training event.
@@ -311,9 +312,10 @@ func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, s
 		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs())
 
 	c.outstandingResources = &types.Float64Spec{
-		GPUs:      types.GPUSpec(c.spec.GPU()),
+		GPUs:      c.spec.GPU(),
 		Millicpus: c.spec.CPU(),
 		MemoryMb:  c.spec.MemoryMB(),
+		VRam:      c.spec.VRAM(),
 	}
 	c.spec = c.lastSpec
 

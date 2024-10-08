@@ -240,7 +240,9 @@ type Host struct {
 }
 
 // NewHost creates and returns a new *Host.
-func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Cluster, metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
+func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, cluster Cluster,
+	metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
+	
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
@@ -273,6 +275,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
 		Millicpus: decimal.NewFromFloat(float64(millicpus)),
 		MemoryMb:  decimal.NewFromFloat(float64(memMb)),
+		VRam:      decimal.NewFromFloat(vramGb),
 	}
 
 	host := &Host{

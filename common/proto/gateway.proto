@@ -568,11 +568,13 @@ message ResourcesSnapshot {
   float memoryMb = 3;
   // Gpus is the number of GPUs.
   int32 gpus = 4;
+  // VramGb is the amount of VRAM in GB.
+  float vramGb = 5;
   // SnapshotId uniquely identifies the NodeResourcesSnapshot in which this ResourcesSnapshot will be contained.
   // The SnapshotId defines a total order amongst all NodeResourcesSnapshot structs originating from the same node.
   // Each newly-created NodeResourcesSnapshot is assigned an ID from a monotonically-increasing counter by the
   // ResourceManager running on the associated node.
-  int32 snapshotId = 5;
+  int32 snapshotId = 6;
 }
 
 // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
@@ -635,6 +637,7 @@ message ResourceSpec {
   int32 cpu = 1;  // In 1/1000 core.
   float memory = 2; // In MB.
   int32 gpu = 3; // Number of GPUs.
+  float vram = 4; // Amount of VRAM in GB.
 }
 
 // The kernel id.

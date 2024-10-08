@@ -266,7 +266,8 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 
 	daemon.resourceManager = scheduling.NewResourceManager(&types.Float64Spec{
-		GPUs:      types.GPUSpec(schedulerDaemonOptions.NumGPUs),
+		GPUs:      float64(schedulerDaemonOptions.NumGPUs),
+		VRam:      scheduling.VramPerHostGb,
 		Millicpus: scheduling.MillicpusPerHost,
 		MemoryMb:  scheduling.MemoryMbPerHost})
 

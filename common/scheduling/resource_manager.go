@@ -78,6 +78,9 @@ type ResourceAllocation struct {
 	// GPUs is the number of GPUs in the ResourceAllocation.
 	GPUs decimal.Decimal `json:"gpus"`
 
+	// VramGB is the amount of VRAM (i.e., GPU memory) in GB.
+	VramGB decimal.Decimal `json:"vram"`
+
 	// Millicpus is the number of Millicpus in the ResourceAllocation, represented as 1/1000th cores.
 	// That is, 1000 Millicpus is equal to 1 vCPU.
 	Millicpus decimal.Decimal `json:"millicpus"`
@@ -148,6 +151,7 @@ func (a *ResourceAllocation) ToDecimalSpec() *types.DecimalSpec {
 		GPUs:      a.GPUs.Copy(),
 		Millicpus: a.Millicpus.Copy(),
 		MemoryMb:  a.MemoryMB.Copy(),
+		VRam:      a.VramGB.Copy(),
 	}
 }
 
@@ -173,6 +177,7 @@ func (a *ResourceAllocation) IsCommitted() bool {
 type ResourceAllocationBuilder struct {
 	allocationId   string
 	gpus           decimal.Decimal
+	vramGb         decimal.Decimal
 	millicpus      decimal.Decimal
 	memoryMb       decimal.Decimal
 	replicaId      int32
@@ -215,6 +220,12 @@ func (b *ResourceAllocationBuilder) WithGPUs(gpus float64) *ResourceAllocationBu
 	return b
 }
 
+// WithVRAM enables the specification of the amount of VRAM (in GB) in the ResourceAllocation that is being constructed.
+func (b *ResourceAllocationBuilder) WithVRAM(vramGb float64) *ResourceAllocationBuilder {
+	b.vramGb = decimal.NewFromFloat(vramGb)
+	return b
+}
+
 // WithMillicpus enables the specification of the number of Millicpus (in millicpus, or 1/1000th of a core)
 // in the ResourceAllocation that is being constructed.
 func (b *ResourceAllocationBuilder) WithMillicpus(millicpus float64) *ResourceAllocationBuilder {
@@ -234,6 +245,7 @@ func (b *ResourceAllocationBuilder) BuildResourceAllocation() *ResourceAllocatio
 	return &ResourceAllocation{
 		AllocationId:        b.allocationId,
 		GPUs:                b.gpus,
+		VramGB:              b.vramGb,
 		Millicpus:           b.millicpus,
 		MemoryMB:            b.memoryMb,
 		ReplicaId:           b.replicaId,
@@ -1045,7 +1057,8 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 		WithKernelReplica(replicaId, kernelId).
 		WithMillicpus(spec.CPU()).
 		WithMemoryMB(spec.MemoryMB()).
-		WithGPUs(spec.GPU())
+		WithGPUs(spec.GPU()).
+		WithVRAM(spec.VRAM())
 	allocation = builder.BuildResourceAllocation()
 
 	m.log.Debug("Attempting to subscribe the following pending resources to replica %d of kernel %s: %v",

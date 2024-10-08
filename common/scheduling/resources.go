@@ -37,6 +37,7 @@ const (
 	NoResource ResourceKind = "N/A"
 	CPU        ResourceKind = "CPU"
 	GPU        ResourceKind = "GPU"
+	VRAM       ResourceKind = "VRAM"
 	Memory     ResourceKind = "Memory"
 
 	// NegativeResourceQuantity indicates that the inconsistent/invalid resource is
@@ -220,6 +221,7 @@ type ResourceSnapshot struct {
 	ResourceStatus ResourceStatus  `json:"resource_status"` // resourceStatus is the ResourceStatus represented/encoded by this struct.
 	Millicpus      decimal.Decimal `json:"millicpus"`       // millicpus is CPU in 1/1000th of CPU core.
 	Gpus           decimal.Decimal `json:"gpus"`            // gpus is the number of GPUs.
+	VRamGB         decimal.Decimal `json:"vram"`            // VRamGB is the amount of VRAM (GPU memory) in GBs.
 	MemoryMB       decimal.Decimal `json:"memoryMB"`        // memoryMB is the amount of memory in MB.
 
 	// SnapshotId uniquely identifies the HostResourceSnapshot in which this ResourceSnapshot struct will be included.
@@ -249,10 +251,15 @@ func (s *ResourceSnapshot) GetGpus() int32 {
 	return int32(s.Gpus.InexactFloat64())
 }
 
+func (s *ResourceSnapshot) GetVramGb() float32 {
+	return float32(s.VRamGB.InexactFloat64())
+}
+
 // String returns a string representation of the target ResourceSnapshot struct that is suitable for logging.
 func (s *ResourceSnapshot) String() string {
-	return fmt.Sprintf("ResourceSnapshot[Status=%s,Millicpus=%s,MemoryMB=%s,GPUs=%s",
-		s.ResourceStatus.String(), s.Millicpus.StringFixed(0), s.MemoryMB.StringFixed(4), s.Gpus.StringFixed(0))
+	return fmt.Sprintf("ResourceSnapshot[Status=%s,Millicpus=%s,MemoryMB=%s,GPUs=%s,VRAM=%s",
+		s.ResourceStatus.String(), s.Millicpus.StringFixed(0), s.MemoryMB.StringFixed(4),
+		s.Gpus.StringFixed(0), s.VRamGB.StringFixed(4))
 }
 
 // resources is a struct used by the ResourceManager to track its total idle, pending, committed, and spec resources
@@ -267,6 +274,7 @@ type resources struct {
 	millicpus      decimal.Decimal // millicpus is CPU in 1/1000th of CPU core.
 	gpus           decimal.Decimal // gpus is the number of GPUs.
 	memoryMB       decimal.Decimal // memoryMB is the amount of memory in MB.
+	vramGB         decimal.Decimal // vram is the amount of GPU memory in GB.
 }
 
 // ApplySnapshotToResources atomically overwrites its resource quantities with the quantities encoded
@@ -296,6 +304,7 @@ func ApplySnapshotToResources[T types.ArbitraryResourceSnapshot](res *resources,
 	res.millicpus = decimal.NewFromFloat(float64(snapshot.GetMillicpus()))
 	res.memoryMB = decimal.NewFromFloat(float64(snapshot.GetMemoryMb()))
 	res.gpus = decimal.NewFromFloat(float64(snapshot.GetGpus()))
+	res.vramGB = decimal.NewFromFloat(float64(snapshot.GetVramGb()))
 	res.lastAppliedSnapshotId = snapshot.GetSnapshotId()
 
 	return nil
@@ -313,6 +322,7 @@ func (res *resources) ResourceSnapshot(snapshotId int32) *ResourceSnapshot {
 		Millicpus:      res.millicpus,
 		Gpus:           res.gpus,
 		MemoryMB:       res.memoryMB,
+		VRamGB:         res.vramGB,
 		SnapshotId:     snapshotId,
 	}
 
@@ -330,6 +340,7 @@ func (res *resources) protoResourceSnapshot(snapshotId int32) *proto.ResourcesSn
 		ResourceStatus: res.resourceStatus.String(),
 		Millicpus:      int32(res.millicpus.InexactFloat64()),
 		Gpus:           int32(res.gpus.InexactFloat64()),
+		VramGb:         float32(res.vramGB.InexactFloat64()),
 		MemoryMb:       float32(res.memoryMB.InexactFloat64()),
 		SnapshotId:     snapshotId,
 	}
@@ -350,6 +361,7 @@ func (res *resources) ToDecimalSpec() *types.DecimalSpec {
 		GPUs:      res.gpus.Copy(),
 		Millicpus: res.millicpus.Copy(),
 		MemoryMb:  res.memoryMB.Copy(),
+		VRam:      res.vramGB.Copy(),
 	}
 }
 
@@ -382,6 +394,10 @@ func (res *resources) LessThan(other *resources) (bool, ResourceKind) {
 		return false, GPU
 	}
 
+	if !res.vramGB.LessThan(other.vramGB) {
+		return false, VRAM
+	}
+
 	return true, NoResource
 }
 
@@ -409,6 +425,10 @@ func (res *resources) LessThanOrEqual(other *resources) (bool, ResourceKind) {
 
 	if !res.gpus.LessThanOrEqual(other.gpus) {
 		return false, GPU
+	}
+
+	if !res.vramGB.LessThanOrEqual(other.vramGB) {
+		return false, VRAM
 	}
 
 	return true, NoResource
@@ -440,6 +460,10 @@ func (res *resources) GreaterThan(other *resources) (bool, ResourceKind) {
 		return false, GPU
 	}
 
+	if !res.vramGB.GreaterThan(other.vramGB) {
+		return false, VRAM
+	}
+
 	return true, NoResource
 }
 
@@ -467,6 +491,10 @@ func (res *resources) GreaterThanOrEqual(other *resources) (bool, ResourceKind) 
 
 	if !res.gpus.GreaterThanOrEqual(other.gpus) {
 		return false, GPU
+	}
+
+	if !res.vramGB.GreaterThanOrEqual(other.vramGB) {
+		return false, VRAM
 	}
 
 	return true, NoResource
@@ -498,6 +526,10 @@ func (res *resources) EqualTo(other *resources) (bool, ResourceKind) {
 		return false, GPU
 	}
 
+	if !res.vramGB.Equals(other.vramGB) {
+		return false, VRAM
+	}
+
 	return true, NoResource
 }
 
@@ -522,6 +554,10 @@ func (res *resources) IsZero() (bool, ResourceKind) {
 		return false, GPU
 	}
 
+	if !res.vramGB.Equals(decimal.Zero) {
+		return false, VRAM
+	}
+
 	return true, NoResource
 }
 
@@ -544,6 +580,10 @@ func (res *resources) GetResource(kind ResourceKind) decimal.Decimal {
 
 	if kind == GPU {
 		return res.gpus.Copy()
+	}
+
+	if kind == VRAM {
+		return res.vramGB.Copy()
 	}
 
 	panic(fmt.Sprintf("Invalid ResourceKind specified: \"%s\"", kind))
@@ -574,6 +614,10 @@ func (res *resources) HasNegativeField() (bool, ResourceKind) {
 		return true, GPU
 	}
 
+	if res.vramGB.IsNegative() {
+		return true, VRAM
+	}
+
 	return false, NoResource
 }
 
@@ -581,9 +625,9 @@ func (res *resources) String() string {
 	res.Lock()
 	defer res.Unlock()
 
-	return fmt.Sprintf("[%s resources: millicpus=%s,gpus=%s,memoryMB=%s]",
+	return fmt.Sprintf("[%s resources: millicpus=%s,gpus=%s,vram=%sGB,memory=%sMB]",
 		res.resourceStatus.String(), res.millicpus.StringFixed(0),
-		res.gpus.StringFixed(0), res.memoryMB.StringFixed(4))
+		res.gpus.StringFixed(0), res.vramGB.StringFixed(4), res.memoryMB.StringFixed(4))
 }
 
 func (res *resources) ResourceStatus() ResourceStatus {
@@ -624,6 +668,20 @@ func (res *resources) GPUsAsDecimal() decimal.Decimal {
 	defer res.Unlock()
 
 	return res.gpus.Copy()
+}
+
+func (res *resources) VRAM() float64 {
+	res.Lock()
+	defer res.Unlock()
+
+	return res.vramGB.InexactFloat64()
+}
+
+func (res *resources) VRAMAsDecimal() decimal.Decimal {
+	res.Lock()
+	defer res.Unlock()
+
+	return res.vramGB.Copy()
 }
 
 // SetGpus sets the number of GPUs to a copy of the specified decimal.Decimal value.
@@ -688,11 +746,19 @@ func (res *resources) Add(spec *types.DecimalSpec) error {
 			res.gpus.StringFixed(0), spec.GPUs.StringFixed(0))
 	}
 
+	updatedVRAM := res.vramGB.Add(spec.VRam)
+	if updatedVRAM.LessThan(decimal.Zero) {
+		return fmt.Errorf("%w: %s VRAM would be set to %s GB after subtraction (current=%s,subtrahend=%s)",
+			ErrInvalidOperation, res.resourceStatus.String(), updatedVRAM.String(),
+			res.vramGB.StringFixed(0), spec.VRam.StringFixed(0))
+	}
+
 	// If we've gotten to this point, then all the updated resource counts are valid, at least with respect
 	// to not being negative. Persist the changes and return nil, indicating that the addition operation was successful.
 	res.gpus = updatedGPUs
 	res.millicpus = updatedCPUs
 	res.memoryMB = updatedMemory
+	res.vramGB = updatedVRAM
 
 	return nil
 }
@@ -729,11 +795,19 @@ func (res *resources) Subtract(spec *types.DecimalSpec) error {
 			res.gpus.StringFixed(0), spec.GPUs.StringFixed(0))
 	}
 
+	updatedVRAM := res.vramGB.Sub(spec.VRam)
+	if updatedVRAM.LessThan(decimal.Zero) {
+		return fmt.Errorf("%w: %s VRAM would be set to %s GB after subtraction (current=%s,subtrahend=%s)",
+			ErrInvalidOperation, res.resourceStatus.String(), updatedVRAM.String(),
+			res.vramGB.StringFixed(0), spec.VRam.StringFixed(0))
+	}
+
 	// If we've gotten to this point, then all the updated resource counts are valid, at least with respect
 	// to not being negative. Persist the changes and return nil, indicating that the subtract operation was successful.
 	res.gpus = updatedGPUs
 	res.millicpus = updatedCPUs
 	res.memoryMB = updatedMemory
+	res.vramGB = updatedVRAM
 
 	return nil
 
@@ -756,7 +830,8 @@ func (res *resources) Validate(spec types.Spec) bool {
 
 	return res.gpus.GreaterThanOrEqual(decimalSpec.GPUs) &&
 		res.millicpus.GreaterThanOrEqual(decimalSpec.Millicpus) &&
-		res.memoryMB.GreaterThanOrEqual(decimalSpec.MemoryMb)
+		res.memoryMB.GreaterThanOrEqual(decimalSpec.MemoryMb) &&
+		res.vramGB.GreaterThanOrEqual(decimalSpec.VRam)
 }
 
 // ValidateWithError returns nil if each of the resources' cpu, gpu, and memory are greater than or equal to the
@@ -781,6 +856,7 @@ func (res *resources) ValidateWithError(spec types.Spec) error {
 	sufficientGPUsAvailable := res.gpus.GreaterThanOrEqual(decimalSpec.GPUs)
 	sufficientCPUsAvailable := res.millicpus.GreaterThanOrEqual(decimalSpec.Millicpus)
 	sufficientMemoryAvailable := res.memoryMB.GreaterThanOrEqual(decimalSpec.MemoryMb)
+	sufficientVRamAvailable := res.vramGB.GreaterThanOrEqual(decimalSpec.VRam)
 
 	offendingKinds := make([]ResourceKind, 0)
 	if !sufficientGPUsAvailable {
@@ -793,6 +869,10 @@ func (res *resources) ValidateWithError(spec types.Spec) error {
 
 	if !sufficientMemoryAvailable {
 		offendingKinds = append(offendingKinds, Memory)
+	}
+
+	if !sufficientVRamAvailable {
+		offendingKinds = append(offendingKinds, VRAM)
 	}
 
 	if len(offendingKinds) > 0 {
@@ -831,24 +911,28 @@ func newResourcesWrapper(spec types.Spec) *resourcesWrapper {
 			millicpus:      resourceSpec.Millicpus.Copy(),
 			memoryMB:       resourceSpec.MemoryMb.Copy(),
 			gpus:           resourceSpec.GPUs.Copy(),
+			vramGB:         resourceSpec.VRam.Copy(),
 		},
 		pendingResources: &resources{
 			resourceStatus: PendingResources,
 			millicpus:      decimal.Zero.Copy(),
 			memoryMB:       decimal.Zero.Copy(),
 			gpus:           decimal.Zero.Copy(),
+			vramGB:         decimal.Zero.Copy(),
 		},
 		committedResources: &resources{
 			resourceStatus: CommittedResources,
 			millicpus:      decimal.Zero.Copy(),
 			memoryMB:       decimal.Zero.Copy(),
 			gpus:           decimal.Zero.Copy(),
+			vramGB:         decimal.Zero.Copy(),
 		},
 		specResources: &resources{
 			resourceStatus: SpecResources,
 			millicpus:      resourceSpec.Millicpus.Copy(),
 			memoryMB:       resourceSpec.MemoryMb.Copy(),
 			gpus:           resourceSpec.GPUs.Copy(),
+			vramGB:         resourceSpec.VRam.Copy(),
 		},
 	}
 }

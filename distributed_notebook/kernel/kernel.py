@@ -362,9 +362,14 @@ class DistributedKernel(IPythonKernel):
         if len(self.hdfs_namenode_hostname) == 0:
             raise ValueError("The HDFS hostname is empty. Was it specified in the configuration file?")
 
-        self.spec_cpu: str = os.environ.get("SPEC_CPU", "0")
-        self.spec_mem: str = os.environ.get("SPEC_MEM", "0")
-        self.spec_gpu: str = os.environ.get("SPEC_GPU", "0")
+        # The amount of CPU used by this kernel replica (when training) in millicpus (1/1000th of a CPU core).
+        self.spec_cpu: int = int(os.environ.get("SPEC_CPU", "0"))
+        # The amount of RAM used by this kernel replica (when training) in megabytes (MB).
+        self.spec_mem: float = int(os.environ.get("SPEC_MEM", "0"))
+        # The number of GPUs used by this kernel replica (when training).
+        self.spec_gpu: int = int(os.environ.get("SPEC_GPU", "0"))
+        # The amount of VRAM (i.e., GPU memory) used by this kernel replica (when training) in gigabytes (GB).
+        self.spec_vram: float = int(os.environ.get("SPEC_VRAM", "0"))
 
         self.log.info("CPU: %s, Memory: %s, GPU: %s." %
                       (self.spec_cpu, str(self.spec_mem), self.spec_gpu))

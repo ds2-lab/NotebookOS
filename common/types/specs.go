@@ -37,6 +37,9 @@ type Spec interface {
 	// It should be an integral value.
 	GPU() float64
 
+	// VRAM is the amount of GPU memory required in GB.
+	VRAM() float64
+
 	// UpdateSpecGPUs can be used to update the number of GPUs.
 	UpdateSpecGPUs(float64)
 
@@ -54,46 +57,6 @@ type Spec interface {
 
 	// String returns a string representation of the Spec.
 	String() string
-}
-
-type GPUSpec float64
-
-// GPU is an implementation of Spec that just maintains the GPU requirement.
-// Millicpus and MemoryMB are both 0.
-//
-// Although the return type is float64, this is merely because it is often compared to other float64s and rarely
-// other integers. That is, it's merely for convenience to avoid having to cast it every time.
-//
-// It should be an integral value.
-func (s GPUSpec) GPU() float64 {
-	return float64(s)
-}
-
-// CPU returns the number of vCPUs in milliCPUs, where 1000 mCPU = 1 vCPU, which may be fractional.
-func (s GPUSpec) CPU() float64 {
-	return 0.0
-}
-
-func (s GPUSpec) Clone() GPUSpec {
-	var gpus = float64(s)
-	return GPUSpec(gpus)
-}
-
-// MemoryMB returns the amount of memory in MB.
-func (s GPUSpec) MemoryMB() float64 {
-	return 0.0
-}
-
-func (s GPUSpec) String() string {
-	return fmt.Sprintf("GPUSpec[GPUs: %.2f]", s)
-}
-
-// Validate checks that "this" Spec could "satisfy" the parameterized Spec.
-//
-// To "satisfy" a Spec means that all the resource values of "this" Spec are larger than that of the
-// parameterized Spec (the Spec being satisfied).
-func (s GPUSpec) Validate(requirement Spec) bool {
-	return s.GPU() >= requirement.GPU()
 }
 
 // ToDecimalSpec creates a new DecimalSpec struct using the same resource values as the provided Spec and returns
@@ -119,8 +82,14 @@ func ToDecimalSpec(spec Spec) *DecimalSpec {
 // for each resource value (Millicpus, GPUs, and memory).
 type DecimalSpec struct {
 	GPUs      decimal.Decimal `json:"gpus"`      // Number of vGPUs.
+	VRam      decimal.Decimal `json:"vram"`      // Amount of VRAM required in GB.
 	Millicpus decimal.Decimal `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU.
 	MemoryMb  decimal.Decimal `json:"memory_mb"` // Amount of memory in megabytes (MB).
+}
+
+// VRAM is the amount of GPU memory required in GB.
+func (d DecimalSpec) VRAM() float64 {
+	return d.VRam.InexactFloat64()
 }
 
 func (d DecimalSpec) GPU() float64 {
@@ -175,7 +144,8 @@ func (d DecimalSpec) Clone() CloneableSpec {
 // Float64Spec is a concrete implementation of the Spec interface that is backed by float64 variables for each
 // resource value (Millicpus, GPUs, and memory).
 type Float64Spec struct {
-	GPUs      GPUSpec `json:"gpus"`      // Number of vGPUs.
+	GPUs      float64 `json:"gpus"`      // Number of vGPUs.
+	VRam      float64 `json:"vram"`      // Amount of VRAM in GB.
 	Millicpus float64 `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU
 	MemoryMb  float64 `json:"memory_mb"` // Amount of memory in megabytes (MB).
 }
@@ -187,7 +157,12 @@ type Float64Spec struct {
 //
 // It should be an integral value.
 func (s *Float64Spec) GPU() float64 {
-	return float64(s.GPUs)
+	return s.GPUs
+}
+
+// VRAM is the amount of GPU memory required in GB.
+func (s *Float64Spec) VRAM() float64 {
+	return s.VRam
 }
 
 // CPU returns the number of vCPUs in milliCPUs, where 1000 mCPU = 1 vCPU, which may be fractional.
@@ -202,7 +177,7 @@ func (s *Float64Spec) MemoryMB() float64 {
 
 // UpdateSpecGPUs can be used to update the number of GPUs.
 func (s *Float64Spec) UpdateSpecGPUs(gpus float64) {
-	s.GPUs = GPUSpec(gpus)
+	s.GPUs = gpus
 }
 
 // UpdateSpecCPUs can be used to update the number of Millicpus.
