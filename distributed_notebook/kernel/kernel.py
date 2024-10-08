@@ -1021,6 +1021,7 @@ class DistributedKernel(IPythonKernel):
         """ Respond to a 'ping kernel' Control request. """
         self.log.debug("Ping-Kernel (CONTROL) received.")
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        self.log.debug(f"Embedding the following buffers in ping_reply: {buffers}")
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "ping_reply",
@@ -1054,6 +1055,7 @@ class DistributedKernel(IPythonKernel):
         """ Respond to a 'ping kernel' Shell request. """
         self.log.debug("Ping-Kernel (SHELL) received.")
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        self.log.debug(f"Embedding the following buffers in ping_reply: {buffers}")
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "ping_reply",
@@ -1613,7 +1615,7 @@ class DistributedKernel(IPythonKernel):
             buffers,
             msg_id: str = "N/A",
             msg_type: str = "N/A"
-    ):
+    )->dict[str, Any]:
         """
         Attempt to decode a RequestTrace from the first buffers frame.
 
@@ -1633,7 +1635,7 @@ class DistributedKernel(IPythonKernel):
                 buffers = buffers[0]
                 self.log.debug(f"First buffers frame of \"{msg_type}\" message \"{msg_id}\": {buffers}")
             else:
-                return buffers
+                return {}
 
         if isinstance(buffers, memoryview):
             buffers: bytes = buffers.tobytes()
@@ -1644,14 +1646,14 @@ class DistributedKernel(IPythonKernel):
             buffers: str = str(buffers)
 
         try:
-            buffers = json.loads(buffers)
-            self.log.debug(f"Successfully decoded buffers \"{msg_type}\" message \"{msg_id}\" using JSON: {buffers}")
+            buffers_decoded = json.loads(buffers)
+            self.log.debug(f"Successfully decoded buffers \"{msg_type}\" message \"{msg_id}\" using JSON: {buffers_decoded}")
+            return buffers_decoded
         except json.decoder.JSONDecodeError as ex:
             self.log.warning(
                 f"Failed to decode buffers of \"{msg_type}\" message \"{msg_id}\" using JSON because: {ex}")
-            self.log.debug(f"Returning buffers as-is for \"{msg_type}\" message \"{msg_id}\": {buffers}")
-
-        return buffers
+            self.log.debug(f"Returning empty dictionary for buffers from \"{msg_type}\" message \"{msg_id}\": {buffers}")
+            return {}
 
     def extract_and_process_request_trace(self, msg: dict[str, Any], received_at: float) -> Optional[list[bytes]]:
         """
@@ -1682,18 +1684,25 @@ class DistributedKernel(IPythonKernel):
                              f"Message only has the following frames: {frame_names}")
             buffers = []
 
-        request_trace_frame = self.decode_request_trace_from_buffers(buffers, msg_id=msg_id, msg_type=msg_type)
-
-        if isinstance(buffers, dict) and "request_trace" in request_trace_frame:
-            request_trace: dict[str, Any] = buffers["request_trace"]
+        request_trace_frame: dict[str, Any] = self.decode_request_trace_from_buffers(buffers, msg_id=msg_id, msg_type=msg_type)
+        if isinstance(request_trace_frame, dict) and "request_trace" in request_trace_frame:
+            request_trace: dict[str, Any] = request_trace_frame["request_trace"]
 
             if received_at > 0:
+                self.log.debug(f"Updating \"request_received_by_kernel_replica\" field in RequestTrace found in "
+                               f"buffers of \"{msg_type}\" message \"{msg_id}\" with value {received_at} now.")
                 request_trace["request_received_by_kernel_replica"] = received_at
             else:
-                request_trace["reply_sent_by_kernel_replica"] = time.time() * 1.0e3
+                reply_sent_by_kernel_replica: float = time.time() * 1.0e3
+                self.log.debug(f"Updating \"reply_sent_by_kernel_replica\" field in RequestTrace found in "
+                               f"buffers of \"{msg_type}\" message \"{msg_id}\" with value "
+                               f"{reply_sent_by_kernel_replica} now.")
+                request_trace["reply_sent_by_kernel_replica"] = reply_sent_by_kernel_replica
 
-            request_trace_encoded: str = json.dumps(request_trace)
-            return [request_trace_encoded.encode('utf-8')]
+            request_trace_frame_encoded: str = json.dumps(request_trace_frame)
+            return [request_trace_frame_encoded.encode('utf-8')]
+        else:
+            self.log.warning(f"Could not find \"request_trace\" entry in request_trace_frame: {request_trace_frame}")
 
         return None
 

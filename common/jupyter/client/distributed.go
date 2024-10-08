@@ -1177,8 +1177,9 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 	executeRequestMsgId := leadMessage.ExecuteRequestMsgId
 
 	// Ensure that the "smr_lead_task" message that we just got is associated with the current ActiveExecution struct.
+	var targetActiveExecution *scheduling.ActiveExecution
 	if c.activeExecution.ExecuteRequestMessageId != executeRequestMsgId {
-		c.log.Error("Received 'smr_lead_task' notification for active execution associated with \"execute_request\" %s; "+
+		c.log.Warn("Received 'smr_lead_task' notification for active execution associated with \"execute_request\" %s; "+
 			"however, the current active execution is associated with \"execute_request\" %s...",
 			executeRequestMsgId, c.activeExecution.ExecuteRequestMessageId)
 
@@ -1188,30 +1189,36 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 			log.Fatalf(utils.RedStyle.Render("[ERROR] Cannot find active execution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...\n"),
 				executeRequestMsgId, c.id)
 		} else {
-			c.log.Error("Received \"smr_lead_task\" notification for non-current ActiveExecution.")
-			c.log.Error("Current active execution: %s", c.activeExecution.String())
-			c.log.Error("Target active execution (of \"smr_lead_task\" message): %s", associatedActiveExecution.String())
-			log.Fatalf(utils.RedStyle.Render("[ERROR] Received \"smr_lead_task\" notification for non-current ActiveExecution.\n"))
+			c.log.Warn("Received \"smr_lead_task\" notification for non-current ActiveExecution.")
+			c.log.Warn("Current active execution: %s", c.activeExecution.String())
+			c.log.Warn("Target active execution (of \"smr_lead_task\" message): %s", associatedActiveExecution.String())
+			// log.Fatalf(utils.RedStyle.Render("[ERROR] Received \"smr_lead_task\" notification for non-current ActiveExecution.\n"))
+
+			targetActiveExecution = associatedActiveExecution
 		}
+	} else {
+		targetActiveExecution = c.activeExecution
 	}
 
-	if c.activeExecution.HasValidOriginalSentTimestamp() {
+	if targetActiveExecution.HasValidOriginalSentTimestamp() {
 		// Measure of the interactivity.
 		// The latency here is calculated as the difference between when the kernel replica began executing the
 		// user-submitted code, and the time at which the user's Jupyter client sent the "execute_request" message.
-		latency := startedProcessingAt.Sub(c.activeExecution.OriginalSentTimestamp())
+		latency := startedProcessingAt.Sub(targetActiveExecution.OriginalSentTimestamp())
 
 		// Record metrics in Prometheus.
-		if c.activeExecution.HasValidWorkloadId() {
-			c.executionLatencyCallback(latency, c.activeExecution.WorkloadId, kernelReplica.id)
+		if targetActiveExecution.HasValidWorkloadId() {
+			c.executionLatencyCallback(latency, targetActiveExecution.WorkloadId, kernelReplica.id)
 		} else {
-			c.log.Warn("ActiveExecution had \"sent-at\" timestamp, but no workload ID...")
+			c.log.Warn("ActiveExecution for \"execute_request\" \"%s\" had \"sent-at\" timestamp, but no workload ID...",
+				targetActiveExecution.ExecuteRequestMessageId)
 		}
 	} else {
-		c.log.Warn("ActiveExecution did not have original \"send\" timestamp available.")
+		c.log.Warn("ActiveExecution for \"execute_request\" \"%s\" did not have original \"send\" timestamp available.",
+			targetActiveExecution.ExecuteRequestMessageId)
 	}
 
-	c.activeExecution.ActiveReplica = kernelReplica
+	targetActiveExecution.ActiveReplica = kernelReplica
 
 	// Extract the resource snapshot from the request.
 	snapshot, extractionError := c.extractResourceSnapshotFromRequestMetadata(msg)
