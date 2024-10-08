@@ -317,24 +317,31 @@ message VirtualDockerNode {
   // SpecGpu is the total number of vGPUs on the VirtualDockerNode.
   // This quantity is not impacted by active allocations.
   float specGpu = 5;
+  // SpecVRAM is the amount of VRAM (in GB) available on the VirtualDockerNode.
+  //  // This quantity is not impacted by active allocations.
+  float specVRAM = 6;
   // AllocatedCpu is the number of vCPUs that is actively/currently allocated on the VirtualDockerNode.
-  float allocatedCpu = 6;
+  float allocatedCpu = 7;
   // AllocatedMemory is the amount of memory (in megabytes) that is currently allocated on the VirtualDockerNode.
-  float allocatedMemory = 7;
+  float allocatedMemory = 8;
   // AllocatedGpu is the number of vGPUs that is actively/currently allocated on the VirtualDockerNode.
-  float allocatedGpu = 8;
+  float allocatedGpu = 9;
+  // AllocatedGpu is the amount of VRAM that is actively/currently allocated on the VirtualDockerNode.
+  float allocatedVRAM = 10;
   // PendingCpu is the number of vCPUs that is subscribed (but not committed) on the VirtualDockerNode.
-  float pendingCpu = 9;
+  float pendingCpu = 11;
   // PendingMemory is the amount of memory (in megabytes) that is subscribed (but not committed) on the VirtualDockerNode.
-  float pendingMemory = 10;
+  float pendingMemory = 12;
   // PendingGpus is the number of vGPUs that is subscribed (but not committed) on the VirtualDockerNode.
-  float pendingGpu = 11;
+  float pendingGpu = 13;
+  // PendingVRAM is the amount of VRAM (in GB) that is subscribed (but not committed) on the VirtualDockerNode.
+  float pendingVRAM = 14;
   // NodeName is the name of the node.
-  string nodeName = 12;
+  string nodeName = 15;
   // Address is the IP address of the node.
-  string address = 13;
+  string address = 16;
   // CreatedAt is the time that the node was created.
-  google.protobuf.Timestamp createdAt = 14;
+  google.protobuf.Timestamp createdAt = 17;
 }
 
 // DockerContainer describes a Docker container.

@@ -242,7 +242,7 @@ type Host struct {
 // NewHost creates and returns a new *Host.
 func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, cluster Cluster,
 	metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
-	
+
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
@@ -364,12 +364,15 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		SpecCpu:         float32(h.resourceSpec.CPU()),
 		SpecMemory:      float32(h.resourceSpec.MemoryMB()),
 		SpecGpu:         float32(h.resourceSpec.GPU()),
+		SpecVRAM:        float32(h.resourcesWrapper.specResources.VRAM()),
 		AllocatedCpu:    float32(h.resourcesWrapper.committedResources.millicpus.InexactFloat64()),
 		AllocatedMemory: float32(h.resourcesWrapper.committedResources.memoryMB.InexactFloat64()),
 		AllocatedGpu:    float32(h.resourcesWrapper.committedResources.gpus.InexactFloat64()),
+		AllocatedVRAM:   float32(h.resourcesWrapper.committedResources.VRAM()),
 		PendingCpu:      float32(h.resourcesWrapper.pendingResources.millicpus.InexactFloat64()),
 		PendingMemory:   float32(h.resourcesWrapper.pendingResources.memoryMB.InexactFloat64()),
 		PendingGpu:      float32(h.resourcesWrapper.pendingResources.gpus.InexactFloat64()),
+		PendingVRAM:     float32(h.resourcesWrapper.pendingResources.VRAM()),
 	}
 }
 
