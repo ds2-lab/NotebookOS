@@ -344,7 +344,7 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		SpecCpu:         float32(h.resourceSpec.CPU()),
 		SpecMemory:      float32(h.resourceSpec.MemoryMB()),
 		SpecGpu:         float32(h.resourceSpec.GPU()),
-		SpecVRAM:        float32(h.resourcesWrapper.specResources.VRAM()),
+		SpecVRAM:        float32(h.resourceSpec.VRAM()),
 		AllocatedCpu:    float32(h.resourcesWrapper.committedResources.millicpus.InexactFloat64()),
 		AllocatedMemory: float32(h.resourcesWrapper.committedResources.memoryMB.InexactFloat64()),
 		AllocatedGpu:    float32(h.resourcesWrapper.committedResources.gpus.InexactFloat64()),
@@ -864,6 +864,21 @@ func (h *Host) CommittedVRAM() float64 { return h.resourcesWrapper.committedReso
 // ResourceSpec the types.Spec defining the resources available on the Host.
 func (h *Host) ResourceSpec() types.ValidatableResourceSpec {
 	return h.resourceSpec
+}
+
+// IdleResources returns a types.Spec encapsulating the IdleResources on the Host.
+func (h *Host) IdleResources() types.Spec {
+	return h.resourcesWrapper.idleResources.ToDecimalSpec()
+}
+
+// PendingResources returns a types.Spec encapsulating the PendingResources on the Host.
+func (h *Host) PendingResources() types.Spec {
+	return h.resourcesWrapper.pendingResources.ToDecimalSpec()
+}
+
+// CommittedResources returns a types.Spec encapsulating the idle resources on the Host.
+func (h *Host) CommittedResources() types.Spec {
+	return h.resourcesWrapper.committedResources.ToDecimalSpec()
 }
 
 func (h *Host) ScaleInPriority() float64 {

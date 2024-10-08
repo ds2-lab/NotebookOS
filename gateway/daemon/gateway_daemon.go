@@ -3079,8 +3079,16 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 	nodes := make([]*proto.VirtualDockerNode, 0, d.cluster.Len())
 
 	d.cluster.RangeOverHosts(func(_ string, host *scheduling.Host) (contd bool) {
+		//d.log.Debug("Host %s (ID=%s):", host.NodeName, host.ID)
+		//d.log.Debug("Idle resources: %s", host.IdleResources().String())
+		//d.log.Debug("Pending resources: %s", host.PendingResources().String())
+		//d.log.Debug("Committed resources: %s", host.CommittedResources().String())
+		//d.log.Debug("Spec resources: %s", host.ResourceSpec().String())
+
 		virtualDockerNode := host.ToVirtualDockerNode()
 		nodes = append(nodes, virtualDockerNode)
+
+		//d.log.Debug("Returning VirtualDockerNode: %s\n", virtualDockerNode.String())
 		return true
 	})
 

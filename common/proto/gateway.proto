@@ -318,7 +318,7 @@ message VirtualDockerNode {
   // This quantity is not impacted by active allocations.
   float specGpu = 5;
   // SpecVRAM is the amount of VRAM (in GB) available on the VirtualDockerNode.
-  //  // This quantity is not impacted by active allocations.
+  // This quantity is not impacted by active allocations.
   float specVRAM = 6;
   // AllocatedCpu is the number of vCPUs that is actively/currently allocated on the VirtualDockerNode.
   float allocatedCpu = 7;

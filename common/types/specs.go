@@ -67,7 +67,7 @@ type Spec interface {
 func ToDecimalSpec(spec Spec) *DecimalSpec {
 	if decimalSpecPtr, ok := spec.(*DecimalSpec); ok {
 		return decimalSpecPtr.CloneDecimalSpec()
-	} else if decimalSpec, ok := spec.(DecimalSpec); ok {
+	} else if decimalSpec, ok := spec.(*DecimalSpec); ok {
 		return decimalSpec.CloneDecimalSpec()
 	}
 
@@ -88,47 +88,61 @@ type DecimalSpec struct {
 }
 
 // VRAM is the amount of GPU memory required in GB.
-func (d DecimalSpec) VRAM() float64 {
+func (d *DecimalSpec) VRAM() float64 {
 	return d.VRam.InexactFloat64()
 }
 
-func (d DecimalSpec) GPU() float64 {
+func (d *DecimalSpec) GPU() float64 {
 	return d.GPUs.InexactFloat64()
 }
 
-func (d DecimalSpec) UpdateSpecGPUs(gpus float64) {
+func (d *DecimalSpec) UpdateSpecGPUs(gpus float64) {
 	d.GPUs = decimal.NewFromFloat(gpus)
 }
 
-func (d DecimalSpec) UpdateSpecCPUs(millicpus float64) {
+func (d *DecimalSpec) UpdateSpecCPUs(millicpus float64) {
 	d.Millicpus = decimal.NewFromFloat(millicpus)
 }
 
-func (d DecimalSpec) UpdateSpecMemoryMB(memoryMb float64) {
+func (d *DecimalSpec) UpdateSpecMemoryMB(memoryMb float64) {
 	d.MemoryMb = decimal.NewFromFloat(memoryMb)
 }
 
-func (d DecimalSpec) CPU() float64 {
+func (d *DecimalSpec) CPU() float64 {
 	return d.Millicpus.InexactFloat64()
 }
 
-func (d DecimalSpec) MemoryMB() float64 {
+func (d *DecimalSpec) MemoryMB() float64 {
 	return d.MemoryMb.InexactFloat64()
 }
 
-func (d DecimalSpec) Validate(requirement Spec) bool {
+func (d *DecimalSpec) Validate(requirement Spec) bool {
+	if requirement == nil {
+		panic("Received null requirement spec in DecimalSpec::Validate.")
+	}
+
+	// We can bypass having to create a bunch of new decimal.Decimal structs
+	// if the other spec is also a DecimalSpec.
+	if requirementDecimalSpec, ok := requirement.(*DecimalSpec); ok {
+		return d.GPUs.GreaterThanOrEqual(requirementDecimalSpec.GPUs) &&
+			d.Millicpus.GreaterThanOrEqual(requirementDecimalSpec.Millicpus) &&
+			d.MemoryMb.GreaterThanOrEqual(requirementDecimalSpec.MemoryMb) &&
+			d.VRam.GreaterThanOrEqual(requirementDecimalSpec.VRam)
+	}
+
 	return d.GPUs.GreaterThanOrEqual(decimal.NewFromFloat(requirement.GPU())) &&
 		d.Millicpus.GreaterThanOrEqual(decimal.NewFromFloat(requirement.CPU())) &&
-		d.MemoryMb.GreaterThanOrEqual(decimal.NewFromFloat(requirement.MemoryMB()))
+		d.MemoryMb.GreaterThanOrEqual(decimal.NewFromFloat(requirement.MemoryMB())) &&
+		d.VRam.GreaterThanOrEqual(decimal.NewFromFloat(requirement.VRAM()))
 }
 
-func (d DecimalSpec) String() string {
-	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s]",
-		d.Millicpus.StringFixed(0), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(0))
+func (d *DecimalSpec) String() string {
+	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s, VRAM: %s GB]",
+		d.Millicpus.StringFixed(0), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(0), d.VRam.StringFixed(4))
 }
 
 // CloneDecimalSpec returns a copy/clone of the target DecimalSpec as a *DecimalSpec.
-func (d DecimalSpec) CloneDecimalSpec() *DecimalSpec {
+func (d *DecimalSpec) CloneDecimalSpec() *DecimalSpec {
 	return &DecimalSpec{
 		GPUs:      d.GPUs.Copy(),
 		Millicpus: d.Millicpus.Copy(),
@@ -137,7 +151,7 @@ func (d DecimalSpec) CloneDecimalSpec() *DecimalSpec {
 }
 
 // Clone returns a copy/clone of the target DecimalSpec as a Spec.
-func (d DecimalSpec) Clone() CloneableSpec {
+func (d *DecimalSpec) Clone() CloneableSpec {
 	return d.CloneDecimalSpec()
 }
 
@@ -191,7 +205,7 @@ func (s *Float64Spec) UpdateSpecMemoryMB(memory float64) {
 }
 
 func (s *Float64Spec) String() string {
-	return fmt.Sprintf("ResourceSpec[Millicpus: %.2f, Memory: %.2f MB, GPUs: %.2f]", s.Millicpus, s.MemoryMb, s.GPUs)
+	return fmt.Sprintf("ResourceSpec[Millicpus: %.0f, Memory: %.2f MB, GPUs: %.0f, VRAM: %.2f GB]", s.Millicpus, s.MemoryMb, s.GPUs, s.VRAM())
 }
 
 // Validate checks that "this" Spec could "satisfy" the parameterized Spec.
@@ -199,7 +213,11 @@ func (s *Float64Spec) String() string {
 // To "satisfy" a Spec means that all the resource values of "this" Spec are larger than that of the
 // parameterized Spec (the Spec being satisfied).
 func (s *Float64Spec) Validate(requirement Spec) bool {
-	return s.GPU() >= requirement.GPU() && s.CPU() >= requirement.CPU() && s.MemoryMB() > requirement.MemoryMB()
+	if requirement == nil {
+		panic("Received null requirement spec in Float64Spec::Validate.")
+	}
+
+	return s.GPU() >= requirement.GPU() && s.CPU() >= requirement.CPU() && s.MemoryMB() > requirement.MemoryMB() && s.VRam >= requirement.VRAM()
 }
 
 func (s *Float64Spec) Clone() CloneableSpec {
