@@ -2769,6 +2769,7 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 	}
 
 	d.log.Debug("Added snapshot to Jupyter \"%s\" message: %s", jMsg.JupyterMessageType(), snapshot.String())
+	d.log.Debug("Framed after adding snapshot: %s", jMsg.JupyterFrames.String())
 	return snapshot, nil
 }
 

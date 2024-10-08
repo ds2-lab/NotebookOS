@@ -950,6 +950,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("ident: %s" % str(ident))
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, self.shell_received_at)
+        self.next_execute_request_msg_id: str = parent_header["msg_id"]
 
         await super().execute_request(stream, ident, parent)
 
@@ -1076,7 +1077,7 @@ class DistributedKernel(IPythonKernel):
         reply_content: Dict[str, Any] = {}
         error_occurred: bool = False  # Separate flag, since we raise an exception and generate an error response when we yield successfully.
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, self.shell_received_at)
+        # buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, self.shell_received_at)
 
         parent_header: dict[str, Any] = extract_header(parent)
         self._associate_new_top_level_threads_with(parent_header)

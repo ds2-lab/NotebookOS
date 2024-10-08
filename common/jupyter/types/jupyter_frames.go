@@ -138,7 +138,7 @@ func (frames *JupyterFrames) LenWithoutIdentitiesFrame(forceRecompute bool) int 
 		f, _ := frames.SkipIdentitiesFrame() // This forces the offset to be recalculated.
 		return len(f)
 	} else {
-		return len((frames.Frames)[frames.Offset:])
+		return len(frames.Frames[frames.Offset:])
 	}
 }
 
@@ -194,10 +194,10 @@ func (frames *JupyterFrames) Sign(signatureScheme string, key []byte) ([][]byte,
 
 	signature := frames.sign(key)
 	encodeLen := hex.EncodedLen(len(signature))
-	if cap((frames.Frames)[frames.Offset+JupyterFrameSignature]) < encodeLen {
-		(frames.Frames)[frames.Offset+JupyterFrameSignature] = make([]byte, encodeLen)
+	if cap(frames.Frames[frames.Offset+JupyterFrameSignature]) < encodeLen {
+		frames.Frames[frames.Offset+JupyterFrameSignature] = make([]byte, encodeLen)
 	}
-	hex.Encode((frames.Frames)[frames.Offset+JupyterFrameSignature], signature)
+	hex.Encode(frames.Frames[frames.Offset+JupyterFrameSignature], signature)
 	return frames.Frames, nil
 }
 
@@ -211,12 +211,12 @@ func (frames *JupyterFrames) SignByConnectionInfo(connInfo *ConnectionInfo) ([][
 }
 
 func (frames *JupyterFrames) HeaderFrame() *JupyterFrame {
-	return jupyterFrame((frames.Frames)[frames.Offset+JupyterFrameHeader])
+	return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameHeader])
 }
 
 func (frames *JupyterFrames) GetMessageType() (string, error) {
 	var header MessageHeader
-	err := json.Unmarshal((frames.Frames)[frames.Offset+JupyterFrameHeader], &header)
+	err := json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameHeader], &header)
 	if err != nil {
 		return "", err
 	}
@@ -225,64 +225,64 @@ func (frames *JupyterFrames) GetMessageType() (string, error) {
 }
 
 func (frames *JupyterFrames) EncodeHeader(in any) (err error) {
-	(frames.Frames)[frames.Offset+JupyterFrameHeader], err = json.Marshal(in)
+	frames.Frames[frames.Offset+JupyterFrameHeader], err = json.Marshal(in)
 	return err
 }
 
 func (frames *JupyterFrames) DecodeHeader(out any) error {
-	return json.Unmarshal((frames.Frames)[frames.Offset+JupyterFrameHeader], out)
+	return json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameHeader], out)
 }
 
 func (frames *JupyterFrames) ParentHeaderFrame() *JupyterFrame {
-	return jupyterFrame((frames.Frames)[frames.Offset+JupyterFrameParentHeader])
+	return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameParentHeader])
 }
 
 func (frames *JupyterFrames) EncodeParentHeader(in any) (err error) {
-	(frames.Frames)[frames.Offset+JupyterFrameParentHeader], err = json.Marshal(in)
+	frames.Frames[frames.Offset+JupyterFrameParentHeader], err = json.Marshal(in)
 	return err
 }
 
 func (frames *JupyterFrames) DecodeParentHeader(out any) error {
-	return json.Unmarshal((frames.Frames)[frames.Offset+JupyterFrameParentHeader], out)
+	return json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameParentHeader], out)
 }
 
 func (frames *JupyterFrames) MetadataFrame() *JupyterFrame {
-	return jupyterFrame((frames.Frames)[frames.Offset+JupyterFrameMetadata])
+	return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameMetadata])
 }
 
 func (frames *JupyterFrames) EncodeMetadata(in any) (err error) {
-	(frames.Frames)[frames.Offset+JupyterFrameMetadata], err = json.Marshal(in)
+	frames.Frames[frames.Offset+JupyterFrameMetadata], err = json.Marshal(in)
 	return err
 }
 
 func (frames *JupyterFrames) DecodeMetadata(out any) error {
-	return json.Unmarshal((frames.Frames)[frames.Offset+JupyterFrameMetadata], out)
+	return json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameMetadata], out)
 }
 
 func (frames *JupyterFrames) ContentFrame() *JupyterFrame {
-	return jupyterFrame((frames.Frames)[frames.Offset+JupyterFrameContent])
+	return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameContent])
 }
 
 func (frames *JupyterFrames) EncodeContent(in any) (err error) {
-	(frames.Frames)[frames.Offset+JupyterFrameContent], err = json.Marshal(in)
+	frames.Frames[frames.Offset+JupyterFrameContent], err = json.Marshal(in)
 	return err
 }
 
 func (frames *JupyterFrames) DecodeContent(out any) error {
-	return json.Unmarshal((frames.Frames)[frames.Offset+JupyterFrameContent], out)
+	return json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameContent], out)
 }
 
 func (frames *JupyterFrames) DecodeBuffers(out any) error {
-	if len((frames.Frames)[frames.Offset:]) > JupyterFrameBuffers {
-		return json.Unmarshal((frames.Frames)[frames.Offset+JupyterFrameBuffers], out)
+	if len(frames.Frames[frames.Offset:]) > JupyterFrameBuffers {
+		return json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameBuffers], out)
 	} else {
 		return ErrInvalidJupyterMessage
 	}
 }
 
 func (frames *JupyterFrames) BuffersFrame() *JupyterFrame {
-	if len((frames.Frames)[frames.Offset:]) > JupyterFrameBuffers {
-		return jupyterFrame((frames.Frames)[frames.Offset+JupyterFrameBuffers])
+	if len(frames.Frames[frames.Offset:]) > JupyterFrameBuffers {
+		return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameBuffers])
 	} else {
 		return nil
 	}
@@ -290,8 +290,8 @@ func (frames *JupyterFrames) BuffersFrame() *JupyterFrame {
 
 func (frames *JupyterFrames) verify(signKey []byte) bool {
 	expect := frames.sign(signKey)
-	signature := make([]byte, hex.DecodedLen(len((frames.Frames)[frames.Offset+JupyterFrameSignature])))
-	if _, err := hex.Decode(signature, (frames.Frames)[frames.Offset+JupyterFrameSignature]); err != nil {
+	signature := make([]byte, hex.DecodedLen(len(frames.Frames[frames.Offset+JupyterFrameSignature])))
+	if _, err := hex.Decode(signature, frames.Frames[frames.Offset+JupyterFrameSignature]); err != nil {
 		fmt.Printf("[ERROR] Failed to decode: %v", err)
 		return false
 	}
@@ -310,7 +310,7 @@ func (frames *JupyterFrames) CreateSignature(signatureScheme string, key []byte)
 
 func (frames *JupyterFrames) sign(signKey []byte) []byte {
 	mac := hmac.New(sha256.New, signKey)
-	for _, msgPart := range (frames.Frames)[JupyterFrameHeader+frames.Offset : JupyterFrameBuffers+frames.Offset] {
+	for _, msgPart := range frames.Frames[JupyterFrameHeader+frames.Offset : JupyterFrameBuffers+frames.Offset] {
 		mac.Write(msgPart)
 	}
 	return mac.Sum(nil)
@@ -325,7 +325,7 @@ func (frames *JupyterFrames) SkipIdentitiesFrame() ([][]byte, int) {
 
 	i := 0
 	// Jupyter messages start from "<IDS|MSG>" frame.
-	for i < len(frames.Frames) && string((frames.Frames)[i]) != "<IDS|MSG>" {
+	for i < len(frames.Frames) && string(frames.Frames[i]) != "<IDS|MSG>" {
 		i++
 	}
 
@@ -392,9 +392,9 @@ func (frames *JupyterFrames) AddDestFrame(destID string, forceRecomputeOffsetBef
 
 	// Add dest frame just before "<IDS|MSG>" frame.
 	frames.Frames = append(frames.Frames, nil) // Let "append" allocate a new slice if necessary.
-	copy((frames.Frames)[frames.Offset+1:], (frames.Frames)[frames.Offset:])
+	copy(frames.Frames[frames.Offset+1:], frames.Frames[frames.Offset:])
 	reqID = uuid.New().String()
-	(frames.Frames)[frames.Offset] = []byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, destID, reqID))
+	frames.Frames[frames.Offset] = []byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, destID, reqID))
 
 	// This will force the Offset field of the target JupyterFrames to be recomputed/updated.
 	frames.SkipIdentitiesFrame()
@@ -425,9 +425,9 @@ func (frames *JupyterFrames) RemoveDestFrame(forceRecomputeOffsetBeforeRemoval b
 
 	// Remove dest frame.
 	if frames.Offset > 0 {
-		copy((frames.Frames)[frames.Offset-1:], (frames.Frames)[frames.Offset:])
-		(frames.Frames)[len(frames.Frames)-1] = nil
-		frames.Frames = (frames.Frames)[:len(frames.Frames)-1]
+		copy(frames.Frames[frames.Offset-1:], frames.Frames[frames.Offset:])
+		frames.Frames[len(frames.Frames)-1] = nil
+		frames.Frames = frames.Frames[:len(frames.Frames)-1]
 	}
 
 	// This will force the Offset field of the target JupyterFrames to be recomputed/updated.
@@ -456,8 +456,8 @@ func ValidateFrames(signKey []byte, signatureScheme string, frames *JupyterFrame
 		return false
 	}
 
-	signature := make([]byte, hex.DecodedLen(len((frames.Frames)[frames.Offset+JupyterFrameSignature])))
-	if _, err = hex.Decode(signature, (frames.Frames)[frames.Offset+JupyterFrameSignature]); err != nil {
+	signature := make([]byte, hex.DecodedLen(len(frames.Frames[frames.Offset+JupyterFrameSignature])))
+	if _, err = hex.Decode(signature, frames.Frames[frames.Offset+JupyterFrameSignature]); err != nil {
 		return false
 	}
 	return hmac.Equal(expect, signature)
