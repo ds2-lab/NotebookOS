@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import faulthandler
+import math
 import inspect
 import json
 import logging
+import math
 import os
 import signal
 import socket
@@ -216,7 +218,7 @@ class DistributedKernel(IPythonKernel):
         self.kernel_notification_service_channel: Optional[grpc.Channel] = None
         self.kernel_notification_service_stub: Optional[KernelErrorReporterStub] = None
         self.message_acknowledgements_enabled: bool = True  # default to True
-        self.shell_received_at: float = None
+        self.shell_received_at: Optional[float] = None
 
         # Prometheus metrics.
         self.num_yield_proposals: Counter = Counter(
@@ -1664,6 +1666,8 @@ class DistributedKernel(IPythonKernel):
         received_at argument. Then, re-encode the RequestTrace and return a value in the Buffers format that
         can be directly passed to the Session class' send method.
 
+        received_at should be unix milliseconds.
+
         Returns:
             If the extraction of the request trace was successful, then a value in the Buffers format that
             can be directly passed to the Session class' send method.
@@ -1689,15 +1693,16 @@ class DistributedKernel(IPythonKernel):
             request_trace: dict[str, Any] = request_trace_frame["request_trace"]
 
             if received_at > 0:
-                self.log.debug(f"Updating \"request_received_by_kernel_replica\" field in RequestTrace found in "
+                received_at = int(math.floor(received_at))
+                self.log.debug(f"Updating \"requestReceivedByKernelReplica\" field in RequestTrace found in "
                                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value {received_at} now.")
-                request_trace["request_received_by_kernel_replica"] = received_at
+                request_trace["requestReceivedByKernelReplica"] = received_at
             else:
-                reply_sent_by_kernel_replica: float = time.time() * 1.0e3
-                self.log.debug(f"Updating \"reply_sent_by_kernel_replica\" field in RequestTrace found in "
+                reply_sent_by_kernel_replica: int = int(math.floor((time.time() * 1.0e3)))
+                self.log.debug(f"Updating \"replySentByKernelReplica\" field in RequestTrace found in "
                                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value "
                                f"{reply_sent_by_kernel_replica} now.")
-                request_trace["reply_sent_by_kernel_replica"] = reply_sent_by_kernel_replica
+                request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
 
             request_trace_frame_encoded: str = json.dumps(request_trace_frame)
             return [request_trace_frame_encoded.encode('utf-8')]
