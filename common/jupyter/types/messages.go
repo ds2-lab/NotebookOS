@@ -107,6 +107,17 @@ type MessageHeader struct {
 	Version  string             `json:"version"`
 }
 
+func (header *MessageHeader) Clone() *MessageHeader {
+	return &MessageHeader{
+		MsgID:    header.MsgID,
+		Username: header.Username,
+		Session:  header.Session,
+		Date:     header.Date,
+		MsgType:  header.MsgType,
+		Version:  header.Version,
+	}
+}
+
 func (header *MessageHeader) String() string {
 	m, err := json.Marshal(header)
 	if err != nil {
@@ -233,6 +244,72 @@ func NewJupyterMessage(msg *zmq4.Msg) *JupyterMessage {
 		headerDecoded:       false,
 		parentHeaderDecoded: false,
 	}
+}
+
+func cloneMap(src map[string]interface{}, dst map[string]interface{}) {
+	for k, v := range src {
+		if innerSrc, ok := v.(map[string]interface{}); ok {
+			innerDst := make(map[string]interface{})
+			cloneMap(innerSrc, innerDst)
+			dst[k] = innerDst
+		} else {
+			dst[k] = v
+		}
+	}
+}
+
+func (m *JupyterMessage) Clone() *JupyterMessage {
+	var clonedHeader *MessageHeader
+	if m.headerDecoded {
+		clonedHeader = m.header.Clone()
+	}
+
+	var clonedParentHeader *MessageHeader
+	if m.parentHeaderDecoded {
+		clonedParentHeader = m.parentHeader.Clone()
+	}
+
+	var clonedRequestTrace *proto.RequestTrace
+	if m.RequestTrace != nil {
+		clonedRequestTrace = m.RequestTrace.Clone()
+	}
+
+	var clonedFrames *JupyterFrames
+	if m.JupyterFrames != nil {
+		clonedFrames = m.JupyterFrames.Clone()
+	}
+
+	var clonedZmqMsg *zmq4.Msg
+	if m.msg != nil {
+		clone := m.msg.Clone()
+		clone.Type = m.msg.Type
+		clonedZmqMsg = &clone
+	}
+
+	// Best-effort attempt to deep copy...
+	clonedMetadata := make(map[string]interface{})
+	cloneMap(m.metadata, clonedMetadata)
+
+	clonedJupyterMessage := &JupyterMessage{
+		ReplicaId:           m.ReplicaId,
+		RequestId:           m.RequestId,
+		DestinationId:       m.DestinationId,
+		header:              clonedHeader,
+		parentHeader:        clonedParentHeader,
+		signatureScheme:     m.signatureScheme,
+		signatureSchemeSet:  m.signatureSchemeSet,
+		metadata:            clonedMetadata,
+		key:                 m.key,
+		keySet:              m.keySet,
+		parentHeaderDecoded: m.parentHeaderDecoded,
+		headerDecoded:       m.headerDecoded,
+		metadataDecoded:     m.metadataDecoded,
+		RequestTrace:        clonedRequestTrace,
+		JupyterFrames:       clonedFrames,
+		msg:                 clonedZmqMsg,
+	}
+
+	return clonedJupyterMessage
 }
 
 // MsgToString returns the Frames of the msg field as a string.

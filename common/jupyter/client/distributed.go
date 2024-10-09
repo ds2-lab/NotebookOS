@@ -134,6 +134,8 @@ type DistributedKernelClient struct {
 	// trainingStartedAt is the time at which a replica of the associated kernel began actively training.
 	trainingStartedAt time.Time
 
+	debugMode bool
+
 	log     logger.Logger
 	mu      sync.RWMutex
 	closing int32
@@ -148,6 +150,7 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 	kernel := &DistributedKernelClient{
 		id:                       spec.Id,
 		persistentId:             persistentId,
+		debugMode:                debugMode,
 		messagingMetricsProvider: messagingMetricsProvider,
 		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, metrics.ClusterGateway, func(s *server.AbstractServer) {
 			s.Sockets.Shell = types.NewSocket(zmq4.NewRouter(s.Ctx), shellListenPort, types.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
@@ -939,19 +942,26 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 		wg.Add(1)
 		numResponsesExpected += 1
-		go func(kernel scheduling.Kernel) {
-			if jMsg.JupyterMessageType() == types.ShellExecuteRequest || jMsg.JupyterMessageType() == types.ShellYieldRequest {
-				kernel.(*KernelReplicaClient).SentExecuteRequest(jMsg)
+		go func(targetReplica scheduling.Kernel) {
+			var jupyterMessage *types.JupyterMessage
+			if c.debugMode {
+				jupyterMessage = jMsg.Clone()
+			} else {
+				jupyterMessage = jMsg
+			}
+
+			if jupyterMessage.JupyterMessageType() == types.ShellExecuteRequest || jupyterMessage.JupyterMessageType() == types.ShellYieldRequest {
+				targetReplica.(*KernelReplicaClient).SentExecuteRequest(jupyterMessage)
 			}
 
 			// TODO: If the ACKs fail on this and we reconnect and retry, the wg.Done may be called too many times.
 			// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 			// to be cleared after the context ends; we just do it on ACK timeout.
-			if err := kernel.(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jMsg, forwarder, c.getWaitResponseOption, func() {
+			if err := targetReplica.(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jupyterMessage, forwarder, c.getWaitResponseOption, func() {
 				wg.Done()
 				numResponsesSoFar.Add(1)
 			}); err != nil {
-				c.log.Debug("Error while issuing %s '%s' request to kernel %s: %v", typ, jMsg.JupyterMessageType(), c.id, err)
+				c.log.Debug("Error while issuing %s '%s' request to targetReplica %s: %v", typ, jupyterMessage.JupyterMessageType(), c.id, err)
 			}
 		}(kernel)
 	}
@@ -998,14 +1008,20 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 							// If we aren't training, then it may be a little suspect that our message hasn't been
 							// processed yet. We'll log a warning message, but we'll keep waiting.
 							if !c.isTraining {
+								// NOTE: If we're in debug mode, then jMsg will not necessarily be the exact same message that was sent to the replica,
+								// as we clone the messages before sending them!!!
 								c.log.Warn("Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Kernel isn't even training... Received %d/%d responses so far.",
 									time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
 							} else if loopIterations > 0 && loopIterations%5 == 0 { // Print warnings every so often about stuck SHELL messages.
+								// NOTE: If we're in debug mode, then jMsg will not necessarily be the exact same message that was sent to the replica,
+								// as we clone the messages before sending them!!!
 								c.log.Warn("Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Kernel is currently training. Received %d/%d responses so far.",
 									time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
 							}
 						} else {
 							// We've waited for over 5 minutes, and we've not heard anything. This is a non-shell message.
+							// NOTE: If we're in debug mode, then jMsg will not necessarily be the exact same message that was sent to the replica,
+							// as we clone the messages before sending them!!!
 							c.log.Warn("Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Received %d/%d responses so far.",
 								time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
 						}

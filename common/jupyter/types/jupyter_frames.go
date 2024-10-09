@@ -124,6 +124,19 @@ func NewJupyterFramesFromBytes(frames [][]byte) *JupyterFrames {
 	}
 }
 
+func (frames *JupyterFrames) Clone() *JupyterFrames {
+	clonedFrames := make([][]byte, len(frames.Frames))
+	for i, frame := range frames.Frames {
+		clonedFrames[i] = make([]byte, len(frame))
+		copy(clonedFrames[i], frame)
+	}
+
+	return &JupyterFrames{
+		Frames: clonedFrames,
+		Offset: frames.Offset,
+	}
+}
+
 func (frames *JupyterFrames) Len() int {
 	if frames.Frames == nil {
 		panic("Frames are nil.")

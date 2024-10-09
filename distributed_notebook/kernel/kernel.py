@@ -737,8 +737,8 @@ class DistributedKernel(IPythonKernel):
             self.send_ack(self.shell_stream, msg_type, msg_id, idents, message, stream_name="shell")  # Send an ACK.
 
             self.report_error(
-                error_title = "Kernel Replica Received an Invalid Shell Message",
-                error_message = f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid shell message: {ex}."
+                error_title="Kernel Replica Received an Invalid Shell Message",
+                error_message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid shell message: {ex}."
             )
 
             return
@@ -774,8 +774,6 @@ class DistributedKernel(IPythonKernel):
         # The first time we call 'extract_and_process_request_trace' for this request.
         # The second time will be in the handler itself.
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(msg, self.shell_received_at)
-        if buffers is not None:
-            msg = t.cast(t.List[bytes], msg)
 
         handler = self.shell_handlers.get(msg_type, None)
         if handler is None:
@@ -1071,9 +1069,84 @@ class DistributedKernel(IPythonKernel):
 
         self.next_execute_request_msg_id: str = parent_header["msg_id"]
 
-        await super().execute_request(stream, ident, parent)
+        parent_header = extract_header(parent)
+        self._associate_new_top_level_threads_with(parent_header)
 
-        # TODO: Need to figure out what value to pass to wait_for_election_to_end here...
+        if not self.session:
+            return
+        try:
+            content = parent["content"]
+            code = content["code"]
+            silent = content.get("silent", False)
+            store_history = content.get("store_history", not silent)
+            user_expressions = content.get("user_expressions", {})
+            allow_stdin = content.get("allow_stdin", False)
+            cell_meta = parent.get("metadata", {})
+            cell_id = cell_meta.get("cellId")
+        except Exception as ex:
+            self.log.error("Got bad msg: ")
+            self.log.error("%s", parent)
+            self.report_error("Got Bad \"execute_request\" Message", f"Error: {ex}. Message: {parent}")
+            return
+
+        stop_on_error = content.get("stop_on_error", True)
+
+        metadata = self.init_metadata(parent)
+
+        # Re-broadcast our input for the benefit of listening clients, and
+        # start computing output
+        if not silent:
+            self.execution_count += 1
+            self._publish_execute_input(code, parent, self.execution_count)
+
+        # Arguments based on the do_execute signature
+        do_execute_args = {
+            "code": code,
+            "silent": silent,
+            "store_history": store_history,
+            "user_expressions": user_expressions,
+            "allow_stdin": allow_stdin,
+        }
+
+        if self._do_exec_accepted_params["cell_meta"]:
+            do_execute_args["cell_meta"] = cell_meta
+        if self._do_exec_accepted_params["cell_id"]:
+            do_execute_args["cell_id"] = cell_id
+
+        # Call do_execute with the appropriate arguments
+        reply_content = self.do_execute(**do_execute_args)
+
+        if inspect.isawaitable(reply_content):
+            reply_content = await reply_content
+
+        # Flush output before sending the reply.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        # FIXME: on rare occasions, the flush doesn't seem to make it to the
+        # clients... This seems to mitigate the problem, but we definitely need
+        # to better understand what's going on.
+        if self._execute_sleep:
+            time.sleep(self._execute_sleep)
+
+        # Send the reply.
+        reply_content = json_clean(reply_content)
+        metadata = self.finish_metadata(parent, metadata, reply_content)
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+            stream,
+            "execute_reply",
+            reply_content,
+            parent,
+            metadata=metadata,
+            ident=ident,
+            buffers=buffers,
+        )
+
+        self.log.debug("%s", reply_msg)
+
+        if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
+            self._abort_queues()
 
         # Schedule task to wait until this current election either fails (due to all replicas yielding)
         # or until the leader finishes executing the user-submitted code.
