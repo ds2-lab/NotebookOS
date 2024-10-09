@@ -381,7 +381,7 @@ message RequestTrace {
   string messageId = 1;
   string messageType = 2;
   string kernelId = 3;
-  int64 replicaId = 4;
+  int32 replicaId = 4;
   int64 requestReceivedByGateway = 5;
   int64 requestSentByGateway = 6;
   int64 requestReceivedByLocalDaemon = 7;

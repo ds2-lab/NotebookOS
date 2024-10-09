@@ -1479,7 +1479,7 @@ type RequestTrace struct {
 	MessageId                      string `protobuf:"bytes,1,opt,name=messageId,proto3" json:"messageId,omitempty"`
 	MessageType                    string `protobuf:"bytes,2,opt,name=messageType,proto3" json:"messageType,omitempty"`
 	KernelId                       string `protobuf:"bytes,3,opt,name=kernelId,proto3" json:"kernelId,omitempty"`
-	ReplicaId                      int64  `protobuf:"varint,4,opt,name=replicaId,proto3" json:"replicaId,omitempty"`
+	ReplicaId                      int32  `protobuf:"varint,4,opt,name=replicaId,proto3" json:"replicaId,omitempty"`
 	RequestReceivedByGateway       int64  `protobuf:"varint,5,opt,name=requestReceivedByGateway,proto3" json:"requestReceivedByGateway,omitempty"`
 	RequestSentByGateway           int64  `protobuf:"varint,6,opt,name=requestSentByGateway,proto3" json:"requestSentByGateway,omitempty"`
 	RequestReceivedByLocalDaemon   int64  `protobuf:"varint,7,opt,name=requestReceivedByLocalDaemon,proto3" json:"requestReceivedByLocalDaemon,omitempty"`
@@ -1545,7 +1545,7 @@ func (x *RequestTrace) GetKernelId() string {
 	return ""
 }
 
-func (x *RequestTrace) GetReplicaId() int64 {
+func (x *RequestTrace) GetReplicaId() int32 {
 	if x != nil {
 		return x.ReplicaId
 	}
@@ -3405,7 +3405,7 @@ func (x *ReplicaId) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ReplicaID.ProtoReflect.Descriptor instead.
+// Deprecated: Use ReplicaId.ProtoReflect.Descriptor instead.
 func (*ReplicaId) Descriptor() ([]byte, []int) {
 	return file_common_proto_gateway_proto_rawDescGZIP(), []int{48}
 }
@@ -4318,7 +4318,7 @@ var file_common_proto_gateway_proto_rawDesc = []byte{
 	0x01, 0x28, 0x09, 0x52, 0x0b, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x54, 0x79, 0x70, 0x65,
 	0x12, 0x1a, 0x0a, 0x08, 0x6b, 0x65, 0x72, 0x6e, 0x65, 0x6c, 0x49, 0x64, 0x18, 0x03, 0x20, 0x01,
 	0x28, 0x09, 0x52, 0x08, 0x6b, 0x65, 0x72, 0x6e, 0x65, 0x6c, 0x49, 0x64, 0x12, 0x1c, 0x0a, 0x09,
-	0x72, 0x65, 0x70, 0x6c, 0x69, 0x63, 0x61, 0x49, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x03, 0x52,
+	0x72, 0x65, 0x70, 0x6c, 0x69, 0x63, 0x61, 0x49, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x05, 0x52,
 	0x09, 0x72, 0x65, 0x70, 0x6c, 0x69, 0x63, 0x61, 0x49, 0x64, 0x12, 0x3a, 0x0a, 0x18, 0x72, 0x65,
 	0x71, 0x75, 0x65, 0x73, 0x74, 0x52, 0x65, 0x63, 0x65, 0x69, 0x76, 0x65, 0x64, 0x42, 0x79, 0x47,
 	0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x18, 0x05, 0x20, 0x01, 0x28, 0x03, 0x52, 0x18, 0x72, 0x65,
@@ -5002,7 +5002,7 @@ var file_common_proto_gateway_proto_goTypes = []any{
 	(*ReplicaInfo)(nil),                            // 45: gateway.ReplicaInfo
 	(*MigrationRequest)(nil),                       // 46: gateway.MigrationRequest
 	(*SmrReadyNotification)(nil),                   // 47: gateway.SmrReadyNotification
-	(*ReplicaId)(nil),                              // 48: gateway.ReplicaID
+	(*ReplicaId)(nil),                              // 48: gateway.ReplicaId
 	(*PrepareToMigrateResponse)(nil),               // 49: gateway.PrepareToMigrateResponse
 	(*MigrateKernelResponse)(nil),                  // 50: gateway.MigrateKernelResponse
 	(*ReplicaInfoWithAddr)(nil),                    // 51: gateway.ReplicaInfoWithAddr

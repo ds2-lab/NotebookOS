@@ -924,12 +924,12 @@ func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHa
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, _ string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error {
+func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, _ string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
 	// c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
 	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
 
-func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
+func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
 	}

@@ -34,6 +34,7 @@ func (f *JupyterRequestTraceFrame) String() string {
 // The RequestTrace struct has all of its timing fields initialized to -1.
 func NewRequestTrace() *RequestTrace {
 	return &RequestTrace{
+		ReplicaId:                      -1,
 		RequestReceivedByGateway:       DefaultTraceTimingValue,
 		RequestSentByGateway:           DefaultTraceTimingValue,
 		RequestReceivedByLocalDaemon:   DefaultTraceTimingValue,

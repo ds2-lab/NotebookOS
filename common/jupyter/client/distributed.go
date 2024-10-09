@@ -775,13 +775,13 @@ func (c *DistributedKernelClient) IsReplicaReady(replicaId int32) (bool, error) 
 }
 
 // RequestWithHandler sends a request to all replicas and handles the response.
-func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error {
+func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
 	return c.RequestWithHandlerAndReplicas(ctx, typ, msg, handler, done)
 }
 
 // Process a response to a shell message. This is called before the handler that was passed when issuing the request.
 // Return true if the message is a 'yield' message (indicating that the replica yielded an execution).
-func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.KernelInfo, msg *types.JupyterMessage) (err error, yielded bool) {
+func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.KernelReplicaInfo, msg *types.JupyterMessage) (err error, yielded bool) {
 	replicaClient := replica.(*KernelReplicaClient)
 	replicaId := replicaClient.replicaId
 
@@ -851,7 +851,7 @@ func (c *DistributedKernelClient) markExecutionAsComplete(execution *scheduling.
 // The forwarder function defined within this method must assign a value to the types.JupyterMessage's ReplicaID
 // field. Importantly, it should assign a value to the received response from the kernel, not the jMsg parameter
 // (of the DistributedKernelClient::RequestWithHandlerAndReplicas method) that is being sent out.
-func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, typ types.MessageType, jMsg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
+func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, typ types.MessageType, jMsg *types.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
 	// Broadcast to all replicas if no replicas are specified.
 	if len(replicas) == 0 {
 		for _, replica := range c.replicas {
@@ -870,9 +870,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// defer cancel()
 	forwarder := func(replica scheduling.KernelReplicaInfo, typ types.MessageType, msg *types.JupyterMessage) (err error) {
 		c.log.Debug(utils.BlueStyle.Render("Received %s response from %v"), typ.String(), replica)
-
-		kernelClient := replica.(*KernelReplicaClient)
-		msg.ReplicaId = kernelClient.replicaId
+		msg.ReplicaId = replica.ReplicaID()
 
 		if typ == types.ShellMessage {
 			// "Preprocess" the response, which involves checking if it is a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.

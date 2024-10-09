@@ -650,7 +650,12 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		// Notify that all replies have been received.
 		if msg.RequestTrace != nil {
 			requestTrace := msg.RequestTrace
-			requestTrace.ReplicaId = int64(from.ReplicaId())
+			if requestTrace.ReplicaId != -1 && requestTrace.ReplicaId != from.ReplicaID() {
+				d.log.Warn("Overwriting existing replica ID of %d with %d in RequestTrace for %s \"%s\" message %s (JupyterID=\"%s\")",
+					requestTrace.ReplicaId, from.ReplicaID(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+			}
+
+			requestTrace.ReplicaId = from.ReplicaID()
 
 			d.log.Debug("Received %s ping_reply from %s for message \"%s\". Received %d/3 replies. Time elapsed: %v. Request trace: %s.",
 				typ.String(), from.String(), msgId, latestNumRepliesReceived, time.Since(startTime), msg.RequestTrace.String())
@@ -2410,7 +2415,7 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.Ju
 	return err
 }
 
-func (d *ClusterGatewayImpl) kernelShellHandler(kernel scheduling.KernelReplicaInfo, _ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+func (d *ClusterGatewayImpl) kernelShellHandler(kernel scheduling.KernelInfo, _ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	return d.ShellHandler(kernel, msg)
 }
 
@@ -2751,6 +2756,16 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 	if socket == nil {
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
+	}
+
+	if msg.RequestTrace != nil {
+		requestTrace := msg.RequestTrace
+		if requestTrace.ReplicaId != -1 && requestTrace.ReplicaId != from.ReplicaID() {
+			d.log.Warn("Overwriting existing replica ID of %d with %d in RequestTrace for %s \"%s\" message %s (JupyterID=\"%s\")",
+				requestTrace.ReplicaId, from.ReplicaID(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+		}
+
+		msg.RequestTrace.ReplicaId = from.ReplicaID()
 	}
 
 	if typ == jupyter.ShellMessage {

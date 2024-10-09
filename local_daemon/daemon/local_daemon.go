@@ -1167,7 +1167,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(_ context.Context, req *proto.Rep
 	requestWG.Add(1)
 	// var dataDirectory string
 
-	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelReplicaInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 		d.log.Debug("Received response from 'prepare-to-migrate' request.")
 
 		for i, frame := range msg.JupyterFrames.Frames {
@@ -1279,7 +1279,7 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Re
 		var wg sync.WaitGroup
 		var requestReceived int32 = 0
 		wg.Add(1)
-		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelReplicaInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 			d.log.Debug("Received response from 'update-replica' request.")
 
 			// Record that we've received the response.
@@ -2535,7 +2535,7 @@ func (d *SchedulerDaemonImpl) forwardRequest(ctx context.Context, kernel *client
 	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done)
 }
 
-func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelReplicaInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	var (
 		sender         jupyter.Sender
 		connectionInfo *jupyter.ConnectionInfo
