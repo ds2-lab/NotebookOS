@@ -1501,7 +1501,7 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *proto.KernelReplicaSpe
 	file := &jupyter.ConfigFile{
 		DistributedKernelConfig: jupyter.DistributedKernelConfig{
 			StorageBase:             kubeStorageBase,
-			SMRNodeID:               -1, // int(spec.ReplicaId), // TODO(Ben): Set this to -1 to make it obvious that the Pod needs to fill this in itself?
+			SMRNodeID:               -1, // int(spec.ReplicaID), // TODO(Ben): Set this to -1 to make it obvious that the Pod needs to fill this in itself?
 			SMRNodes:                replicas,
 			SMRJoin:                 spec.Join,
 			SMRPort:                 c.smrPort,

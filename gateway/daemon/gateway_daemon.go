@@ -640,21 +640,24 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 	defer cancel()
 
-	respChan := make(chan interface{})
+	respChan := make(chan interface{}, d.ClusterOptions.NumReplicas)
 
 	startTime := time.Now()
 	var numRepliesReceived atomic.Int32
-	responseHandler := func(from scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+	responseHandler := func(from scheduling.KernelReplicaInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 		latestNumRepliesReceived := numRepliesReceived.Add(1)
 
 		// Notify that all replies have been received.
 		if msg.RequestTrace != nil {
-			d.log.Debug("Received %s ping_reply from kernel %s for message \"%s\". Received %d/3 replies. Time elapsed: %v. Request trace: %s.",
-				typ.String(), from.ID(), msgId, latestNumRepliesReceived, time.Since(startTime), msg.RequestTrace.String())
-			respChan <- msg.RequestTrace
+			requestTrace := msg.RequestTrace
+			requestTrace.ReplicaId = int64(from.ReplicaId())
+
+			d.log.Debug("Received %s ping_reply from %s for message \"%s\". Received %d/3 replies. Time elapsed: %v. Request trace: %s.",
+				typ.String(), from.String(), msgId, latestNumRepliesReceived, time.Since(startTime), msg.RequestTrace.String())
+			respChan <- requestTrace
 		} else {
-			d.log.Debug("Received %s ping_reply from kernel %s for message \"%s\". Received %d/3 replies. Time elapsed: %v.",
-				typ.String(), from.ID(), msgId, latestNumRepliesReceived, time.Since(startTime))
+			d.log.Debug("Received %s ping_reply from %s for message \"%s\". Received %d/3 replies. Time elapsed: %v.",
+				typ.String(), from.String(), msgId, latestNumRepliesReceived, time.Since(startTime))
 			respChan <- struct{}{}
 		}
 
@@ -705,6 +708,13 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 				}
 			}
 		}
+	}
+
+	// Include the "ReplySentByGateway" entry, since we're returning the response via gRPC,
+	// and thus it won't be added automatically by the ZMQ-forwarder server.
+	replySentByGateway := time.Now().UnixMilli()
+	for _, requestTrace := range requestTraces {
+		requestTrace.ReplySentByGateway = replySentByGateway
 	}
 
 	d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s for ping message \"%s\" in %v.",
@@ -1000,12 +1010,12 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 
 // func (d *ClusterGatewayImpl) SmrNodeRemoved(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
 // 	kernelId := replicaInfo.KernelId
-// 	d.log.Debug("Received SMR Node-Removed notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
+// 	d.log.Debug("Received SMR Node-Removed notification for replica %d of kernel %s.", replicaInfo.ReplicaID, kernelId)
 
-// 	channelMapKey := fmt.Sprintf("%s-%s", kernelId, replicaInfo.ReplicaId)
+// 	channelMapKey := fmt.Sprintf("%s-%s", kernelId, replicaInfo.ReplicaID)
 // 	channel, ok := d.smrNodeRemovedNotifications.Load(channelMapKey)
 // 	if !ok {
-// 		panic(fmt.Sprintf("Could not find \"node-removed\" notification channel for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId))
+// 		panic(fmt.Sprintf("Could not find \"node-removed\" notification channel for replica %d of kernel %s.", replicaInfo.ReplicaID, kernelId))
 // 	}
 
 // 	channel <- struct{}{}
@@ -1603,7 +1613,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		panic(fmt.Sprintf("KernelReplicaClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
-	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaId, in.KernelId, waitGroup.NumReplicas())
+	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaID, in.KernelId, waitGroup.NumReplicas())
 
 	// Store the new replica in the list of replicas for the kernel (at the correct position, based on the SMR node ID).
 	// Then, return the list of replicas so that we can pass it to the new replica.
@@ -1631,7 +1641,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	d.issueUpdateReplicaRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
 
 	// Issue the AddNode request now, so that the node can join when it starts up.
-	// d.issueAddNodeRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
+	// d.issueAddNodeRequest(in.KernelId, replicaSpec.ReplicaID, in.KernelIp)
 
 	d.log.Debug("Done handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)
 
@@ -2400,7 +2410,7 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.Ju
 	return err
 }
 
-func (d *ClusterGatewayImpl) kernelShellHandler(kernel scheduling.KernelInfo, _ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+func (d *ClusterGatewayImpl) kernelShellHandler(kernel scheduling.KernelReplicaInfo, _ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	return d.ShellHandler(kernel, msg)
 }
 
@@ -2732,7 +2742,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel *client.DistributedKernelClie
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 
-func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelReplicaInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	goroutineId := goid.Get()
 	socket := from.Socket(typ)
 	if socket == nil {
@@ -2868,7 +2878,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		// Always wait for the scale-out operation to complete and the new replica to be created.
 		key = <-addReplicaOp.ReplicaStartedChannel()
 	} else {
-		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaId), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
+		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaID), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
 		// connInfo, err := d.placer.Place(host, newReplicaSpec)
 
 		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)

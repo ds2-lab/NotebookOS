@@ -61,7 +61,11 @@ type ReplicaRemover func(host *scheduling.Host, session *scheduling.Session, noo
 // ReplicaKernelInfo offers hybrid information that reflects the replica source of messages.
 type ReplicaKernelInfo struct {
 	scheduling.KernelInfo
-	replica scheduling.KernelInfo
+	replica scheduling.KernelReplicaInfo
+}
+
+func (r *ReplicaKernelInfo) ReplicaID() int32 {
+	return r.replica.ReplicaID()
 }
 
 func (r *ReplicaKernelInfo) String() string {
@@ -557,12 +561,12 @@ func (c *DistributedKernelClient) PrepareNewReplica(persistentId string, smrNode
 	// Find the first empty slot.
 	// for i := 0; i < len(c.replicas); i++ {
 	// 	if c.replicas[i] == nil {
-	// 		spec.ReplicaId = int32(i + 1)
+	// 		spec.ReplicaID = int32(i + 1)
 	// 		break
 	// 	}
 	// }
-	// if spec.ReplicaId == 0 {
-	// 	spec.ReplicaId = int32(len(c.replicas) + 1)
+	// if spec.ReplicaID == 0 {
+	// 	spec.ReplicaID = int32(len(c.replicas) + 1)
 	// }
 
 	// If we follows add one and remove one rule, replicas are expected to have no holes in
@@ -844,7 +848,7 @@ func (c *DistributedKernelClient) markExecutionAsComplete(execution *scheduling.
 
 // RequestWithHandlerAndReplicas sends a request to specified replicas and handles the response.
 //
-// The forwarder function defined within this method must assign a value to the types.JupyterMessage's ReplicaId
+// The forwarder function defined within this method must assign a value to the types.JupyterMessage's ReplicaID
 // field. Importantly, it should assign a value to the received response from the kernel, not the jMsg parameter
 // (of the DistributedKernelClient::RequestWithHandlerAndReplicas method) that is being sent out.
 func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, typ types.MessageType, jMsg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
@@ -864,7 +868,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 		replicaCtx, cancel = context.WithTimeout(ctx, types.DefaultRequestTimeout)
 	}
 	// defer cancel()
-	forwarder := func(replica scheduling.KernelInfo, typ types.MessageType, msg *types.JupyterMessage) (err error) {
+	forwarder := func(replica scheduling.KernelReplicaInfo, typ types.MessageType, msg *types.JupyterMessage) (err error) {
 		c.log.Debug(utils.BlueStyle.Render("Received %s response from %v"), typ.String(), replica)
 
 		kernelClient := replica.(*KernelReplicaClient)
@@ -928,12 +932,15 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	}
 
 	var wg sync.WaitGroup
+	numResponsesExpected := 0
+	numResponsesSoFar := atomic.Int32{}
 	for _, kernel := range replicas {
 		if kernel == nil {
 			continue
 		}
 
 		wg.Add(1)
+		numResponsesExpected += 1
 		go func(kernel scheduling.Kernel) {
 			if jMsg.JupyterMessageType() == types.ShellExecuteRequest || jMsg.JupyterMessageType() == types.ShellYieldRequest {
 				kernel.(*KernelReplicaClient).SentExecuteRequest(jMsg)
@@ -942,15 +949,76 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 			// TODO: If the ACKs fail on this and we reconnect and retry, the wg.Done may be called too many times.
 			// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 			// to be cleared after the context ends; we just do it on ACK timeout.
-			if err := kernel.(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jMsg, forwarder, c.getWaitResponseOption, wg.Done); err != nil {
+			if err := kernel.(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jMsg, forwarder, c.getWaitResponseOption, func() {
+				wg.Done()
+				numResponsesSoFar.Add(1)
+			}); err != nil {
 				c.log.Debug("Error while issuing %s '%s' request to kernel %s: %v", typ, jMsg.JupyterMessageType(), c.id, err)
 			}
 		}(kernel)
 	}
 	if done != nil {
+		// If a `done` callback function was given to us, then we'll create a goroutine to handle it.
 		go func() {
-			wg.Wait()
-			done()
+			st := time.Now()
+			createdWaiter := false
+			loopIterations := 0
+			// In the case of Shell messages, we'll just keep looping forever (probably),
+			// as they could just be blocked by a very long execution.
+			for {
+				innerContext, innerCancel := context.WithTimeout(context.Background(), time.Minute*5)
+				doneChan := make(chan interface{}, 1)
+
+				// We only want to do this one time.
+				if !createdWaiter {
+					// Spawn a goroutine to just send a notification when the sync.WaitGroup reaches 0.
+					go func() {
+						wg.Wait()              // Wait til the WaitGroup reaches 0.
+						doneChan <- struct{}{} // Send the notification.
+					}()
+
+					createdWaiter = true
+				}
+
+				select {
+				case <-doneChan:
+					{
+						// The WaitGroup counter reached 0. Call done, and then return.
+						done()
+						innerCancel()
+						return
+					}
+				case <-innerContext.Done():
+					{
+						// We timed-out. What we do now depends on what type of request was sent.
+						// For now, we'll always just keep waiting.
+						// But we'll log different types of messages depending on how long we've been waiting.
+						if typ == types.ShellMessage {
+							// If this is a Shell request and the kernel is training, then it (probably) makes
+							// sense that we've not yet received a response.
+							//
+							// If we aren't training, then it may be a little suspect that our message hasn't been
+							// processed yet. We'll log a warning message, but we'll keep waiting.
+							if !c.isTraining {
+								c.log.Warn("Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Kernel isn't even training... Received %d/%d responses so far.",
+									time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
+							} else if loopIterations > 0 && loopIterations%5 == 0 { // Print warnings every so often about stuck SHELL messages.
+								c.log.Warn("Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Kernel is currently training. Received %d/%d responses so far.",
+									time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
+							}
+						} else {
+							// We've waited for over 5 minutes, and we've not heard anything. This is a non-shell message.
+							c.log.Warn("Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Received %d/%d responses so far.",
+								time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
+						}
+
+						loopIterations += 1
+
+						// Make sure to cancel the context, as we're going to end up recreating it once we loop again.
+						innerCancel()
+					}
+				}
+			}
 		}()
 	}
 	return nil

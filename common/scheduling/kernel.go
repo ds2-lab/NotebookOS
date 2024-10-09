@@ -9,7 +9,15 @@ import (
 )
 
 // KernelMessageHandler is an API defines the interface of messages that a JupyterRouter can intercept and handle.
-type KernelMessageHandler func(KernelInfo, jupyter.MessageType, *jupyter.JupyterMessage) error
+type KernelMessageHandler func(KernelReplicaInfo, jupyter.MessageType, *jupyter.JupyterMessage) error
+
+// KernelReplicaInfo is a superset of KernelInfo with an additional method to return the replica ID of the kernel.
+type KernelReplicaInfo interface {
+	KernelInfo
+
+	// ReplicaID returns the SMR node ID (i.e., replica ID) of the kernel.
+	ReplicaID() int32
+}
 
 type KernelInfo interface {
 	// RouterInfo provides kernel specific routing information.

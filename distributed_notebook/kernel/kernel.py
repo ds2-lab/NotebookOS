@@ -829,6 +829,8 @@ class DistributedKernel(IPythonKernel):
         sys.stdout.flush()
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(msg, received_at)
+        if buffers is not None:
+            msg["buffers"][0] = buffers
 
         # Set the parent message for side effects.
         self.set_parent(idents, msg, channel="control")
@@ -1629,32 +1631,31 @@ class DistributedKernel(IPythonKernel):
             msg_type: the type of the message whose buffers frame we're decoding; optional, just used for logging.
 
         Returns:
-
+            The first buffers frame, extracted and decoded, or an empty dictionary.
         """
-        if isinstance(buffers, list):
-            self.log.debug(f"Buffers is a list of length {len(buffers)} for \"{msg_type}\" message \"{msg_id}\".")
-            if len(buffers) > 0:
-                buffers = buffers[0]
-                self.log.debug(f"First buffers frame of \"{msg_type}\" message \"{msg_id}\": {buffers}")
-            else:
-                return {}
-
-        if isinstance(buffers, memoryview):
-            buffers: bytes = buffers.tobytes()
-            buffers: str = buffers.decode('utf-8')
-        elif isinstance(buffers, bytes):
-            buffers: str = buffers.decode('utf-8')
+        self.log.debug(f"Buffers is a list of length {len(buffers)} for \"{msg_type}\" message \"{msg_id}\".")
+        if len(buffers) > 0:
+            first_buffers_frame = buffers[0]
+            self.log.debug(f"First buffers frame of \"{msg_type}\" message \"{msg_id}\": {first_buffers_frame}")
         else:
-            buffers: str = str(buffers)
+            return {}
+
+        if isinstance(first_buffers_frame, memoryview):
+            first_buffers_frame: bytes = first_buffers_frame.tobytes()
+            first_buffers_frame: str = first_buffers_frame.decode('utf-8')
+        elif isinstance(first_buffers_frame, bytes):
+            first_buffers_frame: str = first_buffers_frame.decode('utf-8')
+        else:
+            first_buffers_frame: str = str(first_buffers_frame)
 
         try:
-            buffers_decoded = json.loads(buffers)
+            buffers_decoded = json.loads(first_buffers_frame)
             self.log.debug(f"Successfully decoded buffers \"{msg_type}\" message \"{msg_id}\" using JSON: {buffers_decoded}")
             return buffers_decoded
         except json.decoder.JSONDecodeError as ex:
             self.log.warning(
                 f"Failed to decode buffers of \"{msg_type}\" message \"{msg_id}\" using JSON because: {ex}")
-            self.log.debug(f"Returning empty dictionary for buffers from \"{msg_type}\" message \"{msg_id}\": {buffers}")
+            self.log.debug(f"Returning empty dictionary for buffers from \"{msg_type}\" message \"{msg_id}\": {first_buffers_frame}")
             return {}
 
     def extract_and_process_request_trace(self, msg: dict[str, Any], received_at: float) -> Optional[list[bytes]]:
@@ -1669,8 +1670,8 @@ class DistributedKernel(IPythonKernel):
         received_at should be unix milliseconds.
 
         Returns:
-            If the extraction of the request trace was successful, then a value in the Buffers format that
-            can be directly passed to the Session class' send method.
+            If the extraction of the request trace was successful, then this returns the message's buffers
+            with the first frame modified to contain an updated request trace.
 
             Otherwise, this returns None.
         """
@@ -1705,7 +1706,8 @@ class DistributedKernel(IPythonKernel):
                 request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
 
             request_trace_frame_encoded: str = json.dumps(request_trace_frame)
-            return [request_trace_frame_encoded.encode('utf-8')]
+            buffers[0] = request_trace_frame_encoded
+            return buffers
         else:
             self.log.warning(f"Could not find \"request_trace\" entry in request_trace_frame: {request_trace_frame}")
 

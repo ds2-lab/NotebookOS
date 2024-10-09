@@ -450,7 +450,7 @@ func (ivk *DockerInvoker) extractKernelNamePort(spec *proto.KernelReplicaSpec) (
 		return ivk.generateKernelName(spec.Kernel, spec.ReplicaId), 0, nil
 	}
 
-	addr, err := url.Parse(spec.Replicas[spec.ReplicaId-1]) // ReplicaId starts from 1
+	addr, err := url.Parse(spec.Replicas[spec.ReplicaId-1]) // ReplicaID starts from 1
 	if err != nil {
 		return "", 0, ErrUnexpectedReplicaExpression
 	}

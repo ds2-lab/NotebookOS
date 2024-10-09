@@ -34,7 +34,7 @@ func (s *MembershipScheduler) OnTaskStart(kernel scheduling.Kernel, task *jupyte
 // 	resp, err := s.daemon.Provisioner().MigrateKernelReplica(context.Background(), &gateway.MigrationRequest{
 // 		TargetReplica: &gateway.ReplicaInfo{
 // 			KernelId:     kernel.ID(),
-// 			ReplicaId:    kernel.(client.KernelReplicaClient).ReplicaID(),
+// 			ReplicaID:    kernel.(client.KernelReplicaClient).ReplicaID(),
 // 			PersistentId: persistentId,
 // 		},
 // 	})

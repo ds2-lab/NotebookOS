@@ -9,6 +9,8 @@ import (
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"log"
 	"net"
 	"os"
@@ -98,7 +100,8 @@ type SchedulerDaemonImpl struct {
 	schedulerDaemonOptions domain.SchedulerDaemonOptions
 
 	// internalCluster client
-	provisioner proto.ClusterGatewayClient
+	provisioner                     proto.ClusterGatewayClient
+	provisionerClientConnectionGRPC *grpc.ClientConn
 
 	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
 	prometheusManager *metrics.LocalDaemonPrometheusManager
@@ -402,12 +405,24 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	return daemon
 }
 
+// Provisioner returns the proto.ClusterGatewayClient field of the target SchedulerDaemonImpl struct.
 func (d *SchedulerDaemonImpl) Provisioner() proto.ClusterGatewayClient {
 	return d.provisioner
 }
 
-func (d *SchedulerDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayClient) {
+// SetProvisioner assigns a value to the provisioner and provisionerClientConnectionGRPC
+// fields of the target SchedulerDaemonImpl struct.
+func (d *SchedulerDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayClient, grpcClientConn *grpc.ClientConn) {
+	if provisioner == nil {
+		panic("Cannot set LocalDaemon's provisioner to nil")
+	}
+
+	if grpcClientConn == nil {
+		panic("Cannot set LocalDaemon's provisioner gRPC connection to nil")
+	}
+
 	d.provisioner = provisioner
+	d.provisionerClientConnectionGRPC = grpcClientConn
 }
 
 // SetID sets the SchedulerDaemonImpl id by the gateway.
@@ -866,6 +881,22 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 				if err != nil {
 					d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
 						kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
+
+					if statusError, ok := status.FromError(err); ok {
+						d.log.Error("Received gRPC error with statusError code %d: %s.",
+							statusError.Code(), statusError.Message())
+						details := statusError.Details()
+						if len(details) > 0 {
+							d.log.Error("Additional details associated with gRPC error: %v", details)
+						}
+					}
+
+					grpcConnState := d.provisionerClientConnectionGRPC.GetState()
+					d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
+
+					if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
+						d.provisionerClientConnectionGRPC.Connect()
+					}
 				}
 
 				cancel()
@@ -1477,7 +1508,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	}
 
 	invocationError := d.resourceManager.KernelReplicaScheduled(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
-	// invocationError := d.resourceManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
+	// invocationError := d.resourceManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaID, in.Kernel.Id)
 	if invocationError != nil {
 		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
 			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, invocationError)
