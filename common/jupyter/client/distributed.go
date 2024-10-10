@@ -639,8 +639,6 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 		return host, scheduling.ErrReplicaNotFound
 	}
 
-	delete(c.replicas, r.ReplicaID())
-
 	if r.(*KernelReplicaClient).IsTraining() {
 		err := r.(*KernelReplicaClient).KernelStoppedTraining(nil)
 		if err != nil {
@@ -649,13 +647,30 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 		}
 	}
 
-	err = host.ContainerRemoved(r.Container())
+	err = r.Container().ContainedStopped()
 	if err != nil {
-		c.log.Error("Failed to remove scheduling.Container %s-%d from Host %s because: %v", r.ID(), r.ReplicaID(), host.ID, err)
+		c.log.Error("Failed to cleanly stop scheduling.Container %s-%d because: %v", r.ID(), r.ReplicaID(), err)
 	}
 
+	// If the error is either a ErrNilHost error or an ErrInvalidStateTransition error, then we probably didn't try
+	// to call Host::ContainerRemoved, as the ContainerStopped method would have returned before that point.
+	//
+	// So, we'll explicitly try calling Host::ContainerRemoved now, but there's a good chance it'll fail (since there
+	// was already some sort of issue when we tried to call ContainerStopped).
+	if errors.As(err, &scheduling.ErrInvalidStateTransition) || errors.As(err, &scheduling.ErrNilHost) {
+		hostContainerRemovalError := host.ContainerRemoved(r.Container())
+		if hostContainerRemovalError != nil {
+			c.log.Error("Failed to remove scheduling.Container %s-%d from Host %s because: %v", r.ID(), r.ReplicaID(), host.ID, hostContainerRemovalError)
+
+			// If another error occurred, then we'll join the two together so that they get returned together.
+			err = errors.Join(err, hostContainerRemovalError)
+		}
+	}
+
+	delete(c.replicas, r.ReplicaID())
+
 	r.Container().SetHost(nil) // Set the Host to nil...
-	return host, nil
+	return host, err
 }
 
 func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelReplica, error) {
@@ -938,7 +953,11 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 			c.id, jOffset, jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.String())
 	}
 
-	var wg sync.WaitGroup
+	// Note: we do NOT need to create a barrier where the replicas all wait until they've each clone the
+	// message, as we don't use the original message (in the case that the replicas send cloned versions).
+	// Thus, the original message is never going to be changed, so it's safe for each replica to proceed
+	// as soon as it clones the original message.
+	var responseReceivedWg sync.WaitGroup
 	numResponsesExpected := 0
 	numResponsesSoFar := atomic.Int32{}
 	for _, kernel := range replicas {
@@ -946,7 +965,8 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 			continue
 		}
 
-		wg.Add(1)
+		responseReceivedWg.Add(1)
+
 		numResponsesExpected += 1
 		go func(targetReplica scheduling.Kernel) {
 			var jupyterMessage *types.JupyterMessage
@@ -960,11 +980,11 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 				targetReplica.(*KernelReplicaClient).SentExecuteRequest(jupyterMessage)
 			}
 
-			// TODO: If the ACKs fail on this and we reconnect and retry, the wg.Done may be called too many times.
+			// TODO: If the ACKs fail on this and we reconnect and retry, the responseReceivedWg.Done may be called too many times.
 			// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 			// to be cleared after the context ends; we just do it on ACK timeout.
 			if err := targetReplica.(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jupyterMessage, forwarder, c.getWaitResponseOption, func() {
-				wg.Done()
+				responseReceivedWg.Done()
 				numResponsesSoFar.Add(1)
 			}); err != nil {
 				c.log.Debug("Error while issuing %s '%s' request to targetReplica %s: %v", typ, jupyterMessage.JupyterMessageType(), c.id, err)
@@ -987,8 +1007,8 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 				if !createdWaiter {
 					// Spawn a goroutine to just send a notification when the sync.WaitGroup reaches 0.
 					go func() {
-						wg.Wait()              // Wait til the WaitGroup reaches 0.
-						doneChan <- struct{}{} // Send the notification.
+						responseReceivedWg.Wait() // Wait til the WaitGroup reaches 0.
+						doneChan <- struct{}{}    // Send the notification.
 					}()
 
 					createdWaiter = true
@@ -1137,9 +1157,6 @@ func (c *DistributedKernelClient) stopReplicaLocked(r scheduling.KernelReplica, 
 	if err := remover(host, c.session, noop); err != nil {
 		return host, err
 	}
-
-	// c.log.Debug("Waiting for replica %d of kernel %s to stop and return its status.", r.ReplicaID(), r.ID())
-	// host.WaitKernel(context.Background(), &gateway.KernelId{Id: r.ID()})
 	return host, nil
 }
 

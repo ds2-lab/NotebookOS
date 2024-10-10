@@ -3044,6 +3044,17 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) err
 		return err
 	}
 
+	session, loaded := d.cluster.Sessions().Load(kernelId)
+	if !loaded {
+		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
+		return fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
+	}
+
+	if err = session.RemoveReplicaById(smrNodeId); err != nil {
+		d.log.Error("Failed to remove replica %d from session \"%s\" because: %v", smrNodeId, kernelId, err)
+		return err
+	}
+
 	wg, ok := d.waitGroups.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find WaitGroup for kernel %s after removing replica %d of said kernel...", kernelId, smrNodeId)
@@ -3074,17 +3085,6 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) err
 
 		<-podStoppedChannel
 		d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
-	}
-
-	session, loaded := d.cluster.Sessions().Load(kernelId)
-	if !loaded {
-		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
-		return fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
-	}
-
-	if err = session.RemoveReplicaById(smrNodeId); err != nil {
-		d.log.Error("Failed to remove replica %d from session \"%s\" because: %v", smrNodeId, kernelId, err)
-		return err
 	}
 
 	return nil
