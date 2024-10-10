@@ -2,7 +2,7 @@ package client
 
 import (
 	"context"
-	types2 "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	jupyterTypes "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
@@ -21,8 +21,8 @@ type AbstractDistributedKernelClient interface {
 	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*scheduling.ActiveExecution, bool)
 	ExecutionFailedCallback() ExecutionFailedCallback
 	SetActiveExecution(activeExecution *scheduling.ActiveExecution)
-	ExecutionComplete(snapshot types.HostResourceSnapshot[*scheduling.ResourceSnapshot], msg *types2.JupyterMessage) (bool, error)
-	EnqueueActiveExecution(attemptId int, msg *types2.JupyterMessage) *scheduling.ActiveExecution
+	ExecutionComplete(snapshot types.HostResourceSnapshot[*scheduling.ResourceSnapshot], msg *jupyterTypes.JupyterMessage) (bool, error)
+	EnqueueActiveExecution(attemptId int, msg *jupyterTypes.JupyterMessage) *scheduling.ActiveExecution
 	ResetID(id string)
 	PersistentID() string
 	String() string
@@ -30,8 +30,8 @@ type AbstractDistributedKernelClient interface {
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
 	KernelSpec() *proto.KernelSpec
-	ConnectionInfo() *types2.ConnectionInfo
-	Status() types2.KernelStatus
+	ConnectionInfo() *jupyterTypes.ConnectionInfo
+	Status() jupyterTypes.KernelStatus
 	AggregateBusyStatus() string
 	BindSession(sess string)
 	Size() int
@@ -46,16 +46,16 @@ type AbstractDistributedKernelClient interface {
 	GetReplicaByID(id int32) (scheduling.KernelReplica, error)
 	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (*scheduling.Host, error)
 	Validate() error
-	InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*types2.Socket, error)
-	InitializeIOForwarder() (*types2.Socket, error)
+	InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*jupyterTypes.Socket, error)
+	InitializeIOForwarder() (*jupyterTypes.Socket, error)
 	GetReadyReplica() scheduling.KernelReplica
 	IsReady() bool
 	IsReplicaReady(replicaId int32) (bool, error)
-	RequestWithHandler(ctx context.Context, _ string, typ types2.MessageType, msg *types2.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error
-	RequestWithHandlerAndReplicas(ctx context.Context, typ types2.MessageType, jMsg *types2.JupyterMessage, handler scheduling.KernelMessageHandler, done func(), replicas ...scheduling.KernelReplica) error
+	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error
+	RequestWithHandlerAndReplicas(ctx context.Context, typ jupyterTypes.MessageType, jMsg *jupyterTypes.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error
 	Shutdown(remover ReplicaRemover, restart bool) error
 	Close() error
-	WaitClosed() types2.KernelStatus
+	WaitClosed() jupyterTypes.KernelStatus
 
 	// NumActiveExecutionOperations returns the number of scheduling.ActiveExecution structs registered with
 	// the kernel. This counts both the current scheduling.ActiveExecution as well as the length of the queue of
@@ -76,8 +76,8 @@ type AbstractKernelClient interface {
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time
 	NumPendingExecuteRequests() int
-	SentExecuteRequest(msg *types2.JupyterMessage)
-	ReceivedExecuteReply(msg *types2.JupyterMessage)
+	SentExecuteRequest(msg *jupyterTypes.JupyterMessage)
+	ReceivedExecuteReply(msg *jupyterTypes.JupyterMessage)
 	KernelStoppedTraining(snapshot types.HostResourceSnapshot[*scheduling.ResourceSnapshot]) error
 	TrainingStartedAt() time.Time
 	WorkloadId() string
@@ -105,18 +105,18 @@ type AbstractKernelClient interface {
 	IsReady() bool
 	HostId() string
 	SetReady()
-	Socket(typ types2.MessageType) *types2.Socket
-	ConnectionInfo() *types2.ConnectionInfo
-	Status() types2.KernelStatus
-	BusyStatus() (string, *types2.JupyterMessage)
+	Socket(typ jupyterTypes.MessageType) *jupyterTypes.Socket
+	ConnectionInfo() *jupyterTypes.ConnectionInfo
+	Status() jupyterTypes.KernelStatus
+	BusyStatus() (string, *jupyterTypes.JupyterMessage)
 	BindSession(sess string)
-	ReconnectSocket(typ types2.MessageType) (*types2.Socket, error)
+	ReconnectSocket(typ jupyterTypes.MessageType) (*jupyterTypes.Socket, error)
 	Validate() error
-	InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*types2.Socket, error)
-	AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, types2.JupyterFrames, *types2.JupyterMessage]) error
-	RequestWithHandler(ctx context.Context, _ string, typ types2.MessageType, msg *types2.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error
+	InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*jupyterTypes.Socket, error)
+	AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, *jupyterTypes.JupyterFrames, *jupyterTypes.JupyterMessage]) error
+	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error
 	Close() error
 	GetHost() *scheduling.Host
 	SetHost(host *scheduling.Host)
-	InitializeIOSub(handler types2.MessageHandler, subscriptionTopic string) (*types2.Socket, error)
+	InitializeIOSub(handler jupyterTypes.MessageHandler, subscriptionTopic string) (*jupyterTypes.Socket, error)
 }

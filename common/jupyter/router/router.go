@@ -60,7 +60,7 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			s.ShouldAckMessages = shouldAckMessages
 			s.DebugMode = debugMode
 			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
-			s.Name = fmt.Sprintf("Router-%s", name)
+			s.Name = fmt.Sprintf("Router[%s] ", name)
 			config.InitLogger(&s.Log, s.Name)
 		}),
 	}

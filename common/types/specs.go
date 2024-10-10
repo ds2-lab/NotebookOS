@@ -37,6 +37,9 @@ type Spec interface {
 	// It should be an integral value.
 	GPU() float64
 
+	// VRAM is the amount of GPU memory required in GB.
+	VRAM() float64
+
 	// UpdateSpecGPUs can be used to update the number of GPUs.
 	UpdateSpecGPUs(float64)
 
@@ -56,46 +59,6 @@ type Spec interface {
 	String() string
 }
 
-type GPUSpec float64
-
-// GPU is an implementation of Spec that just maintains the GPU requirement.
-// Millicpus and MemoryMB are both 0.
-//
-// Although the return type is float64, this is merely because it is often compared to other float64s and rarely
-// other integers. That is, it's merely for convenience to avoid having to cast it every time.
-//
-// It should be an integral value.
-func (s GPUSpec) GPU() float64 {
-	return float64(s)
-}
-
-// CPU returns the number of vCPUs in milliCPUs, where 1000 mCPU = 1 vCPU, which may be fractional.
-func (s GPUSpec) CPU() float64 {
-	return 0.0
-}
-
-func (s GPUSpec) Clone() GPUSpec {
-	var gpus = float64(s)
-	return GPUSpec(gpus)
-}
-
-// MemoryMB returns the amount of memory in MB.
-func (s GPUSpec) MemoryMB() float64 {
-	return 0.0
-}
-
-func (s GPUSpec) String() string {
-	return fmt.Sprintf("GPUSpec[GPUs: %.2f]", s)
-}
-
-// Validate checks that "this" Spec could "satisfy" the parameterized Spec.
-//
-// To "satisfy" a Spec means that all the resource values of "this" Spec are larger than that of the
-// parameterized Spec (the Spec being satisfied).
-func (s GPUSpec) Validate(requirement Spec) bool {
-	return s.GPU() >= requirement.GPU()
-}
-
 // ToDecimalSpec creates a new DecimalSpec struct using the same resource values as the provided Spec and returns
 // a pointer to the new DecimalSpec struct.
 //
@@ -104,7 +67,7 @@ func (s GPUSpec) Validate(requirement Spec) bool {
 func ToDecimalSpec(spec Spec) *DecimalSpec {
 	if decimalSpecPtr, ok := spec.(*DecimalSpec); ok {
 		return decimalSpecPtr.CloneDecimalSpec()
-	} else if decimalSpec, ok := spec.(DecimalSpec); ok {
+	} else if decimalSpec, ok := spec.(*DecimalSpec); ok {
 		return decimalSpec.CloneDecimalSpec()
 	}
 
@@ -119,47 +82,67 @@ func ToDecimalSpec(spec Spec) *DecimalSpec {
 // for each resource value (Millicpus, GPUs, and memory).
 type DecimalSpec struct {
 	GPUs      decimal.Decimal `json:"gpus"`      // Number of vGPUs.
+	VRam      decimal.Decimal `json:"vram"`      // Amount of VRAM required in GB.
 	Millicpus decimal.Decimal `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU.
 	MemoryMb  decimal.Decimal `json:"memory_mb"` // Amount of memory in megabytes (MB).
 }
 
-func (d DecimalSpec) GPU() float64 {
+// VRAM is the amount of GPU memory required in GB.
+func (d *DecimalSpec) VRAM() float64 {
+	return d.VRam.InexactFloat64()
+}
+
+func (d *DecimalSpec) GPU() float64 {
 	return d.GPUs.InexactFloat64()
 }
 
-func (d DecimalSpec) UpdateSpecGPUs(gpus float64) {
+func (d *DecimalSpec) UpdateSpecGPUs(gpus float64) {
 	d.GPUs = decimal.NewFromFloat(gpus)
 }
 
-func (d DecimalSpec) UpdateSpecCPUs(millicpus float64) {
+func (d *DecimalSpec) UpdateSpecCPUs(millicpus float64) {
 	d.Millicpus = decimal.NewFromFloat(millicpus)
 }
 
-func (d DecimalSpec) UpdateSpecMemoryMB(memoryMb float64) {
+func (d *DecimalSpec) UpdateSpecMemoryMB(memoryMb float64) {
 	d.MemoryMb = decimal.NewFromFloat(memoryMb)
 }
 
-func (d DecimalSpec) CPU() float64 {
+func (d *DecimalSpec) CPU() float64 {
 	return d.Millicpus.InexactFloat64()
 }
 
-func (d DecimalSpec) MemoryMB() float64 {
+func (d *DecimalSpec) MemoryMB() float64 {
 	return d.MemoryMb.InexactFloat64()
 }
 
-func (d DecimalSpec) Validate(requirement Spec) bool {
+func (d *DecimalSpec) Validate(requirement Spec) bool {
+	if requirement == nil {
+		panic("Received null requirement spec in DecimalSpec::Validate.")
+	}
+
+	// We can bypass having to create a bunch of new decimal.Decimal structs
+	// if the other spec is also a DecimalSpec.
+	if requirementDecimalSpec, ok := requirement.(*DecimalSpec); ok {
+		return d.GPUs.GreaterThanOrEqual(requirementDecimalSpec.GPUs) &&
+			d.Millicpus.GreaterThanOrEqual(requirementDecimalSpec.Millicpus) &&
+			d.MemoryMb.GreaterThanOrEqual(requirementDecimalSpec.MemoryMb) &&
+			d.VRam.GreaterThanOrEqual(requirementDecimalSpec.VRam)
+	}
+
 	return d.GPUs.GreaterThanOrEqual(decimal.NewFromFloat(requirement.GPU())) &&
 		d.Millicpus.GreaterThanOrEqual(decimal.NewFromFloat(requirement.CPU())) &&
-		d.MemoryMb.GreaterThanOrEqual(decimal.NewFromFloat(requirement.MemoryMB()))
+		d.MemoryMb.GreaterThanOrEqual(decimal.NewFromFloat(requirement.MemoryMB())) &&
+		d.VRam.GreaterThanOrEqual(decimal.NewFromFloat(requirement.VRAM()))
 }
 
-func (d DecimalSpec) String() string {
-	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s]",
-		d.Millicpus.StringFixed(0), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(0))
+func (d *DecimalSpec) String() string {
+	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s, VRAM: %s GB]",
+		d.Millicpus.StringFixed(0), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(0), d.VRam.StringFixed(4))
 }
 
 // CloneDecimalSpec returns a copy/clone of the target DecimalSpec as a *DecimalSpec.
-func (d DecimalSpec) CloneDecimalSpec() *DecimalSpec {
+func (d *DecimalSpec) CloneDecimalSpec() *DecimalSpec {
 	return &DecimalSpec{
 		GPUs:      d.GPUs.Copy(),
 		Millicpus: d.Millicpus.Copy(),
@@ -168,14 +151,15 @@ func (d DecimalSpec) CloneDecimalSpec() *DecimalSpec {
 }
 
 // Clone returns a copy/clone of the target DecimalSpec as a Spec.
-func (d DecimalSpec) Clone() CloneableSpec {
+func (d *DecimalSpec) Clone() CloneableSpec {
 	return d.CloneDecimalSpec()
 }
 
 // Float64Spec is a concrete implementation of the Spec interface that is backed by float64 variables for each
 // resource value (Millicpus, GPUs, and memory).
 type Float64Spec struct {
-	GPUs      GPUSpec `json:"gpus"`      // Number of vGPUs.
+	GPUs      float64 `json:"gpus"`      // Number of vGPUs.
+	VRam      float64 `json:"vram"`      // Amount of VRAM in GB.
 	Millicpus float64 `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU
 	MemoryMb  float64 `json:"memory_mb"` // Amount of memory in megabytes (MB).
 }
@@ -187,7 +171,12 @@ type Float64Spec struct {
 //
 // It should be an integral value.
 func (s *Float64Spec) GPU() float64 {
-	return float64(s.GPUs)
+	return s.GPUs
+}
+
+// VRAM is the amount of GPU memory required in GB.
+func (s *Float64Spec) VRAM() float64 {
+	return s.VRam
 }
 
 // CPU returns the number of vCPUs in milliCPUs, where 1000 mCPU = 1 vCPU, which may be fractional.
@@ -202,7 +191,7 @@ func (s *Float64Spec) MemoryMB() float64 {
 
 // UpdateSpecGPUs can be used to update the number of GPUs.
 func (s *Float64Spec) UpdateSpecGPUs(gpus float64) {
-	s.GPUs = GPUSpec(gpus)
+	s.GPUs = gpus
 }
 
 // UpdateSpecCPUs can be used to update the number of Millicpus.
@@ -216,7 +205,7 @@ func (s *Float64Spec) UpdateSpecMemoryMB(memory float64) {
 }
 
 func (s *Float64Spec) String() string {
-	return fmt.Sprintf("ResourceSpec[Millicpus: %.2f, Memory: %.2f MB, GPUs: %.2f]", s.Millicpus, s.MemoryMb, s.GPUs)
+	return fmt.Sprintf("ResourceSpec[Millicpus: %.0f, Memory: %.2f MB, GPUs: %.0f, VRAM: %.2f GB]", s.Millicpus, s.MemoryMb, s.GPUs, s.VRAM())
 }
 
 // Validate checks that "this" Spec could "satisfy" the parameterized Spec.
@@ -224,7 +213,11 @@ func (s *Float64Spec) String() string {
 // To "satisfy" a Spec means that all the resource values of "this" Spec are larger than that of the
 // parameterized Spec (the Spec being satisfied).
 func (s *Float64Spec) Validate(requirement Spec) bool {
-	return s.GPU() >= requirement.GPU() && s.CPU() >= requirement.CPU() && s.MemoryMB() > requirement.MemoryMB()
+	if requirement == nil {
+		panic("Received null requirement spec in Float64Spec::Validate.")
+	}
+
+	return s.GPU() >= requirement.GPU() && s.CPU() >= requirement.CPU() && s.MemoryMB() > requirement.MemoryMB() && s.VRam >= requirement.VRAM()
 }
 
 func (s *Float64Spec) Clone() CloneableSpec {

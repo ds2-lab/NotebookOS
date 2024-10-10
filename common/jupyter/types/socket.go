@@ -160,7 +160,7 @@ func NewSocketWithHandlerAndRemoteName(socket zmq4.Socket, port int, typ Message
 	}
 }
 
-//func (s *Socket) Recv() (zmq4.Msg, error) {
+//func (s *Socket) Recv() (zmq4.msg, error) {
 //	msg, err := s.Socket.Recv()
 //
 //	if err != nil {

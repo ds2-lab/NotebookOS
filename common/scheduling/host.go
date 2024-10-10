@@ -77,15 +77,6 @@ type HostStatistics interface {
 	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
 	CommittedGPUs() float64
 
-	// IdleGPUsStat returns the StatFloat64 representing the number of GPUs that the host has not allocated to any Containers.
-	//IdleGPUsStat() types.StatFloat64Field
-
-	// PendingGPUsStat returns the StatFloat64 representing the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-	//PendingGPUsStat() types.StatFloat64Field
-
-	// CommittedGPUsStat returns the StatFloat64 representing the number of GPUs that are actively bound to Containers scheduled on the Host.
-	//CommittedGPUsStat() types.StatFloat64Field
-
 	// IdleCPUs returns the number of Millicpus that the host has not allocated to any Containers.
 	IdleCPUs() float64
 
@@ -95,15 +86,6 @@ type HostStatistics interface {
 
 	// CommittedCPUs returns the number of Millicpus that are actively bound to Containers scheduled on the Host.
 	CommittedCPUs() float64
-
-	// IdleCPUsStat returns the StatFloat64 representing the number of Millicpus that the host has not allocated to any Containers.
-	//IdleCPUsStat() types.StatFloat64Field
-
-	// PendingCPUsStat returns the StatFloat64 representing the number of Millicpus that are oversubscribed by Containers scheduled on the Host.
-	//PendingCPUsStat() types.StatFloat64Field
-
-	// CommittedCPUsStat returns the StatFloat64 representing the number of Millicpus that are actively bound to Containers scheduled on the Host.
-	//CommittedCPUsStat() types.StatFloat64Field
 
 	// IdleMemoryMb returns the amount of memory, in megabytes (MB), that the host has not allocated to any Containers.
 	IdleMemoryMb() float64
@@ -115,14 +97,15 @@ type HostStatistics interface {
 	// CommittedMemoryMb returns the amount of memory, in megabytes (MB), that is actively bound to Containers scheduled on the Host.
 	CommittedMemoryMb() float64
 
-	// IdleMemoryMbStat returns the StatFloat64 representing the amount of memory, in megabytes (MB), that the host has not allocated to any Containers.
-	//IdleMemoryMbStat() types.StatFloat64Field
+	// IdleVRAM returns the amount of VRAM, in gigabytes (GB), that the host has not allocated to any Containers.
+	IdleVRAM() float64
 
-	// PendingMemoryMbStat returns the StatFloat64 representing the amount of memory, in megabytes (MB), that is oversubscribed by Containers scheduled on the Host.
-	//PendingMemoryMbStat() types.StatFloat64Field
+	// PendingVRAM returns the amount of memory, in gigabytes (GB), that is oversubscribed by Containers scheduled on the Host.
+	// Pending MemoryMb are NOT actively bound to any
+	PendingVRAM() float64
 
-	// CommittedMemoryMbStat returns the StatFloat64 representing the amount of memory, in megabytes (MB), that is actively bound to Containers scheduled on the Host.
-	//CommittedMemoryMbStat() types.StatFloat64Field
+	// CommittedVRAM returns the amount of memory, in gigabytes (GB), that is actively bound to Containers scheduled on the Host.
+	CommittedVRAM() float64
 
 	// LastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
 	LastReschedule() types.StatFloat64Field
@@ -188,9 +171,6 @@ func unsafeApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Hos
 			ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
 	}
 
-	//h.log.Debug(utils.PurpleStyle.Render("Host %s is applying snapshot. Current resources: %s. Snapshot: %s."),
-	//	h.ID, h.resourcesWrapper.String(), snapshot.String())
-
 	return ApplySnapshotToResourceWrapper(h.resourcesWrapper, snapshot)
 }
 
@@ -240,7 +220,9 @@ type Host struct {
 }
 
 // NewHost creates and returns a new *Host.
-func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Cluster, metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
+func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, cluster Cluster,
+	metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
+
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
@@ -273,6 +255,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, cluster Clust
 		GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
 		Millicpus: decimal.NewFromFloat(float64(millicpus)),
 		MemoryMb:  decimal.NewFromFloat(float64(memMb)),
+		VRam:      decimal.NewFromFloat(vramGb),
 	}
 
 	host := &Host{
@@ -361,12 +344,15 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		SpecCpu:         float32(h.resourceSpec.CPU()),
 		SpecMemory:      float32(h.resourceSpec.MemoryMB()),
 		SpecGpu:         float32(h.resourceSpec.GPU()),
+		SpecVRAM:        float32(h.resourceSpec.VRAM()),
 		AllocatedCpu:    float32(h.resourcesWrapper.committedResources.millicpus.InexactFloat64()),
 		AllocatedMemory: float32(h.resourcesWrapper.committedResources.memoryMB.InexactFloat64()),
 		AllocatedGpu:    float32(h.resourcesWrapper.committedResources.gpus.InexactFloat64()),
+		AllocatedVRAM:   float32(h.resourcesWrapper.committedResources.VRAM()),
 		PendingCpu:      float32(h.resourcesWrapper.pendingResources.millicpus.InexactFloat64()),
 		PendingMemory:   float32(h.resourcesWrapper.pendingResources.memoryMB.InexactFloat64()),
 		PendingGpu:      float32(h.resourcesWrapper.pendingResources.gpus.InexactFloat64()),
+		PendingVRAM:     float32(h.resourcesWrapper.pendingResources.VRAM()),
 	}
 }
 
@@ -790,18 +776,6 @@ func (h *Host) String() string {
 	return fmt.Sprintf("Host[ID=%s,Name=%s,Addr=%s,Spec=%s]", h.ID, h.NodeName, h.Addr, h.resourceSpec.String())
 }
 
-//func (h *Host) ID() string {
-//	return h.ID
-//}
-
-//func (h *Host) NodeName() string {
-//	return h.NodeName
-//}
-
-//func (h *Host) Addr() string {
-//	return h.Addr
-//}
-
 func (h *Host) Conn() *grpc.ClientConn {
 	return h.conn
 }
@@ -881,9 +855,30 @@ func (h *Host) CommittedMemoryMb() float64 {
 	return h.resourcesWrapper.committedResources.MemoryMB()
 }
 
+func (h *Host) IdleVRAM() float64 { return h.resourcesWrapper.idleResources.MemoryMB() }
+
+func (h *Host) PendingVRAM() float64 { return h.resourcesWrapper.pendingResources.MemoryMB() }
+
+func (h *Host) CommittedVRAM() float64 { return h.resourcesWrapper.committedResources.VRAM() }
+
 // ResourceSpec the types.Spec defining the resources available on the Host.
 func (h *Host) ResourceSpec() types.ValidatableResourceSpec {
 	return h.resourceSpec
+}
+
+// IdleResources returns a types.Spec encapsulating the IdleResources on the Host.
+func (h *Host) IdleResources() types.Spec {
+	return h.resourcesWrapper.idleResources.ToDecimalSpec()
+}
+
+// PendingResources returns a types.Spec encapsulating the PendingResources on the Host.
+func (h *Host) PendingResources() types.Spec {
+	return h.resourcesWrapper.pendingResources.ToDecimalSpec()
+}
+
+// CommittedResources returns a types.Spec encapsulating the idle resources on the Host.
+func (h *Host) CommittedResources() types.Spec {
+	return h.resourcesWrapper.committedResources.ToDecimalSpec()
 }
 
 func (h *Host) ScaleInPriority() float64 {

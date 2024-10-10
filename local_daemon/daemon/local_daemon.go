@@ -9,6 +9,8 @@ import (
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"log"
 	"net"
 	"os"
@@ -98,7 +100,8 @@ type SchedulerDaemonImpl struct {
 	schedulerDaemonOptions domain.SchedulerDaemonOptions
 
 	// internalCluster client
-	provisioner proto.ClusterGatewayClient
+	provisioner                     proto.ClusterGatewayClient
+	provisionerClientConnectionGRPC *grpc.ClientConn
 
 	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
 	prometheusManager *metrics.LocalDaemonPrometheusManager
@@ -131,6 +134,10 @@ type SchedulerDaemonImpl struct {
 	kernelClientCreationChannels hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
 
 	log logger.Logger
+
+	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
+	// performing checkpointing after a migration (read) and after executing code (write).
+	SimulateCheckpointingLatency bool
 
 	// The IOPub socket that the Gateway subscribes to.
 	// All pub/sub messages are forwarded from kernels to the gateway (through us, the local daemon) using this socket.
@@ -186,6 +193,7 @@ type SchedulerDaemonImpl struct {
 }
 
 type KernelRegistrationPayload struct {
+	Op              string                  `json:"op"`
 	SignatureScheme string                  `json:"signatureScheme"`
 	Key             string                  `json:"key"`
 	Kernel          *proto.KernelSpec       `json:"kernel,omitempty"`
@@ -237,6 +245,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
 		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
 		MessageAcknowledgementsEnabled:     schedulerDaemonOptions.MessageAcknowledgementsEnabled,
+		SimulateCheckpointingLatency:       schedulerDaemonOptions.SimulateCheckpointingLatency,
 	}
 
 	for _, configFunc := range configs {
@@ -261,7 +270,8 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 
 	daemon.resourceManager = scheduling.NewResourceManager(&types.Float64Spec{
-		GPUs:      types.GPUSpec(schedulerDaemonOptions.NumGPUs),
+		GPUs:      float64(schedulerDaemonOptions.NumGPUs),
+		VRam:      scheduling.VramPerHostGb,
 		Millicpus: scheduling.MillicpusPerHost,
 		MemoryMb:  scheduling.MemoryMbPerHost})
 
@@ -396,12 +406,24 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	return daemon
 }
 
+// Provisioner returns the proto.ClusterGatewayClient field of the target SchedulerDaemonImpl struct.
 func (d *SchedulerDaemonImpl) Provisioner() proto.ClusterGatewayClient {
 	return d.provisioner
 }
 
-func (d *SchedulerDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayClient) {
+// SetProvisioner assigns a value to the provisioner and provisionerClientConnectionGRPC
+// fields of the target SchedulerDaemonImpl struct.
+func (d *SchedulerDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayClient, grpcClientConn *grpc.ClientConn) {
+	if provisioner == nil {
+		panic("Cannot set LocalDaemon's provisioner to nil")
+	}
+
+	if grpcClientConn == nil {
+		panic("Cannot set LocalDaemon's provisioner gRPC connection to nil")
+	}
+
 	d.provisioner = provisioner
+	d.provisionerClientConnectionGRPC = grpcClientConn
 }
 
 // SetID sets the SchedulerDaemonImpl id by the gateway.
@@ -722,11 +744,12 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	)
 	if d.deploymentMode == types.KubernetesMode {
 		invokerOpts := &invoker.DockerInvokerOptions{
-			HdfsNameNodeEndpoint: d.hdfsNameNodeEndpoint,
-			KernelDebugPort:      -1,
-			DockerStorageBase:    d.dockerStorageBase,
-			UsingWSL:             d.usingWSL,
-			RunKernelsInGdb:      d.runKernelsInGdb,
+			HdfsNameNodeEndpoint:         d.hdfsNameNodeEndpoint,
+			KernelDebugPort:              -1,
+			DockerStorageBase:            d.dockerStorageBase,
+			UsingWSL:                     d.usingWSL,
+			RunKernelsInGdb:              d.runKernelsInGdb,
+			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -859,6 +882,23 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 				if err != nil {
 					d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
 						kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
+
+					if statusError, ok := status.FromError(err); ok {
+						d.log.Error("Received gRPC error with statusError code %d: %s.",
+							statusError.Code(), statusError.Message())
+						details := statusError.Details()
+						if len(details) > 0 {
+							d.log.Error("Additional details associated with gRPC error: %v", details)
+						}
+					}
+
+					grpcConnState := d.provisionerClientConnectionGRPC.GetState()
+					d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
+
+					if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
+						d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
+						d.provisionerClientConnectionGRPC.Connect()
+					}
 				}
 
 				cancel()
@@ -879,6 +919,23 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 						if err != nil {
 							d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
 								kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
+						}
+
+						if statusError, ok := status.FromError(err); ok {
+							d.log.Error("Received gRPC error with statusError code %d: %s.",
+								statusError.Code(), statusError.Message())
+							details := statusError.Details()
+							if len(details) > 0 {
+								d.log.Error("Additional details associated with gRPC error: %v", details)
+							}
+						}
+
+						grpcConnState := d.provisionerClientConnectionGRPC.GetState()
+						d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
+
+						if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
+							d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
+							d.provisionerClientConnectionGRPC.Connect()
 						}
 
 						cancel()
@@ -1019,7 +1076,7 @@ func (d *SchedulerDaemonImpl) kernelReconnectionFailed(kernel *client.KernelRepl
 	// 	messageType = header.MsgType
 	// }
 
-	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.Type, msg.JupyterMessageType(), reconnectionError)
+	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.JupyterMessageType(), reconnectionError)
 	d.log.Error(errorMessage)
 
 	go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
@@ -1123,26 +1180,25 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(_ context.Context, req *proto.Rep
 	}
 
 	d.log.Debug("Sending Jupyter 'prepare-to-migrate' request to replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
-	_msg := &zmq4.Msg{Frames: frames}
+	_msg := &zmq4.Msg{Frames: frames.Frames}
 	jMsg := jupyter.NewJupyterMessage(_msg)
 	var requestWG sync.WaitGroup
 	requestWG.Add(1)
 	// var dataDirectory string
 
-	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+	err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelReplicaInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 		d.log.Debug("Received response from 'prepare-to-migrate' request.")
 
-		for i, frame := range msg.Frames {
+		for i, frame := range msg.JupyterFrames.Frames {
 			d.log.Debug("Frame #%d: %s", i, string(frame))
 		}
 
-		var frames jupyter.JupyterFrames = msg.Frames
 		var respMessage jupyter.MessageDataDirectory
-		if err := frames.Validate(); err != nil {
+		if err := msg.JupyterFrames.Validate(); err != nil {
 			d.log.Error("Failed to validate frames of `MessageDataDirectory` message: %v", err)
 			return err
 		}
-		err := frames.DecodeContent(&respMessage)
+		err := msg.JupyterFrames.DecodeContent(&respMessage)
 		if err != nil {
 			d.log.Error("Failed to decode Content frame of `MessageDataDirectory` message: %v", err)
 			return err
@@ -1150,7 +1206,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(_ context.Context, req *proto.Rep
 
 		// It seems like this particular message is sent in the 6th frame, which is the Buffers frame, rather than the Content frame.
 		if respMessage.NodeID == 0 {
-			err := frames.DecodeBuffers(&respMessage)
+			err := msg.JupyterFrames.DecodeBuffers(&respMessage)
 
 			if err != nil {
 				d.log.Error("Failed to decode Buffer frame of `MessageDataDirectory` message: %v", err)
@@ -1161,7 +1217,7 @@ func (d *SchedulerDaemonImpl) PrepareToMigrate(_ context.Context, req *proto.Rep
 		// dataDirectory = respMessage.DataDirectory
 		if respMessage.Status == "error" {
 			var msgErr jupyter.MessageError
-			err := frames.DecodeBuffers(&msgErr)
+			err := msg.JupyterFrames.DecodeBuffers(&msgErr)
 			if err != nil {
 				d.log.Error("Failed to decode ErrorMessage from JupyterMessage content: %v", err)
 				return err
@@ -1232,7 +1288,7 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Re
 		return proto.VOID, err
 	}
 
-	_msg := &zmq4.Msg{Frames: frames}
+	_msg := &zmq4.Msg{Frames: frames.Frames}
 	jMsg := jupyter.NewJupyterMessage(_msg)
 
 	var currentNumTries = 0
@@ -1242,7 +1298,7 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Re
 		var wg sync.WaitGroup
 		var requestReceived int32 = 0
 		wg.Add(1)
-		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+		err := kernel.RequestWithHandler(context.Background(), "Sending", jupyter.ControlMessage, jMsg, func(kernel scheduling.KernelReplicaInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 			d.log.Debug("Received response from 'update-replica' request.")
 
 			// Record that we've received the response.
@@ -1307,7 +1363,7 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 		return proto.VOID, err
 	}
 
-	_msg := &zmq4.Msg{Frames: frames}
+	_msg := &zmq4.Msg{Frames: frames.Frames}
 	jMsg := jupyter.NewJupyterMessage(_msg)
 
 	var wg sync.WaitGroup
@@ -1471,7 +1527,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	}
 
 	invocationError := d.resourceManager.KernelReplicaScheduled(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
-	// invocationError := d.resourceManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaId, in.Kernel.Id)
+	// invocationError := d.resourceManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaID, in.Kernel.Id)
 	if invocationError != nil {
 		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
 			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, invocationError)
@@ -1481,11 +1537,12 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	var kernelInvoker invoker.KernelInvoker
 	if d.DockerMode() {
 		invokerOpts := &invoker.DockerInvokerOptions{
-			HdfsNameNodeEndpoint: d.hdfsNameNodeEndpoint,
-			KernelDebugPort:      int(in.DockerModeKernelDebugPort),
-			DockerStorageBase:    d.dockerStorageBase,
-			UsingWSL:             d.usingWSL,
-			RunKernelsInGdb:      d.runKernelsInGdb,
+			HdfsNameNodeEndpoint:         d.hdfsNameNodeEndpoint,
+			KernelDebugPort:              int(in.DockerModeKernelDebugPort),
+			DockerStorageBase:            d.dockerStorageBase,
+			UsingWSL:                     d.usingWSL,
+			RunKernelsInGdb:              d.runKernelsInGdb,
+			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.
@@ -1825,7 +1882,7 @@ func (d *SchedulerDaemonImpl) kernelShellHandler(info scheduling.KernelInfo, _ j
 }
 
 func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
-	// d.log.Debug("Received shell message with %d frame(s): %s", len(msg.Frames), msg)
+	// d.log.Debug("Received shell message with %d frame(s): %s", len(msg.JupyterFrames), msg)
 	// kernelId, header, offset, err := d.headerAndOffsetFromMsg(msg)
 	// if err != nil {
 	// 	return err
@@ -1884,7 +1941,8 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 			return nil
 		}
 	} else { // Print a message about forwarding generic shell message.
-		d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s", len(msg.Frames), kernel.ReplicaID(), kernel.ID(), msg)
+		d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s",
+			msg.JupyterFrames.Len(), kernel.ReplicaID(), kernel.ID(), msg)
 
 		// Extract the workload ID (which may or may not be included in the metadata of the request),
 		// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
@@ -1904,7 +1962,8 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := kernel.RequestWithHandler(ctx, "Forwarding", jupyter.ShellMessage, msg, d.kernelResponseForwarder, func() {
 		cancel()
-		d.log.Debug("Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.", msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID())
+		d.log.Debug("Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
+			msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID())
 	}); err != nil {
 		return err
 	}
@@ -2058,9 +2117,8 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	// Check if we need to release allocated GPUs.
 	// We only release allocated GPUs if this kernel replica executed the code.
 	// If this replica yielded, then there will be no GPUs to release.
-	jFrames := jupyter.JupyterFrames(msg.Frames[msg.Offset:])
 	var msgErr jupyter.MessageError
-	err := json.Unmarshal(jFrames[jupyter.JupyterFrameContent], &msgErr)
+	err := msg.JupyterFrames.DecodeContent(&msgErr)
 	if err != nil {
 		d.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", kernelClient.ReplicaID(), kernelClient.ID(), err)
 		return err
@@ -2166,8 +2224,6 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_request" message.
 	// This will force the replica to necessarily yield the execution to the other replicas.
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
-	var frames = jupyter.JupyterFrames(msg.Frames)
-	var metadataFrame = frames[msg.Offset:].MetadataFrame()
 	var metadataDict map[string]interface{}
 
 	// This ensures that we send "execute_request" messages one-at-a-time.
@@ -2177,9 +2233,9 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	d.log.Debug("[gid=%d] Processing `execute_request` for idle kernel %s now.", gid, kernel.ID())
 
 	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
-	if len(metadataFrame.Frame()) > 0 {
+	if len(*msg.JupyterFrames.MetadataFrame()) > 0 {
 		// Unmarshal the frame.
-		err := metadataFrame.Decode(&metadataDict)
+		err := msg.JupyterFrames.DecodeMetadata(&metadataDict)
 		if err != nil {
 			d.log.Error("[gid=%d] Error unmarshalling metadata frame for 'execute_request' message: %v", gid, err)
 		} else {
@@ -2297,7 +2353,6 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica
 		// in place of the original 'execute_request' message.
 		msg, _ = d.convertExecuteRequestToYieldExecute(msg) // , header, offset)
-		frames = msg.Frames
 
 		// If we were told explicitly to YIELD this execution request via the `YieldNextExecutionRequest` API,
 		// then record that we've done this. Even if we're yielding for other reasons too, we should still
@@ -2309,22 +2364,21 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 
 	// Re-encode the metadata frame. It will have the number of idle GPUs available,
 	// as well as the reason that the request was yielded (if it was yielded).
-	err = frames[msg.Offset:].EncodeMetadata(metadataDict)
+	err = msg.EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("[gid=%d] Failed to encode metadata frame because: %v", gid, err)
 		d.notifyClusterGatewayAndPanic("Failed to Encode Metadata Frame", err.Error(), err)
 	}
 
 	// Regenerate the signature.
-	framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(msg.Frames)
-	_, err = framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
+	_, err = msg.JupyterFrames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
 	if err != nil {
 		message := fmt.Sprintf("[gid=%d] Failed to sign updated JupyterFrames for \"%s\" message because: %v",
 			gid, msg.JupyterMessageType(), err)
 		d.notifyClusterGatewayAndPanic("Failed to Sign JupyterFrames", message, err)
 	}
 
-	if verified := jupyter.ValidateFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, msg.Offset, msg.Frames); !verified {
+	if verified := jupyter.ValidateFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, msg.JupyterFrames); !verified {
 		d.log.Error("[gid=%d] Failed to verify modified message with signature scheme '%v' and key '%v'",
 			gid, kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
 		d.log.Error("[gid=%d] This message will likely be rejected by the kernel:\n%v", gid, msg)
@@ -2340,21 +2394,6 @@ func (d *SchedulerDaemonImpl) StdinHandler(_ router.RouterInfo, msg *jupyter.Jup
 func (d *SchedulerDaemonImpl) HBHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
 	return d.forwardRequest(context.Background(), nil, jupyter.HBMessage, msg, nil)
 }
-
-// idFromMsg extracts the kernel id or session id from the ZMQ message.
-// func (d *SchedulerDaemonImpl) kernelIdFromMsg(msg *jupyter.JupyterMessage) (id string, sessId bool, err error) {
-// 	kernelId, _, offset := jupyter.ExtractDestFrame(msg.Frames)
-// 	if kernelId != "" {
-// 		return kernelId, false, nil
-// 	}
-
-// 	header, err := d.headerFromFrames(msg.Frames[offset:])
-// 	if err != nil {
-// 		return "", false, err
-// 	}
-
-// 	return header.Session, true, nil
-// }
 
 // GetVirtualGpuAllocations returns the current vGPU allocations on this node.
 func (d *SchedulerDaemonImpl) GetVirtualGpuAllocations(_ context.Context, _ *proto.Void) (*proto.VirtualGpuAllocations, error) {
@@ -2459,15 +2498,14 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 	var err error
 
 	// Clone the original message.
-	var newMessage = msg.Clone()
+	var newMessage = msg.GetZmqMsg().Clone()
 	jMsg := jupyter.NewJupyterMessage(&newMessage)
 
 	// Change the message header.
 	jMsg.SetMessageType(jupyter.ShellYieldRequest)
 
 	// Create a JupyterFrames struct by wrapping with the message's frames.
-	jFrames := jupyter.JupyterFrames(newMessage.Frames)
-	if err = jFrames.Validate(); err != nil {
+	if err = jMsg.Validate(); err != nil {
 		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_request' message, specifically while validating the existing frames: %v", err)
 		d.notifyClusterGatewayAndPanic("Failed to Validate \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
 	}
@@ -2478,48 +2516,19 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *jupyter.J
 		panic(err)
 	}
 
-	if jFrames[jupyter.JupyterFrameHeader+jMsg.Offset], err = json.Marshal(header); err != nil {
+	if err := jMsg.JupyterFrames.EncodeHeader(&header); err != nil {
 		d.log.Error("Error encountered while converting 'execute_request' message to 'yield_request' message, specifically while encoding the new message header: %v", err)
 		d.notifyClusterGatewayAndPanic("Failed to Encode Header for \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
 	}
 
-	// Replace the frames of the cloned message.
-	newMessage.Frames = jFrames
-	jMsg.Msg = &newMessage
+	// Replace the frames of the cloned message. I don't think this is really necessary, as we do this automatically,
+	// but whatever.
+	newMessage.Frames = jMsg.JupyterFrames.Frames
 
 	return jMsg, nil
 }
 
-// func (d *SchedulerDaemonImpl) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
-// 	jFrames := jupyter.JupyterFrames(frames)
-// 	if err := jFrames.Validate(); err != nil {
-// 		d.log.Debug("Failed to validate message frames while extracting header.")
-// 		return nil, err
-// 	}
-
-// 	var header jupyter.MessageHeader
-// 	if err := jFrames.DecodeHeader(&header); err != nil {
-// 		d.log.Error("Failed to decode header %v from message frames: %v", string(jFrames[jupyter.JupyterFrameHeader]), err)
-// 		return nil, err
-// 	}
-
-// 	return &header, nil
-// }
-
-// func (d *SchedulerDaemonImpl) headerAndOffsetFromMsg(msg *jupyter.JupyterMessage) (kernelId string, header *jupyter.MessageHeader, offset int, err error) {
-// 	kernelId, _, offset = jupyter.ExtractDestFrame(msg.Frames)
-
-// 	header, err = d.headerFromFrames(msg.Frames[offset:])
-
-// 	return kernelId, header, offset, err
-// }
-
 func (d *SchedulerDaemonImpl) kernelFromMsg(msg *jupyter.JupyterMessage) (kernel *client.KernelReplicaClient, err error) {
-	// id, _, err := d.kernelIdFromMsg(msg)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
 	kernel, ok := d.kernels.Load(msg.DestinationId)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", msg.DestinationId)
@@ -2545,7 +2554,7 @@ func (d *SchedulerDaemonImpl) forwardRequest(ctx context.Context, kernel *client
 	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done)
 }
 
-func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelReplicaInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	var (
 		sender         jupyter.Sender
 		connectionInfo *jupyter.ConnectionInfo
@@ -2628,7 +2637,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelInfo
 	return nil // Will be nil on success.
 }
 
-func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames jupyter.JupyterFrames, _ *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.Kernel, frames *jupyter.JupyterFrames, _ *jupyter.JupyterMessage) error {
 	var errorReport jupyter.ErrorReport
 	if err := frames.DecodeContent(&errorReport); err != nil {
 		d.log.Error("Failed to decode content of 'error report' message: %v", err)
@@ -2686,7 +2695,7 @@ func (d *SchedulerDaemonImpl) notifyClusterGatewayOfError(ctx context.Context, n
 	}
 }
 
-func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames jupyter.JupyterFrames, jMsg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.Kernel, frames *jupyter.JupyterFrames, jMsg *jupyter.JupyterMessage) error {
 	messageType, err := frames.GetMessageType()
 	if err != nil {
 		d.log.Error("Failed to extract message type from SMR Lead ZMQ message: %v", err)
@@ -2787,25 +2796,22 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 		snapshot = d.resourceManager.ResourcesSnapshot()
 		metadata[scheduling.ResourceSnapshotMetadataKey] = snapshot
 
-		var frames = jupyter.JupyterFrames(jMsg.Frames)
-
 		// Re-encode the metadata frame. It will have the number of idle GPUs available,
 		// as well as the reason that the request was yielded (if it was yielded).
-		encodeErr := frames[jMsg.Offset:].EncodeMetadata(metadata)
+		encodeErr := jMsg.EncodeMetadata(metadata)
 		if encodeErr != nil {
 			d.log.Error("Failed to encode metadata frame because: %v", encodeErr)
 			d.notifyClusterGatewayAndPanic("Failed to Encode Metadata Frame", encodeErr.Error(), encodeErr)
 		}
 
 		// Regenerate the signature.
-		framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(jMsg.Frames)
-		_, err := framesWithoutIdentities.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
+		_, err := jMsg.JupyterFrames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
 		if err != nil {
 			message := fmt.Sprintf("Failed to sign updated JupyterFrames for \"%s\" message because: %v", jMsg.JupyterMessageType(), err)
 			d.notifyClusterGatewayAndPanic("Failed to Sign JupyterFrames", message, err)
 		}
 
-		if verified := jupyter.ValidateFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, jMsg.Offset, jMsg.Frames); !verified {
+		if verified := jupyter.ValidateFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, jMsg.JupyterFrames); !verified {
 			errorMessage := fmt.Sprintf("Failed to verify modified message with signature scheme '%v' and key '%v'",
 				kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
 			d.log.Error(errorMessage)
@@ -2821,10 +2827,11 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 	}
 
 	d.log.Debug("Added snapshot to Jupyter \"%s\" message: %s", jMsg.JupyterMessageType(), snapshot.String())
+	d.log.Debug("Framed after adding snapshot: %s", jMsg.JupyterFrames.String())
 	return snapshot, nil
 }
 
-func (d *SchedulerDaemonImpl) handleIgnoreMsg(kernel scheduling.Kernel, _ jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) handleIgnoreMsg(kernel scheduling.Kernel, _ *jupyter.JupyterFrames, raw *jupyter.JupyterMessage) error {
 	d.log.Debug("%v ignores %v", kernel, raw)
 	return types.ErrStopPropagation
 }

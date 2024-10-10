@@ -98,6 +98,7 @@ common:
   local_mode: false
   num_resend_attempts: 1
   message_acknowledgements_enabled: true
+  simulate_checkpointing_latency: true
 
 prometheus:
   prometheus_interval: 15

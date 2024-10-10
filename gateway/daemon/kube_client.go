@@ -82,6 +82,7 @@ type BasicKubeClient struct {
 	schedulingPolicy       string                                     // Scheduling policy.
 	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
 	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
+	checkpointingEnabled   bool                                       // checkpointingEnabled controls whether the kernels should perform checkpointing after a migration and after executing code.
 	log                    logger.Logger
 }
 
@@ -105,6 +106,7 @@ func NewKubeClient(gatewayDaemon scheduling.ClusterGateway, clusterDaemonOptions
 		hdfsNameNodeEndpoint:   clusterDaemonOptions.HdfsNameNodeEndpoint,
 		notebookImageName:      clusterDaemonOptions.NotebookImageName,
 		notebookImageTag:       clusterDaemonOptions.NotebookImageTag,
+		checkpointingEnabled:   clusterDaemonOptions.SimulateCheckpointingLatency,
 	}
 
 	if client.hdfsNameNodeEndpoint == "" {
@@ -1268,6 +1270,10 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *prot
 										"value": fmt.Sprintf("%d", kernelResourceRequirements.Gpu),
 									},
 									{
+										"name":  "SIMULATE_CHECKPOINTING_LATENCY",
+										"value": fmt.Sprintf("%v", c.checkpointingEnabled),
+									},
+									{
 										"name":  IPythonConfigPath,
 										"value": c.ipythonConfigPath,
 									},
@@ -1495,7 +1501,7 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *proto.KernelReplicaSpe
 	file := &jupyter.ConfigFile{
 		DistributedKernelConfig: jupyter.DistributedKernelConfig{
 			StorageBase:             kubeStorageBase,
-			SMRNodeID:               -1, // int(spec.ReplicaId), // TODO(Ben): Set this to -1 to make it obvious that the Pod needs to fill this in itself?
+			SMRNodeID:               -1, // int(spec.ReplicaID), // TODO(Ben): Set this to -1 to make it obvious that the Pod needs to fill this in itself?
 			SMRNodes:                replicas,
 			SMRJoin:                 spec.Join,
 			SMRPort:                 c.smrPort,

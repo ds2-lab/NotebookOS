@@ -56,3 +56,4 @@ data:
     prometheus_port: {{ .Values.prometheus.prometheus_port }}
     num_resend_attempts: {{ .Values.common.num_resend_attempts }}
     acks_enabled: {{ .Values.common.message_acknowledgements_enabled }}
+    simulate_checkpointing_latency: {{ .Values.common.simulate_checkpointing_latency }}

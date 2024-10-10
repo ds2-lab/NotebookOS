@@ -11,6 +11,8 @@ import (
 // KernelMessageHandler is an API defines the interface of messages that a JupyterRouter can intercept and handle.
 type KernelMessageHandler func(KernelInfo, jupyter.MessageType, *jupyter.JupyterMessage) error
 
+type KernelReplicaMessageHandler func(KernelReplicaInfo, jupyter.MessageType, *jupyter.JupyterMessage) error
+
 type KernelInfo interface {
 	// RouterInfo provides kernel specific routing information.
 	router.RouterInfo
@@ -23,6 +25,12 @@ type KernelInfo interface {
 
 	// KernelSpec returns kernel resourceSpec.
 	KernelSpec() *proto.KernelSpec
+}
+
+type KernelReplicaInfo interface {
+	KernelInfo
+
+	ReplicaID() int32
 }
 
 // Kernel defines the interface for a jupyter kernel.
@@ -57,7 +65,7 @@ type Kernel interface {
 	// 	entity.Container.StopTrain()
 	// 	entity.Container.Suspend()
 	// 	entity.Container.Resume()
-	RequestWithHandler(ctx context.Context, prompt string, typ jupyter.MessageType, msg *jupyter.JupyterMessage, handler KernelMessageHandler, done func()) error
+	RequestWithHandler(ctx context.Context, prompt string, typ jupyter.MessageType, msg *jupyter.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
 
 	// Close cleans up kernel resource.
 	// Including simulator features:

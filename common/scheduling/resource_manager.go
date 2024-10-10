@@ -78,6 +78,9 @@ type ResourceAllocation struct {
 	// GPUs is the number of GPUs in the ResourceAllocation.
 	GPUs decimal.Decimal `json:"gpus"`
 
+	// VramGB is the amount of VRAM (i.e., GPU memory) in GB.
+	VramGB decimal.Decimal `json:"vram"`
+
 	// Millicpus is the number of Millicpus in the ResourceAllocation, represented as 1/1000th cores.
 	// That is, 1000 Millicpus is equal to 1 vCPU.
 	Millicpus decimal.Decimal `json:"millicpus"`
@@ -148,6 +151,7 @@ func (a *ResourceAllocation) ToDecimalSpec() *types.DecimalSpec {
 		GPUs:      a.GPUs.Copy(),
 		Millicpus: a.Millicpus.Copy(),
 		MemoryMb:  a.MemoryMB.Copy(),
+		VRam:      a.VramGB.Copy(),
 	}
 }
 
@@ -173,6 +177,7 @@ func (a *ResourceAllocation) IsCommitted() bool {
 type ResourceAllocationBuilder struct {
 	allocationId   string
 	gpus           decimal.Decimal
+	vramGb         decimal.Decimal
 	millicpus      decimal.Decimal
 	memoryMb       decimal.Decimal
 	replicaId      int32
@@ -215,6 +220,12 @@ func (b *ResourceAllocationBuilder) WithGPUs(gpus float64) *ResourceAllocationBu
 	return b
 }
 
+// WithVRAM enables the specification of the amount of VRAM (in GB) in the ResourceAllocation that is being constructed.
+func (b *ResourceAllocationBuilder) WithVRAM(vramGb float64) *ResourceAllocationBuilder {
+	b.vramGb = decimal.NewFromFloat(vramGb)
+	return b
+}
+
 // WithMillicpus enables the specification of the number of Millicpus (in millicpus, or 1/1000th of a core)
 // in the ResourceAllocation that is being constructed.
 func (b *ResourceAllocationBuilder) WithMillicpus(millicpus float64) *ResourceAllocationBuilder {
@@ -234,6 +245,7 @@ func (b *ResourceAllocationBuilder) BuildResourceAllocation() *ResourceAllocatio
 	return &ResourceAllocation{
 		AllocationId:        b.allocationId,
 		GPUs:                b.gpus,
+		VramGB:              b.vramGb,
 		Millicpus:           b.millicpus,
 		MemoryMB:            b.memoryMb,
 		ReplicaId:           b.replicaId,
@@ -462,6 +474,16 @@ func (m *ResourceManager) SpecMemoryMB() decimal.Decimal {
 	return m.resourcesWrapper.SpecResources().MemoryMbAsDecimal().Copy()
 }
 
+// SpecVRAM returns the amount of VRAM (in GB) that is configured/present on this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) SpecVRAM() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.SpecResources().VRAMAsDecimal().Copy()
+}
+
 // SpecResources returns a snapshot of the current quantities of spec resources available
 // on this node at the time at which the SpecResources method is called.
 func (m *ResourceManager) SpecResources() *types.DecimalSpec {
@@ -498,6 +520,16 @@ func (m *ResourceManager) IdleMemoryMB() decimal.Decimal {
 	return m.resourcesWrapper.IdleResources().MemoryMbAsDecimal().Copy()
 }
 
+// IdleVRamGB returns the amount of VRAM (in GB) that is uncommitted and therefore available on this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) IdleVRamGB() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.IdleResources().VRAMAsDecimal().Copy()
+}
+
 // IdleResources returns a snapshot of the current quantities of idle resources available
 // on this node at the time at which the IdleResources method is called.
 func (m *ResourceManager) IdleResources() *types.DecimalSpec {
@@ -532,6 +564,16 @@ func (m *ResourceManager) CommittedMemoryMB() decimal.Decimal {
 	defer m.mu.Unlock()
 
 	return m.resourcesWrapper.CommittedResources().MemoryMbAsDecimal().Copy()
+}
+
+// CommittedVRamGB returns the amount of VRAM (in GB) that is actively committed and allocated to replicas that are scheduled onto this node.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) CommittedVRamGB() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.CommittedResources().VRAMAsDecimal().Copy()
 }
 
 // CommittedResources returns a snapshot of the current quantities of committed resources available
@@ -577,6 +619,20 @@ func (m *ResourceManager) PendingMemoryMB() decimal.Decimal {
 	defer m.mu.Unlock()
 
 	return m.resourcesWrapper.PendingResources().MemoryMbAsDecimal().Copy()
+}
+
+// PendingVRAM returns the sum of the outstanding VRAM of all replicas scheduled onto this node, in GB.
+// Pending VRAM is not allocated or committed to a particular replica yet.
+// The time at which resources are actually committed to a replica depends upon the policy being used.
+// In some cases, they're committed immediately.
+// In other cases, they're committed only when the replica is actively training.
+//
+// This returns a copy of the decimal.Decimal used internally.
+func (m *ResourceManager) PendingVRAM() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.resourcesWrapper.PendingResources().VRAMAsDecimal().Copy()
 }
 
 // PendingResources returns a snapshot of the current quantities of pending resources available
@@ -1045,7 +1101,8 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 		WithKernelReplica(replicaId, kernelId).
 		WithMillicpus(spec.CPU()).
 		WithMemoryMB(spec.MemoryMB()).
-		WithGPUs(spec.GPU())
+		WithGPUs(spec.GPU()).
+		WithVRAM(spec.VRAM())
 	allocation = builder.BuildResourceAllocation()
 
 	m.log.Debug("Attempting to subscribe the following pending resources to replica %d of kernel %s: %v",

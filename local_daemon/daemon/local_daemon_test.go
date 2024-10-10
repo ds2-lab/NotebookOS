@@ -109,7 +109,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", domain.TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.JupyterFrames(unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			err := jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -120,12 +120,10 @@ var _ = Describe("Local Daemon Tests", func() {
 			jMsg := types.NewJupyterMessage(msg)
 			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel)
 			Expect(processedMessage).ToNot(BeNil())
-			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
+			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
-			jFramesProcessed := types.JupyterFrames(processedMessage.Frames)
-			headerFrame := jFramesProcessed.HeaderFrame()
 			var header *types.MessageHeader
-			err = headerFrame.Decode(&header)
+			err = processedMessage.JupyterFrames.DecodeHeader(&header)
 
 			GinkgoWriter.Printf("Header: %s\n", header.String())
 
@@ -144,7 +142,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames := types.JupyterFrames(unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			err := jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -159,12 +157,9 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
-			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
+			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
-			jFramesProcessed := types.JupyterFrames(processedMessage.Frames)
-			headerFrame := jFramesProcessed.HeaderFrame()
-			var header types.MessageHeader
-			err = headerFrame.Decode(&header)
+			err = processedMessage.JupyterFrames.DecodeHeader(&header)
 
 			GinkgoWriter.Printf("Header: %v\n", header)
 
@@ -183,7 +178,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames := types.JupyterFrames(unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			err := jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -197,12 +192,10 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
-			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
+			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
-			jFramesProcessed := types.JupyterFrames(processedMessage.Frames)
-			headerFrame := jFramesProcessed.HeaderFrame()
 			var header types.MessageHeader
-			err = headerFrame.Decode(&header)
+			err = processedMessage.JupyterFrames.DecodeHeader(&header)
 
 			GinkgoWriter.Printf("Header: %v\n", header)
 
@@ -222,7 +215,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte("{}"), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames1 := types.JupyterFrames(unsignedFrames1)
+			jFrames1 := types.NewJupyterFramesFromBytes(unsignedFrames1)
 			frames1, err := jFrames1.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			Expect(frames1).ToNot(BeNil())
@@ -236,7 +229,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte("{}"), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames2 := types.JupyterFrames(unsignedFrames2)
+			jFrames2 := types.NewJupyterFramesFromBytes(unsignedFrames2)
 			frames2, err := jFrames2.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			Expect(frames2).ToNot(BeNil())
@@ -274,7 +267,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames := types.JupyterFrames(unsignedFrames)
+			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
 			err = jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -285,20 +278,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			jMsg := types.NewJupyterMessage(msg)
 			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
-			Expect(len(processedMessage.Frames)).To(Equal(len(frames)))
+			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
 			By("Embedding the idle GPUs in the metadata of the message")
-			processedFrames := types.JupyterFrames(processedMessage.Frames)
-			metadataFrame := processedFrames.MetadataFrame()
 			var metadata map[string]interface{}
-			err = metadataFrame.Decode(&metadata)
+			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
 			Expect(err).To(BeNil())
 			Expect(len(metadata)).To(Equal(6))
 
-			headerFrame := processedFrames.HeaderFrame()
 			var header types.MessageHeader
-			err = headerFrame.Decode(&header)
+			err = processedMessage.JupyterFrames.DecodeHeader(&header)
 
 			GinkgoWriter.Printf("Header: %v\n", header)
 
@@ -317,7 +307,6 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(resourceManager.CommittedGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
 			Expect(resourceManager.PendingGPUs().Equals(decimal.Zero)).To(BeTrue())
 			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(6))).To(BeTrue())
-			// Expect(resourceManager.GetPendingGPUsAssociatedWithKernel(kernel.ReplicaID(), kernel.ID())).To(Equal(decimal.NewFromFloat(2)))
 		})
 	})
 })

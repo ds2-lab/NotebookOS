@@ -73,7 +73,7 @@ type KernelReplicaClient struct {
 	status                           types.KernelStatus
 	busyStatus                       string
 	lastBStatusMsg                   *types.JupyterMessage
-	iobroker                         *MessageBroker[scheduling.Kernel, *types.JupyterMessage, types.JupyterFrames]
+	iobroker                         *MessageBroker[scheduling.Kernel, *types.JupyterMessage, *types.JupyterFrames]
 	shell                            *types.Socket                                  // Listener.
 	iopub                            *types.Socket                                  // Listener.
 	numResendAttempts                int                                            // Number of times to try resending a message before giving up.
@@ -877,7 +877,6 @@ func (c *KernelReplicaClient) InitializeShellForwarder(handler scheduling.Kernel
 
 	c.shell = shell
 	go c.client.Serve(c, shell, func(srv types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
-		// msg.Frames, _ = types.AddDestFrame(msg.Frames, c.id, jupyter.JOffsetAutoDetect)
 		msg.AddDestinationId(c.id)
 		return handler(c, typ, msg)
 	})
@@ -916,7 +915,7 @@ func (c *KernelReplicaClient) InitializeIOForwarder() (*types.Socket, error) {
 
 // AddIOHandler adds a handler for a specific IOPub topic.
 // The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
-func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, types.JupyterFrames, *types.JupyterMessage]) error {
+func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, *types.JupyterFrames, *types.JupyterMessage]) error {
 	if c.iobroker == nil {
 		return ErrIOPubNotStarted
 	}
@@ -925,12 +924,12 @@ func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHa
 }
 
 // RequestWithHandler sends a request and handles the response.
-func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, _ string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, done func()) error {
+func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, _ string, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
 	// c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
 	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
 
-func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
+func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, typ types.MessageType, msg *types.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
 	if c.status < types.KernelStatusRunning {
 		return types.ErrKernelNotReady
 	}
@@ -1163,32 +1162,25 @@ func (c *KernelReplicaClient) getWaitResponseOption(key string) interface{} {
 	return nil
 }
 
-func (c *KernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage) (topic string, jFrames types.JupyterFrames) {
-	// _, jOffset := types.SkipIdentitiesFrame(msg.Frames)
-	// jFrames = msg.Frames[jOffset:]
-	// if jOffset == 0 {
-	// 	return "", jFrames
-	// }
-
-	jFrames = msg.ToJFrames()
-	if msg.Offset == 0 {
-		return "", jFrames
+func (c *KernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage) (string, *types.JupyterFrames) {
+	if msg.Offset() == 0 {
+		return "", nil
 	}
 
-	rawTopic := msg.Frames[ /*jOffset*/ msg.Offset-1]
+	rawTopic := msg.JupyterFrames.Frames[ /*jOffset*/ msg.Offset()-1]
 	matches := types.IOTopicStatusRecognizer.FindSubmatch(rawTopic)
 	if len(matches) > 0 {
-		return string(matches[2]), jFrames
+		return string(matches[2]), msg.JupyterFrames
 	}
 
-	return string(rawTopic), jFrames
+	return string(rawTopic), msg.JupyterFrames
 }
 
-func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.Kernel, _ types.JupyterFrames, msg *types.JupyterMessage) error {
-	return kernel.Socket(types.IOMessage).Send(*msg.Msg)
+func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.Kernel, _ *types.JupyterFrames, msg *types.JupyterMessage) error {
+	return kernel.Socket(types.IOMessage).Send(*msg.GetZmqMsg())
 }
 
-func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames *types.JupyterFrames, msg *types.JupyterMessage) error {
 	var status types.MessageKernelStatus
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling IO kernel status: %v", err)
@@ -1227,7 +1219,7 @@ func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames t
 // 	return types.ErrStopPropagation
 // }
 
-func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames types.JupyterFrames, _ *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames *types.JupyterFrames, _ *types.JupyterMessage) error {
 	var nodeAddedMessage types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR node added: %v", err)
@@ -1247,7 +1239,7 @@ func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, fr
 	return commonTypes.ErrStopPropagation
 }
 
-func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.Kernel, frames types.JupyterFrames, _ *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.Kernel, frames *types.JupyterFrames, _ *types.JupyterMessage) error {
 	var nodeReadyMessage types.MessageSMRReady
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR ready: %v", err)

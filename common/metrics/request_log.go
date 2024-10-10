@@ -46,6 +46,33 @@ func NewRequestLog() *RequestLog {
 	return requestLog
 }
 
+// Len returns the number of entries in the RequestLog.
+//
+// This method is thread-safe.
+func (l *RequestLog) Len() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.unsafeLen()
+}
+
+// Size is an alias for the RequestLog's Len method.
+//
+// This method is thread-safe.
+func (l *RequestLog) Size() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.unsafeLen()
+}
+
+// unsafeLen returns the number of entries in the RequestLog.
+//
+// This method is NOT thread safe. It is meant to be called by Len and Size.
+func (l *RequestLog) unsafeLen() int {
+	return l.EntriesByJupyterMsgId.Len()
+}
+
 // AddEntry adds a RequestLogEntry to the RequestLog for the specified JupyterMessage.
 func (l *RequestLog) AddEntry(msg *types.JupyterMessage, socket *types.Socket, trace *proto.RequestTrace) error {
 	l.mu.Lock()
@@ -66,9 +93,11 @@ func (l *RequestLog) AddEntry(msg *types.JupyterMessage, socket *types.Socket, t
 			ErrRequestLogEntryExists, msgId)
 	}
 
-	if _, loaded := l.EntriesByRequestId.LoadOrStore(msg.RequestId, entry); loaded {
-		return fmt.Errorf("%w: entry already exists for request with request ID \"%s\"",
-			ErrRequestLogEntryExists, msg.RequestId)
+	if msg.RequestId != "" {
+		if _, loaded := l.EntriesByRequestId.LoadOrStore(msg.RequestId, entry); loaded {
+			return fmt.Errorf("%w: entry already exists for request with request ID \"%s\"",
+				ErrRequestLogEntryExists, msg.RequestId)
+		}
 	}
 
 	var (

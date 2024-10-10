@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"strings"
 	"time"
 
@@ -204,22 +203,6 @@ func (b *RequestBuilder) WithRemoveDestFrame(shouldDestFrameBeRemoved bool) *Req
 // Required //
 //////////////
 
-// WithPayload sets the payload of the message.
-//
-// Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
-func (b *RequestBuilder) WithPayload(msg *zmq4.Msg) *RequestBuilder {
-	if msg == nil {
-		panic(fmt.Sprintf("Cannot assign nil payload for request. SourceID: %s. DestID: %s. ConnectionInfo: %v.", b.sourceId, b.destinationId, b.connectionInfo))
-	}
-
-	msg, reqId, _ := b.extractAndAddDestFrame(b.destinationId, msg)
-
-	b.payload = NewJupyterMessage(msg)
-	b.requestId = reqId
-
-	return b
-}
-
 // WithJMsgPayload sets the payload of the message.
 //
 // Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
@@ -245,8 +228,8 @@ func (b *RequestBuilder) WithJMsgPayload(msg *JupyterMessage) *RequestBuilder {
 	}
 
 	// Sanity checks.
-	if jOffset != -1 && jOffset != msg.Offset {
-		panic(fmt.Sprintf("Offset field of JupyterMessage does not match return value of JupyterMessage::AddDestinationId. Field: \"%d\". Return value: \"%d\".", msg.Offset, jOffset))
+	if jOffset != -1 && jOffset != msg.JupyterFrames.Offset {
+		panic(fmt.Sprintf("Offset field of JupyterMessage does not match return value of JupyterMessage::AddDestinationId. Field: \"%d\". Return value: \"%d\".", msg.JupyterFrames.Offset, jOffset))
 	}
 
 	return b
@@ -285,13 +268,17 @@ func (b *RequestBuilder) WithMessageHandler(handler MessageHandler) *RequestBuil
 // Extract the DEST frame from the request's frames.
 // If there is no DEST frame already contained within the message, then add the DEST frame.
 func (b *RequestBuilder) extractAndAddDestFrame(destId string, msg *zmq4.Msg) (*zmq4.Msg, string, int) {
+	// Slightly inefficient. We call SkipIdentities both in NewJupyterFramesFromBytes and ExtractDestFrame.
+	// (And again several times in AddDestFrame...)
+	jFrames := NewJupyterFramesFromBytes(msg.Frames)
+
 	// Normalize the request, we do not assume that the types.RequestDest implements the auto-detect feature.
-	_, reqId, jOffset := ExtractDestFrame(msg.Frames)
+	_, reqId, _ := jFrames.ExtractDestFrame(false)
 	if reqId == "" {
-		msg.Frames, reqId, jOffset = AddDestFrame(msg.Frames, destId, jupyter.JOffsetAutoDetect)
+		reqId = jFrames.AddDestFrame(destId, false)
 	}
 
-	return msg, reqId, jOffset
+	return msg, reqId, jFrames.Offset
 }
 
 // BuildRequest builds the request as configured.

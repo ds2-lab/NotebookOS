@@ -328,9 +328,6 @@ extern char* smr_ErrEOF();
 extern void smr_Set_ErrEOF(char* val);
 extern long long int smr_ProposalDeadline();
 extern void smr_Set_ProposalDeadline(long long int val);
-extern long long int smr_LogSnapshotter_Load(long long int _handle);
-extern long long int smr_LogSnapshotter_LoadNewestAvailable(long long int _handle, long long int arg_0);
-extern char* smr_LogSnapshotter_SaveSnap(long long int _handle, long long int arg_0);
 extern char* smr_LogStorage_Close(long long int _handle);
 extern char* smr_LogStorage_ReleaseLockTo(long long int _handle, long long unsigned int arg_0);
 extern char* smr_LogStorage_Save(long long int _handle, long long int arg_0, long long int arg_1);
@@ -339,12 +336,9 @@ extern char* smr_ReadCloser_Close(long long int _handle);
 extern long long int smr_ReadCloser_Read(long long int _handle, long long int p);
 extern char* smr_WriteCloser_Close(long long int _handle);
 extern long long int smr_WriteCloser_Write(long long int _handle, long long int p);
-
-// --- wrapping struct: smr.SMRContext ---
-//
-extern long long int smr_SMRContext_CTor();
-extern char* smr_SMRContext_ID(long long int _handle);
-extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
+extern long long int smr_LogSnapshotter_Load(long long int _handle);
+extern long long int smr_LogSnapshotter_LoadNewestAvailable(long long int _handle, long long int arg_0);
+extern char* smr_LogSnapshotter_SaveSnap(long long int _handle, long long int arg_0);
 
 // --- wrapping struct: smr.Bytes ---
 //
@@ -364,6 +358,7 @@ extern void smr_IntRet_Err_Set(long long int handle, char* val);
 //
 extern long long int smr_LogNode_CTor();
 extern void smr_LogNode_ServeHttpDebug(long long int _handle, char goRun);
+extern long long int smr_LogNode_HdfsReadLatencyMilliseconds(long long int _handle);
 extern char smr_LogNode_ConnectedToHDFS(long long int _handle);
 extern long long int smr_LogNode_NumChanges(long long int _handle);
 extern char smr_LogNode_Start(long long int _handle, long long int config);
@@ -376,7 +371,7 @@ extern void smr_LogNode_UpdateNode(long long int _handle, long long int id, char
 extern char* smr_LogNode_WaitToClose(long long int _handle);
 extern char* smr_LogNode_Close(long long int _handle);
 extern char* smr_LogNode_CloseHdfsClient(long long int _handle);
-extern void smr_LogNode_WriteDataDirectoryToHDFS(long long int _handle, long long int serialized_state, PyObject* resolve, char goRun);
+extern void smr_LogNode_WriteDataDirectoryToHDFS(long long int _handle, long long int serializedState, PyObject* resolve, char goRun);
 extern char* smr_LogNode_Process(long long int _handle, long long int ctx, long long int m);
 extern char smr_LogNode_IsIDRemoved(long long int _handle, long long unsigned int id);
 extern void smr_LogNode_ReportUnreachable(long long int _handle, long long unsigned int id, char goRun);
@@ -396,10 +391,16 @@ extern long long int smr_LogNodeConfig_WithRestoreCallback(long long int _handle
 extern long long int smr_LogNodeConfig_WithShouldSnapshotCallback(long long int _handle, PyObject* cb);
 extern long long int smr_LogNodeConfig_WithSnapshotCallback(long long int _handle, PyObject* cb);
 extern char* smr_LogNodeConfig_String(long long int _handle);
-extern long long int smr_NewLogNode(char* store_path, long long int id, char* hdfsHostname, char shouldLoadDataFromHdfs, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort);
+
+// --- wrapping struct: smr.SMRContext ---
+//
+extern long long int smr_SMRContext_CTor();
+extern char* smr_SMRContext_ID(long long int _handle);
+extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
+extern long long int smr_NewLogNode(char* storePath, long long int id, char* hdfsHostname, char shouldLoadDataFromHdfs, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort);
 extern long long int smr_NewConfig();
-extern long long int smr_CreateBytes(char len);
 extern void smr_PrintTestMessage(char goRun);
+extern long long int smr_CreateBytes(char len);
 extern long long int smr_NewBytes(char* bytes, GoInt len);
 
 #ifdef __cplusplus

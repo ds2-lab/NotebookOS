@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/hmac"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -404,7 +402,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	// Create the internalCluster Scheduler.
 	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
-	hostSpec := &types.Float64Spec{GPUs: types.GPUSpec(clusterSchedulerOptions.GpusPerHost), Millicpus: scheduling.MillicpusPerHost, MemoryMb: scheduling.MemoryMbPerHost}
+	hostSpec := &types.Float64Spec{
+		GPUs:      float64(clusterSchedulerOptions.GpusPerHost),
+		VRam:      scheduling.VramPerHostGb,
+		Millicpus: scheduling.MillicpusPerHost,
+		MemoryMb:  scheduling.MemoryMbPerHost,
+	}
 	if clusterGateway.KubernetesMode() {
 		clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
 		clusterGateway.containerWatcher = clusterGateway.kubeClient
@@ -601,7 +604,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	// If DebugMode is enabled, then add a buffers frame with a RequestTrace.
 	var requestTrace *proto.RequestTrace
 	if d.DebugMode {
-		frames = append(frames, make([]byte, 0))
+		frames.Frames = append(frames.Frames, make([]byte, 0))
 
 		requestTrace = proto.NewRequestTrace()
 
@@ -621,10 +624,10 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 
-		frames[jupyter.JupyterFrameRequestTrace] = marshalledFrame
+		frames.Frames[jupyter.JupyterFrameRequestTrace] = marshalledFrame
 	}
 
-	msg.Frames, err = frames[0:jupyter.JupyterFrameRequestTrace].SignByConnectionInfo(kernel.ConnectionInfo())
+	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
 	if err != nil {
 		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v", kernelId, kernel.ConnectionInfo().SignatureScheme, err)
 		return &proto.Pong{
@@ -637,21 +640,29 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 	defer cancel()
 
-	respChan := make(chan interface{})
+	respChan := make(chan interface{}, d.ClusterOptions.NumReplicas)
 
 	startTime := time.Now()
 	var numRepliesReceived atomic.Int32
-	responseHandler := func(from scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+	responseHandler := func(from scheduling.KernelReplicaInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 		latestNumRepliesReceived := numRepliesReceived.Add(1)
 
 		// Notify that all replies have been received.
 		if msg.RequestTrace != nil {
-			d.log.Debug("Received %s ping_reply from kernel %s for message \"%s\". Received %d/3 replies. Time elapsed: %v. Request trace: %s.",
-				typ.String(), from.ID(), msgId, latestNumRepliesReceived, time.Since(startTime), msg.RequestTrace.String())
-			respChan <- msg.RequestTrace
+			requestTrace := msg.RequestTrace
+			if requestTrace.ReplicaId != -1 && requestTrace.ReplicaId != from.ReplicaID() {
+				d.log.Warn("Overwriting existing replica ID of %d with %d in RequestTrace for %s \"%s\" message %s (JupyterID=\"%s\")",
+					requestTrace.ReplicaId, from.ReplicaID(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+			}
+
+			requestTrace.ReplicaId = from.ReplicaID()
+
+			d.log.Debug("Received %s ping_reply from %s for message \"%s\". Received %d/3 replies. Time elapsed: %v. Request trace: %s.",
+				typ.String(), from.String(), msgId, latestNumRepliesReceived, time.Since(startTime), msg.RequestTrace.String())
+			respChan <- requestTrace
 		} else {
-			d.log.Debug("Received %s ping_reply from kernel %s for message \"%s\". Received %d/3 replies. Time elapsed: %v.",
-				typ.String(), from.ID(), msgId, latestNumRepliesReceived, time.Since(startTime))
+			d.log.Debug("Received %s ping_reply from %s for message \"%s\". Received %d/3 replies. Time elapsed: %v.",
+				typ.String(), from.String(), msgId, latestNumRepliesReceived, time.Since(startTime))
 			respChan <- struct{}{}
 		}
 
@@ -702,6 +713,13 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 				}
 			}
 		}
+	}
+
+	// Include the "ReplySentByGateway" entry, since we're returning the response via gRPC,
+	// and thus it won't be added automatically by the ZMQ-forwarder server.
+	replySentByGateway := time.Now().UnixMilli()
+	for _, requestTrace := range requestTraces {
+		requestTrace.ReplySentByGateway = replySentByGateway
 	}
 
 	d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s for ping message \"%s\" in %v.",
@@ -821,7 +839,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	// Create a host scheduler client and register it.
 	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, d.cluster, d.gatewayPrometheusManager, gConn, d.localDaemonDisconnected)
+		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster, d.gatewayPrometheusManager, gConn, d.localDaemonDisconnected)
 
 	if err != nil {
 		d.log.Error("Failed to create host scheduler client: %v", err)
@@ -997,12 +1015,12 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 
 // func (d *ClusterGatewayImpl) SmrNodeRemoved(ctx context.Context, replicaInfo *gateway.ReplicaInfo) (*gateway.Void, error) {
 // 	kernelId := replicaInfo.KernelId
-// 	d.log.Debug("Received SMR Node-Removed notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
+// 	d.log.Debug("Received SMR Node-Removed notification for replica %d of kernel %s.", replicaInfo.ReplicaID, kernelId)
 
-// 	channelMapKey := fmt.Sprintf("%s-%s", kernelId, replicaInfo.ReplicaId)
+// 	channelMapKey := fmt.Sprintf("%s-%s", kernelId, replicaInfo.ReplicaID)
 // 	channel, ok := d.smrNodeRemovedNotifications.Load(channelMapKey)
 // 	if !ok {
-// 		panic(fmt.Sprintf("Could not find \"node-removed\" notification channel for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId))
+// 		panic(fmt.Sprintf("Could not find \"node-removed\" notification channel for replica %d of kernel %s.", replicaInfo.ReplicaID, kernelId))
 // 	}
 
 // 	channel <- struct{}{}
@@ -1044,7 +1062,7 @@ func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel *client.KernelRepli
 		messageType = "N/A"
 	}
 
-	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending %v \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), msg.Type, messageType, reconnectionError)
+	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending \"%s\" message: %v", kernel.ReplicaID(), kernel.ID(), messageType, reconnectionError)
 	d.log.Error(errorMessage)
 
 	go d.notifyDashboardOfError("Connection to Kernel Lost & Reconnection Failed", errorMessage)
@@ -1215,43 +1233,56 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	// We do this now, before calling waitGroup.Wait(), just to overlap the two tasks
 	// (the kernel starting + registering and us updating the "execute_request" Jupyter
 	// message for resubmission).
-	_, _, offset := jupyter.ExtractDestFrame(msg.Frames)
-	var frames jupyter.JupyterFrames = msg.Frames
-	var metadataFrame = frames[offset:].MetadataFrame()
-	var metadataDict map[string]interface{}
+	//metadataFrame := msg.JupyterFrames.MetadataFrame()
+	//var metadataDict map[string]interface{}
+	//
+	//// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
+	//if len(metadataFrame.Frame()) > 0 {
+	//	// Unmarshal the frame. This way, we preserve any other metadata that was
+	//	// originally included with the message when we specify the target replica.
+	//	err := metadataFrame.Decode(&metadataDict)
+	//	if err != nil {
+	//		d.log.Error("Error unmarshalling metadata frame for 'execute_request' message: %v", err)
+	//		return err
+	//	} else {
+	//		d.log.Debug("Unmarshalled metadata frame for 'execute_request' message: %v", metadataDict)
+	//	}
+	//}
 
-	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
-	if len(metadataFrame.Frame()) > 0 {
-		// Unmarshal the frame. This way, we preserve any other metadata that was
-		// originally included with the message when we specify the target replica.
-		err := metadataFrame.Decode(&metadataDict)
-		if err != nil {
-			d.log.Error("Error unmarshalling metadata frame for 'execute_request' message: %v", err)
-			return err
-		} else {
-			d.log.Debug("Unmarshalled metadata frame for 'execute_request' message: %v", metadataDict)
-		}
+	metadataDict, err := msg.DecodeMetadata()
+	if err != nil {
+		d.log.Warn("Failed to unmarshal metadata frame for \"execute_request\" message \"%s\" (JupyterID=\"%s\"): %v",
+			msg.RequestId, msg.JupyterMessageId())
+
+		// We'll assume the metadata frame was empty, and we'll create a new dictionary to use as the metadata frame.
+		metadataDict = make(map[string]interface{})
 	}
 
 	// Specify the target replica.
 	metadataDict[TargetReplicaArg] = targetReplica
 	metadataDict[ForceReprocessArg] = true
-	err := frames[offset:].EncodeMetadata(metadataDict)
+	err = msg.EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("Failed to encode metadata frame because: %v", err)
 		return err
 	}
 
+	signatureScheme := c.ConnectionInfo().SignatureScheme
+	if signatureScheme == "" {
+		d.log.Warn("Kernel %s's signature scheme is blank. Defaulting to \"%s\"", jupyter.JupyterSignatureScheme)
+		signatureScheme = jupyter.JupyterSignatureScheme
+	}
+
 	// Regenerate the signature.
-	framesWithoutIdentities, _ := jupyter.SkipIdentitiesFrame(msg.Frames)
-	if _, err := framesWithoutIdentities.Sign(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
+	if _, err := msg.JupyterFrames.Sign(signatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
 		// Ignore the error; just log it.
 		d.log.Warn("Failed to sign frames because %v", err)
 	}
 
 	// Ensure that the frames are now correct.
-	if verified := d.verifyFrames([]byte(c.ConnectionInfo().Key), c.ConnectionInfo().SignatureScheme, offset, msg.Frames); !verified {
-		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", c.ConnectionInfo().SignatureScheme, c.ConnectionInfo().Key)
+	if err := msg.JupyterFrames.Verify(signatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
+		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v': %v",
+			signatureScheme, c.ConnectionInfo().Key, err)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
 		return ErrFailedToVerifyMessage
 	}
@@ -1279,27 +1310,6 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	}
 
 	return nil
-}
-
-func (d *ClusterGatewayImpl) verifyFrames(signkey []byte, signatureScheme string, offset int, frames jupyter.JupyterFrames) bool {
-	expect, err := frames.CreateSignature(signatureScheme, signkey, offset)
-	if err != nil {
-		d.log.Error("Error when creating signature to verify JFrames: %v", err)
-		return false
-	}
-
-	signature := make([]byte, hex.DecodedLen(len(frames[offset+jupyter.JupyterFrameSignature])))
-	if _, err = hex.Decode(signature, frames[offset+jupyter.JupyterFrameSignature]); err != nil {
-		d.log.Error("Failed to decode Jupyter message/signature because: %v", err)
-		d.log.Error("Erroneous message/frames: %s", frames.String())
-	}
-	verified := hmac.Equal(expect, signature)
-
-	if !verified {
-		d.log.Error("Failed to verify JFrames.\nExpect: '%v'\nSignature: '%v'", expect, signature)
-	}
-
-	return verified
 }
 
 func (d *ClusterGatewayImpl) dynamicV3FailureHandler(_ *client.DistributedKernelClient) error {
@@ -1395,6 +1405,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
 	startTime := time.Now()
 	d.log.Info("ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v].", in.Id, in.Session, in.ResourceSpec)
+	d.log.Debug("KernelSpec: %v", in)
 
 	var (
 		kernel *client.DistributedKernelClient
@@ -1623,7 +1634,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		panic(fmt.Sprintf("KernelReplicaClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
-	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaId, in.KernelId, waitGroup.NumReplicas())
+	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaID, in.KernelId, waitGroup.NumReplicas())
 
 	// Store the new replica in the list of replicas for the kernel (at the correct position, based on the SMR node ID).
 	// Then, return the list of replicas so that we can pass it to the new replica.
@@ -1651,7 +1662,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	d.issueUpdateReplicaRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
 
 	// Issue the AddNode request now, so that the node can join when it starts up.
-	// d.issueAddNodeRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
+	// d.issueAddNodeRequest(in.KernelId, replicaSpec.ReplicaID, in.KernelIp)
 
 	d.log.Debug("Done handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)
 
@@ -1811,7 +1822,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 		panic(fmt.Sprintf("KernelReplicaClient::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
-	d.log.Debug("Adding Replica replica for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("Adding Replica for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
 		panic(fmt.Sprintf("KernelReplicaClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
@@ -1865,9 +1876,7 @@ func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMess
 	entry, loaded := requestLog.EntriesByJupyterMsgId.Load(in.MessageId)
 	if !loaded {
 		d.log.Warn("No request log entry found for request with Jupyter message ID \"%s\"", in.MessageId)
-		return &proto.QueryMessageResponse{
-			RequestTrace: entry.RequestTrace,
-		}, nil
+		return nil, status.Errorf(codes.InvalidArgument, "no request entry found in request log for entry with ID=\"%s\"", in.MessageId)
 	}
 
 	// Make sure the Jupyter message types match (if the caller specified a Jupyter message type).
@@ -2449,7 +2458,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 			msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
 		if len(msg.DestinationId) == 0 {
-			d.log.Error("Extracted empty kernel ID from ZMQ %v message: %v", msg.Type, msg)
+			d.log.Error("Extracted empty kernel ID from ZMQ \"%s\" message: %v", msg.JupyterMessageType(), msg)
 			debug.PrintStack()
 		}
 
@@ -2504,7 +2513,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 	activeExecution := kernel.ActiveExecution()
 	if activeExecution == nil {
 		d.log.Error("No active execution registered for kernel %s...", kernelId)
-		return nil
+		// return nil
 	} else if activeExecution.ExecuteRequestMessageId != msg.JupyterParentMessageId() {
 		// It's possible that we receive an "execute_reply" for execution i AFTER the "smr_lead_task" message for
 		// execution i+1 (i.e., out of order). When this happens, we just stop the current training upon receiving
@@ -2535,7 +2544,8 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 			d.log.Error(errorMessage)
 			d.log.Error(utils.RedStyle.Render("Old active execution isn't actually old. Current execution: %v. \"Old\" execution: %v.\n"),
 				activeExecution.String(), oldActiveExecution.String())
-			log.Fatalf(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
+			// log.Fatalf(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
+			d.log.Error(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
 		}
 	}
 
@@ -2543,10 +2553,10 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
 
 	var snapshotWrapper *scheduling.MetadataResourceWrapperSnapshot
-	metadataFrame := msg.Frames[msg.Offset+jupyter.JupyterFrameMetadata]
+	metadataFrame := msg.JupyterFrames.MetadataFrame()
 	d.log.Debug("Attempting to decode metadata frame of Jupyter \"%s\" message %s (JupyterID=%s): %s",
-		msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), string(metadataFrame))
-	err := json.Unmarshal(metadataFrame, &snapshotWrapper)
+		msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), string(*metadataFrame))
+	err := json.Unmarshal(*metadataFrame, &snapshotWrapper)
 	if err != nil {
 		d.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
 		return err // TODO: Should I panic here?
@@ -2658,36 +2668,6 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 	return &proto.Void{}, nil
 }
 
-// idFromMsg extracts the kernel id or session id from the ZMQ message.
-// func (d *ClusterGatewayImpl) idFromMsg(msg *jupyter.JupyterMessage) (id string, sessId bool, err error) {
-// 	kernelId, _, offset := d.router.ExtractDestFrame(msg.Frames)
-// 	if kernelId != "" {
-// 		return kernelId, false, nil
-// 	}
-
-// 	header, err := d.headerFromFrames(msg.Frames[offset:])
-// 	if err != nil {
-// 		return "", false, err
-// 	}
-
-// 	return header.Session, true, nil
-// }
-
-func (d *ClusterGatewayImpl) headerFromFrames(frames [][]byte) (*jupyter.MessageHeader, error) {
-	jFrames := jupyter.JupyterFrames(frames)
-	if err := jFrames.Validate(); err != nil {
-		d.log.Error(utils.RedStyle.Render("[ERROR] Failed to validate message frames while extracting header from message: %v"), err)
-		return nil, err
-	}
-
-	var header jupyter.MessageHeader
-	if err := jFrames.DecodeHeader(&header); err != nil {
-		return nil, err
-	}
-
-	return &header, nil
-}
-
 // Return the add-replica operation associated with the given Kernel ID and SMR Node ID of the new replica.
 //
 // This looks for the most-recently-added AddReplicaOperation associated with the specified replica of the specified kernel.
@@ -2717,33 +2697,8 @@ func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 	return nil, false
 }
 
-// idFromMsg extracts the kernel id or session id from the ZMQ message.
-func (d *ClusterGatewayImpl) kernelIdAndTypeFromMsg(msg *jupyter.JupyterMessage) (id string, messageType string, sessId bool, err error) {
-	kernelId, _, offset := jupyter.ExtractDestFrame(msg.Frames)
-	header, err := d.headerFromFrames(msg.Frames[offset:])
-	if err != nil {
-		return "", "", false, err
-	}
-
-	if kernelId == "" {
-		d.log.Error("Extracted empty string for kernel ID from message. Will try using session ID instead.")
-		kernelId = header.Session
-	}
-
-	return kernelId, string(header.MsgType), true, nil
-}
-
 // Extract the Kernel ID and the message type from the given ZMQ message.
 func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *jupyter.JupyterMessage) (kernel *client.DistributedKernelClient, messageType string, err error) {
-	// var (
-	// 	kernelId string
-	// )
-
-	// kernelId, messageType, _, err = d.kernelIdAndTypeFromMsg(msg)
-	// if err != nil {
-	// 	return nil, messageType, err
-	// }
-
 	// This is initially the kernel's ID, which is the DestID field of the message.
 	// But we may not have set a destination ID field within the message yet.
 	// In this case, we'll fall back to the session ID within the message's Jupyter header.
@@ -2780,30 +2735,11 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *jupyter.JupyterMessage) (
 	return kernel, messageType, nil
 }
 
-// func (d *ClusterGatewayImpl) kernelFromMsg(msg *jupyter.JupyterMessage) (client.DistributedKernelClient, error) {
-// 	kernelId, header, err := d.headerFromMsg(msg)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	kernel, ok := d.kernels.Load(kernelId)
-// 	if !ok {
-// 		d.log.Error("Cannot find kernel \"%s\" specified in %v message %s of type '%v'. Message: %v", kernelId, header.MsgType, header.MsgID, header.MsgType, msg)
-// 		return nil, ErrKernelNotFound
-// 	}
-
-// 	if kernel.Status() != jupyter.KernelStatusRunning {
-// 		return kernel, ErrKernelNotReady
-// 	}
-
-// 	return kernel, nil
-// }
-
 func (d *ClusterGatewayImpl) forwardRequest(kernel *client.DistributedKernelClient, typ jupyter.MessageType, msg *jupyter.JupyterMessage) (err error) {
 	goroutineId := goid.Get()
 	// var messageType string
 	if kernel == nil {
-		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting unknown kernel/session. Inspecting now: %v"), goroutineId, typ.String(), msg.Msg.String())
+		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting unknown kernel/session. Inspecting now: %v"), goroutineId, typ.String(), msg.JupyterFrames.String())
 		kernel, _ /* messageType */, err = d.kernelAndTypeFromMsg(msg)
 	} else {
 		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting kernel %s. Inspecting now..."), goroutineId, typ.String(), kernel.ID())
@@ -2828,7 +2764,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel *client.DistributedKernelClie
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 
-func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
+func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelReplicaInfo, typ jupyter.MessageType, msg *jupyter.JupyterMessage) error {
 	goroutineId := goid.Get()
 	socket := from.Socket(typ)
 	if socket == nil {
@@ -2837,6 +2773,16 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 	if socket == nil {
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
+	}
+
+	if msg.RequestTrace != nil {
+		requestTrace := msg.RequestTrace
+		if requestTrace.ReplicaId != -1 && requestTrace.ReplicaId != from.ReplicaID() {
+			d.log.Warn("Overwriting existing replica ID of %d with %d in RequestTrace for %s \"%s\" message %s (JupyterID=\"%s\")",
+				requestTrace.ReplicaId, from.ReplicaID(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+		}
+
+		msg.RequestTrace.ReplicaId = from.ReplicaID()
 	}
 
 	if typ == jupyter.ShellMessage {
@@ -2849,10 +2795,42 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 		}
 	}
 
+	if d.DebugMode {
+		_, _, err := jupyter.AddOrUpdateRequestTraceToJupyterMessage(msg, socket, time.Now(), d.log)
+		if err != nil {
+			d.log.Debug("Failed to update RequestTrace in %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"): %v",
+				typ, msg.JupyterMessageType(), msg.DestinationId, msg.JupyterMessageId(), err)
+		}
+
+		// Commented Out:
+		//
+		// This works, but we actually don't need to do this, as the buffers ARE being sent to the kernel after all.
+		// I was just confused by the output in the console. (Buffers was rendered as "[{}]", which I thought meant
+		// that they were empty -- but apparently that is not the case, which is good.)
+		//
+		//if from.KernelSpec() != nil {
+		//	signatureScheme := from.KernelSpec().SignatureScheme
+		//	key := from.KernelSpec().Key
+		//
+		//	if key != "" { // We can default to hmac-sha256 if we don't have the signature scheme (though we should have it)
+		//		jupyter.CopyRequestTraceFromBuffersToMetadata(msg, signatureScheme, key, d.log)
+		//	} else {
+		//		d.log.Warn("Cannot copy RequestTrace to metadata frame for %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"). "+
+		//			"We do not have the kernel's key (so we cannot re-sign the message).", typ, msg.JupyterMessageId(),
+		//			msg.DestinationId, msg.JupyterMessageId())
+		//	}
+		//} else {
+		//	d.log.Warn("Cannot copy RequestTrace to metadata frame for %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"). "+
+		//		"We do not have the kernel's signature scheme or key (so we cannot re-sign the message).", typ, msg.JupyterMessageId(),
+		//		msg.DestinationId, msg.JupyterMessageId())
+		//}
+	}
+
 	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v response from kernel %s via %s: %v"),
 		goroutineId, typ, from.ID(), socket.Name, msg)
+	zmqMsg := *msg.GetZmqMsg()
 	sendStart := time.Now()
-	err := socket.Send(*msg.Msg)
+	err := socket.Send(zmqMsg)
 	sendDuration := time.Since(sendStart)
 
 	// Display a warning if the send operation took a while.
@@ -2879,6 +2857,9 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelInfo,
 	if err != nil {
 		d.log.Error(utils.RedStyle.Render("[gid=%d] Error while forwarding %v \"%s\" response %s (JupyterID=\"%s\") from kernel %s via %s: %s"),
 			goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, err.Error())
+	} else {
+		d.log.Debug("Successfully forwarded %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"): %v",
+			typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), jupyter.FramesToString(zmqMsg.Frames))
 	}
 
 	return err // Will be nil on success.
@@ -2963,7 +2944,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		// Always wait for the scale-out operation to complete and the new replica to be created.
 		key = <-addReplicaOp.ReplicaStartedChannel()
 	} else {
-		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaId), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
+		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaID), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
 		// connInfo, err := d.placer.Place(host, newReplicaSpec)
 
 		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
@@ -3174,8 +3155,16 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 	nodes := make([]*proto.VirtualDockerNode, 0, d.cluster.Len())
 
 	d.cluster.RangeOverHosts(func(_ string, host *scheduling.Host) (contd bool) {
+		//d.log.Debug("Host %s (ID=%s):", host.NodeName, host.ID)
+		//d.log.Debug("Idle resources: %s", host.IdleResources().String())
+		//d.log.Debug("Pending resources: %s", host.PendingResources().String())
+		//d.log.Debug("Committed resources: %s", host.CommittedResources().String())
+		//d.log.Debug("Spec resources: %s", host.ResourceSpec().String())
+
 		virtualDockerNode := host.ToVirtualDockerNode()
 		nodes = append(nodes, virtualDockerNode)
+
+		//d.log.Debug("Returning VirtualDockerNode: %s\n", virtualDockerNode.String())
 		return true
 	})
 

@@ -9,7 +9,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"time"
 
-	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
@@ -66,24 +65,30 @@ func (frame *JupyterFrame) Decode(out any) (err error) {
 // JupyterFrames provides a simple way to access the frames of a Jupyter message.
 // A valid JupyterFrames will have at least 5 frames, call Validate() to check before calling other methods.
 // 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
-type JupyterFrames [][]byte
+type JupyterFrames struct {
+	// Frames are the actual frames.
+	Frames [][]byte
 
-func NewJupyterFrames(numExtraFrames int) JupyterFrames {
-	return NewJupyterFramesWithReservation(0)
+	// Offset is an integer denoting the offset from the beginning of the Frames array at which point
+	// the Jupyter frames begin. Frames[0, Offset] are ZMQ identities are our dest.req frame.
+	Offset int
 }
 
-func NewJupyterFramesWithReservation(numReserved int) JupyterFrames {
-	frames := make(JupyterFrames, JupyterFrameContent+1, numReserved+JupyterFrameBuffers+1)
+func NewJupyterFramesWithReservation(numReserved int) *JupyterFrames {
+	frames := make([][]byte, JupyterFrameContent+1, numReserved+JupyterFrameBuffers+1)
 	frames[JupyterFrameStart] = JupyterFrameIDSMSG
 	frames[JupyterFrameSignature] = JupyterFrameEmpty
 	frames[JupyterFrameHeader] = JupyterFrameEmpty
 	frames[JupyterFrameParentHeader] = JupyterFrameEmpty
 	frames[JupyterFrameMetadata] = JupyterFrameEmpty
 	frames[JupyterFrameContent] = JupyterFrameEmpty
-	return frames
+	return &JupyterFrames{
+		Frames: frames,
+		Offset: 0,
+	}
 }
 
-func NewJupyterFramesWithHeader(msgType string, session string) JupyterFrames {
+func NewJupyterFramesWithHeader(msgType string, session string) *JupyterFrames {
 	frames := NewJupyterFramesWithReservation(1)
 	_ = frames.EncodeHeader(&MessageHeader{
 		MsgID:    uuid.New().String(),
@@ -96,7 +101,7 @@ func NewJupyterFramesWithHeader(msgType string, session string) JupyterFrames {
 	return frames
 }
 
-func NewJupyterFramesWithHeaderAndSpecificMessageId(msgId string, msgType string, session string) JupyterFrames {
+func NewJupyterFramesWithHeaderAndSpecificMessageId(msgId string, msgType string, session string) *JupyterFrames {
 	frames := NewJupyterFramesWithReservation(1)
 	_ = frames.EncodeHeader(&MessageHeader{
 		MsgID:    msgId,
@@ -109,16 +114,57 @@ func NewJupyterFramesWithHeaderAndSpecificMessageId(msgId string, msgType string
 	return frames
 }
 
-func (frames JupyterFrames) String() string {
-	if len(frames) == 0 {
+// NewJupyterFramesFromBytes creates a new JupyterFrames struct and returns a pointer to it.
+// This function calculates the offset for the JupyterFrames and populates the new struct accordingly.
+func NewJupyterFramesFromBytes(frames [][]byte) *JupyterFrames {
+	_, offset := SkipIdentitiesFrame(frames)
+	return &JupyterFrames{
+		Frames: frames,
+		Offset: offset,
+	}
+}
+
+func (frames *JupyterFrames) Clone() *JupyterFrames {
+	clonedFrames := make([][]byte, len(frames.Frames))
+	for i, frame := range frames.Frames {
+		clonedFrames[i] = make([]byte, len(frame))
+		copy(clonedFrames[i], frame)
+	}
+
+	return &JupyterFrames{
+		Frames: clonedFrames,
+		Offset: frames.Offset,
+	}
+}
+
+func (frames *JupyterFrames) Len() int {
+	if frames.Frames == nil {
+		panic("Frames are nil.")
+	}
+
+	return len(frames.Frames)
+}
+
+// LenWithoutIdentitiesFrame returns the length of the underlying frames after skipping any ZMQ identities.
+func (frames *JupyterFrames) LenWithoutIdentitiesFrame(forceRecompute bool) int {
+	if forceRecompute {
+		f, _ := frames.SkipIdentitiesFrame() // This forces the offset to be recalculated.
+		return len(f)
+	} else {
+		return len(frames.Frames[frames.Offset:])
+	}
+}
+
+func (frames *JupyterFrames) String() string {
+	if frames.Len() == 0 {
 		return "[]"
 	}
 
 	s := "["
-	for i, frame := range frames {
+	for i, frame := range frames.Frames {
 		s += "\"" + string(frame) + "\""
 
-		if i+1 < len(frames) {
+		if i+1 < frames.Len() {
 			s += ", "
 		}
 	}
@@ -128,14 +174,14 @@ func (frames JupyterFrames) String() string {
 	return s
 }
 
-func (frames JupyterFrames) Validate() error {
-	if len(frames) < 5 /* 6, but buffers are optional, so 5 */ {
+func (frames *JupyterFrames) Validate() error {
+	if frames.Len() < 5 /* 6, but buffers are optional, so 5 */ {
 		return ErrInvalidJupyterMessage
 	}
 	return nil
 }
 
-func (frames JupyterFrames) Verify(signatureScheme string, key []byte) error {
+func (frames *JupyterFrames) Verify(signatureScheme string, key []byte) error {
 	if err := frames.Validate(); err != nil {
 		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to validate message frames while verifying message: %v"), err)
 		return err
@@ -147,31 +193,43 @@ func (frames JupyterFrames) Verify(signatureScheme string, key []byte) error {
 	return nil
 }
 
-func (frames JupyterFrames) Sign(signatureScheme string, key []byte) ([][]byte, error) {
-	if signatureScheme != JupyterSignatureScheme {
-		return frames, ErrNotSupportedSignatureScheme
+func (frames *JupyterFrames) Sign(signatureScheme string, key []byte) ([][]byte, error) {
+	if signatureScheme == "" {
+		signatureScheme = JupyterSignatureScheme
 	}
+
+	if signatureScheme != JupyterSignatureScheme {
+		return frames.Frames, ErrNotSupportedSignatureScheme
+	}
+
+	// Ensure the offset is up to date.
+	frames.SkipIdentitiesFrame()
 
 	signature := frames.sign(key)
 	encodeLen := hex.EncodedLen(len(signature))
-	if cap(frames[JupyterFrameSignature]) < encodeLen {
-		frames[JupyterFrameSignature] = make([]byte, encodeLen)
+	if cap(frames.Frames[frames.Offset+JupyterFrameSignature]) < encodeLen {
+		frames.Frames[frames.Offset+JupyterFrameSignature] = make([]byte, encodeLen)
 	}
-	hex.Encode(frames[JupyterFrameSignature], signature)
-	return frames, nil
+	hex.Encode(frames.Frames[frames.Offset+JupyterFrameSignature], signature)
+	return frames.Frames, nil
 }
 
-func (frames JupyterFrames) SignByConnectionInfo(connInfo *ConnectionInfo) ([][]byte, error) {
+func (frames *JupyterFrames) SignByConnectionInfo(connInfo *ConnectionInfo) ([][]byte, error) {
+	signatureScheme := connInfo.SignatureScheme
+	if signatureScheme == "" {
+		signatureScheme = JupyterSignatureScheme
+	}
+
 	return frames.Sign(connInfo.SignatureScheme, []byte(connInfo.Key))
 }
 
-func (frames JupyterFrames) HeaderFrame() *JupyterFrame {
-	return jupyterFrame(frames[JupyterFrameHeader])
+func (frames *JupyterFrames) HeaderFrame() *JupyterFrame {
+	return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameHeader])
 }
 
-func (frames JupyterFrames) GetMessageType() (string, error) {
+func (frames *JupyterFrames) GetMessageType() (string, error) {
 	var header MessageHeader
-	err := json.Unmarshal(frames[JupyterFrameHeader], &header)
+	err := json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameHeader], &header)
 	if err != nil {
 		return "", err
 	}
@@ -179,104 +237,119 @@ func (frames JupyterFrames) GetMessageType() (string, error) {
 	return string(header.MsgType), nil
 }
 
-func (frames JupyterFrames) EncodeHeader(in any) (err error) {
-	frames[JupyterFrameHeader], err = json.Marshal(in)
+func (frames *JupyterFrames) EncodeHeader(in any) (err error) {
+	frames.Frames[frames.Offset+JupyterFrameHeader], err = json.Marshal(in)
 	return err
 }
 
-func (frames JupyterFrames) DecodeHeader(out any) error {
-	return json.Unmarshal(frames[JupyterFrameHeader], out)
+func (frames *JupyterFrames) DecodeHeader(out any) error {
+	return json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameHeader], out)
 }
 
-func (frames JupyterFrames) ParentHeaderFrame() *JupyterFrame {
-	return jupyterFrame(frames[JupyterFrameParentHeader])
+func (frames *JupyterFrames) ParentHeaderFrame() *JupyterFrame {
+	return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameParentHeader])
 }
 
-func (frames JupyterFrames) EncodeParentHeader(in any) (err error) {
-	frames[JupyterFrameParentHeader], err = json.Marshal(in)
+func (frames *JupyterFrames) EncodeParentHeader(in any) (err error) {
+	frames.Frames[frames.Offset+JupyterFrameParentHeader], err = json.Marshal(in)
 	return err
 }
 
-func (frames JupyterFrames) DecodeParentHeader(out any) error {
-	return json.Unmarshal(frames[JupyterFrameParentHeader], out)
+func (frames *JupyterFrames) DecodeParentHeader(out any) error {
+	return json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameParentHeader], out)
 }
 
-func (frames JupyterFrames) MetadataFrame() *JupyterFrame {
-	return jupyterFrame(frames[JupyterFrameMetadata])
+func (frames *JupyterFrames) MetadataFrame() *JupyterFrame {
+	return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameMetadata])
 }
 
-func (frames JupyterFrames) EncodeMetadata(in any) (err error) {
-	frames[JupyterFrameMetadata], err = json.Marshal(in)
+func (frames *JupyterFrames) EncodeMetadata(in any) (err error) {
+	frames.Frames[frames.Offset+JupyterFrameMetadata], err = json.Marshal(in)
 	return err
 }
 
-func (frames JupyterFrames) DecodeMetadata(out any) error {
-	return json.Unmarshal(frames[JupyterFrameMetadata], out)
+func (frames *JupyterFrames) DecodeMetadata(out any) error {
+	return json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameMetadata], out)
 }
 
-func (frames JupyterFrames) ContentFrame() *JupyterFrame {
-	return jupyterFrame(frames[JupyterFrameContent])
+func (frames *JupyterFrames) ContentFrame() *JupyterFrame {
+	return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameContent])
 }
 
-func (frames JupyterFrames) EncodeContent(in any) (err error) {
-	frames[JupyterFrameContent], err = json.Marshal(in)
+func (frames *JupyterFrames) EncodeContent(in any) (err error) {
+	frames.Frames[frames.Offset+JupyterFrameContent], err = json.Marshal(in)
 	return err
 }
 
-func (frames JupyterFrames) DecodeContent(out any) error {
-	return json.Unmarshal(frames[JupyterFrameContent], out)
+func (frames *JupyterFrames) DecodeContent(out any) error {
+	return json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameContent], out)
 }
 
-func (frames JupyterFrames) DecodeBuffers(out any) error {
-	if len(frames) > JupyterFrameBuffers {
-		return json.Unmarshal(frames[JupyterFrameBuffers], out)
+func (frames *JupyterFrames) DecodeBuffers(out any) error {
+	if len(frames.Frames[frames.Offset:]) > JupyterFrameBuffers {
+		return json.Unmarshal(frames.Frames[frames.Offset+JupyterFrameBuffers], out)
 	} else {
 		return ErrInvalidJupyterMessage
 	}
 }
 
-func (frames JupyterFrames) BuffersFrame() *JupyterFrame {
-	if len(frames) > JupyterFrameBuffers {
-		return jupyterFrame(frames[JupyterFrameBuffers])
+func (frames *JupyterFrames) BuffersFrame() *JupyterFrame {
+	if len(frames.Frames[frames.Offset:]) > JupyterFrameBuffers {
+		return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameBuffers])
 	} else {
 		return nil
 	}
 }
 
-func (frames JupyterFrames) verify(signkey []byte) bool {
-	expect := frames.sign(signkey)
-	signature := make([]byte, hex.DecodedLen(len(frames[JupyterFrameSignature])))
-	hex.Decode(signature, frames[JupyterFrameSignature])
+func (frames *JupyterFrames) verify(signKey []byte) bool {
+	expect := frames.sign(signKey)
+	signature := make([]byte, hex.DecodedLen(len(frames.Frames[frames.Offset+JupyterFrameSignature])))
+	if _, err := hex.Decode(signature, frames.Frames[frames.Offset+JupyterFrameSignature]); err != nil {
+		fmt.Printf("[ERROR] Failed to decode: %v", err)
+		return false
+	}
 	return hmac.Equal(expect, signature)
 }
 
-func (frames JupyterFrames) CreateSignature(signatureScheme string, key []byte, offset int) ([]byte, error) {
+func (frames *JupyterFrames) CreateSignature(signatureScheme string, key []byte) ([]byte, error) {
 	if err := frames.Validate(); err != nil {
 		fmt.Printf(utils.RedStyle.Render("[ERROR] Failed to validate message frames while creating message signature: %v"), err)
 		return nil, err
 	} else if signatureScheme != JupyterSignatureScheme {
 		return nil, ErrNotSupportedSignatureScheme
 	}
-	return frames.signWithOffset(key, offset), nil
+	return frames.sign(key), nil
 }
 
-func (frames JupyterFrames) signWithOffset(signkey []byte, offset int) []byte {
-	mac := hmac.New(sha256.New, signkey)
-	for _, msgpart := range frames[JupyterFrameHeader+offset : JupyterFrameBuffers+offset] {
-		mac.Write(msgpart)
+func (frames *JupyterFrames) sign(signKey []byte) []byte {
+	mac := hmac.New(sha256.New, signKey)
+	for _, msgPart := range frames.Frames[JupyterFrameHeader+frames.Offset : JupyterFrameBuffers+frames.Offset] {
+		mac.Write(msgPart)
 	}
 	return mac.Sum(nil)
 }
 
-func (frames JupyterFrames) sign(signkey []byte) []byte {
-	mac := hmac.New(sha256.New, signkey)
-	for _, msgpart := range frames[JupyterFrameHeader:JupyterFrameBuffers] {
-		mac.Write(msgpart)
+// SkipIdentitiesFrame returns the frames after the ZMQ identities and dest.req frame.
+// This will force the Offset field of the target JupyterFrames to be recomputed/updated.
+func (frames *JupyterFrames) SkipIdentitiesFrame() ([][]byte, int) {
+	if frames.Len() == 0 {
+		return frames.Frames, 0
 	}
-	return mac.Sum(nil)
+
+	i := 0
+	// Jupyter messages start from "<IDS|MSG>" frame.
+	for i < len(frames.Frames) && string(frames.Frames[i]) != "<IDS|MSG>" {
+		i++
+	}
+
+	if frames.Offset != i {
+		frames.Offset = i
+	}
+
+	return frames.Frames[i:], i
 }
 
-func SkipIdentitiesFrameAndOmitBufferFrames(frames [][]byte) (JupyterFrames, int) {
+func SkipIdentitiesFrame(frames [][]byte) ([][]byte, int) {
 	if len(frames) == 0 {
 		return frames, 0
 	}
@@ -286,19 +359,7 @@ func SkipIdentitiesFrameAndOmitBufferFrames(frames [][]byte) (JupyterFrames, int
 	for i < len(frames) && string(frames[i]) != "<IDS|MSG>" {
 		i++
 	}
-	return frames[i : i+JupyterFrameBuffers], i
-}
 
-func SkipIdentitiesFrame(frames [][]byte) (JupyterFrames, int) {
-	if len(frames) == 0 {
-		return frames, 0
-	}
-
-	i := 0
-	// Jupyter messages start from "<IDS|MSG>" frame.
-	for i < len(frames) && string(frames[i]) != "<IDS|MSG>" {
-		i++
-	}
 	return frames[i:], i
 }
 
@@ -317,87 +378,79 @@ func ExtractDestFrameWithOffset(frames [][]byte, jOffset int) (destID string, re
 // ExtractDestFrame extracts the destination frame.
 // First, determine the offset.
 // Next, attempt to extract a DestFrame from the given set of frames.
-func ExtractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int) {
-	_, jOffset = SkipIdentitiesFrame(frames)
-	if jOffset > 0 {
-		destID, reqID = ExtractDestFrameWithOffset(frames, jOffset)
+func (frames *JupyterFrames) ExtractDestFrame(forceRecomputeOffset bool) (destID string, reqID string, jOffset int) {
+	if forceRecomputeOffset {
+		_, jOffset = frames.SkipIdentitiesFrame()
+	} else {
+		jOffset = frames.Offset
+	}
+
+	if frames.Offset > 0 {
+		destID, reqID = ExtractDestFrameWithOffset(frames.Frames, jOffset)
 	}
 	return
 }
 
 // AddDestFrame appends a frame contains the kernel ID to the given ZMQ frames.
-func AddDestFrame(frames [][]byte, destID string, offsetArg int) (newFrames [][]byte, reqID string, jOffset int) {
+func (frames *JupyterFrames) AddDestFrame(destID string, forceRecomputeOffsetBeforeRemoval bool) (reqID string) {
 	// Automatically detect the dest frame.
-	if offsetArg == jupyter.JOffsetAutoDetect {
-		_, reqID, jOffset = ExtractDestFrame(frames)
+	if forceRecomputeOffsetBeforeRemoval || frames.Offset == jupyter.JOffsetAutoDetect {
+		_, reqID, _ = frames.ExtractDestFrame(true)
 		// If the dest frame is already there, we are done.
 		if reqID != "" {
 			// s.Log.Debug("Destination frame found. ReqID: %s", reqID)
-			return frames, reqID, jOffset
+			return reqID
 		}
-	} else {
-		// Don't auto-detect the dest frame.
-		jOffset = offsetArg
 	}
 
 	// Add dest frame just before "<IDS|MSG>" frame.
-	newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
-	copy(newFrames[jOffset+1:], frames[jOffset:])
+	frames.Frames = append(frames.Frames, nil) // Let "append" allocate a new slice if necessary.
+	copy(frames.Frames[frames.Offset+1:], frames.Frames[frames.Offset:])
 	reqID = uuid.New().String()
-	newFrames[jOffset] = []byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, destID, reqID))
+	frames.Frames[frames.Offset] = []byte(fmt.Sprintf(jupyter.ZMQDestFrameFormatter, destID, reqID))
+
+	// This will force the Offset field of the target JupyterFrames to be recomputed/updated.
+	frames.SkipIdentitiesFrame()
 
 	// Add 1 to the offset before returning, as we just inserted a new frame at the beginning, so the offset should be shifted by one.
-	return newFrames, reqID, jOffset + 1
+	return reqID
 }
 
-func RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {
+func (frames *JupyterFrames) RemoveDestFrame(forceRecomputeOffsetBeforeRemoval bool) (removed [][]byte) {
+	if forceRecomputeOffsetBeforeRemoval {
+		// This will force the Offset field of the target JupyterFrames to be recomputed/updated.
+		frames.SkipIdentitiesFrame()
+	}
+
 	// Automatically detect the dest frame.
-	if jOffset == jupyter.JOffsetAutoDetect {
+	if forceRecomputeOffsetBeforeRemoval || frames.Offset == jupyter.JOffsetAutoDetect {
 		var reqID string
-		_, reqID, jOffset = ExtractDestFrame(frames)
+		_, reqID, _ = frames.ExtractDestFrame(true)
 		// If the dest frame is not available, we are done.
 		if reqID == "" {
-			return frames
+			return frames.Frames
 		}
+
+		fmt.Printf("RequestID: \"%s\"\n", reqID)
 	}
+
+	fmt.Printf("Removing dest frame at offset %d.\n", frames.Offset)
 
 	// Remove dest frame.
-	if jOffset > 0 {
-		copy(frames[jOffset-1:], frames[jOffset:])
-		frames[len(frames)-1] = nil
-		frames = frames[:len(frames)-1]
-	}
-	return frames
-}
-
-func ExtractSourceKernelFrame(frames [][]byte) (kernelID string, jOffset int) {
-	matches := jupyter.ZMQSourceKernelFrameRecognizer.FindStringSubmatch(string(frames[0]))
-	if len(matches) > 0 {
-		kernelID = matches[1]
+	if frames.Offset > 0 {
+		copy(frames.Frames[frames.Offset-1:], frames.Frames[frames.Offset:])
+		frames.Frames[len(frames.Frames)-1] = nil
+		frames.Frames = frames.Frames[:len(frames.Frames)-1]
 	}
 
-	return
-}
+	// This will force the Offset field of the target JupyterFrames to be recomputed/updated.
+	frames.SkipIdentitiesFrame()
 
-func AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte) {
-	// Add "source kernel" frame to the very beginning.
-	newFrames = append(frames, nil) // Let "append" allocate a new slice if necessary.
-	copy(newFrames[1:], frames[0:])
-	newFrames[0] = []byte(fmt.Sprintf(jupyter.ZMQSourceKernelFrameFormatter, kernelID))
-	return
-}
-
-func RemoveSourceKernelFrame(frames [][]byte, jOffset int) (removed [][]byte) {
-	existingKernelID, _ := ExtractSourceKernelFrame(frames)
-	if existingKernelID != "" {
-		return frames[1:]
-	}
-
-	return frames
+	return frames.Frames
 }
 
 func HeaderFromFrames(frames [][]byte) (*MessageHeader, error) {
-	jFrames := JupyterFrames(frames)
+	jFrames := NewJupyterFramesFromBytes(frames)
 	if err := jFrames.Validate(); err != nil {
 		return nil, err
 	}
@@ -410,21 +463,15 @@ func HeaderFromFrames(frames [][]byte) (*MessageHeader, error) {
 	return &header, nil
 }
 
-func HeaderFromMsg(msg *zmq4.Msg) (kernelId string, header *MessageHeader, offset int, err error) {
-	kernelId, _, offset = ExtractDestFrame(msg.Frames)
-
-	header, err = HeaderFromFrames(msg.Frames[offset:])
-
-	return kernelId, header, offset, err
-}
-
-func ValidateFrames(signkey []byte, signatureScheme string, offset int, frames JupyterFrames) bool {
-	expect, err := frames.CreateSignature(signatureScheme, signkey, offset)
+func ValidateFrames(signKey []byte, signatureScheme string, frames *JupyterFrames) bool {
+	expect, err := frames.CreateSignature(signatureScheme, signKey)
 	if err != nil {
 		return false
 	}
 
-	signature := make([]byte, hex.DecodedLen(len(frames[offset+JupyterFrameSignature])))
-	hex.Decode(signature, frames[offset+JupyterFrameSignature])
+	signature := make([]byte, hex.DecodedLen(len(frames.Frames[frames.Offset+JupyterFrameSignature])))
+	if _, err = hex.Decode(signature, frames.Frames[frames.Offset+JupyterFrameSignature]); err != nil {
+		return false
+	}
 	return hmac.Equal(expect, signature)
 }

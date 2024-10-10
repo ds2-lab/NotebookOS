@@ -44,7 +44,7 @@ var (
 
 type LocalDaemonFinalizer func(bool)
 
-// Create/initialize and return the Tracer and Consul Clients.
+// CreateConsulAndTracer creates/initializes and returns the Tracer and Consul Clients.
 func CreateConsulAndTracer(options *domain.LocalDaemonOptions) (opentracing.Tracer, *consul.Client) {
 	var (
 		tracer       opentracing.Tracer
@@ -101,14 +101,14 @@ func getNameOfDockerContainer() string {
 		return types.DockerNode
 	}
 
-	globalLogger.Debug("Retrieved value for HOSTNAME environment variable: \"$s\"", hostnameEnv)
+	globalLogger.Info("Retrieved value for HOSTNAME environment variable: \"$s\"", hostnameEnv)
 
 	// We will use this command to retrieve the name of this Docker container.
 	unformattedCommand := "docker inspect {container_hostname_env} --format='{{.Name}}'"
 	formattedCommand := strings.ReplaceAll(unformattedCommand, "{container_hostname_env}", hostnameEnv)
 	argv := strings.Split(formattedCommand, " ")
 
-	globalLogger.Debug("Executing shell command: %s", utils.LightBlueStyle.Render(formattedCommand))
+	globalLogger.Info("Executing shell command: %s", utils.LightBlueStyle.Render(formattedCommand))
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
@@ -126,7 +126,20 @@ func getNameOfDockerContainer() string {
 	}
 
 	containerName := strings.TrimSpace(stdoutBuffer.String())
-	globalLogger.Debug("Resolved container name: \"%s\"", containerName)
+
+	if strings.HasPrefix(containerName, "'") {
+		containerName = containerName[1:]
+	}
+
+	if strings.HasSuffix(containerName, "'") {
+		containerName = containerName[0 : len(containerName)-1]
+	}
+
+	if strings.HasPrefix(containerName, "/") {
+		containerName = containerName[1:]
+	}
+
+	globalLogger.Info("Resolved container name: \"%s\"", containerName)
 	return containerName
 }
 
@@ -167,7 +180,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	var numAttempts = 1
 	var provConn net.Conn
 	for !connectedToProvisioner && time.Since(start) < (time.Minute*1) {
-		globalLogger.Debug("Attempt #%d to connect to Provisioner (Gateway) at %s. Connection timeout: %v.",
+		globalLogger.Info("Attempt #%d to connect to Provisioner (Gateway) at %s. Connection timeout: %v.",
 			numAttempts, options.ProvisionerAddr, connectionTimeout)
 		provConn, err = net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
 
@@ -193,7 +206,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	// defer provConn.Close()
 
 	// Initialize provisioner and wait for ready
-	provisioner, err := NewProvisioner(provConn)
+	provisioner, grpcClientConn, err := NewProvisioner(provConn)
 	if err != nil {
 		log.Fatalf("Failed to initialize the provisioner: %v", err)
 	}
@@ -208,7 +221,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	if err := provisioner.Validate(); err != nil {
 		log.Fatalf("Failed to validate reverse provisioner connection: %v", err)
 	}
-	scheduler.SetProvisioner(provisioner)
+	scheduler.SetProvisioner(provisioner, grpcClientConn)
 	globalLogger.Info("Scheduler connected to %v", provConn.RemoteAddr())
 
 	// Register services in consul

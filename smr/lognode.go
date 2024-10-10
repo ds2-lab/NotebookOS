@@ -176,7 +176,8 @@ type LogNode struct {
 	commitC     chan *commit
 	errorC      chan error // errors from raft session
 
-	hdfsClient *hdfs.Client // HDFS client for reading/writing the data directory during migrations.
+	hdfsClient   *hdfs.Client  // HDFS client for reading/writing the data directory during migrations.
+	hdfsReadTime time.Duration // hdfsReadTime is the amount of time spent reading data from HDFS.
 
 	id    int            // Client ID for raft session
 	peers map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1. Each address should be prefixed by "http://"
@@ -414,6 +415,7 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 		defer cancel()
 
+		st := time.Now()
 		progressChan := make(chan string, 8)
 		errorChan := make(chan error)
 		go func(ctx context.Context) {
@@ -439,7 +441,8 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 			case msg := <-progressChan:
 				{
 					if msg == DoneString { // If we received the special 'DONE' message, then we're done reading the entire data directory.
-						node.logger.Info("Successfully read entire data directory from HDFS to local storage and received serialized state from other goroutine.")
+						node.hdfsReadTime = time.Since(st)
+						node.logger.Info("Successfully read entire data directory from HDFS to local storage and received serialized state from other goroutine.", zap.Duration("time_elapsed", node.hdfsReadTime))
 						done = true
 					} else /* The message we received will be the path of whatever file or directory was copied from remote storage (HDFS) to our local file system */ {
 						node.logger.Debug("Made progress.", zap.String("msg", msg))
@@ -496,6 +499,16 @@ func (node *LogNode) ServeHttpDebug() {
 			log.Fatal("ListenAndServe: ", err)
 		}
 	}()
+}
+
+// HdfsReadLatencyMilliseconds returns the latency of the HDFS read operation(s) performed by the LogNode.
+// If the LogNode did not read data from HDFS, then -1 is returned.
+func (node *LogNode) HdfsReadLatencyMilliseconds() int {
+	if !node.shouldLoadDataFromHdfs {
+		return -1
+	}
+
+	return int(node.hdfsReadTime.Milliseconds())
 }
 
 // ConnectedToHDFS returns true if we successfully connected to HDFS.
@@ -618,22 +631,23 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	defer finalize()
 
 	if resolve == nil {
-		node.logger.Debug("No Python callback provided. Using default resolve callback.")
+		// node.logger.Debug("No Python callback provided. Using default resolve callback.")
 		resolve = node.defaultResolveCallback
-	} else {
-		node.sugaredLogger.Infof("Provided Python resolve callback. Message: %s", msg)
 	}
+	// else {
+	// node.sugaredLogger.Infof("Provided Python resolve callback. Message: %s", msg)
+	// }
 
-	node.logger.Info("Proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
+	// node.logger.Info("Proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if err := proposer(ctx); err != nil {
 		node.logger.Error("Exception while proposing value.", zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
 		resolve(msg, toCError(err))
 		return
 	}
-	node.logger.Info("Proposed value. Waiting for committed or retry.", zap.String("key", msg), zap.String("id", ctx.ID()))
+	// node.logger.Info("Proposed value. Waiting for committed or retry.", zap.String("key", msg), zap.String("id", ctx.ID()))
 	// Wait for committed or retry
 	for !node.waitProposal(ctx) {
-		node.logger.Info("Retry proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
+		// node.logger.Info("Retry proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
 		ctx.Reset(ProposalDeadline)
 		if err := proposer(ctx); err != nil {
 			node.logger.Error("Exception while retrying value proposal.", zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
@@ -1655,10 +1669,10 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-node.node.Ready():
-			if len(rd.CommittedEntries) > 0 || rd.HardState.Commit > 0 || len(rd.Entries) > 0 {
-				// node.logger.Info("ready", zap.Int("num-committed-entries", len(rd.CommittedEntries)), zap.Uint64("hardstate.commit", rd.HardState.Commit))
-				node.sugaredLogger.Debugf("Storing Raft entries to WAL. NumCommittedEntries: %d. NumEntries: %d. NumMessages: %d. HardState: [Term: %d, Vote: %d, Commit: %d].", len(rd.CommittedEntries), len(rd.Entries), len(rd.Messages), rd.HardState.Term, rd.HardState.Vote, rd.HardState.Commit)
-			}
+			// if len(rd.CommittedEntries) > 0 || rd.HardState.Commit > 0 || len(rd.Entries) > 0 {
+			// node.logger.Info("ready", zap.Int("num-committed-entries", len(rd.CommittedEntries)), zap.Uint64("hardstate.commit", rd.HardState.Commit))
+			// node.sugaredLogger.Debugf("Storing Raft entries to WAL. NumCommittedEntries: %d. NumEntries: %d. NumMessages: %d. HardState: [Term: %d, Vote: %d, Commit: %d].", len(rd.CommittedEntries), len(rd.Entries), len(rd.Messages), rd.HardState.Term, rd.HardState.Vote, rd.HardState.Commit)
+			// }
 
 			if node.wal != nil {
 				err = node.wal.Save(rd.HardState, rd.Entries)

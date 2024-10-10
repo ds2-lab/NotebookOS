@@ -420,7 +420,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 	}
 	if limit < minNumHosts+4 {
 		limit = minNumHosts + 4
-		s.log.Debug("Adjusted limit: %df.", limit)
+		s.log.Debug("Adjusted limit: %d.", limit)
 	}
 
 	if s.log.GetLevel() == logger.LOG_LEVEL_ALL {

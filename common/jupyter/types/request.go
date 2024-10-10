@@ -453,7 +453,7 @@ func (r *BasicRequest) RequiresAck() bool {
 	// Sanity check. If we're set to require ACKs, then just validate that we're either a Control or a Shell message.
 	// If we're not, then that indicates a bug.
 	if r.requiresAck && !ShouldMessageRequireAck(r.messageType) {
-		panic(fmt.Sprintf("Illegal request. Type is %s, yet ACKs are required: %v", r.messageType, r.payload.Msg))
+		panic(fmt.Sprintf("Illegal request. Type is %s, yet ACKs are required: %v", r.messageType, r.payload.msg))
 	}
 
 	return r.requiresAck
@@ -518,7 +518,8 @@ func (r *BasicRequest) ContextAndCancel() (context.Context, context.CancelFunc) 
 
 // Offset returns the offset/index of start of Jupyter frames within message frames.
 func (r *BasicRequest) Offset() (jOffset int) {
-	_, _, jOffset = ExtractDestFrame(r.payload.Frames)
+	// This forces the offset to be recomputed.
+	_, jOffset = r.payload.JupyterFrames.SkipIdentitiesFrame()
 	return
 }
 
@@ -627,26 +628,21 @@ func (r *BasicRequest) PrepareForResubmission() error {
 	r.payload.SetDate(modifiedDate.Format(time.RFC3339Nano))
 
 	// Re-encode the header.
-	jFrames := JupyterFrames(r.payload.Frames)
-	jOffset := r.Offset()
-
 	header, err := r.payload.GetHeader()
 	if err != nil {
 		return err
 	}
 
-	err = jFrames[jOffset:].EncodeHeader(header)
+	err = r.payload.JupyterFrames.EncodeHeader(&header)
 	if err != nil {
 		return err
 	}
 
 	// Regenerate the signature. Don't include the buffer frames as part of the signature.
-	_, err = jFrames[jOffset:jOffset+JupyterFrameRequestTrace].Sign(r.connectionInfo.SignatureScheme, []byte(r.connectionInfo.Key))
+	_, err = r.payload.JupyterFrames.Sign(r.connectionInfo.SignatureScheme, []byte(r.connectionInfo.Key))
 	if err != nil {
 		return err
 	}
-
-	r.payload.Frames = jFrames
 
 	// We're going to recreate the context.
 	if r.cancel != nil {
@@ -662,9 +658,9 @@ func (r *BasicRequest) PrepareForResubmission() error {
 		r.ctx, r.cancel = context.WithCancel(r.parentContext)
 	}
 
-	if verified := ValidateFrames([]byte(r.connectionInfo.Key), r.connectionInfo.SignatureScheme, jOffset, jFrames); !verified {
+	if verified := ValidateFrames([]byte(r.connectionInfo.Key), r.connectionInfo.SignatureScheme, r.payload.JupyterFrames); !verified {
 		r.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'", r.connectionInfo.SignatureScheme, r.connectionInfo.Key)
-		r.log.Error("This message will be rejected by the kernel unless the kernel has been configured to skip validating/verifying the messages:\n%v", jFrames)
+		r.log.Error("This message will be rejected by the kernel unless the kernel has been configured to skip validating/verifying the messages:\n%v", r.payload.JupyterFrames)
 
 		return ErrValidationFailed
 	}

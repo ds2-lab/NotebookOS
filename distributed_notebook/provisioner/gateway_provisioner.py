@@ -185,6 +185,9 @@ class GatewayProvisioner(KernelProvisionerBase):
                 signatureScheme=self.parent.session.signature_scheme,
                 key=self.parent.session.key,
                 resourceSpec=spec)
+
+            self.log.debug(f"Launching kernel {self.kernel_id} with spec: {str(spec)}")
+
             connectionInfo = self._get_stub().StartKernel(spec)
             self.launched = True
 

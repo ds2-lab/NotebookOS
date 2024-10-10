@@ -38,20 +38,20 @@ func (s *BaseServer) AssignMessagingMetricsProvider(messagingMetricsProvider met
 	s.server.MessagingMetricsProvider = messagingMetricsProvider
 }
 
-// func (s *BaseServer) SendRequest(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
+// func (s *BaseServer) SendRequest(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
 // 	jMsg := types.NewJupyterMessage(req)
 // 	return s.server.SendRequest(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
 // }
 
 // RegisterAck begins listening for an ACK for a message with the given ID.
 func (s *BaseServer) RegisterAck(msg *types.JupyterMessage) (chan struct{}, bool) {
-	// _, reqId, _ := types.ExtractDestFrame(msg.Frames)
+	// _, reqId, _ := types.ExtractDestFrame(msg.JupyterFrames)
 	return s.server.RegisterAck(msg.RequestId)
 }
 
 // RegisterAckForRequest begins listening for an ACK for a message with the given ID.
 func (s *BaseServer) RegisterAckForRequest(req types.Request) (chan struct{}, bool) {
-	// _, reqId, _ := types.ExtractDestFrame(msg.Frames)
+	// _, reqId, _ := types.ExtractDestFrame(msg.JupyterFrames)
 	return s.server.RegisterAck(req.RequestId())
 }
 
@@ -86,31 +86,6 @@ func (s *BaseServer) Context() context.Context {
 func (s *BaseServer) SetContext(ctx context.Context) {
 	s.server.Ctx = ctx
 }
-
-// Expose abstract server methods.
-// func (s *BaseServer) ExtractDestFrame(frames [][]byte) (kernelID string, reqID string, jOffset int) {
-// 	return s.server.ExtractDestFrame(frames)
-// }
-
-// func (s *BaseServer) AddDestFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte, reqID string) {
-// 	return s.server.AddDestFrame(frames, kernelID, jOffset)
-// }
-
-// func (s *BaseServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {
-// 	return s.server.RemoveDestFrame(frames, jOffset)
-// }
-
-// func (s *BaseServer) ExtractSourceKernelFrame(frames [][]byte) (kernelID string, jOffset int) {
-// 	return s.server.ExtractSourceKernelFrame(frames)
-// }
-
-// func (s *BaseServer) AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte) {
-// 	return s.server.AddSourceKernelFrame(frames, kernelID, jOffset)
-// }
-
-// func (s *BaseServer) RemoveSourceKernelFrame(frames [][]byte, jOffset int) (removed [][]byte) {
-// 	return s.server.RemoveSourceKernelFrame(frames, jOffset)
-// }
 
 func (s *BaseServer) Close() {
 	s.server.CancelCtx()

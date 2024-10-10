@@ -35,8 +35,15 @@ func (s KernelStatus) String() string {
 	}
 
 	if s < 0 {
-		// fmt.Printf("Kernel Status is unknown: %d\n", s)
-		return "Unknown"
+		if s == KernelStatusInitializing {
+			return "Unknown(KernelStatusInitializing)"
+		} else if s == KernelStatusAbnormal {
+			return "Unknown(KernelStatusAbnormal)"
+		} else if s == KernelStatusRunning {
+			return "Unknown(KernelStatusRunning)"
+		}
+
+		return fmt.Sprintf("Unknown(%d)", s)
 	}
 
 	return [...]string{"Running", "Initializing", "Exited"}[s]
