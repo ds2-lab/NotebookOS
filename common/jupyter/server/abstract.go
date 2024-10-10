@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"io"
 	"log"
 	"math"
@@ -955,97 +954,6 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 	return nil
 }
 
-// AddOrUpdateRequestTraceToJupyterMessage will add a RequestTrace to the given types.JupyterMessage's metadata frame.
-// If there is already a RequestTrace within the types.JupyterMessage's metadata frame, then no change is made.
-//
-// AddOrUpdateRequestTraceToJupyterMessage returns true if a RequestTrace is serialized into the types.JupyterMessage's
-// metadata frame. If there is already a RequestTrace encoded within the metadata frame, then false is returned.
-//
-// If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
-// returned, and the boolean returned along with the error is always false.
-func (s *AbstractServer) AddOrUpdateRequestTraceToJupyterMessage(msg *types.JupyterMessage, socket *types.Socket, timestamp time.Time) (*proto.RequestTrace, bool, error) {
-	if !s.DebugMode {
-		return nil, false, fmt.Errorf("DebugMode is not enabled, so the embedding of RequestTraces into ZMQ messages is disabled.s")
-	}
-
-	s.Log.Debug("Adding or updating RequestTrace in Jupyter %s \"%s\" message \"%s\"",
-		socket.Type.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
-
-	var (
-		wrapper      *proto.JupyterRequestTraceFrame
-		requestTrace *proto.RequestTrace
-		added        bool
-	)
-
-	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) <= types.JupyterFrameRequestTrace {
-		for msg.JupyterFrames.LenWithoutIdentitiesFrame(false) <= types.JupyterFrameRequestTrace {
-			s.Log.Debug("Jupyter \"%s\" request has just %d frames (after skipping identities frame). Adding additional frame. Offset: %d. Frames: %s",
-				msg.JupyterMessageType(), msg.JupyterFrames.LenWithoutIdentitiesFrame(false), msg.Offset(), msg.JupyterFrames.String())
-
-			// If the request doesn't already have a JupyterFrameRequestTrace frame, then we'll add one.
-			msg.JupyterFrames.Frames = append(msg.JupyterFrames.Frames, make([]byte, 0))
-		}
-
-		// The metadata did not already contain a RequestTrace.
-		// Let's first create one.
-		requestTrace = proto.NewRequestTrace()
-		added = true
-
-		// Then we'll populate the sort of metadata fields of the RequestTrace.
-		requestTrace.MessageId = msg.JupyterMessageId()
-		requestTrace.MessageType = msg.JupyterMessageType()
-		requestTrace.KernelId = msg.JupyterSession()
-
-		// Create the wrapper/frame itself.
-		wrapper = &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
-
-		err := s.RequestLog.AddEntry(msg, socket, requestTrace)
-		if err != nil {
-			s.Log.Error("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
-				socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
-		}
-
-		s.Log.Debug("Added RequestTrace to Jupyter \"%s\" message.", msg.JupyterMessageType())
-	} else {
-		s.Log.Debug("Extracting Jupyter RequestTrace frame from \"%s\" message (offset=%d): %s", msg.JupyterMessageType(), msg.JupyterFrames.Offset, msg.JupyterFrames.String())
-
-		err := json.Unmarshal(msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace], &wrapper)
-		if err != nil {
-			s.Log.Error("Failed to JSON-decode RequestTrace from Frame #%d because: %v", msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace, err)
-			s.Log.Error("Frame #%d: %s\n", msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace,
-				string(msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
-			s.Log.Error("Frames: %s\n", msg.MsgToString())
-			return nil, false, err
-		}
-
-		requestTrace = wrapper.RequestTrace
-		if requestTrace == nil {
-			return nil, false, fmt.Errorf("decoded JupyterRequestTraceFrame, but the included RequestTrace is nil")
-		}
-
-		s.Log.Debug("Extracted existing RequestTrace from Jupyter \"%s\" message.", msg.JupyterMessageType())
-	}
-
-	// Update the appropriate timestamp field of the RequestTrace.
-	requestTrace.PopulateNextField(timestamp.UnixMilli(), s.Log)
-
-	s.Log.Debug("New/updated RequestTrace: %s.", requestTrace.String())
-
-	marshalledFrame, err := json.Marshal(wrapper)
-	if err != nil {
-		s.Log.Error("Failed to JSON-encode RequestTrace because: %v", err)
-		return nil, false, err
-	}
-
-	msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace] = marshalledFrame
-
-	s.Log.Debug("Updated frames: %s.", msg.JupyterFrames.String())
-
-	msg.RequestTrace = requestTrace
-
-	return requestTrace, added, nil
-}
-
 // shouldAddRequestTrace returns true if the AbstractServer should embed or update an existing metrics.RequestTrace
 // struct within the first "buffer" frame of a Jupyter message.
 func (s *AbstractServer) shouldAddRequestTrace(msg *types.JupyterMessage, socket *types.Socket) bool {
@@ -1088,11 +996,20 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 	if s.shouldAddRequestTrace(request.Payload(), socket) {
 		s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 			socket.Type.String(), request.JupyterMessageType())
-		_, _, err := s.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now())
+		requestTrace, added, err := types.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now(), s.Log)
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
 			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
 			panic(err)
+		}
+
+		// If we added a RequestTrace for the first time, then let's also add an entry to our RequestLog.
+		if added {
+			err := s.RequestLog.AddEntry(request.Payload(), socket, requestTrace)
+			if err != nil {
+				s.Log.Error("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
+					socket.Type.String(), request.Payload().JupyterMessageType(), request.Payload().RequestId, request.Payload().JupyterMessageId(), err)
+			}
 		}
 	}
 
@@ -1312,10 +1229,19 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 					// We only want to add traces to Shell, Control, and a subset of IOPub messages.
 					s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 						socket.Type.String(), jMsg.JupyterMessageType())
-					_, _, err := s.AddOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt)
+					requestTrace, added, err := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt, s.Log)
 					if err != nil {
 						s.Log.Error("Failed to add RequestTrace to JupyterMessage: %v.", err)
 						panic(err)
+					}
+
+					// If we added a RequestTrace for the first time, then let's also add an entry to our RequestLog.
+					if added {
+						err := s.RequestLog.AddEntry(jMsg, socket, requestTrace)
+						if err != nil {
+							s.Log.Error("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
+								socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), err)
+						}
 					}
 				}
 			}

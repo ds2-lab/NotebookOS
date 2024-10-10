@@ -92,7 +92,6 @@ type DistributedKernelClient struct {
 	// size     int
 
 	persistentId    string
-	connectionInfo  *types.ConnectionInfo
 	shellListenPort int // Port that the KernelReplicaClient::shell socket listens on.
 	iopubListenPort int // Port that the KernelReplicaClient::iopub socket listens on.
 
@@ -152,7 +151,7 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 		persistentId:             persistentId,
 		debugMode:                debugMode,
 		messagingMetricsProvider: messagingMetricsProvider,
-		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp"}, metrics.ClusterGateway, func(s *server.AbstractServer) {
+		server: server.New(ctx, &types.ConnectionInfo{Transport: "tcp", SignatureScheme: connectionInfo.SignatureScheme, Key: connectionInfo.Key}, metrics.ClusterGateway, func(s *server.AbstractServer) {
 			s.Sockets.Shell = types.NewSocket(zmq4.NewRouter(s.Ctx), shellListenPort, types.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
 			s.Sockets.IO = types.NewSocket(zmq4.NewPub(s.Ctx), iopubListenPort, types.IOMessage, fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)) // connectionInfo.IOSubPort}
 			s.PrependId = true
@@ -169,7 +168,6 @@ func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplic
 		spec:                                  spec,
 		replicas:                              make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.KernelReplica, numReplicas),
 		cleaned:                               make(chan struct{}),
-		connectionInfo:                        connectionInfo,
 		shellListenPort:                       shellListenPort,
 		iopubListenPort:                       iopubListenPort,
 		activeExecutionsByExecuteRequestMsgId: hashmap.NewCornelkMap[string, *scheduling.ActiveExecution](32),
@@ -614,6 +612,9 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host *s
 		// Update signature scheme and key.
 		c.server.Meta.SignatureScheme = r.ConnectionInfo().SignatureScheme
 		c.server.Meta.Key = r.ConnectionInfo().Key
+
+		c.log.Debug("Replica %d of kernel %s is available. Kernel is ready. Assigned signature scheme \"%s\" and key \"%s\"",
+			r.ReplicaID(), c.id, r.ConnectionInfo().SignatureScheme, r.ConnectionInfo().Key)
 
 		// Collect the status of all replicas.
 		c.busyStatus.Collect(context.Background(), 1, len(c.replicas), types.MessageKernelStatusStarting, c.pubIOMessage)

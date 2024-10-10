@@ -49,11 +49,12 @@ class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
             "id": kernel_id,
             "kernel_id": kernel_id,
             "name": kernel.kernel_name,
-            "last_activity": isoformat(kernel.last_activity),
             "execution_state": kernel.execution_state,
             "connections": self._kernel_connections.get(kernel_id, 0),
         }
         if getattr(kernel, "reason", None):
             model["reason"] = kernel.reason
+        if getattr(kernel, "last_activity", None):
+            model["last_activity"] = isoformat(kernel.last_activity)
         
         return model

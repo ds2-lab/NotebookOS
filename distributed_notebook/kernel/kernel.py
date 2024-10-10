@@ -9,6 +9,7 @@ import math
 import os
 import signal
 import socket
+import concurrent
 import sys
 import time
 import traceback
@@ -18,6 +19,7 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from threading import Lock
 from typing import Union, Optional, Dict, Any
+from concurrent import futures
 
 import grpc
 import zmq
@@ -218,6 +220,7 @@ class DistributedKernel(IPythonKernel):
         self.kernel_notification_service_stub: Optional[KernelErrorReporterStub] = None
         self.message_acknowledgements_enabled: bool = True  # default to True
         self.shell_received_at: Optional[float] = None
+        self.init_persistent_store_on_start_future: Optional[futures.Future] = None
 
         # Prometheus metrics.
         self.num_yield_proposals: Counter = Counter(
@@ -281,12 +284,6 @@ class DistributedKernel(IPythonKernel):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
-
-        self.log.debug("debug message")
-        self.log.info("info message")
-        self.log.warning("warning message")
-        self.log.error("error message")
-        self.log.critical("critical message")
 
         from ipykernel.debugger import _is_debugpy_available
         if _is_debugpy_available:
@@ -501,7 +498,7 @@ class DistributedKernel(IPythonKernel):
 
         registration_payload = {
             "op": "register",
-            "signature_scheme": connection_info["signature_scheme"],
+            "signatureScheme": connection_info.get("signature_scheme", "hmac-sha256"),
             "key": connection_info["key"],
             "replicaId": self.smr_node_id,
             "numReplicas": len(self.smr_nodes_map),
@@ -642,8 +639,23 @@ class DistributedKernel(IPythonKernel):
         if self.persistent_id != Undefined and self.persistent_id != "":
             assert isinstance(self.persistent_id, str)
 
-            asyncio.run_coroutine_threadsafe(self.init_persistent_store_on_start(self.persistent_id),
-                                             self.control_thread.io_loop.asyncio_loop)
+            def init_persistent_store_done_callback(f: futures.Future):
+                """
+                Simple callback to print a message when the initialization of the persistent store completes.
+                """
+                if f.cancelled():
+                    self.log.error("Initialization of Persistent Store on-start has been cancelled...")
+
+                    try:
+                        self.log.error(f"Initialization of Persistent Store apparently raised an exception: {f.exception()}")
+                    except: # noqa
+                        self.log.error(f"No exception associated with cancelled initialization of Persistent Store.")
+                elif f.done():
+                    self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
+
+            self.init_persistent_store_on_start_future: futures.Future = asyncio.run_coroutine_threadsafe(
+                self.init_persistent_store_on_start(self.persistent_id), self.control_thread.io_loop.asyncio_loop)
+            self.init_persistent_store_on_start_future.add_done_callback(init_persistent_store_done_callback)
         else:
             self.log.warning(
                 "Will NOT be initializing Persistent Store on start, as persistent ID is not yet available.")
@@ -1129,7 +1141,7 @@ class DistributedKernel(IPythonKernel):
             time.sleep(self._execute_sleep)
 
         # Send the reply.
-        reply_content = json_clean(reply_content)
+        reply_content = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
@@ -1154,8 +1166,12 @@ class DistributedKernel(IPythonKernel):
         term_number: int = current_election.term_number
         task: asyncio.Task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(term_number))
 
-        # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
-        # the set after completion.
+        # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
+        # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+        self.background_tasks.add(task)
+
+        # To prevent keeping references to finished tasks forever, we make each task remove its own reference
+        # from the "background tasks" set after completion.
         task.add_done_callback(self.background_tasks.discard)
 
         # Wait for the task to end. By not returning here, we ensure that we cannot process any additional
@@ -1547,11 +1563,14 @@ class DistributedKernel(IPythonKernel):
             # We'll notify our peer replicas in time.
             #
             # TODO: Is this okay, or should we await this before returning?
-            task: asyncio.Task = asyncio.create_task(
-                self.synchronizer.notify_execution_complete(term_number))
+            task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(term_number))
 
-            # To prevent keeping references to finished tasks forever, we make each task remove its own reference from
-            # the set after completion.
+            # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
+            # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+            self.background_tasks.add(task)
+
+            # To prevent keeping references to finished tasks forever, we make each task remove its own reference
+            # from the "background tasks" set after completion.
             task.add_done_callback(self.background_tasks.discard)
 
             return reply_content
@@ -2046,6 +2065,8 @@ class DistributedKernel(IPythonKernel):
         # asyncio.run_coroutine_threadsafe(self.synchronizer.start(), control_loop.asyncio_loop)
         self.synchronizer.start()
 
+        self.log.debug("Started synchronizer.")
+
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -2069,6 +2090,9 @@ class DistributedKernel(IPythonKernel):
         If we've been started following a migration, then this should only be called once we're fully caught-up.
         """
         # Notify the client that the SMR is ready.
+        self.log.info(f"Sending \"smr_ready\" notification to Local Daemon. Time elapsed since I was created: "
+                      f"{time.time() - self.created_at} seconds.")
+
         self.session.send(self.iopub_socket, "smr_ready", {
             "persistent_id": self.persistent_id}, ident=self._topic("smr_ready"))  # type: ignore
 
@@ -2085,16 +2109,16 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Confirmed node {}".format(
             self.smr_nodes_map[self.smr_node_id]))
 
-        addrs = []
+        peer_addresses = []
         ids = []
         for node_id, addr in self.smr_nodes_map.items():
-            addrs.append("http://" + addr)
+            peer_addresses.append("http://" + addr)
             ids.append(node_id)
 
         # Implement dynamic later
-        # addrs = map(lambda x: "http://{}".format(x), self.smr_nodes)
+        # peer_addresses = map(lambda x: "http://{}".format(x), self.smr_nodes)
         self.log.debug(
-            "Passing the following addresses to RaftLog: %s" % str(addrs))
+            "Passing the following addresses to RaftLog: %s" % str(peer_addresses))
         store = ""
         if enable_storage:
             store = store_path
@@ -2111,7 +2135,7 @@ class DistributedKernel(IPythonKernel):
                                    hdfs_hostname=self.hdfs_namenode_hostname,
                                    should_read_data_from_hdfs=self.should_read_data_from_hdfs,
                                    # data_directory = self.hdfs_data_directory,
-                                   peer_addrs=addrs,
+                                   peer_addrs=peer_addresses,
                                    peer_ids=ids,
                                    join=self.smr_join,
                                    debug_port=self.debug_port,

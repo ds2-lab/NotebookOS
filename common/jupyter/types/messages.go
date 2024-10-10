@@ -3,10 +3,12 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
@@ -178,6 +180,176 @@ func extractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int
 		}
 	}
 	return
+}
+
+// CopyRequestTraceFromBuffersToMetadata will attempt to extract a proto.RequestTrace from the (first) buffers frame
+// of the given JupyterMessage. If successful, then CopyRequestTraceFromBuffersToMetadata will next attempt to
+// add the proto.RequestTrace to the metadata frame of the JupyterMessage.
+//
+// Returns true on success. Returns false on failure.
+func CopyRequestTraceFromBuffersToMetadata(msg *JupyterMessage, signatureScheme string, key string, logger logger.Logger) bool {
+	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) <= JupyterFrameRequestTrace {
+		logger.Warn("Jupyter \"%s\" request has just %d frames (after skipping identities frame). Cannot extract RequestTrace.",
+			msg.JupyterMessageType(), msg.JupyterFrames.LenWithoutIdentitiesFrame(false))
+		return false
+	}
+
+	_, requestTrace, err := extractRequestTraceFromJupyterMessage(msg, logger)
+	if err != nil {
+		logger.Warn("Failed to extract RequestTrace from \"%s\" message \"%s\" (JupyterID=\"%s\"). "+
+			"Cannot copy RequestTrace to metadata.",
+			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+		return false
+	}
+
+	logger.Debug("Successfully extracted RequestTrace from first buffers frame of \"%s\" request \"%s\" (JupyterID=\"%s\") "+
+		"Copying to metadata now.", msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+
+	metadataDict, err := msg.DecodeMetadata()
+	if err != nil {
+		logger.Warn("Failed to decode metadata frame of \"%s\" message \"%s\" (JupyterID=\"%s\"). "+
+			"Cannot copy RequestTrace to metadata.",
+			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+		metadataDict = make(map[string]interface{}) // Create a new metadata frame, I guess...
+	}
+
+	metadataDict[proto.RequestTraceMetadataKey] = requestTrace
+	err = msg.EncodeMetadata(metadataDict)
+	if err != nil {
+		logger.Error("Failed to encode metadata frame of \"%s\" message \"%s\" (JupyterID=\"%s\") after embedding RequestTrace in it: %v",
+			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
+		return false
+	}
+
+	// Resign and re-verify the message.
+	if signatureScheme == "" {
+		logger.Warn("Kernel %s's signature scheme is blank. Defaulting to \"%s\"", JupyterSignatureScheme)
+		signatureScheme = JupyterSignatureScheme
+	}
+
+	// Regenerate the signature.
+	if _, err := msg.JupyterFrames.Sign(signatureScheme, []byte(key)); err != nil {
+		logger.Error("Failed to sign frames because %v", err)
+		return false
+	}
+
+	// Ensure that the frames are now correct.
+	if err := msg.JupyterFrames.Verify(signatureScheme, []byte(key)); err != nil {
+		logger.Error("Failed to verify modified message with signature scheme '%v' and key '%v': %v",
+			signatureScheme, key, err)
+		return false
+	}
+
+	return true
+}
+
+// extractRequestTraceFromJupyterMessage will attempt to extract and return a *proto.RequestTrace from the (first)
+// buffers frame of the given JupyterMessage.
+//
+// It is the caller's responsibility to ensure that the given JupyterMessage has a buffers frame.
+func extractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Logger) (*proto.JupyterRequestTraceFrame, *proto.RequestTrace, error) {
+	var wrapper *proto.JupyterRequestTraceFrame
+	err := json.Unmarshal(msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+JupyterFrameRequestTrace], &wrapper)
+	if err != nil {
+		// Presumably it just doesn't contain a RequestTrace for some reason. But that would be weird.
+		// Could be that a Jupyter client unexpectedly sent some buffers with whatever message.
+		// We don't handle this as of right now. To handle it, we would just add a new buffers frame before the
+		// existing buffers frame and put the request trace there, and make sure to adjust things accordingly
+		// for the client in the response (which may just involve removing the request trace, if the client is
+		// expecting something else to be in the first buffers frame).
+		logger.Error("Failed to JSON-decode RequestTrace from Frame #%d because: %v", msg.JupyterFrames.Offset+JupyterFrameRequestTrace, err)
+		logger.Error("Frame #%d: %s\n", msg.JupyterFrames.Offset+JupyterFrameRequestTrace,
+			string(msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+JupyterFrameRequestTrace]))
+		logger.Error("Frames: %s\n", msg.MsgToString())
+		return nil, nil, err
+	}
+
+	requestTrace := wrapper.RequestTrace
+	if requestTrace == nil {
+		// Weird error.
+		return nil, nil, fmt.Errorf("decoded JupyterRequestTraceFrame, but the included RequestTrace is nil")
+	} else {
+		return wrapper, requestTrace, nil
+	}
+}
+
+// AddOrUpdateRequestTraceToJupyterMessage will add a RequestTrace to the given types.JupyterMessage's metadata frame.
+// If there is already a RequestTrace within the types.JupyterMessage's metadata frame, then no change is made.
+//
+// AddOrUpdateRequestTraceToJupyterMessage returns true if a RequestTrace is serialized into the types.JupyterMessage's
+// metadata frame. If there is already a RequestTrace encoded within the metadata frame, then false is returned.
+//
+// If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
+// returned, and the boolean returned along with the error is always false.
+func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket, timestamp time.Time, logger logger.Logger) (*proto.RequestTrace, bool, error) {
+	logger.Debug("Adding or updating RequestTrace in Jupyter %s \"%s\" message \"%s\"",
+		socket.Type.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
+
+	var (
+		wrapper      *proto.JupyterRequestTraceFrame
+		requestTrace *proto.RequestTrace
+		added        bool
+		err          error
+	)
+
+	// Check if the message has enough frames to have a RequestTrace in it (i.e., if there are buffers frames or not).
+	// If not, then we'll assume that the message does not have a buffers frame/RequestTrace (as there aren't enough
+	// frames for that to be the case), and we'll add additional frames and then add a new RequestTrace to the new
+	// buffer frame.
+	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) <= JupyterFrameRequestTrace {
+		for msg.JupyterFrames.LenWithoutIdentitiesFrame(false) <= JupyterFrameRequestTrace {
+			logger.Debug("Jupyter \"%s\" request has just %d frames (after skipping identities frame). Adding additional frame. Offset: %d. Frames: %s",
+				msg.JupyterMessageType(), msg.JupyterFrames.LenWithoutIdentitiesFrame(false), msg.Offset(), msg.JupyterFrames.String())
+
+			// If the request doesn't already have a JupyterFrameRequestTrace frame, then we'll add one.
+			msg.JupyterFrames.Frames = append(msg.JupyterFrames.Frames, make([]byte, 0))
+		}
+
+		// The metadata did not already contain a RequestTrace.
+		// Let's first create one.
+		requestTrace = proto.NewRequestTrace()
+		added = true
+
+		// Then we'll populate the sort of metadata fields of the RequestTrace.
+		requestTrace.MessageId = msg.JupyterMessageId()
+		requestTrace.MessageType = msg.JupyterMessageType()
+		requestTrace.KernelId = msg.JupyterSession()
+
+		// Create the wrapper/frame itself.
+		wrapper = &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
+
+		logger.Debug("Added RequestTrace to Jupyter \"%s\" message.", msg.JupyterMessageType())
+	} else {
+		logger.Debug("Extracting Jupyter RequestTrace frame from \"%s\" message (offset=%d): %s", msg.JupyterMessageType(), msg.JupyterFrames.Offset, msg.JupyterFrames.String())
+
+		// The message has at least one buffers frame, so let's try to extract an existing RequestTrace.
+		wrapper, requestTrace, err = extractRequestTraceFromJupyterMessage(msg, logger)
+		if err != nil {
+			// We failed to extract the RequestTrace for some reason.
+			return nil, false, err
+		}
+
+		logger.Debug("Extracted existing RequestTrace from Jupyter \"%s\" message.", msg.JupyterMessageType())
+	}
+
+	// Update the appropriate timestamp field of the RequestTrace.
+	requestTrace.PopulateNextField(timestamp.UnixMilli(), logger)
+
+	logger.Debug("New/updated RequestTrace: %s.", requestTrace.String())
+
+	marshalledFrame, err := json.Marshal(wrapper)
+	if err != nil {
+		logger.Error("Failed to JSON-encode RequestTrace because: %v", err)
+		return nil, false, err
+	}
+
+	msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+JupyterFrameRequestTrace] = marshalledFrame
+
+	logger.Debug("Updated frames: %s.", msg.JupyterFrames.String())
+
+	msg.RequestTrace = requestTrace
+
+	return requestTrace, added, nil
 }
 
 // JupyterMessage is a wrapper around ZMQ4 messages, specifically Jupyter ZMQ4 messages.
@@ -355,6 +527,20 @@ func (m *JupyterMessage) SetSignatureScheme(signatureScheme string) {
 
 	m.signatureScheme = signatureScheme
 	m.signatureSchemeSet = true
+}
+
+// EncodeMetadata attempts to marshal the given metadata map into the underlying JupyterFrames.
+// If successful, then the metadata field of the JupyterMessage, which essentially serves as a cached
+// version of the JupyterFrames' serialized metadata dictionary, will be updated (i.e., assigned to the
+// metadata parameter of this EncodeMetadata method).
+func (m *JupyterMessage) EncodeMetadata(metadata map[string]interface{}) (err error) {
+	err = m.JupyterFrames.EncodeMetadata(metadata)
+	if err == nil {
+		m.metadata = metadata
+		return nil
+	}
+
+	return
 }
 
 // SetSignatureSchemeIfNotSet sets the signature scheme of the JupyterMessage if it has not already been set.

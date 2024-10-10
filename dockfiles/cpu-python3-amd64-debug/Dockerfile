@@ -68,11 +68,3 @@ EXPOSE 5678
 USER jovyan:users
 
 WORKDIR /home/jovyan/
-
-# ENTRYPOINT ["/usr/bin/env"]
-# CMD ["tini" "-g" "-vvv" "--" "start.sh"]
-
-# ENTRYPOINT ["tini", "-g", "-vvv", "--", "start.sh"]
-#CMD ["start-notebook.py"]
-
-# ENTRYPOINT ["/bin/bash", "/usr/local/bin/start-notebook.sh"]

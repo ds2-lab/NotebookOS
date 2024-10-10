@@ -193,6 +193,7 @@ type SchedulerDaemonImpl struct {
 }
 
 type KernelRegistrationPayload struct {
+	Op              string                  `json:"op"`
 	SignatureScheme string                  `json:"signatureScheme"`
 	Key             string                  `json:"key"`
 	Kernel          *proto.KernelSpec       `json:"kernel,omitempty"`
@@ -895,6 +896,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 					d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
 
 					if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
+						d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
 						d.provisionerClientConnectionGRPC.Connect()
 					}
 				}
@@ -917,6 +919,23 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 						if err != nil {
 							d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
 								kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
+						}
+
+						if statusError, ok := status.FromError(err); ok {
+							d.log.Error("Received gRPC error with statusError code %d: %s.",
+								statusError.Code(), statusError.Message())
+							details := statusError.Details()
+							if len(details) > 0 {
+								d.log.Error("Additional details associated with gRPC error: %v", details)
+							}
+						}
+
+						grpcConnState := d.provisionerClientConnectionGRPC.GetState()
+						d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
+
+						if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
+							d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
+							d.provisionerClientConnectionGRPC.Connect()
 						}
 
 						cancel()
@@ -2345,7 +2364,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 
 	// Re-encode the metadata frame. It will have the number of idle GPUs available,
 	// as well as the reason that the request was yielded (if it was yielded).
-	err = msg.JupyterFrames.EncodeMetadata(metadataDict)
+	err = msg.EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("[gid=%d] Failed to encode metadata frame because: %v", gid, err)
 		d.notifyClusterGatewayAndPanic("Failed to Encode Metadata Frame", err.Error(), err)
@@ -2779,7 +2798,7 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 
 		// Re-encode the metadata frame. It will have the number of idle GPUs available,
 		// as well as the reason that the request was yielded (if it was yielded).
-		encodeErr := jMsg.JupyterFrames.EncodeMetadata(metadata)
+		encodeErr := jMsg.EncodeMetadata(metadata)
 		if encodeErr != nil {
 			d.log.Error("Failed to encode metadata frame because: %v", encodeErr)
 			d.notifyClusterGatewayAndPanic("Failed to Encode Metadata Frame", encodeErr.Error(), encodeErr)

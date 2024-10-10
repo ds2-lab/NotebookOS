@@ -1233,41 +1233,56 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 	// We do this now, before calling waitGroup.Wait(), just to overlap the two tasks
 	// (the kernel starting + registering and us updating the "execute_request" Jupyter
 	// message for resubmission).
-	metadataFrame := msg.JupyterFrames.MetadataFrame()
-	var metadataDict map[string]interface{}
+	//metadataFrame := msg.JupyterFrames.MetadataFrame()
+	//var metadataDict map[string]interface{}
+	//
+	//// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
+	//if len(metadataFrame.Frame()) > 0 {
+	//	// Unmarshal the frame. This way, we preserve any other metadata that was
+	//	// originally included with the message when we specify the target replica.
+	//	err := metadataFrame.Decode(&metadataDict)
+	//	if err != nil {
+	//		d.log.Error("Error unmarshalling metadata frame for 'execute_request' message: %v", err)
+	//		return err
+	//	} else {
+	//		d.log.Debug("Unmarshalled metadata frame for 'execute_request' message: %v", metadataDict)
+	//	}
+	//}
 
-	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
-	if len(metadataFrame.Frame()) > 0 {
-		// Unmarshal the frame. This way, we preserve any other metadata that was
-		// originally included with the message when we specify the target replica.
-		err := metadataFrame.Decode(&metadataDict)
-		if err != nil {
-			d.log.Error("Error unmarshalling metadata frame for 'execute_request' message: %v", err)
-			return err
-		} else {
-			d.log.Debug("Unmarshalled metadata frame for 'execute_request' message: %v", metadataDict)
-		}
+	metadataDict, err := msg.DecodeMetadata()
+	if err != nil {
+		d.log.Warn("Failed to unmarshal metadata frame for \"execute_request\" message \"%s\" (JupyterID=\"%s\"): %v",
+			msg.RequestId, msg.JupyterMessageId())
+
+		// We'll assume the metadata frame was empty, and we'll create a new dictionary to use as the metadata frame.
+		metadataDict = make(map[string]interface{})
 	}
 
 	// Specify the target replica.
 	metadataDict[TargetReplicaArg] = targetReplica
 	metadataDict[ForceReprocessArg] = true
-	err := msg.JupyterFrames.EncodeMetadata(metadataDict)
+	err = msg.EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("Failed to encode metadata frame because: %v", err)
 		return err
 	}
 
+	signatureScheme := c.ConnectionInfo().SignatureScheme
+	if signatureScheme == "" {
+		d.log.Warn("Kernel %s's signature scheme is blank. Defaulting to \"%s\"", jupyter.JupyterSignatureScheme)
+		signatureScheme = jupyter.JupyterSignatureScheme
+	}
+
 	// Regenerate the signature.
-	if _, err := msg.JupyterFrames.Sign(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
+	if _, err := msg.JupyterFrames.Sign(signatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
 		// Ignore the error; just log it.
 		d.log.Warn("Failed to sign frames because %v", err)
 	}
 
 	// Ensure that the frames are now correct.
-	if err := msg.JupyterFrames.Verify(c.ConnectionInfo().SignatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
+	if err := msg.JupyterFrames.Verify(signatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v': %v",
-			c.ConnectionInfo().SignatureScheme, c.ConnectionInfo().Key, err)
+			signatureScheme, c.ConnectionInfo().Key, err)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
 		return ErrFailedToVerifyMessage
 	}
@@ -1390,6 +1405,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (*client.Distri
 func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
 	startTime := time.Now()
 	d.log.Info("ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v].", in.Id, in.Session, in.ResourceSpec)
+	d.log.Debug("KernelSpec: %v", in)
 
 	var (
 		kernel *client.DistributedKernelClient
@@ -1806,7 +1822,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 		panic(fmt.Sprintf("KernelReplicaClient::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
-	d.log.Debug("Adding Replica replica for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("Adding Replica for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
 		panic(fmt.Sprintf("KernelReplicaClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
@@ -2778,6 +2794,37 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 		}
 	}
 
+	if d.DebugMode {
+		_, _, err := jupyter.AddOrUpdateRequestTraceToJupyterMessage(msg, socket, time.Now(), d.log)
+		if err != nil {
+			d.log.Debug("Failed to update RequestTrace in %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"): %v",
+				typ, msg.JupyterMessageType(), msg.DestinationId, msg.JupyterMessageId(), err)
+		}
+
+		// Commented Out:
+		//
+		// This works, but we actually don't need to do this, as the buffers ARE being sent to the kernel after all.
+		// I was just confused by the output in the console. (Buffers was rendered as "[{}]", which I thought meant
+		// that they were empty -- but apparently that is not the case, which is good.)
+		//
+		//if from.KernelSpec() != nil {
+		//	signatureScheme := from.KernelSpec().SignatureScheme
+		//	key := from.KernelSpec().Key
+		//
+		//	if key != "" { // We can default to hmac-sha256 if we don't have the signature scheme (though we should have it)
+		//		jupyter.CopyRequestTraceFromBuffersToMetadata(msg, signatureScheme, key, d.log)
+		//	} else {
+		//		d.log.Warn("Cannot copy RequestTrace to metadata frame for %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"). "+
+		//			"We do not have the kernel's key (so we cannot re-sign the message).", typ, msg.JupyterMessageId(),
+		//			msg.DestinationId, msg.JupyterMessageId())
+		//	}
+		//} else {
+		//	d.log.Warn("Cannot copy RequestTrace to metadata frame for %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"). "+
+		//		"We do not have the kernel's signature scheme or key (so we cannot re-sign the message).", typ, msg.JupyterMessageId(),
+		//		msg.DestinationId, msg.JupyterMessageId())
+		//}
+	}
+
 	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v response from kernel %s via %s: %v"),
 		goroutineId, typ, from.ID(), socket.Name, msg)
 	zmqMsg := *msg.GetZmqMsg()
@@ -2809,6 +2856,9 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 	if err != nil {
 		d.log.Error(utils.RedStyle.Render("[gid=%d] Error while forwarding %v \"%s\" response %s (JupyterID=\"%s\") from kernel %s via %s: %s"),
 			goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, err.Error())
+	} else {
+		d.log.Debug("Successfully forwarded %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"): %v",
+			typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), jupyter.FramesToString(zmqMsg.Frames))
 	}
 
 	return err // Will be nil on success.

@@ -815,7 +815,7 @@ c.Session.debug = True
 # The digest scheme used to construct the message signatures.
 #          Must have the form 'hmac-HASH'.
 #  Default: 'hmac-sha256'
-# c.Session.signature_scheme = 'hmac-sha256'
+c.Session.signature_scheme = 'hmac-sha256'
 
 # The name of the unpacker for unserializing messages.
 #          Only used with custom functions for `packer`.

@@ -164,7 +164,7 @@ if [ "$(id -u)" == 0 ]; then
                           LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
                           PATH="${PATH}" \
                           PYTHONPATH="${PYTHONPATH:-}" \
-                          bash "${cmd[@]}" 2>&1
+                          bash -x "${cmd[@]}" 2>&1
         else
             "${cmd[@]}" 2>&1
         fi
@@ -175,7 +175,7 @@ if [ "$(id -u)" == 0 ]; then
                 LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
                 PATH="${PATH}" \
                 PYTHONPATH="${PYTHONPATH:-}" \
-                gdb -batch -ex "run" -ex "bt" -ex "generate-core-file" --args bash "${cmd[@]}" 2>&1 | grep -v ^"No stack."$ || true
+                gdb -batch -ex "run" -ex "bt" -ex "generate-core-file" --args bash -x "${cmd[@]}" 2>&1 | grep -v ^"No stack."$ || true
         else
             _log "Running executable in GDB: " "${cmd[@]}"
             sudo --preserve-env --set-home --user "${NB_USER}" \

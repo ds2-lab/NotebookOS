@@ -1477,20 +1477,34 @@ class RaftLog(object):
         """
         # Ensure that we actually do need to catch up.
         if not self.needs_to_catch_up:
+            self.logger.error("needs_to_catch_up is False in catchup_with_peers")
+            sys.stderr.flush()
+            sys.stdout.flush()
             raise ValueError("no need to catch-up with peers")
 
         # Ensure that the "catchup" value has already been created.
         if self._catchup_value is None:
+            self.logger.error("_catchup_value is None in catchup_with_peers")
+            sys.stderr.flush()
+            sys.stdout.flush()
             raise ValueError("\"catchup\" value is None")
 
         # Ensure that the "catchup" IO loop is set so that Golang code (that has called into Python code)
         # can populate the "catchup" Future with a result (using the "catchup" IO loop).
         if self._catchup_io_loop is None:
+            self.logger.error("_catchup_io_loop is None in catchup_with_peers")
+            sys.stderr.flush()
+            sys.stdout.flush()
             raise ValueError("\"catchup\" IO loop is None")
 
         # Ensure that the "catchup" future has been created already.
         if self._catchup_future is None:
+            self.logger.error("_catchup_future is None in catchup_with_peers")
+            sys.stderr.flush()
+            sys.stdout.flush()
             raise ValueError("\"catchup\" future is None")
+
+        self.logger.debug("Proposing & appending our \"catch up\" value now.")
 
         await self.append(self._catchup_value)
 
@@ -1527,7 +1541,9 @@ class RaftLog(object):
         # Ensure key is specified.
         if value.key is not None:
             if value.data is not None and type(value.data) is bytes and len(value.data) > MAX_MEMORY_OBJECT:
+                self.logger.debug(f"Offloading value with key \"{value.key}\" before proposing/appending it.")
                 value = await self._offload_value(value)
+                self.logger.debug(f"Successfully offloaded value with key \"{value.key}\" before proposing/appending it.")
 
         await self._serialize_and_append_value(value)
 
