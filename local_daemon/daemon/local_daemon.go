@@ -860,96 +860,51 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	numTries := 0
 	maxNumTries := 3
 
-	// Function to handle a gRPC error.
-	// Convert the golang error to a gRPC Status struct for additional information.
-	// Attempt to re-establish connection with Cluster Gateway.
-	handleGrpcError := func(err error) {
-		if statusError, ok := status.FromError(err); ok {
-			d.log.Error("Received gRPC error with statusError code %d: %s.",
-				statusError.Code(), statusError.Message())
-			details := statusError.Details()
-			if len(details) > 0 {
-				d.log.Error("Additional details associated with gRPC error: %v", details)
-			}
-		}
-
-		grpcConnState := d.provisionerClientConnectionGRPC.GetState()
-		d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
-
-		if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
-			d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
-			d.provisionerClientConnectionGRPC.Connect()
-		}
-	}
-
 	// TODO: Figure out a better way to handle this. As of right now, we really cannot recover from this.
 	var response *proto.KernelRegistrationNotificationResponse
 	for response == nil && numTries < maxNumTries {
-		notificationContext, cancel := context.WithTimeout(ctx, time.Second*30)
+		response, err = d.provisioner.NotifyKernelRegistered(context.Background(), kernelRegistrationNotification)
+		if err != nil {
+			d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
+				kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
 
-		respChan := make(chan interface{}, 1)
-		go func(reqContext context.Context) {
-			response, err = d.provisioner.NotifyKernelRegistered(reqContext, kernelRegistrationNotification)
-			if err != nil {
-				respChan <- err
-			} else {
-				respChan <- response
-			}
-		}(notificationContext)
-
-		handleErrorOrTimeout := func(err error) {
-			if err != nil {
-				d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
-					kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
-
+			// Convert the golang error to a gRPC Status struct for additional information.
+			if statusError, ok := status.FromError(err); ok {
+				d.log.Error("Received gRPC error with statusError code %d: %s.",
+					statusError.Code(), statusError.Message())
+				details := statusError.Details()
+				if len(details) > 0 {
+					d.log.Error("Additional details associated with gRPC error: %v", details)
+				}
 			}
 
-			handleGrpcError(err)
+			// Attempt to re-establish connection with Cluster Gateway.
+			grpcConnState := d.provisionerClientConnectionGRPC.GetState()
+			d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
+			if grpcConnState != connectivity.Ready {
+				d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
+				d.provisionerClientConnectionGRPC.Connect()
+			}
 
-			cancel()
 			numTries += 1
 
+			// If we're not done (i.e., if this loop will execute again because we've not exhausted our attempts),
+			// then we'll sleep. If we've already exhausted our attempts, then there's no point in sleeping again.
 			if numTries < maxNumTries {
 				time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
 			}
+		} else {
+			break
 		}
-
-		select {
-		case <-notificationContext.Done(): // Timed out.
-			{
-				// This will increment numTries and perform the sleep and attempt to reconnect to Cluster Gateway.
-				handleErrorOrTimeout(notificationContext.Err())
-
-				continue // Try again.
-			}
-		case v := <-respChan: // Got a response. Could be an error.
-			{
-				switch v.(type) {
-				case error: // Error.
-					{
-						// This will increment numTries and perform the sleep and attempt to reconnect to Cluster Gateway.
-						handleErrorOrTimeout(v.(error))
-
-						continue // Try again.
-					}
-				case *proto.KernelRegistrationNotificationResponse: // Actual response.
-					{
-						response = v.(*proto.KernelRegistrationNotificationResponse)
-						break
-					}
-				} // switch v.(type)
-			} // case v := <-respChan
-		} // select
-
-		cancel()
-	} // for response == nil && numTries < maxNumTries
+	}
 
 	if response == nil {
 		d.log.Error("Failed to notify Gateway of kernel registration after %d attempts.", maxNumTries)
 		panic(domain.ErrKernelRegistrationNotificationFailure)
 	}
 
-	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.", response.Id, response.Replicas)
+	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.",
+		response.Id, response.Replicas)
 
 	if response.ResourceSpec == nil {
 		errorMessage := fmt.Sprintf("ResourceSpec for kernel %s is nil.", kernel.ID())
