@@ -1609,6 +1609,8 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	replica.SetContainer(container)
 
 	// Add the Container to the Host.
+	d.log.Debug("Adding scheduling.Container for replica %d of kernel %s onto Host %s",
+		replicaSpec.ReplicaId, addReplicaOp.KernelId(), host.ID)
 	if err = host.ContainerScheduled(container); err != nil {
 		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
 		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
@@ -1616,6 +1618,8 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	}
 
 	// Register the Container with the Session.
+	d.log.Debug("Registering/adding scheduling.Container for replica %d of kernel %s with the associated scheduling.Session",
+		replicaSpec.ReplicaId, addReplicaOp.KernelId())
 	if err = session.AddReplica(container); err != nil {
 		d.log.Error("Error while registering container %v with session %v: %v", container, session, err)
 		d.notifyDashboardOfError("Failed to Register Container with Session", err.Error())

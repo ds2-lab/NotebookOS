@@ -860,6 +860,28 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	numTries := 0
 	maxNumTries := 3
 
+	// Function to handle a gRPC error.
+	// Convert the golang error to a gRPC Status struct for additional information.
+	// Attempt to re-establish connection with Cluster Gateway.
+	handleGrpcError := func(err error) {
+		if statusError, ok := status.FromError(err); ok {
+			d.log.Error("Received gRPC error with statusError code %d: %s.",
+				statusError.Code(), statusError.Message())
+			details := statusError.Details()
+			if len(details) > 0 {
+				d.log.Error("Additional details associated with gRPC error: %v", details)
+			}
+		}
+
+		grpcConnState := d.provisionerClientConnectionGRPC.GetState()
+		d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
+
+		if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
+			d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
+			d.provisionerClientConnectionGRPC.Connect()
+		}
+	}
+
 	// TODO: Figure out a better way to handle this. As of right now, we really cannot recover from this.
 	var response *proto.KernelRegistrationNotificationResponse
 	for response == nil && numTries < maxNumTries {
@@ -875,38 +897,28 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			}
 		}(notificationContext)
 
+		handleErrorOrTimeout := func(err error) {
+			if err != nil {
+				d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
+					kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
+
+			}
+
+			handleGrpcError(err)
+
+			cancel()
+			numTries += 1
+
+			if numTries < maxNumTries {
+				time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
+			}
+		}
+
 		select {
 		case <-notificationContext.Done(): // Timed out.
 			{
-				err = notificationContext.Err()
-				if err != nil {
-					d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
-						kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
-
-					if statusError, ok := status.FromError(err); ok {
-						d.log.Error("Received gRPC error with statusError code %d: %s.",
-							statusError.Code(), statusError.Message())
-						details := statusError.Details()
-						if len(details) > 0 {
-							d.log.Error("Additional details associated with gRPC error: %v", details)
-						}
-					}
-
-					grpcConnState := d.provisionerClientConnectionGRPC.GetState()
-					d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
-
-					if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
-						d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
-						d.provisionerClientConnectionGRPC.Connect()
-					}
-				}
-
-				cancel()
-				numTries += 1
-
-				if numTries < maxNumTries {
-					time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
-				}
+				// This will increment numTries and perform the sleep and attempt to reconnect to Cluster Gateway.
+				handleErrorOrTimeout(notificationContext.Err())
 
 				continue // Try again.
 			}
@@ -915,35 +927,8 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 				switch v.(type) {
 				case error: // Error.
 					{
-						err = v.(error)
-						if err != nil {
-							d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
-								kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
-						}
-
-						if statusError, ok := status.FromError(err); ok {
-							d.log.Error("Received gRPC error with statusError code %d: %s.",
-								statusError.Code(), statusError.Message())
-							details := statusError.Details()
-							if len(details) > 0 {
-								d.log.Error("Additional details associated with gRPC error: %v", details)
-							}
-						}
-
-						grpcConnState := d.provisionerClientConnectionGRPC.GetState()
-						d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
-
-						if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
-							d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
-							d.provisionerClientConnectionGRPC.Connect()
-						}
-
-						cancel()
-						numTries += 1
-
-						if numTries < maxNumTries {
-							time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
-						}
+						// This will increment numTries and perform the sleep and attempt to reconnect to Cluster Gateway.
+						handleErrorOrTimeout(v.(error))
 
 						continue // Try again.
 					}
