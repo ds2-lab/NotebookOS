@@ -785,13 +785,10 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 
 // Process a response to a shell message. This is called before the handler that was passed when issuing the request.
 // Return true if the message is a 'yield' message (indicating that the replica yielded an execution).
-func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.KernelReplicaInfo, msg *types.JupyterMessage) (err error, yielded bool) {
-	replicaClient := replica.(*KernelReplicaClient)
-	replicaId := replicaClient.replicaId
-
+func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplicaClient, msg *types.JupyterMessage) (error, bool) {
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
 	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
-		c.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)", replicaId, c.id)
+		c.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)", replica.ReplicaID(), c.id)
 		return types.ErrInvalidJupyterMessage, false
 	}
 
@@ -801,26 +798,34 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.Ker
 	}
 
 	var msgErr types.MessageError
-	err = json.Unmarshal(*msg.JupyterFrames.ContentFrame(), &msgErr)
+	err := json.Unmarshal(*msg.JupyterFrames.ContentFrame(), &msgErr)
 	if err != nil {
-		c.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", replicaId, c.id, err)
+		c.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", replica.ReplicaID(), c.id, err)
 		return err, false
 	}
 
-	if msgErr.Status == types.MessageStatusOK {
-		if msg.JupyterMessageType() == "execute_reply" {
-			replicaClient.ReceivedExecuteReply(msg)
-			return nil, false
+	// If it's not an "execute_reply" message, then we're done here.
+	if msg.JupyterMessageType() != types.ShellExecuteReply {
+		return nil, false
+	}
+
+	activeExec := c.getActiveExecution(msg.JupyterParentMessageId(), replica)
+	if activeExec != nil && c.debugMode { // Replies are only saved if debug mode is enabled.
+		err = activeExec.RegisterReply(replica.ReplicaID(), msg, true)
+		if err != nil {
+			c.log.Error("Failed to register \"execute_reply\" message: %v", err)
 		}
 	}
 
-	err = errors.New(msgErr.ErrValue)
+	if msgErr.Status == types.MessageStatusOK {
+		replica.ReceivedExecuteReply(msg)
+		return nil, false
+	}
+
 	if msgErr.ErrName == types.MessageErrYieldExecution {
-		replicaClient.ReceivedExecuteReply(msg)
-		yielded = true
-		errors.Join()
-		err2 := c.handleExecutionYieldedNotification(replica.(*KernelReplicaClient), msg)
-		return errors.Join(err, err2), true
+		replica.ReceivedExecuteReply(msg)
+		errWhileHandlingYield := c.handleExecutionYieldedNotification(replica, msg)
+		return errors.Join(errors.New(msgErr.ErrValue), errWhileHandlingYield), true
 	}
 
 	return err, false
@@ -878,7 +883,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 		if typ == types.ShellMessage {
 			// "Preprocess" the response, which involves checking if it is a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.
-			_, yielded := c.preprocessShellResponse(replica, msg)
+			_, yielded := c.preprocessShellResponse(replica.(*KernelReplicaClient), msg)
 			if yielded {
 				return nil
 			}
@@ -1358,6 +1363,28 @@ func (c *DistributedKernelClient) handleIOKernelStatus(replica *KernelReplicaCli
 	return nil
 }
 
+// getActiveExecution returns the *scheduling.ActiveExecution associated with the given "execute_request" message ID.
+func (c *DistributedKernelClient) getActiveExecution(msgId string, replica *KernelReplicaClient) *scheduling.ActiveExecution {
+	var associatedActiveExecution *scheduling.ActiveExecution
+	if c.activeExecution == nil {
+		c.log.Error("Received 'YIELD' proposal from %v, but we have no active execution...", replica)
+		associatedActiveExecution, _ = c.activeExecutionsByExecuteRequestMsgId.Load(msgId)
+	} else if c.activeExecution.ExecuteRequestMessageId != msgId {
+		c.log.Warn("Received 'YIELD' proposal for ActiveExecution associated with \"execute_request\" %s; however, current ActiveExecution is associated with \"execute_request\" %s...",
+			msgId, c.activeExecution.ExecuteRequestMessageId)
+		associatedActiveExecution, _ = c.activeExecutionsByExecuteRequestMsgId.Load(msgId)
+	} else {
+		associatedActiveExecution = c.activeExecution
+	}
+
+	// If we couldn't find the associated active execution at all, then we should panic. That's bad.
+	if associatedActiveExecution == nil {
+		return nil
+	}
+
+	return associatedActiveExecution
+}
+
 // handleExecutionYieldedNotification is called when we receive a 'YIELD' proposal from a replica of a kernel.
 // handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current scheduling.ActiveExecution
 // struct. If we find that we've received all three proposals, and they were ALL 'yield', then we'll handle the situation
@@ -1369,17 +1396,7 @@ func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *Ke
 
 	// It's possible we received a 'YIELD' proposal for an ActiveExecution different from the current one.
 	// So, retrieve the ActiveExecution associated with the 'YIELD' proposal (using the "execute_request" message IDs).
-	var associatedActiveExecution *scheduling.ActiveExecution
-	if c.activeExecution == nil {
-		c.log.Error("Received 'YIELD' proposal from %v, but we have no active execution...", replica)
-		associatedActiveExecution, _ = c.activeExecutionsByExecuteRequestMsgId.Load(targetExecuteRequestId)
-	} else if c.activeExecution.ExecuteRequestMessageId != targetExecuteRequestId {
-		c.log.Warn("Received 'YIELD' proposal for ActiveExecution associated with \"execute_request\" %s; however, current ActiveExecution is associated with \"execute_request\" %s...",
-			targetExecuteRequestId, c.activeExecution.ExecuteRequestMessageId)
-		associatedActiveExecution, _ = c.activeExecutionsByExecuteRequestMsgId.Load(targetExecuteRequestId)
-	} else {
-		associatedActiveExecution = c.activeExecution
-	}
+	associatedActiveExecution := c.getActiveExecution(targetExecuteRequestId, replica)
 
 	// If we couldn't find the associated active execution at all, then we should panic. That's bad.
 	if associatedActiveExecution == nil {

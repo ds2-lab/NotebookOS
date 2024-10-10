@@ -2513,7 +2513,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 	activeExecution := kernel.ActiveExecution()
 	if activeExecution == nil {
 		d.log.Error("No active execution registered for kernel %s...", kernelId)
-		return nil
+		// return nil
 	} else if activeExecution.ExecuteRequestMessageId != msg.JupyterParentMessageId() {
 		// It's possible that we receive an "execute_reply" for execution i AFTER the "smr_lead_task" message for
 		// execution i+1 (i.e., out of order). When this happens, we just stop the current training upon receiving
@@ -2544,7 +2544,8 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 			d.log.Error(errorMessage)
 			d.log.Error(utils.RedStyle.Render("Old active execution isn't actually old. Current execution: %v. \"Old\" execution: %v.\n"),
 				activeExecution.String(), oldActiveExecution.String())
-			log.Fatalf(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
+			// log.Fatalf(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
+			d.log.Error(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
 		}
 	}
 
