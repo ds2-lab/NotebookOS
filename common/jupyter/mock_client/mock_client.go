@@ -412,7 +412,7 @@ func (mr *MockAbstractDistributedKernelClientMockRecorder) PersistentID() *gomoc
 // PodName mocks base method.
 func (m *MockAbstractDistributedKernelClient) PodName(id int32) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PodName", id)
+	ret := m.ctrl.Call(m, "PodOrContainerName", id)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
@@ -421,7 +421,7 @@ func (m *MockAbstractDistributedKernelClient) PodName(id int32) (string, error) 
 // PodName indicates an expected call of PodName.
 func (mr *MockAbstractDistributedKernelClientMockRecorder) PodName(id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodName", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).PodName), id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodOrContainerName", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).PodName), id)
 }
 
 // PrepareNewReplica mocks base method.
@@ -998,7 +998,7 @@ func (mr *MockAbstractKernelClientMockRecorder) PersistentID() *gomock.Call {
 // PodName mocks base method.
 func (m *MockAbstractKernelClient) PodName() string {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PodName")
+	ret := m.ctrl.Call(m, "PodOrContainerName")
 	ret0, _ := ret[0].(string)
 	return ret0
 }
@@ -1006,7 +1006,7 @@ func (m *MockAbstractKernelClient) PodName() string {
 // PodName indicates an expected call of PodName.
 func (mr *MockAbstractKernelClientMockRecorder) PodName() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodName", reflect.TypeOf((*MockAbstractKernelClient)(nil).PodName))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodOrContainerName", reflect.TypeOf((*MockAbstractKernelClient)(nil).PodName))
 }
 
 // ReceivedExecuteReply mocks base method.

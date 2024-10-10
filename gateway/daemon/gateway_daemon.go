@@ -183,20 +183,20 @@ type ClusterGatewayImpl struct {
 	kernelsStarting *hashmap.CornelkMap[string, chan struct{}]
 
 	// Mapping from AddReplicaOperation ID to AddReplicaOperation.
-	addReplicaOperations *hashmap.CornelkMap[string, domain.AddReplicaOperation]
+	addReplicaOperations *hashmap.CornelkMap[string, *AddReplicaOperation]
 
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
-	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, domain.AddReplicaOperation]]
+	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]]
 
 	// Mapping from new kernel-replica key (i.e., <kernel-id>-<replica-id>) to AddReplicaOperation.
-	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, domain.AddReplicaOperation]
+	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *AddReplicaOperation]
 
 	// Mapping from NewPodName to chan string.
 	// In theory, it's possible to receive a PodCreated notification from Kubernetes AFTER the replica within the new Pod
 	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
 	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
-	addReplicaNewPodNotifications *hashmap.CornelkMap[string, chan domain.AddReplicaOperation]
+	addReplicaNewPodNotifications *hashmap.CornelkMap[string, chan *AddReplicaOperation]
 
 	// Used to wait for an explicit notification that a particular node was successfully removed from its SMR cluster.
 	// smrNodeRemovedNotifications *hashmap.CornelkMap[string, chan struct{}]
@@ -256,11 +256,11 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		waitGroups:                            hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
 		cleaned:                               make(chan struct{}),
 		smrPort:                               clusterDaemonOptions.SMRPort,
-		addReplicaOperations:                  hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
-		activeAddReplicaOpsPerKernel:          hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, domain.AddReplicaOperation]](64),
-		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, domain.AddReplicaOperation](64),
+		addReplicaOperations:                  hashmap.NewCornelkMap[string, *AddReplicaOperation](64),
+		activeAddReplicaOpsPerKernel:          hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]](64),
+		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, *AddReplicaOperation](64),
 		kernelsStarting:                       hashmap.NewCornelkMap[string, chan struct{}](64),
-		addReplicaNewPodNotifications:         hashmap.NewCornelkMap[string, chan domain.AddReplicaOperation](64),
+		addReplicaNewPodNotifications:         hashmap.NewCornelkMap[string, chan *AddReplicaOperation](64),
 		hdfsNameNodeEndpoint:                  clusterDaemonOptions.HdfsNameNodeEndpoint,
 		dockerNetworkName:                     clusterDaemonOptions.DockerNetworkName,
 		numResendAttempts:                     clusterDaemonOptions.NumResendAttempts,
@@ -998,16 +998,18 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 	// Check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
 	addReplicaOp, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId, true)
 	if !ok {
-		d.log.Warn("Received 'SMR-READY' notification replica %d, kernel %s; however, no add-replica operation found for specified kernel replica...", smrReadyNotification.ReplicaId, smrReadyNotification.KernelId)
+		d.log.Warn("Received 'SMR-READY' notification replica %d, kernel %s; however, no add-replica operation found for specified kernel replica...",
+			smrReadyNotification.ReplicaId, smrReadyNotification.KernelId)
 		return proto.VOID, nil
 	}
 
 	if addReplicaOp.Completed() {
-		log.Fatalf(utils.RedStyle.Render("Retrieved AddReplicaOperation %v targeting replica %d of kernel %s -- this operation has already completed.\n"),
+		log.Fatalf(utils.RedStyle.Render("Retrieved AddReplicaOperation \"%s\" targeting replica %d of kernel %s -- this operation has already completed.\n"),
 			addReplicaOp.OperationID(), smrReadyNotification.ReplicaId, kernelId)
 	}
 
-	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s [AddOperation.OperationID=%v]", smrReadyNotification.ReplicaId, kernelId, addReplicaOp.OperationID())
+	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s [AddOperation.OperationID=%v]. "+
+		"Notifying awaiting goroutine now...", smrReadyNotification.ReplicaId, kernelId, addReplicaOp.OperationID())
 	addReplicaOp.ReplicaJoinedSmrChannel() <- struct{}{}
 
 	return proto.VOID, nil
@@ -1169,6 +1171,25 @@ func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 	}
 }
 
+// Used to issue an "error" notification to the internalCluster Dashboard.
+func (d *ClusterGatewayImpl) notifyDashboardOfWarning(warningName string, warningMessage string) {
+	sendStart := time.Now()
+	if d.clusterDashboard != nil {
+		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+			Id:               uuid.NewString(),
+			Title:            warningName,
+			Message:          warningMessage,
+			NotificationType: int32(jupyter.WarningNotification),
+		})
+
+		if err != nil {
+			d.log.Error("Failed to send \"%s\" warning notification to internalCluster Dashboard because: %s", warningName, err.Error())
+		} else {
+			d.log.Debug("Successfully sent \"%s\" (typ=WARNING) notification to internalCluster Dashboard in %v.", warningName, time.Since(sendStart))
+		}
+	}
+}
+
 // staticSchedulingFailureHandler is a callback to be invoked when all replicas of a
 // kernel propose 'YIELD' while static scheduling is set as the configured scheduling policy.
 func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.DistributedKernelClient) error {
@@ -1180,7 +1201,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 		targetReplica, c.ID())
 
 	// Notify the cluster dashboard that we're performing a migration.
-	go d.notifyDashboardOfError(fmt.Sprintf("All Replicas of Kernel \"%s\" Have Proposed 'YIELD'", c.ID()),
+	go d.notifyDashboardOfWarning(fmt.Sprintf("All Replicas of Kernel \"%s\" Have Proposed 'YIELD'", c.ID()),
 		fmt.Sprintf("All replicas of kernel %s proposed 'YIELD' during code execution.", c.ID()))
 
 	// TODO: There could be race conditions here with how we are creating and linking and assigning the ...
@@ -1549,7 +1570,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// This race would be simplified if we added the constraint that there may be only one active migration per kernel at any given time,
 	// but I've not yet enforced this.
 	if !ok {
-		channel := make(chan domain.AddReplicaOperation, 1)
+		channel := make(chan *AddReplicaOperation, 1)
 		d.addReplicaNewPodNotifications.Store(key, channel)
 
 		d.Unlock()
@@ -1658,6 +1679,9 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	}
 
 	d.Unlock()
+
+	d.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during AddOperation \"%s\".",
+		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
 
 	addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
 
@@ -2676,7 +2700,7 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 //
 // This looks for the most-recently-added AddReplicaOperation associated with the specified replica of the specified kernel.
 // If `mustBeActive` is true, then we skip any AddReplicaOperation structs that have already been marked as completed.
-func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32, mustBeActive bool) (domain.AddReplicaOperation, bool) {
+func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32, mustBeActive bool) (*AddReplicaOperation, bool) {
 	d.addReplicaMutex.Lock()
 	defer d.addReplicaMutex.Unlock()
 
@@ -2685,7 +2709,7 @@ func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 		return nil, false
 	}
 
-	var op domain.AddReplicaOperation
+	var op *AddReplicaOperation
 	// Iterate from newest to oldest, which entails beginning at the back.
 	// We want to return the newest AddReplicaOperation that matches the replica ID for this kernel.
 	for el := activeOps.Back(); el != nil; el = el.Prev() {
@@ -2898,7 +2922,7 @@ func (d *ClusterGatewayImpl) cleanUp() {
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in HDFS.
-func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string) (domain.AddReplicaOperation, error) {
+func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string) (*AddReplicaOperation, error) {
 	var kernelId = in.KernelId
 	var persistentId = in.PersistentId
 
@@ -2929,7 +2953,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	d.addReplicaOperations.Store(addReplicaOp.OperationID(), addReplicaOp)
 	ops, ok := d.activeAddReplicaOpsPerKernel.Load(kernelId)
 	if !ok {
-		ops = orderedmap.NewOrderedMap[string, domain.AddReplicaOperation]()
+		ops = orderedmap.NewOrderedMap[string, *AddReplicaOperation]()
 	}
 	ops.Set(addReplicaOp.OperationID(), addReplicaOp)
 	d.activeAddReplicaOpsPerKernel.Store(kernelId, ops)
@@ -2941,12 +2965,13 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		return addReplicaOp, err
 	}
 
-	var key string
+	var key, podOrContainerName string
 	if d.KubernetesMode() {
 		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
 
 		// Always wait for the scale-out operation to complete and the new replica to be created.
 		key = <-addReplicaOp.ReplicaStartedChannel()
+		podOrContainerName = key
 	} else {
 		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaID), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
 		// connInfo, err := d.placer.Place(host, newReplicaSpec)
@@ -2971,11 +2996,12 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 
 		addReplicaOp.SetMetadata(domain.DockerContainerFullId, notification.FullContainerId)
 		addReplicaOp.SetMetadata(domain.DockerContainerShortId, notification.ShortContainerId)
+		podOrContainerName = notification.FullContainerId
 		key = fmt.Sprintf("%s-%d", notification.KernelId, addReplicaOp.ReplicaId())
 	}
 
 	d.log.Debug("New replica %d has been created for kernel %s.", addReplicaOp.ReplicaId(), kernelId)
-	// addReplicaOp.SetPodName(in)
+	addReplicaOp.SetContainerName(podOrContainerName)
 	d.Lock()
 	d.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
 
@@ -2991,16 +3017,20 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	d.Unlock()
 
 	if opts.WaitRegistered() {
-		d.log.Debug("Waiting for new replica %d of kernel %s to register...", addReplicaOp.ReplicaId(), kernelId)
-		<-addReplicaOp.ReplicaRegisteredChannel()
-		d.log.Debug("New replica %d of kernel %s has registered with the Gateway.", addReplicaOp.ReplicaId(), kernelId)
+		d.log.Debug("Waiting for new replica %d of kernel \"%s\" to register during AddOperation \"%s\"",
+			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
+		replicaRegisteredChannel := addReplicaOp.ReplicaRegisteredChannel()
+		_ = <-replicaRegisteredChannel
+		d.log.Debug("New replica %d of kernel \"%s\" has registered with the Gateway during AddOperation \"%s\".",
+			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 	}
 
 	var smrWg sync.WaitGroup
 	smrWg.Add(1)
 	// Separate goroutine because this has to run everytime, even if we don't wait, as we call AddOperationCompleted when the new replica joins its SMR cluster.
 	go func() {
-		d.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster... [AddOperation.OperationID=%v]]", addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
+		d.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster... [AddOperation.OperationID=%v]]",
+			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 		<-addReplicaOp.ReplicaJoinedSmrChannel()
 		d.log.Debug("New replica %d of kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
 		kernel.AddOperationCompleted()
