@@ -81,6 +81,11 @@ func (op *AddReplicaOperation) ReplicaRegisteredChannel() <-chan struct{} {
 	return op.replicaRegisteredChannel
 }
 
+// CloseReplicaRegisteredChannel closes the AddReplicaOperation's replicaRegisteredChannel field.
+func (op *AddReplicaOperation) CloseReplicaRegisteredChannel() {
+	close(op.replicaRegisteredChannel)
+}
+
 // ReplicaJoinedSmrChannel returns the channel that is used to notify that the new replica has joined its SMR cluster.
 func (op *AddReplicaOperation) ReplicaJoinedSmrChannel() chan struct{} {
 	return op.replicaJoinedSmrChannel

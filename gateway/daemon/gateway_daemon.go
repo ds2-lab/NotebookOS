@@ -3056,13 +3056,25 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	// In Kubernetes deployments, the key is the Pod name, which is also the kernel ID + replica suffix.
 	// In Docker deployments, the container name isn't really the container's name, but its ID, which is a hash
 	// or something like that.
-	var key, podOrContainerName string
+	var (
+		key, podOrContainerName, notificationMarshalled string
+		sentBeforeClosed                                bool
+	)
 	if d.KubernetesMode() {
 		d.log.Debug("Waiting for new replica to be created for kernel \"%s\" during AddReplicaOperation \"%s\".",
 			kernelId, addReplicaOp.OperationID())
 
 		// Always wait for the scale-out operation to complete and the new replica to be created.
-		key = <-addReplicaOp.ReplicaStartedChannel()
+		key, sentBeforeClosed = <-addReplicaOp.ReplicaStartedChannel()
+		if !sentBeforeClosed {
+			errorMessage := fmt.Sprintf("Received default value from \"Replica Started\" channel for AddReplicaOperation \"%s\": %v",
+				addReplicaOp.OperationID(), addReplicaOp.String())
+			d.log.Error(errorMessage)
+			go d.notifyDashboardOfError("Channel Receive on Closed \"ReplicaStartedChannel\" Channel", errorMessage)
+		} else {
+			close(addReplicaOp.ReplicaStartedChannel())
+		}
+		
 		podOrContainerName = key
 	} else {
 		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaID), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
@@ -3072,7 +3084,15 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 			kernelId, addReplicaOp.OperationID())
 
 		// Always wait for the scale-out operation to complete and the new replica to be created.
-		notificationMarshalled := <-addReplicaOp.ReplicaStartedChannel()
+		notificationMarshalled, sentBeforeClosed = <-addReplicaOp.ReplicaStartedChannel()
+		if !sentBeforeClosed {
+			errorMessage := fmt.Sprintf("Received default value from \"Replica Started\" channel for AddReplicaOperation \"%s\": %v",
+				addReplicaOp.OperationID(), addReplicaOp.String())
+			d.log.Error(errorMessage)
+			go d.notifyDashboardOfError("Channel Receive on Closed \"ReplicaStartedChannel\" Channel", errorMessage)
+		} else {
+			close(addReplicaOp.ReplicaStartedChannel())
+		}
 
 		// In Docker mode, we receive a DockerContainerStartedNotification that was marshalled to JSON, which returns
 		// a []byte, and then converted to a string via string(marshalledDockerContainerStartedNotification).
@@ -3113,7 +3133,16 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		d.log.Debug("Waiting for new replica %d of kernel \"%s\" to register during AddReplicaOperation \"%s\"",
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 		replicaRegisteredChannel := addReplicaOp.ReplicaRegisteredChannel()
-		_ = <-replicaRegisteredChannel
+		_, sentBeforeClosed := <-replicaRegisteredChannel
+		if !sentBeforeClosed {
+			errorMessage := fmt.Sprintf("Received default value from \"Replica Registered\" channel for AddReplicaOperation \"%s\": %v",
+				addReplicaOp.OperationID(), addReplicaOp.String())
+			d.log.Error(errorMessage)
+			go d.notifyDashboardOfError("Channel Receive on Closed \"ReplicaRegisteredChannel\" Channel", errorMessage)
+		} else {
+			addReplicaOp.CloseReplicaRegisteredChannel()
+		}
+
 		d.log.Debug("New replica %d of kernel \"%s\" has registered with the Gateway during AddReplicaOperation \"%s\".",
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 	}
@@ -3124,10 +3153,26 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	go func() {
 		d.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster during AddReplicaOperation \"%s\" now...",
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
-		<-addReplicaOp.ReplicaJoinedSmrChannel()
+		replicaJoinedSmrChannel := addReplicaOp.ReplicaJoinedSmrChannel()
+		_, sentBeforeClosed := <-replicaJoinedSmrChannel
+		if !sentBeforeClosed {
+			errorMessage := fmt.Sprintf("Received default value from \"Replica Joined SMR\" channel for AddReplicaOperation \"%s\": %v",
+				addReplicaOp.OperationID(), addReplicaOp.String())
+			d.log.Error(errorMessage)
+			go d.notifyDashboardOfError("Channel Receive on Closed \"ReplicaJoinedSmrChannel\" Channel", errorMessage)
+		}
+
+		close(replicaJoinedSmrChannel)
 		d.log.Debug("New replica %d of kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
 		kernel.AddOperationCompleted()
 		smrWg.Done()
+
+		if !addReplicaOp.Completed() {
+			d.log.Error("AddReplicaOperation \"%s\" does not think it's done, even though it should...", addReplicaOp.Completed())
+			go d.notifyDashboardOfError(fmt.Sprintf("AddReplicaOperation \"%s\" is Confused", addReplicaOp.OperationID()),
+				fmt.Sprintf("AddReplicaOperation \"%s\" does not think it's done, even though it should: %s",
+					addReplicaOp.OperationID(), addReplicaOp.String()))
+		}
 	}()
 
 	if opts.WaitSmrJoined() {
