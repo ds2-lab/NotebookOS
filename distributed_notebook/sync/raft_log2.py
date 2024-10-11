@@ -1553,7 +1553,15 @@ class RaftLog(object):
         await self._serialize_and_append_value(value)
 
     async def add_node(self, node_id, address):
-        """Add a node to the etcd-raft cluster."""
+        """
+        Add a node to the etcd-raft cluster.
+
+        NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
+
+        Args:
+            node_id: the ID of the node being added.
+            address: the IP address of the node being added.
+        """
         self.logger.info("Adding node %d at addr %s to the SMR cluster." % (node_id, address))
         future, resolve = self._get_callback(future_name=f"add_node[{node_id}]")
         self.logger.info(">> CALLING INTO GO CODE (_log_node.AddNode)")

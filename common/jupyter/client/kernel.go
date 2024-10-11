@@ -1219,6 +1219,11 @@ func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames *
 // 	return types.ErrStopPropagation
 // }
 
+// handleIOKernelSMRNodeAdded is the handler for "smr_node_added" IOPub messages.
+//
+// NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called, as "smr_node_added" are
+// currently not sent. (Specifically, we don't use the "add_replica_request" CONTROL message at the moment, so none
+// of this ever happens.)
 func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames *types.JupyterFrames, _ *types.JupyterMessage) error {
 	var nodeAddedMessage types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {

@@ -1277,6 +1277,9 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Re
 	return proto.VOID, nil
 }
 
+// AddReplica prompts the SchedulerDaemonImpl to send an "add_replica_request" CONTROL message to the specified kernel.
+//
+// NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
 func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
 	kernelId := req.KernelId
 	hostname := req.Hostname
@@ -1321,6 +1324,11 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 	return proto.VOID, nil
 }
 
+// smrNodeAddedCallback is a callback passed to the KernelReplicaClient of a kernel such that, when the kernel
+// client receives an "smr_node_added" IOPub message, it will call the smrNodeAddedCallback method so that
+// the Local Daemon can notify the Cluster Gateway.
+//
+// NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
 func (d *SchedulerDaemonImpl) smrNodeAddedCallback(readyMessage *jupyter.MessageSMRNodeUpdated) {
 	if readyMessage.Success {
 		d.log.Debug("Replica %d of kernel %s has successfully joined its SMR cluster.", readyMessage.NodeID, readyMessage.KernelId)

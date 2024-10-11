@@ -158,13 +158,23 @@ func (op *AddReplicaOperation) SetReplicaJoinedSMR() {
 	op.replicaJoinedSMR = true
 	op.replicaJoinedSmrChannel <- struct{}{}
 
+	// COMMENTED OUT:
+	// We do this step elsewhere in the Cluster Gateway. If we ever use SmrNodeAdded again, then maybe we'd
+	// want to uncomment this? Because SmrNodeAdded calls SetReplicaJoinedSMR, and there was a bug in which
+	// SmrReady did NOT call SetReplicaJoinedSMR and instead just explicitly got a reference to the
+	// replicaJoinedSmrChannel and put a struct in it directly, so SetReplicaJoinedSMR was never called,
+	// and thus the commented-out code below was not being executed.
+	//
+	// The bug was that, by not calling SetReplicaJoinedSMR, we weren't setting replicaJoinedSMR to true, which
+	// we needed to do so that the AddReplicaOperation was considered to have completed.
+	//
 	// Mark the new replica as being ready.
-	replica, err := op.client.GetReplicaByID(op.smrNodeId)
-	if err != nil {
-		panic(fmt.Sprintf("Cannot find new replica with ID %d for kernel %s.", op.smrNodeId, op.kernelId))
-	}
-
-	replica.SetReady()
+	//replica, err := op.client.GetReplicaByID(op.smrNodeId)
+	//if err != nil {
+	//	panic(fmt.Sprintf("Cannot find new replica with ID %d for kernel %s.", op.smrNodeId, op.kernelId))
+	//}
+	//
+	//replica.SetReady()
 }
 
 // PodStarted Returns true if the new Pod has started.

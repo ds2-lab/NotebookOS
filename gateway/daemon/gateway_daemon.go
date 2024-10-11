@@ -993,6 +993,8 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 	time.Sleep(time.Second * 5)
 }
 
+// SmrReady is an RPC handler called by the Local Daemon to the Cluster Gateway to notify the Gateway that an
+// "smr_node_ready" message was received.
 func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *proto.SmrReadyNotification) (*proto.Void, error) {
 	kernelId := smrReadyNotification.KernelId
 
@@ -1020,7 +1022,8 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 
 	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s [AddOperation.OperationID=%v]. "+
 		"Notifying awaiting goroutine now...", smrReadyNotification.ReplicaId, kernelId, addReplicaOp.OperationID())
-	addReplicaOp.ReplicaJoinedSmrChannel() <- struct{}{}
+	// addReplicaOp.ReplicaJoinedSmrChannel() <- struct{}{}
+	addReplicaOp.SetReplicaJoinedSMR()
 
 	return proto.VOID, nil
 }
@@ -1040,7 +1043,21 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 // 	return gateway.VOID, nil
 // }
 
+// SmrNodeAdded is an RPC function called by the Local Daemon to the Cluster Gateway when the Local Daemon
+// receives a "smr_node_added" IOPub message.
+//
+// NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called. We use SMR_READY instead.
 func (d *ClusterGatewayImpl) SmrNodeAdded(_ context.Context, replicaInfo *proto.ReplicaInfo) (*proto.Void, error) {
+	log.Fatalf(utils.RedStyle.Render("Unexpected -- we haven't been using SmrNodeAdded, so why is it being called? ReplicaInfo: %s"),
+		replicaInfo.String())
+
+	//
+	// NOTHING BELOW THE CALL TO log.Fatalf WILL BE EXECUTED, AS log.Fatalf PANICS.
+	//
+	// I am just leaving the code below as a reference or in case we ever start using SmrNodeAdded again.
+	// For now, we just use SmrReady instead.
+	//
+
 	kernelId := replicaInfo.KernelId
 	d.log.Debug("Received SMR Node-Added notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
 
@@ -2756,7 +2773,8 @@ func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 		return nil, false
 	}
 
-	d.log.Debug("Number of AddReplicaOperation struct(s) associated with kernel \"%s\": %d", kernelId)
+	d.log.Debug("Number of AddReplicaOperation struct(s) associated with kernel \"%s\": %d",
+		kernelId, activeOps.Len())
 
 	var op *AddReplicaOperation
 	// Iterate from newest to oldest, which entails beginning at the back.
@@ -3015,7 +3033,8 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 
 	addReplicaOp := NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
 
-	d.log.Debug("Adding replica %d to kernel %s now.", newReplicaSpec.ReplicaId, kernelId)
+	d.log.Debug("Adding replica %d to kernel \"%s\" as part of AddReplicaOperation \"%s\" now.",
+		newReplicaSpec.ReplicaId, kernelId, addReplicaOp.OperationID())
 
 	// Add the AddReplicaOperation to the associated maps belonging to the Gateway Daemon.
 	d.addReplicaMutex.Lock()
@@ -3039,7 +3058,8 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	// or something like that.
 	var key, podOrContainerName string
 	if d.KubernetesMode() {
-		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
+		d.log.Debug("Waiting for new replica to be created for kernel \"%s\" during AddReplicaOperation \"%s\".",
+			kernelId, addReplicaOp.OperationID())
 
 		// Always wait for the scale-out operation to complete and the new replica to be created.
 		key = <-addReplicaOp.ReplicaStartedChannel()
@@ -3048,7 +3068,8 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaID), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
 		// connInfo, err := d.placer.Place(host, newReplicaSpec)
 
-		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)
+		d.log.Debug("Waiting for new replica to be created for kernel \"%s\" during AddReplicaOperation \"%s\".",
+			kernelId, addReplicaOp.OperationID())
 
 		// Always wait for the scale-out operation to complete and the new replica to be created.
 		notificationMarshalled := <-addReplicaOp.ReplicaStartedChannel()
@@ -3078,22 +3099,22 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	d.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
 
 	if channel, ok := d.addReplicaNewPodNotifications.Load(key); ok {
-		d.log.Debug("Sending AddReplicaOperation for replica %d of kernel %s over channel.",
-			addReplicaOp.ReplicaId(), addReplicaOp.KernelId())
+		d.log.Debug("Sending AddReplicaOperation \"%s\" for replica %d of kernel \"%s\" over channel.",
+			addReplicaOp.OperationID(), addReplicaOp.ReplicaId(), addReplicaOp.KernelId())
 		channel <- addReplicaOp
 	} else {
-		d.log.Debug("Skipping the sending of AddReplicaOperation for replica %d of kernel %s over channel.",
-			addReplicaOp.ReplicaId(), addReplicaOp.KernelId())
+		d.log.Debug("Skipping the sending of AddReplicaOperation \"%s\" for replica %d of kernel %s over channel.",
+			addReplicaOp.OperationID(), addReplicaOp.ReplicaId(), addReplicaOp.KernelId())
 	}
 
 	d.Unlock()
 
 	if opts.WaitRegistered() {
-		d.log.Debug("Waiting for new replica %d of kernel \"%s\" to register during AddOperation \"%s\"",
+		d.log.Debug("Waiting for new replica %d of kernel \"%s\" to register during AddReplicaOperation \"%s\"",
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 		replicaRegisteredChannel := addReplicaOp.ReplicaRegisteredChannel()
 		_ = <-replicaRegisteredChannel
-		d.log.Debug("New replica %d of kernel \"%s\" has registered with the Gateway during AddOperation \"%s\".",
+		d.log.Debug("New replica %d of kernel \"%s\" has registered with the Gateway during AddReplicaOperation \"%s\".",
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 	}
 
@@ -3101,7 +3122,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	smrWg.Add(1)
 	// Separate goroutine because this has to run everytime, even if we don't wait, as we call AddOperationCompleted when the new replica joins its SMR cluster.
 	go func() {
-		d.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster... [AddOperation.OperationID=%v]]",
+		d.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster during AddReplicaOperation \"%s\" now...",
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 		<-addReplicaOp.ReplicaJoinedSmrChannel()
 		d.log.Debug("New replica %d of kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
