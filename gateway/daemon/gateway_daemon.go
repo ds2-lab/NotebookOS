@@ -1585,8 +1585,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 //
 // IMPORTANT: This will release the main mutex before returning.
 func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegistrationNotification, kernel *client.DistributedKernelClient, waitGroup *registrationWaitGroups) (*proto.KernelRegistrationNotificationResponse, error) {
+	// We load-and-delete the entry so that, if we migrate the same replica again in the future, then we can't load
+	// the old AddReplicaOperation struct...
 	key := fmt.Sprintf("%s-%d", in.KernelId, in.ReplicaId)
-	addReplicaOp, ok := d.addReplicaOperationsByKernelReplicaId.Load(key)
+	addReplicaOp, ok := d.addReplicaOperationsByKernelReplicaId.LoadAndDelete(key)
 
 	// If we cannot find the migration operation, then we have an unlikely race here.
 	// Basically, the new replica Pod was created, started running, and contacted its Local Daemon, which then contacted us,
@@ -1710,7 +1712,14 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	d.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during AddOperation \"%s\".",
 		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
 
-	addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
+	err = addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
+	if err != nil {
+		errorMessage := fmt.Sprintf("We're using the WRONG AddReplicaOperation... AddReplicaOperation \"%s\" has already recorded that its replica has registered: %v",
+			addReplicaOp.OperationID(), addReplicaOp.String())
+		d.log.Error(errorMessage)
+		d.notifyDashboardOfError("Using Incorrect AddReplicaOperation", errorMessage)
+		panic(err)
+	}
 
 	d.log.Debug("About to issue 'update replica' request for replica %d of kernel %s. Client ready: %v", replicaSpec.ReplicaId, in.KernelId, replica.IsReady())
 
@@ -3032,7 +3041,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	var newReplicaSpec = kernel.PrepareNewReplica(persistentId, smrNodeId)
 
 	addReplicaOp := NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
-
+	d.log.Debug("Created new AddReplicaOperation \"%s\": %s", addReplicaOp.OperationID(), addReplicaOp.String())
 	d.log.Debug("Adding replica %d to kernel \"%s\" as part of AddReplicaOperation \"%s\" now.",
 		newReplicaSpec.ReplicaId, kernelId, addReplicaOp.OperationID())
 
@@ -3074,7 +3083,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		} else {
 			close(addReplicaOp.ReplicaStartedChannel())
 		}
-		
+
 		podOrContainerName = key
 	} else {
 		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaID), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */

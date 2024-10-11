@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
@@ -24,6 +25,7 @@ type AddReplicaOperation struct {
 	spec                  *proto.KernelReplicaSpec             // Spec for the new replica that is created during the add operation.
 	dataDirectory         string                               // Path to etcd-raft data directory in HDFS.
 	metadata              hashmap.HashMap[string, interface{}] // Arbitrary metadata associated with this domain.AddReplicaOperation.
+	createdAt             time.Time                            // createdAt is the time at which the AddReplicaOperation struct was created.
 
 	podOrContainerStartedChannel chan string   // Used to notify that the new Pod has started.
 	replicaRegisteredChannel     chan struct{} // Used to notify that the new replica has registered with the Gateway.
@@ -46,6 +48,7 @@ func NewAddReplicaOperation(client *client.DistributedKernelClient, spec *proto.
 		podOrContainerStartedChannel: make(chan string),
 		replicaRegisteredChannel:     make(chan struct{}),
 		replicaJoinedSmrChannel:      make(chan struct{}),
+		createdAt:                    time.Now(),
 	}
 
 	return op
@@ -65,9 +68,9 @@ func (op *AddReplicaOperation) DataDirectory() string {
 
 // ToString
 func (op *AddReplicaOperation) String() string {
-	return fmt.Sprintf("AddReplicaOperation[ID=%s,KernelID=%s,ReplicaID=%d,Completed=%v,NewPodName=%s,"+
+	return fmt.Sprintf("AddReplicaOperation[ID=%s,KernelID=%s,ReplicaID=%d,CreatedAt=%v,Completed=%v,NewPodName=%s,"+
 		"PersistentID=%s,NewPodOrContainerStarted=%v,NewPodOrContainerName=%s,NewReplicaRegistered=%v,NewReplicaJoinedSmr=%v]",
-		op.id, op.kernelId, op.smrNodeId, op.Completed(), op.podOrContainerName, op.persistentId,
+		op.id, op.kernelId, op.smrNodeId, op.createdAt, op.Completed(), op.podOrContainerName, op.persistentId,
 		op.podOrContainerStarted, op.podOrContainerName, op.replicaRegistered, op.replicaJoinedSMR)
 }
 
@@ -193,11 +196,17 @@ func (op *AddReplicaOperation) ReplicaRegistered() bool {
 }
 
 // SetReplicaRegistered Records that the new replica for this migration operation has registered with the Gateway.
-// Will panic if we've already recorded that the new replica has registered.
+// Will return an error if we've already recorded that the new replica has registered.
 // This also sends a notification on the replicaRegisteredChannel.
-func (op *AddReplicaOperation) SetReplicaRegistered() {
+func (op *AddReplicaOperation) SetReplicaRegistered() error {
+	if op.replicaRegistered {
+		return fmt.Errorf("replica has already registered for AddReplicaOperation \"%s\"", op.OperationID())
+	}
+
 	op.replicaRegistered = true
 	op.replicaRegisteredChannel <- struct{}{} // KernelID isn't needed.
+
+	return nil
 }
 
 // KernelSpec Returns the *gateway.KernelReplicaSpec for the new replica that is created during the add operation.
