@@ -224,7 +224,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			// We'll just call this multiple times.
 			requestLogHelper := func(server *server.AbstractServer) {
 				Expect(server.RequestLog.Size()).To(Equal(1))
-				Expect(server.RequestLog.EntriesByRequestId.Len()).To(Equal(1))
 				Expect(server.RequestLog.EntriesByJupyterMsgId.Len()).To(Equal(1))
 				Expect(server.RequestLog.RequestsPerKernel.Len()).To(Equal(1))
 			}

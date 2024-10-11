@@ -121,13 +121,13 @@ func (op *AddReplicaOperation) ReplicaId() int32 {
 
 // SetContainerName sets the name of the newly-created Pod or Container that will host the added replica.
 // This also records that this operation's new pod has started.
-func (op *AddReplicaOperation) SetContainerName(newPodName string) {
+func (op *AddReplicaOperation) SetContainerName(name string) {
 	if op.podOrContainerStarted {
-		panic(fmt.Sprintf("Migration operation %s already has a new pod (pod %s).", op.id, op.podOrContainerName))
+		panic(fmt.Sprintf("Migration operation %s already has a new pod/container (with name/id = \"%s\").", op.id, op.podOrContainerName))
 	}
 
 	op.podOrContainerStarted = true
-	op.podOrContainerName = newPodName
+	op.podOrContainerName = name
 }
 
 // PersistentID Returns the persistent ID of the replica.

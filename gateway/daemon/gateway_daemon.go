@@ -680,6 +680,12 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		}, err
 	}
 
+	requestLog := d.router.RequestLog()
+	err = requestLog.AddEntry(jMsg, socketType, requestTrace)
+	if err != nil {
+		d.log.Error("Failed to add entry to RequestLog for %s PingKernel: %v", socketType.String(), err)
+	}
+
 	requestTraces := make([]*proto.RequestTrace, 0, d.ClusterOptions.NumReplicas)
 
 	for numRepliesReceived.Load() < int32(d.ClusterOptions.NumReplicas) {
@@ -1901,44 +1907,80 @@ func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMess
 	}
 
 	requestLog := d.router.RequestLog()
-	entry, loaded := requestLog.EntriesByJupyterMsgId.Load(in.MessageId)
+	if in.MessageId == "*" {
+		if requestLog.Len() == 0 {
+			return nil, status.Errorf(codes.InvalidArgument, "RequestLog is empty")
+		}
+
+		d.log.Debug("Received message query for all messages in log. Will be returning %d message(s).",
+			requestLog.EntriesByJupyterMsgId.Len())
+
+		requestTraces := make([]*proto.RequestTrace, 0, requestLog.EntriesByJupyterMsgId.Len())
+
+		requestLog.Lock()
+		requestLog.EntriesByJupyterMsgId.Range(func(msgId string, wrapper *metrics.RequestLogEntryWrapper) (contd bool) {
+			wrapper.EntriesByNodeId.Range(func(i int32, entry *metrics.RequestLogEntry) (contd bool) {
+				requestTraces = append(requestTraces, entry.RequestTrace)
+				return true
+			})
+			return true
+		})
+		requestLog.Unlock()
+
+		// Build the response.
+		resp := &proto.QueryMessageResponse{
+			RequestTraces: requestTraces,
+		}
+
+		return resp, nil
+	}
+
+	wrapper, loaded := requestLog.EntriesByJupyterMsgId.Load(in.MessageId)
 	if !loaded {
 		d.log.Warn("No request log entry found for request with Jupyter message ID \"%s\"", in.MessageId)
+		d.log.Warn("#Entries in RequestLog (by Jupyter message ID): %d", requestLog.EntriesByJupyterMsgId.Len())
 		return nil, status.Errorf(codes.InvalidArgument, "no request entry found in request log for entry with ID=\"%s\"", in.MessageId)
 	}
 
 	// Make sure the Jupyter message types match (if the caller specified a Jupyter message type).
-	if in.MessageType != "" && in.MessageType != entry.JupyterMessageType {
+	if in.MessageType != "" && in.MessageType != wrapper.JupyterMessageType {
 		d.log.Warn("Found request log entry for request with Jupyter message ID \"%s\", but request had type \"%s\" whereas the request type is \"%s\"",
-			in.MessageId, entry.JupyterMessageType, in.MessageType)
+			in.MessageId, wrapper.JupyterMessageType, in.MessageType)
 		return nil, status.Errorf(codes.InvalidArgument,
 			"found request log entry for request with Jupyter message ID \"%s\", but request had type \"%s\" whereas the request type is \"%s\"",
-			in.MessageId, entry.JupyterMessageType, in.MessageType)
+			in.MessageId, wrapper.JupyterMessageType, in.MessageType)
 	}
 
 	// Make sure the Kernel IDs types match (if the caller specified a Jupyter kernel ID).
-	if in.KernelId != "" && in.KernelId != entry.KernelId {
+	if in.KernelId != "" && in.KernelId != wrapper.KernelId {
 		d.log.Warn("Found request log entry for request with Jupyter message ID \"%s\", but request is targeting kernel \"%s\" whereas the specified kernel ID is \"%s\"",
-			in.MessageId, entry.KernelId, in.KernelId)
+			in.MessageId, wrapper.KernelId, in.KernelId)
 		return nil, status.Errorf(codes.InvalidArgument,
 			"found request log entry for request with Jupyter message ID \"%s\", but request is targeting kernel \"%s\" whereas the specified kernel ID is \"%s\"",
-			in.MessageId, entry.KernelId, in.KernelId)
+			in.MessageId, wrapper.KernelId, in.KernelId)
 	}
 
-	// Make sure that the RequestTrace is non-nil. If it is, then we'll panic.
-	requestTrace := entry.RequestTrace
-	if requestTrace == nil {
-		errorMessage := fmt.Sprintf("RequestTrace field of RequestLogEntry for request \"%s\" of type \"%s\" targeting kernel \"%s\" is nil.",
-			in.MessageId, entry.JupyterMessageType, entry.KernelId)
-		d.notifyDashboardOfError("RequestLogEntry's RequestTrace Field is Nil", errorMessage)
-		panic(utils.RedStyle.Render(errorMessage))
-	}
+	//Make sure that the RequestTrace is non-nil. If it is, then we'll panic.
+	//requestTrace := entry.RequestTrace
+	//if requestTrace == nil {
+	//	errorMessage := fmt.Sprintf("RequestTrace field of RequestLogEntry for request \"%s\" of type \"%s\" targeting kernel \"%s\" is nil.",
+	//		in.MessageId, entry.JupyterMessageType, entry.KernelId)
+	//	d.notifyDashboardOfError("RequestLogEntry's RequestTrace Field is Nil", errorMessage)
+	//	panic(utils.RedStyle.Render(errorMessage))
+	//}
 
 	d.log.Debug("Received QueryMessage request for Jupyter %s \"%s\" request with JupyterID=\"%s\" targeting kernel \"%s\"",
-		entry.MessageType.String(), entry.JupyterMessageType, entry.JupyterMessageId, entry.KernelId)
+		wrapper.MessageType.String(), wrapper.JupyterMessageType, wrapper.JupyterMessageId, wrapper.KernelId)
+
 	// Build the response.
+	requestTraces := make([]*proto.RequestTrace, 0, wrapper.EntriesByNodeId.Len())
+	wrapper.EntriesByNodeId.Range(func(i int32, entry *metrics.RequestLogEntry) (contd bool) {
+		requestTraces = append(requestTraces, entry.RequestTrace)
+		return true
+	})
+
 	resp := &proto.QueryMessageResponse{
-		RequestTrace: requestTrace,
+		RequestTraces: requestTraces,
 	}
 
 	return resp, nil
@@ -2965,6 +3007,9 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		return addReplicaOp, err
 	}
 
+	// In Kubernetes deployments, the key is the Pod name, which is also the kernel ID + replica suffix.
+	// In Docker deployments, the container name isn't really the container's name, but its ID, which is a hash
+	// or something like that.
 	var key, podOrContainerName string
 	if d.KubernetesMode() {
 		d.log.Debug("Waiting for new replica to be created for kernel %s.", kernelId)

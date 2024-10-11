@@ -145,6 +145,8 @@ type AbstractServer struct {
 	PanicOnFirstFailedSend bool
 
 	// RequestLog is used to track the status/progress of requests when in DebugMode.
+	// TODO: Make this an field of the ClusterGateway and LocalDaemon structs.
+	//		 Update in forwardRequest and kernelResponseForwarder, rather than in here.
 	RequestLog *metrics.RequestLog
 }
 
@@ -996,7 +998,7 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 	if s.shouldAddRequestTrace(request.Payload(), socket) {
 		s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 			socket.Type.String(), request.JupyterMessageType())
-		requestTrace, added, err := types.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now(), s.Log)
+		requestTrace, _, err := types.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now(), s.Log)
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
 			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
@@ -1004,12 +1006,10 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 		}
 
 		// If we added a RequestTrace for the first time, then let's also add an entry to our RequestLog.
-		if added {
-			err := s.RequestLog.AddEntry(request.Payload(), socket, requestTrace)
-			if err != nil {
-				s.Log.Error("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
-					socket.Type.String(), request.Payload().JupyterMessageType(), request.Payload().RequestId, request.Payload().JupyterMessageId(), err)
-			}
+		err = s.RequestLog.AddEntry(request.Payload(), socket.Type, requestTrace)
+		if err != nil {
+			s.Log.Warn("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
+				socket.Type.String(), request.Payload().JupyterMessageType(), request.Payload().RequestId, request.Payload().JupyterMessageId(), err)
 		}
 	}
 
@@ -1229,19 +1229,17 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 					// We only want to add traces to Shell, Control, and a subset of IOPub messages.
 					s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 						socket.Type.String(), jMsg.JupyterMessageType())
-					requestTrace, added, err := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt, s.Log)
+					requestTrace, _, err := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt, s.Log)
 					if err != nil {
 						s.Log.Error("Failed to add RequestTrace to JupyterMessage: %v.", err)
 						panic(err)
 					}
 
 					// If we added a RequestTrace for the first time, then let's also add an entry to our RequestLog.
-					if added {
-						err := s.RequestLog.AddEntry(jMsg, socket, requestTrace)
-						if err != nil {
-							s.Log.Error("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
-								socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), err)
-						}
+					err = s.RequestLog.AddEntry(jMsg, socket.Type, requestTrace)
+					if err != nil {
+						s.Log.Warn("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
+							socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), err)
 					}
 				}
 			}

@@ -145,8 +145,6 @@ class Election(object):
         # or because all replicas proposed yield.
         self.completion_reason = "N/A"
 
-        # self._lock: threading.Lock = threading.Lock()
-
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(term_number))
         self.logger.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
@@ -637,6 +635,46 @@ class Election(object):
         self.logger.debug(f"The voting phase for election {self.term_number} "
                           f"has completed successfully with winner: node {winner_id}.")
 
+    def format_accepted_proposals(self)->str:
+        """
+
+        Returns:
+
+        """
+        # TODO: Should this method be locked?
+
+        if len(self._proposals) == 0:
+            return ""
+
+        formatted_proposals: list[str] = []
+        for node_id, proposal in self._proposals.items():
+            formatted_proposal:str = f"Node {node_id}: \"{proposal.election_proposal_key}\""
+            formatted_proposals.append(formatted_proposal)
+
+        return ", ".join(formatted_proposals)
+
+    def format_discarded_proposals(self)->str:
+        """
+
+        Returns:
+
+        """
+        # TODO: Should this method be locked?
+
+        if len(self._discarded_proposals) == 0:
+            return ""
+
+        _discarded_proposals: Dict[int, LeaderElectionProposal] = self._discarded_proposals.get(self._current_attempt_number, {})
+        if len(_discarded_proposals) == 0:
+            return ""
+
+        formatted_proposals: list[str] = []
+        for node_id, proposal in _discarded_proposals.items():
+            formatted_proposal:str = f"Node {node_id}: \"{proposal.election_proposal_key}\""
+            formatted_proposals.append(formatted_proposal)
+
+        return ", ".join(formatted_proposals)
+
     def pick_winner_to_propose(self, last_winner_id: int = -1)->int:
         """
         Determine who should be proposed as the winner of the election based on the current proposals that have been received.
@@ -675,7 +713,8 @@ class Election(object):
         # If we have received all proposals, or if we'll be discarding any future proposals that we receive, then we should go ahead and try to decide.
         if (len(self._proposals) + self._num_discarded_proposals < self._num_replicas) and should_wait:
             self.logger.debug(f"Cannot pick winner for election {self.term_number} yet. "
-                              f"Received: {len(self._proposals)}, discarded: {self._num_discarded_proposals}, "
+                              f"Received: {len(self._proposals)} ({self.format_accepted_proposals()}, "
+                              f"discarded: {self._num_discarded_proposals} ({self.format_discarded_proposals()}), "
                               f"number of replicas: {self._num_replicas}.")
             raise ValueError(f"insufficient number of proposals received to select a winner to propose "
                              f"(received: {len(self._proposals)}, discarded: {self._num_discarded_proposals}, "

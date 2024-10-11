@@ -182,7 +182,7 @@ var _ = Describe("AbstractServer", func() {
 				jMsg := types.NewJupyterMessage(&actualResponse)
 				_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 				Expect(err).To(BeNil())
-				requestTrace, added, reqErr := server.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.Now())
+				requestTrace, added, reqErr := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.Now(), server.Log)
 				Expect(added).To(BeFalse())
 				GinkgoWriter.Printf("reqErr: %v\n", reqErr)
 				Expect(reqErr).To(BeNil())
@@ -240,23 +240,16 @@ var _ = Describe("AbstractServer", func() {
 			requestReceivedByGateway := time.Now()
 			jMsg := types.NewJupyterMessage(&msg)
 			fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame: %d\nMsg.Frames length: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), len(msg.Frames))
-			requestTrace, added, err := client.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByGateway)
+			requestTrace, added, err := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByGateway, client.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
 			Expect(err).To(BeNil())
 			Expect(client.RequestLog.Size()).To(Equal(1))
-			Expect(client.RequestLog.EntriesByRequestId.Len()).To(Equal(1))
 			Expect(client.RequestLog.EntriesByJupyterMsgId.Len()).To(Equal(1))
-			Expect(client.RequestLog.RequestsPerKernel.Len()).To(Equal(1))
 			Expect(jMsg.JupyterFrames.Len()).To(Equal(8))
 			Expect(jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false)).To(Equal(7))
 
 			fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame: %d\nMsg.Frames length: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), len(msg.Frames))
-
-			requests, loaded := client.RequestLog.RequestsPerKernel.Load(kernelId)
-			Expect(loaded).To(Equal(true))
-			Expect(requests).ToNot(BeNil())
-			Expect(requests.Len()).To(Equal(1))
 
 			Expect(requestTrace.MessageId).To(Equal(msgId))
 			Expect(requestTrace.MessageType).To(Equal(types.ShellKernelInfoRequest))
@@ -420,7 +413,7 @@ var _ = Describe("AbstractServer", func() {
 				jMsg := types.NewJupyterMessage(&actualResponse)
 				_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 				Expect(err).To(BeNil())
-				requestTrace, added, reqErr := server.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.Now()) // Simulate send
+				requestTrace, added, reqErr := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.Now(), server.Log) // Simulate send
 				server.Log.Debug(utils.LightBlueStyle.Render("RequestTrace: %s"), requestTrace.String())
 				Expect(added).To(BeFalse())
 				GinkgoWriter.Printf("reqErr: %v\n", reqErr)
@@ -477,24 +470,17 @@ var _ = Describe("AbstractServer", func() {
 			_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			fmt.Printf("[a] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
-			requestTrace, added, err := client.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, now) // Simulate recv
+			requestTrace, added, err := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, now, client.Log) // Simulate recv
 			client.Log.Debug(utils.LightBlueStyle.Render("RequestTrace: %s"), requestTrace.String())
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
 			Expect(err).To(BeNil())
 			Expect(client.RequestLog.Size()).To(Equal(1))
-			Expect(client.RequestLog.EntriesByRequestId.Len()).To(Equal(1))
 			Expect(client.RequestLog.EntriesByJupyterMsgId.Len()).To(Equal(1))
-			Expect(client.RequestLog.RequestsPerKernel.Len()).To(Equal(1))
 			Expect(jMsg.JupyterFrames.Len()).To(Equal(8))
 			Expect(jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false)).To(Equal(7))
 
 			fmt.Printf("[b] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
-
-			requests, loaded := client.RequestLog.RequestsPerKernel.Load(DEST_KERNEL_ID)
-			Expect(loaded).To(Equal(true))
-			Expect(requests).ToNot(BeNil())
-			Expect(requests.Len()).To(Equal(1))
 
 			Expect(requestTrace.MessageId).To(Equal(msgId))
 			Expect(requestTrace.MessageType).To(Equal(types.ShellKernelInfoRequest))

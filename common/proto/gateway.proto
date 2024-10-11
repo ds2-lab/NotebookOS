@@ -155,7 +155,7 @@ message QueryMessageRequest {
 //
 // It encodes the existence/status of the specified or requested ZMQ message.
 message QueryMessageResponse {
-  RequestTrace requestTrace = 1;
+  repeated RequestTrace requestTraces = 1;
 }
 
 // gRPC service provided by the Dashboard and "used" by the Cluster Gateway
@@ -392,6 +392,7 @@ message RequestTrace {
   int64 replySentByLocalDaemon = 12;
   int64 replyReceivedByGateway = 13;
   int64 replySentByGateway = 14;
+  string requestTraceUuid = 15;
 }
 
 message PingInstruction {
