@@ -1598,7 +1598,15 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	//
 	// This race would be simplified if we added the constraint that there may be only one active migration per kernel at any given time,
 	// but I've not yet enforced this.
-	if !ok {
+	if !ok || addReplicaOp.Completed() {
+		if addReplicaOp.Completed() {
+			warningMessage := fmt.Sprintf("Retrieved COMPLETED AddReplicaOperation \"%s\" for kernel-replicaId key \"%s\": %s",
+				addReplicaOp.OperationID(), key, addReplicaOp.String())
+			d.log.Warn(warningMessage)
+			go d.notifyDashboardOfWarning("Retrieved COMPLETED AddReplicaOperation", warningMessage)
+			addReplicaOp = nil
+		}
+
 		channel := make(chan *AddReplicaOperation, 1)
 		d.addReplicaNewPodNotifications.Store(key, channel)
 
@@ -1648,7 +1656,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", in.SessionId)
 		d.log.Error(errorMessage)
-		d.notifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
+		go d.notifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
 		panic(errorMessage)
 	}
 
