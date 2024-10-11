@@ -239,6 +239,11 @@ type ClusterGatewayImpl struct {
 	prometheusInterval time.Duration
 	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
 	prometheusPort int
+
+	// RequestLog is used to track the status/progress of requests when in DebugMode.
+	// TODO: Make this an field of the ClusterGateway and LocalDaemon structs.
+	//		 Update in forwardRequest and kernelResponseForwarder, rather than in here.
+	RequestLog *metrics.RequestLog
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
@@ -274,6 +279,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	if clusterGateway.DebugMode {
 		clusterGateway.log.Debug("Running in DebugMode.")
+		clusterGateway.RequestLog = metrics.NewRequestLog()
 	} else {
 		clusterGateway.log.Debug("Not running in DebugMode.")
 	}
@@ -680,10 +686,11 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		}, err
 	}
 
-	requestLog := d.router.RequestLog()
-	err = requestLog.AddEntry(jMsg, socketType, requestTrace)
-	if err != nil {
-		d.log.Error("Failed to add entry to RequestLog for %s PingKernel: %v", socketType.String(), err)
+	if d.DebugMode && d.RequestLog != nil {
+		err = d.RequestLog.AddEntry(jMsg, socketType, requestTrace)
+		if err != nil {
+			d.log.Error("Failed to add entry to RequestLog for %s PingKernel: %v", socketType.String(), err)
+		}
 	}
 
 	requestTraces := make([]*proto.RequestTrace, 0, d.ClusterOptions.NumReplicas)
@@ -1906,26 +1913,25 @@ func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMess
 			"you must specify a Jupyter message ID when querying for the status of a particular message")
 	}
 
-	requestLog := d.router.RequestLog()
 	if in.MessageId == "*" {
-		if requestLog.Len() == 0 {
+		if d.RequestLog.Len() == 0 {
 			return nil, status.Errorf(codes.InvalidArgument, "RequestLog is empty")
 		}
 
 		d.log.Debug("Received message query for all messages in log. Will be returning %d message(s).",
-			requestLog.EntriesByJupyterMsgId.Len())
+			d.RequestLog.EntriesByJupyterMsgId.Len())
 
-		requestTraces := make([]*proto.RequestTrace, 0, requestLog.EntriesByJupyterMsgId.Len())
+		requestTraces := make([]*proto.RequestTrace, 0, d.RequestLog.EntriesByJupyterMsgId.Len())
 
-		requestLog.Lock()
-		requestLog.EntriesByJupyterMsgId.Range(func(msgId string, wrapper *metrics.RequestLogEntryWrapper) (contd bool) {
+		d.RequestLog.Lock()
+		d.RequestLog.EntriesByJupyterMsgId.Range(func(msgId string, wrapper *metrics.RequestLogEntryWrapper) (contd bool) {
 			wrapper.EntriesByNodeId.Range(func(i int32, entry *metrics.RequestLogEntry) (contd bool) {
 				requestTraces = append(requestTraces, entry.RequestTrace)
 				return true
 			})
 			return true
 		})
-		requestLog.Unlock()
+		d.RequestLog.Unlock()
 
 		// Build the response.
 		resp := &proto.QueryMessageResponse{
@@ -1935,10 +1941,10 @@ func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMess
 		return resp, nil
 	}
 
-	wrapper, loaded := requestLog.EntriesByJupyterMsgId.Load(in.MessageId)
+	wrapper, loaded := d.RequestLog.EntriesByJupyterMsgId.Load(in.MessageId)
 	if !loaded {
 		d.log.Warn("No request log entry found for request with Jupyter message ID \"%s\"", in.MessageId)
-		d.log.Warn("#Entries in RequestLog (by Jupyter message ID): %d", requestLog.EntriesByJupyterMsgId.Len())
+		d.log.Warn("#Entries in RequestLog (by Jupyter message ID): %d", d.RequestLog.EntriesByJupyterMsgId.Len())
 		return nil, status.Errorf(codes.InvalidArgument, "no request entry found in request log for entry with ID=\"%s\"", in.MessageId)
 	}
 
@@ -2831,6 +2837,15 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel *client.DistributedKernelClie
 		msg.SetKeyIfNotSet(connInfo.Key)
 	}
 
+	if d.DebugMode && d.RequestLog != nil && msg.RequestTrace != nil {
+		// If we added a RequestTrace for the first time, then let's also add an entry to our RequestLog.
+		err = d.RequestLog.AddEntry(msg, typ, msg.RequestTrace)
+		if err != nil {
+			d.log.Warn("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
+				typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
+		}
+	}
+
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
 }
 
@@ -2866,10 +2881,17 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 	}
 
 	if d.DebugMode {
-		_, _, err := jupyter.AddOrUpdateRequestTraceToJupyterMessage(msg, socket, time.Now(), d.log)
+		requestTrace, _, err := jupyter.AddOrUpdateRequestTraceToJupyterMessage(msg, socket, time.Now(), d.log)
 		if err != nil {
 			d.log.Debug("Failed to update RequestTrace in %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"): %v",
 				typ, msg.JupyterMessageType(), msg.DestinationId, msg.JupyterMessageId(), err)
+		}
+
+		// If we added a RequestTrace for the first time, then let's also add an entry to our RequestLog.
+		err = d.RequestLog.AddEntry(msg, typ, requestTrace)
+		if err != nil {
+			d.log.Warn("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
+				typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
 		}
 
 		// Commented Out:
