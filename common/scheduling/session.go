@@ -257,6 +257,17 @@ func (s *Session) Context() context.Context {
 	return s.ctx
 }
 
+// GetReplicaContainer returns the Container with the given replica ID (i.e., SMR node ID).
+//
+// If the Session does not presently have a Container with the specified ID, then nil is returned along with false.
+func (s *Session) GetReplicaContainer(replicaId int32) (*Container, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	container, loaded := s.containers[replicaId]
+	return container, loaded
+}
+
 // SetContext sets the Session's context.Context.
 //
 // Note: this method is thread-safe.
@@ -265,11 +276,6 @@ func (s *Session) SetContext(ctx context.Context) {
 	defer s.mu.Unlock()
 
 	s.ctx = ctx
-}
-
-// GetCluster returns the Cluster in which this Session exists.
-func (s *Session) GetCluster() Cluster {
-	return s.cluster
 }
 
 // ResourceUtilization returns the current ResourceUtilization of the Session.

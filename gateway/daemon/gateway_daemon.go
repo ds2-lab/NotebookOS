@@ -80,7 +80,8 @@ var (
 	ErrDaemonNotFoundOnNode    = status.Error(codes.InvalidArgument, "could not find a local daemon on the specified kubernetes node")
 	ErrFailedToVerifyMessage   = status.Error(codes.Internal, "failed to verify ZMQ message after (re)encoding it with modified contents")
 	ErrSessionNotTraining      = status.Error(codes.Internal, "expected session to be training")
-	ErrSessionNotFound         = status.Error(codes.InvalidArgument, "could not locate scheduling.Session instance")
+	ErrSessionNotFound         = status.Error(codes.InvalidArgument, "could not locate the requested scheduling.Session instance")
+	ErrContainerNotFound       = status.Error(codes.InvalidArgument, "could not locate the requested scheduling.Container instance")
 )
 
 // SchedulingPolicy indicates the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
@@ -182,9 +183,6 @@ type ClusterGatewayImpl struct {
 	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
 	kernelsStarting *hashmap.CornelkMap[string, chan struct{}]
 
-	// Mapping from AddReplicaOperation ID to AddReplicaOperation.
-	addReplicaOperations *hashmap.CornelkMap[string, *AddReplicaOperation]
-
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
 	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]]
 
@@ -261,7 +259,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		waitGroups:                            hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
 		cleaned:                               make(chan struct{}),
 		smrPort:                               clusterDaemonOptions.SMRPort,
-		addReplicaOperations:                  hashmap.NewCornelkMap[string, *AddReplicaOperation](64),
 		activeAddReplicaOpsPerKernel:          hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]](64),
 		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, *AddReplicaOperation](64),
 		kernelsStarting:                       hashmap.NewCornelkMap[string, chan struct{}](64),
@@ -1009,7 +1006,7 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 	}
 
 	// Check if we have an active addReplica operation for this replica. If we don't, then we'll just ignore the notification.
-	addReplicaOp, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId, true)
+	addReplicaOp, ok := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, smrReadyNotification.ReplicaId)
 	if !ok {
 		d.log.Warn("Received 'SMR-READY' notification replica %d, kernel %s; however, no add-replica operation found for specified kernel replica...",
 			smrReadyNotification.ReplicaId, smrReadyNotification.KernelId)
@@ -1048,7 +1045,7 @@ func (d *ClusterGatewayImpl) SmrNodeAdded(_ context.Context, replicaInfo *proto.
 	d.log.Debug("Received SMR Node-Added notification for replica %d of kernel %s.", replicaInfo.ReplicaId, kernelId)
 
 	// If there's no add-replica operation here, then we'll just return.
-	op, opExists := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, replicaInfo.ReplicaId, true)
+	op, opExists := d.getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId, replicaInfo.ReplicaId)
 
 	if !opExists {
 		d.log.Warn("No active add-replica operation found for replica %d, kernel %s.", replicaInfo.ReplicaId, kernelId)
@@ -1472,7 +1469,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	d.log.Debug("Created and stored new DistributedKernel %s.", in.Id)
 
-	err = d.cluster.ClusterScheduler().DeployNewKernel(ctx, in)
+	err = d.cluster.ClusterScheduler().DeployNewKernel(ctx, in, []*scheduling.Host{ /* No blacklisted hosts */ })
 	if err != nil {
 		d.log.Error("Error while deploying infrastructure for new kernel %s's: %v", in.Id, err)
 		return nil, status.Error(codes.Internal, err.Error())
@@ -2269,8 +2266,7 @@ func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo, ta
 	// As long as the replica is stopped, we can continue.
 	dataDirectory := d.issuePrepareMigrateRequest(in.KernelId, in.ReplicaId)
 
-	// Check if the specified node is viable. If not, we'll abort the operation before removing the replica.
-	if len(targetNodeId) > 0 {
+	if targetNodeId != "" {
 		host, hostExists := d.cluster.GetHost(targetNodeId)
 		if !hostExists {
 			d.log.Error("Cannot migrate replica %d of kernel %s to node %s, as that node does not exist within the cluster.",
@@ -2313,7 +2309,7 @@ func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo, ta
 		}
 	}
 
-	err := d.removeReplica(in.ReplicaId, in.KernelId)
+	oldHost, err := d.removeReplica(in.ReplicaId, in.KernelId)
 	if err != nil {
 		d.log.Error("Error while removing replica %d of kernel %s: %v", in.ReplicaId, in.KernelId, err)
 	}
@@ -2322,7 +2318,7 @@ func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo, ta
 
 	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
 	opts := NewAddReplicaWaitOptions(true, true, true)
-	addReplicaOp, err := d.addReplica(in, opts, dataDirectory)
+	addReplicaOp, err := d.addReplica(in, opts, dataDirectory, []*scheduling.Host{oldHost})
 	if err != nil {
 		d.log.Error("Failed to add new replica %d to kernel %s: %v", in.ReplicaId, in.KernelId, err)
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
@@ -2748,26 +2744,35 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 //
 // This looks for the most-recently-added AddReplicaOperation associated with the specified replica of the specified kernel.
 // If `mustBeActive` is true, then we skip any AddReplicaOperation structs that have already been marked as completed.
-func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32, mustBeActive bool) (*AddReplicaOperation, bool) {
+func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (*AddReplicaOperation, bool) {
 	d.addReplicaMutex.Lock()
 	defer d.addReplicaMutex.Unlock()
+
+	d.log.Debug("Searching for an active AddReplicaOperation for replica %d of kernel \"%s\".",
+		smrNodeId, kernelId)
 
 	activeOps, ok := d.activeAddReplicaOpsPerKernel.Load(kernelId)
 	if !ok {
 		return nil, false
 	}
 
+	d.log.Debug("Number of AddReplicaOperation struct(s) associated with kernel \"%s\": %d", kernelId)
+
 	var op *AddReplicaOperation
 	// Iterate from newest to oldest, which entails beginning at the back.
 	// We want to return the newest AddReplicaOperation that matches the replica ID for this kernel.
 	for el := activeOps.Back(); el != nil; el = el.Prev() {
-		op = el.Value
-
+		d.log.Debug("AddReplicaOperation \"%s\": %s", el.Value.OperationID(), el.Value.String())
 		// Check that the replica IDs match.
 		// If they do match, then we either must not be bothering to check if the operation is still active, or it must still be active.
-		if op.ReplicaId() == smrNodeId && (!mustBeActive || op.IsActive()) {
-			return op, true
+		if op == nil && el.Value.ReplicaId() == smrNodeId && el.Value.IsActive() {
+			op = el.Value
 		}
+	}
+
+	if op != nil {
+		d.log.Debug("Returning AddReplicaOperation \"%s\": %s", op.OperationID(), op.String())
+		return op, true
 	}
 
 	return nil, false
@@ -2986,7 +2991,7 @@ func (d *ClusterGatewayImpl) cleanUp() {
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in HDFS.
-func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string) (*AddReplicaOperation, error) {
+func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []*scheduling.Host) (*AddReplicaOperation, error) {
 	var kernelId = in.KernelId
 	var persistentId = in.PersistentId
 
@@ -3014,7 +3019,6 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 
 	// Add the AddReplicaOperation to the associated maps belonging to the Gateway Daemon.
 	d.addReplicaMutex.Lock()
-	d.addReplicaOperations.Store(addReplicaOp.OperationID(), addReplicaOp)
 	ops, ok := d.activeAddReplicaOpsPerKernel.Load(kernelId)
 	if !ok {
 		ops = orderedmap.NewOrderedMap[string, *AddReplicaOperation]()
@@ -3025,7 +3029,8 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 
 	d.containerWatcher.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
 
-	if err := d.cluster.ClusterScheduler().ScheduleKernelReplica(newReplicaSpec.ReplicaId, kernelId, newReplicaSpec, nil, nil); err != nil {
+	err := d.cluster.ClusterScheduler().ScheduleKernelReplica(newReplicaSpec, nil, blacklistedHosts)
+	if err != nil {
 		return addReplicaOp, err
 	}
 
@@ -3118,48 +3123,61 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 // Parameters:
 // - smrNodeId (int32): The SMR node ID of the replica that should be removed.
 // - kernelId (string): The ID of the kernel from which we're removing a replica.
-func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) error {
+//
+// Returns:
+// - previous host (*scheduling.Host): the scheduling.Host that the replica was hosted on prior to being removed
+// - error: an error, if one occurred
+func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) (*scheduling.Host, error) {
 	kernelClient, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find kernel client for kernel %s.", kernelId)
-		return ErrKernelNotFound
+		return nil, ErrKernelNotFound
 	}
 
 	replica, err := kernelClient.GetReplicaByID(smrNodeId)
 	if err != nil {
 		d.log.Error("Could not find replica of kernel %s with ID %d.", kernelId, smrNodeId)
-		return ErrKernelIDRequired
+		return nil, ErrKernelIDRequired
 	}
 
 	oldPodName := replica.PodName()
 
-	// Create a channel that will be used to signal that the node has been removed from its SMR cluster.
-	// nodeRemovedNotificationChannel := make(chan struct{}, 1)
-	// channelMapKey := fmt.Sprintf("%s-%s", kernelId, smrNodeId)
-	// d.smrNodeRemovedNotifications.Store(channelMapKey, nodeRemovedNotificationChannel)
-
-	// First, stop the kernel on the replica we'd like to remove.
-	_, err = kernelClient.RemoveReplicaByID(smrNodeId, d.cluster.Placer().Reclaim, false)
-	if err != nil {
-		d.log.Error("Error while stopping replica %d of kernel %s: %v", smrNodeId, kernelId, err)
-		return err
-	}
-
 	session, loaded := d.cluster.Sessions().Load(kernelId)
 	if !loaded {
 		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
-		return fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
+		return nil, fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
 	}
 
-	if err = session.RemoveReplicaById(smrNodeId); err != nil {
-		d.log.Error("Failed to remove replica %d from session \"%s\" because: %v", smrNodeId, kernelId, err)
-		return err
+	container, ok := session.GetReplicaContainer(smrNodeId)
+	if !ok {
+		d.log.Error("Could not load scheduling.Container associated with replica %d of kernel \"%s\" from associated scheduling.Session",
+			smrNodeId, kernelId)
+		return nil, fmt.Errorf("%w: kernelID=\"%s\", replicaId=%d", ErrContainerNotFound, smrNodeId, kernelId)
+	}
+
+	oldHost := container.GetHost()
+	if oldHost == nil {
+		d.log.Error("scheduling.Container for replica %d of kernel \"%s\" does not know what host it is on (prior to removal)...",
+			smrNodeId, kernelId)
+		return nil, scheduling.ErrNilHost
 	}
 
 	wg, ok := d.waitGroups.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find WaitGroup for kernel %s after removing replica %d of said kernel...", kernelId, smrNodeId)
-		return err
+		return nil, err
+	}
+
+	// First, stop the kernel on the replica we'd like to remove.
+	_, err = kernelClient.RemoveReplicaByID(smrNodeId, d.cluster.Placer().Reclaim, false)
+	if err != nil {
+		d.log.Error("Error while stopping replica %d of kernel %s: %v", smrNodeId, kernelId, err)
+		return nil, err
+	}
+
+	if err = session.RemoveReplicaById(smrNodeId); err != nil {
+		d.log.Error("Failed to remove replica %d from session \"%s\" because: %v", smrNodeId, kernelId, err)
+		return nil, err
 	}
 
 	removed := wg.RemoveReplica(smrNodeId)
@@ -3168,7 +3186,7 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) err
 		// For now, I will return an error so I can debug the situation if it arises, because I don't think
 		// it ever should if things are working correctly.
 		d.log.Error("Now-removed replica %d of kernel %s was not present in associated WaitGroup...")
-		return err
+		return nil, err
 	}
 
 	d.log.Debug("Successfully removed replica %d of kernel %s.", smrNodeId, kernelId)
@@ -3181,14 +3199,14 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) err
 		err = d.kubeClient.ScaleInCloneSet(kernelId, oldPodName, podStoppedChannel)
 		if err != nil {
 			d.log.Error("Error while scaling-in CloneSet for kernel %s: %v", kernelId, err)
-			return err
+			return nil, err
 		}
 
 		<-podStoppedChannel
 		d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
 	}
 
-	return nil
+	return oldHost, nil
 }
 
 func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {

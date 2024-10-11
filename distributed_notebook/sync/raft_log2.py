@@ -589,6 +589,11 @@ class RaftLog(object):
             # It will sleep until the discardAt time expires, at which point a decision needs to be made.
             # If a decision was already made for that election, then the `decide_election` function will simply return.
             asyncio.run_coroutine_threadsafe(decide_election(), self._future_io_loop)
+        else:
+            self.logger.debug(f"No future returned after registering \"{proposal.election_proposal_key}\" proposal "
+                              f"from node {proposal.proposer_id} with election for term "
+                              f"{self._current_election.term_number}. "
+                              f"Must not have been the first proposal for that election.")
 
         self.logger.debug(
             f"Received {self._current_election.num_proposals_received} proposal(s) and discarded {self._current_election.num_discarded_proposals} proposal(s) so far during term {self._current_election.term_number}.")

@@ -105,15 +105,12 @@ type ClusterScheduler interface {
 	//RefreshAll() []error
 
 	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-	DeployNewKernel(context.Context, *proto.KernelSpec) error
+	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []*Host) error
 
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
-	// Exactly one of replicaSpec and kernelSpec should be non-nil.
-	// That is, both cannot be nil, and both cannot be non-nil.
-	//
 	// If targetHost is nil, then a candidate host is identified automatically by the ClusterScheduler.
-	ScheduleKernelReplica(replicaId int32, kernelId string, replicaSpec *proto.KernelReplicaSpec, kernelSpec *proto.KernelSpec, host *Host) error
+	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost *Host, blacklistedHosts []*Host) error
 }
 
 type KubernetesClusterScheduler interface {

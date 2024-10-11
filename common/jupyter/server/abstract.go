@@ -894,12 +894,12 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 	// This updates the frames of the zmq4.Msg, assigning them to be the frames of the JupyterMessage/JupyterFrames.
 	zmqMsg := request.Payload().GetZmqMsg()
 
-	s.Log.Debug(
-		utils.PurpleStyle.Render(
-			"Sending %s \"%s\" message %s (JupyterID=\"%s\").\n\nJupyterFrames (%p): %s.\n\nzmq4.Msg Frames (%p): %s\n\n"),
-		socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(),
-		request.Payload().JupyterFrames.Frames, request.Payload().JupyterFrames.String(),
-		zmqMsg.Frames, types.FramesToString(zmqMsg.Frames))
+	//s.Log.Debug(
+	//utils.PurpleStyle.Render(
+	//	"Sending %s \"%s\" message %s (JupyterID=\"%s\").\n\nJupyterFrames (%p): %s.\n\nzmq4.Msg Frames (%p): %s\n\n"),
+	//socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(),
+	//request.Payload().JupyterFrames.Frames, request.Payload().JupyterFrames.String(),
+	//zmqMsg.Frames, types.FramesToString(zmqMsg.Frames))
 
 	// Send the request.
 	sendStart := time.Now()
@@ -986,8 +986,8 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 
 	// We only want to add traces to Shell, Control, and a subset of IOPub messages.
 	if s.shouldAddRequestTrace(request.Payload(), socket) {
-		s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
-			socket.Type.String(), request.JupyterMessageType())
+		// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
+		//	socket.Type.String(), request.JupyterMessageType())
 		_, _, err := types.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now(), s.Log)
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
@@ -1210,8 +1210,8 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 
 				if s.DebugMode {
 					// We only want to add traces to Shell, Control, and a subset of IOPub messages.
-					s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
-						socket.Type.String(), jMsg.JupyterMessageType())
+					// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
+					//	socket.Type.String(), jMsg.JupyterMessageType())
 					_, _, err := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt, s.Log)
 					if err != nil {
 						s.Log.Error("Failed to add RequestTrace to JupyterMessage: %v.", err)

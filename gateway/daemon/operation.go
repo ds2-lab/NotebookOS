@@ -65,8 +65,10 @@ func (op *AddReplicaOperation) DataDirectory() string {
 
 // ToString
 func (op *AddReplicaOperation) String() string {
-	return fmt.Sprintf("AddReplicaOperation[ID=%s,KernelID=%s,ReplicaID=%d,Completed=%v,NewPodName=%s,PersistentID=%s,NewReplicaRegistered=%v]",
-		op.id, op.kernelId, op.smrNodeId, op.Completed(), op.podOrContainerName, op.persistentId, op.replicaRegistered)
+	return fmt.Sprintf("AddReplicaOperation[ID=%s,KernelID=%s,ReplicaID=%d,Completed=%v,NewPodName=%s,"+
+		"PersistentID=%s,NewPodOrContainerStarted=%v,NewPodOrContainerName=%s,NewReplicaRegistered=%v,NewReplicaJoinedSmr=%v]",
+		op.id, op.kernelId, op.smrNodeId, op.Completed(), op.podOrContainerName, op.persistentId,
+		op.podOrContainerStarted, op.podOrContainerName, op.replicaRegistered, op.replicaJoinedSMR)
 }
 
 // ReplicaStartedChannel returns the channel that is used to notify that the new Pod or Container has started.

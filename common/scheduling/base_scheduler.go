@@ -231,8 +231,8 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 }
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec) error {
-	return s.instance.DeployNewKernel(ctx, in)
+func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*Host) error {
+	return s.instance.DeployNewKernel(ctx, in, blacklistedHosts)
 }
 
 // RemoteSynchronizationInterval returns the interval at which the ClusterScheduler synchronizes

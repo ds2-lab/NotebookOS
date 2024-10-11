@@ -47,10 +47,10 @@ func NewKubernetesScheduler(gateway ClusterGateway, cluster Cluster, placer Plac
 	return kubernetesScheduler, nil
 }
 
-func (s *KubernetesScheduler) ScheduleKernelReplica(_ int32, kernelId string, _ *proto.KernelReplicaSpec,
-	_ *proto.KernelSpec, _ *Host) error {
-	if err := s.kubeClient.ScaleOutCloneSet(kernelId); err != nil {
-		s.log.Error("Failed to add replica to kernel %s. Could not scale-up CloneSet because: %v", kernelId, err)
+func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpec, _ *Host, _ []*Host) error {
+	if err := s.kubeClient.ScaleOutCloneSet(spec.Kernel.Id); err != nil {
+		s.log.Error("Failed to add replica %d to kernel %s. Could not scale-up CloneSet because: %v",
+			spec.ReplicaId, spec.Kernel.Id, err)
 		return err
 	}
 
@@ -66,7 +66,11 @@ func (s *KubernetesScheduler) MigrateContainer(container *Container, host *Host,
 //
 // In the case of KubernetesScheduler, DeployNewKernel uses the Kubernetes API to deploy the necessary Kubernetes
 // resources to create the new Kernel replicas.
-func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec) error {
+func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*Host) error {
+	if blacklistedHosts != nil && len(blacklistedHosts) > 0 {
+		panic("Support for blacklisted hosts with Kubernetes scheduler may not have been implemented yet (I don't think it has)...")
+	}
+
 	_, err := s.kubeClient.DeployDistributedKernels(ctx, in)
 	if err != nil {
 		s.log.Error("Error encountered while attempting to create the Kubernetes resources for Session %s: %v", in.Id, err)

@@ -54,9 +54,15 @@ func NewDockerScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, 
 //
 // selectViableHostForReplica searches for a viable training host and, if one is found, then that host is returned.
 // Otherwise, an error is returned.
-func (s *DockerScheduler) selectViableHostForReplica(replicaId int32, replicaSpec *proto.KernelReplicaSpec) (*Host, error) {
-	blacklist := make([]interface{}, 0)
+func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []*Host) (*Host, error) {
 	kernelId := replicaSpec.ID()
+
+	blacklist := make([]interface{}, 0)
+	for _, blacklistedHost := range blacklistedHosts {
+		s.log.Debug("Host %s (ID=%s) of kernel %s-%d was specifically specified as being blacklisted.",
+			blacklistedHost.NodeName, blacklistedHost.ID, kernelId, replicaSpec.ReplicaId)
+		blacklist = append(blacklist, blacklistedHost.GetMeta(HostMetaRandomIndex))
+	}
 
 	replicaHosts, err := s.gateway.GetHostsOfKernel(kernelId)
 	if err != nil {
@@ -66,7 +72,8 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaId int32, replicaSpe
 	// We "blacklist" all the hosts for which other replicas of this kernel are scheduled.
 	// That way, we'll necessarily select a host on which no other replicas of this kernel are running.
 	for _, host := range replicaHosts {
-		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.", host.ID, host.NodeName, kernelId, replicaId)
+		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.",
+			host.ID, host.NodeName, kernelId, replicaSpec.ReplicaId)
 		blacklist = append(blacklist, host.GetMeta(HostMetaRandomIndex))
 	}
 
@@ -75,7 +82,8 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaId int32, replicaSpe
 		return nil, ErrInsufficientHostsAvailable
 	}
 
-	s.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.", host.ID, kernelId, replicaId, host.ID)
+	s.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.",
+		host.ID, kernelId, replicaSpec.ReplicaId, host.ID)
 	return host, nil
 }
 
@@ -86,64 +94,40 @@ func (s *DockerScheduler) MigrateContainer(container *Container, host *Host, b b
 
 // ScheduleKernelReplica schedules a particular replica onto the given Host.
 //
-// Exactly one of replicaSpec and kernelSpec should be non-nil.
-// That is, both cannot be nil, and both cannot be non-nil.
-//
 // If targetHost is nil, then a candidate Host is identified automatically by the ClusterScheduler. This Host will have
 // Host.UnlockScheduling called on it automatically.
 //
 // If a non-nil Host is passed to ScheduleKernelReplica, then that Host will NOT have Host.UnlockScheduling called on
 // it automatically. That is, it is the responsibility of the caller to unlock scheduling on the Host in that case.
-func (s *DockerScheduler) ScheduleKernelReplica(replicaId int32, kernelId string, replicaSpec *proto.KernelReplicaSpec,
-	kernelSpec *proto.KernelSpec, targetHost *Host) (err error) {
-
-	if kernelSpec == nil && replicaSpec == nil {
-		panic("Both `kernelSpec` and `replicaSpec` cannot be nil; exactly one of these two arguments must be non-nil.")
-	}
-
-	if kernelSpec != nil && replicaSpec != nil {
-		panic("Both `kernelSpec` and `replicaSpec` cannot be non-nil; exactly one of these two arguments must be non-nil.")
-	}
+func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost *Host, blacklistedHosts []*Host) (err error) {
+	kernelId := replicaSpec.Kernel.Id // We'll use this a lot.
 
 	if targetHost == nil {
 		s.log.Debug("No target host specified when scheduling replica %d of kernel %s. Searching for one now...",
-			replicaId, kernelId)
+			replicaSpec.ReplicaId, kernelId)
 
-		targetHost, err = s.selectViableHostForReplica(replicaId, replicaSpec)
+		targetHost, err = s.selectViableHostForReplica(replicaSpec, blacklistedHosts)
 		if err != nil {
-			s.log.Error("Could not find viable targetHost for replica %d of kernel %s: %v", replicaId, kernelId, err)
+			s.log.Error("Could not find viable targetHost for replica %d of kernel %s: %v",
+				replicaSpec.ReplicaId, kernelId, err)
 			return err
 		}
 
 		defer targetHost.UnlockScheduling()
 		s.log.Debug("Found viable target host for replica %d of kernel %s at scheduling time: host %s",
-			replicaId, kernelId, targetHost.ID)
+			replicaSpec.ReplicaId, kernelId, targetHost.ID)
 	}
 
-	if kernelSpec != nil {
-		s.log.Debug("Launching replica %d of kernel %s on targetHost %v now.", replicaId, kernelId, targetHost)
-		replicaSpec = &proto.KernelReplicaSpec{
-			Kernel:                    kernelSpec,
-			ReplicaId:                 replicaId,
-			NumReplicas:               int32(s.opts.NumReplicas),
-			DockerModeKernelDebugPort: s.dockerModeKernelDebugPort.Add(1),
-		}
-	} else {
-		// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
-		if replicaSpec.DockerModeKernelDebugPort <= 1023 {
-			replicaSpec.DockerModeKernelDebugPort = s.dockerModeKernelDebugPort.Add(1)
-		}
-
-		s.log.Debug("Launching replica %d of kernel %s on targetHost %v now.", replicaSpec.ReplicaId, kernelId, targetHost)
+	// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
+	if replicaSpec.DockerModeKernelDebugPort <= 1023 {
+		replicaSpec.DockerModeKernelDebugPort = s.dockerModeKernelDebugPort.Add(1)
 	}
+
+	s.log.Debug("Launching replica %d of kernel %s on targetHost %v now.", replicaSpec.ReplicaId, kernelId, targetHost)
 
 	replicaConnInfo, err := s.placer.Place(targetHost, replicaSpec)
 	if err != nil {
-		if kernelSpec != nil {
-			s.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
-		} else {
-			s.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaId, err)
-		}
+		s.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaSpec.ReplicaId, err)
 		return err
 	}
 
@@ -158,7 +142,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaId int32, kernelId string
 //
 // scheduleKernelReplicas returns a <-chan interface{} used to notify the caller when the scheduling operations
 // have completed.
-func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*Host, unlockedHosts hashmap.HashMap[string, *Host]) <-chan *schedulingNotification {
+func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*Host, unlockedHosts hashmap.HashMap[string, *Host], blacklistedHosts []*Host) <-chan *schedulingNotification {
 	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
 	// or errors that occurred when launching a replica.
 	resultChan := make(chan *schedulingNotification, 3)
@@ -166,15 +150,22 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 	// For each host, launch a Docker replica on that host.
 	for i, host := range hosts {
 		// Launch replicas in parallel.
-		go func(replicaId int, targetHost *Host) {
+		go func(replicaId int32, targetHost *Host) {
+			replicaSpec := &proto.KernelReplicaSpec{
+				Kernel:                    in,
+				ReplicaId:                 replicaId,
+				NumReplicas:               int32(s.opts.NumReplicas),
+				DockerModeKernelDebugPort: s.dockerModeKernelDebugPort.Add(1),
+			}
+
 			// Only 1 of arguments 2 and 3 can be non-nil.
 			var schedulingError error
-			if schedulingError = s.ScheduleKernelReplica(int32(replicaId), in.Id, nil, in, targetHost); schedulingError != nil {
+			if schedulingError = s.ScheduleKernelReplica(replicaSpec, targetHost, blacklistedHosts); schedulingError != nil {
 				// An error occurred. Send it over the channel.
 				resultChan <- &schedulingNotification{
 					SchedulingCompletedAt: time.Now(),
 					KernelId:              in.Id,
-					ReplicaId:             int32(replicaId),
+					ReplicaId:             replicaId,
 					Host:                  targetHost,
 					Error:                 schedulingError,
 					Successful:            false,
@@ -207,14 +198,14 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 						targetHost.ID, in.Id, syncError)
 				}
 			}
-		}(i+1, host)
+		}(int32(i+1), host)
 	}
 
 	return resultChan
 }
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec) error {
+func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*Host) error {
 	st := time.Now()
 	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", s.opts.NumReplicas, in.Id, in.ResourceSpec.String())
 
@@ -228,7 +219,7 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 	unlockedHosts := hashmap.NewCornelkMap[string, *Host](len(hosts))
 
 	// Schedule a replica of the kernel on each of the candidate hosts.
-	resultChan := s.scheduleKernelReplicas(in, hosts, unlockedHosts)
+	resultChan := s.scheduleKernelReplicas(in, hosts, unlockedHosts, blacklistedHosts)
 
 	// Keep looping until we've received all responses or the context times-out.
 	responsesReceived := make([]*schedulingNotification, 0, len(hosts))
@@ -407,21 +398,27 @@ func (s *DockerScheduler) pollForResourceData() {
 				numConsecutiveFailures += 1
 				numConsecutiveFailuresPerHost[hostId] = numConsecutiveFailures
 
-				s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s (consecutive: %d): %v", hostId, host.NodeName, numConsecutiveFailures, err)
+				s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s (consecutive: %d): %v",
+					hostId, host.NodeName, numConsecutiveFailures, err)
 
 				// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
 				if numConsecutiveFailures >= ConsecutiveFailuresWarning {
 					// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
 					if host.Conn().GetState() == connectivity.TransientFailure || host.Conn().GetState() == connectivity.Shutdown {
-						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.", numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String(), host.ID)
+						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.",
+							numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String(), host.ID)
 						s.log.Error(errorMessage)
 						_ = host.ErrorCallback()(host.ID, host.NodeName, "Local Daemon Connectivity Error", errorMessage)
-					} else if numConsecutiveFailures >= ConsecutiveFailuresBad { // If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
-						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.", numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String(), host.ID)
+					} else if numConsecutiveFailures >= ConsecutiveFailuresBad {
+						// If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
+						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.",
+							numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String(), host.ID)
 						s.log.Error(errorMessage)
 						_ = host.ErrorCallback()(host.ID, host.NodeName, "Local Daemon Connectivity Error", errorMessage)
-					} else { // Otherwise, we won't assume it is dead yet...
-						s.log.Warn("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...", numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String())
+					} else {
+						// Otherwise, we won't assume it is dead yet...
+						s.log.Warn("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...",
+							numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String())
 					}
 				}
 			} else {
