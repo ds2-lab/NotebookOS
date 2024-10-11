@@ -1599,7 +1599,9 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// This race would be simplified if we added the constraint that there may be only one active migration per kernel at any given time,
 	// but I've not yet enforced this.
 	if !ok || addReplicaOp.Completed() {
-		if addReplicaOp.Completed() {
+		// If we managed to somehow retrieve a completed add replica operation, then we'll just discard it.
+		// Don't think this can happen, but if it does, then discard it should be sufficient...
+		if ok && addReplicaOp.Completed() /* Technically, we know the second condition must be true if ok is true */ {
 			warningMessage := fmt.Sprintf("Retrieved COMPLETED AddReplicaOperation \"%s\" for kernel-replicaId key \"%s\": %s",
 				addReplicaOp.OperationID(), key, addReplicaOp.String())
 			d.log.Warn(warningMessage)
