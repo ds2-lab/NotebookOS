@@ -149,7 +149,9 @@ type Cluster interface {
 	Sessions() hashmap.HashMap[string, *Session]
 
 	// GetSession returns the Session with the specified ID.
-	GetSession(sessionID string) (*Session, bool)
+	//
+	// We return the AbstractSession so that we can use this in unit tests with a mocked Session.
+	GetSession(sessionID string) (AbstractSession, bool)
 
 	// RequestHosts requests n Host instances to be launched and added to the Cluster, where n >= 1.
 	//

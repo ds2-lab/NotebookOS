@@ -107,7 +107,9 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 }
 
 // GetSession returns the Session with the specified ID.
-func (c *BaseCluster) GetSession(sessionID string) (*Session, bool) {
+//
+// We return the AbstractSession so that we can use this in unit tests with a mocked Session.
+func (c *BaseCluster) GetSession(sessionID string) (AbstractSession, bool) {
 	return c.sessions.Load(sessionID)
 }
 
