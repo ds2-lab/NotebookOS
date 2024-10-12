@@ -7,6 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"google.golang.org/grpc/connectivity"
 	"log"
 	"math"
 	"sort"
@@ -220,11 +221,11 @@ type Host struct {
 }
 
 // NewHost creates and returns a new *Host.
+//
+// If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
+// call NewHostWithConn instead.
 func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, cluster Cluster,
-	metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
-
-	// Create gRPC client.
-	localGatewayClient := proto.NewLocalGatewayClient(conn)
+	metricsProvider metrics.ClusterMetricsProvider, localGatewayClient proto.LocalGatewayClient, errorCallback ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
 	confirmedId, err := localGatewayClient.SetID(context.Background(), &proto.HostId{Id: id})
@@ -267,7 +268,6 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		resourceSpec:                    resourceSpec,
 		Cluster:                         cluster,
 		metricsProvider:                 metricsProvider,
-		conn:                            conn,
 		log:                             config.GetLogger(fmt.Sprintf("Host %s ", id)),
 		containers:                      hashmap.NewCornelkMap[string, *Container](5),
 		trainingContainers:              make([]*Container, 0, int(resourceSpec.GPU())),
@@ -288,6 +288,24 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 	host.penaltyList.Validator = host.validatePenaltyList
 
 	host.subscribedRatio.Store(0)
+
+	return host, nil
+}
+
+// NewHostWithConn creates and returns a new *Host.
+func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, cluster Cluster,
+	metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
+
+	// Create gRPC client.
+	localGatewayClient := proto.NewLocalGatewayClient(conn)
+
+	host, err := NewHost(id, addr, millicpus, memMb, vramGb, cluster, metricsProvider, localGatewayClient, errorCallback)
+	if err != nil {
+		return nil, err
+	}
+
+	// Populate the conn field "retroactively".
+	host.conn = conn
 
 	return host, nil
 }
@@ -390,7 +408,10 @@ func (h *Host) SynchronizeResourceInformation() error {
 		return err
 	}
 
-	h.metricsProvider.GetHostRemoteSyncLatencyMicrosecondsHistogram().Observe(float64(time.Since(st).Microseconds()))
+	if h.metricsProvider != nil {
+		h.metricsProvider.GetHostRemoteSyncLatencyMicrosecondsHistogram().Observe(float64(time.Since(st).Microseconds()))
+	}
+
 	h.LastRemoteSync = time.Now()
 	return nil
 }
@@ -776,8 +797,12 @@ func (h *Host) String() string {
 	return fmt.Sprintf("Host[ID=%s,Name=%s,Addr=%s,Spec=%s]", h.ID, h.NodeName, h.Addr, h.resourceSpec.String())
 }
 
-func (h *Host) Conn() *grpc.ClientConn {
-	return h.conn
+func (h *Host) GetConnectionState() connectivity.State {
+	if h.conn == nil {
+		return -1
+	}
+
+	return h.conn.GetState()
 }
 
 func (h *Host) Stats() HostStatistics {

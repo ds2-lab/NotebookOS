@@ -148,6 +148,10 @@ type Cluster interface {
 	// Sessions returns a mapping from session ID to Session.
 	Sessions() hashmap.HashMap[string, *Session]
 
+	// GetIndex returns the ClusterIndexProvider whose key is created with the given category and expected values.
+	// The category and expected values are returned by the ClusterIndexProvider.Category method.
+	GetIndex(category string, expected interface{}) (ClusterIndexProvider, bool)
+
 	// GetSession returns the Session with the specified ID.
 	//
 	// We return the AbstractSession so that we can use this in unit tests with a mocked Session.

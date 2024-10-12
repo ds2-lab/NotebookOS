@@ -97,7 +97,9 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 
 	c.onHostRemoved(host)
 
-	c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
+	if c.clusterMetricsProvider != nil {
+		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
+	}
 
 	return nil
 }
@@ -130,8 +132,11 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 		panic(err)
 	}
 	c.hosts.Store(id, disabledHost)
-	c.clusterMetricsProvider.GetNumDisabledHostsGauge().Sub(1)
 
+	if c.clusterMetricsProvider != nil {
+		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Sub(1)
+	}
+	
 	return nil
 }
 

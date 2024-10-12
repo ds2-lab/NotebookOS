@@ -91,6 +91,10 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
 	config.InitLogger(&cluster.log, cluster)
 
+	if clusterMetricsProvider == nil {
+		cluster.log.Warn("Cluster Metrics Provider is nil.")
+	}
+
 	go func() {
 		cluster.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", cluster.validateCapacityInterval)
 
@@ -164,17 +168,10 @@ func (c *BaseCluster) ClusterScheduler() ClusterScheduler {
 	return c.scheduler
 }
 
-//func (c *BaseCluster) HandleScaleInOperation(op *ScaleOperation) promise.Promise {
-//	return c.instance.HandleScaleInOperation(op)
-//}
-//
-//func (c *BaseCluster) HandleScaleOutOperation(op *ScaleOperation) promise.Promise {
-//	return c.instance.HandleScaleOutOperation(op)
-//}
-
-//func (c *BaseCluster) GetHostManager() hashmap.HashMap[string, *Host] {
-//	return c
-//}
+func (c *BaseCluster) GetIndex(category string, expected interface{}) (ClusterIndexProvider, bool) {
+	key := fmt.Sprintf("%s:%v", category, expected)
+	return c.indexes.Load(key)
+}
 
 func (c *BaseCluster) AddIndex(index ClusterIndexProvider) error {
 	category, expected := index.Category()
@@ -236,7 +233,10 @@ func (c *BaseCluster) onHostAdded(host *Host) {
 	})
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
-	c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+
+	if c.clusterMetricsProvider != nil {
+		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+	}
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.
@@ -251,7 +251,10 @@ func (c *BaseCluster) onHostRemoved(host *Host) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
-	c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+
+	if c.clusterMetricsProvider != nil {
+		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+	}
 }
 
 // BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.

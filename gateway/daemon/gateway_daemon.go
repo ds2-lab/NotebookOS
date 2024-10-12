@@ -127,7 +127,6 @@ type ClusterGatewayImpl struct {
 	// cluster provisioning related members
 	listener net.Listener
 	cluster  scheduling.Cluster
-	placer   scheduling.Placer
 
 	// kernel members
 	transport        string
@@ -854,7 +853,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := scheduling.NewHost(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
+	host, err := scheduling.NewHostWithConn(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
 		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster, d.gatewayPrometheusManager, gConn, d.localDaemonDisconnected)
 
 	if err != nil {

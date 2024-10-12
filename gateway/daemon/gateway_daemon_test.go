@@ -5,15 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/zhangjyr/distributed-notebook/common/mock_proto"
 	"github.com/zhangjyr/distributed-notebook/common/mock_scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	types2 "github.com/zhangjyr/distributed-notebook/common/types"
+	types "github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"testing"
 	"time"
 
@@ -22,7 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/mock_client"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"go.uber.org/mock/gomock"
 )
 
@@ -110,11 +113,75 @@ func TestProxy(t *testing.T) {
 	RunSpecs(t, "Daemon Suite")
 }
 
+// NewHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.
+func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, nodeName string) (*scheduling.Host, proto.LocalGatewayClient, error) {
+	hostId := uuid.NewString()
+	gpuSchedulerId := uuid.NewString()
+	resourceManagerId := uuid.NewString()
+
+	localGatewayClient := mock_proto.NewMockLocalGatewayClient(ctrl)
+
+	localGatewayClient.EXPECT().SetID(
+		gomock.Any(),
+		&proto.HostId{
+			Id: hostId,
+		},
+	).Return(&proto.HostId{
+		Id:       hostId,
+		NodeName: nodeName,
+	}, nil)
+
+	localGatewayClient.EXPECT().GetActualGpuInfo(
+		gomock.Any(),
+		&proto.Void{},
+	).Return(&proto.GpuInfo{
+		SpecGPUs:              8,
+		IdleGPUs:              8,
+		CommittedGPUs:         0,
+		PendingGPUs:           0,
+		NumPendingAllocations: 0,
+		NumAllocations:        0,
+		GpuSchedulerID:        gpuSchedulerId,
+		LocalDaemonID:         hostId,
+	}, nil)
+
+	getNodeResourceSnapshot := func() *proto.NodeResourcesSnapshot {
+		return &proto.NodeResourcesSnapshot{
+			// SnapshotId uniquely identifies the NodeResourcesSnapshot and defines a total order amongst all NodeResourcesSnapshot
+			// structs originating from the same node. Each newly-created NodeResourcesSnapshot is assigned an ID from a
+			// monotonically-increasing counter by the ResourceManager.
+			SnapshotId: 0,
+			// NodeId is the ID of the node from which the snapshot originates.
+			NodeId: hostId,
+			// ManagerId is the unique ID of the ResourceManager struct from which the NodeResourcesSnapshot was constructed.
+			ManagerId: resourceManagerId,
+			// Timestamp is the time at which the NodeResourcesSnapshot was taken/created.
+			Timestamp:          timestamppb.New(time.Now()),
+			IdleResources:      &proto.ResourcesSnapshot{},
+			PendingResources:   &proto.ResourcesSnapshot{},
+			CommittedResources: &proto.ResourcesSnapshot{},
+			SpecResources:      &proto.ResourcesSnapshot{},
+		}
+	}
+
+	localGatewayClient.EXPECT().ResourcesSnapshot(
+		gomock.Any(),
+		&proto.Void{},
+	).Return(
+		getNodeResourceSnapshot(),
+		nil).AnyTimes()
+
+	host, err := scheduling.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
+		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, cluster, nil, localGatewayClient,
+		func(_ string, _ string, _ string, _ string) error { return nil })
+
+	return host, localGatewayClient, err
+}
+
 var _ = Describe("Cluster Gateway Tests", func() {
 	var (
 		clusterGateway *ClusterGatewayImpl
 		abstractServer *server.AbstractServer
-		cluster        *mock_scheduling.MockCluster
 		session        *mock_scheduling.MockAbstractSession
 		mockCtrl       *gomock.Controller
 		kernel         *mock_client.MockAbstractDistributedKernelClient
@@ -131,7 +198,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 	Context("Processing 'execute_request' messages", func() {
 		var (
-			header *types.MessageHeader
+			header  *jupyter.MessageHeader
+			cluster *mock_scheduling.MockCluster
 		)
 
 		BeforeEach(func() {
@@ -149,7 +217,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
-			kernel.EXPECT().ConnectionInfo().Return(&types.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
+			kernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
 			kernel.EXPECT().KernelSpec().Return(&proto.KernelSpec{
 				Id:              kernelId,
 				Session:         kernelId,
@@ -161,7 +229,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Memory: 1000,
 				},
 			}).AnyTimes()
-			kernel.EXPECT().ResourceSpec().Return(&types2.DecimalSpec{
+			kernel.EXPECT().ResourceSpec().Return(&types.DecimalSpec{
 				GPUs:      decimal.NewFromFloat(2),
 				Millicpus: decimal.NewFromFloat(100),
 				MemoryMb:  decimal.NewFromFloat(1000),
@@ -169,7 +237,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			kernel.EXPECT().ID().Return(kernelId).AnyTimes()
 			cluster.EXPECT().GetSession(kernelId).Return(session, true).AnyTimes()
 
-			header = &types.MessageHeader{
+			header = &jupyter.MessageHeader{
 				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
 				Username: "",
 				Session:  kernelId,
@@ -197,13 +265,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
+			jFrames := jupyter.NewJupyterFramesFromBytes(unsignedFrames)
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			msg := &zmq4.Msg{
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-			jMsg := types.NewJupyterMessage(msg)
+			jMsg := jupyter.NewJupyterMessage(msg)
 
 			session.EXPECT().IsTraining().Return(false).MaxTimes(1)
 			session.EXPECT().SetExpectingTraining().Return(promise.Resolved(nil)).MaxTimes(1)
@@ -230,14 +298,14 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
+			jFrames := jupyter.NewJupyterFramesFromBytes(unsignedFrames)
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 
 			msg := &zmq4.Msg{
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-			jMsg := types.NewJupyterMessage(msg)
+			jMsg := jupyter.NewJupyterMessage(msg)
 			Expect(jMsg.RequestId).To(Equal(reqId))
 			Expect(jMsg.DestinationId).To(Equal(kernelId))
 			Expect(jMsg.Offset()).To(Equal(1))
@@ -254,7 +322,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 	Context("ZMQ Messages", func() {
 		var (
-			header *types.MessageHeader
+			header  *jupyter.MessageHeader
+			cluster *mock_scheduling.MockCluster
 		)
 
 		// Signature after signing the message using the header defined below
@@ -275,7 +344,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
-			kernel.EXPECT().ConnectionInfo().Return(&types.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
+			kernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
 			kernel.EXPECT().KernelSpec().Return(&proto.KernelSpec{
 				Id:              kernelId,
 				Session:         kernelId,
@@ -287,7 +356,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Memory: 1000,
 				},
 			}).AnyTimes()
-			kernel.EXPECT().ResourceSpec().Return(&types2.DecimalSpec{
+			kernel.EXPECT().ResourceSpec().Return(&types.DecimalSpec{
 				GPUs:      decimal.NewFromFloat(2),
 				Millicpus: decimal.NewFromFloat(100),
 				MemoryMb:  decimal.NewFromFloat(1000),
@@ -295,7 +364,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			kernel.EXPECT().ID().Return(kernelId).AnyTimes()
 			cluster.EXPECT().GetSession(kernelId).Return(session, true).AnyTimes()
 
-			header = &types.MessageHeader{
+			header = &jupyter.MessageHeader{
 				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
 				Username: "",
 				Session:  kernelId,
@@ -321,14 +390,14 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
+			jFrames := jupyter.NewJupyterFramesFromBytes(unsignedFrames)
 			frames, err := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			msg := &zmq4.Msg{
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-			jMsg := types.NewJupyterMessage(msg)
+			jMsg := jupyter.NewJupyterMessage(msg)
 			Expect(jMsg.RequestId).To(Equal(reqId))
 			Expect(jMsg.DestinationId).To(Equal(kernelId))
 			Expect(jMsg.Offset()).To(Equal(1))
@@ -343,20 +412,20 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			// We'll just call this multiple times.
 			requestTraceHelper := func(trace *proto.RequestTrace) {
 				Expect(trace.MessageId).To(Equal("c7074e5b-b90f-44f8-af5d-63201ec3a527"))
-				Expect(trace.MessageType).To(Equal(types.ShellExecuteRequest))
+				Expect(trace.MessageType).To(Equal(jupyter.ShellExecuteRequest))
 				Expect(trace.KernelId).To(Equal(kernelId))
 
 				m, err := json.Marshal(&proto.JupyterRequestTraceFrame{RequestTrace: trace})
 				Expect(err).To(BeNil())
 
-				fmt.Printf("jMsg.JupyterFrames[%d+%d]: %s\n", jMsg.Offset(), types.JupyterFrameRequestTrace, string(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
+				fmt.Printf("jMsg.JupyterFrames[%d+%d]: %s\n", jMsg.Offset(), jupyter.JupyterFrameRequestTrace, string(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+jupyter.JupyterFrameRequestTrace]))
 				fmt.Printf("Marshalled RequestTrace: %s\n", string(m))
-				Expect(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]).To(Equal(m))
+				Expect(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+jupyter.JupyterFrameRequestTrace]).To(Equal(m))
 			}
 
 			requestReceivedByGateway := int64(257894000000)
 			requestReceivedByGatewayTs := time.UnixMilli(requestReceivedByGateway) // 2009-11-10 23:00:00 +0000 UTC
-			requestTrace, added, err := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByGatewayTs, abstractServer.Log)
+			requestTrace, added, err := jupyter.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &jupyter.Socket{Type: jupyter.ShellMessage}, requestReceivedByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
 			Expect(err).To(BeNil())
@@ -387,7 +456,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestSentByGateway := requestReceivedByGateway + 1000
 			requestSentByGatewayTs := time.UnixMilli(requestSentByGateway)
-			requestTrace, added, err = types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestSentByGatewayTs, abstractServer.Log)
+			requestTrace, added, err = jupyter.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &jupyter.Socket{Type: jupyter.ShellMessage}, requestSentByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -410,7 +479,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestReceivedByLocalDaemon := requestSentByGateway + 1000
 			requestReceivedByLocalDaemonTs := time.UnixMilli(requestReceivedByLocalDaemon)
-			requestTrace, added, err = types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = jupyter.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &jupyter.Socket{Type: jupyter.ShellMessage}, requestReceivedByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -433,7 +502,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestSentByLocalDaemon := requestSentByGateway + 1000
 			requestSentByLocalDaemonTs := time.UnixMilli(requestSentByLocalDaemon)
-			requestTrace, added, err = types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestSentByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = jupyter.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &jupyter.Socket{Type: jupyter.ShellMessage}, requestSentByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -456,7 +525,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestReceivedByKernelReplica := requestSentByGateway + 1000
 			requestReceivedByKernelReplicaTs := time.UnixMilli(requestReceivedByKernelReplica)
-			requestTrace, added, err = types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByKernelReplicaTs, abstractServer.Log)
+			requestTrace, added, err = jupyter.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &jupyter.Socket{Type: jupyter.ShellMessage}, requestReceivedByKernelReplicaTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -479,7 +548,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replySentByKernelReplica := requestSentByGateway + 1000
 			replySentByKernelReplicaTs := time.UnixMilli(replySentByKernelReplica)
-			requestTrace, added, err = types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, replySentByKernelReplicaTs, abstractServer.Log)
+			requestTrace, added, err = jupyter.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &jupyter.Socket{Type: jupyter.ShellMessage}, replySentByKernelReplicaTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -502,7 +571,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replyReceivedByLocalDaemon := requestSentByGateway + 1000
 			replyReceivedByLocalDaemonTs := time.UnixMilli(replyReceivedByLocalDaemon)
-			requestTrace, added, err = types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, replyReceivedByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = jupyter.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &jupyter.Socket{Type: jupyter.ShellMessage}, replyReceivedByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -525,7 +594,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replySentByLocalDaemon := requestSentByGateway + 1000
 			replySentByLocalDaemonTs := time.UnixMilli(replySentByLocalDaemon)
-			requestTrace, added, err = types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, replySentByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = jupyter.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &jupyter.Socket{Type: jupyter.ShellMessage}, replySentByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -548,7 +617,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replyReceivedByGateway := requestSentByGateway + 1000
 			replyReceivedByGatewayTs := time.UnixMilli(replyReceivedByGateway)
-			requestTrace, added, err = types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, replyReceivedByGatewayTs, abstractServer.Log)
+			requestTrace, added, err = jupyter.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &jupyter.Socket{Type: jupyter.ShellMessage}, replyReceivedByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -571,7 +640,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replySentByGateway := requestSentByGateway + 1000
 			replySentByGatewayTs := time.UnixMilli(replySentByGateway)
-			requestTrace, added, err = types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, replySentByGatewayTs, abstractServer.Log)
+			requestTrace, added, err = jupyter.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &jupyter.Socket{Type: jupyter.ShellMessage}, replySentByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -594,51 +663,84 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		})
 	})
 
-	Context("Scheduling Kernels", func() {
-		BeforeEach(func() {
-			cluster = mock_scheduling.NewMockCluster(mockCtrl)
-			abstractServer = &server.AbstractServer{
-				DebugMode: true,
-				Log:       config.GetLogger("TestAbstractServer"),
-			}
+	Context("DockerCluster", func() {
+		Context("Scheduling Kernels", func() {
+			var cluster scheduling.Cluster
 
-			var options *domain.ClusterGatewayOptions
-			err := json.Unmarshal([]byte(GatewayOptsAsJsonString), &options)
-			if err != nil {
-				panic(err)
-			}
+			BeforeEach(func() {
+				config.LogLevel = logger.LOG_LEVEL_ALL
 
-			fmt.Printf("Gateway options:\n%s\n", options.PrettyString(2))
-			clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv scheduling.ClusterGateway) {
-				globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
-				srv.SetClusterOptions(&options.ClusterSchedulerOptions)
+				abstractServer = &server.AbstractServer{
+					DebugMode: true,
+					Log:       config.GetLogger("TestAbstractServer"),
+				}
+
+				var options *domain.ClusterGatewayOptions
+				err := json.Unmarshal([]byte(GatewayOptsAsJsonString), &options)
+				if err != nil {
+					panic(err)
+				}
+
+				// fmt.Printf("Gateway options:\n%s\n", options.PrettyString(2))
+				clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv scheduling.ClusterGateway) {
+					globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
+					srv.SetClusterOptions(&options.ClusterSchedulerOptions)
+				})
+				config.InitLogger(&clusterGateway.log, clusterGateway)
+
+				hostSpec := &types.Float64Spec{
+					GPUs:      float64(options.ClusterSchedulerOptions.GpusPerHost),
+					VRam:      scheduling.VramPerHostGb,
+					Millicpus: scheduling.MillicpusPerHost,
+					MemoryMb:  scheduling.MemoryMbPerHost,
+				}
+
+				cluster = scheduling.NewDockerComposeCluster(clusterGateway, hostSpec, nil, &options.ClusterSchedulerOptions)
 			})
 
-			config.InitLogger(&clusterGateway.log, clusterGateway)
-		})
+			It("Will correctly schedule a new kernel", func() {
+				kernelId := uuid.NewString()
 
-		It("Will correctly schedule a new kernel", func() {
-			kernelId := uuid.NewString()
+				host1, _ /* localGatewayClient1 */, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, "TestNode1")
+				Expect(err).To(BeNil())
 
-			resourceSpec := &proto.ResourceSpec{
-				Gpu:    4,
-				Vram:   4,
-				Cpu:    1250,
-				Memory: 2048,
-			}
+				host2, _ /* localGatewayClient1 */, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, "TestNode2")
+				Expect(err).To(BeNil())
 
-			kernelSpec := &proto.KernelSpec{
-				Id:              kernelId,
-				Session:         kernelId,
-				Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-				SignatureScheme: types.JupyterSignatureScheme,
-				Key:             kernelKey,
-				ResourceSpec:    resourceSpec,
-			}
+				host3, _ /* localGatewayClient1 */, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, "TestNode3")
+				Expect(err).To(BeNil())
 
-			connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
-			Expect(err).To(BeNil())
-			Expect(connInfo).ToNot(BeNil())
+				cluster.NewHostAddedOrConnected(host1)
+				Expect(cluster.Len()).To(Equal(1))
+				cluster.NewHostAddedOrConnected(host2)
+				Expect(cluster.Len()).To(Equal(2))
+				cluster.NewHostAddedOrConnected(host3)
+				Expect(cluster.Len()).To(Equal(3))
+
+				index, ok := cluster.(*scheduling.BaseCluster).GetIndex(scheduling.CategoryClusterIndex, "*")
+				Expect(ok).To(BeTrue())
+				Expect(index).ToNot(BeNil())
+
+				resourceSpec := &proto.ResourceSpec{
+					Gpu:    4,
+					Vram:   4,
+					Cpu:    1250,
+					Memory: 2048,
+				}
+
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             kernelKey,
+					ResourceSpec:    resourceSpec,
+				}
+
+				connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
+				Expect(err).To(BeNil())
+				Expect(connInfo).ToNot(BeNil())
+			})
 		})
 	})
 })

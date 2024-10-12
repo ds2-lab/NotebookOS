@@ -404,21 +404,21 @@ func (s *DockerScheduler) pollForResourceData() {
 				// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
 				if numConsecutiveFailures >= ConsecutiveFailuresWarning {
 					// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
-					if host.Conn().GetState() == connectivity.TransientFailure || host.Conn().GetState() == connectivity.Shutdown {
+					if host.GetConnectionState() == connectivity.TransientFailure || host.GetConnectionState() == connectivity.Shutdown {
 						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.",
-							numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String(), host.ID)
+							numConsecutiveFailures, host.ID, host.NodeName, host.GetConnectionState().String(), host.ID)
 						s.log.Error(errorMessage)
 						_ = host.ErrorCallback()(host.ID, host.NodeName, "Local Daemon Connectivity Error", errorMessage)
 					} else if numConsecutiveFailures >= ConsecutiveFailuresBad {
 						// If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
 						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.",
-							numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String(), host.ID)
+							numConsecutiveFailures, host.ID, host.NodeName, host.GetConnectionState().String(), host.ID)
 						s.log.Error(errorMessage)
 						_ = host.ErrorCallback()(host.ID, host.NodeName, "Local Daemon Connectivity Error", errorMessage)
 					} else {
 						// Otherwise, we won't assume it is dead yet...
 						s.log.Warn("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...",
-							numConsecutiveFailures, host.ID, host.NodeName, host.Conn().GetState().String())
+							numConsecutiveFailures, host.ID, host.NodeName, host.GetConnectionState().String())
 					}
 				}
 			} else {
