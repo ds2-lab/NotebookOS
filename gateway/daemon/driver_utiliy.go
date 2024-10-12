@@ -119,6 +119,8 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	options.ClusterDaemonOptions.ValidateClusterDaemonOptions()
 	options.ClusterSchedulerOptions.ValidateClusterSchedulerOptions()
 
+	globalLogger.Debug("Cluster Gateway Options:\n%s", options.PrettyString(2))
+
 	// Initialize daemon
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv scheduling.ClusterGateway) {
 		globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())

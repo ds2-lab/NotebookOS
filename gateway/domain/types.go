@@ -10,6 +10,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"log"
+	"strings"
 )
 
 const (
@@ -49,6 +50,21 @@ type ClusterDaemonOptions struct {
 	NotebookImageName             string `name:"notebook-image-name"              json:"notebook-image-name"               yaml:"notebook-image-name"                 description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
 	NotebookImageTag              string `name:"notebook-image-tag"               json:"notebook-image-tag"                yaml:"notebook-image-tag"                  description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`  // Tag to use for the jupyter notebook/kernel image
 	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
+}
+
+// PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
+func (o *ClusterDaemonOptions) PrettyString(indentSize int) string {
+	indentBuilder := strings.Builder{}
+	for i := 0; i < indentSize; i++ {
+		indentBuilder.WriteString(" ")
+	}
+
+	m, err := json.MarshalIndent(o, "", indentBuilder.String())
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
 }
 
 // ValidateClusterDaemonOptions ensures that the values of certain configuration parameters are consistent with respect
@@ -121,6 +137,30 @@ type ClusterGatewayOptions struct {
 	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
 	Consuladdr      string `name:"consul" description:"Consul agent address."`
 	// DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
+}
+
+func (opts *ClusterGatewayOptions) String() string {
+	m, err := json.Marshal(opts)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+// PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
+func (opts *ClusterGatewayOptions) PrettyString(indentSize int) string {
+	indentBuilder := strings.Builder{}
+	for i := 0; i < indentSize; i++ {
+		indentBuilder.WriteString(" ")
+	}
+
+	m, err := json.MarshalIndent(opts, "", indentBuilder.String())
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
 }
 
 type AbstractAddReplicaOperation interface {

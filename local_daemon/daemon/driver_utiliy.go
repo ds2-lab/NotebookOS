@@ -52,7 +52,7 @@ func CreateConsulAndTracer(options *domain.LocalDaemonOptions) (opentracing.Trac
 		err          error
 	)
 
-	if options.JaegerAddr != "" && options.Consuladdr != "" {
+	if options.JaegerAddr != "" && options.ConsulAddr != "" {
 		globalLogger.Info("Initializing jaeger agent [service name: %v | host: %v]...", ServiceName, options.JaegerAddr)
 
 		tracer, err = tracing.Init(ServiceName, options.JaegerAddr)
@@ -61,8 +61,8 @@ func CreateConsulAndTracer(options *domain.LocalDaemonOptions) (opentracing.Trac
 		}
 		globalLogger.Info("Jaeger agent initialized")
 
-		globalLogger.Info("Initializing consul agent [host: %v]...", options.Consuladdr)
-		consulClient, err = consul.NewClient(options.Consuladdr)
+		globalLogger.Info("Initializing consul agent [host: %v]...", options.ConsulAddr)
+		consulClient, err = consul.NewClient(options.ConsulAddr)
 		if err != nil {
 			log.Fatalf("Got error while initializing consul agent: %v", err)
 		}
@@ -160,6 +160,8 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	// We largely disable the DevicePlugin server if we're running in LocalMode or if we're not running in Kubernetes mode.
 	disableDevicePluginServer := options.DeploymentMode != string(types.KubernetesMode)
 	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, disableDevicePluginServer)
+
+	globalLogger.Debug("Local Daemon Options:\n%s", options.PrettyString(2))
 
 	// Initialize grpc server
 	srv := grpc.NewServer(gOpts...)

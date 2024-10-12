@@ -1,8 +1,10 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/configuration"
+	"strings"
 
 	"github.com/mason-leap-lab/go-utils/config"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
@@ -19,12 +21,32 @@ type LocalDaemonOptions struct {
 	KernelRegistryPort int    `name:"kernel-registry-port" usage:"Port on which the Kernel Registry Server listens."`
 	ProvisionerAddr    string `name:"provisioner" description:"Provisioner address."`
 	JaegerAddr         string `name:"jaeger" description:"Jaeger agent address."`
-	Consuladdr         string `name:"consul" description:"Consul agent address."`
+	ConsulAddr         string `name:"consul" description:"Consul agent address."`
 	NodeName           string `name:"node_name" description:"Node name used only for debugging in local mode."`
 }
 
-func (o LocalDaemonOptions) String() string {
-	return fmt.Sprintf("Port: %d, KernelRegistryPort: %d, ProvisionerAddr: %s, JaegerAddr: %s, ConsulAddr: %s, %s, %s", o.Port, o.KernelRegistryPort, o.ProvisionerAddr, o.JaegerAddr, o.Consuladdr, o.ConnectionInfo.String(), o.SchedulerDaemonOptions.String())
+// PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
+func (o *LocalDaemonOptions) PrettyString(indentSize int) string {
+	indentBuilder := strings.Builder{}
+	for i := 0; i < indentSize; i++ {
+		indentBuilder.WriteString(" ")
+	}
+
+	m, err := json.MarshalIndent(o, "", indentBuilder.String())
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+func (o *LocalDaemonOptions) String() string {
+	m, err := json.Marshal(o)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
 }
 
 type SchedulerDaemonConfig func(SchedulerDaemon)

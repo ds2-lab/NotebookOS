@@ -291,7 +291,13 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		panic(err)
 	}
 
-	clusterGateway.publishPrometheusMetrics()
+	if !clusterDaemonOptions.DisablePrometheusMetricsPublishing {
+		clusterGateway.log.Debug("Initializing \"Prometheus Metrics Publisher\" goroutine now.")
+		clusterGateway.publishPrometheusMetrics()
+	} else {
+		clusterGateway.log.Warn("\"Prometheus Metrics Publisher\" goroutine is disabled. Skipping initialization.")
+	}
+
 	clusterGateway.router.AssignPrometheusManager(clusterGateway.gatewayPrometheusManager)
 	clusterGateway.router.SetComponentId(clusterGateway.id)
 
@@ -1600,7 +1606,6 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// but I've not yet enforced this.
 	if !ok || addReplicaOp.Completed() {
 		// If we managed to somehow retrieve a completed add replica operation, then we'll just discard it.
-		// Don't think this can happen, but if it does, then discard it should be sufficient...
 		if ok && addReplicaOp.Completed() /* Technically, we know the second condition must be true if ok is true */ {
 			warningMessage := fmt.Sprintf("Retrieved COMPLETED AddReplicaOperation \"%s\" for kernel-replicaId key \"%s\": %s",
 				addReplicaOp.OperationID(), key, addReplicaOp.String())
@@ -3237,7 +3242,7 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) (*s
 	if !ok {
 		d.log.Error("Could not load scheduling.Container associated with replica %d of kernel \"%s\" from associated scheduling.Session",
 			smrNodeId, kernelId)
-		return nil, fmt.Errorf("%w: kernelID=\"%s\", replicaId=%d", ErrContainerNotFound, smrNodeId, kernelId)
+		return nil, fmt.Errorf("%w: kernelID=\"%s\", replicaId=%d", ErrContainerNotFound, kernelId, smrNodeId)
 	}
 
 	oldHost := container.GetHost()

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"strings"
@@ -70,6 +71,30 @@ type ConnectionInfo struct {
 	NumResourcePorts     int    `json:"num_resource_ports" name:"num-resource-ports" description:"The total number of available resource ports. If the 'starting-port' is 9006 and there are 20 resource ports, then the following ports are available: 9006, 9007, 9008, ..., 9024, 9025, 9026. Resource ports are the ports exposed by the Kubernetes services that are available for ZMQ sockets to listen on."`
 }
 
+func (info *ConnectionInfo) String() string {
+	m, err := json.Marshal(info)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+// PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
+func (info *ConnectionInfo) PrettyString(indentSize int) string {
+	indentBuilder := strings.Builder{}
+	for i := 0; i < indentSize; i++ {
+		indentBuilder.WriteString(" ")
+	}
+
+	m, err := json.MarshalIndent(info, "", indentBuilder.String())
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
 // ConnectionInfoFromKernelConnectionInfo converts the given *proto.KernelConnectionInfo to a *ConnectionInfo.
 func ConnectionInfoFromKernelConnectionInfo(ci *proto.KernelConnectionInfo) *ConnectionInfo {
 	return &ConnectionInfo{
@@ -86,21 +111,17 @@ func ConnectionInfoFromKernelConnectionInfo(ci *proto.KernelConnectionInfo) *Con
 	}
 }
 
-func (ci ConnectionInfo) String() string {
-	return fmt.Sprintf("IP: %s, ControlPort: %d, ShellPort: %d, StdinPort: %d, HBPort: %d, IOPubPort: %d, IOSubPort: %d, Transport: %s, SignatureScheme: %s, Key: %s", ci.IP, ci.ControlPort, ci.ShellPort, ci.StdinPort, ci.HBPort, ci.IOPubPort, ci.IOSubPort, ci.Transport, ci.SignatureScheme, ci.Key)
-}
-
-func (ci ConnectionInfo) ToConnectionInfoForKernel() *ConnectionInfoForKernel {
+func (info *ConnectionInfo) ToConnectionInfoForKernel() *ConnectionInfoForKernel {
 	return &ConnectionInfoForKernel{
-		IP:              ci.IP,
-		ControlPort:     ci.ControlPort,
-		ShellPort:       ci.ShellPort,
-		StdinPort:       ci.StdinPort,
-		HBPort:          ci.HBPort,
-		IOPubPort:       ci.IOPubPort,
-		Transport:       ci.Transport,
-		SignatureScheme: ci.SignatureScheme,
-		Key:             ci.Key,
+		IP:              info.IP,
+		ControlPort:     info.ControlPort,
+		ShellPort:       info.ShellPort,
+		StdinPort:       info.StdinPort,
+		HBPort:          info.HBPort,
+		IOPubPort:       info.IOPubPort,
+		Transport:       info.Transport,
+		SignatureScheme: info.SignatureScheme,
+		Key:             info.Key,
 	}
 }
 

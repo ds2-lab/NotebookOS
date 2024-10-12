@@ -1,8 +1,10 @@
 package scheduling
 
 import (
+	"encoding/json"
 	"log"
 	"math"
+	"strings"
 )
 
 const (
@@ -28,6 +30,30 @@ type ClusterSchedulerOptions struct {
 	ExecutionTimeSamplingWindow   int64   `name:"execution-time-sampling-window"    json:"execution-time-sampling-window"   yaml:"execution-time-sampling-window"                        description:"Window size for moving average of training time. Specify a negative value to compute the average as the average of ALL execution times."`
 	MigrationTimeSamplingWindow   int64   `name:"migration-time-sampling-window"    json:"migration-time-sampling-window"   yaml:"migration-time-sampling-window"                        description:"Window size for moving average of migration time. Specify a negative value to compute the average as the average of ALL migration times."`
 	SchedulerHttpPort             int     `name:"scheduler-http-port"               json:"scheduler-http-port"              yaml:"scheduler-http-port"                        description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
+}
+
+// PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
+func (opts *ClusterSchedulerOptions) PrettyString(indentSize int) string {
+	indentBuilder := strings.Builder{}
+	for i := 0; i < indentSize; i++ {
+		indentBuilder.WriteString(" ")
+	}
+
+	m, err := json.MarshalIndent(opts, "", indentBuilder.String())
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+func (opts *ClusterSchedulerOptions) String() string {
+	m, err := json.Marshal(opts)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
 }
 
 // ValidateClusterSchedulerOptions ensures that the values of certain configuration parameters are consistent with
