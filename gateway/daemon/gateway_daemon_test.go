@@ -971,6 +971,162 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					_ = clusterGateway.Close()
 				}()
 			})
+
+			It("Will attempt to scale-out when there are insufficient resources available on existing hosts", func() {
+				kernelId := uuid.NewString()
+				// persistentId := uuid.NewString()
+
+				cluster := clusterGateway.cluster
+				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+				Expect(ok).To(BeTrue())
+				Expect(index).ToNot(BeNil())
+
+				placer := cluster.Placer()
+				Expect(placer).ToNot(BeNil())
+
+				scheduler := cluster.ClusterScheduler()
+				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
+
+				Expect(cluster.Len()).To(Equal(0))
+				Expect(index.Len()).To(Equal(0))
+				Expect(placer.NumHostsInIndex()).To(Equal(0))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
+
+				host1Id := uuid.NewString()
+				node1Name := "TestNode1"
+				host1Spoofer := NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
+				host1, localGatewayClient1, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
+				Expect(err).To(BeNil())
+
+				host2Id := uuid.NewString()
+				node2Name := "TestNode2"
+				host2Spoofer := NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
+				host2, localGatewayClient2, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
+				Expect(err).To(BeNil())
+
+				host3Id := uuid.NewString()
+				node3Name := "TestNode3"
+				host3Spoofer := NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
+				host3, localGatewayClient3, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
+				Expect(err).To(BeNil())
+
+				alreadyScheduled := &proto.ResourceSpec{
+					Gpu:    40,
+					Vram:   40,
+					Cpu:    8,
+					Memory: 32000,
+				}
+
+				// Reserve some resources on one of the hosts.
+				err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(alreadyScheduled.ToDecimalSpec())
+				Expect(err).To(BeNil())
+				err = host1.SynchronizeResourceInformation()
+
+				// TODO: Need to actually schedule a session or multiple sessions with high gpu usage
+				// TODO: and then try to schedule a session.
+
+				newSubRatio := host1.RecomputeSubscribedRatio()
+				fmt.Printf("Current resource usage: %s\n", host1.CurrentResourcesToString())
+				fmt.Printf("New subscription ratio: %s\n", newSubRatio.StringFixed(4))
+
+				Expect(err).To(BeNil())
+
+				Expect(host1.IdleResources().GPU()).To(Equal(8.0))
+				Expect(host1.PendingResources().GPU()).To(Equal(40.0))
+				Expect(host1.CommittedResources().GPU()).To(Equal(0.0))
+
+				// Add first host.
+				cluster.NewHostAddedOrConnected(host1)
+
+				Expect(cluster.Len()).To(Equal(1))
+				Expect(index.Len()).To(Equal(1))
+				Expect(placer.NumHostsInIndex()).To(Equal(1))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(1))
+
+				// Add second host.
+				cluster.NewHostAddedOrConnected(host2)
+
+				Expect(cluster.Len()).To(Equal(2))
+				Expect(index.Len()).To(Equal(2))
+				Expect(placer.NumHostsInIndex()).To(Equal(2))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(2))
+
+				// Add third host.
+				cluster.NewHostAddedOrConnected(host3)
+
+				Expect(cluster.Len()).To(Equal(3))
+				Expect(index.Len()).To(Equal(3))
+				Expect(placer.NumHostsInIndex()).To(Equal(3))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(3))
+
+				resourceSpec := &proto.ResourceSpec{
+					Gpu:    2,
+					Vram:   2,
+					Cpu:    1250,
+					Memory: 2048,
+				}
+
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             kernelKey,
+					ResourceSpec:    resourceSpec,
+				}
+
+				var startKernelReplicaCalled sync.WaitGroup
+				startKernelReplicaCalled.Add(3)
+
+				startKernelReturnValChan1 := make(chan *proto.KernelConnectionInfo)
+				startKernelReturnValChan2 := make(chan *proto.KernelConnectionInfo)
+				startKernelReturnValChan3 := make(chan *proto.KernelConnectionInfo)
+
+				localGatewayClient1.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					//err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					//Expect(err).To(BeNil())
+					//err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					//Expect(err).To(BeNil())
+
+					startKernelReplicaCalled.Done()
+
+					ret := <-startKernelReturnValChan1
+					return ret, nil
+				})
+
+				localGatewayClient2.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					//err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					//Expect(err).To(BeNil())
+					//err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					//Expect(err).To(BeNil())
+
+					startKernelReplicaCalled.Done()
+					ret := <-startKernelReturnValChan2
+					return ret, nil
+				})
+
+				localGatewayClient3.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					//err := host1Spoofer.wrer.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					//					//Expect(err).To(BeNil())
+					//					//err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					//					//Expect(err).To(BeNil())app
+					startKernelReplicaCalled.Done()
+					ret := <-startKernelReturnValChan3
+					return ret, nil
+				})
+
+				startKernelReturnValChan := make(chan *proto.KernelConnectionInfo)
+				go func() {
+					defer GinkgoRecover()
+
+					connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
+					Expect(err).To(BeNil())
+					Expect(connInfo).ToNot(BeNil())
+
+					startKernelReturnValChan <- connInfo
+				}()
+				startKernelReplicaCalled.Wait()
+			})
 		})
 	})
 })
