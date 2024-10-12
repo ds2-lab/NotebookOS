@@ -110,7 +110,7 @@ func (c *Container) GetClient() KernelReplica {
 	return c.KernelReplica
 }
 
-// OutstandingResources returns the resources required by the Container to begin training.
+// OutstandingResources returns the Resources required by the Container to begin training.
 func (c *Container) OutstandingResources() types.Spec {
 	return c.outstandingResources
 }
@@ -302,7 +302,7 @@ func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, s
 		return err
 	}
 
-	c.log.Debug("Training stopping after %v. Outputting resources before training officially stops.", time.Since(c.trainingStartedAt))
+	c.log.Debug("Training stopping after %v. Outputting Resources before training officially stops.", time.Since(c.trainingStartedAt))
 	c.log.Debug("Outstanding CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 		c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU(), c.outstandingResources.VRAM())
 	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
@@ -325,7 +325,7 @@ func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, s
 		if err != nil {
 			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
 		} else {
-			c.log.Debug("Training stopped. Outputting resources now that training has officially stopped.")
+			c.log.Debug("Training stopped. Outputting Resources now that training has officially stopped.")
 			c.log.Debug("Outstanding CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 				c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU(), c.outstandingResources.VRAM())
 			c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",

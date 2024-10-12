@@ -51,6 +51,16 @@ func (s *ResourceSpec) VRAM() float64 {
 	return float64(s.GetVram())
 }
 
+// ToDecimalSpec converts the ResourceSpec to a types.DecimalSpec.
+func (s *ResourceSpec) ToDecimalSpec() *types.DecimalSpec {
+	return &types.DecimalSpec{
+		Millicpus: decimal.NewFromFloat(float64(s.Cpu)),
+		MemoryMb:  decimal.NewFromFloat(float64(s.Memory)),
+		GPUs:      decimal.NewFromFloat(float64(s.Gpu)),
+		VRam:      decimal.NewFromFloat(float64(s.Vram)),
+	}
+}
+
 // Validate checks that "this" Spec could "satisfy" the parameterized Spec.
 //
 // To "satisfy" a Spec means that all the resource values of "this" Spec are larger than that of the

@@ -227,9 +227,9 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 	for len(responsesReceived) < responsesRequired {
 		select {
 		// Context time-out, meaning the operation itself has timed-out or been cancelled.
-		// TODO: We ultimately need to handle this somehow, as we'll have allocated resources to the kernel replicas
+		// TODO: We ultimately need to handle this somehow, as we'll have allocated Resources to the kernel replicas
 		// 		 on the hosts that we selected. If this operation fails or times-out, then we need to potentially
-		//		 terminate the replicas that we know were scheduled successfully and release the resources on those hosts.
+		//		 terminate the replicas that we know were scheduled successfully and release the Resources on those hosts.
 		case <-ctx.Done():
 			{
 				err := ctx.Err()
@@ -289,7 +289,7 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 					}
 				}
 
-				// TODO: kill orphaned replicas so that they don't just sit there, taking up resources unnecessarily.
+				// TODO: kill orphaned replicas so that they don't just sit there, taking up Resources unnecessarily.
 				s.log.Error("Scheduling of kernel %s has failed after %v. Only managed to schedule replicas %s (%d/%d).",
 					in.Id, time.Since(st), replicasScheduledBuilder.String(), len(responsesReceived), responsesRequired)
 				s.log.Error("As such, the following Hosts have orphaned replicas of kernel %s scheduled onto them: %s",

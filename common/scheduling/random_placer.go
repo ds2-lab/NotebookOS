@@ -63,7 +63,7 @@ func (placer *RandomPlacer) hostIsViable(candidateHost *Host, spec types.Spec) (
 		placer.log.Debug(utils.GreenStyle.Render("Found viable candidate host: %v."), candidateHost)
 		return true, true
 	} else {
-		placer.log.Warn(utils.OrangeStyle.Render("Host %s (ID=%s) cannot satisfy request %v. CanServeContainer=%v, WillBecomeTooOversubscribed=%v, Host's resources=%v.)"),
+		placer.log.Warn(utils.OrangeStyle.Render("Host %s (ID=%s) cannot satisfy request %v. CanServeContainer=%v, WillBecomeTooOversubscribed=%v, Host's Resources=%v.)"),
 			candidateHost.NodeName, candidateHost.ID, spec, canServeContainer, willBecomeTooOversubscribed, candidateHost.ResourceSpec().String())
 
 		candidateHost.UnlockScheduling()
@@ -147,7 +147,7 @@ func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 							}
 						} else {
 							// Host wasn't viable. Unlock it, and remove it from the mapping.
-							placer.log.Warn(utils.OrangeStyle.Render("Finally locked host %s, but host cannot satisfy request %v. (Host resources: %v.)"), host.ID, host.ResourceSpec().String(), spec.String())
+							placer.log.Warn(utils.OrangeStyle.Render("Finally locked host %s, but host cannot satisfy request %v. (Host Resources: %v.)"), host.ID, host.ResourceSpec().String(), spec.String())
 							host.UnlockScheduling()
 							removeFromFailedToLock = append(removeFromFailedToLock, host)
 						}

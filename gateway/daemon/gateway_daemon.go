@@ -60,6 +60,9 @@ const (
 	SchedulingPolicyStatic    SchedulingPolicy = "static"
 	SchedulingPolicyDynamicV3 SchedulingPolicy = "dynamic-v3"
 	SchedulingPolicyDynamicV4 SchedulingPolicy = "dynamic-v4"
+
+	// Passed in Context of NotifyKernelRegistered to skip the connection validation step.
+	SkipValidationKey string = "SkipValidationKey"
 )
 
 var (
@@ -1011,7 +1014,8 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 	// If so, we'll send a notification in the associated channel, and then we'll return.
 	kernelStartingChan, ok := d.kernelsStarting.Load(smrReadyNotification.KernelId)
 	if ok {
-		d.log.Debug("Received 'SMR-READY' notification for newly-starting kernel %s.", smrReadyNotification.KernelId)
+		d.log.Debug("Received 'SMR-READY' notification for newly-starting replica %d of kernel %s.",
+			smrReadyNotification.ReplicaId, smrReadyNotification.KernelId)
 		kernelStartingChan <- struct{}{}
 		return proto.VOID, nil
 	}
@@ -1570,13 +1574,15 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running. Launch took approximately %v.",
 		kernelId, time.Since(startTime)), jupyter.SuccessNotification)
 
-	numActiveKernels := d.numActiveKernels.Add(1)
-	d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
-		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
-		Set(float64(numActiveKernels))
-	d.gatewayPrometheusManager.TotalNumKernelsCounterVec.
-		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
-	d.gatewayPrometheusManager.KernelCreationLatencyHistogram.Observe(float64(time.Since(startTime).Milliseconds()))
+	if d.gatewayPrometheusManager != nil {
+		numActiveKernels := d.numActiveKernels.Add(1)
+		d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
+			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
+			Set(float64(numActiveKernels))
+		d.gatewayPrometheusManager.TotalNumKernelsCounterVec.
+			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
+		d.gatewayPrometheusManager.KernelCreationLatencyHistogram.Observe(float64(time.Since(startTime).Milliseconds()))
+	}
 }
 
 // Handle a registration notification from a new kernel replica that was created during an add-replica/migration operation.
@@ -1644,7 +1650,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo),
-		d.id, false, d.numResendAttempts, -1, -1, in.PodName, in.NodeName,
+		d.id, d.numResendAttempts, -1, -1, in.PodName, in.NodeName,
 		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
 		host, metrics.ClusterGateway, true, true, d.DebugMode, d.gatewayPrometheusManager,
 		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
@@ -1778,7 +1784,7 @@ func (d *ClusterGatewayImpl) AddReplicaDynamic(_ context.Context, in *proto.Kern
 	return nil
 }
 
-func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
+func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
 	d.log.Info("Received kernel registration notification.")
 
 	connectionInfo := in.ConnectionInfo
@@ -1857,7 +1863,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), d.id,
-		false, d.numResendAttempts, -1, -1, kernelPodName, nodeName, nil,
+		d.numResendAttempts, -1, -1, kernelPodName, nodeName, nil,
 		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
 		true, true, d.DebugMode, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
 		d.kernelRequestResubmissionFailedAfterReconnection)
@@ -1891,13 +1897,18 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(_ context.Context, in *proto
 	}
 
 	d.log.Debug("Validating new KernelReplicaClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
-	err := replica.Validate()
-	if err != nil {
-		panic(fmt.Sprintf("KernelReplicaClient::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
+	if val := ctx.Value(SkipValidationKey); val == nil {
+		err := replica.Validate()
+		if err != nil {
+			panic(fmt.Sprintf("KernelReplicaClient::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		}
+	} else {
+		d.log.Warn("Skipping validation and establishment of actual network connections with newly-registered replica %d of kernel %s.",
+			replica.ReplicaID(), in.KernelId)
 	}
 
 	d.log.Debug("Adding Replica for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
-	err = kernel.AddReplica(replica, host)
+	err := kernel.AddReplica(replica, host)
 	if err != nil {
 		panic(fmt.Sprintf("KernelReplicaClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}

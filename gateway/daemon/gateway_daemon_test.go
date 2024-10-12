@@ -18,6 +18,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -124,6 +125,7 @@ type ResourceSpoofer struct {
 	nodeName   string
 	managerId  string
 	hostSpec   types.Spec
+	wrapper    *scheduling.ResourcesWrapper
 }
 
 func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *ResourceSpoofer {
@@ -132,37 +134,32 @@ func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *Re
 		nodeName:  nodeName,
 		managerId: uuid.NewString(),
 		hostSpec:  hostSpec,
+		wrapper:   scheduling.NewResourcesWrapper(hostSpec),
 	}
 
 	return spoofer
 }
 
 func (s *ResourceSpoofer) ResourcesSnapshot(_ context.Context, _ *proto.Void, _ ...grpc.CallOption) (*proto.NodeResourcesSnapshot, error) {
-	fmt.Printf("Spoofing resources for Host \"%s\" (ID=\"%s\") now.\n", s.nodeName, s.hostId)
-	return &proto.NodeResourcesSnapshot{
+	snapshotId := s.snapshotId.Add(1)
+	snapshot := &proto.NodeResourcesSnapshot{
 		// SnapshotId uniquely identifies the NodeResourcesSnapshot and defines a total order amongst all NodeResourcesSnapshot
 		// structs originating from the same node. Each newly-created NodeResourcesSnapshot is assigned an ID from a
 		// monotonically-increasing counter by the ResourceManager.
-		SnapshotId: s.snapshotId.Add(1),
+		SnapshotId: snapshotId,
 		// NodeId is the ID of the node from which the snapshot originates.
 		NodeId: s.hostId,
 		// ManagerId is the unique ID of the ResourceManager struct from which the NodeResourcesSnapshot was constructed.
 		ManagerId: s.managerId,
 		// Timestamp is the time at which the NodeResourcesSnapshot was taken/created.
-		Timestamp: timestamppb.New(time.Now()),
-		IdleResources: &proto.ResourcesSnapshot{
-			ResourceStatus: scheduling.IdleResources.String(),
-		},
-		PendingResources: &proto.ResourcesSnapshot{
-			ResourceStatus: scheduling.PendingResources.String(),
-		},
-		CommittedResources: &proto.ResourcesSnapshot{
-			ResourceStatus: scheduling.CommittedResources.String(),
-		},
-		SpecResources: &proto.ResourcesSnapshot{
-			ResourceStatus: scheduling.SpecResources.String(),
-		},
-	}, nil
+		Timestamp:          timestamppb.New(time.Now()),
+		IdleResources:      s.wrapper.IdleProtoResourcesSnapshot(snapshotId),
+		PendingResources:   s.wrapper.PendingProtoResourcesSnapshot(snapshotId),
+		CommittedResources: s.wrapper.CommittedProtoResourcesSnapshot(snapshotId),
+		SpecResources:      s.wrapper.SpecProtoResourcesSnapshot(snapshotId),
+	}
+	fmt.Printf("Spoofing resources for Host \"%s\" (ID=\"%s\") with SnapshotID=%d now: %v\n", s.nodeName, s.hostId, snapshotId, snapshot.String())
+	return snapshot, nil
 }
 
 // NewHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.
@@ -213,7 +210,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		abstractServer *server.AbstractServer
 		session        *mock_scheduling.MockAbstractSession
 		mockCtrl       *gomock.Controller
-		kernel         *mock_client.MockAbstractDistributedKernelClient
 		kernelKey      = "23d90942-8c3de3a713a5c3611792b7a5"
 	)
 
@@ -227,6 +223,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 	Context("Processing 'execute_request' messages", func() {
 		var (
+			kernel  *mock_client.MockAbstractDistributedKernelClient
 			header  *jupyter.MessageHeader
 			cluster *mock_scheduling.MockCluster
 		)
@@ -351,6 +348,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 	Context("ZMQ Messages", func() {
 		var (
+			kernel  *mock_client.MockAbstractDistributedKernelClient
 			header  *jupyter.MessageHeader
 			cluster *mock_scheduling.MockCluster
 		)
@@ -718,6 +716,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			It("Will correctly schedule a new kernel", func() {
 				kernelId := uuid.NewString()
+				persistentId := uuid.NewString()
 
 				cluster := clusterGateway.cluster
 				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
@@ -736,18 +735,21 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
 
 				host1Id := uuid.NewString()
-				host1Spoofer := NewResourceSpoofer("TestNode1", host1Id, clusterGateway.hostSpec)
-				host1, localGatewayClient1, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, "TestNode1", host1Spoofer)
+				node1Name := "TestNode1"
+				host1Spoofer := NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
+				host1, localGatewayClient1, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
 				Expect(err).To(BeNil())
 
 				host2Id := uuid.NewString()
-				host2Spoofer := NewResourceSpoofer("TestNode2", host2Id, clusterGateway.hostSpec)
-				host2, localGatewayClient2, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, "TestNode2", host2Spoofer)
+				node2Name := "TestNode2"
+				host2Spoofer := NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
+				host2, localGatewayClient2, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
 				Expect(err).To(BeNil())
 
 				host3Id := uuid.NewString()
-				host3Spoofer := NewResourceSpoofer("TestNode3", host3Id, clusterGateway.hostSpec)
-				host3, localGatewayClient3, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, "TestNode3", host3Spoofer)
+				node3Name := "TestNode3"
+				host3Spoofer := NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
+				host3, localGatewayClient3, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
 				Expect(err).To(BeNil())
 
 				// Add first host.
@@ -798,18 +800,34 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				startKernelReturnValChan3 := make(chan *proto.KernelConnectionInfo)
 
 				localGatewayClient1.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					Expect(err).To(BeNil())
+					err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					Expect(err).To(BeNil())
+
 					startKernelReplicaCalled.Done()
+
 					ret := <-startKernelReturnValChan1
 					return ret, nil
 				})
 
 				localGatewayClient2.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					Expect(err).To(BeNil())
+					err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					Expect(err).To(BeNil())
+
 					startKernelReplicaCalled.Done()
 					ret := <-startKernelReturnValChan2
 					return ret, nil
 				})
 
 				localGatewayClient3.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					Expect(err).To(BeNil())
+					err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					Expect(err).To(BeNil())
+
 					startKernelReplicaCalled.Done()
 					ret := <-startKernelReturnValChan3
 					return ret, nil
@@ -825,7 +843,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					startKernelReturnValChan <- connInfo
 				}()
-
 				startKernelReplicaCalled.Wait()
 
 				startKernelReturnValChan1 <- &proto.KernelConnectionInfo{
@@ -865,8 +882,94 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Key:             kernelKey,
 				}
 
+				time.Sleep(time.Millisecond * 1250)
+
+				var notifyKernelRegisteredCalled sync.WaitGroup
+				notifyKernelRegisteredCalled.Add(3)
+
+				sleepIntervals := make(chan time.Duration, 3)
+				notifyKernelRegistered := func(replicaId int32) {
+					defer GinkgoRecover()
+
+					time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25 /* 25 - 50 */))
+					time.Sleep(<-sleepIntervals)
+
+					ctx := context.WithValue(context.Background(), SkipValidationKey, "true")
+					resp, err := clusterGateway.NotifyKernelRegistered(ctx, &proto.KernelRegistrationNotification{
+						ConnectionInfo: &proto.KernelConnectionInfo{
+							Ip:              "0.0.0.0",
+							Transport:       "tcp",
+							ControlPort:     9000,
+							ShellPort:       9001,
+							StdinPort:       9002,
+							HbPort:          9003,
+							IopubPort:       9004,
+							IosubPort:       9005,
+							SignatureScheme: jupyter.JupyterSignatureScheme,
+							Key:             kernelKey,
+						},
+						KernelId:  kernelId,
+						SessionId: "N/A",
+						ReplicaId: replicaId,
+						HostId:    host1Id,
+						KernelIp:  "0.0.0.0",
+						PodName:   "kernel1pod",
+						NodeName:  node1Name,
+					})
+					Expect(resp).ToNot(BeNil())
+					Expect(err).To(BeNil())
+					Expect(resp.Id).To(Equal(replicaId))
+
+					notifyKernelRegisteredCalled.Done()
+				}
+
+				sleepIntervals <- time.Millisecond * 500
+				sleepIntervals <- time.Millisecond * 1000
+				sleepIntervals <- time.Millisecond * 1500
+
+				go notifyKernelRegistered(1)
+				go notifyKernelRegistered(2)
+				go notifyKernelRegistered(3)
+
+				notifyKernelRegisteredCalled.Wait()
+
+				time.Sleep(time.Millisecond * 2500)
+
+				var smrReadyCalled sync.WaitGroup
+				smrReadyCalled.Add(3)
+				callSmrReady := func(replicaId int32) {
+					defer GinkgoRecover()
+
+					time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25 /* 25 - 50 */))
+					time.Sleep(<-sleepIntervals)
+
+					_, err := clusterGateway.SmrReady(context.Background(), &proto.SmrReadyNotification{
+						KernelId:     kernelId,
+						ReplicaId:    replicaId,
+						PersistentId: persistentId,
+						Address:      "0.0.0.0",
+					})
+					Expect(err).To(BeNil())
+
+					smrReadyCalled.Done()
+				}
+
+				sleepIntervals <- time.Millisecond * 1000
+				sleepIntervals <- time.Millisecond * 500
+				sleepIntervals <- time.Millisecond * 1500
+
+				go callSmrReady(1)
+				go callSmrReady(2)
+				go callSmrReady(3)
+
+				smrReadyCalled.Wait()
+
 				connInfo := <-startKernelReturnValChan
 				Expect(connInfo).ToNot(BeNil())
+
+				go func() {
+					_ = clusterGateway.Close()
+				}()
 			})
 		})
 	})

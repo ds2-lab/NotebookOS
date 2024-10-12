@@ -329,7 +329,7 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 //
 // Note: this method is thread-safe.
 //
-// In the Local Daemon, this won't be called, as the Local Daemon does not track resources in this way.
+// In the Local Daemon, this won't be called, as the Local Daemon does not track Resources in this way.
 //
 // In the Cluster Gateway, this is called in the SessionStartedTraining method of the KernelReplicaClient.
 // The KernelReplicaClient's SessionStartedTraining method is called in the handleSmrLeadTaskMessage method

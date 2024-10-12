@@ -13,15 +13,15 @@ import (
 )
 
 const (
-	// IdleResources can overlap with pending resources. These are resources that are not actively bound
+	// IdleResources can overlap with pending Resources. These are Resources that are not actively bound
 	// to any containers/replicas. They are available for use by a locally-running container/replica.
 	IdleResources ResourceStatus = "idle"
 
 	// PendingResources are "subscribed to" by a locally-running container/replica; however, they are not
 	// bound to that container/replica, and thus are available for use by any of the locally-running replicas.
 	//
-	// Pending resources indicate the presence of locally-running replicas that are not actively training.
-	// The sum of all pending resources on a node is the amount of resources that would be required if all
+	// Pending Resources indicate the presence of locally-running replicas that are not actively training.
+	// The sum of all pending Resources on a node is the amount of Resources that would be required if all
 	// locally-scheduled replicas began training at the same time.
 	PendingResources ResourceStatus = "pending"
 
@@ -29,7 +29,7 @@ const (
 	// As such, they are unavailable for use by any other locally-running replicas.
 	CommittedResources ResourceStatus = "committed"
 
-	// SpecResources are the total allocatable resources available on the Host.
+	// SpecResources are the total allocatable Resources available on the Host.
 	// SpecResources are a static, fixed quantity. They do not change in response to resource (de)allocations.
 	SpecResources ResourceStatus = "spec"
 
@@ -50,7 +50,7 @@ const (
 	ResourceQuantityGreaterThanSpec ResourceInconsistency = "quantity_greater_than_spec"
 
 	// IdleSpecUnequal indicates that our IdleResources and SpecResources are unequal despite having no kernel
-	// replicas scheduled locally on the node. (When the ndoe is empty, all our resources should be idle.)
+	// replicas scheduled locally on the node. (When the ndoe is empty, all our Resources should be idle.)
 	IdleSpecUnequal ResourceInconsistency = "idle_and_spec_resources_unequal"
 
 	// PendingNonzero indicates that our PendingResources are non-zero despite having no replicas scheduled locally.
@@ -58,23 +58,23 @@ const (
 )
 
 var (
-	// ErrInsufficientMemory indicates that there was insufficient memory resources available to validate/support/serve
+	// ErrInsufficientMemory indicates that there was insufficient memory Resources available to validate/support/serve
 	// the given resource request/types.Spec.
 	//
 	// Deprecated: use InsufficientResourcesError instead.
-	ErrInsufficientMemory = errors.New("insufficient memory resources available")
+	ErrInsufficientMemory = errors.New("insufficient memory Resources available")
 
-	// ErrInsufficientCPUs indicates that there was insufficient CPU resources available to validate/support/serve
+	// ErrInsufficientCPUs indicates that there was insufficient CPU Resources available to validate/support/serve
 	// the given resource request/types.Spec.
 	//
 	// Deprecated: use InsufficientResourcesError instead.
-	ErrInsufficientCPUs = errors.New("insufficient CPU resources available")
+	ErrInsufficientCPUs = errors.New("insufficient CPU Resources available")
 
-	// ErrInsufficientGPUs indicates that there was insufficient GPU resources available to validate/support/serve
+	// ErrInsufficientGPUs indicates that there was insufficient GPU Resources available to validate/support/serve
 	// the given resource request/types.Spec.
 	//
 	// Deprecated: use InsufficientResourcesError instead.
-	ErrInsufficientGPUs = errors.New("insufficient GPU resources available")
+	ErrInsufficientGPUs = errors.New("insufficient GPU Resources available")
 
 	// ErrInvalidSnapshot is a general error message indicating that the application of a snapshot has failed.
 	ErrInvalidSnapshot = errors.New("the specified snapshot could not be applied")
@@ -84,16 +84,16 @@ var (
 	ErrIncompatibleResourceStatus = errors.New("source and target ResourceStatus values are not the same")
 )
 
-// InsufficientResourcesError is a custom error type that is used to indicate that resources could not be
-// allocated because there are insufficient resources available for one or more resources (CPU, GPU, or RAM).
+// InsufficientResourcesError is a custom error type that is used to indicate that Resources could not be
+// allocated because there are insufficient Resources available for one or more Resources (CPU, GPU, or RAM).
 type InsufficientResourcesError struct {
-	// AvailableResources are the resources that were available on the node at the time that the
+	// AvailableResources are the Resources that were available on the node at the time that the
 	// failed allocation was attempted.
 	AvailableResources types.Spec
-	// RequestedResources are the resources that were requested, and that could not be fulfilled in their entirety.
+	// RequestedResources are the Resources that were requested, and that could not be fulfilled in their entirety.
 	RequestedResources types.Spec
 	// OffendingResourceKinds is a slice containing each ResourceKind for which there were insufficient
-	// resources available (and thus that particular ResourceKind contributed to the inability of the node
+	// Resources available (and thus that particular ResourceKind contributed to the inability of the node
 	// to fulfill the resource request).
 	OffendingResourceKinds []ResourceKind
 }
@@ -128,40 +128,40 @@ func (e InsufficientResourcesError) String() string {
 // ResourceKind can be one of CPU, GPU, or Memory
 type ResourceKind string
 
-// ResourceInconsistency defines the various ways in which resources can be in an inconsistent or illegal state.
-// Examples include a resource being negative, a resource quantity being larger than the total available resources
+// ResourceInconsistency defines the various ways in which Resources can be in an inconsistent or illegal state.
+// Examples include a resource being negative, a resource quantity being larger than the total available Resources
 // of that kind on the node, and so on.
 type ResourceInconsistency string
 
 // ResourceStateWrapper defines a public interface for accessing (i.e., reading) but not mutating (i.e., writing)
 // the current state of a ResourceStateWrapper.
 //
-// ResourceStateWrapper wraps several ResourceState instances -- one for resources of each of the following types:
+// ResourceStateWrapper wraps several ResourceState instances -- one for Resources of each of the following types:
 // idle, pending, committed, and spec. As such, ResourceStateWrapper exposes a collection of several ResourceState
 // instances to provide a convenient type for reading all the relevant state of a ResourceManager.
 type ResourceStateWrapper interface {
-	// IdleResources returns the idle resources managed by a ResourceManager.
-	// Idle resources can overlap with pending resources. These are resources that are not actively bound
+	// IdleResources returns the idle Resources managed by a ResourceManager.
+	// Idle Resources can overlap with pending Resources. These are Resources that are not actively bound
 	// to any containers/replicas. They are available for use by a locally-running container/replica.
 	IdleResources() ResourceState
 
-	// PendingResources returns the pending resources managed by a ResourceManager.
-	// Pending resources are "subscribed to" by a locally-running container/replica; however, they are not
+	// PendingResources returns the pending Resources managed by a ResourceManager.
+	// Pending Resources are "subscribed to" by a locally-running container/replica; however, they are not
 	// bound to that container/replica, and thus are available for use by any of the locally-running replicas.
 	//
-	// Pending resources indicate the presence of locally-running replicas that are not actively training.
-	// The sum of all pending resources on a node is the amount of resources that would be required if all
+	// Pending Resources indicate the presence of locally-running replicas that are not actively training.
+	// The sum of all pending Resources on a node is the amount of Resources that would be required if all
 	// locally-scheduled replicas began training at the same time.
 	PendingResources() ResourceState
 
-	// CommittedResources returns the committed resources managed by a ResourceManager.
-	// These are resources that are actively bound/committed to a particular, locally-running container.
+	// CommittedResources returns the committed Resources managed by a ResourceManager.
+	// These are Resources that are actively bound/committed to a particular, locally-running container.
 	// As such, they are unavailable for use by any other locally-running replicas.
 	CommittedResources() ResourceState
 
-	// SpecResources returns the spec resources managed by a ResourceManager.
-	// These are the total allocatable resources available on the Host.
-	// Spec resources are a static, fixed quantity. They do not change in response to resource (de)allocations.
+	// SpecResources returns the spec Resources managed by a ResourceManager.
+	// These are the total allocatable Resources available on the Host.
+	// Spec Resources are a static, fixed quantity. They do not change in response to resource (de)allocations.
 	SpecResources() ResourceState
 
 	// String returns a string representation of the ResourceStateWrapper suitable for logging.
@@ -171,11 +171,11 @@ type ResourceStateWrapper interface {
 // ResourceState defines a public interface for getting (i.e., reading) but not mutating (i.e., writing)
 // the current state of a ResourceManager.
 //
-// ResourceState encapsulates the resources for a single type of resource (i.e., idle, pending, committed, or spec).
+// ResourceState encapsulates the Resources for a single type of resource (i.e., idle, pending, committed, or spec).
 // Meanwhile, ResourceStateWrapper exposes a collection of several ResourceState instances to provide a convenient
 // type for reading all the relevant state of a ResourceManager.
 type ResourceState interface {
-	// ResourceStatus returns the ResourceStatus of the resources encapsulated/made available for reading
+	// ResourceStatus returns the ResourceStatus of the Resources encapsulated/made available for reading
 	// by this ResourceState instance.
 	ResourceStatus() ResourceStatus
 
@@ -210,18 +210,18 @@ type ResourceState interface {
 	String() string
 
 	// ResourceSnapshot creates and returns a pointer to a new ResourceSnapshot struct, thereby
-	// capturing the current quantities of the resources encoded by the ResourceState instance.
+	// capturing the current quantities of the Resources encoded by the ResourceState instance.
 	ResourceSnapshot(snapshotId int32) *ResourceSnapshot
 }
 
-// ResourceStatus differentiates between idle, pending, committed, and spec resources.
+// ResourceStatus differentiates between idle, pending, committed, and spec Resources.
 type ResourceStatus string
 
 func (t ResourceStatus) String() string {
 	return string(t)
 }
 
-// ResourceSnapshot is a snapshot of a resources struct with exported
+// ResourceSnapshot is a snapshot of a Resources struct with exported
 // fields so that it can be marshalled and unmarshalled to JSON.
 type ResourceSnapshot struct {
 	ResourceStatus ResourceStatus  `json:"resource_status"` // resourceStatus is the ResourceStatus represented/encoded by this struct.
@@ -268,12 +268,23 @@ func (s *ResourceSnapshot) String() string {
 		s.Gpus.StringFixed(0), s.VRamGB.StringFixed(4))
 }
 
-// resources is a struct used by the ResourceManager to track its total idle, pending, committed, and spec resources
+func (s *ResourceSnapshot) ToProtoResourcesSnapshot() *proto.ResourcesSnapshot {
+	return &proto.ResourcesSnapshot{
+		ResourceStatus: s.ResourceStatus.String(),
+		Millicpus:      int32(s.Millicpus.InexactFloat64()),
+		Gpus:           int32(s.Gpus.InexactFloat64()),
+		VramGb:         float32(s.VRamGB.InexactFloat64()),
+		MemoryMb:       float32(s.MemoryMB.InexactFloat64()),
+		SnapshotId:     s.SnapshotId,
+	}
+}
+
+// Resources is a struct used by the ResourceManager to track its total idle, pending, committed, and spec Resources
 // of each type (CPU, GPU, and Memory).
-type resources struct {
+type Resources struct {
 	sync.Mutex // Enables atomic access to each individual field.
 
-	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this resources struct.
+	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this Resources struct.
 	lastAppliedSnapshotId int32
 
 	resourceStatus ResourceStatus  // resourceStatus is the ResourceStatus represented/encoded by this struct.
@@ -287,15 +298,15 @@ type resources struct {
 // in the given ArbitraryResourceSnapshot instance.
 //
 // ApplySnapshotToResources returns nil on success. The only failure possible is that the ArbitraryResourceSnapshot
-// encodes resources of a different "status" than the target resources struct. For example, if the target
-// resources struct encodes "idle" resources, whereas the given ArbitraryResourceSnapshot instance encodes
-// "pending" resources, then an error will be returned, and none of the resource quantities in the target
-// resources struct will be overwritten.
-func ApplySnapshotToResources[T types.ArbitraryResourceSnapshot](res *resources, snapshot T) error {
+// encodes Resources of a different "status" than the target Resources struct. For example, if the target
+// Resources struct encodes "idle" Resources, whereas the given ArbitraryResourceSnapshot instance encodes
+// "pending" Resources, then an error will be returned, and none of the resource quantities in the target
+// Resources struct will be overwritten.
+func ApplySnapshotToResources[T types.ArbitraryResourceSnapshot](res *Resources, snapshot T) error {
 	res.Lock()
 	defer res.Unlock()
 
-	// Ensure that the snapshot corresponds to resources of the same status as the target resources struct.
+	// Ensure that the snapshot corresponds to Resources of the same status as the target Resources struct.
 	// If it doesn't, then we'll reject the snapshot.
 	if res.resourceStatus.String() != snapshot.GetResourceStatus() {
 		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, ErrIncompatibleResourceStatus)
@@ -319,7 +330,7 @@ func ApplySnapshotToResources[T types.ArbitraryResourceSnapshot](res *resources,
 // ResourceSnapshot constructs and returns a pointer to a new ResourceSnapshot struct.
 //
 // This method is thread-safe to ensure that the quantities of each resource are all captured atomically.
-func (res *resources) ResourceSnapshot(snapshotId int32) *ResourceSnapshot {
+func (res *Resources) ResourceSnapshot(snapshotId int32) *ResourceSnapshot {
 	res.Lock()
 	defer res.Unlock()
 
@@ -338,7 +349,7 @@ func (res *resources) ResourceSnapshot(snapshotId int32) *ResourceSnapshot {
 // protoResourceSnapshot constructs and returns a pointer to a new protoResourceSnapshot struct.
 //
 // This method is thread-safe to ensure that the quantities of each resource are all captured atomically.
-func (res *resources) protoResourceSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+func (res *Resources) protoResourceSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	res.Lock()
 	defer res.Unlock()
 
@@ -355,11 +366,11 @@ func (res *resources) protoResourceSnapshot(snapshotId int32) *proto.ResourcesSn
 }
 
 // ToDecimalSpec returns a pointer to a types.DecimalSpec struct that encapsulates a snapshot of
-// the current quantities of resources encoded/maintained by the target resources struct.
+// the current quantities of Resources encoded/maintained by the target Resources struct.
 //
 // This method is thread-safe to ensure that the quantity of each individual resource type cannot
 // be modified during the time that the new types.DecimalSpec struct is being constructed.
-func (res *resources) ToDecimalSpec() *types.DecimalSpec {
+func (res *Resources) ToDecimalSpec() *types.DecimalSpec {
 	res.Lock()
 	defer res.Unlock()
 
@@ -371,17 +382,17 @@ func (res *resources) ToDecimalSpec() *types.DecimalSpec {
 	}
 }
 
-// LessThan returns true if each field of the target 'resources' struct is strictly less than the corresponding field
-// of the other 'resources' struct.
+// LessThan returns true if each field of the target 'Resources' struct is strictly less than the corresponding field
+// of the other 'Resources' struct.
 //
-// This method locks both 'resources' instances, beginning with the target instance.
+// This method locks both 'Resources' instances, beginning with the target instance.
 //
-// If any field of the target 'resources' struct is not less than the corresponding field of the other 'resources'
+// If any field of the target 'Resources' struct is not less than the corresponding field of the other 'Resources'
 // struct, then false is returned.
 //
 // The ResourceKind are checked in the following order: CPU, Memory, GPU.
 // The ResourceKind of the first offending quantity will be returned, along with false, based on that order.
-func (res *resources) LessThan(other *resources) (bool, ResourceKind) {
+func (res *Resources) LessThan(other *Resources) (bool, ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -407,14 +418,14 @@ func (res *resources) LessThan(other *resources) (bool, ResourceKind) {
 	return true, NoResource
 }
 
-// LessThanOrEqual returns true if each field of the target 'resources' struct is less than or equal to the
-// corresponding field of the other 'resources' struct.
+// LessThanOrEqual returns true if each field of the target 'Resources' struct is less than or equal to the
+// corresponding field of the other 'Resources' struct.
 //
-// This method locks both 'resources' instances, beginning with the target instance.
+// This method locks both 'Resources' instances, beginning with the target instance.
 //
-// If any field of the target 'resources' struct is not less than or equal to the corresponding field of the
-// other 'resources' struct, then false is returned.
-func (res *resources) LessThanOrEqual(other *resources) (bool, ResourceKind) {
+// If any field of the target 'Resources' struct is not less than or equal to the corresponding field of the
+// other 'Resources' struct, then false is returned.
+func (res *Resources) LessThanOrEqual(other *Resources) (bool, ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -440,14 +451,14 @@ func (res *resources) LessThanOrEqual(other *resources) (bool, ResourceKind) {
 	return true, NoResource
 }
 
-// GreaterThan returns true if each field of the target 'resources' struct is strictly greater than to the
-// corresponding field of the other 'resources' struct.
+// GreaterThan returns true if each field of the target 'Resources' struct is strictly greater than to the
+// corresponding field of the other 'Resources' struct.
 //
-// This method locks both 'resources' instances, beginning with the target instance.
+// This method locks both 'Resources' instances, beginning with the target instance.
 //
-// If any field of the target 'resources' struct is not strictly greater than the corresponding field of the
-// other 'resources' struct, then false is returned.
-func (res *resources) GreaterThan(other *resources) (bool, ResourceKind) {
+// If any field of the target 'Resources' struct is not strictly greater than the corresponding field of the
+// other 'Resources' struct, then false is returned.
+func (res *Resources) GreaterThan(other *Resources) (bool, ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -473,14 +484,14 @@ func (res *resources) GreaterThan(other *resources) (bool, ResourceKind) {
 	return true, NoResource
 }
 
-// GreaterThanOrEqual returns true if each field of the target 'resources' struct is greater than or equal to the
-// corresponding field of the other 'resources' struct.
+// GreaterThanOrEqual returns true if each field of the target 'Resources' struct is greater than or equal to the
+// corresponding field of the other 'Resources' struct.
 //
-// This method locks both 'resources' instances, beginning with the target instance.
+// This method locks both 'Resources' instances, beginning with the target instance.
 //
-// If any field of the target 'resources' struct is not greater than or equal to the corresponding field of the
-// other 'resources' struct, then false is returned.
-func (res *resources) GreaterThanOrEqual(other *resources) (bool, ResourceKind) {
+// If any field of the target 'Resources' struct is not greater than or equal to the corresponding field of the
+// other 'Resources' struct, then false is returned.
+func (res *Resources) GreaterThanOrEqual(other *Resources) (bool, ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -506,14 +517,14 @@ func (res *resources) GreaterThanOrEqual(other *resources) (bool, ResourceKind) 
 	return true, NoResource
 }
 
-// EqualTo returns true if each field of the target 'resources' struct is exactly equal to the corresponding field of
-// the other 'resources' struct.
+// EqualTo returns true if each field of the target 'Resources' struct is exactly equal to the corresponding field of
+// the other 'Resources' struct.
 //
-// This method locks both 'resources' instances, beginning with the target instance.
+// This method locks both 'Resources' instances, beginning with the target instance.
 //
-// If any field of the target 'resources' struct is not equal to the corresponding field of the other 'resources'
+// If any field of the target 'Resources' struct is not equal to the corresponding field of the other 'Resources'
 // struct, then false is returned.
-func (res *resources) EqualTo(other *resources) (bool, ResourceKind) {
+func (res *Resources) EqualTo(other *Resources) (bool, ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -539,12 +550,12 @@ func (res *resources) EqualTo(other *resources) (bool, ResourceKind) {
 	return true, NoResource
 }
 
-// IsZero returns true if each field of the target 'resources' struct is exactly equal to 0.
+// IsZero returns true if each field of the target 'Resources' struct is exactly equal to 0.
 //
-// This method locks both 'resources' instances, beginning with the target instance.
+// This method locks both 'Resources' instances, beginning with the target instance.
 //
-// If any field of the target 'resources' struct is not equal to 0, then false is returned.
-func (res *resources) IsZero() (bool, ResourceKind) {
+// If any field of the target 'Resources' struct is not equal to 0, then false is returned.
+func (res *Resources) IsZero() (bool, ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -572,7 +583,7 @@ func (res *resources) IsZero() (bool, ResourceKind) {
 // This method is thread-safe.
 //
 // If kind is equal to NoResource, then this method will panic.
-func (res *resources) GetResource(kind ResourceKind) decimal.Decimal {
+func (res *Resources) GetResource(kind ResourceKind) decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
@@ -600,11 +611,11 @@ func (res *resources) GetResource(kind ResourceKind) decimal.Decimal {
 //
 // This method is thread-safe.
 //
-// The resources are checked in the following order: CPU, Memory, GPU.
+// The Resources are checked in the following order: CPU, Memory, GPU.
 // This method will return true and the associated ResourceKind for the first negative ResourceKind encountered.
 //
-// If no resources are negative, then this method returns false and NoResource.
-func (res *resources) HasNegativeField() (bool, ResourceKind) {
+// If no Resources are negative, then this method returns false and NoResource.
+func (res *Resources) HasNegativeField() (bool, ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -627,27 +638,27 @@ func (res *resources) HasNegativeField() (bool, ResourceKind) {
 	return false, NoResource
 }
 
-func (res *resources) String() string {
+func (res *Resources) String() string {
 	res.Lock()
 	defer res.Unlock()
 
-	return fmt.Sprintf("[%s resources: millicpus=%s,gpus=%s,vram=%sGB,memory=%sMB]",
+	return fmt.Sprintf("[%s Resources: millicpus=%s,gpus=%s,vram=%sGB,memory=%sMB]",
 		res.resourceStatus.String(), res.millicpus.StringFixed(0),
 		res.gpus.StringFixed(0), res.vramGB.StringFixed(4), res.memoryMB.StringFixed(4))
 }
 
-func (res *resources) ResourceStatus() ResourceStatus {
+func (res *Resources) ResourceStatus() ResourceStatus {
 	return res.resourceStatus
 }
 
-func (res *resources) MemoryMB() float64 {
+func (res *Resources) MemoryMB() float64 {
 	res.Lock()
 	defer res.Unlock()
 
 	return res.memoryMB.InexactFloat64()
 }
 
-func (res *resources) MemoryMbAsDecimal() decimal.Decimal {
+func (res *Resources) MemoryMbAsDecimal() decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
@@ -655,7 +666,7 @@ func (res *resources) MemoryMbAsDecimal() decimal.Decimal {
 }
 
 // SetMemoryMB sets the amount of memory to a copy of the specified decimal.Decimal value.
-func (res *resources) SetMemoryMB(memoryMB decimal.Decimal) {
+func (res *Resources) SetMemoryMB(memoryMB decimal.Decimal) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -663,7 +674,7 @@ func (res *resources) SetMemoryMB(memoryMB decimal.Decimal) {
 }
 
 // VRAM returns the amount of VRAM (in GB).
-func (res *resources) VRAM() float64 {
+func (res *Resources) VRAM() float64 {
 	res.Lock()
 	defer res.Unlock()
 
@@ -672,21 +683,21 @@ func (res *resources) VRAM() float64 {
 
 // VRAMAsDecimal returns a copy of the decimal.Decimal that precisely & accurately encodes the amount of VRAM.
 // The units are gigabytes (GB).
-func (res *resources) VRAMAsDecimal() decimal.Decimal {
+func (res *Resources) VRAMAsDecimal() decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
 	return res.vramGB.Copy()
 }
 
-func (res *resources) GPUs() float64 {
+func (res *Resources) GPUs() float64 {
 	res.Lock()
 	defer res.Unlock()
 
 	return res.gpus.InexactFloat64()
 }
 
-func (res *resources) GPUsAsDecimal() decimal.Decimal {
+func (res *Resources) GPUsAsDecimal() decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
@@ -694,21 +705,21 @@ func (res *resources) GPUsAsDecimal() decimal.Decimal {
 }
 
 // SetGpus sets the number of GPUs to a copy of the specified decimal.Decimal value.
-func (res *resources) SetGpus(gpus decimal.Decimal) {
+func (res *Resources) SetGpus(gpus decimal.Decimal) {
 	res.Lock()
 	defer res.Unlock()
 
 	res.gpus = gpus.Copy()
 }
 
-func (res *resources) Millicpus() float64 {
+func (res *Resources) Millicpus() float64 {
 	res.Lock()
 	defer res.Unlock()
 
 	return res.millicpus.InexactFloat64()
 }
 
-func (res *resources) MillicpusAsDecimal() decimal.Decimal {
+func (res *Resources) MillicpusAsDecimal() decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
@@ -716,21 +727,21 @@ func (res *resources) MillicpusAsDecimal() decimal.Decimal {
 }
 
 // SetMillicpus sets the number of Millicpus to a copy of the specified decimal.Decimal value.
-func (res *resources) SetMillicpus(millicpus decimal.Decimal) {
+func (res *Resources) SetMillicpus(millicpus decimal.Decimal) {
 	res.Lock()
 	defer res.Unlock()
 
 	res.millicpus = millicpus
 }
 
-// Add adds the resources encapsulated in the given types.DecimalSpec to the resources' internal resource counts.
+// Add adds the Resources encapsulated in the given types.DecimalSpec to the Resources' internal resource counts.
 //
-// If performing this operation were to result in any of the resources' internal counts becoming negative, then
+// If performing this operation were to result in any of the Resources' internal counts becoming negative, then
 // an error is returned and no changes are made whatsoever.
 //
-// This operation is performed atomically. It should not be called from a context in which the resources' mutex is
+// This operation is performed atomically. It should not be called from a context in which the Resources' mutex is
 // already held/acquired, as this will lead to a deadlock.
-func (res *resources) Add(spec *types.DecimalSpec) error {
+func (res *Resources) Add(spec *types.DecimalSpec) error {
 	res.Lock()
 	defer res.Unlock()
 
@@ -772,14 +783,14 @@ func (res *resources) Add(spec *types.DecimalSpec) error {
 	return nil
 }
 
-// Subtract subtracts the resources encapsulated in the given types.DecimalSpec from the resources' own internal counts.
+// Subtract subtracts the Resources encapsulated in the given types.DecimalSpec from the Resources' own internal counts.
 //
-// If performing this operation were to result in any of the resources' internal counts becoming negative, then
+// If performing this operation were to result in any of the Resources' internal counts becoming negative, then
 // an error is returned and no changes are made whatsoever.
 //
-// This operation is performed atomically. It should not be called from a context in which the resources' mutex is
+// This operation is performed atomically. It should not be called from a context in which the Resources' mutex is
 // already held/acquired, as this will lead to a deadlock.
-func (res *resources) Subtract(spec *types.DecimalSpec) error {
+func (res *Resources) Subtract(spec *types.DecimalSpec) error {
 	res.Lock()
 	defer res.Unlock()
 
@@ -822,9 +833,9 @@ func (res *resources) Subtract(spec *types.DecimalSpec) error {
 
 }
 
-// Validate returns true if each of the resources' cpu, gpu, and memory are greater than or equal to the respective
+// Validate returns true if each of the Resources' cpu, gpu, and memory are greater than or equal to the respective
 // resource of the given types.DecimalSpec.
-func (res *resources) Validate(spec types.Spec) bool {
+func (res *Resources) Validate(spec types.Spec) bool {
 	res.Lock()
 	defer res.Unlock()
 
@@ -843,13 +854,13 @@ func (res *resources) Validate(spec types.Spec) bool {
 		res.vramGB.GreaterThanOrEqual(decimalSpec.VRam)
 }
 
-// ValidateWithError returns nil if each of the resources' cpu, gpu, and memory are greater than or equal to the
+// ValidateWithError returns nil if each of the Resources' cpu, gpu, and memory are greater than or equal to the
 // respective resource of the given types.DecimalSpec. That is, if the given types.DecimalSpec is validated, so to
 // speak, then ValidateWithError will return nil.
 //
 // If the specified types.DecimalSpec is NOT validated, then an error is returned.
-// This error indicates which of the resources' cpu, gpu, and/or memory were insufficient to validate the given spec.
-func (res *resources) ValidateWithError(spec types.Spec) error {
+// This error indicates which of the Resources' cpu, gpu, and/or memory were insufficient to validate the given spec.
+func (res *Resources) ValidateWithError(spec types.Spec) error {
 	res.Lock()
 	defer res.Unlock()
 
@@ -891,18 +902,18 @@ func (res *resources) ValidateWithError(spec types.Spec) error {
 	}
 }
 
-// ResourcesWrapper is a wrapper around several resources structs, each of which corresponds to idle, pending,
-// committed, or spec resources.
+// ResourcesWrapper is a wrapper around several Resources structs, each of which corresponds to idle, pending,
+// committed, or spec Resources.
 type ResourcesWrapper struct {
 	mu sync.Mutex
 
 	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this ResourcesWrapper.
 	lastAppliedSnapshotId int32
 
-	idleResources      *resources
-	pendingResources   *resources
-	committedResources *resources
-	specResources      *resources
+	idleResources      *Resources
+	pendingResources   *Resources
+	committedResources *Resources
+	specResources      *Resources
 }
 
 // NewResourcesWrapper creates a new ResourcesWrapper struct from the given types.Spec and returns
@@ -915,28 +926,28 @@ func NewResourcesWrapper(spec types.Spec) *ResourcesWrapper {
 	return &ResourcesWrapper{
 		// Snapshot IDs begin at 0, so -1 will always be less than the first snapshot to be applied.
 		lastAppliedSnapshotId: -1,
-		idleResources: &resources{
+		idleResources: &Resources{
 			resourceStatus: IdleResources,
 			millicpus:      resourceSpec.Millicpus.Copy(),
 			memoryMB:       resourceSpec.MemoryMb.Copy(),
 			gpus:           resourceSpec.GPUs.Copy(),
 			vramGB:         resourceSpec.VRam.Copy(),
 		},
-		pendingResources: &resources{
+		pendingResources: &Resources{
 			resourceStatus: PendingResources,
 			millicpus:      decimal.Zero.Copy(),
 			memoryMB:       decimal.Zero.Copy(),
 			gpus:           decimal.Zero.Copy(),
 			vramGB:         decimal.Zero.Copy(),
 		},
-		committedResources: &resources{
+		committedResources: &Resources{
 			resourceStatus: CommittedResources,
 			millicpus:      decimal.Zero.Copy(),
 			memoryMB:       decimal.Zero.Copy(),
 			gpus:           decimal.Zero.Copy(),
 			vramGB:         decimal.Zero.Copy(),
 		},
-		specResources: &resources{
+		specResources: &Resources{
 			resourceStatus: SpecResources,
 			millicpus:      resourceSpec.Millicpus.Copy(),
 			memoryMB:       resourceSpec.MemoryMb.Copy(),
@@ -992,7 +1003,7 @@ func (r *ResourcesWrapper) String() string {
 		r.idleResources.String(), r.pendingResources.String(), r.committedResources.String(), r.specResources.String())
 }
 
-// IdleResources returns a ResourceState that is responsible for encoding the current idle resources
+// IdleResources returns a ResourceState that is responsible for encoding the current idle Resources
 // of the target ResourcesWrapper.
 func (r *ResourcesWrapper) IdleResources() ResourceState {
 	r.mu.Lock()
@@ -1001,7 +1012,7 @@ func (r *ResourcesWrapper) IdleResources() ResourceState {
 	return r.idleResources
 }
 
-// PendingResources returns a ResourceState that is responsible for encoding the current pending resources
+// PendingResources returns a ResourceState that is responsible for encoding the current pending Resources
 // of the target ResourcesWrapper.
 func (r *ResourcesWrapper) PendingResources() ResourceState {
 	r.mu.Lock()
@@ -1010,7 +1021,7 @@ func (r *ResourcesWrapper) PendingResources() ResourceState {
 	return r.pendingResources
 }
 
-// CommittedResources returns a ResourceState that is responsible for encoding the current committed resources
+// CommittedResources returns a ResourceState that is responsible for encoding the current committed Resources
 // of the target ResourcesWrapper.
 func (r *ResourcesWrapper) CommittedResources() ResourceState {
 	r.mu.Lock()
@@ -1019,7 +1030,7 @@ func (r *ResourcesWrapper) CommittedResources() ResourceState {
 	return r.committedResources
 }
 
-// SpecResources returns a ResourceState that is responsible for encoding the current spec resources
+// SpecResources returns a ResourceState that is responsible for encoding the current spec Resources
 // of the target ResourcesWrapper.
 func (r *ResourcesWrapper) SpecResources() ResourceState {
 	r.mu.Lock()
@@ -1028,7 +1039,7 @@ func (r *ResourcesWrapper) SpecResources() ResourceState {
 	return r.specResources
 }
 
-// idleResourcesSnapshot returns a *ResourceSnapshot struct capturing the current idle resources
+// idleResourcesSnapshot returns a *ResourceSnapshot struct capturing the current idle Resources
 // of the target ResourcesWrapper.
 func (r *ResourcesWrapper) idleResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
@@ -1037,7 +1048,7 @@ func (r *ResourcesWrapper) idleResourcesSnapshot(snapshotId int32) *ResourceSnap
 	return r.idleResources.ResourceSnapshot(snapshotId)
 }
 
-// pendingResourcesSnapshot returns a *ResourceSnapshot struct capturing the current pending resources
+// pendingResourcesSnapshot returns a *ResourceSnapshot struct capturing the current pending Resources
 // of the target ResourcesWrapper.
 func (r *ResourcesWrapper) pendingResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
@@ -1046,7 +1057,7 @@ func (r *ResourcesWrapper) pendingResourcesSnapshot(snapshotId int32) *ResourceS
 	return r.pendingResources.ResourceSnapshot(snapshotId)
 }
 
-// committedResourcesSnapshot returns a *ResourceSnapshot struct capturing the current committed resources
+// committedResourcesSnapshot returns a *ResourceSnapshot struct capturing the current committed Resources
 // of the target ResourcesWrapper.
 func (r *ResourcesWrapper) committedResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
@@ -1055,7 +1066,7 @@ func (r *ResourcesWrapper) committedResourcesSnapshot(snapshotId int32) *Resourc
 	return r.committedResources.ResourceSnapshot(snapshotId)
 }
 
-// specResourcesSnapshot returns a *ResourceSnapshot struct capturing the current spec resources
+// specResourcesSnapshot returns a *ResourceSnapshot struct capturing the current spec Resources
 // of the target ResourcesWrapper.
 func (r *ResourcesWrapper) specResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
@@ -1064,43 +1075,43 @@ func (r *ResourcesWrapper) specResourcesSnapshot(snapshotId int32) *ResourceSnap
 	return r.specResources.ResourceSnapshot(snapshotId)
 }
 
-// idleProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current idle resources
+// IdleProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current idle Resources
 // of the target ResourcesWrapper.
-func (r *ResourcesWrapper) idleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+func (r *ResourcesWrapper) IdleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.idleResources.protoResourceSnapshot(snapshotId)
 }
 
-// pendingProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current pending resources
+// PendingProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current pending Resources
 // of the target ResourcesWrapper.
-func (r *ResourcesWrapper) pendingProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+func (r *ResourcesWrapper) PendingProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.pendingResources.protoResourceSnapshot(snapshotId)
 }
 
-// committedProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current committed resources
+// CommittedProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current committed Resources
 // of the target ResourcesWrapper.
-func (r *ResourcesWrapper) committedProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+func (r *ResourcesWrapper) CommittedProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.committedResources.protoResourceSnapshot(snapshotId)
 }
 
-// specProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current spec resources
+// SpecProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current spec Resources
 // of the target ResourcesWrapper.
-func (r *ResourcesWrapper) specProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+func (r *ResourcesWrapper) SpecProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.specResources.protoResourceSnapshot(snapshotId)
 }
 
-// ResourceSnapshot returns a pointer to a ResourceSnapshot created for the specified "status" of resources
+// ResourceSnapshot returns a pointer to a ResourceSnapshot created for the specified "status" of Resources
 // (i.e., "idle", "pending", "committed", or "spec").
 func (r *ResourcesWrapper) ResourceSnapshot(status ResourceStatus, snapshotId int32) *ResourceSnapshot {
 	switch status {

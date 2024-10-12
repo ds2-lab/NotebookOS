@@ -28,7 +28,7 @@ type aggregateGpuInfo struct {
 	TotalSpecGPUs              int32 `json:"specGPUs,omitempty"`              // The total number of GPUs configured/present on this node.
 	TotalIdleGPUs              int32 `json:"idleGPUs,omitempty"`              // The number of GPUs that are uncommitted and therefore available on this node. This quantity is equal to specGPUs - committedGPUs.
 	TotalCommittedGPUs         int32 `json:"committedGPUs,omitempty"`         // The number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
-	TotalPendingGPUs           int32 `json:"pendingGPUs,omitempty"`           // The sum of the outstanding GPUs of all replicas scheduled onto this node. Pending GPUs are not allocated or committed to a particular replica yet. The time at which resources are actually committed to a replica depends upon the policy being used. In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
+	TotalPendingGPUs           int32 `json:"pendingGPUs,omitempty"`           // The sum of the outstanding GPUs of all replicas scheduled onto this node. Pending GPUs are not allocated or committed to a particular replica yet. The time at which Resources are actually committed to a replica depends upon the policy being used. In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
 	TotalNumPendingAllocations int32 `json:"numPendingAllocations,omitempty"` // Number of individual allocations consisting of GPUs that have NOT been fully committed to a kernel.
 	TotalNumAllocations        int32 `json:"numAllocations,omitempty"`        // Number of individual allocations such that the GPUs have been committed to a container.
 }
@@ -73,11 +73,11 @@ type BaseScheduler struct {
 	//-//-//-//-//-//-//-//-//-//
 	gpusPerHost                  float64                  // The number of actual GPUs that are available for use on each node/host.
 	virtualGpusPerHost           int32                    // The number of virtual GPUs per host.
-	scalingFactor                float64                  // scalingFactor defines how many hosts the cluster will provision based on busy resources.
+	scalingFactor                float64                  // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
 	maximumHostsToReleaseAtOnce  int32                    // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
 	scalingIntervalSec           int32                    // How often to call UpdateRatio in seconds.
 	scalingInterval              time.Duration            // How often to call UpdateRatio .
-	scalingLimit                 float64                  // scalingLimit defines how many hosts the cluster will provision at maximum based on busy resources.
+	scalingLimit                 float64                  // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
 	canScaleIn                   bool                     // Can the Cluster/Placer scale-in?
 	shouldUpdateRatio            bool                     // Should the Placer update its subscription ratio?
 	predictiveAutoscalingEnabled bool                     // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.

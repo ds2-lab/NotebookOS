@@ -65,7 +65,7 @@ func (s *KubernetesScheduler) MigrateContainer(container *Container, host *Host,
 // kernel onto Host instances.
 //
 // In the case of KubernetesScheduler, DeployNewKernel uses the Kubernetes API to deploy the necessary Kubernetes
-// resources to create the new Kernel replicas.
+// Resources to create the new Kernel replicas.
 func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*Host) error {
 	if blacklistedHosts != nil && len(blacklistedHosts) > 0 {
 		panic("Support for blacklisted hosts with Kubernetes scheduler may not have been implemented yet (I don't think it has)...")
@@ -73,7 +73,7 @@ func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.Ker
 
 	_, err := s.kubeClient.DeployDistributedKernels(ctx, in)
 	if err != nil {
-		s.log.Error("Error encountered while attempting to create the Kubernetes resources for Session %s: %v", in.Id, err)
+		s.log.Error("Error encountered while attempting to create the Kubernetes Resources for Session %s: %v", in.Id, err)
 		return status.Errorf(codes.Internal, "Failed to start kernel")
 	}
 
