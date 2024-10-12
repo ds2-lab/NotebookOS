@@ -18,10 +18,10 @@ var (
 )
 
 type LoggerOptions struct {
-	Options
+	Options `json:"Options"`
 
-	Debug   bool `name:"debug" description:"Display debug logs."`
-	Verbose bool `name:"v" description:"Display verbose logs."`
+	Debug   bool `name:"debug" json:"Debug" description:"Display debug logs."`
+	Verbose bool `name:"v" json:"Verbose" description:"Display verbose logs."`
 }
 
 func (o *LoggerOptions) Validate() error {

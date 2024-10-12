@@ -17,8 +17,8 @@ import (
 type DockerComposeCluster struct {
 	*BaseCluster
 
-	// DisabledHosts is a map from host ID to *Host containing all the Host instances that are currently set to "off".
-	DisabledHosts hashmap.HashMap[string, *Host]
+	// DisabledHosts is a map from host ID to AbstractHost containing all the AbstractHost instances that are currently set to "off".
+	DisabledHosts hashmap.HashMap[string, AbstractHost]
 }
 
 // NewDockerComposeCluster creates a new DockerComposeCluster struct and returns a pointer to it.
@@ -33,7 +33,7 @@ func NewDockerComposeCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
 
 	dockerCluster := &DockerComposeCluster{
 		BaseCluster:   baseCluster,
-		DisabledHosts: hashmap.NewConcurrentMap[*Host](256),
+		DisabledHosts: hashmap.NewConcurrentMap[AbstractHost](256),
 	}
 
 	placer, err := NewRandomPlacer(dockerCluster, opts)
@@ -80,7 +80,7 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 		}
 	}
 
-	if host.containers.Len() > 0 {
+	if host.NumContainers() > 0 {
 		return fmt.Errorf("%w: host \"%s\" is hosting at least one kernel replica, and automated migrations are not yet implemented",
 			ErrInvalidHost, id)
 	}
@@ -146,9 +146,9 @@ func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDo
 			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len())
 
 		if c.DisabledHosts.Len() > 0 {
-			enabledHosts := make([]*Host, 0)
+			enabledHosts := make([]AbstractHost, 0)
 			// First, check if we have any disabled nodes. If we do, then we'll just re-enable them.
-			c.DisabledHosts.Range(func(hostId string, host *Host) (contd bool) {
+			c.DisabledHosts.Range(func(hostId string, host AbstractHost) (contd bool) {
 				err := host.Enable()
 				if err != nil {
 					c.log.Error("Failed to re-enable host %s because: %v", hostId, err)
@@ -176,9 +176,9 @@ func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDo
 
 			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the "disabled hosts" mapping.
 			for _, host := range enabledHosts {
-				_, loaded := c.DisabledHosts.LoadAndDelete(host.ID)
+				_, loaded := c.DisabledHosts.LoadAndDelete(host.GetID())
 				if !loaded {
-					log.Fatalf("Failed to find host %s in DisabledHosts map after using it in scale-out operation.", host.ID)
+					log.Fatalf("Failed to find host %s in DisabledHosts map after using it in scale-out operation.", host.GetID())
 				}
 			}
 		}
@@ -281,11 +281,11 @@ func (c *DockerComposeCluster) getScaleInCommand(targetScale int32, targetHosts 
 
 	// First, just look for Hosts that are entirely idle.
 	// NOTE: targetHosts is empty at this point. If it wasn't, we would have called unsafeGetTargetedScaleInCommand(...).
-	c.hosts.Range(func(hostId string, host *Host) (contd bool) {
-		if host.containers.Len() == 0 {
+	c.hosts.Range(func(hostId string, host AbstractHost) (contd bool) {
+		if host.NumContainers() == 0 {
 			targetHosts = append(targetHosts, hostId)
 			c.log.Debug("Identified Host %s as viable target for termination during scale-in. Identified %d/%d hosts to terminate.",
-				host.ID, len(targetHosts), numAffectedNodes)
+				host.GetID(), len(targetHosts), numAffectedNodes)
 		}
 
 		// If we've identified enough hosts, then we can stop iterating.

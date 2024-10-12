@@ -144,6 +144,8 @@ func getNameOfDockerContainer() string {
 }
 
 func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, done *sync.WaitGroup, finalize LocalDaemonFinalizer, sig chan os.Signal) (*SchedulerDaemonImpl, func()) {
+	globalLogger.Info("Local Daemon Options:\n%s", options.PrettyString(2))
+
 	tracer, consulClient := CreateConsulAndTracer(options)
 
 	gOpts := GetGrpcOptions(tracer)
@@ -160,8 +162,6 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	// We largely disable the DevicePlugin server if we're running in LocalMode or if we're not running in Kubernetes mode.
 	disableDevicePluginServer := options.DeploymentMode != string(types.KubernetesMode)
 	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, disableDevicePluginServer)
-
-	globalLogger.Debug("Local Daemon Options:\n%s", options.PrettyString(2))
 
 	// Initialize grpc server
 	srv := grpc.NewServer(gOpts...)

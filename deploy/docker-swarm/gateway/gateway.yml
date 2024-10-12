@@ -11,7 +11,7 @@ iopub-port: 9004
 iosub-port: 9005
 ack-port: 9006
 hdfs-namenode-endpoint: host.docker.internal:10000
-debug: true
+debug: true # for logging
 direct: false
 num-replicas: 3
 max-subscribed-ratio: 7.0

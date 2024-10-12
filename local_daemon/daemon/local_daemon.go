@@ -1325,7 +1325,7 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 }
 
 // smrNodeAddedCallback is a callback passed to the KernelReplicaClient of a kernel such that, when the kernel
-// client receives an "smr_node_added" IOPub message, it will call the smrNodeAddedCallback method so that
+// client receives a "smr_node_added" IOPub message, it will call the smrNodeAddedCallback method so that
 // the Local Daemon can notify the Cluster Gateway.
 //
 // NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.

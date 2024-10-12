@@ -12,10 +12,10 @@ import (
 )
 
 type LocalDaemonOptions struct {
-	config.LoggerOptions
-	jupyter.ConnectionInfo
-	SchedulerDaemonOptions
-	VirtualGpuPluginServerOptions
+	config.LoggerOptions          `yaml:",inline" json:"logger_options"`
+	jupyter.ConnectionInfo        `yaml:",inline" json:"connection_info"`
+	SchedulerDaemonOptions        `yaml:",inline" json:"scheduler_daemon_options"`
+	VirtualGpuPluginServerOptions `yaml:",inline" json:"virtual_gpu_plugin_server_options"`
 
 	Port               int    `name:"port" usage:"Port that the gRPC service listens on."`
 	KernelRegistryPort int    `name:"kernel-registry-port" usage:"Port on which the Kernel Registry Server listens."`
@@ -52,7 +52,7 @@ func (o *LocalDaemonOptions) String() string {
 type SchedulerDaemonConfig func(SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
-	configuration.CommonOptions `yaml:",inline"`
+	configuration.CommonOptions `yaml:",inline" json:"common_options"`
 
 	// If the scheduler serves jupyter notebook directly, set this to true.
 	DirectServer      bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`

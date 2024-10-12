@@ -564,7 +564,7 @@ func (mr *MockclusterInternalMockRecorder) Len() *gomock.Call {
 }
 
 // NewHostAddedOrConnected mocks base method.
-func (m *MockclusterInternal) NewHostAddedOrConnected(host *scheduling.Host) {
+func (m *MockclusterInternal) NewHostAddedOrConnected(host scheduling.AbstractHost) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "NewHostAddedOrConnected", host)
 }
@@ -989,7 +989,7 @@ func (mr *MockClusterMockRecorder) Len() *gomock.Call {
 }
 
 // NewHostAddedOrConnected mocks base method.
-func (m *MockCluster) NewHostAddedOrConnected(host *scheduling.Host) {
+func (m *MockCluster) NewHostAddedOrConnected(host scheduling.AbstractHost) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "NewHostAddedOrConnected", host)
 }

@@ -142,9 +142,9 @@ func (p *cachedPenalty) Candidates() ContainerList {
 // target Host, then an error is returned.
 //
 // If either of the arguments are nil, then this method will panic.
-func ApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Host, snapshot types.HostResourceSnapshot[T]) error {
-	h.syncMutex.Lock()
-	defer h.syncMutex.Unlock()
+func ApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h AbstractHost, snapshot types.HostResourceSnapshot[T]) error {
+	h.LockSynchronization()
+	defer h.UnlockSynchronization()
 
 	return unsafeApplyResourceSnapshotToHost[T](h, snapshot)
 }
@@ -154,24 +154,25 @@ func ApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Host, sna
 //
 // unsafeApplyResourceSnapshotToHost should only be called if both the syncMutex and schedulingMutex of the specified
 // Host are already held.
-func unsafeApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Host, snapshot types.HostResourceSnapshot[T]) error {
+func unsafeApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h AbstractHost, snapshot types.HostResourceSnapshot[T]) error {
 	if h == nil {
 		log.Fatalf(utils.RedStyle.Render("Attempted to apply (possibly nil) resource snapshot to nil Host."))
 	}
 
 	if snapshot == nil {
 		log.Fatalf(utils.RedStyle.Render("Attempted to apply nil resource snapshot to Host %s (ID=%s)."),
-			h.NodeName, h.ID)
+			h.GetNodeName(), h.GetID())
 	}
 
-	if h.lastSnapshot != nil && snapshot.GetSnapshotId() < h.lastSnapshot.GetSnapshotId() {
-		h.log.Warn(utils.OrangeStyle.Render("Given snapshot has ID %d < our last applied snapshot (with ID=%d). Rejecting."),
-			h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
+	if h.LastSnapshot() != nil && snapshot.GetSnapshotId() < h.LastSnapshot().GetSnapshotId() {
+		// h.log.Warn(utils.OrangeStyle.Render("Given snapshot has ID %d < our last applied snapshot (with ID=%d). Rejecting."),
+		//	h.LastSnapshot().GetSnapshotId(), snapshot.GetSnapshotId())
 		return fmt.Errorf("%w: last applied snapshot had ID=%d, specified snapshot had ID=%d",
-			ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
+			ErrOldSnapshot, h.LastSnapshot().GetSnapshotId(), snapshot.GetSnapshotId())
 	}
 
-	return ApplySnapshotToResourceWrapper(h.resourcesWrapper, snapshot)
+	// return ApplySnapshotToResourceWrapper(h.resourcesWrapper, snapshot)
+	return h.ApplySnapshot(snapshot)
 }
 
 type Host struct {
@@ -292,9 +293,54 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 	return host, nil
 }
 
+func (h *Host) ApplySnapshot(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
+	return ApplySnapshotToResourceWrapper(h.resourcesWrapper, snapshot)
+}
+
+// LastSnapshot returns the last types.HostResourceSnapshot to have been applied successfully to this Host.
+func (h *Host) LastSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot] {
+	return h.lastSnapshot
+}
+
+func (h *Host) LockSynchronization() {
+	h.syncMutex.Lock()
+}
+
+func (h *Host) UnlockSynchronization() {
+	h.syncMutex.Unlock()
+}
+
+func (h *Host) TryLockSynchronization() bool {
+	return h.syncMutex.TryLock()
+}
+
+// GetIsContainedWithinIndex returns a boolean indicating whether this Host is currently
+// contained within a valid ClusterIndex.
+func (h *Host) GetIsContainedWithinIndex() bool {
+	return h.IsContainedWithinIndex
+}
+
+func (h *Host) GetNodeName() string {
+	return h.NodeName
+}
+
+func (h *Host) SetIsContainedWithinIndex(isContainedWithinIndex bool) {
+	h.IsContainedWithinIndex = isContainedWithinIndex
+}
+
+// GetID returns the ID of the Host.
+// Part of the AbstractHost API.
+func (h *Host) GetID() string {
+	return h.ID
+}
+
 func (h *Host) LockScheduling() {
 	h.schedulingMutex.Lock()
 	//h.log.Debug("Locked scheduling for Host %s (ID=%s).", h.NodeName, h.ID)
+}
+
+func (h *Host) RangeOverContainers(rangeFunc func(s string, container *Container) (contd bool)) {
+	h.containers.Range(rangeFunc)
 }
 
 func (h *Host) TryLockScheduling() bool {
@@ -354,6 +400,12 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		PendingGpu:      float32(h.resourcesWrapper.pendingResources.gpus.InexactFloat64()),
 		PendingVRAM:     float32(h.resourcesWrapper.pendingResources.VRAM()),
 	}
+}
+
+// GetLastRemoteSync returns the time at which the Host last synchronized its resource counts with the actual
+// remote node that the Host represents.
+func (h *Host) GetLastRemoteSync() time.Time {
+	return h.LastRemoteSync
 }
 
 // NumContainers returns the number of Container instances scheduled on the Host.

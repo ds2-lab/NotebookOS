@@ -1492,7 +1492,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	d.log.Debug("Created and stored new DistributedKernel %s.", in.Id)
 
-	err = d.cluster.ClusterScheduler().DeployNewKernel(ctx, in, []*scheduling.Host{ /* No blacklisted hosts */ })
+	err = d.cluster.ClusterScheduler().DeployNewKernel(ctx, in, []scheduling.AbstractHost{ /* No blacklisted hosts */ })
 	if err != nil {
 		d.log.Error("Error while deploying infrastructure for new kernel %s's: %v", in.Id, err)
 		return nil, status.Error(codes.Internal, err.Error())
@@ -1644,7 +1644,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		}
 
 		// In Docker mode, we'll just use the Host ID as the node name.
-		in.NodeName = host.ID
+		in.NodeName = host.GetID()
 	}
 
 	// Initialize kernel client

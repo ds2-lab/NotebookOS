@@ -519,8 +519,8 @@ func (op *ScaleOperation) IsErred() bool {
 // RegisterAffectedHost registers a Host as having been added or removed as a result of the ScaleOperation.
 // RegisterAffectedHost determines whether the Host must have been added or removed based on the type of
 // ScaleOperation that the target ScaleOperation is (i.e., scaling out vs. scaling in).
-func (op *ScaleOperation) RegisterAffectedHost(host *Host) error {
-	op.NodesAffected = append(op.NodesAffected, host.ID)
+func (op *ScaleOperation) RegisterAffectedHost(hostId string) error {
+	op.NodesAffected = append(op.NodesAffected, hostId)
 
 	if len(op.NodesAffected) > op.ExpectedNumAffectedNodes {
 		op.log.Error("Expected %d nodes to be affected; however, we just registered Affected Node #%d",
@@ -529,8 +529,8 @@ func (op *ScaleOperation) RegisterAffectedHost(host *Host) error {
 		return fmt.Errorf("%w: expected %d, but %d node(s) have/has been affected",
 			ErrTooManyNodesAffected, op.ExpectedNumAffectedNodes, len(op.NodesAffected))
 	} else {
-		op.log.Debug("Affected host %d/%d has registered: %v",
-			len(op.NodesAffected), op.ExpectedNumAffectedNodes, host)
+		op.log.Debug("Affected host %d/%d has registered: host %s",
+			len(op.NodesAffected), op.ExpectedNumAffectedNodes, hostId)
 	}
 
 	return nil

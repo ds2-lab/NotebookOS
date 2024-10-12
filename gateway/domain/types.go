@@ -10,6 +10,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"log"
+	"sigs.k8s.io/yaml"
 	"strings"
 )
 
@@ -38,8 +39,8 @@ func (k MetadataKey) String() string {
 }
 
 type ClusterDaemonOptions struct {
-	scheduling.ClusterSchedulerOptions `yaml:",inline"`
-	configuration.CommonOptions        `yaml:",inline"`
+	scheduling.ClusterSchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
+	configuration.CommonOptions        `yaml:",inline" json:"common_options"`
 
 	LocalDaemonServiceName        string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
 	LocalDaemonServicePort        int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
@@ -128,14 +129,14 @@ func (o *ClusterDaemonOptions) String() string {
 }
 
 type ClusterGatewayOptions struct {
-	config.LoggerOptions   `yaml:",inline"`
-	jupyter.ConnectionInfo `yaml:",inline"`
-	ClusterDaemonOptions   `yaml:",inline"`
+	config.LoggerOptions   `yaml:",inline" json:"logger_options"`
+	jupyter.ConnectionInfo `yaml:",inline" json:"connection_info"`
+	ClusterDaemonOptions   `yaml:",inline" json:"cluster_daemon_options"`
 
-	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
-	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
-	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
-	Consuladdr      string `name:"consul" description:"Consul agent address."`
+	Port            int    `name:"port" usage:"Port the gRPC service listen on." json:"port"`
+	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers." json:"provisioner_port"`
+	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address." json:"jaeger_addr"`
+	ConsulAddr      string `name:"consul" description:"Consul agent address." json:"consul_addr"`
 	// DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
 }
 
@@ -156,6 +157,16 @@ func (opts *ClusterGatewayOptions) PrettyString(indentSize int) string {
 	}
 
 	m, err := json.MarshalIndent(opts, "", indentBuilder.String())
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+// YamlString returns the ClusterGatewayOptions marshalled using YAML.
+func (opts *ClusterGatewayOptions) YamlString() string {
+	m, err := yaml.Marshal(opts)
 	if err != nil {
 		panic(err)
 	}

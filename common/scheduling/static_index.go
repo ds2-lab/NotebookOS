@@ -8,10 +8,10 @@ import (
 )
 
 type StaticClusterIndex struct {
-	hosts     []*Host // The Host instances in the index.
-	length    int     // The number of Host instances in the index.
-	freeStart int32   // The first freed index.
-	seekStart int32   // The index at which we begin searching for a Host. For this index, its reset after every seek.
+	hosts     []AbstractHost // The Host instances in the index.
+	length    int            // The number of Host instances in the index.
+	freeStart int32          // The first freed index.
+	seekStart int32          // The index at which we begin searching for a Host. For this index, its reset after every seek.
 
 	mu  sync.Mutex
 	log logger.Logger
@@ -19,7 +19,7 @@ type StaticClusterIndex struct {
 
 func NewStaticClusterIndex() *StaticClusterIndex {
 	index := &StaticClusterIndex{
-		hosts:     make([]*Host, 0),
+		hosts:     make([]AbstractHost, 0),
 		length:    0,
 		freeStart: 0,
 	}
@@ -40,7 +40,7 @@ func (index *StaticClusterIndex) Category() (category string, expected interface
 
 // IsQualified returns the actual value according to the index category and whether the host is qualified.
 // An index provider must be able to track indexed hosts and indicate disqualification.
-func (index *StaticClusterIndex) IsQualified(host *Host) (actual interface{}, qualified ClusterIndexQualification) {
+func (index *StaticClusterIndex) IsQualified(host AbstractHost) (actual interface{}, qualified ClusterIndexQualification) {
 	// Since all hosts are qualified, we check if the host is in the index only.
 	if _, ok := host.GetMeta(HostMetaRandomIndex).(int32); ok {
 		return expectedRandomIndex, ClusterIndexQualified
@@ -55,7 +55,7 @@ func (index *StaticClusterIndex) Len() int {
 }
 
 // Add adds a host to the index.
-func (index *StaticClusterIndex) Add(host *Host) {
+func (index *StaticClusterIndex) Add(host AbstractHost) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -81,10 +81,10 @@ func (index *StaticClusterIndex) Add(host *Host) {
 
 // Update updates a host in the index.
 // TODO: Call this when GPU amounts change.
-func (index *StaticClusterIndex) Update(host *Host) {
+func (index *StaticClusterIndex) Update(host AbstractHost) {
 	found := false
 	for i, h := range index.hosts {
-		if h.ID == host.ID {
+		if h.GetID() == host.GetID() {
 			index.hosts[i] = host
 			found = true
 			break
@@ -99,7 +99,7 @@ func (index *StaticClusterIndex) Update(host *Host) {
 }
 
 // Remove removes a host from the index.
-func (index *StaticClusterIndex) Remove(host *Host) {
+func (index *StaticClusterIndex) Remove(host AbstractHost) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -120,7 +120,7 @@ func (index *StaticClusterIndex) Remove(host *Host) {
 		index.compactLocked(index.freeStart)
 	}
 
-	slices.SortFunc(index.hosts, func(a, b *Host) int {
+	slices.SortFunc(index.hosts, func(a, b AbstractHost) int {
 		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
 		// with the Hosts with the most idle GPUs appearing first.
 		if a.IdleGPUs() > b.IdleGPUs() {
@@ -136,7 +136,7 @@ func (index *StaticClusterIndex) Remove(host *Host) {
 // sortIndex sorts the Host instances in the index by their number of idle GPUs.
 // Host instances with more idle GPUs available appear first in the index.
 func (index *StaticClusterIndex) sortIndex() {
-	slices.SortFunc(index.hosts, func(a, b *Host) int {
+	slices.SortFunc(index.hosts, func(a, b AbstractHost) int {
 		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
 		// with the Hosts with the most idle GPUs appearing first.
 		if a.IdleGPUs() > b.IdleGPUs() {
@@ -176,7 +176,7 @@ func (index *StaticClusterIndex) compactLocked(from int32) {
 }
 
 // GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
-func (index *StaticClusterIndex) GetMetrics(*Host) (metrics []float64) {
+func (index *StaticClusterIndex) GetMetrics(AbstractHost) (metrics []float64) {
 	return nil
 }
 
@@ -185,7 +185,7 @@ func (index *StaticClusterIndex) GetMetrics(*Host) (metrics []float64) {
 // // // // // // // // // // // // // //
 
 // Seek returns the host specified by the metrics.
-func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret *Host, pos interface{}) {
+func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret AbstractHost, pos interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -222,7 +222,7 @@ func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 }
 
 // SeekFrom continues the seek from the position.
-func (index *StaticClusterIndex) SeekFrom(startIdx interface{}, metrics ...[]float64) (host *Host, pos interface{}) {
+func (index *StaticClusterIndex) SeekFrom(startIdx interface{}, metrics ...[]float64) (host AbstractHost, pos interface{}) {
 	if start, ok := startIdx.(int32); ok {
 		index.seekStart = start
 	} else {
@@ -231,7 +231,7 @@ func (index *StaticClusterIndex) SeekFrom(startIdx interface{}, metrics ...[]flo
 	return index.Seek(make([]interface{}, 0), metrics...)
 }
 
-func (index *StaticClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]*Host, interface{}) {
+func (index *StaticClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]AbstractHost, interface{}) {
 	//TODO implement me
 	panic("implement me")
 }

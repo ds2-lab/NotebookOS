@@ -43,7 +43,7 @@ type Container struct {
 	log logger.Logger
 
 	session              *Session       // The Session associated with the Container.
-	host                 *Host          // The Host on which the Container is currently scheduled.
+	host                 AbstractHost   // The AbstractHost on which the Container is currently scheduled.
 	id                   string         // The kernel ID of the Container.
 	dockerId             string         // The Docker container ID of the Container.
 	containerState       ContainerState // The current state of the Container.
@@ -62,7 +62,7 @@ type Container struct {
 }
 
 // NewContainer creates and returns a new *Container.
-func NewContainer(session *Session, kernelReplica KernelReplica, host *Host, kernelIp string) *Container {
+func NewContainer(session *Session, kernelReplica KernelReplica, host AbstractHost, kernelIp string) *Container {
 	id := session.ID()
 	container := &Container{
 		KernelReplica:        kernelReplica,
@@ -152,7 +152,7 @@ func (c *Container) Session() *Session {
 	return c.session
 }
 
-func (c *Container) Host() *Host {
+func (c *Container) Host() AbstractHost {
 	return c.host
 }
 

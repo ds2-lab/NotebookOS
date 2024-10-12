@@ -376,7 +376,7 @@ func SessionStartedTraining[T types.ArbitraryResourceSnapshot](s *Session, conta
 
 	s.trainingStart = time.Now()
 
-	s.log.Debug("Container %s began training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().ID)
+	s.log.Debug("Container %s began training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().GetID())
 
 	return promise.Resolved(s.instance)
 }
@@ -422,7 +422,7 @@ func UnsafeTrainingStopped[T types.ArbitraryResourceSnapshot](s *Session, snapsh
 	latestInteractivePriority := s.updateInteractivePriority("training stopped")
 	s.interactivePriorityHistory.AddValue(latestInteractivePriority)
 
-	s.log.Debug("%s has stopped training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().ID)
+	s.log.Debug("%s has stopped training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().GetID())
 	return promise.Resolved(s.instance)
 }
 

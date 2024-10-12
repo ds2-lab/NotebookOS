@@ -18,7 +18,7 @@ debug_port: 9996
 num-resource-ports: 256
 provisioner: "gateway:8081"
 hdfs-namenode-endpoint: host.docker.internal:10000
-debug: true
+debug: true # for logging
 direct: false
 num-replicas: 3
 max-subscribed-ratio: 7.0
@@ -54,4 +54,4 @@ prometheus_interval: 15
 gpu_poll_interval: 5
 num_resend_attempts: 1
 acks_enabled: false
-checkpointing_enabled: true
+simulate_checkpointing_latency: true

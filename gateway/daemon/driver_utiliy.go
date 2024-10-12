@@ -37,7 +37,7 @@ var (
 
 type GatewayFinalizer func(fix bool, identity string, distributedCluster *DistributedCluster)
 
-// Create/initialize and return the Tracer and Consul Clients.
+// CreateConsulAndTracer creates/initializes and return the Tracer and Consul Clients.
 func CreateConsulAndTracer(options *domain.ClusterGatewayOptions) (opentracing.Tracer, *consul.Client) {
 	var (
 		tracer       opentracing.Tracer
@@ -45,7 +45,7 @@ func CreateConsulAndTracer(options *domain.ClusterGatewayOptions) (opentracing.T
 		err          error
 	)
 
-	if options.JaegerAddr != "" && options.Consuladdr != "" {
+	if options.JaegerAddr != "" && options.ConsulAddr != "" {
 		globalLogger.Info("Initializing jaeger agent [service name: %v | host: %v]...", ServiceName, options.JaegerAddr)
 
 		tracer, err = tracing.Init(ServiceName, options.JaegerAddr)
@@ -54,8 +54,8 @@ func CreateConsulAndTracer(options *domain.ClusterGatewayOptions) (opentracing.T
 		}
 		globalLogger.Info("Jaeger agent initialized")
 
-		globalLogger.Info("Initializing consul agent [host: %v]...", options.Consuladdr)
-		consulClient, err = consul.NewClient(options.Consuladdr)
+		globalLogger.Info("Initializing consul agent [host: %v]...", options.ConsulAddr)
+		consulClient, err = consul.NewClient(options.ConsulAddr)
 		if err != nil {
 			log.Fatalf("Got error while initializing consul agent: %v", err)
 		}
@@ -103,6 +103,8 @@ func GetGrpcOptions(identity string, tracer opentracing.Tracer, distributedClust
 }
 
 func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOptions, done *sync.WaitGroup, finalize GatewayFinalizer, sig chan os.Signal) (*ClusterGatewayImpl, *DistributedCluster) {
+	globalLogger.Info("Cluster Gateway Options:\n\n%s", options.PrettyString(2))
+
 	if done == nil {
 		panic("The provided sync.WaitGroup cannot be nil.")
 	}
@@ -118,8 +120,6 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	options.ClusterDaemonOptions.ValidateClusterDaemonOptions()
 	options.ClusterSchedulerOptions.ValidateClusterSchedulerOptions()
-
-	globalLogger.Debug("Cluster Gateway Options:\n%s", options.PrettyString(2))
 
 	// Initialize daemon
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv scheduling.ClusterGateway) {

@@ -22,7 +22,7 @@ type BaseCluster struct {
 	instance clusterInternal
 
 	// hosts is a map from host ID to *Host containing all the Host instances provisioned within the Cluster.
-	hosts hashmap.HashMap[string, *Host]
+	hosts hashmap.HashMap[string, AbstractHost]
 
 	// sessions is a map of Sessions.
 	sessions hashmap.HashMap[string, *Session]
@@ -83,7 +83,7 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		numReplicas:              opts.NumReplicas,
 		numReplicasDecimal:       decimal.NewFromInt(int64(opts.NumReplicas)),
 		clusterMetricsProvider:   clusterMetricsProvider,
-		hosts:                    hashmap.NewConcurrentMap[*Host](256),
+		hosts:                    hashmap.NewConcurrentMap[AbstractHost](256),
 		sessions:                 hashmap.NewCornelkMap[string, *Session](128),
 		indexes:                  hashmap.NewSyncMap[string, ClusterIndexProvider](),
 		validateCapacityInterval: time.Second * time.Duration(opts.ScalingInterval),
@@ -189,7 +189,7 @@ func (c *BaseCluster) AddIndex(index ClusterIndexProvider) error {
 
 // unsafeCheckIfScaleOperationIsComplete is used to check if there is an active scaling operation and,
 // if there is, then to check if that operation is complete.
-func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host *Host) {
+func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host AbstractHost) {
 	if c.activeScaleOperation == nil {
 		return
 	}
@@ -197,7 +197,7 @@ func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host *Host) {
 	activeScaleOp := c.activeScaleOperation
 	c.log.Debug("Checking if %s %s is finished...", activeScaleOp.OperationType, activeScaleOp.OperationId)
 
-	if err := c.activeScaleOperation.RegisterAffectedHost(host); err != nil {
+	if err := c.activeScaleOperation.RegisterAffectedHost(host.GetID()); err != nil {
 		panic(err)
 	}
 
@@ -220,7 +220,7 @@ func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host *Host) {
 }
 
 // onHostAdded is called when a host is added to the BaseCluster.
-func (c *BaseCluster) onHostAdded(host *Host) {
+func (c *BaseCluster) onHostAdded(host AbstractHost) {
 	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
 		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == ClusterIndexNewQualified {
 			c.log.Debug("Adding new host to index: %v", host)
@@ -240,7 +240,7 @@ func (c *BaseCluster) onHostAdded(host *Host) {
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.
-func (c *BaseCluster) onHostRemoved(host *Host) {
+func (c *BaseCluster) onHostRemoved(host AbstractHost) {
 	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
 		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != ClusterIndexUnqualified {
 			index.Remove(host)
@@ -257,7 +257,7 @@ func (c *BaseCluster) onHostRemoved(host *Host) {
 // BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
 func (c *BaseCluster) BusyGPUs() float64 {
 	busyGPUs := 0.0
-	c.hosts.Range(func(_ string, host *Host) (contd bool) {
+	c.hosts.Range(func(_ string, host AbstractHost) (contd bool) {
 		busyGPUs += host.CommittedGPUs()
 		return true
 	})
@@ -288,7 +288,7 @@ func (c *BaseCluster) NumReplicas() int {
 // RangeOverHosts executes the provided function on each Host in the Cluster.
 //
 // Importantly, this function does NOT lock the hostsMutex.
-func (c *BaseCluster) RangeOverHosts(f func(key string, value *Host) bool) {
+func (c *BaseCluster) RangeOverHosts(f func(key string, value AbstractHost) bool) {
 	c.hosts.Range(f)
 }
 
@@ -705,24 +705,24 @@ func (c *BaseCluster) ClusterMetricsProvider() metrics.ClusterMetricsProvider {
 // NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
 // NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
 // task of locking the required structures during scaling operations.
-func (c *BaseCluster) NewHostAddedOrConnected(host *Host) {
+func (c *BaseCluster) NewHostAddedOrConnected(host AbstractHost) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
-	c.log.Debug("Host %s has just connected to the Cluster or is being re-enabled.", host.ID)
+	c.log.Debug("Host %s has just connected to the Cluster or is being re-enabled.", host.GetID())
 
 	c.hostMutex.Lock()
 	// The host mutex is already locked if we're performing a scaling operation.
-	c.hosts.Store(host.ID, host)
+	c.hosts.Store(host.GetID(), host)
 	c.hostMutex.Unlock()
 
 	c.onHostAdded(host)
 
-	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-added host %s", host.ID)
+	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-added host %s", host.GetID())
 }
 
 // GetHost returns the Host with the given ID, if one exists.
-func (c *BaseCluster) GetHost(hostId string) (*Host, bool) {
+func (c *BaseCluster) GetHost(hostId string) (AbstractHost, bool) {
 	return c.hosts.Load(hostId)
 }
 

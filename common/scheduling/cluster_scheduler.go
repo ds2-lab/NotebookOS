@@ -18,7 +18,7 @@ type ErrorDuringScheduling struct {
 	// ScheduledReplicaIDs are the IDs of replicas whose scheduling was successful.
 	ScheduledReplicaIDs []int32 `json:"scheduled_replica_ids"`
 
-	// HostsWithOrphanedReplicas are the IDs of Host instances who have an orphaned replica Container
+	// HostsWithOrphanedReplicas are the IDs of AbstractHost instances who have an orphaned replica Container
 	// scheduled onto them (because some replicas may have been scheduled successfully while others weren't).
 	HostsWithOrphanedReplicas []string `json:"hosts_with_orphaned_replicas"`
 }
@@ -46,7 +46,7 @@ type ClusterScheduler interface {
 
 	// MigrateContainer tries to migrate the given Container from the given host.
 	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
-	MigrateContainer(*Container, *Host, bool) (bool, error)
+	MigrateContainer(*Container, AbstractHost, bool) (bool, error)
 
 	// UpdateRatio updates the Cluster's subscription ratio.
 	// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
@@ -70,16 +70,16 @@ type ClusterScheduler interface {
 	// the given ratio and the Cluster's current subscription ratio.
 	GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal
 
-	// GetCandidateHosts returns a slice of *Host containing Host instances that could serve
+	// GetCandidateHosts returns a slice of AbstractHost containing AbstractHost instances that could serve
 	// a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 	//
-	// GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster
-	// if it fails to find sufficiently many viable Host instances. This process will be attempted three times.
+	// GetCandidateHosts will automatically request that new AbstractHost instances be provisioned and added to the Cluster
+	// if it fails to find sufficiently many viable AbstractHost instances. This process will be attempted three times.
 	// If GetCandidateHosts is unsuccessful (at finding sufficiently many viable hosts) after those three attempts,
 	// then GetCandidateHosts will give up and return an error.
 	//
 	// The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
-	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error)
+	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]AbstractHost, error)
 
 	// ReleaseIdleHosts Tries to release n idle hosts. Return the number of hosts that were actually released.
 	// Error will be nil on success and non-nil if some sort of failure is encountered.
@@ -90,7 +90,7 @@ type ClusterScheduler interface {
 	// RefreshActualGpuInfo() error
 
 	// RemoteSynchronizationInterval returns the interval at which the ClusterScheduler synchronizes
-	// the Host instances within the Cluster with their remote nodes.
+	// the AbstractHost instances within the Cluster with their remote nodes.
 	RemoteSynchronizationInterval() time.Duration
 
 	// RefreshClusterNodes Updates the cached list of Cluster nodes.
@@ -104,13 +104,13 @@ type ClusterScheduler interface {
 	// then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).
 	//RefreshAll() []error
 
-	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []*Host) error
+	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto AbstractHost instances.
+	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []AbstractHost) error
 
-	// ScheduleKernelReplica schedules a particular replica onto the given Host.
+	// ScheduleKernelReplica schedules a particular replica onto the given AbstractHost.
 	//
 	// If targetHost is nil, then a candidate host is identified automatically by the ClusterScheduler.
-	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost *Host, blacklistedHosts []*Host) error
+	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost AbstractHost, blacklistedHosts []AbstractHost) error
 }
 
 type KubernetesClusterScheduler interface {

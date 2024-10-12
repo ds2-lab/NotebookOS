@@ -21,7 +21,7 @@ const (
 // RandomClusterIndex is a simple Cluster that seeks hosts randomly.
 // RandomClusterIndex uses CategoryClusterIndex and all hosts are qualified.
 type RandomClusterIndex struct {
-	hosts       []*Host
+	hosts       []AbstractHost
 	len         int32
 	freeStart   int32        // The first freed index.
 	perm        []int        // The permutation of the hosts.
@@ -34,7 +34,7 @@ type RandomClusterIndex struct {
 
 func NewRandomClusterIndex(size int) *RandomClusterIndex {
 	index := &RandomClusterIndex{
-		hosts: make([]*Host, 0, size),
+		hosts: make([]AbstractHost, 0, size),
 	}
 	index.numShuffles.Store(0)
 
@@ -47,7 +47,7 @@ func (index *RandomClusterIndex) Category() (string, interface{}) {
 	return CategoryClusterIndex, expectedRandomIndex
 }
 
-func (index *RandomClusterIndex) IsQualified(host *Host) (interface{}, ClusterIndexQualification) {
+func (index *RandomClusterIndex) IsQualified(host AbstractHost) (interface{}, ClusterIndexQualification) {
 	// Since all hosts are qualified, we check if the host is in the index only.
 	val := host.GetMeta(HostMetaRandomIndex)
 	if val == nil {
@@ -70,7 +70,7 @@ func (index *RandomClusterIndex) Len() int {
 	return int(index.len)
 }
 
-func (index *RandomClusterIndex) Add(host *Host) {
+func (index *RandomClusterIndex) Add(host AbstractHost) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -89,31 +89,31 @@ func (index *RandomClusterIndex) Add(host *Host) {
 		index.freeStart += 1
 	}
 	host.SetMeta(HostMetaRandomIndex, i)
-	host.IsContainedWithinIndex = true
-	index.log.Debug("Added Host %s to RandomClusterIndex at position %d.", host.ID, i)
+	host.SetIsContainedWithinIndex(true)
+	index.log.Debug("Added Host %s to RandomClusterIndex at position %d.", host.GetID(), i)
 	index.len += 1
 }
 
-func (index *RandomClusterIndex) Update(host *Host) {
+func (index *RandomClusterIndex) Update(host AbstractHost) {
 	// No-op.
 }
 
-func (index *RandomClusterIndex) Remove(host *Host) {
+func (index *RandomClusterIndex) Remove(host AbstractHost) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
 	i, ok := host.GetMeta(HostMetaRandomIndex).(int32)
 	if !ok {
-		index.log.Warn("Cannot remove host %s; it is not present within RandomClusterIndex", host.ID)
+		index.log.Warn("Cannot remove host %s; it is not present within RandomClusterIndex", host.GetID())
 		return
 	}
 
-	if !host.IsContainedWithinIndex {
+	if !host.GetIsContainedWithinIndex() {
 		index.log.Warn("Host %s thinks it is not contained within any Cluster indices; "+
-			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.ID, HostMetaRandomIndex, i)
+			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.GetID(), HostMetaRandomIndex, i)
 	}
 
-	index.log.Debug("Removing host %s from RandomClusterIndex, position=%d", host.ID, i)
+	index.log.Debug("Removing host %s from RandomClusterIndex, position=%d", host.GetID(), i)
 
 	if i > int32(len(index.hosts)) {
 		log.Fatalf("Index %d is out of range for RandomClusterIndex of length %d...\n", i, len(index.hosts))
@@ -132,15 +132,15 @@ func (index *RandomClusterIndex) Remove(host *Host) {
 		log.Fatalf("There is no host at index %d of RandomClusterIndex (i.e., hosts[%d] is nil.\n", i, i)
 	}
 
-	if index.hosts[i].ID != host.ID {
+	if index.hosts[i].GetID() != host.GetID() {
 		log.Fatalf("Host at index %d of RandomClusterIndex is Host %s; however, we're supposed to remove Host %s...\n",
-			i, index.hosts[i].ID, host.ID)
+			i, index.hosts[i].GetID(), host.GetID())
 	}
 
 	index.hosts[i] = nil
 	index.len -= 1
 	host.SetMeta(HostMetaRandomIndex, nil)
-	host.IsContainedWithinIndex = false
+	host.SetIsContainedWithinIndex(false)
 
 	// Update freeStart.
 	if i < index.freeStart {
@@ -166,13 +166,13 @@ func (index *RandomClusterIndex) compactLocked(from int32) {
 	index.hosts = index.hosts[:frontier]
 }
 
-func (index *RandomClusterIndex) GetMetrics(_ *Host) []float64 {
+func (index *RandomClusterIndex) GetMetrics(_ AbstractHost) []float64 {
 	return nil
 }
 
 // unsafeSeek does the actual work of the Seek method.
 // unsafeSeek does not acquire the mutex. It should be called from a function that has already acquired the mutex.
-func (index *RandomClusterIndex) unsafeSeek(blacklist []interface{}, metrics ...[]float64) (ret *Host, pos interface{}) {
+func (index *RandomClusterIndex) unsafeSeek(blacklist []interface{}, metrics ...[]float64) (ret AbstractHost, pos interface{}) {
 	if index.len == 0 {
 		return nil, nil
 	}
@@ -220,7 +220,7 @@ func (index *RandomClusterIndex) unsafeSeek(blacklist []interface{}, metrics ...
 	return
 }
 
-func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret *Host, pos interface{}) {
+func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret AbstractHost, pos interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -228,7 +228,7 @@ func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 }
 
 // SeekFrom seeks from the given position. Pass nil as pos to reset the seek.
-func (index *RandomClusterIndex) SeekFrom(pos interface{}, metrics ...[]float64) (ret *Host, newPos interface{}) {
+func (index *RandomClusterIndex) SeekFrom(pos interface{}, metrics ...[]float64) (ret AbstractHost, newPos interface{}) {
 	if start, ok := pos.(int32); ok {
 		index.seekStart = start
 	} else {
@@ -241,7 +241,7 @@ func (index *RandomClusterIndex) SeekFrom(pos interface{}, metrics ...[]float64)
 // Pass nil as pos to reset the seek.
 //
 // This entire method is thread-safe. The index is locked until this method returns.
-func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]*Host, interface{}) {
+func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]AbstractHost, interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -249,11 +249,11 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 
 	if int32(n) > index.len {
 		index.log.Error("Index contains just %d hosts. Cannot seek %d hosts.", index.len, n)
-		return []*Host{}, nil
+		return []AbstractHost{}, nil
 	}
 
 	var (
-		candidateHost *Host
+		candidateHost AbstractHost
 		nextPos       interface{}
 	)
 
@@ -275,8 +275,8 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 	loopUntilNumShuffles := initialNumShuffles + 2
 
 	// We use a map in case we generate a new permutation and begin examining hosts that we've already seen before.
-	hostsMap := make(map[string]*Host)
-	hosts := make([]*Host, 0, n)
+	hostsMap := make(map[string]AbstractHost)
+	hosts := make([]AbstractHost, 0, n)
 
 	// Pick up from a particular position in the index.
 	if start, ok := pos.(int32); ok {
@@ -300,15 +300,15 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 
 		// In case we reshuffled, make sure we haven't already received this host.
 		// If indeed it is new, then we'll add it to the host map.
-		if _, loaded := hostsMap[candidateHost.ID]; !loaded {
+		if _, loaded := hostsMap[candidateHost.GetID()]; !loaded {
 			if criteriaFunc == nil || criteriaFunc(candidateHost) {
-				index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.NodeName, candidateHost.ID)
-				hostsMap[candidateHost.ID] = candidateHost
+				index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID())
+				hostsMap[candidateHost.GetID()] = candidateHost
 			} else {
-				index.log.Debug("Host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.NodeName, candidateHost.ID)
+				index.log.Debug("Host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.GetNodeName(), candidateHost.GetID())
 			}
 		} else {
-			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)", candidateHost.NodeName, candidateHost.ID)
+			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)", candidateHost.GetNodeName(), candidateHost.GetID())
 		}
 	}
 

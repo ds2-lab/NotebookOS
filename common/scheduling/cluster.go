@@ -38,22 +38,22 @@ type ClusterIndexProvider interface {
 
 	// IsQualified returns the actual value according to the index category and whether the host is qualified.
 	// An index provider must be able to track indexed hosts and indicate disqualification.
-	IsQualified(*Host) (actual interface{}, qualified ClusterIndexQualification)
+	IsQualified(AbstractHost) (actual interface{}, qualified ClusterIndexQualification)
 
 	// Len returns the number of hosts in the index.
 	Len() int
 
 	// Add adds a host to the index.
-	Add(*Host)
+	Add(AbstractHost)
 
 	// Update updates a host in the index.
-	Update(*Host)
+	Update(AbstractHost)
 
 	// Remove removes a host from the index.
-	Remove(*Host)
+	Remove(AbstractHost)
 
 	// GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
-	GetMetrics(*Host) (metrics []float64)
+	GetMetrics(AbstractHost) (metrics []float64)
 }
 
 // HostCriteriaFunction is used by a ClusterIndexQuerier, specifically in its implementation of
@@ -62,20 +62,20 @@ type ClusterIndexProvider interface {
 // A HostCriteriaFunction accepts a Host as an argument and returns a boolean indicating whether the Host
 // is viable (true) or not (false) based on whatever criteria are defined and implemented within the
 // HostCriteriaFunction function body.
-type HostCriteriaFunction func(*Host) bool
+type HostCriteriaFunction func(AbstractHost) bool
 
 type ClusterIndexQuerier interface {
 	// Seek returns the host specified by the metrics.
-	Seek(blacklist []interface{}, metrics ...[]float64) (host *Host, pos interface{})
+	Seek(blacklist []interface{}, metrics ...[]float64) (host AbstractHost, pos interface{})
 
 	// SeekFrom continues the seek from the position.
-	SeekFrom(start interface{}, metrics ...[]float64) (host *Host, pos interface{})
+	SeekFrom(start interface{}, metrics ...[]float64) (host AbstractHost, pos interface{})
 
 	// SeekMultipleFrom seeks n Host instances from a random permutation of the index.
 	// Pass nil as pos to reset the seek.
 	//
 	// This entire method is thread-safe. The index is locked until this method returns.
-	SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]*Host, interface{})
+	SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]AbstractHost, interface{})
 }
 
 type ClusterIndex interface {
@@ -197,7 +197,7 @@ type Cluster interface {
 	// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
 	// NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
 	// task of locking the required structures during scaling operations.
-	NewHostAddedOrConnected(host *Host)
+	NewHostAddedOrConnected(host AbstractHost)
 
 	// RemoveHost removes the Host with the specified ID.
 	// This is called when a Local Daemon loses connection.
@@ -207,12 +207,12 @@ type Cluster interface {
 	Len() int
 
 	// GetHost returns the Host with the given ID, if one exists.
-	GetHost(hostId string) (*Host, bool)
+	GetHost(hostId string) (AbstractHost, bool)
 
 	// RangeOverHosts executes the provided function on each Host in the Cluster.
 	//
 	// Importantly, this function does NOT lock the hostsMutex.
-	RangeOverHosts(f func(key string, value *Host) bool)
+	RangeOverHosts(f func(key string, value AbstractHost) bool)
 
 	// BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
 	BusyGPUs() float64

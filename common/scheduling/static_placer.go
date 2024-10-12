@@ -36,11 +36,11 @@ func (placer *StaticPlacer) getIndex() ClusterIndex {
 }
 
 // FindHosts returns a single host that can satisfy the resourceSpec.
-func (placer *StaticPlacer) findHosts(spec types.Spec) []*Host {
+func (placer *StaticPlacer) findHosts(spec types.Spec) []AbstractHost {
 	var (
 		pos   interface{}
-		host  *Host
-		hosts = make([]*Host, placer.opts.NumReplicas)
+		host  AbstractHost
+		hosts = make([]AbstractHost, placer.opts.NumReplicas)
 	)
 	for i := 0; i < len(hosts); i++ {
 		host, pos = placer.index.SeekFrom(pos)
@@ -54,8 +54,8 @@ func (placer *StaticPlacer) findHosts(spec types.Spec) []*Host {
 }
 
 // FindHost returns a single host that can satisfy the resourceSpec.
-func (placer *StaticPlacer) findHost(blacklist []interface{}, spec types.Spec) *Host {
-	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost *Host) bool {
+func (placer *StaticPlacer) findHost(blacklist []interface{}, spec types.Spec) AbstractHost {
+	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost AbstractHost) bool {
 		viable, _ := placer.hostIsViable(candidateHost, spec)
 		return viable
 	}, blacklist)

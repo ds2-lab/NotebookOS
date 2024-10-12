@@ -41,7 +41,7 @@ type schedulingNotification struct {
 	SchedulingCompletedAt time.Time
 
 	// Host is the Host on which the kernel was scheduled (or attempted to be scheduled).
-	Host *Host
+	Host AbstractHost
 
 	// KernelId is the ID of the kernel for which a replica was scheduled.
 	KernelId string
@@ -164,7 +164,7 @@ func (s *BaseScheduler) SubscriptionRatio() float64 {
 	return s.subscriptionRatio.InexactFloat64()
 }
 
-// GetCandidateHosts returns a slice of *Host containing Host instances that could serve
+// GetCandidateHosts returns a slice of AbstractHost containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
 // GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster
@@ -173,13 +173,13 @@ func (s *BaseScheduler) SubscriptionRatio() float64 {
 // then GetCandidateHosts will give up and return an error.
 //
 // The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
-func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error) {
+func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]AbstractHost, error) {
 	var (
 		numTries     = 0
 		maxAttempts  = 3
 		bestAttempt  = -1
 		resourceSpec = kernelSpec.DecimalSpecFromKernelSpec()
-		hosts        []*Host
+		hosts        []AbstractHost
 	)
 	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {
 		// Identify the hosts onto which we will place replicas of the kernel.
@@ -231,7 +231,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 }
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*Host) error {
+func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []AbstractHost) error {
 	return s.instance.DeployNewKernel(ctx, in, blacklistedHosts)
 }
 
@@ -386,7 +386,7 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 	s.log.Debug("Pending subscription ratio: %.4f. Invalidated: %.4f", s.pendingSubscribedRatio, s.invalidated)
 }
 
-func (s *BaseScheduler) MigrateContainer(container *Container, host *Host, b bool) (bool, error) {
+func (s *BaseScheduler) MigrateContainer(container *Container, host AbstractHost, b bool) (bool, error) {
 	return s.instance.MigrateContainer(container, host, b)
 }
 
@@ -394,7 +394,7 @@ func (s *BaseScheduler) MigrateContainer(container *Container, host *Host, b boo
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (s *BaseScheduler) ValidateCapacity() {
 	var load int32
-	s.cluster.RangeOverHosts(func(_ string, host *Host) bool {
+	s.cluster.RangeOverHosts(func(_ string, host AbstractHost) bool {
 		load += int32(host.CommittedGPUs())
 		return true
 	})
@@ -510,10 +510,10 @@ func (s *BaseScheduler) validate() {
 		}
 		// TODO: Implement this.
 		panic("Not implemented!")
-		//for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(*Host).OversubscriptionFactor() < 0.0 {
+		//for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(AbstractHost).OversubscriptionFactor() < 0.0 {
 		//	host := s.oversubscribed.Peek()
 		//	heap.Pop(&s.oversubscribed)
-		//	s.designateSubscriptionPoolType(host.(*Host), &s.undersubscribed, SchedulerPoolTypeUndersubscribed)
+		//	s.designateSubscriptionPoolType(host.(AbstractHost), &s.undersubscribed, SchedulerPoolTypeUndersubscribed)
 		//}
 		//s.lastSubscribedRatio = s.pendingSubscribedRatio
 		//s.invalidated = 0.0
@@ -524,7 +524,7 @@ func (s *BaseScheduler) validate() {
 }
 
 type idleSortedHost struct {
-	*Host
+	AbstractHost
 }
 
 func (h *idleSortedHost) Compare(other interface{}) float64 {
@@ -532,7 +532,7 @@ func (h *idleSortedHost) Compare(other interface{}) float64 {
 	diff := other.(*idleSortedHost).IdleGPUs() - h.IdleGPUs()
 	if diff == 0.0 {
 		// max subscription heap for promoting rebalancing.
-		return other.(*Host).SubscribedRatio() - h.SubscribedRatio()
+		return other.(AbstractHost).SubscribedRatio() - h.SubscribedRatio()
 	} else {
 		return diff
 	}
@@ -551,7 +551,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		s.log.Debug("Attempting to release %d idle host(s). There are currently %d host(s) in the Cluster.", n, s.cluster.Len())
 	}
 
-	toBeReleased := make([]*Host, 0, n)
+	toBeReleased := make([]AbstractHost, 0, n)
 	for int32(len(toBeReleased)) < n && s.idleHosts.Len() > 0 {
 		idleHost := s.idleHosts.Peek().(*idleSortedHost)
 
@@ -574,23 +574,25 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	var released int
 	for i, host := range toBeReleased {
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Releasing idle host %d/%d: Virtual Machine  %s. NumContainers: %d.", i+1, len(toBeReleased), host.ID, host.NumContainers())
+			s.log.Debug("Releasing idle host %d/%d: Virtual Machine  %s. NumContainers: %d.", i+1, len(toBeReleased), host.GetID(), host.NumContainers())
 		}
 
 		// If the host has no containers running on it at all, then we can simply release the host.
 		if host.NumContainers() > 0 {
-			host.containers.Range(func(containerId string, c *Container) (contd bool) {
+			host.RangeOverContainers(func(containerId string, c *Container) (contd bool) {
 				// TODO: Migrate Container needs to actually migrate replicas.
 				migratedSuccessfully, err := s.MigrateContainer(c, host, true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
 
 				if !migratedSuccessfully {
 					if err == nil {
 						// We cannot migrate the Container.
-						s.log.Warn("Abandoning the release of idle host %d/%d: Virtual Machine %s. There was no error, but the migration failed...", i+1, len(toBeReleased), host.ID)
-						panic(fmt.Sprintf("Releasing of idle host failed for unknown reason (no error). We were trying to migrate Container %s [state=%v].", c.ContainerID(), c.Status()))
+						s.log.Warn("Abandoning the release of idle host %d/%d: Virtual Machine %s. There was no error, but the migration failed...",
+							i+1, len(toBeReleased), host.GetID())
+						panic(fmt.Sprintf("Releasing of idle host failed for unknown reason (no error). We were trying to migrate Container %s [state=%v].",
+							c.ContainerID(), c.Status()))
 					} else {
 						// We cannot migrate the Container.
-						s.log.Warn("Abandoning the release of idle host %d/%d: Virtual Machine %s.", i+1, len(toBeReleased), host.ID)
+						s.log.Warn("Abandoning the release of idle host %d/%d: Virtual Machine %s.", i+1, len(toBeReleased), host.GetID())
 						s.log.Warn("Reason: %v", err)
 
 						// Add back all the idle hosts that we were going to release, beginning with the host that we should fail to release.
@@ -611,7 +613,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		released += 1
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Successfully released idle host %d/%d: Virtual Machine  %s.", i+1, len(toBeReleased), host.ID)
+			s.log.Debug("Successfully released idle host %d/%d: Virtual Machine  %s.", i+1, len(toBeReleased), host.GetID())
 		}
 	}
 

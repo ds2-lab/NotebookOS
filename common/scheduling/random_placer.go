@@ -40,12 +40,12 @@ func (placer *RandomPlacer) getIndex() ClusterIndex {
 // Second bool indicates whether the host was successfully locked. This does not mean that it is still locked.
 // Merely that we were able to lock it when we tried. If we locked it and found that the host wasn't viable,
 // then we'll have unlocked it before hostIsViable returns.
-func (placer *RandomPlacer) hostIsViable(candidateHost *Host, spec types.Spec) (bool, bool) {
+func (placer *RandomPlacer) hostIsViable(candidateHost AbstractHost, spec types.Spec) (bool, bool) {
 	// Attempt to lock the host for our scheduling operation.
 	// If we fail to lock it, then we'll make note if that and try again later (if necessary).
 	// It is currently involved in another scheduling operation and may be available once that operation completes.
 	if locked := candidateHost.TryLockScheduling(); !locked {
-		placer.log.Warn("Failed to scheduling-lock host %s due to concurrent scheduling operation.", candidateHost.ID)
+		placer.log.Warn("Failed to scheduling-lock host %s due to concurrent scheduling operation.", candidateHost.GetID())
 		return false, false
 	}
 
@@ -66,17 +66,17 @@ func (placer *RandomPlacer) hostIsViable(candidateHost *Host, spec types.Spec) (
 }
 
 // FindHosts returns a slice of Host instances that can satisfy the resourceSpec.
-func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
+func (placer *RandomPlacer) findHosts(spec types.Spec) []AbstractHost {
 	numReplicas := placer.opts.NumReplicas
 
 	var (
-		pos          interface{} = nil
-		hosts        []*Host     = nil
-		failedToLock             = make(map[string]*Host)
+		pos          interface{}    = nil
+		hosts        []AbstractHost = nil
+		failedToLock                = make(map[string]AbstractHost)
 	)
 
 	// Seek `numReplicas` Hosts from the Placer's index.
-	hosts, _ = placer.index.SeekMultipleFrom(pos, numReplicas, func(candidateHost *Host) bool {
+	hosts, _ = placer.index.SeekMultipleFrom(pos, numReplicas, func(candidateHost AbstractHost) bool {
 		// Check if the host is viable.
 		viable, locked := placer.hostIsViable(candidateHost, spec)
 		if viable {
@@ -87,7 +87,7 @@ func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 		// It wasn't viable. Did we simply fail to lock it (and therefore couldn't check its viability)?
 		if !locked {
 			// Simply couldn't check the host's viability. We'll try again later (if we need to).
-			failedToLock[candidateHost.ID] = candidateHost
+			failedToLock[candidateHost.GetID()] = candidateHost
 		}
 
 		// Return false because the host ultimately wasn't viable for one reason (truly not viable) or another (we
@@ -116,12 +116,12 @@ func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 				placer.mu.Lock()
 				// If we succeed in locking one of the hosts, then we'll remove it from the mapping so that
 				// we don't recheck it (in either case -- that it can serve our new kernel replica or if it cannot).
-				removeFromFailedToLock := make([]*Host, 0)
+				removeFromFailedToLock := make([]AbstractHost, 0)
 
 				// Iterate over each of the hosts that we failed to scheduling-lock and retry.
 				for _, host := range failedToLock {
-					if !host.IsContainedWithinIndex {
-						placer.log.Warn("Host %s is no longer in a ClusterIndex. Must have been removed.", host.ID)
+					if !host.GetIsContainedWithinIndex() {
+						placer.log.Warn("Host %s is no longer in a ClusterIndex. Must have been removed.", host.GetID())
 						removeFromFailedToLock = append(removeFromFailedToLock, host)
 						continue
 					}
@@ -132,7 +132,7 @@ func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 						if host.CanServeContainer(spec) && !host.WillBecomeTooOversubscribed(spec) {
 							hosts = append(hosts, host)
 							removeFromFailedToLock = append(removeFromFailedToLock, host)
-							placer.log.Debug(utils.GreenStyle.Render("Locked and found viable candidate host: %s. Identified hosts: %d."), host.ID, len(hosts))
+							placer.log.Debug(utils.GreenStyle.Render("Locked and found viable candidate host: %s. Identified hosts: %d."), host.GetID(), len(hosts))
 
 							// If we've found enough hosts, then we can stop iterating now.
 							if len(hosts) == numReplicas {
@@ -141,13 +141,13 @@ func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 							}
 						} else {
 							// Host wasn't viable. Unlock it, and remove it from the mapping.
-							placer.log.Warn(utils.OrangeStyle.Render("Finally locked host %s, but host cannot satisfy request %v. (Host resources: %v.)"), host.ID, host.ResourceSpec().String(), spec.String())
+							placer.log.Warn(utils.OrangeStyle.Render("Finally locked host %s, but host cannot satisfy request %v. (Host resources: %v.)"), host.GetID(), host.ResourceSpec().String(), spec.String())
 							host.UnlockScheduling()
 							removeFromFailedToLock = append(removeFromFailedToLock, host)
 						}
 					} else {
 						// TODO: Remove this eventually; it'll print way too many times.
-						placer.log.Warn("Once again failed to scheduling-lock host %s due to concurrent scheduling operation.", host.ID)
+						placer.log.Warn("Once again failed to scheduling-lock host %s due to concurrent scheduling operation.", host.GetID())
 					}
 				}
 
@@ -160,7 +160,7 @@ func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 				if len(hosts) < numReplicas {
 					// Iterate over each of the hosts that we were able to lock and remove it from the mapping.
 					for _, host := range removeFromFailedToLock {
-						delete(failedToLock, host.ID)
+						delete(failedToLock, host.GetID())
 					}
 				}
 
@@ -178,8 +178,8 @@ func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *RandomPlacer) findHost(blacklist []interface{}, spec types.Spec) *Host {
-	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost *Host) bool {
+func (placer *RandomPlacer) findHost(blacklist []interface{}, spec types.Spec) AbstractHost {
+	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost AbstractHost) bool {
 		viable, _ := placer.hostIsViable(candidateHost, spec)
 		return viable
 	}, blacklist)
