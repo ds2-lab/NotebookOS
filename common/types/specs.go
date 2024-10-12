@@ -148,6 +148,7 @@ func (d *DecimalSpec) CloneDecimalSpec() *DecimalSpec {
 		GPUs:      d.GPUs.Copy(),
 		Millicpus: d.Millicpus.Copy(),
 		MemoryMb:  d.MemoryMb.Copy(),
+		VRam:      d.VRam.Copy(),
 	}
 }
 
