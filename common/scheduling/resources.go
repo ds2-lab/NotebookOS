@@ -891,12 +891,12 @@ func (res *resources) ValidateWithError(spec types.Spec) error {
 	}
 }
 
-// resourcesWrapper is a wrapper around several resources structs, each of which corresponds to idle, pending,
+// ResourcesWrapper is a wrapper around several resources structs, each of which corresponds to idle, pending,
 // committed, or spec resources.
-type resourcesWrapper struct {
+type ResourcesWrapper struct {
 	mu sync.Mutex
 
-	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this resourcesWrapper.
+	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this ResourcesWrapper.
 	lastAppliedSnapshotId int32
 
 	idleResources      *resources
@@ -905,14 +905,14 @@ type resourcesWrapper struct {
 	specResources      *resources
 }
 
-// newResourcesWrapper creates a new resourcesWrapper struct from the given types.Spec and returns
-// a pointer to it (the new resourcesWrapper struct).
+// NewResourcesWrapper creates a new ResourcesWrapper struct from the given types.Spec and returns
+// a pointer to it (the new ResourcesWrapper struct).
 //
-// The given types.Spec is used to initialize the spec and idle resource quantities of the new resourcesWrapper struct.
-func newResourcesWrapper(spec types.Spec) *resourcesWrapper {
+// The given types.Spec is used to initialize the spec and idle resource quantities of the new ResourcesWrapper struct.
+func NewResourcesWrapper(spec types.Spec) *ResourcesWrapper {
 	resourceSpec := types.ToDecimalSpec(spec)
 
-	return &resourcesWrapper{
+	return &ResourcesWrapper{
 		// Snapshot IDs begin at 0, so -1 will always be less than the first snapshot to be applied.
 		lastAppliedSnapshotId: -1,
 		idleResources: &resources{
@@ -953,7 +953,7 @@ func newResourcesWrapper(spec types.Spec) *resourcesWrapper {
 //
 // If the given HostResourceSnapshot's SnapshotId is less than the resourceWrapper's lastAppliedSnapshotId,
 // then an error will be returned.
-func ApplySnapshotToResourceWrapper[T types.ArbitraryResourceSnapshot](r *resourcesWrapper, snapshot types.HostResourceSnapshot[T]) error {
+func ApplySnapshotToResourceWrapper[T types.ArbitraryResourceSnapshot](r *ResourcesWrapper, snapshot types.HostResourceSnapshot[T]) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -983,18 +983,18 @@ func ApplySnapshotToResourceWrapper[T types.ArbitraryResourceSnapshot](r *resour
 	return nil
 }
 
-// String returns a string representation of the resourcesWrapper that is suitable for logging.
-func (r *resourcesWrapper) String() string {
+// String returns a string representation of the ResourcesWrapper that is suitable for logging.
+func (r *ResourcesWrapper) String() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return fmt.Sprintf("resourcesWrapper{%s, %s, %s, %s}",
+	return fmt.Sprintf("ResourcesWrapper{%s, %s, %s, %s}",
 		r.idleResources.String(), r.pendingResources.String(), r.committedResources.String(), r.specResources.String())
 }
 
 // IdleResources returns a ResourceState that is responsible for encoding the current idle resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) IdleResources() ResourceState {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) IdleResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1002,8 +1002,8 @@ func (r *resourcesWrapper) IdleResources() ResourceState {
 }
 
 // PendingResources returns a ResourceState that is responsible for encoding the current pending resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) PendingResources() ResourceState {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) PendingResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1011,8 +1011,8 @@ func (r *resourcesWrapper) PendingResources() ResourceState {
 }
 
 // CommittedResources returns a ResourceState that is responsible for encoding the current committed resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) CommittedResources() ResourceState {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) CommittedResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1020,8 +1020,8 @@ func (r *resourcesWrapper) CommittedResources() ResourceState {
 }
 
 // SpecResources returns a ResourceState that is responsible for encoding the current spec resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) SpecResources() ResourceState {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) SpecResources() ResourceState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1029,8 +1029,8 @@ func (r *resourcesWrapper) SpecResources() ResourceState {
 }
 
 // idleResourcesSnapshot returns a *ResourceSnapshot struct capturing the current idle resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) idleResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) idleResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1038,8 +1038,8 @@ func (r *resourcesWrapper) idleResourcesSnapshot(snapshotId int32) *ResourceSnap
 }
 
 // pendingResourcesSnapshot returns a *ResourceSnapshot struct capturing the current pending resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) pendingResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) pendingResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1047,8 +1047,8 @@ func (r *resourcesWrapper) pendingResourcesSnapshot(snapshotId int32) *ResourceS
 }
 
 // committedResourcesSnapshot returns a *ResourceSnapshot struct capturing the current committed resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) committedResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) committedResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1056,8 +1056,8 @@ func (r *resourcesWrapper) committedResourcesSnapshot(snapshotId int32) *Resourc
 }
 
 // specResourcesSnapshot returns a *ResourceSnapshot struct capturing the current spec resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) specResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) specResourcesSnapshot(snapshotId int32) *ResourceSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1065,8 +1065,8 @@ func (r *resourcesWrapper) specResourcesSnapshot(snapshotId int32) *ResourceSnap
 }
 
 // idleProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current idle resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) idleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) idleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1074,8 +1074,8 @@ func (r *resourcesWrapper) idleProtoResourcesSnapshot(snapshotId int32) *proto.R
 }
 
 // pendingProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current pending resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) pendingProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) pendingProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1083,8 +1083,8 @@ func (r *resourcesWrapper) pendingProtoResourcesSnapshot(snapshotId int32) *prot
 }
 
 // committedProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current committed resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) committedProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) committedProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1092,8 +1092,8 @@ func (r *resourcesWrapper) committedProtoResourcesSnapshot(snapshotId int32) *pr
 }
 
 // specProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current spec resources
-// of the target resourcesWrapper.
-func (r *resourcesWrapper) specProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+// of the target ResourcesWrapper.
+func (r *ResourcesWrapper) specProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1102,7 +1102,7 @@ func (r *resourcesWrapper) specProtoResourcesSnapshot(snapshotId int32) *proto.R
 
 // ResourceSnapshot returns a pointer to a ResourceSnapshot created for the specified "status" of resources
 // (i.e., "idle", "pending", "committed", or "spec").
-func (r *resourcesWrapper) ResourceSnapshot(status ResourceStatus, snapshotId int32) *ResourceSnapshot {
+func (r *ResourcesWrapper) ResourceSnapshot(status ResourceStatus, snapshotId int32) *ResourceSnapshot {
 	switch status {
 	case IdleResources:
 		{

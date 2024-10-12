@@ -301,7 +301,7 @@ type ResourceManager struct {
 
 	// resourcesWrapper encapsulates the state of all resources (idle, pending, committed, and spec) managed
 	// by this ResourceManager.
-	resourcesWrapper *resourcesWrapper
+	resourcesWrapper *ResourcesWrapper
 
 	// numPendingAllocations is the number of active ResourceAllocation instances of type PendingAllocation.
 	numPendingAllocations types.StatInt32
@@ -318,7 +318,7 @@ func NewResourceManager(resourceSpec types.Spec) *ResourceManager {
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, *ResourceAllocation](128),
 	}
 
-	manager.resourcesWrapper = newResourcesWrapper(resourceSpec)
+	manager.resourcesWrapper = NewResourcesWrapper(resourceSpec)
 
 	manager.numPendingAllocations.Store(0)
 	manager.numCommittedAllocations.Store(0)
@@ -917,7 +917,7 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 		replicaId, kernelId, isReservation, requestedResources.String())
 
 	// Update Prometheus metrics.
-	// m.resourceMetricsCallback(m.resourcesWrapper)
+	// m.resourceMetricsCallback(m.ResourcesWrapper)
 	m.unsafeUpdatePrometheusResourceMetrics()
 
 	// Make sure everything is OK with respect to our internal state/bookkeeping.
@@ -988,7 +988,7 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.committedResources.String())
 
 	// Update Prometheus metrics.
-	// m.resourceMetricsCallback(m.resourcesWrapper)
+	// m.resourceMetricsCallback(m.ResourcesWrapper)
 	m.unsafeUpdatePrometheusResourceMetrics()
 
 	// Make sure everything is OK with respect to our internal state/bookkeeping.
@@ -1137,7 +1137,7 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 		replicaId, kernelId, decimalSpec.String())
 
 	// Update Prometheus metrics.
-	// m.resourceMetricsCallback(m.resourcesWrapper)
+	// m.resourceMetricsCallback(m.ResourcesWrapper)
 	m.unsafeUpdatePrometheusResourceMetrics()
 
 	// Make sure everything is OK with respect to our internal state/bookkeeping.
@@ -1215,7 +1215,7 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 	m.log.Debug("After removal: %s.", m.resourcesWrapper.pendingResources.String())
 
 	// Update Prometheus metrics.
-	// m.resourceMetricsCallback(m.resourcesWrapper)
+	// m.resourceMetricsCallback(m.ResourcesWrapper)
 	m.unsafeUpdatePrometheusResourceMetrics()
 
 	return nil

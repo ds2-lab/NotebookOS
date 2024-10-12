@@ -16,7 +16,10 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	types "github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -113,11 +116,58 @@ func TestProxy(t *testing.T) {
 	RunSpecs(t, "Daemon Suite")
 }
 
+// ResourceSpoofer is used to provide spoofed resources to be used by mock_proto.MockLocalGatewayClient
+// instances when spoofing calls to proto.LocalGatewayClient.ResourcesSnapshot.
+type ResourceSpoofer struct {
+	snapshotId atomic.Int32
+	hostId     string
+	nodeName   string
+	managerId  string
+	hostSpec   types.Spec
+}
+
+func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *ResourceSpoofer {
+	spoofer := &ResourceSpoofer{
+		hostId:    hostId,
+		nodeName:  nodeName,
+		managerId: uuid.NewString(),
+		hostSpec:  hostSpec,
+	}
+
+	return spoofer
+}
+
+func (s *ResourceSpoofer) ResourcesSnapshot(_ context.Context, _ *proto.Void, _ ...grpc.CallOption) (*proto.NodeResourcesSnapshot, error) {
+	fmt.Printf("Spoofing resources for Host \"%s\" (ID=\"%s\") now.\n", s.nodeName, s.hostId)
+	return &proto.NodeResourcesSnapshot{
+		// SnapshotId uniquely identifies the NodeResourcesSnapshot and defines a total order amongst all NodeResourcesSnapshot
+		// structs originating from the same node. Each newly-created NodeResourcesSnapshot is assigned an ID from a
+		// monotonically-increasing counter by the ResourceManager.
+		SnapshotId: s.snapshotId.Add(1),
+		// NodeId is the ID of the node from which the snapshot originates.
+		NodeId: s.hostId,
+		// ManagerId is the unique ID of the ResourceManager struct from which the NodeResourcesSnapshot was constructed.
+		ManagerId: s.managerId,
+		// Timestamp is the time at which the NodeResourcesSnapshot was taken/created.
+		Timestamp: timestamppb.New(time.Now()),
+		IdleResources: &proto.ResourcesSnapshot{
+			ResourceStatus: scheduling.IdleResources.String(),
+		},
+		PendingResources: &proto.ResourcesSnapshot{
+			ResourceStatus: scheduling.PendingResources.String(),
+		},
+		CommittedResources: &proto.ResourcesSnapshot{
+			ResourceStatus: scheduling.CommittedResources.String(),
+		},
+		SpecResources: &proto.ResourcesSnapshot{
+			ResourceStatus: scheduling.SpecResources.String(),
+		},
+	}, nil
+}
+
 // NewHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.
-func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, nodeName string) (*scheduling.Host, proto.LocalGatewayClient, error) {
-	hostId := uuid.NewString()
+func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string, resourceSpoofer *ResourceSpoofer) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, error) {
 	gpuSchedulerId := uuid.NewString()
-	resourceManagerId := uuid.NewString()
 
 	localGatewayClient := mock_proto.NewMockLocalGatewayClient(ctrl)
 
@@ -145,31 +195,10 @@ func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster,
 		LocalDaemonID:         hostId,
 	}, nil)
 
-	getNodeResourceSnapshot := func() *proto.NodeResourcesSnapshot {
-		return &proto.NodeResourcesSnapshot{
-			// SnapshotId uniquely identifies the NodeResourcesSnapshot and defines a total order amongst all NodeResourcesSnapshot
-			// structs originating from the same node. Each newly-created NodeResourcesSnapshot is assigned an ID from a
-			// monotonically-increasing counter by the ResourceManager.
-			SnapshotId: 0,
-			// NodeId is the ID of the node from which the snapshot originates.
-			NodeId: hostId,
-			// ManagerId is the unique ID of the ResourceManager struct from which the NodeResourcesSnapshot was constructed.
-			ManagerId: resourceManagerId,
-			// Timestamp is the time at which the NodeResourcesSnapshot was taken/created.
-			Timestamp:          timestamppb.New(time.Now()),
-			IdleResources:      &proto.ResourcesSnapshot{},
-			PendingResources:   &proto.ResourcesSnapshot{},
-			CommittedResources: &proto.ResourcesSnapshot{},
-			SpecResources:      &proto.ResourcesSnapshot{},
-		}
-	}
-
 	localGatewayClient.EXPECT().ResourcesSnapshot(
 		gomock.Any(),
-		&proto.Void{},
-	).Return(
-		getNodeResourceSnapshot(),
-		nil).AnyTimes()
+		gomock.Any(),
+	).DoAndReturn(resourceSpoofer.ResourcesSnapshot).AnyTimes()
 
 	host, err := scheduling.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
 		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, cluster, nil, localGatewayClient,
@@ -706,13 +735,19 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(placer.NumHostsInIndex()).To(Equal(0))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
 
-				host1, _ /* localGatewayClient1 */, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, "TestNode1")
+				host1Id := uuid.NewString()
+				host1Spoofer := NewResourceSpoofer("TestNode1", host1Id, clusterGateway.hostSpec)
+				host1, localGatewayClient1, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, "TestNode1", host1Spoofer)
 				Expect(err).To(BeNil())
 
-				host2, _ /* localGatewayClient1 */, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, "TestNode2")
+				host2Id := uuid.NewString()
+				host2Spoofer := NewResourceSpoofer("TestNode2", host2Id, clusterGateway.hostSpec)
+				host2, localGatewayClient2, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, "TestNode2", host2Spoofer)
 				Expect(err).To(BeNil())
 
-				host3, _ /* localGatewayClient1 */, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, "TestNode3")
+				host3Id := uuid.NewString()
+				host3Spoofer := NewResourceSpoofer("TestNode3", host3Id, clusterGateway.hostSpec)
+				host3, localGatewayClient3, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, "TestNode3", host3Spoofer)
 				Expect(err).To(BeNil())
 
 				// Add first host.
@@ -755,8 +790,82 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					ResourceSpec:    resourceSpec,
 				}
 
-				connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
-				Expect(err).To(BeNil())
+				var startKernelReplicaCalled sync.WaitGroup
+				startKernelReplicaCalled.Add(3)
+
+				startKernelReturnValChan1 := make(chan *proto.KernelConnectionInfo)
+				startKernelReturnValChan2 := make(chan *proto.KernelConnectionInfo)
+				startKernelReturnValChan3 := make(chan *proto.KernelConnectionInfo)
+
+				localGatewayClient1.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					startKernelReplicaCalled.Done()
+					ret := <-startKernelReturnValChan1
+					return ret, nil
+				})
+
+				localGatewayClient2.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					startKernelReplicaCalled.Done()
+					ret := <-startKernelReturnValChan2
+					return ret, nil
+				})
+
+				localGatewayClient3.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					startKernelReplicaCalled.Done()
+					ret := <-startKernelReturnValChan3
+					return ret, nil
+				})
+
+				startKernelReturnValChan := make(chan *proto.KernelConnectionInfo)
+				go func() {
+					defer GinkgoRecover()
+
+					connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
+					Expect(err).To(BeNil())
+					Expect(connInfo).ToNot(BeNil())
+
+					startKernelReturnValChan <- connInfo
+				}()
+
+				startKernelReplicaCalled.Wait()
+
+				startKernelReturnValChan1 <- &proto.KernelConnectionInfo{
+					Ip:              "0.0.0.0",
+					Transport:       "tcp",
+					ControlPort:     9000,
+					ShellPort:       9001,
+					StdinPort:       9002,
+					HbPort:          9003,
+					IopubPort:       9004,
+					IosubPort:       9005,
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             kernelKey,
+				}
+				startKernelReturnValChan2 <- &proto.KernelConnectionInfo{
+					Ip:              "0.0.0.0",
+					Transport:       "tcp",
+					ControlPort:     9000,
+					ShellPort:       9001,
+					StdinPort:       9002,
+					HbPort:          9003,
+					IopubPort:       9004,
+					IosubPort:       9005,
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             kernelKey,
+				}
+				startKernelReturnValChan3 <- &proto.KernelConnectionInfo{
+					Ip:              "0.0.0.0",
+					Transport:       "tcp",
+					ControlPort:     9000,
+					ShellPort:       9001,
+					StdinPort:       9002,
+					HbPort:          9003,
+					IopubPort:       9004,
+					IosubPort:       9005,
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             kernelKey,
+				}
+
+				connInfo := <-startKernelReturnValChan
 				Expect(connInfo).ToNot(BeNil())
 			})
 		})

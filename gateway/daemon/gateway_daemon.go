@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"log"
 	"math/rand"
@@ -237,6 +238,9 @@ type ClusterGatewayImpl struct {
 	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
 	prometheusPort int
 
+	// hostSpec is the resource spec of Hosts in the Cluster
+	hostSpec *types.DecimalSpec
+
 	// RequestLog is used to track the status/progress of requests when in DebugMode.
 	// TODO: Make this an field of the ClusterGateway and LocalDaemon structs.
 	//		 Update in forwardRequest and kernelResponseForwarder, rather than in here.
@@ -410,20 +414,20 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	// Create the internalCluster Scheduler.
 	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
-	hostSpec := &types.Float64Spec{
-		GPUs:      float64(clusterSchedulerOptions.GpusPerHost),
-		VRam:      scheduling.VramPerHostGb,
-		Millicpus: scheduling.MillicpusPerHost,
-		MemoryMb:  scheduling.MemoryMbPerHost,
+	clusterGateway.hostSpec = &types.DecimalSpec{
+		GPUs:      decimal.NewFromFloat(float64(clusterSchedulerOptions.GpusPerHost)),
+		VRam:      decimal.NewFromFloat(scheduling.VramPerHostGb),
+		Millicpus: decimal.NewFromFloat(scheduling.MillicpusPerHost),
+		MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
 	}
 	if clusterGateway.KubernetesMode() {
 		clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
 		clusterGateway.containerWatcher = clusterGateway.kubeClient
 
-		clusterGateway.cluster = scheduling.NewKubernetesCluster(clusterGateway, clusterGateway.kubeClient, hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+		clusterGateway.cluster = scheduling.NewKubernetesCluster(clusterGateway, clusterGateway.kubeClient, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 	} else if clusterGateway.DockerMode() {
 		clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
-		clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+		clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 	}
 
 	clusterGateway.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())

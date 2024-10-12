@@ -199,7 +199,7 @@ type Host struct {
 	pendingContainers      types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
 	enabled                bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels.
 	CreatedAt              time.Time                            // CreatedAt is the time at which the Host was created.
-	resourcesWrapper       *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
+	resourcesWrapper       *ResourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
 	LastRemoteSync         time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 	IsContainedWithinIndex bool                                 // IsContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
 
@@ -280,7 +280,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		OversubscriptionQuerierFunction: cluster.GetOversubscriptionFactor,
 	}
 
-	host.resourcesWrapper = newResourcesWrapper(resourceSpec)
+	host.resourcesWrapper = NewResourcesWrapper(resourceSpec)
 
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
 	host.sip.Validator = GetClockTimeCacheValidator()
@@ -395,7 +395,7 @@ func (h *Host) SynchronizeResourceInformation() error {
 
 	snapshot, err := h.LocalGatewayClient.ResourcesSnapshot(ctx, &proto.Void{})
 	if err != nil {
-		h.log.Error("Failed to retrieve Resource Snapshot from remote node %s (ID=%s) because: %v",
+		h.log.Error(utils.OrangeStyle.Render("Failed to retrieve Resource Snapshot from remote node %s (ID=%s) because: %v"),
 			h.NodeName, h.ID, err)
 		return err
 	}
@@ -405,6 +405,8 @@ func (h *Host) SynchronizeResourceInformation() error {
 
 	err = unsafeApplyResourceSnapshotToHost[*proto.ResourcesSnapshot](h, snapshot)
 	if err != nil {
+		h.log.Error(utils.OrangeStyle.Render("Failed to apply retrieved Resource Snapshot from remote node %s (ID=%s) because: %v"),
+			h.NodeName, h.ID, err)
 		return err
 	}
 
