@@ -496,6 +496,19 @@ func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
 	return willOversubscribeCpu || willOversubscribeMemory || willOversubscribeGpu
 }
 
+// CanServeContainerWithError returns nil if the target Host can serve the resource request.
+//
+// This method only checks against the Host's "spec" (i.e., the total resources available on the Host,
+// not taking into account current resource allocations).
+func (h *Host) CanServeContainerWithError(resourceRequest types.Spec) (bool, error) {
+	err := h.resourcesWrapper.specResources.ValidateWithError(resourceRequest)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
 // CanServeContainer returns a boolean indicating whether this Host could serve a kernel replica with the given
 // resource requirements / resource request. This method only checks against the Host's "spec" (i.e., the total
 // resources available on the Host, not taking into account current resource allocations).

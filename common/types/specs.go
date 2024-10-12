@@ -75,6 +75,7 @@ func ToDecimalSpec(spec Spec) *DecimalSpec {
 		Millicpus: decimal.NewFromFloat(spec.CPU()),
 		MemoryMb:  decimal.NewFromFloat(spec.MemoryMB()),
 		GPUs:      decimal.NewFromFloat(spec.GPU()),
+		VRam:      decimal.NewFromFloat(spec.VRAM()),
 	}
 }
 

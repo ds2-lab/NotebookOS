@@ -164,6 +164,11 @@ func (s *BaseScheduler) SubscriptionRatio() float64 {
 	return s.subscriptionRatio.InexactFloat64()
 }
 
+// Placer returns the Placer used by the BaseScheduler.
+func (s *BaseScheduler) Placer() Placer {
+	return s.placer
+}
+
 // GetCandidateHosts returns a slice of *Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -173,7 +178,9 @@ func (s *BaseScheduler) SubscriptionRatio() float64 {
 // then GetCandidateHosts will give up and return an error.
 //
 // The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
-func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error) {
+//
+// This function is NOT idempotent. This locks the Hosts that are returned.
+func (s *BaseScheduler) getCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error) {
 	var (
 		numTries     = 0
 		maxAttempts  = 3

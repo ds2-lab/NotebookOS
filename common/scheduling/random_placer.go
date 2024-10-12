@@ -35,6 +35,11 @@ func (placer *RandomPlacer) getIndex() ClusterIndex {
 	return placer.index
 }
 
+// NumHostsInIndex returns the length of the RandomPlacer's index.
+func (placer *RandomPlacer) NumHostsInIndex() int {
+	return placer.index.Len()
+}
+
 // hostIsViable returns a tuple (bool, bool).
 // First bool represents whether the host is viable.
 // Second bool indicates whether the host was successfully locked. This does not mean that it is still locked.
@@ -50,6 +55,7 @@ func (placer *RandomPlacer) hostIsViable(candidateHost *Host, spec types.Spec) (
 	}
 
 	// If the Host can satisfy the resourceSpec, then add it to the slice of Host instances being returned.
+	//canServeContainer, serveError := candidateHost.CanServeContainerWithError(spec)
 	canServeContainer := candidateHost.CanServeContainer(spec)
 	willBecomeTooOversubscribed := candidateHost.WillBecomeTooOversubscribed(spec)
 	if canServeContainer && !willBecomeTooOversubscribed {
@@ -57,9 +63,9 @@ func (placer *RandomPlacer) hostIsViable(candidateHost *Host, spec types.Spec) (
 		placer.log.Debug(utils.GreenStyle.Render("Found viable candidate host: %v."), candidateHost)
 		return true, true
 	} else {
-		// The Host could not satisfy the resource request. Unlock it and return false.
-		placer.log.Warn(utils.OrangeStyle.Render("%v cannot satisfy request %v. CanServeContainer=%v, WillBecomeTooOversubscribed=%v, Host's resources=%v.)"),
-			candidateHost, candidateHost.ResourceSpec().String(), canServeContainer, willBecomeTooOversubscribed, spec.String())
+		placer.log.Warn(utils.OrangeStyle.Render("Host %s (ID=%s) cannot satisfy request %v. CanServeContainer=%v, WillBecomeTooOversubscribed=%v, Host's resources=%v.)"),
+			candidateHost.NodeName, candidateHost.ID, spec, canServeContainer, willBecomeTooOversubscribed, candidateHost.ResourceSpec().String())
+
 		candidateHost.UnlockScheduling()
 		return false, true
 	}

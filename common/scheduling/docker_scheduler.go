@@ -210,7 +210,7 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", s.opts.NumReplicas, in.Id, in.ResourceSpec.String())
 
 	// Retrieve a slice of viable Hosts onto which we can schedule replicas of the specified kernel.
-	hosts, candidateError := s.GetCandidateHosts(ctx, in)
+	hosts, candidateError := s.getCandidateHosts(ctx, in)
 	if candidateError != nil {
 		return candidateError
 	}

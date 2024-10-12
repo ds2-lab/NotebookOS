@@ -63,6 +63,9 @@ type Placer interface {
 	// Reclaim atomically reclaims a replica from a host.
 	// If noop is specified, it is the caller's responsibility to stop the replica.
 	Reclaim(host *Host, sess *Session, noop bool) error
+
+	// NumHostsInIndex returns the length of the Placer's index.
+	NumHostsInIndex() int
 }
 
 type PlacerStats interface {

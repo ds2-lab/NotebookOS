@@ -67,3 +67,8 @@ func (placer *StaticPlacer) findHost(blacklist []interface{}, spec types.Spec) *
 	// The Host could not satisfy the resourceSpec, so return nil.
 	return nil
 }
+
+// NumHostsInIndex returns the length of the StaticPlacer's index.
+func (placer *StaticPlacer) NumHostsInIndex() int {
+	return placer.index.Len()
+}

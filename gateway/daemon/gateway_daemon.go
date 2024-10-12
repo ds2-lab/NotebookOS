@@ -1524,22 +1524,6 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		d.kernels.Store(sess, kernel)
 	}
 
-	// TODO: Do we need to implement the below?
-	// Now that all replicas have started, we need to remove labels from all the other Kubernetes nodes.
-
-	// Option #1:
-	// - When scheduling a new kernel, add labels to ALL the Kubernetes nodes and allow system to schedule kernels whenever.
-	// - Once the kernels have been created and registered, remove labels from all the nodes except the nodes that the kernels are presently running on.
-
-	// Option #2:
-	// - When creating a dynamic replica for a new kernel on a particular node, identify the replica that is to be stopped.
-	// - Add labels to nodes hosting the other two replicas.
-	// - Add a label to the target node for the new dynamic replica.
-	// - Update the CloneSet to have a nodeAffinity constraint for matching labels.
-	// - Once the new replica has been created, remove the scheduling constraint (but not the node labels).
-	// - Whenever we migrate a replica, we also need to update node labels (if they exist).
-	//		- This involves removing the label from the old node and adding the label to the new node, for the migrated replica.
-
 	info := &proto.KernelConnectionInfo{
 		Ip:              d.ip,
 		Transport:       d.transport,
@@ -1569,8 +1553,18 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		panic(errorMessage)
 	}
 
+	d.newKernelCreated(startTime, kernel.ID())
+
+	return info, nil
+}
+
+// newKernelCreated is to be called from StartKernel if and when the procedure succeeds.
+//
+// newKernelCreated pushes some metrics to Kubernetes and sends a notification to the Dashboard.
+func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId string) {
 	// Tell the Dashboard that the kernel has successfully started running.
-	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running. Launch took approximately %v.", kernel.ID(), time.Since(startTime)), jupyter.SuccessNotification)
+	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running. Launch took approximately %v.",
+		kernelId, time.Since(startTime)), jupyter.SuccessNotification)
 
 	numActiveKernels := d.numActiveKernels.Add(1)
 	d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
@@ -1579,8 +1573,6 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	d.gatewayPrometheusManager.TotalNumKernelsCounterVec.
 		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
 	d.gatewayPrometheusManager.KernelCreationLatencyHistogram.Observe(float64(time.Since(startTime).Milliseconds()))
-
-	return info, nil
 }
 
 // Handle a registration notification from a new kernel replica that was created during an add-replica/migration operation.

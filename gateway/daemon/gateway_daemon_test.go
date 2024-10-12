@@ -665,8 +665,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 	Context("DockerCluster", func() {
 		Context("Scheduling Kernels", func() {
-			var cluster scheduling.Cluster
-
 			BeforeEach(func() {
 				config.LogLevel = logger.LOG_LEVEL_ALL
 
@@ -687,19 +685,26 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					srv.SetClusterOptions(&options.ClusterSchedulerOptions)
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
-
-				hostSpec := &types.Float64Spec{
-					GPUs:      float64(options.ClusterSchedulerOptions.GpusPerHost),
-					VRam:      scheduling.VramPerHostGb,
-					Millicpus: scheduling.MillicpusPerHost,
-					MemoryMb:  scheduling.MemoryMbPerHost,
-				}
-
-				cluster = scheduling.NewDockerComposeCluster(clusterGateway, hostSpec, nil, &options.ClusterSchedulerOptions)
 			})
 
 			It("Will correctly schedule a new kernel", func() {
 				kernelId := uuid.NewString()
+
+				cluster := clusterGateway.cluster
+				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+				Expect(ok).To(BeTrue())
+				Expect(index).ToNot(BeNil())
+
+				placer := cluster.Placer()
+				Expect(placer).ToNot(BeNil())
+
+				scheduler := cluster.ClusterScheduler()
+				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
+
+				Expect(cluster.Len()).To(Equal(0))
+				Expect(index.Len()).To(Equal(0))
+				Expect(placer.NumHostsInIndex()).To(Equal(0))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
 
 				host1, _ /* localGatewayClient1 */, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, "TestNode1")
 				Expect(err).To(BeNil())
@@ -710,20 +715,33 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				host3, _ /* localGatewayClient1 */, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, "TestNode3")
 				Expect(err).To(BeNil())
 
+				// Add first host.
 				cluster.NewHostAddedOrConnected(host1)
-				Expect(cluster.Len()).To(Equal(1))
-				cluster.NewHostAddedOrConnected(host2)
-				Expect(cluster.Len()).To(Equal(2))
-				cluster.NewHostAddedOrConnected(host3)
-				Expect(cluster.Len()).To(Equal(3))
 
-				index, ok := cluster.(*scheduling.BaseCluster).GetIndex(scheduling.CategoryClusterIndex, "*")
-				Expect(ok).To(BeTrue())
-				Expect(index).ToNot(BeNil())
+				Expect(cluster.Len()).To(Equal(1))
+				Expect(index.Len()).To(Equal(1))
+				Expect(placer.NumHostsInIndex()).To(Equal(1))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(1))
+
+				// Add second host.
+				cluster.NewHostAddedOrConnected(host2)
+
+				Expect(cluster.Len()).To(Equal(2))
+				Expect(index.Len()).To(Equal(2))
+				Expect(placer.NumHostsInIndex()).To(Equal(2))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(2))
+
+				// Add third host.
+				cluster.NewHostAddedOrConnected(host3)
+
+				Expect(cluster.Len()).To(Equal(3))
+				Expect(index.Len()).To(Equal(3))
+				Expect(placer.NumHostsInIndex()).To(Equal(3))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(3))
 
 				resourceSpec := &proto.ResourceSpec{
-					Gpu:    4,
-					Vram:   4,
+					Gpu:    2,
+					Vram:   2,
 					Cpu:    1250,
 					Memory: 2048,
 				}
