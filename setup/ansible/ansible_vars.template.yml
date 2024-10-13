@@ -1,12 +1,12 @@
-gitrepo: <url of github repo to use>
+gitrepo: "https://github.com/scusemua/distributed-notebook"
 gitbranch: <branch to use>
 remote_user: <user>
-ssh_key: <path to ssh key>
+ansible_ssh_private_key_file: <path to ssh key>
 protoc_version: <protoc version to use>
 target_go_version: "1.21.5"
 go_download_url: "https://go.dev/dl/go{{ target_go_version }}.linux-amd64.tar.gz"
 go_install_dir: "/usr/local/go"
-temp_dir: "/tmp"
+tmp_dir: "/tmp"
 profile_file: "/home/ubuntu/.profile"  # Update this if not using the ubuntu user
 gopath: "/home/ubuntu/go"
 gopy_bin_path: "{{ gopath }}/gopy"
@@ -15,3 +15,16 @@ gopy_source_bin: "{{ gopy_build_dir }}/gopy"
 kind_version: "v0.22.0"
 protoc_gen_go: "google.golang.org/protobuf/cmd/protoc-gen-go@latest"
 protoc_gen_go_grpc: "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest"
+hadoop_user: "hadoop"
+hadoop_password: "12345"
+hadoop_version: "3.3.6"
+hadoop_install_dir: "/home/hadoop"
+hadoop_key_path: "/home/hadoop/.ssh/hadoop.key"
+hadoop_config_src: "/home/ubuntu/go/pkg/distributed-notebook/hdfs_configuration/*"
+hadoop_env_src: "/home/ubuntu/go/pkg/distributed-notebook/setup/hadoop-env"
+helm_install_script_url: "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3"
+helm_script: "{{ tmp_dir }}/get_helm.sh"
+helm_bin_path: "/usr/local/bin/helm"
+kubectl_url: "https://dl.k8s.io/release"
+kubectl_bin_path: "/usr/bin/kubectl"
+protoc_release_url: "https://github.com/protocolbuffers/protobuf/releases/download/v{{ protoc_version }}/protoc-{{ protoc_version }}-linux-x86_64.zip"

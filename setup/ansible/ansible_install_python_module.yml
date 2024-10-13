@@ -1,24 +1,15 @@
----
-- name: Install Python module from pyproject.toml
-  hosts: aws_ec2  # Update with your inventory group
-  become: true       # Run tasks as root
+- name: Install the Python module from pyproject.toml
+  command: "python3.12 -m pip install ."
+  args:
+    chdir: "/home/go/pkg/distributed-notebook"
+  register: install_result
 
-  vars:
-    module_directory: "/home/go/pkg/distributed-notebook"
+- name: Fail if installation failed
+  fail:
+    msg: "Installation failed: {{ install_result.stderr }}"
+  when: install_result.rc != 0
 
-  tasks:
-    - name: Install the Python module from pyproject.toml
-      command: "python3.12 -m pip install ."
-      args:
-        chdir: "{{ module_directory }}"
-      register: install_result
-
-    - name: Fail if installation failed
-      fail:
-        msg: "Installation failed: {{ install_result.stderr }}"
-      when: install_result.rc != 0
-
-    - name: Display success message if installation was successful
-      debug:
-        msg: "Python module installed successfully from {{ module_directory }}."
-      when: install_result.rc == 0
+- name: Display success message if installation was successful
+  debug:
+    msg: "Python module installed successfully from /home/go/pkg/distributed-notebook."
+  when: install_result.rc == 0

@@ -29,7 +29,12 @@ else
     git clone https://Scusemua@github.com/zhangjyr/distributed-notebook
 fi 
 
-popd 
+popd
+
+# Ansible
+if ! command python3 --version &> /dev/null; then
+  sudo apt-get install ansible
+fi
 
 # Python 3
 if ! command python3 --version &> /dev/null; then

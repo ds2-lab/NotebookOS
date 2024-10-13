@@ -1,7 +1,8 @@
----
 - name: Primary Playbook to Execute All Install Playbooks
   hosts: aws_ec2
+  remote_user: "{{remote_username}}"
   become: true       # Run tasks as root
+  gather_facts: true
 
   tasks:
     - name: Execute ansible_install_git.yml
