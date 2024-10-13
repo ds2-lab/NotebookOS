@@ -1,0 +1,97 @@
+---
+- name: Install Hadoop HDFS
+  hosts: ubuntu_ec2  # Update with your inventory group
+  become: true       # Run tasks as root
+
+  vars:
+    hadoop_user: "hadoop"
+    hadoop_password: "12345"
+    hadoop_version: "3.3.6"
+    hadoop_install_dir: "/home/hadoop"
+    hadoop_key_path: "/home/hadoop/.ssh/hadoop.key"
+    hadoop_config_src: "/home/ubuntu/go/pkg/distributed-notebook/hdfs_configuration/*"
+    hadoop_env_src: "/home/ubuntu/go/pkg/distributed-notebook/setup/hadoop-env"
+
+  tasks:
+    - name: Update package index and install Java and SSH
+      apt:
+        name:
+          - openjdk-8-jdk
+          - ssh
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Create hadoop user
+      user:
+        name: "{{ hadoop_user }}"
+        password: "{{ hadoop_password | password_hash('sha512') }}"
+        shell: /bin/bash
+
+    - name: Create Hadoop home directory and set permissions
+      file:
+        path: "{{ hadoop_install_dir }}"
+        state: directory
+        owner: "{{ hadoop_user }}"
+        mode: '0777'
+
+    - name: Create .ssh directory for hadoop user
+      file:
+        path: "{{ hadoop_install_dir }}/.ssh"
+        state: directory
+        owner: "{{ hadoop_user }}"
+        mode: '0700'
+
+    - name: Generate SSH key for hadoop user
+      user:
+        name: "{{ hadoop_user }}"
+        generate_ssh_key: yes
+        ssh_key_type: rsa
+        ssh_key_bits: 2048
+        ssh_key_file: "{{ hadoop_key_path }}"
+
+    - name: Copy public key to authorized_keys
+      authorized_key:
+        user: "{{ hadoop_user }}"
+        state: present
+        key: "{{ lookup('file', hadoop_key_path + '.pub') }}"
+
+    - name: Download and extract Hadoop
+      become: yes
+      become_user: "{{ hadoop_user }}"
+      command: >
+        bash -c "wget https://dlcdn.apache.org/hadoop/common/hadoop-{{ hadoop_version }}/hadoop-{{ hadoop_version }}.tar.gz &&
+                  tar -xvzf hadoop-{{ hadoop_version }}.tar.gz &&
+                  mv hadoop-{{ hadoop_version }} hadoop &&
+                  mkdir -p ~/hadoopdata/hdfs/{namenode,datanode}"
+      args:
+        chdir: "/home/{{ hadoop_user }}"
+
+    - name: Set environment variables
+      blockinfile:
+        path: "/home/{{ hadoop_user }}/.bashrc"
+        block: |
+          export HADOOP_HOME={{ hadoop_install_dir }}/hadoop
+          export PATH=$PATH:$HADOOP_HOME/bin
+      when: ansible_os_family == "Debian"
+
+    - name: Set Hadoop environment variables
+      copy:
+        src: "{{ hadoop_env_src }}"
+        dest: "{{ hadoop_install_dir }}/hadoop/etc/hadoop/hadoop-env.sh"
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_user }}"
+        mode: '0644'
+
+    - name: Copy HDFS configuration
+      copy:
+        src: "{{ hadoop_config_src }}"
+        dest: "{{ hadoop_install_dir }}/hadoop/etc/hadoop/"
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_user }}"
+        mode: '0644'
+
+    - name: Format HDFS
+      become: yes
+      become_user: "{{ hadoop_user }}"
+      command: >
+        bash -c "env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 ~/hadoop/bin/hdfs namenode -format"

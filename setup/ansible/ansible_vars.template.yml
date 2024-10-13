@@ -1,0 +1,17 @@
+gitrepo: <url of github repo to use>
+gitbranch: <branch to use>
+remote_user: <user>
+ssh_key: <path to ssh key>
+protoc_version: <protoc version to use>
+target_go_version: "1.21.5"
+go_download_url: "https://go.dev/dl/go{{ target_go_version }}.linux-amd64.tar.gz"
+go_install_dir: "/usr/local/go"
+temp_dir: "/tmp"
+profile_file: "/home/ubuntu/.profile"  # Update this if not using the ubuntu user
+gopath: "/home/ubuntu/go"
+gopy_bin_path: "{{ gopath }}/gopy"
+gopy_build_dir: "{{ gopath }}/pkg/gopy"
+gopy_source_bin: "{{ gopy_build_dir }}/gopy"
+kind_version: "v0.22.0"
+protoc_gen_go: "google.golang.org/protobuf/cmd/protoc-gen-go@latest"
+protoc_gen_go_grpc: "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest"

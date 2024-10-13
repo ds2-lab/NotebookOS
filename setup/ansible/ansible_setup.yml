@@ -1,0 +1,35 @@
+---
+- name: Primary Playbook to Execute All Install Playbooks
+  hosts: aws_ec2
+  become: true       # Run tasks as root
+
+  tasks:
+    - name: Execute ansible_install_git.yml
+      include_tasks: ansible_install_git.yml
+
+    - name: Execute ansible_install_golang.yml
+      include_tasks: ansible_install_golang.yml
+
+    - name: Execute ansible_install_python3.12.6.yml
+      include_tasks: ansible_install_python3.12.6.yml
+
+    - name: Execute ansible_install_docker.yml
+      include_tasks: ansible_install_docker.yml
+
+    - name: Execute ansible_install_helm.yml
+      include_tasks: ansible_install_helm.yml
+
+    - name: Execute ansible_install_kubectl.yml
+      include_tasks: ansible_install_kubectl.yml
+
+    - name: Execute ansible_install_protoc.yml
+      include_tasks: ansible_install_protoc.yml
+
+    - name: Execute ansible_clone_repo.yml
+      include_tasks: ansible_clone_repo.yml
+
+    - name: Execute ansible_install_python_module.yml
+      include_tasks: ansible_install_python_module.yml
+
+    - name: Execute ansible_install_hadoop_hdfs.yml
+      include_tasks: ansible_install_hadoop_hdfs.yml

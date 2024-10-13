@@ -1,0 +1,55 @@
+---
+- name: Build and install Python 3.12.6 from source
+  hosts: aws_ec2
+  become: true       # Run tasks as root
+
+  tasks:
+    - name: Ensure required packages are installed for building Python
+      apt:
+        name:
+          - build-essential
+          - zlib1g-dev
+          - libncurses5-dev
+          - libgdbm-dev
+          - libnss3-dev
+          - libssl-dev
+          - libreadline-dev
+          - libffi-dev
+          - libsqlite3-dev
+          - wget
+          - libbz2-dev
+        state: present
+        update_cache: yes
+
+    - name: Download Python 3.12.6 source code
+      get_url:
+        url: https://www.python.org/ftp/python/3.12.6/Python-3.12.6.tgz
+        dest: /tmp/Python-3.12.6.tgz
+
+    - name: Extract the Python source tarball
+      unarchive:
+        src: /tmp/Python-3.12.6.tgz
+        dest: /tmp/
+        remote_src: yes
+
+    - name: Configure Python build
+      command: ./configure --enable-optimizations --with-pydebug --enable-shared
+      args:
+        chdir: /tmp/Python-3.12.6
+
+    - name: Build Python from source (this may take some time)
+      command: make -j 4  # Use the number of cores on the machine
+      args:
+        chdir: /tmp/Python-3.12.6
+
+    - name: Install Python 3.12.6
+      command: make altinstall
+      args:
+        chdir: /tmp/Python-3.12.6
+
+    - name: Ensure the new Python version is accessible
+      shell: |
+        update-alternatives --install /usr/bin/python3 python3 /usr/local/bin/python3.12 1
+
+    - name: Verify Python 3.12.6 installation
+      command: python3.12 --version

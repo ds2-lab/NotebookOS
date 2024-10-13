@@ -1,0 +1,43 @@
+---
+- name: Install kubectl if not already installed
+  hosts: aws_ec2  # Update with your inventory group
+  become: true       # Run tasks as root
+
+  vars:
+    kubectl_url: "https://dl.k8s.io/release"
+    kubectl_bin_path: "/usr/bin/kubectl"
+    tmp_dir: "/tmp"
+    checksum_failed_msg: "[ERROR] Failed to install kubectl. Installed binary did not validate."
+
+  tasks:
+    - name: Check if kubectl is already installed
+      command: kubectl version --client --output=json
+      register: kubectl_installed
+      ignore_errors: true
+
+    - name: Download kubectl binary if not installed
+      get_url:
+        url: "{{ kubectl_url }}/{{ lookup('url', kubectl_url + '/stable.txt') }}/bin/linux/amd64/kubectl"
+        dest: "{{ tmp_dir }}/kubectl"
+        mode: '0755'
+      when: kubectl_installed.failed
+
+    - name: Download kubectl checksum
+      get_url:
+        url: "{{ kubectl_url }}/{{ lookup('url', kubectl_url + '/stable.txt') }}/bin/linux/amd64/kubectl.sha256"
+        dest: "{{ tmp_dir }}/kubectl.sha256"
+      when: kubectl_installed.failed
+
+    - name: Validate kubectl binary checksum
+      shell: "echo '$(cat {{ tmp_dir }}/kubectl.sha256)  {{ tmp_dir }}/kubectl' | sha256sum --check"
+      args:
+        warn: false
+      register: kubectl_checksum
+      failed_when: "'kubectl: OK' not in kubectl_checksum.stdout"
+
+    - name: Fail task if checksum validation fails
+      fail:
+        msg: "{{ checksum_failed_msg }}"
+      when: kubectl_checksum.failed
+
+    - name: Move kubectl to /usr/bin

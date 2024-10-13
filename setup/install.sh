@@ -2,6 +2,18 @@
 
 # This is an installation script to prepare an Ubuntu virtual machine for development.
 
+# Git
+if ! command -v git version &> /dev/null; then
+    printf "\n[WARNING] git is not installed. Installing it now."
+
+    sudo apt-get --assume-yes install git
+
+    if ! command -v git version &> /dev/null; then
+        printf "\n[ERROR] Installation of git failed."
+        exit
+    fi
+fi
+
 ROOT_DIR=$(git rev-parse --show-toplevel)
 PYTHON_VERSION=3.12.6
 
@@ -20,7 +32,7 @@ fi
 popd 
 
 # Python 3
-if ! command python3.11 --version &> /dev/null; then 
+if ! command python3 --version &> /dev/null; then
     printf "\n[WARNING] Python3.11 is not installed. Installing it now...\n"
 
     sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
@@ -52,18 +64,6 @@ if ! command -v python3.11 -m pip &> /dev/null; then
 
     if ! command -v python3.11 -m pip &> /dev/null; then 
         printf "\n[ERROR] Installation of python3-pip failed."
-        exit 
-    fi
-fi
-
-# Git 
-if ! command -v git version &> /dev/null; then 
-    printf "\n[WARNING] git is not installed. Installing it now."
-
-    sudo apt-get --assume-yes install git
-
-    if ! command -v git version &> /dev/null; then 
-        printf "\n[ERROR] Installation of git failed."
         exit 
     fi
 fi
@@ -222,7 +222,7 @@ go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # Python Proto Bindings
-python3.11 -m pip install --user grpcio-tools
+python3.12 -m pip install --user grpcio-tools
 python3 -m pip install --user grpcio-tools
 
 pushd ~/go/pkg
@@ -296,11 +296,10 @@ ssh -i ~/.ssh/hadoop.key hadoop@localhost 'env JAVA_HOME=/usr/lib/jvm/java-8-ope
 # scusemua/gopy #
 #################
 pushd "$GOPATH_ENV/pkg/gopy"
-python3.11 -m pip install pybindgen
+python3.12 -m pip install pybindgen
 go install golang.org/x/tools/cmd/goimports@latest
-go install github.com/scusemua/gopy@v0.4.11.5
 make 
-docker build -t scusemua/gopy .
+docker build -t $DOCKERUSER/gopy .
 popd
 
 pushd "$GOPATH_ENV/pkg/distributed-notebook"

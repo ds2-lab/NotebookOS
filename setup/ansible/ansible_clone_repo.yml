@@ -1,0 +1,40 @@
+---
+- name: Clone GitHub repo to /home/ubuntu/go/pkg
+  hosts: aws_ec2
+  become: true       # Run tasks as root (for directory creation and permissions)
+
+  vars:
+    target_dir: "/home/ubuntu/go/pkg"  # The base directory for cloning
+
+  tasks:
+    - name: Ensure git is installed
+      apt:
+        name: git
+        state: present
+        update_cache: yes
+
+    - name: Create the target directory if it doesn't exist
+      file:
+        path: "{{ target_dir }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Clone the GitHub repository
+      git:
+        repo: "{{gitrepo}}"
+        dest: "{{ target_dir }}/distributed-notebook"
+        version: main  # You can change the branch if necessary
+        force: yes
+        update: yes
+        branch: "{{gitbranch}}"
+      become: false  # Clone as the ubuntu user
+
+    - name: Ensure correct ownership of the cloned repository
+      file:
+        path: "{{ target_dir }}/distributed-notebook"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        recurse: yes

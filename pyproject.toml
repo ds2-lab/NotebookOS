@@ -14,7 +14,12 @@ dependencies = [
     "jupyter_client>=7.4",
     "traitlets>=5.1",
     "grpcio>=1.64",
-    "protobuf>=5.27.1"
+    "protobuf>=5.27.1",
+    "grpcio-tools",
+    "pybindgen",
+    "ansible",
+    "ansible_runner",
+    "fabric"
 ]
 
 [tool.setuptools]

@@ -1,0 +1,57 @@
+---
+- name: Install Docker on EC2 instances
+  hosts: aws_ec2
+  become: true    # Run tasks as root
+
+  tasks:
+    - name: Update package index
+      apt:  # Note: we can use 'yum' for Amazon Linux or Red Hat based distros if we switch to those
+        update_cache: yes
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Install required packages (Ubuntu)
+      apt:
+        name: ['apt-transport-https', 'ca-certificates', 'curl', 'software-properties-common']
+        state: present
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Add Docker repository (Ubuntu)
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Add Docker repository (Amazon Linux)
+      command: amazon-linux-extras enable docker
+      when: ansible_distribution == 'Amazon'
+
+    - name: Install Docker (Ubuntu)
+      apt:
+        name: docker-ce
+        state: present
+        update_cache: yes
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Install Docker (Amazon Linux)
+      yum:
+        name: docker
+        state: present
+      when: ansible_distribution == 'Amazon'
+
+    - name: Ensure Docker service is started
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add the current user to the docker group
+      user:
+        name: "{{ remote_user }}"
+        groups: docker
+        append: yes
