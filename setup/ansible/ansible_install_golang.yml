@@ -69,7 +69,7 @@
 
 - name: Check if go-zeromq/zmq4 already exists within the GOPATH
   stat: path=/home/ubuntu/go/pkg
-  register: zmq4-repo
+  register: zmq4
 
 - name: Clone go-zeromq/zmq4 if it does not already exist.
   git:
@@ -79,11 +79,11 @@
     update: true
     recursive: true
     accept_newhostkey: true
-  when: not zmq4-repo.stat.exists
+  when: not zmq4.stat.exists
 
 - name: Check if scusemua/gopy already exists within the GOPATH
   stat: path=/home/ubuntu/go/pkg
-  register: scusemua-gopy
+  register: gopy
 
 - name: Clone scusemua/gopy if it does not already exist.
   git:
@@ -93,11 +93,7 @@
     update: true
     recursive: true
     accept_newhostkey: true
-  when: not scusemua-gopy.stat.exists
-
-- name: Check if scusemua/gopy already exists within the GOPATH
-  stat: path=/home/ubuntu/go/pkg
-  register: scusemua-gopy
+  when: not gopy.stat.exists
 
 - name: Check if gopy binary already exists
   stat:
