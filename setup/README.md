@@ -17,6 +17,13 @@ DXCore version: 10.0.26100.1-240331-1435.ge-release
 Windows version: 10.0.19045.5011
 ```
 
+## Python
+
+The latest version of the `distributed-notebook` system was developed and tested using Python 3.12.6. We have also
+used Python 3.11.3, though there were some bugs in that release of Python that impacted `distributed-notebook`, and thus
+it is highly recommended that you use Python 3.12.6 with `distributed-notebook`. Using a version of Python > 3.12.6 may
+also work fine, but this has not been tested and confirmed to work.
+
 ## Hadoop Configuration
 
 The files in `hdfs_configuration` are provided to simplify the process of configuring Hadoop HDFS. While the provided
