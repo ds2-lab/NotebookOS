@@ -27,3 +27,8 @@ using the provided `install.sh` script.
 The `start-dfs.sh` and `stop-dfs.sh` scripts are simply helper scripts to start and stop HDFS, particularly when 
 running HDFS on a single-node deployment of the `distributed-notebook` system. Likewise, the `format-nn.sh` script
 is used to format the HDFS NameNode.
+
+## Ansible Playbooks
+
+The `setup/ansible` directory contains a number of Ansible playbooks provided to automate the deployment of a multi-node 
+deployment of the `distributed-notebook` cluster. For details, see the `README` file in the `setup/ansible` directory.
