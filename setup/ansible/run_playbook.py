@@ -69,10 +69,6 @@ playbook: str = args.playbook
 inventory_file: str = args.inventory_file
 vars_file: str = args.vars_file
 
-print(f"Selected playbook \"{playbook}\".")
-print(f"Inventory file path: \"{inventory_file}\"")
-print(f"Ansible variables file path: \"{vars_file}\"")
-
 NewEntries: dict[str, str] = {}
 for key, value in AllPlaybooks.items():
     # Add lowercase versions of the colloquial names as keys.
@@ -115,12 +111,14 @@ if args.list_playbooks:
     print(", ".join(sorted(list(AllPlaybooks.keys()), key = lambda x: x.lower())))
     exit(0)
 
-print("All playbooks:")
-
 if playbook in AllPlaybooks or playbook.lower() in AllPlaybooks:
     playbook_file: str = AllPlaybooks.get(playbook, AllPlaybooks[playbook.lower()])
 else:
     raise ValueError(f"Unknown or unsupported playbook specified: \"{playbook}\"")
+
+print(f"{bcolors.HEADER}Selected playbook: {bcolors.OKBLUE}\"{playbook}\"{bcolors.ENDC} → {bcolors.YELLOW}{playbook_file}{bcolors.ENDC}")
+print(f"{bcolors.HEADER}Inventory file path: {bcolors.OKCYAN}\"{inventory_file}\"{bcolors.ENDC}")
+print(f"{bcolors.HEADER}Ansible variables file path: {bcolors.OKGREEN}\"{vars_file}\"{bcolors.ENDC}")
 
 with open(vars_file, "r") as f:
     extra_vars = yaml.load(f, Loader=yaml.FullLoader)
