@@ -1,6 +1,5 @@
 import argparse
 from ansible_runner import run
-from typing import Optional
 import yaml
 
 parser = argparse.ArgumentParser()
@@ -82,13 +81,8 @@ for key, value in AllPlaybooks.items():
 
 AllPlaybooks.update(NewEntries)
 
-playbook_file:Optional[str] = None
-
-print("Possible Keys:")
-print(list(AllPlaybooks.keys()))
-
 if playbook in AllPlaybooks or playbook.lower() in AllPlaybooks:
-    playbook_file = AllPlaybooks.get(playbook, AllPlaybooks[playbook.lower()])
+    playbook_file: str = AllPlaybooks.get(playbook, AllPlaybooks[playbook.lower()])
 else:
     raise ValueError(f"Unknown or unsupported playbook specified: \"{playbook}\"")
 
