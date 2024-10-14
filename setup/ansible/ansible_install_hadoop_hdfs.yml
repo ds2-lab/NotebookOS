@@ -50,31 +50,52 @@
       become: true
 
     - name: "Move SSH public SSH key for Hadoop user {{ hadoop_user }}"
-      command: "mv /home/{{ remote_username }}/hadoop.key.pub/home/{{ hadoop_user }}/.ssh/hadoop.key.pub"
+      command: "mv /home/{{ remote_username }}/hadoop.key.pub /home/{{ hadoop_user }}/.ssh/hadoop.key.pub"
       become: true
 
     - name: "Change ownership of SSH keys for Hadoop user {{ hadoop_user }}"
       command: 'chown -R {{ hadoop_user }} /home/{{ hadoop_user }}/.ssh'
       become: true
 
-    - name: Download and extract Hadoop
-      become: yes
-      become_user: "{{ hadoop_user }}"
-      command: >
-        bash -c "wget https://dlcdn.apache.org/hadoop/common/hadoop-{{ hadoop_version }}/hadoop-{{ hadoop_version }}.tar.gz &&
-                  tar -xvzf hadoop-{{ hadoop_version }}.tar.gz &&
-                  mv hadoop-{{ hadoop_version }} hadoop &&
-                  mkdir -p ~/hadoopdata/hdfs/{namenode,datanode}"
-      args:
-        chdir: "/home/{{ hadoop_user }}"
+    - name: Download Hadoop tar.gz file
+      get_url:
+        url: "https://dlcdn.apache.org/hadoop/common/hadoop-{{ hadoop_version }}/hadoop-{{ hadoop_version }}.tar.gz"
+        dest: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_user }}"
 
-    - name: Set environment variables
-      blockinfile:
-        path: "/home/{{ hadoop_user }}/.bashrc"
-        block: |
-          export HADOOP_HOME={{ hadoop_install_dir }}/hadoop
-          export PATH=$PATH:$HADOOP_HOME/bin
-      when: ansible_os_family == "Debian"
+    - name: Unzip Hadoop tar.gz
+      unarchive:
+        src: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
+        dest: "/home/{{ hadoop_user }}/"
+        remote_src: yes
+      become: true
+      become_user: "{{ hadoop_user }}"
+
+    - name: Set ownership for Hadoop installation directory
+      file:
+        path: "/home/{{ hadoop_user }}/hadoop"
+        state: directory
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_user }}"
+        recurse: yes
+        mode: 0755
+
+    - name: Ensure /home/{{ hadoop_user }}/hadoopdata/namenode directory exists
+      file:
+        path: "/home/{{ hadoop_user }}/hadoopdata/namenode"
+        state: directory
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_user }}"
+        mode: 0755
+
+    - name: Ensure /home/{{ hadoop_user }}/hadoopdata/datanode directory exists
+      file:
+        path: "/home/{{ hadoop_user }}/hadoopdata/datanode"
+        state: directory
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_user }}"
+        mode: 0755
 
     - name: Set Hadoop environment variables
       copy:
@@ -95,5 +116,4 @@
     - name: Format HDFS
       become: yes
       become_user: "{{ hadoop_user }}"
-      command: >
-        bash -c "env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 ~/hadoop/bin/hdfs namenode -format"
+      command: "env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 /home/hadoop/hadoop/bin/hdfs namenode -format"
