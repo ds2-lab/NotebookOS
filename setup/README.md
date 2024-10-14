@@ -4,8 +4,8 @@ The `setup/` directory contains utility scripts and Ansible playbooks provided t
 and deployment of the `distributed-notebook` cluster.
 
 The `setup/install.sh` script can be used to install all required dependencies on a single machine. This script has been
-tested and verified to be working on Windows Subsystem for Linux 2 (WSL2) using the Ubuntu 22.04.5 LTS distro. The host
-Windows operating system was Windows 10 Version 22H2 (OS Build 19045.5011). Full version information of the system on 
+tested and verified to be working on Windows Subsystem for Linux 2 (WSL2) using the `Ubuntu 22.04.5 LTS` distro. The host
+Windows operating system was Windows 10 Version 22H2 (OS Build `19045.5011`). Full version information of the system on 
 which the `setup/install.sh` script was tested and verified to work is shown below.
 ```shell
 WSL version: 2.3.24.0
