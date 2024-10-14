@@ -3,7 +3,7 @@ gitbranch: <branch to use>
 remote_user: <user>
 ansible_ssh_private_key_file: <path to ssh key>
 profile_file: "/home/{{ remote_user }}/.profile"  # Update this if using a different profile file
-protoc_version: <protoc version to use>
+protoc_version: 27.2
 tmp_dir: "/tmp"
 python_version: "3.12.6"
 python_short_version: "3.12"
