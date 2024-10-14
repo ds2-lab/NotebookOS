@@ -1,9 +1,12 @@
-gitrepo: "https://github.com/scusemua/distributed-notebook"
-gitbranch: <branch to use>
+git_repo_name: "distributed-notebook"
+gitbranch: <branch of repo to use>
+git_username: scusemua # change this to your own username if you created a fork of the repo
+git_personal_access_token: < github personal access token with read access to the repo's code >
+git_repo_url: "https://{{git_username}}:{{git_personal_access_token}}@github.com/{{git_username}}/{{git_repo_name}}.git
 remote_user: <user>
 ansible_ssh_private_key_file: <path to ssh key>
 profile_file: "/home/{{ remote_user }}/.profile"  # Update this if using a different profile file
-protoc_install_parent_dir: /home/{{ remote_user}}/.local/
+protoc_install_path: /home/{{ remote_user}}/.local/
 protoc_version: 27.2
 tmp_dir: "/tmp"
 python_version: "3.12.6"
