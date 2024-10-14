@@ -1,5 +1,5 @@
 - name: Install Docker
-  hosts: aws_ec2
+  hosts: vms
   remote_user: "{{ remote_username }}"
   become: true       # Run tasks as root
   gather_facts: true
