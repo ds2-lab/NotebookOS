@@ -114,7 +114,10 @@ if args.list_playbooks:
 if playbook in AllPlaybooks or playbook.lower() in AllPlaybooks:
     playbook_file: str = AllPlaybooks.get(playbook, AllPlaybooks[playbook.lower()])
 else:
-    raise ValueError(f"Unknown or unsupported playbook specified: \"{playbook}\"")
+    print(f"{bcolors.FAIL}{bcolors.BOLD}Unknown or unsupported playbook specified: {bcolors.WARNING}\"{playbook}\"{bcolors.ENDC}")
+    print(f"\n{bcolors.HEADER}{bcolors.BOLD}Set of all valid Playbooks {bcolors.ENDC}{bcolors.HEADER}(including aliases): {bcolors.ENDC}")
+    print(", ".join(sorted(list(AllPlaybooks.keys()), key = lambda x: x.lower())))
+    exit(1)
 
 print(f"{bcolors.HEADER}Selected playbook: {bcolors.OKBLUE}\"{playbook}\"{bcolors.ENDC} → {bcolors.YELLOW}{playbook_file}{bcolors.ENDC}")
 print(f"{bcolors.HEADER}Inventory file path: {bcolors.OKCYAN}\"{inventory_file}\"{bcolors.ENDC}")

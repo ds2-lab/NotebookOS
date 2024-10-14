@@ -5,6 +5,9 @@
   gather_facts: true
   environment:
     LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+    PYTHONPATH: "$PYTHONPATH:{{ python_virtual_env_dir }}/lib64/python{{ python_short_version }}/site-packages/"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
   tasks:
     - name: Update package index and install Java and SSH
@@ -16,10 +19,11 @@
       when: ansible_os_family == "Debian"
 
     - name: Create hadoop user
-      user:
-        name: "{{ hadoop_user }}"
-        password: "{{ hadoop_password | password_hash('sha512') }}"
-        shell: /bin/bash
+      shell: 'useradd -p "$(openssl passwd -6 {{ hadoop_user_password }})" {{ hadoop_user }}'
+      register: hadoop_useradd_output
+      become: true
+      failed_when:
+        - hadoop_useradd_output.rc != 0 and hadoop_useradd_output.rc != 9 # 9 is already "username already in use"
 
     - name: Create Hadoop home directory and set permissions
       file:
@@ -35,19 +39,23 @@
         owner: "{{ hadoop_user }}"
         mode: '0700'
 
-    - name: Generate SSH key for hadoop user
-      user:
-        name: "{{ hadoop_user }}"
-        generate_ssh_key: yes
-        ssh_key_type: rsa
-        ssh_key_bits: 2048
-        ssh_key_file: "{{ hadoop_key_path }}"
+    - name: "Create SSH key for Hadoop user {{ hadoop_user }}"
+      command: 'ssh-keygen -t rsa -N "" -f hadoop.key'
+      args:
+        chdir: "/home/{{ remote_username }}"
+      become: true
 
-    - name: Copy public key to authorized_keys
-      authorized_key:
-        user: "{{ hadoop_user }}"
-        state: present
-        key: "{{ lookup('file', hadoop_key_path + '.pub') }}"
+    - name: "Move SSH private SSH key for Hadoop user {{ hadoop_user }}"
+      command: "mv /home/{{ remote_username }}/hadoop.key /home/{{ hadoop_user }}/.ssh/hadoop.key"
+      become: true
+
+    - name: "Move SSH public SSH key for Hadoop user {{ hadoop_user }}"
+      command: "mv /home/{{ remote_username }}/hadoop.key.pub/home/{{ hadoop_user }}/.ssh/hadoop.key.pub"
+      become: true
+
+    - name: "Change ownership of SSH keys for Hadoop user {{ hadoop_user }}"
+      command: 'chown -R {{ hadoop_user }} /home/{{ hadoop_user }}/.ssh'
+      become: true
 
     - name: Download and extract Hadoop
       become: yes
