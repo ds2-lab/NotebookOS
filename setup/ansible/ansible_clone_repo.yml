@@ -15,7 +15,7 @@
 
     - name: Create the target directory if it doesn't exist
       file:
-        path: "{{ go_install_parent_dir }}/go/pkg"
+        path: "{{ gopath }}/pkg"
         state: directory
         owner: ubuntu
         group: ubuntu
@@ -23,17 +23,17 @@
 
     - name: Clone the GitHub repository
       git:
-        repo: "{{gitrepo}}"
-        dest: "{{ go_install_parent_dir }}/pkg/distributed-notebook"
-        version: main  # You can change the branch if necessary
+        repo: "{{ git_repo_url }}"
+        dest: "{{ gopath }}/pkg/distributed-notebook"
         force: yes
         update: yes
-        branch: "{{gitbranch}}"
+        clone: true
+        version: "{{ gitbranch }}"
       become: false  # Clone as the ubuntu user
 
     - name: Ensure correct ownership of the cloned repository
       file:
-        path: "{{ go_install_parent_dir }}/pkg/distributed-notebook"
+        path: "{{ gopath }}/pkg/distributed-notebook"
         state: directory
         owner: ubuntu
         group: ubuntu
