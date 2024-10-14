@@ -66,6 +66,43 @@ ansible-playbook /home/ubuntu/go/pkg/distributed-notebook/setup/ansible/ansible_
 Prior to running any of the playbooks, however, you should first set up your configuration. Please refer to the previous
 section for information regarding how to set up your configuration.
 
+#### The `run_playbook.py` Python Script
+
+The `run_playbook.py` Python script is a simple utility script to make running Ansible playbooks a little more convenient.
+``` 
+usage: run_playbook.py [-h] [-p PLAYBOOK] [-i INVENTORY_FILE] [-v VARS_FILE] [-l]
+
+options:
+  -h, --help            show this help message and exit
+  -p PLAYBOOK, --playbook PLAYBOOK
+                        The name of the playbook to run.
+  -i INVENTORY_FILE, --inventory-file INVENTORY_FILE
+                        Path to the Ansible inventory file.
+  -v VARS_FILE, --vars-file VARS_FILE
+                        Path to the Ansible 'vars' file.
+  -l, --list-playbooks  List all possible playbooks.
+```
+
+**Note**: the `run_playbook.py` script should be run from the `setup/ansible/` directory.
+
+You can execute `run_playbook.py -l` or `run_playbook.py --list-playbooks` to list all the Ansible playbooks that
+can be executed by the `run_playbook.py` script. The `run_playbook.py` essentially offers a shorthand method
+for executing playbooks when using the default `inventory_file.ini` and `ansible_vars.yml` configuration files.
+
+That is, when using those two files, you may simply execute `python3.12 run_playbook.py -p <playbook name or file>` to
+run the playbook with the `inventory_file.ini` and `ansible_vars.yml` configuration files used for their intended
+purposes. 
+
+For example, consider the following command:
+``` shell
+python3.12 run_playbook.py -p InstallDocker
+```
+
+That command is equivalent to the following:
+``` shell
+ansible-playbook ansible_install_docker.yml -i "inventory_file.ini" -e "@ansible_vars.yml"
+```
+
 #### A Note on Compatibility
 
 **Note**: the playbooks were tested on AWS EC2 virtual machines running Ubuntu 24.04.1 LTS. If you would like to use 
