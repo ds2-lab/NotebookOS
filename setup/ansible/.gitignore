@@ -3,3 +3,4 @@ env
 .env
 inventory.ini
 inventory_file.ini
+artifacts
