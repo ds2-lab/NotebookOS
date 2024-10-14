@@ -45,7 +45,7 @@
         remote_src: yes
 
     - name: Configure Python build
-      command: ./configure --enable-optimizations --with-pydebug --enable-shared
+      command: ./configure --enable-optimizations --with-pydebug --enable-shared --with-ensurepip=install
       args:
         chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
 
