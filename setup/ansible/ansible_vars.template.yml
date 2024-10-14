@@ -2,12 +2,14 @@ gitrepo: "https://github.com/scusemua/distributed-notebook"
 gitbranch: <branch to use>
 remote_user: <user>
 ansible_ssh_private_key_file: <path to ssh key>
+profile_file: "/home/{{ remote_user }}/.profile"  # Update this if using a different profile file
 protoc_version: <protoc version to use>
+tmp_dir: "/tmp"
+python_version: "3.12.6"
+python_short_version: "3.12"
 target_go_version: "1.21.5"
 go_download_url: "https://go.dev/dl/go{{ target_go_version }}.linux-amd64.tar.gz"
 go_install_parent_dir: "/home/{{ remote_user }}/"
-tmp_dir: "/tmp"
-profile_file: "/home/{{ remote_user }}/.profile"  # Update this if using a different profile file
 gopath: "{{ go_install_parent_dir }}/go"
 gopy_bin_path: "{{ gopath }}/gopy"
 gopy_build_dir: "{{ gopath }}/pkg/gopy"
@@ -28,3 +30,4 @@ helm_bin_path: "/usr/local/bin/helm"
 kubectl_url: "https://dl.k8s.io/release"
 kubectl_bin_path: "/usr/bin/kubectl"
 protoc_release_url: "https://github.com/protocolbuffers/protobuf/releases/download/v{{ protoc_version }}/protoc-{{ protoc_version }}-linux-x86_64.zip"
+python_build_dir: "/home/ubuntu"

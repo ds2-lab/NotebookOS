@@ -10,18 +10,29 @@
       register: go_already_installed
       ignore_errors: true
 
-    - name: Download Golang if not installed
+    - name: Show debug
+      ansible.builtin.debug:
+        msg: "go_already_installed results: {{ go_already_installed }}"
+
+    - name: Check if the correct version of Golang is installed
+      shell: . {{ profile_file }} && go version
+      register: go_curr_install_version_check
+      failed_when: "'go version go' + target_go_version not in go_curr_install_version_check.stdout"
+      when: not go_already_installed.failed
+      ignore_errors: true
+
+    - name: Download Golang if not installed (or if wrong version is installed)
       get_url:
         url: "{{ go_download_url }}"
         dest: "{{ tmp_dir }}/go{{ target_go_version }}.linux-amd64.tar.gz"
-      when: go_already_installed.failed
+      when: go_already_installed.failed or go_curr_install_version_check.failed
 
     - name: Extract Golang archive to the specified directory
       unarchive:
         src: "{{ tmp_dir }}/go{{ target_go_version }}.linux-amd64.tar.gz"
         dest: "{{ go_install_parent_dir }}"
         remote_src: yes
-      when: go_already_installed.failed
+      when: go_already_installed.failed or go_curr_install_version_check.failed
 
     - name: Ensure GOPATH is set in .profile
       lineinfile:
@@ -29,7 +40,7 @@
         regexp: '^export GOPATH='
         line: 'export GOPATH={{ gopath }}'
         state: present
-      when: go_already_installed.failed
+      when: go_already_installed.failed or go_curr_install_version_check.failed
 
     - name: Ensure Go binary is in the PATH
       lineinfile:
@@ -42,13 +53,13 @@
       shell: . {{ profile_file }} && go version
       register: go_version_check
       failed_when: "'go version go' + target_go_version not in go_version_check.stdout"
-      when: go_already_installed.failed
+      when: go_already_installed.failed or go_curr_install_version_check.failed
 
     - name: Fail task if Go version check fails
       fail:
         msg: "[ERROR] Golang installation failed."
       when:
-        - go_already_installed.failed
+        - go_already_installed.failed or go_curr_install_version_check.failed
         - "'go version go' + target_go_version not in go_version_check.stdout"
 
     - name: Ensure GOPATH is set to the correct directory
@@ -63,7 +74,7 @@
     - name: Display success message if Golang is installed and GOPATH is set
       debug:
         msg: "Golang v{{ target_go_version }} installed successfully, and GOPATH is set to {{ gopath }}."
-      when: go_already_installed.failed
+      when: go_already_installed.failed or go_curr_install_version_check.failed
 
     - name: Check if go-zeromq/zmq4 already exists within the GOPATH
       stat: path={{ go_install_parent_dir }}/go/pkg/zmq4
