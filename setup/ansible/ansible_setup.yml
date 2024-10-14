@@ -11,8 +11,8 @@
     - name: Execute ansible_install_golang.yml
       include_tasks: ansible_install_golang.yml
 
-    - name: Execute ansible_install_python3.12.6.yml
-      include_tasks: ansible_install_python3.12.6.yml
+    - name: Execute ansible_install_python.yml
+      include_tasks: ansible_install_python.yml
 
     - name: Execute ansible_install_docker.yml
       include_tasks: ansible_install_docker.yml

@@ -1,19 +1,19 @@
 - name: Build and install Python from source
   hosts: aws_ec2
-  remote_user: "{{remote_username}}"
+  remote_user: "{{ remote_username }}"
   become: true       # Run tasks as root
   gather_facts: true
 
   tasks:
-    - name: Check if Python 3.12.6 is installed
-      command: . {{ profile_file }} && python3.12 --version
+    - name: Check if Python {{ python_version }} is installed
+      shell: . {{ profile_file }} && python3.12 --version
       register: python_check
       failed_when: "'Python ' + python_version not in python_check.stdout"
       ignore_errors: true
 
-    - name: Check if the installed Python version is 3.12.6
+    - name: Check if the installed Python version is {{ python_version }}
       debug:
-        msg: "Python version {{ python_check.stdout }}"
+        msg: "Installed Python version: {{ python_check.stdout }}; desired Python version: {{ python_version }}"
       when: python_check.rc == 0
 
     - name: Ensure required packages are installed for building Python
@@ -54,7 +54,7 @@
       args:
         chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
 
-    - name: Install Python {{ python_version }}
+    - name: Install specified version of Python {{ python_version }}"
       command: make altinstall
       args:
         chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
@@ -67,8 +67,3 @@
         state: present
         insertafter: EOF
       become: false
-
-    - name: Verify Python {{ python_version }} installation
-      command: "python{{ python_short_version }} --version"
-      debug:
-        msg: "Python version {{ python_check.stdout }}"
