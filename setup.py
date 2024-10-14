@@ -13,9 +13,6 @@ setuptools.setup(
     author='Benjamin Carver',
     author_email='bcarver2@gmu.edu',
     url='https://github.com/scusemua/distributed_notebook',
-    install_requires=[
-        'jupyter_client', 'IPython', 'ipykernel'
-    ],
     classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: MIT License',
