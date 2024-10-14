@@ -1,38 +1,47 @@
-- name: Check if protoc is already installed
-  command: protoc --version
-  register: protoc_installed
-  ignore_errors: true
+- name: Install protoc
+  hosts: aws_ec2
+  remote_user: "{{ remote_username }}"
+  become: true       # Run tasks as root
+  gather_facts: true
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
 
-- name: Download Protoc release if not already installed
-  get_url:
-    url: "{{ protoc_release_url }}"
-    dest: "{{ tmp_dir }}/protoc-{{ protoc_version }}-linux-x86_64.zip"
-  when: protoc_installed.rc != 0
+  tasks:
+    - name: Check if protoc is already installed
+      command: protoc --version
+      register: protoc_installed
+      ignore_errors: true
 
-- name: Unzip Protoc release into the local directory
-  unarchive:
-    src: "{{ tmp_dir }}/protoc-{{ protoc_version }}-linux-x86_64.zip"
-    dest: "/home/ubuntu/.local"
-    remote_src: yes
-  when: protoc_installed.rc != 0
+    - name: Download Protoc release if not already installed
+      get_url:
+        url: "{{ protoc_release_url }}"
+        dest: "{{ tmp_dir }}/protoc-{{ protoc_version }}-linux-x86_64.zip"
+      when: protoc_installed.rc != 0
 
-- name: Ensure the local bin directory is in the PATH
-  lineinfile:
-    path: /home/ubuntu/.bashrc
-    regexp: '^export PATH=.*/home/ubuntu/.local/bin'
-    line: 'export PATH="$PATH:/home/ubuntu/.local/bin"'
-    state: present
+    - name: Unzip Protoc release into the local directory
+      unarchive:
+        src: "{{ tmp_dir }}/protoc-{{ protoc_version }}-linux-x86_64.zip"
+        dest: "/home/ubuntu/.local"
+        remote_src: yes
+      when: protoc_installed.rc != 0
 
-- name: Reload .bashrc to apply new PATH
-  shell: source /home/ubuntu/.bashrc
-  when: protoc_installed.rc != 0
+    - name: Ensure the local bin directory is in the PATH
+      lineinfile:
+        path: /home/ubuntu/.bashrc
+        regexp: '^export PATH=.*/home/ubuntu/.local/bin'
+        line: 'export PATH="$PATH:/home/ubuntu/.local/bin"'
+        state: present
 
-- name: Verify Protoc installation
-  command: protoc --version
-  register: protoc_version_output
-  when: protoc_installed.rc != 0
+    - name: Reload .bashrc to apply new PATH
+      shell: source /home/ubuntu/.bashrc
+      when: protoc_installed.rc != 0
 
-- name: Display Protoc version installed
-  debug:
-    msg: "Protoc version: {{ protoc_version_output.stdout }}"
-  when: protoc_installed.rc != 0
+    - name: Verify Protoc installation
+      command: protoc --version
+      register: protoc_version_output
+      when: protoc_installed.rc != 0
+
+    - name: Display Protoc version installed
+      debug:
+        msg: "Protoc version: {{ protoc_version_output.stdout }}"
+      when: protoc_installed.rc != 0

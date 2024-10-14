@@ -1,31 +1,40 @@
-- name: Ensure git is installed
-  apt:
-    name: git
-    state: present
-    update_cache: yes
+- name: Clone the 'distributed-notebook' Git repository from GitHub
+  hosts: aws_ec2
+  remote_user: "{{ remote_username }}"
+  become: true       # Run tasks as root
+  gather_facts: true
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
 
-- name: Create the target directory if it doesn't exist
-  file:
-    path: "{{ go_install_parent_dir }}/go/pkg"
-    state: directory
-    owner: ubuntu
-    group: ubuntu
-    mode: '0755'
+  tasks:
+    - name: Ensure git is installed
+      apt:
+        name: git
+        state: present
+        update_cache: yes
 
-- name: Clone the GitHub repository
-  git:
-    repo: "{{gitrepo}}"
-    dest: "{{ go_install_parent_dir }}/pkg/distributed-notebook"
-    version: main  # You can change the branch if necessary
-    force: yes
-    update: yes
-    branch: "{{gitbranch}}"
-  become: false  # Clone as the ubuntu user
+    - name: Create the target directory if it doesn't exist
+      file:
+        path: "{{ go_install_parent_dir }}/go/pkg"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
 
-- name: Ensure correct ownership of the cloned repository
-  file:
-    path: "{{ go_install_parent_dir }}/pkg/distributed-notebook"
-    state: directory
-    owner: ubuntu
-    group: ubuntu
-    recurse: yes
+    - name: Clone the GitHub repository
+      git:
+        repo: "{{gitrepo}}"
+        dest: "{{ go_install_parent_dir }}/pkg/distributed-notebook"
+        version: main  # You can change the branch if necessary
+        force: yes
+        update: yes
+        branch: "{{gitbranch}}"
+      become: false  # Clone as the ubuntu user
+
+    - name: Ensure correct ownership of the cloned repository
+      file:
+        path: "{{ go_install_parent_dir }}/pkg/distributed-notebook"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        recurse: yes

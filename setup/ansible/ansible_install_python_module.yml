@@ -1,15 +1,24 @@
-- name: Install the Python module from pyproject.toml
-  command: "python3.12 -m pip install ."
-  args:
-    chdir: "/home/go/pkg/distributed-notebook"
-  register: install_result
+- name: Install the distributed-notebook Python module
+  hosts: aws_ec2
+  remote_user: "{{ remote_username }}"
+  become: true       # Run tasks as root
+  gather_facts: true
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
 
-- name: Fail if installation failed
-  fail:
-    msg: "Installation failed: {{ install_result.stderr }}"
-  when: install_result.rc != 0
+  tasks:
+    - name: Install the Python module from pyproject.toml
+      command: "python3.12 -m pip install ."
+      args:
+        chdir: "/home/go/pkg/distributed-notebook"
+      register: install_result
 
-- name: Display success message if installation was successful
-  debug:
-    msg: "Python module installed successfully from /home/go/pkg/distributed-notebook."
-  when: install_result.rc == 0
+    - name: Fail if installation failed
+      fail:
+        msg: "Installation failed: {{ install_result.stderr }}"
+      when: install_result.rc != 0
+
+    - name: Display success message if installation was successful
+      debug:
+        msg: "Python module installed successfully from /home/go/pkg/distributed-notebook."
+      when: install_result.rc == 0
