@@ -161,6 +161,11 @@
       register: protoc_gen_go_grpc_install
       changed_when: protoc_gen_go_grpc_install.stdout != ''  # Mark as changed if there is output
 
+    - name: Install goimports module
+      shell: ". {{ profile_file }} && go install golang.org/x/tools/cmd/goimports@latest"
+      register: goimports_install
+      changed_when: goimports_install.stdout != ''  # Mark as changed if there is output
+
     - name: Display success message for Kind installation
       debug:
         msg: "Kind v{{ kind_version }} installed successfully."
@@ -175,6 +180,11 @@
       debug:
         msg: "Protoc gRPC Go Bindings installed successfully."
       when: protoc_gen_go_grpc_install.changed
+
+    - name: Display success message for goimports installation
+      debug:
+        msg: "goimports module installed successfully."
+      when: goimports_install.changed
 
     - name: Recursively change ownership of the go directory
       ansible.builtin.file:
