@@ -1,0 +1,29 @@
+- name: Build the SMR module.
+  hosts: vms
+  remote_user: "{{ remote_username }}"
+  gather_facts: true
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_python_interpreter: "{{ python_dir }}/python"
+
+  tasks:
+    - name: Build gRPC bindings.
+      community.general.make:
+        - file: "{{ gopath }}/pkg/{{ git_repo_name }}/Makefile"
+          jobs: 1
+          target: make-grpc
+
+    - name: Build in the SMR directory
+      community.general.make:
+        - chdir: "{{ gopath }}/pkg/{{ git_repo_name }}/smr"
+          file: "{{ gopath }}/pkg/{{ git_repo_name }}/smr/Makefile"
+          jobs: 1
+          target: make build-linux-amd64
+
+    - name: Build in the root directory
+      community.general.make:
+        - chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
+          file: "{{ gopath }}/pkg/{{ git_repo_name }}/Makefile"
+          jobs: 1
+          target: make build-smr-linux-amd64
