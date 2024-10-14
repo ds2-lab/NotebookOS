@@ -1,15 +1,19 @@
 [project]
 name = "Distributed-Notebook"
+
 description = "A package containing a distributed jupyter kernel and associated provisioner."
-requires-python = ">=3.11"
-dynamic = ["version", "readme"]
+
+requires-python = ">=3.12"
+
 authors = [
     {name = "Jingyuan Zhang", email = "jzhang33@gmu.edu"},
     {name = "Benjamin Carver", email = "bcarver2@gmu.edu"}
 ]
+
 maintainers = [
     {name = "Benjamin Carver", email = "bcarver2@gmu.edu"}
 ]
+
 dependencies = [
     "jupyter_client>=7.4",
     "traitlets>=5.1",
@@ -26,6 +30,34 @@ dependencies = [
     "prometheus-client>=0.20.0",
     "jupyter_server>=2.14.2"
 ]
+
+readme = "README.md"
+
+classifiers = [
+    # How mature is this project? Common values are
+    #   3 - Alpha
+    #   4 - Beta
+    #   5 - Production/Stable
+    "Development Status :: 3 - Beta",
+
+    # Indicate who your project is intended for
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+
+    # Pick your license as you wish (see also "license" above)
+    "License :: OSI Approved :: MIT License",
+
+    # Specify the Python versions you support here.
+    "Programming Language :: Python :: 3.12.6",
+]
+
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/Scusemua/distributed-notebook/"
+Documentation = "https://github.com/Scusemua/distributed-notebook/"
+Repository = "https://github.com/Scusemua/distributed-notebook/"
+Issues = "https://github.com/Scusemua/distributed-notebook/issues"
 
 [tool.setuptools]
 py-modules = [
