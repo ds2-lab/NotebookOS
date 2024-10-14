@@ -32,38 +32,38 @@
           - libbz2-dev
         state: present
         update_cache: yes
-      when: python_check.rc != 0
+      when: python_check.rc != 0 or python_check.failed == true
 
     - name: Download Python source code
       get_url:
         url: "https://www.python.org/ftp/python/{{ python_version }}/Python-{{ python_version }}.tgz"
         dest: "{{ tmp_dir }}/Python-{{ python_version }}.tgz"
-      when: python_check.rc != 0
+      when: python_check.rc != 0 or python_check.failed == true
 
     - name: Extract the Python source tarball
       unarchive:
         src: "{{ tmp_dir }}/Python-{{ python_version }}.tgz"
         dest: "{{ python_build_dir }}"
         remote_src: yes
-      when: python_check.rc != 0
+      when: python_check.rc != 0 or python_check.failed == true
 
     - name: Configure Python build
       command: ./configure --enable-optimizations --with-pydebug --enable-shared --with-ensurepip=install
       args:
         chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
-      when: python_check.rc != 0
+      when: python_check.rc != 0 or python_check.failed == true
 
     - name: Build Python from source (this may take some time)
       command: make -j {{ ansible_processor_vcpus }} EXTRA_CFLAGS="-DPy_REF_DEBUG"
       args:
         chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
-      when: python_check.rc != 0
+      when: python_check.rc != 0 or python_check.failed == true
 
     - name: Install specified version of Python {{ python_version }}"
       command: make altinstall
       args:
         chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
-      when: python_check.rc != 0
+      when: python_check.rc != 0 or python_check.failed == true
 
     - name: Ensure LD_LIBRARY_PATH is set in /home/ubuntu/.profile
       lineinfile:
@@ -73,4 +73,4 @@
         state: present
         insertafter: EOF
       become: false
-      when: python_check.rc != 0
+      when: python_check.rc != 0 or python_check.failed == true

@@ -3,36 +3,35 @@
   remote_user: "{{remote_username}}"
   gather_facts: true
 
-  tasks:
-    - name: Execute ansible_install_git.yml
-      include_tasks: ansible_install_git.yml
+- name: Execute ansible_install_git.yml
+  import_playbook: ansible_install_git.yml
 
-    - name: Execute ansible_install_golang.yml
-      include_tasks: ansible_install_golang.yml
+- name: Execute ansible_install_golang.yml
+  import_playbook: ansible_install_golang.yml
 
-    - name: Execute ansible_install_python.yml
-      include_tasks: ansible_install_python.yml
+- name: Execute ansible_install_python.yml
+  import_playbook: ansible_install_python.yml
 
-    - name: Execute ansible_install_docker.yml
-      include_tasks: ansible_install_docker.yml
+- name: Execute ansible_install_docker.yml
+  import_playbook: ansible_install_docker.yml
 
-    - name: Execute ansible_install_helm.yml
-      include_tasks: ansible_install_helm.yml
+- name: Execute ansible_install_helm.yml
+  import_playbook: ansible_install_helm.yml
 
-    - name: Execute ansible_install_kubectl.yml
-      include_tasks: ansible_install_kubectl.yml
+- name: Execute ansible_install_kubectl.yml
+  import_playbook: ansible_install_kubectl.yml
 
-    - name: Execute ansible_install_protoc.yml
-      include_tasks: ansible_install_protoc.yml
+- name: Execute ansible_install_protoc.yml
+  import_playbook: ansible_install_protoc.yml
 
-    - name: Execute ansible_clone_repo.yml
-      include_tasks: ansible_clone_repo.yml
+- name: Execute ansible_clone_repo.yml
+  import_playbook: ansible_clone_repo.yml
 
-    - name: Execute ansible_install_python_module.yml
-      include_tasks: ansible_install_python_module.yml
+- name: Execute ansible_install_python_module.yml
+  import_playbook: ansible_install_python_module.yml
 
-    - name: Execute ansible_build_smr.yml
-      include_tasks: ansible_build_smr.yml
+- name: Execute ansible_build_smr.yml
+  import_playbook: ansible_build_smr.yml
 
-    - name: Execute ansible_install_hadoop_hdfs.yml
-      include_tasks: ansible_install_hadoop_hdfs.yml
+- name: Execute ansible_install_hadoop_hdfs.yml
+  import_playbook: ansible_install_hadoop_hdfs.yml
