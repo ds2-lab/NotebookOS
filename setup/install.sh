@@ -187,6 +187,7 @@ then
     export PATH=$PATH:/usr/local/go/bin
 
     echo export PATH=$PATH:/usr/local/go/bin >> $HOME/.profile
+    echo export PATH=$PATH:/usr/local/go/bin >> $HOME/.bashrc
 
     echo "[DEBUG] Checking if Golang installed successfully..."
 
