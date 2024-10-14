@@ -5,25 +5,22 @@
   environment:
     LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
   vars:
+    python_dir: "{{ python_build_dir }}/Python-{{ python_version }}"
+    pip_executable: "/usr/local/bin/pip{{ python_short_version }}"
     ansible_python_interpreter: "{{ python_dir }}/python"
 
   tasks:
     - name: Build gRPC bindings.
-      community.general.make:
-        - file: "{{ gopath }}/pkg/{{ git_repo_name }}/Makefile"
-          jobs: 1
-          target: make-grpc
+      shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-grpc"
+      args:
+        chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
 
     - name: Build in the SMR directory
-      community.general.make:
-        - chdir: "{{ gopath }}/pkg/{{ git_repo_name }}/smr"
-          file: "{{ gopath }}/pkg/{{ git_repo_name }}/smr/Makefile"
-          jobs: 1
-          target: make build-linux-amd64
+      shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-linux-amd64"
+      args:
+        chdir: "{{ gopath }}/pkg/{{ git_repo_name }}/smr"
 
     - name: Build in the root directory
-      community.general.make:
-        - chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
-          file: "{{ gopath }}/pkg/{{ git_repo_name }}/Makefile"
-          jobs: 1
-          target: make build-smr-linux-amd64
+      shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-smr-linux-amd64"
+      args:
+        chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
