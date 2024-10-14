@@ -34,6 +34,8 @@ particular value should be set.
 
 The main variables that you will need to define yourself are as follows:
 - `gitbranch`: the branch of the `distributed-notebook` GitHub repository to use (most likely `main`).
+- `git_personal_access_token`: a GitHub personal access token with read access to the target repository's code and metadata.
+- `git_username`: the username of the owner of the GitHub repository. the default value of `scusemua` should be fine except for some specific cases, like if you forked the repository and would like to use your fork
 - `remote_user`: the username that ansible should use when connecting to the target nodes/virtual machines (e.g., `ubuntu` or `ec2-user` for AWS Ubuntu and AWS Linux virtual machines, respectively).
 - `ansible_ssh_private_key_file`: the path to the local SSH key that ansible can use when connecting to the target nodes or virtual machines.
 
