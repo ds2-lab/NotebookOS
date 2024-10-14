@@ -14,9 +14,7 @@ python3 -m pip install --user ansible ansible_runner fabric
 
 Once ansible is installed, you may run the playbooks using the following command structure:
 ``` shell 
-ansible-playbook "<path to target playbook>" \
- -i "<path to inventory ini file>" \
- -e "@<path to ansible vars yml file>"
+ansible-playbook "<path to target playbook>" -i "<path to inventory ini file>" -e "@<path to ansible vars yml file>"
 ```
 
 **Note**: make sure to prefix the path to the `ansible_vars.yml` file with an `"@"`.

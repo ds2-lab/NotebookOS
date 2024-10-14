@@ -23,6 +23,12 @@
         update_cache: yes
       when: ansible_distribution == 'Ubuntu' and docker_test_initial.failed
 
+    - name: Install required packages (Amazon Linux)
+      yum:
+        name: ['yum-utils', 'device-mapper-persistent-data', 'lvm2']
+        state: present
+      when: ansible_distribution == 'Amazon' and docker_test_initial.failed
+
     - name: Install required packages (Ubuntu)
       apt:
         name: ['apt-transport-https', 'ca-certificates', 'curl', 'software-properties-common']
@@ -41,12 +47,22 @@
         state: present
       when: ansible_distribution == 'Ubuntu' and docker_test_initial.failed
 
+    - name: Add Docker repository (Amazon Linux)
+      command: amazon-linux-extras enable docker
+      when: ansible_distribution == 'Amazon' and docker_test_initial.failed
+
     - name: Install Docker (Ubuntu)
       apt:
         name: docker-ce
         state: present
         update_cache: yes
       when: ansible_distribution == 'Ubuntu' and docker_test_initial.failed
+
+    - name: Install Docker (Amazon Linux)
+      yum:
+        name: docker
+        state: present
+      when: ansible_distribution == 'Amazon' and docker_test_initial.failed
 
     - name: Ensure Docker service is started
       service:
