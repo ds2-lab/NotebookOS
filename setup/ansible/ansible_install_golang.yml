@@ -23,14 +23,6 @@
         remote_src: yes
       when: go_already_installed.failed
 
-    - name: Recursively change ownership of the go directory
-      ansible.builtin.file:
-        path: "{{ go_install_parent_dir }}/go"
-        state: directory
-        recurse: yes
-        owner: "{{ remote_username }}"
-        group: "{{ remote_username }}"
-
     - name: Ensure GOPATH is set in .profile
       lineinfile:
         path: "{{ profile_file }}"
@@ -87,14 +79,6 @@
         accept_newhostkey: true
       when: not zmq4.stat.exists
 
-    - name: Recursively change ownership of the zmq4 directory
-      ansible.builtin.file:
-        path: "{{ go_install_parent_dir }}/go/pkg/zmq4"
-        state: directory
-        recurse: yes
-        owner: "{{ remote_username }}"
-        group: "{{ remote_username }}"
-
     - name: Check if scusemua/gopy already exists within the GOPATH
       stat: path={{ go_install_parent_dir }}/go/pkg/gopy
       register: gopy
@@ -129,22 +113,17 @@
     - name: Fail if gopy binary was not built successfully
       fail:
         msg: "[ERROR] gopy binary was not created in {{ gopy_build_dir }}."
-      when: gopy_build_result.stat.exists == false
-
-    - name: Recursively change ownership of the gopy directory
-      ansible.builtin.file:
-        path: "{{ go_install_parent_dir }}/go/pkg/gopy"
-        state: directory
-        recurse: yes
-        owner: "{{ remote_username }}"
-        group: "{{ remote_username }}"
+      when:
+        - not gopy_bin_exists.stat.exists
+        - gopy_build_result.stat.exists == false
 
     - name: Copy gopy binary to the go/bin
       copy:
         src: "{{ gopy_source_bin }}"
         dest: "{{ gopy_bin_path }}"
         mode: '0755'
-      when: gopy_build_result.stat.exists == true
+        remote_src: yes
+      when: gopy_build_result.stat is not defined or gopy_build_result.stat.exists == true
 
     - name: Display success message if gopy binary exists
       debug:
@@ -156,12 +135,12 @@
       changed_when: kind_install.stdout != ''  # Mark as changed if there is output
 
     - name: Install Protoc Go Bindings
-      shell: "go install {{ protoc_gen_go }}"
+      shell: ". {{ profile_file }} && go install {{ protoc_gen_go }}"
       register: protoc_gen_go_install
       changed_when: protoc_gen_go_install.stdout != ''  # Mark as changed if there is output
 
     - name: Install Protoc gRPC Go Bindings
-      shell: "go install {{ protoc_gen_go_grpc }}"
+      shell: ". {{ profile_file }} && go install {{ protoc_gen_go_grpc }}"
       register: protoc_gen_go_grpc_install
       changed_when: protoc_gen_go_grpc_install.stdout != ''  # Mark as changed if there is output
 
@@ -179,3 +158,11 @@
       debug:
         msg: "Protoc gRPC Go Bindings installed successfully."
       when: protoc_gen_go_grpc_install.changed
+
+    - name: Recursively change ownership of the go directory
+      ansible.builtin.file:
+        path: "{{ go_install_parent_dir }}/go"
+        state: directory
+        recurse: yes
+        owner: "{{ remote_username }}"
+        group: "{{ remote_username }}"
