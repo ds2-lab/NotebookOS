@@ -3,6 +3,7 @@ gitbranch: <branch to use>
 remote_user: <user>
 ansible_ssh_private_key_file: <path to ssh key>
 profile_file: "/home/{{ remote_user }}/.profile"  # Update this if using a different profile file
+protoc_install_parent_dir: /home/{{ remote_user}}/.local/
 protoc_version: 27.2
 tmp_dir: "/tmp"
 python_version: "3.12.6"
