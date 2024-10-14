@@ -140,10 +140,16 @@
       debug:
         msg: "gopy binary exists at {{ gopy_bin_path }}."
 
+    - name: Check if kind binary already exists
+      stat:
+        path: "{{ gopath }}/bin/kind"
+      register: go_kind_executable_exists
+
     - name: Install Kind
       shell: ". {{ profile_file }} && go install sigs.k8s.io/kind@{{ kind_version }}"
       register: kind_install
       changed_when: kind_install.stdout != ''  # Mark as changed if there is output
+      when: go_kind_executable_exists.stat is not defined or go_kind_executable_exists.stat.exists == false
 
     - name: Install Protoc Go Bindings
       shell: ". {{ profile_file }} && go install {{ protoc_gen_go }}"
