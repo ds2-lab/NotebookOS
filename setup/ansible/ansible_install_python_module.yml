@@ -1,7 +1,6 @@
 - name: Install the distributed-notebook Python module
   hosts: vms
   remote_user: "{{ remote_username }}"
-  become: true       # Run tasks as root
   gather_facts: true
   environment:
     LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
