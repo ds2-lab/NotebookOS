@@ -24,7 +24,7 @@ dependencies = [
     "ansible",
     "ansible_runner",
     "typing_extensions",
-    "debugpy>=1.85",
+    "debugpy",
     "fabric",
     "ipykernel>=6.29.5",
     "prometheus-client>=0.20.0",
