@@ -1,4 +1,4 @@
-- name: Update package index and install Java and SSH
+- name: Update package index and install Java and SSH before installing Hadoop HDFS
   apt:
     name:
       - openjdk-8-jdk

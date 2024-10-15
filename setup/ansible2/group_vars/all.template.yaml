@@ -87,7 +87,7 @@ zookeeper_create_user_group: true
 zookeeper_group: zookeeper
 zookeeper_user: zookeeper
 
-zookeeper_root_dir: /opt/
+zookeeper_root_dir: /opt
 zookeeper_install_dir: '{{ zookeeper_root_dir }}/apache-zookeeper-{{ zookeeper_version }}'
 
 # The zookeeper_dir is created as a symlik to the actual installation directory.
