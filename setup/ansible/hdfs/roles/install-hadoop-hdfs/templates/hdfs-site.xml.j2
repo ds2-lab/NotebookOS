@@ -24,12 +24,12 @@
 
     <property>
         <name>dfs.namenode.name.dir</name>
-        <value>{{ hdfs_dfs_namenode_name_dir }}</value>
+        <value>file://{{ hdfs_dfs_namenode_name_dir }}</value>
     </property>
 
     <property>
         <name>dfs.datanode.data.dir</name>
-        <value>{{ hdfs_dfs_datanode_data_dir }}</value>
+        <value>file://{{ hdfs_dfs_datanode_data_dir }}</value>
     </property>
 
     <property>

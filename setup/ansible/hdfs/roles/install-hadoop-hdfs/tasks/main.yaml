@@ -123,9 +123,54 @@
   template:
     src: hosts.j2
     dest: /etc/hosts
-    mode: 0640
+    mode: 0777
+  become: true
 
 - name: Update and upgrade apt packages on all VMs.
   apt:
     upgrade: yes
     update_cache: yes
+
+- name: Copy the configured private key to the remote hosts for the standard user
+  copy:
+    src: "{{ private_key_to_upload }}"
+    remote_src: false
+    dest: "/home/{{ remote_username }}/.ssh/id_rsa"
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: 0600
+
+- name: Copy the configured public key to the remote hosts for the standard user
+  copy:
+    src: "{{ public_key_to_upload }}"
+    remote_src: false
+    dest: "/home/{{ remote_username }}/.ssh/id_rsa.pub"
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: 0600
+
+- name: "Copy the configured private key to the remote hosts for the {{ hadoop_user }} user"
+  copy:
+    src: "{{ private_key_to_upload }}"
+    remote_src: false
+    dest: "/home/{{ hadoop_user }}/.ssh/id_rsa"
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_user }}"
+    mode: 0600
+  become: true
+
+- name: "Copy the configured public key to the remote hosts for the {{ hadoop_user }} user"
+  copy:
+    src: "{{ public_key_to_upload }}"
+    remote_src: false
+    dest: "/home/{{ hadoop_user }}/.ssh/id_rsa.pub"
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_user }}"
+    mode: 0600
+  become: true
+
+- name: "Ensure that the copied private key will work for SSHing between the hosts for the standard user"
+  shell: "cat /home/{{ remote_username }}/.ssh/id_rsa.pub >> /home/{{ remote_username }}/.ssh/authorized_hosts"
+
+- name: "Ensure that the copied private key will work for SSHing between the hosts for the {{ hadoop_user }} user"
+  shell: "cat /home/{{ hadoop_user }}/.ssh/id_rsa.pub >> /home/{{ hadoop_user }}/.ssh/authorized_hosts"

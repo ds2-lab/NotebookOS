@@ -1,14 +1,14 @@
-- name: Reload the systemd daemon
+- name: daemon reload
   systemd:
     daemon_reload: yes
 
-- name: Start the Hadoop HDFS NameNode systemd service
+- name: namenode start
   systemd:
     state: started
     enabled: yes
     name: hdfs-namenode.service
 
-- name: Restart the Hadoop HDFS NameNode systemd service
+- name: namenode restart
   systemd:
     state: restarted
     name: hdfs-namenode.service

@@ -1,13 +1,13 @@
-- name: Reload the systemd daemon
+- name: daemon reload
   systemd:
     daemon_reload: yes
 
-- name: Restart the HDFS JournalNode systemd service
+- name: journalnode restart
   systemd:
     state: restarted
     name: hdfs-journalnode.service
 
-- name: Enable the HDFS JournalNode systemd service
+- name: journalnode enable
   systemd:
     name: hdfs-journalnode.service
     enabled: yes

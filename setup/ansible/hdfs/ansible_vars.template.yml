@@ -2,6 +2,8 @@
 remote_user: <user>
 remote_user: "{{ remote_username }}"
 ansible_ssh_private_key_file: <path to ssh key>
+private_key_to_upload: <path to private ssh key that can be copied to remote VMs so they can SSH between each other>
+public_key_to_upload: <path to public key of the private_key_to_upload>
 
 # Hadoop HDFS
 hadoop_user: "hadoop"
@@ -18,7 +20,7 @@ hdfs_dfs_namenode_name_dir: "file:///home/hadoop/hadoopdata/hdfs/namenode"
 hdfs_dfs_journalnode_edits_dir: "/var/lib/hadoop/journal"
 hdfs_hadoop_heapsize_max: ''
 hdfs_hadoop_heapsize_min: ''
-hadoop_hdfs_log_dir: /var/logs/hadoop
+hadoop_hdfs_log_dir: /var/log/hadoop
 hadoop_hdfs_root_logger: DEBUG,RFA
 
 #############
