@@ -119,6 +119,14 @@
     dest: "{{ hadoop_hdfs_conf_dir }}/hdfs-site.xml"
     mode: 0640
 
+- name: Print some debug info
+  debug:
+    msg: "Hello, world: {{inventory_hostname}}"
+
+- name: Print some more debug info
+  debug:
+    msg: "{{inventory_hostname}} --> {{hostvars[inventory_hostname].ansible_default_ipv4.address}}"
+
 - name: Create/copy the hosts configuration file.
   template:
     src: hosts.j2

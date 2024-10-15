@@ -231,8 +231,8 @@
     - zookeeper_cleanup
 
 # Set Ansible fact that ZooKeeper has completed installation. This is so that this role can be used in
-# other dependent roles. Those roles can check for this fact to determine whether or not this role
-# should be run. Failing to do so will mean that this role is executed even if it has already been run.
+# other dependent roles. Those roles can check for this fact to determine whether that role should be run.
+# Failing to do so will mean that this role is executed even if it has already been run.
 - name: Set fact zookeeper_installed
   ansible.builtin.set_fact:
     zookeeper_installed: true

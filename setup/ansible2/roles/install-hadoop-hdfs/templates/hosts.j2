@@ -4,5 +4,5 @@
 {{ hostvars[host].ansible_nodename }} {{ host }}
 {% endfor %}
 {% for host in groups['namenode'] %}
-{{ hostvars[host].ansible_nodename }} {{ host }}
+{{ hostvars[host].ansible_default_ipv4.address}} {{ host }}
 {% endfor %}

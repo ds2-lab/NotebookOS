@@ -16,12 +16,13 @@ hadoop_hdfs_home_dir: /opt/hadoop
 hadoop_hdfs_conf_dir: "{{ hadoop_hdfs_home_dir }}/etc/hadoop"
 java_home: /usr/lib/jvm/java-8-openjdk-amd64
 hdfs_dfs_replication: 1
-hdfs_dfs_namenode_data_dir: "file:///home/hadoop/hadoopdata/hdfs/namenode"
+hdfs_dfs_namenode_name_dir: "file:///home/hadoop/hadoopdata/hdfs/namenode"
 hdfs_dfs_datanode_data_dir: "file:///home/hadoop/hadoopdata/hdfs/datanode"
-hdfs_hadoop_heapsize_max: ''
-hdfs_hadoop_heapsize_min: ''
+hadoop_hdfs_heapsize_max: ''
+hadoop_hdfs_heapsize_min: ''
 hadoop_hdfs_log_dir: /var/log/hadoop
 hadoop_hdfs_root_logger: DEBUG,RFA
+hadoop_unarchive_dir: /opt
 
 # Git Configuration & Repo Configuration
 git_repo_name: "distributed-notebook"

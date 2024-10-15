@@ -20,12 +20,6 @@
     - info_gathering
     - hdfs_datanode
 
-- name: Gather facts about the ZooKeeper nodes
-  hosts: zookeepers
-  tags:
-    - info_gathering
-    - hdfs_zookeeper
-
 - name: Install ZooKeeper
   hosts: zookeepers
   roles:
@@ -34,6 +28,19 @@
     - install_zookeeper
     - hdfs_zookeeper
     - install_component
+
+- name: Gather facts about the ZooKeeper nodes if we didn't run the Install ZooKeeper tasks
+  hosts: zookeepers
+  tags:
+    - info_gathering
+    - hdfs_zookeeper
+  tasks:
+    - name: Gather facts from ZooKeeper servers
+      ansible.builtin.setup:
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['zookeepers'] }}"
+      when: zookeeper_installed is undefined
 
 - name: Install Hadoop HDFS
   hosts: namenode, datanode

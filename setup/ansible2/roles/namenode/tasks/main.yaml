@@ -20,15 +20,6 @@
   with_items: "{{groups['datanode']}}"
   become: true
 
-#- name: Wait for the ports be ready for the Hadoop HDFS JournalNodes
-#  wait_for:
-#    port: "{{ item }}"
-#    delay: 5
-#    timeout: 35
-#  with_items:
-#    - 8485
-#    - 8480
-
 - name: Format the Hadoop HDFS filesystem
   shell:
     cmd: "Y | {{hadoop_hdfs_home_dir}}/bin/hdfs namenode -format hdfs://{{ hostvars['namenode'].ansible_nodename }}:8999"
