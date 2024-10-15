@@ -1,7 +1,3 @@
-ansible_vars.yml
 env
-.env
-inventory.ini
-inventory_file.ini
 artifacts
 inventory

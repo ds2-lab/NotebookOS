@@ -132,4 +132,4 @@ with open(inventory_file, "r") as f:
     for line in inventory_file:
         inventory_file_as_string += line
 
-run(playbook=playbook_file, extravars=extra_vars, private_data_dir="./", inventory=inventory_file_as_string)
+run(playbook=playbook_file, extravars=extra_vars, private_data_dir="../", inventory=inventory_file_as_string)

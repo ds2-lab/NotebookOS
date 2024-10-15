@@ -1,12 +1,16 @@
-- hosts: namenode, datanode
-  become: true
-  roles:
-    - common
+#- hosts: namenode, datanode
+#  become: true
+#  roles:
+#    - common
+#
+#- hosts: namenode
+#  roles:
+#    - namenode
+#
+#- hosts: datanode
+#  roles:
+#    - datanode
 
-- hosts: namenode
+- hosts: zookeepers
   roles:
-    - namenode
-
-- hosts: datanode
-  roles:
-    - datanode
+    - zookeepers

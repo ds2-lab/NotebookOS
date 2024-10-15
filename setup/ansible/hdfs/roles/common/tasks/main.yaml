@@ -7,7 +7,7 @@
   when: ansible_os_family == "Debian"
 
 - name: Create hadoop user
-  shell: 'useradd -p "$(openssl passwd -6 {{ hadoop_user_password }})" {{ hadoop_user }}'
+  shell: 'useradd -p "$(openssl passwd -6 {{ hadoop_password }})" {{ hadoop_user }}'
   register: hadoop_useradd_output
   become: true
   failed_when:
@@ -27,13 +27,40 @@
     owner: "{{ hadoop_user }}"
     group: "{{ hadoop_user }}"
     mode: '0700'
+  become: true
 
-- name: "Create SSH key for Hadoop user {{ hadoop_user }}"
-  command: 'ssh-keygen -t rsa -N "" -f hadoop.key'
-  args:
-    chdir: "/home/{{ hadoop_user }}/.ssh"
+- name: Create SSH key for Hadoop user {{ hadoop_user }}
+  command: ssh-keygen -t rsa -b 2048 -N "" -f /home/{{ hadoop_user }}/.ssh/hadoop.key
   become: true
   become_user: "{{ hadoop_user }}"
+  args:
+    creates: "/home/{{ hadoop_user }}/.ssh/hadoop.key"
+
+- name: Set ownership and permissions on SSH key for Hadoop user
+  file:
+    path: "/home/{{ hadoop_user }}/.ssh/hadoop.key"
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_user }}"
+    mode: 0600
+  become: true
+
+- name: Set ownership and permissions on SSH key for Hadoop user
+  file:
+    path: "/home/{{ hadoop_user }}/.ssh/hadoop.key.pub"
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_user }}"
+    mode: 0600
+  become: true
+
+- name: "Ensure that the {{ hadoop_install_dir }} directory exists and belongs to the Hadoop user {{ hadoop_user }}"
+  file:
+    path: "{{ hadoop_install_dir }}"
+    state: directory
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_user }}"
+    recurse: true
+    mode: 0700
+  become: true
 
 - name: Download Hadoop tar.gz file
   get_url:
