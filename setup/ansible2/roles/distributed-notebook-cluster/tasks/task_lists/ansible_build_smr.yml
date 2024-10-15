@@ -17,6 +17,38 @@
   environment:
     LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
 
+- name: Check if gopy binary already exists before trying to build SMR
+  stat:
+    path: "{{ gopy_bin_path }}"
+  register: gopy_bin_exists
+
+- name: Build gopy if binary does not exist before trying to build SMR
+  shell: ". {{ profile_file }} && go build ."
+  args:
+    chdir: "{{ gopy_build_dir }}"
+  when: not gopy_bin_exists.stat.exists
+
+- name: Verify gopy binary was created after build before trying to build SMR
+  stat:
+    path: "{{ gopy_source_bin }}"
+  register: gopy_build_result
+  when: not gopy_bin_exists.stat.exists
+
+- name: Fail if gopy binary was not built successfully before trying to build SMR
+  fail:
+    msg: "[ERROR] gopy binary was not created in {{ gopy_build_dir }}."
+  when:
+    - not gopy_bin_exists.stat.exists
+    - gopy_build_result.stat.exists == false
+
+- name: Copy gopy binary to the go/bin before trying to build SMR
+  copy:
+    src: "{{ gopy_source_bin }}"
+    dest: "{{ gopy_bin_path }}"
+    mode: '0755'
+    remote_src: yes
+  when: gopy_build_result.stat is not defined or gopy_build_result.stat.exists == true
+
 - name: "Pull the {{ gopy_image_name }}/{{ gopy_image_tag }} Docker image"
   docker_image:
     name: "{{ gopy_image_name }}"  # The name of the Docker image (e.g., nginx, ubuntu)

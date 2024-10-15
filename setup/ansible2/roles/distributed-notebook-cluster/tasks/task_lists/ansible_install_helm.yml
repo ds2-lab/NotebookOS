@@ -19,6 +19,7 @@
   when: helm_installed.failed
   environment:
     LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  become: true
 
 - name: Verify Helm installation
   command: helm version

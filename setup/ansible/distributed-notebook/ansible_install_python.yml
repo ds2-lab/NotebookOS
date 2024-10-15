@@ -59,7 +59,7 @@
         chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
       when: python_check.rc != 0 or python_check.failed == true
 
-    - name: Install specified version of Python {{ python_version }}"
+    - name: "Alt-install specified version of Python"
       command: make altinstall
       args:
         chdir: "{{ python_build_dir }}/Python-{{ python_version }}"

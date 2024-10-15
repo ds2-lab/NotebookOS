@@ -30,11 +30,6 @@ git_username: scusemua # change this to your own username if you created a fork 
 git_personal_access_token: < github personal access token with read access to the repo's code >
 git_repo_url: "https://{{git_username}}:{{git_personal_access_token}}@github.com/{{git_username}}/{{git_repo_name}}.git"
 
-# SSH
-remote_username: <username that ansible should use for remote hosts>
-remote_user: "{{ remote_username }}"
-ansible_ssh_private_key_file: <path to ssh key>
-
 # Protoc
 protoc_install_path: /home/{{ remote_user}}/.local/
 protoc_version: 27.2

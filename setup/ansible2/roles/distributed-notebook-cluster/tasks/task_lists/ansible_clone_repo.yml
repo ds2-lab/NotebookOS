@@ -1,10 +1,11 @@
-- name: Ensure git is installed
+- name: Ensure git is installed before cloning the repo
   apt:
     name: git
     state: present
     update_cache: yes
   environment:
     LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  become: true
 
 - name: Create the target directory if it doesn't exist
   file:

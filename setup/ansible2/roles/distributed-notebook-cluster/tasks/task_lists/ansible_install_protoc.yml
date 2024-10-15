@@ -47,6 +47,7 @@
     LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
   vars:
     ansible_remote_tmp: "{{ tmp_dir }}"
+  become: true
 
 - name: Install required packages (Amazon Linux)
   yum:
@@ -57,6 +58,7 @@
     LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
   vars:
     ansible_remote_tmp: "{{ tmp_dir }}"
+  become: true
 
 - name: Install required packages (Ubuntu)
   apt:
@@ -67,6 +69,7 @@
     LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
   vars:
     ansible_remote_tmp: "{{ tmp_dir }}"
+  become: true
 
 - name: Unzip Protoc release into the local directory
   unarchive:

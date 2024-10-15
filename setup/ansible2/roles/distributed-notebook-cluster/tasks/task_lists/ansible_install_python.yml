@@ -26,6 +26,7 @@
     state: present
     update_cache: yes
   when: python_check.rc != 0 or python_check.failed == true
+  become: true
 
 - name: Download Python source code
   get_url:
@@ -52,13 +53,32 @@
     chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
   when: python_check.rc != 0 or python_check.failed == true
 
-- name: Install specified version of Python {{ python_version }}"
+- name: "Copy Python libpython{{ python_short_version}}d.so shared object files to /usr/lib/"
+  copy:
+    src: "{{ python_build_dir }}/Python-{{ python_version }}/libpython3.12d.so"
+    dest: "/usr/lib/libpython3.12d.so"
+    mode: '0755'
+    remote_src: yes
+  become: true
+  when: python_check.rc != 0 or python_check.failed == true
+
+- name: "Copy Python libpython{{ python_short_version}}d.so.1.0 shared object files to /usr/lib/"
+  copy:
+    src: "{{ python_build_dir }}/Python-{{ python_version }}/libpython3.12d.so.1.0"
+    dest: "/usr/lib/libpython3.12d.so.1.0"
+    mode: '0755'
+    remote_src: yes
+  become: true
+  when: python_check.rc != 0 or python_check.failed == true
+
+- name: "Alt-install specified version of Python"
   command: make altinstall
   args:
     chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
+  become: true
   when: python_check.rc != 0 or python_check.failed == true
 
-- name: Ensure LD_LIBRARY_PATH is set in /home/ubuntu/.profile
+- name: Ensure LD_LIBRARY_PATH is set in profile file
   lineinfile:
     path: /home/ubuntu/.profile
     create: yes
@@ -66,4 +86,3 @@
     state: present
     insertafter: EOF
   become: false
-  when: python_check.rc != 0 or python_check.failed == true
