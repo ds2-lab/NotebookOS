@@ -61,7 +61,7 @@
 
 - name: Remove the unused hosts from host file
   template:
-    src: hosts.jinja2
+    src: hosts.j2
     dest: /etc/hosts
     mode: 0640
 

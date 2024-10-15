@@ -2,19 +2,27 @@
   hosts: zookeepers
   roles:
     - zookeepers
+  tags:
+    - install_zookeeper
 
 - name: Install Hadoop HDFS
   hosts: namenode, datanode
   become: true
   roles:
     - install-hadoop-hdfs
+  tags:
+    - install_hadoop_hdfs
 
 - name: Start Hadoop HDFS NameNode
   hosts: namenode
   roles:
     - namenode
+  tags:
+    - start_hdfs_namenode
 
 - name: Start Hadoop HDFS DataNodes
   hosts: datanode
   roles:
     - datanode
+  tags:
+    - start_hdfs_datanodes

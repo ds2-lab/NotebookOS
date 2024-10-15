@@ -103,13 +103,13 @@
 
 - name: Create/copy the core-site.xml configuration file.
   template:
-    src: core-site.xml.jinja2
+    src: core-site.xml.j2
     dest: "{{ hadoop_hdfs_conf_dir }}/core-site.xml"
     mode: 0640
 
 - name: Create/copy the hadoop-env.sh configuration file.
   template:
-    src: hadoop-env.sh.jinja2
+    src: hadoop-env.sh.j2
     dest: "{{ hadoop_hdfs_conf_dir }}/hadoop-env.sh"
     mode: 0640
 
@@ -121,13 +121,13 @@
 
 - name: Create/copy the workers configuration file.
   template:
-    src: workers.jinja2
+    src: workers.j2
     dest: "{{ hadoop_hdfs_conf_dir }}/workers"
     mode: 0640
 
 - name: Create/copy the hosts configuration file.
   template:
-    src: hosts.jinja2
+    src: hosts.j2
     dest: /etc/hosts
     mode: 0640
 
