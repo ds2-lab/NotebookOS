@@ -1,0 +1,11 @@
+- name: Format HDFS NameNode
+  command: "{{ hadoop_install_dir }}/hadoop/bin/hdfs namenode -format"
+  args:
+    creates: "/tmp/hdfs/namenode/current/VERSION"
+  become: yes
+  become_user: hadoop
+
+- name: Start NameNode
+  command: "{{ hadoop_install_dir }}/hadoop/sbin/start-dfs.sh"
+  become: yes
+  become_user: hadoop

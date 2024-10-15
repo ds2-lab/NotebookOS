@@ -1,0 +1,12 @@
+- hosts: all
+  become: true
+  roles:
+    - common
+
+- hosts: namenode
+  roles:
+    - namenode
+
+- hosts: datanode
+  roles:
+    - datanode

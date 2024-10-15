@@ -1,0 +1,4 @@
+- name: Start DataNode
+  command: "{{ hadoop_install_dir }}/hadoop/sbin/hadoop-daemon.sh start datanode"
+  become: yes
+  become_user: hadoop

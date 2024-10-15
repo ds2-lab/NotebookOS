@@ -51,7 +51,7 @@ host2
 hostN
 ```
 
-### The Playbooks
+### The Main Set of Playbooks
 
 The `ansible_setup.yml` playbook is the "primary" playbook. You may run the playbooks individually if desired, but the
 simplest option is to simply run the `ansible_setup.yml` playbook, which will execute all the other playbooks one
@@ -108,3 +108,7 @@ ansible-playbook ansible_install_docker.yml -i "inventory_file.ini" -e "@ansible
 **Note**: the playbooks were tested on AWS EC2 virtual machines running Ubuntu 24.04.1 LTS. If you would like to use 
 the playbooks for a different Linux distribution, then they may require some modification, such as in the parts that 
 use `apt` to install dependencies. (Other distributions may use `yum`, for example.)
+
+### HDFS
+
+The playbooks for deploying HDFS are contained within the `setup/ansible/hdfs` directory.
