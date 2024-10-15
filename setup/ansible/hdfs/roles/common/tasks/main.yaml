@@ -6,34 +6,6 @@
     state: present
   when: ansible_os_family == "Debian"
 
-- name: Download Hadoop tar.gz file
-  get_url:
-    url: "https://dlcdn.apache.org/hadoop/common/hadoop-{{ hadoop_version }}/hadoop-{{ hadoop_version }}.tar.gz"
-    dest: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
-    owner: "{{ hadoop_user }}"
-    group: "{{ hadoop_user }}"
-    mode: '0644'
-
-- name: Extract Hadoop from the downloaded archive
-  unarchive:
-    src: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
-    dest: "{{ hadoop_install_dir }}"
-    remote_src: yes
-    creates: "{{ hadoop_install_dir }}/hadoop-{{ hadoop_version }}"
-
-- name: Create Hadoop symlink
-  file:
-    src: "{{ hadoop_install_dir }}/hadoop-{{ hadoop_version }}"
-    dest: "{{ hadoop_install_dir }}/hadoop"
-    state: link
-
-- name: Set JAVA_HOME in Hadoop environment
-  lineinfile:
-    path: "{{ hadoop_install_dir }}/hadoop/etc/hadoop/hadoop-env.sh"
-    regexp: '^export JAVA_HOME='
-    line: 'export JAVA_HOME={{ java_home }}'
-    state: present
-
 - name: Create hadoop user
   shell: 'useradd -p "$(openssl passwd -6 {{ hadoop_user_password }})" {{ hadoop_user }}'
   register: hadoop_useradd_output
@@ -62,6 +34,34 @@
     chdir: "/home/{{ hadoop_user }}/.ssh"
   become: true
   become_user: "{{ hadoop_user }}"
+
+- name: Download Hadoop tar.gz file
+  get_url:
+    url: "https://dlcdn.apache.org/hadoop/common/hadoop-{{ hadoop_version }}/hadoop-{{ hadoop_version }}.tar.gz"
+    dest: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_user }}"
+    mode: '0644'
+
+- name: Extract Hadoop from the downloaded archive
+  unarchive:
+    src: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
+    dest: "{{ hadoop_install_dir }}"
+    remote_src: yes
+    creates: "{{ hadoop_install_dir }}/hadoop-{{ hadoop_version }}"
+
+- name: Create Hadoop symlink
+  file:
+    src: "{{ hadoop_install_dir }}/hadoop-{{ hadoop_version }}"
+    dest: "{{ hadoop_install_dir }}/hadoop"
+    state: link
+
+- name: Set JAVA_HOME in Hadoop environment
+  lineinfile:
+    path: "{{ hadoop_install_dir }}/hadoop/etc/hadoop/hadoop-env.sh"
+    regexp: '^export JAVA_HOME='
+    line: 'export JAVA_HOME={{ java_home }}'
+    state: present
 
 #    - name: "Move SSH private SSH key for Hadoop user {{ hadoop_user }}"
 #      command: "mv /home/{{ remote_username }}/hadoop.key /home/{{ hadoop_user }}/.ssh/hadoop.key"
