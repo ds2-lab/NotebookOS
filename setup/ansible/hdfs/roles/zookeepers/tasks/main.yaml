@@ -1,3 +1,17 @@
+- name: Set zookeeper version variables
+  ansible.builtin.set_fact:
+    zookeeper_version_major: "{{ zookeeper_version.split('.')[0] }}"
+    zookeeper_version_minor: "{{ zookeeper_version.split('.')[1] }}"
+
+- name: Load OS-specific variables
+  ansible.builtin.include_vars: '{{ item }}'
+  with_first_found:
+    - ../vars/{{ ansible_os_family }}.yml
+    - ../vars/{{ ansible_distribution_release }}.yml
+    - ../vars/empty.yml
+  tags:
+    - always
+
 - name: Create zookeeper group
   ansible.builtin.group:
     name: '{{ zookeeper_group }}'

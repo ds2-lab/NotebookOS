@@ -93,3 +93,9 @@ zookeeper_metricsprovider_classname: org.apache.zookeeper.metrics.prometheus.Pro
 zookeeper_metricsprovider_httpport: 7000
 # If this property is set to true Prometheus.io will export useful metrics about the JVM. The default is true.
 zookeeper_metricsprovider_exportjvminfo: yes
+
+zookeeper_environment: {}
+# Start zookeeper after installation
+zookeeper_start: yes
+# Restart zookeeper on configuration change
+zookeeper_restart: yes
