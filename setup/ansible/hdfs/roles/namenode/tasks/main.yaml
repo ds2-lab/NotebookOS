@@ -1,59 +1,37 @@
-- name: delete directories
+- name: Delete the Hadoop HDFS NameNode directories
   file:
     path: '{{ hdfs_dfs_namenode_name_dir }}'
     state: absent
-  tags: [ namenode_dir ]
 
-- name: create directories
+- name: Create the Hadoop HDFS NameNode directories
   file:
     path: '{{ hdfs_dfs_namenode_name_dir }}'
     state: directory
-  tags: [ namenode_dir ]
 
-- name: copy namenode public key to datanodes
+- name: Copy the NameNode's SSH keys to the DataNodes
   local_action: "shell ssh root@{{ansible_default_ipv4.address}} 'cat ~/.ssh/id_rsa.pub' | ssh root@{{item}}  'cat >> ~/.ssh/authorized_keys'"
   with_items: "{{groups['datanodeservers']}}"
-  tags: [ ssh_namenode ]
 
-- name: format zkfc in namenodes
-  shell:
-    cmd: 'yes | {{hdfs_hadoop_home}}/bin/hdfs zkfc -formatZK -force'
-  async: 500
-  ignore_errors: yes
-  tags: [ format_zkfc, format]
-
-- name: wait ports be ready for journalnode
+- name: Wait for the ports be ready for the Hadoop HDFS JournalNodes
   wait_for:
     port: "{{ item }}"
     delay: 10
   with_items:
     - 8485
     - 8480
-  tags: [ wait_port ]
 
-- name: format filesystem
+- name: Format the Hadoop HDFS filesystem
   shell:
     cmd: 'Y | {{hdfs_hadoop_home}}/bin/hdfs namenode -format {{ hdfs_fs_defaultFS }}'
-  when: "'activenamenodeserver' in group_names"
+  when: "'namenode' in group_names"
   register: format_filesystem_result
   failed_when: "'FAILED' in format_filesystem_result.stderr"
   async: 500
-  tags: [ format_namenode, format]
 
 - debug:
     msg: '{{ format_filesystem_result }}'
 
-- name: create zkfc service
-  template:
-    src: hdfs-zkfc.service.j2
-    dest: /etc/systemd/system/hdfs-zkfc.service
-    mode: 0640
-  notify:
-    - daemon reload
-    - zkfc start
-  tags: [ add_service_zkfc ]
-
-- name: create namenode service for activenamenodeserver
+- name: Create the Hadoop HDFS NameNode service.
   template:
     src: hdfs-namenode.service.j2
     dest: /etc/systemd/system/hdfs-namenode.service
@@ -61,70 +39,20 @@
   notify:
     - daemon reload
     - namenode start
-  when: "'activenamenodeserver' in group_names"
-  tags: [ add_service_namenode ]
+  when: "'namenode' in group_names"
 
-- name: namenode and zkfs start check
+- name: Check if the systemd service for the Hadoop HDFS NameNode has started
   systemd:
     state: started
     enabled: yes
     name: "{{ item }}"
-  when: "'activenamenodeserver' in group_names"
+  when: "'namenode' in group_names"
   with_items:
     - 'hdfs-namenode.service'
-    - 'hdfs-zkfc.service'
-  tags: [ start_check_service ]
 
-- name: wait ports be ready after activenamenodeserver
+- name: Wait for the ports to be ready after the Hadoop HDFS NameNode has started
   wait_for:
     host: '{{ ansible_default_ipv4.address }}'
     port: 9000
     delay: 10
-  when: "'activenamenodeserver' in group_names"
-  tags: [ wait_port ]
-
-- name: copy meta data to standby namenodes
-  shell:
-    cmd: 'yes | {{hdfs_hadoop_home}}/bin/hdfs namenode -bootstrapStandby -force'
-  ignore_errors: yes
-  when: "'standbynamenodeservers' in group_names"
-  register: copy_metadata_standbynamenodes
-  failed_when: "'FAILED' in copy_metadata_standbynamenodes.stderr"
-  async: 500
-  tags: [ cp_metedata_standbynamenode ]
-
-- debug:
-    msg: '{{ copy_metadata_standbynamenodes }}'
-
-- name: create namenode service for standbynamenodeservers
-  template:
-    src: hdfs-namenode.service.j2
-    dest: /etc/systemd/system/hdfs-namenode.service
-    mode: 0640
-  notify:
-    - daemon reload
-    - zkfc start
-    - namenode start
-  when: "'standbynamenodeservers' in group_names"
-  tags: [ add_service_namenode ]
-
-- name: namenode and zkfs start check
-  systemd:
-    state: started
-    enabled: yes
-    name: "{{ item }}"
-  when: "'standbynamenodeservers' in group_names"
-  with_items:
-    - 'hdfs-namenode.service'
-    - 'hdfs-zkfc.service'
-  tags: [ start_check_service ]
-
-- name: wait ports be ready after standbynamenodeservers
-  wait_for:
-    host: '{{ ansible_default_ipv4.address }}'
-    port: "{{ item }}"
-    delay: 10
-  with_items:
-    - 9000
-  when: "'standbynamenodeservers' in group_names"
-  tags: [ wait_port ]
+  when: "'namenode' in group_names"

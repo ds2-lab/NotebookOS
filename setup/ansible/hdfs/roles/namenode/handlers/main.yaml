@@ -1,11 +1,14 @@
-- name: Format HDFS NameNode
-  command: "{{ hadoop_install_dir }}/hadoop/bin/hdfs namenode -format"
-  args:
-    creates: "/tmp/hdfs/namenode/current/VERSION"
-  become: yes
-  become_user: hadoop
+- name: Reload the systemd daemon
+  systemd:
+    daemon_reload: yes
 
-- name: Start NameNode
-  command: "{{ hadoop_install_dir }}/hadoop/sbin/start-dfs.sh"
-  become: yes
-  become_user: hadoop
+- name: Start the Hadoop HDFS NameNode systemd service
+  systemd:
+    state: started
+    enabled: yes
+    name: hdfs-namenode.service
+
+- name: Restart the Hadoop HDFS NameNode systemd service
+  systemd:
+    state: restarted
+    name: hdfs-namenode.service

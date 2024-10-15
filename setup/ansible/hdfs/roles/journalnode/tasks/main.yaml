@@ -1,0 +1,19 @@
+- name: Delete the JournalNode filesystem directories
+  file:
+    path: "{{ hdfs_dfs_journalnode_edits_dir }}/{{ hostvars[hdfs_namenode].ansible_nodename }}"
+    state: absent
+
+- name: Create the JournalNode filesystem directories
+  file:
+    path: "{{ hdfs_dfs_journalnode_edits_dir }}/{{ hostvars[hdfs_namenode].ansible_nodename }}"
+    state: directory
+
+- name: Create the JournalNode systemd service
+  template:
+    src: hdfs-journalnode.service.j2
+    dest: /etc/systemd/system/hdfs-journalnode.service
+    mode: 0640
+  notify:
+    - daemon reload
+    - journalnode restart
+    - journalnode enable

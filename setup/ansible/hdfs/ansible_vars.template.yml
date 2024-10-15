@@ -11,6 +11,10 @@ hadoop_install_dir: /opt/hadoop
 java_home: /usr/lib/jvm/java-8-openjdk-amd64
 hadoop_config_src: "{{ go_install_parent_dir }}/go/pkg/distributed-notebook/hdfs_configuration/*"
 hadoop_env_src: "{{ go_install_parent_dir }}/pkg/distributed-notebook/setup/hadoop-env"
+hdfs_dfs_replication: 1
+hdfs_dfs_datanode_data_dir: "file:///home/hadoop/hadoopdata/hdfs/datanode"
+hdfs_dfs_namenode_name_dir: "file:///home/hadoop/hadoopdata/hdfs/namenode"
+hdfs_dfs_journalnode_edits_dir: "/var/lib/hadoop/journal"
 
 #############
 # Zookeeper #

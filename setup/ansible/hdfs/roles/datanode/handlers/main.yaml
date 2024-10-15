@@ -1,4 +1,13 @@
-- name: Start DataNode
-  command: "{{ hadoop_install_dir }}/hadoop/sbin/hadoop-daemon.sh start datanode"
-  become: yes
-  become_user: hadoop
+- name: Reload the systemd daemon
+  systemd:
+    daemon_reload: yes
+
+- name: Start the Hadoop HDFS DataNode systemd service
+  systemd:
+    state: started
+    name: hdfs-datanode.service
+
+- name: Enable the Hadoop HDFS DataNode systemd service
+  systemd:
+    name: hdfs-datanode.service
+    enabled: yes

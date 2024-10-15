@@ -1,16 +1,20 @@
-#- hosts: namenode, datanode
-#  become: true
-#  roles:
-#    - common
-#
-#- hosts: namenode
-#  roles:
-#    - namenode
-#
-#- hosts: datanode
-#  roles:
-#    - datanode
-
-- hosts: zookeepers
+- name: Install ZooKeeper
+  hosts: zookeepers
   roles:
     - zookeepers
+
+- name: Install Hadoop HDFS
+  hosts: namenode, datanode
+  become: true
+  roles:
+    - common
+
+- name: Start Hadoop HDFS NameNode
+  hosts: namenode
+  roles:
+    - namenode
+
+- name: Start Hadoop HDFS DataNodes
+  hosts: datanode
+  roles:
+    - datanode
