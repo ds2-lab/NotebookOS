@@ -10,7 +10,7 @@
 
 - name: Copy the NameNode's SSH keys to the DataNodes
   local_action: "shell ssh root@{{ansible_default_ipv4.address}} 'cat ~/.ssh/id_rsa.pub' | ssh root@{{item}}  'cat >> ~/.ssh/authorized_keys'"
-  with_items: "{{groups['datanodeservers']}}"
+  with_items: "{{groups['datanode']}}"
 
 - name: Wait for the ports be ready for the Hadoop HDFS JournalNodes
   wait_for:

@@ -9,6 +9,8 @@
     - zookeepers
   tags:
     - install_zookeeper
+    - hdfs_zookeeper
+    - install_component
 
 - name: Install Hadoop HDFS
   hosts: namenode, datanode
@@ -17,6 +19,9 @@
     - install-hadoop-hdfs
   tags:
     - install_hadoop_hdfs
+    - hdfs_namenode
+    - hdfs_datanode
+    - install_component
 
 - name: Start Hadoop HDFS NameNode
   hosts: namenode
@@ -24,6 +29,8 @@
     - namenode
   tags:
     - start_hdfs_namenode
+    - start_component
+    - hdfs_namenode
 
 - name: Start Hadoop HDFS DataNodes
   hosts: datanode
@@ -31,3 +38,5 @@
     - datanode
   tags:
     - start_hdfs_datanodes
+    - start_component
+    - hdfs_datanode
