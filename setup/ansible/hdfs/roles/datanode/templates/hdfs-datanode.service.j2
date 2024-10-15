@@ -8,6 +8,7 @@ ExecStart=/opt/hadoop/bin/hdfs --daemon start datanode
 ExecStop=/opt/hadoop/bin/hdfs --daemon stop datanode
 Restart=on-failure
 RemainAfterExit=yes
+User=hadoop
 
 [Install]
 WantedBy=multi-user.target

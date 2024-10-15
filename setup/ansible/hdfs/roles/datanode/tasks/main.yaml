@@ -2,6 +2,8 @@
   file:
     state: absent
     path: "{{ hdfs_dfs_datanode_data_dir }}"
+  become: true
+  become_user: "{{ hadoop_user }}"
 
 - name: Create the Hadoop HDFS DataNode directories
   file:
@@ -9,13 +11,27 @@
     state: directory
     owner: "{{ hadoop_user }}"
     group: "{{ hadoop_user }}"
+  become: true
+  become_user: "{{ hadoop_user }}"
 
 - name: Create the Hadoop HDFS DataNode service
   template:
     src: hdfs-datanode.service.j2
     dest: /etc/systemd/system/hdfs-datanode.service
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_user }}"
     mode: 0640
   notify:
     - daemon reload
     - datanode start
     - datanode enable
+  become: true
+
+- name: Check if the systemd service for the Hadoop HDFS DataNode has started
+  systemd:
+    state: started
+    enabled: yes
+    name: "{{ item }}"
+  with_items:
+    - 'hdfs-datanode.service'
+  become: true

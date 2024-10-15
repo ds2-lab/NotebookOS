@@ -2,6 +2,8 @@
   file:
     path: '{{ hdfs_dfs_namenode_name_dir }}'
     state: absent
+  become: true
+  become_user: "{{ hadoop_user }}"
 
 - name: Create the Hadoop HDFS NameNode directories
   file:
@@ -9,6 +11,8 @@
     state: directory
     owner: "{{ hadoop_user }}"
     group: "{{ hadoop_user }}"
+  become: true
+  become_user: "{{ hadoop_user }}"
 
 - name: Copy the NameNode's SSH keys to the DataNodes
   shell: "cat /home/{{ hadoop_user }}/.ssh/hadoop.key.pub | ssh {{ remote_username }}@{{ item }} -i /home/{{ remote_username }}/.ssh/id_rsa 'cat >> ~/.ssh/authorized_keys'"
