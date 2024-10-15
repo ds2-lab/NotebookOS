@@ -1,86 +1,67 @@
-- name: Install Hadoop HDFS
-  hosts: namenode, datanodes
-  remote_user: "{{ remote_username }}"
-  become: true       # Run tasks as root
-  gather_facts: true
-  environment:
-    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
-    PYTHONPATH: "$PYTHONPATH:{{ python_virtual_env_dir }}/lib64/python{{ python_short_version }}/site-packages/"
-  vars:
-    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
-    hadoop_user: "hadoop"
-    hadoop_password: "12345"
-    hadoop_version: "3.3.6"
-    hadoop_install_dir: /opt/hadoop
-    java_home: /usr/lib/jvm/java-8-openjdk-amd64
-    hadoop_config_src: "{{ go_install_parent_dir }}/go/pkg/distributed-notebook/hdfs_configuration/*"
-    hadoop_env_src: "{{ go_install_parent_dir }}/pkg/distributed-notebook/setup/hadoop-env"
+- name: Update package index and install Java and SSH
+  apt:
+    name:
+      - openjdk-8-jdk
+      - ssh
+    state: present
+  when: ansible_os_family == "Debian"
 
-  tasks:
-    - name: Update package index and install Java and SSH
-      apt:
-        name:
-          - openjdk-8-jdk
-          - ssh
-        state: present
-      when: ansible_os_family == "Debian"
+- name: Download Hadoop tar.gz file
+  get_url:
+    url: "https://dlcdn.apache.org/hadoop/common/hadoop-{{ hadoop_version }}/hadoop-{{ hadoop_version }}.tar.gz"
+    dest: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_user }}"
+    mode: '0644'
 
-    - name: Download Hadoop tar.gz file
-      get_url:
-        url: "https://dlcdn.apache.org/hadoop/common/hadoop-{{ hadoop_version }}/hadoop-{{ hadoop_version }}.tar.gz"
-        dest: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
-        owner: "{{ hadoop_user }}"
-        group: "{{ hadoop_user }}"
-        mode: '0644'
+- name: Extract Hadoop from the downloaded archive
+  unarchive:
+    src: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
+    dest: "{{ hadoop_install_dir }}"
+    remote_src: yes
+    creates: "{{ hadoop_install_dir }}/hadoop-{{ hadoop_version }}"
 
-    - name: Extract Hadoop from the downloaded archive
-      unarchive:
-        src: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
-        dest: "{{ hadoop_install_dir }}"
-        remote_src: yes
-        creates: "{{ hadoop_install_dir }}/hadoop-{{ hadoop_version }}"
+- name: Create Hadoop symlink
+  file:
+    src: "{{ hadoop_install_dir }}/hadoop-{{ hadoop_version }}"
+    dest: "{{ hadoop_install_dir }}/hadoop"
+    state: link
 
-    - name: Create Hadoop symlink
-      file:
-        src: "{{ hadoop_install_dir }}/hadoop-{{ hadoop_version }}"
-        dest: "{{ hadoop_install_dir }}/hadoop"
-        state: link
+- name: Set JAVA_HOME in Hadoop environment
+  lineinfile:
+    path: "{{ hadoop_install_dir }}/hadoop/etc/hadoop/hadoop-env.sh"
+    regexp: '^export JAVA_HOME='
+    line: 'export JAVA_HOME={{ java_home }}'
+    state: present
 
-    - name: Set JAVA_HOME in Hadoop environment
-      lineinfile:
-        path: "{{ hadoop_install_dir }}/hadoop/etc/hadoop/hadoop-env.sh"
-        regexp: '^export JAVA_HOME='
-        line: 'export JAVA_HOME={{ java_home }}'
-        state: present
+- name: Create hadoop user
+  shell: 'useradd -p "$(openssl passwd -6 {{ hadoop_user_password }})" {{ hadoop_user }}'
+  register: hadoop_useradd_output
+  become: true
+  failed_when:
+    - hadoop_useradd_output.rc != 0 and hadoop_useradd_output.rc != 9 # 9 is already "username already in use"
 
-    - name: Create hadoop user
-      shell: 'useradd -p "$(openssl passwd -6 {{ hadoop_user_password }})" {{ hadoop_user }}'
-      register: hadoop_useradd_output
-      become: true
-      failed_when:
-        - hadoop_useradd_output.rc != 0 and hadoop_useradd_output.rc != 9 # 9 is already "username already in use"
+- name: Create Hadoop home directory and set permissions
+  file:
+    path: "/home/{{ hadoop_user }}"
+    state: directory
+    owner: "{{ hadoop_user }}"
+    mode: '0777'
 
-    - name: Create Hadoop home directory and set permissions
-      file:
-        path: "/home/{{ hadoop_user }}"
-        state: directory
-        owner: "{{ hadoop_user }}"
-        mode: '0777'
+- name: Create .ssh directory for hadoop user
+  file:
+    path: "/home/{{ hadoop_user }}/.ssh"
+    state: directory
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_user }}"
+    mode: '0700'
 
-    - name: Create .ssh directory for hadoop user
-      file:
-        path: "/home/{{ hadoop_user }}/.ssh"
-        state: directory
-        owner: "{{ hadoop_user }}"
-        group: "{{ hadoop_user }}"
-        mode: '0700'
-
-    - name: "Create SSH key for Hadoop user {{ hadoop_user }}"
-      command: 'ssh-keygen -t rsa -N "" -f hadoop.key'
-      args:
-        chdir: "/home/{{ hadoop_user }}/.ssh"
-      become: true
-      become_user: {{ hadoop_user }}
+- name: "Create SSH key for Hadoop user {{ hadoop_user }}"
+  command: 'ssh-keygen -t rsa -N "" -f hadoop.key'
+  args:
+    chdir: "/home/{{ hadoop_user }}/.ssh"
+  become: true
+  become_user: "{{ hadoop_user }}"
 
 #    - name: "Move SSH private SSH key for Hadoop user {{ hadoop_user }}"
 #      command: "mv /home/{{ remote_username }}/hadoop.key /home/{{ hadoop_user }}/.ssh/hadoop.key"
@@ -93,7 +74,7 @@
 #    - name: "Change ownership of SSH keys for Hadoop user {{ hadoop_user }}"
 #      command: 'chown -R {{ hadoop_user }} /home/{{ hadoop_user }}/.ssh'
 #      become: true
-
+#
 #    - name: Set ownership for Hadoop installation directory
 #      file:
 #        path: "/home/{{ hadoop_user }}/hadoop"
@@ -118,7 +99,7 @@
 #        owner: "{{ hadoop_user }}"
 #        group: "{{ hadoop_user }}"
 #        mode: 0755
-
+#
 #    - name: Set Hadoop environment variables
 #      copy:
 #        src: "{{ hadoop_env_src }}"
@@ -139,3 +120,4 @@
 #      become: yes
 #      become_user: "{{ hadoop_user }}"
 #      command: "env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 /home/hadoop/hadoop/bin/hdfs namenode -format"
+#
