@@ -1,0 +1,195 @@
+- name: Install Golang and several Golang modules/dependencies
+  hosts: vms
+  remote_user: "{{remote_username}}"
+  become: true       # Run tasks as root
+  gather_facts: true
+
+  tasks:
+    - name: Check if Go is already installed
+      shell: . {{ profile_file }} && go version
+      register: go_already_installed
+      ignore_errors: true
+
+    - name: Show debug
+      ansible.builtin.debug:
+        msg: "go_already_installed results: {{ go_already_installed }}"
+
+    - name: Check if the correct version of Golang is installed
+      shell: . {{ profile_file }} && go version
+      register: go_curr_install_version_check
+      failed_when: "'go version go' + target_go_version not in go_curr_install_version_check.stdout"
+      when: not go_already_installed.failed
+      ignore_errors: true
+
+    - name: Download Golang if not installed (or if wrong version is installed)
+      get_url:
+        url: "{{ go_download_url }}"
+        dest: "{{ tmp_dir }}/go{{ target_go_version }}.linux-amd64.tar.gz"
+      when: go_already_installed.failed or go_curr_install_version_check.failed
+
+    - name: Extract Golang archive to the specified directory
+      unarchive:
+        src: "{{ tmp_dir }}/go{{ target_go_version }}.linux-amd64.tar.gz"
+        dest: "{{ go_install_parent_dir }}"
+        remote_src: yes
+      when: go_already_installed.failed or go_curr_install_version_check.failed
+
+    - name: Ensure GOPATH is set in .profile
+      lineinfile:
+        path: "{{ profile_file }}"
+        regexp: '^export GOPATH='
+        line: 'export GOPATH={{ gopath }}'
+        state: present
+      when: go_already_installed.failed or go_curr_install_version_check.failed
+
+    - name: Ensure Go binary is in the PATH
+      lineinfile:
+        path: "{{ profile_file }}"
+        regexp: '^export PATH=.*go/bin'
+        line: 'export PATH=$PATH:{{ gopath }}/bin'
+        state: present
+
+    - name: Check if the correct version of Golang is installed
+      shell: . {{ profile_file }} && go version
+      register: go_version_check
+      failed_when: "'go version go' + target_go_version not in go_version_check.stdout"
+      when: go_already_installed.failed or go_curr_install_version_check.failed
+
+    - name: Fail task if Go version check fails
+      fail:
+        msg: "[ERROR] Golang installation failed."
+      when:
+        - go_already_installed.failed or go_curr_install_version_check.failed
+        - "'go version go' + target_go_version not in go_version_check.stdout"
+
+    - name: Ensure GOPATH is set to the correct directory
+      shell: . {{ profile_file }} && go env GOPATH
+      register: gopath_check
+
+    - name: Fail task if GOPATH is not set correctly
+      fail:
+        msg: "[ERROR] GOPATH is not set correctly. Expected: {{ gopath }} but found {{ gopath_check.stdout }}."
+      when: "gopath_check.stdout != gopath"
+
+    - name: Display success message if Golang is installed and GOPATH is set
+      debug:
+        msg: "Golang v{{ target_go_version }} installed successfully, and GOPATH is set to {{ gopath }}."
+      when: go_already_installed.failed or go_curr_install_version_check.failed
+
+    - name: Check if go-zeromq/zmq4 already exists within the GOPATH
+      stat: path={{ go_install_parent_dir }}/go/pkg/zmq4
+      register: zmq4
+
+    - name: Clone go-zeromq/zmq4 if it does not already exist.
+      git:
+        repo: 'https://github.com/go-zeromq/zmq4.git'
+        dest: "{{ go_install_parent_dir }}/go/pkg/zmq4"
+        clone: true
+        update: true
+        recursive: true
+        accept_newhostkey: true
+      when: not zmq4.stat.exists
+
+    - name: Check if scusemua/gopy already exists within the GOPATH
+      stat: path={{ go_install_parent_dir }}/go/pkg/gopy
+      register: gopy
+
+    - name: Clone scusemua/gopy if it does not already exist.
+      git:
+        repo: 'https://github.com/Scusemua/gopy.git'
+        dest: "{{ go_install_parent_dir }}/go/pkg/gopy"
+        clone: true
+        update: true
+        recursive: true
+        accept_newhostkey: true
+      when: not gopy.stat.exists
+
+    - name: Check if gopy binary already exists
+      stat:
+        path: "{{ gopy_bin_path }}"
+      register: gopy_bin_exists
+
+    - name: Build gopy if binary does not exist
+      shell: ". {{ profile_file }} && go build ."
+      args:
+        chdir: "{{ gopy_build_dir }}"
+      when: not gopy_bin_exists.stat.exists
+
+    - name: Verify gopy binary was created after build
+      stat:
+        path: "{{ gopy_source_bin }}"
+      register: gopy_build_result
+      when: not gopy_bin_exists.stat.exists
+
+    - name: Fail if gopy binary was not built successfully
+      fail:
+        msg: "[ERROR] gopy binary was not created in {{ gopy_build_dir }}."
+      when:
+        - not gopy_bin_exists.stat.exists
+        - gopy_build_result.stat.exists == false
+
+    - name: Copy gopy binary to the go/bin
+      copy:
+        src: "{{ gopy_source_bin }}"
+        dest: "{{ gopy_bin_path }}"
+        mode: '0755'
+        remote_src: yes
+      when: gopy_build_result.stat is not defined or gopy_build_result.stat.exists == true
+
+    - name: Display success message if gopy binary exists
+      debug:
+        msg: "gopy binary exists at {{ gopy_bin_path }}."
+
+    - name: Check if kind binary already exists
+      stat:
+        path: "{{ gopath }}/bin/kind"
+      register: go_kind_executable_exists
+
+    - name: Install Kind
+      shell: ". {{ profile_file }} && go install sigs.k8s.io/kind@{{ kind_version }}"
+      register: kind_install
+      changed_when: kind_install.stdout != ''  # Mark as changed if there is output
+      when: go_kind_executable_exists.stat is not defined or go_kind_executable_exists.stat.exists == false
+
+    - name: Install Protoc Go Bindings
+      shell: ". {{ profile_file }} && go install {{ protoc_gen_go }}"
+      register: protoc_gen_go_install
+      changed_when: protoc_gen_go_install.stdout != ''  # Mark as changed if there is output
+
+    - name: Install Protoc gRPC Go Bindings
+      shell: ". {{ profile_file }} && go install {{ protoc_gen_go_grpc }}"
+      register: protoc_gen_go_grpc_install
+      changed_when: protoc_gen_go_grpc_install.stdout != ''  # Mark as changed if there is output
+
+    - name: Install goimports module
+      shell: ". {{ profile_file }} && go install golang.org/x/tools/cmd/goimports@latest"
+      register: goimports_install
+      changed_when: goimports_install.stdout != ''  # Mark as changed if there is output
+
+    - name: Display success message for Kind installation
+      debug:
+        msg: "Kind v{{ kind_version }} installed successfully."
+      when: kind_install.changed
+
+    - name: Display success message for Protoc Go Bindings installation
+      debug:
+        msg: "Protoc Go Bindings installed successfully."
+      when: protoc_gen_go_install.changed
+
+    - name: Display success message for Protoc gRPC Go Bindings installation
+      debug:
+        msg: "Protoc gRPC Go Bindings installed successfully."
+      when: protoc_gen_go_grpc_install.changed
+
+    - name: Display success message for goimports installation
+      debug:
+        msg: "goimports module installed successfully."
+      when: goimports_install.changed
+
+    - name: Recursively change ownership of the go directory
+      ansible.builtin.file:
+        path: "{{ go_install_parent_dir }}/go"
+        state: directory
+        recurse: yes
+        owner: "{{ remote_username }}"
+        group: "{{ remote_username }}"

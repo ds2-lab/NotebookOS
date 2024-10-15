@@ -1,0 +1,41 @@
+- name: Build the SMR module.
+  hosts: vms
+  remote_user: "{{ remote_username }}"
+  gather_facts: true
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+  tasks:
+    - name: Build gRPC bindings.
+      shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-grpc"
+      args:
+        chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
+
+    - name: Ensure the requests package is installed
+      shell: ". {{ profile_file}} && {{ python_virtual_env_dir }}/bin/pip3 install requests"
+      args:
+        chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
+      register: install_result
+
+    - name: "Pull the {{ gopy_image_name }}/{{ gopy_image_tag }} Docker image"
+      docker_image:
+        name: "{{ gopy_image_name }}"  # The name of the Docker image (e.g., nginx, ubuntu)
+        tag: "{{ gopy_image_tag | default('latest') }}"  # The tag of the image, defaults to 'latest'
+        source: pull  # Ensures that the image is pulled from the Docker registry
+      register: docker_image_result
+
+    - name: Print Docker image pull result
+      debug:
+        msg: "Pulled Docker image {{ gopy_image_name }}:{{ gopy_image_tag | default('latest') }} successfully"
+
+    - name: Build in the SMR directory
+      shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-linux-amd64"
+      args:
+        chdir: "{{ gopath }}/pkg/{{ git_repo_name }}/smr"
+
+    - name: Build in the root directory
+      shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-smr-linux-amd64"
+      args:
+        chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
