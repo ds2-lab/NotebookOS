@@ -19,6 +19,7 @@ hdfs_dfs_journalnode_edits_dir: "/var/lib/hadoop/journal"
 hdfs_hadoop_heapsize_max: ''
 hdfs_hadoop_heapsize_min: ''
 hadoop_hdfs_log_dir: /var/logs/hadoop
+hadoop_hdfs_root_logger: DEBUG,RFA
 
 #############
 # Zookeeper #

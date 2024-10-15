@@ -19,12 +19,12 @@
 <configuration>
 	<property>
 		<name>fs.defaultFS</name>
-		<value>hdfs://{{ hostvars[hdfs_namenode].ansible_nodename }}:9000</value>
+		<value>hdfs://{{ hostvars['namenode'].ansible_nodename }}:9000</value>
 	</property>
 
     <property>
         <name>ha.zookeeper.quorum</name>
-        <value>{% for host in zookeepers %}{{hostvars[host].ansible_nodename}},{% endfor %} </value>
+        <value>{% for host in zookeeper_servers %}{{hostvars[host].ansible_nodename}},{% endfor %} </value>
     </property>
 
 	<property>

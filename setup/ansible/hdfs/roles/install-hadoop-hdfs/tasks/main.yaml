@@ -52,16 +52,6 @@
     mode: 0600
   become: true
 
-- name: "Ensure that the {{ hadoop_hdfs_home_dir }} directory exists and belongs to the Hadoop user {{ hadoop_user }}"
-  file:
-    path: "{{ hadoop_hdfs_home_dir }}"
-    state: directory
-    owner: "{{ hadoop_user }}"
-    group: "{{ hadoop_user }}"
-    recurse: true
-    mode: 0700
-  become: true
-
 - name: Download Hadoop tar.gz file
   get_url:
     url: "https://dlcdn.apache.org/hadoop/common/hadoop-{{ hadoop_version }}/hadoop-{{ hadoop_version }}.tar.gz"
@@ -73,19 +63,29 @@
 - name: Extract Hadoop from the downloaded archive
   unarchive:
     src: "/tmp/hadoop-{{ hadoop_version }}.tar.gz"
-    dest: "{{ hadoop_hdfs_home_dir }}"
+    dest: "{{ hadoop_unarchive_dir }}"
     remote_src: yes
-    creates: "{{ hadoop_hdfs_home_dir }}/hadoop-{{ hadoop_version }}"
+    creates: "{{ hadoop_unarchive_dir }}/hadoop-{{ hadoop_version }}"
 
 - name: Create Hadoop symlink
   file:
-    src: "{{ hadoop_hdfs_home_dir }}/hadoop-{{ hadoop_version }}"
-    dest: "{{ hadoop_hdfs_home_dir }}/hadoop"
+    src: "{{ hadoop_unarchive_dir }}/hadoop-{{ hadoop_version }}"
+    dest: "{{ hadoop_unarchive_dir }}/hadoop"
     state: link
+
+- name: "Ensure that the {{ hadoop_hdfs_home_dir }} directory exists and belongs to the Hadoop user {{ hadoop_user }}"
+  file:
+    path: "{{ hadoop_hdfs_home_dir }}"
+    state: directory
+    owner: "{{ hadoop_user }}"
+    group: "{{ hadoop_user }}"
+    recurse: true
+    mode: 0700
+  become: true
 
 - name: Set JAVA_HOME in Hadoop environment
   lineinfile:
-    path: "{{ hadoop_hdfs_home_dir }}/hadoop/etc/hadoop/hadoop-env.sh"
+    path: "{{ hadoop_unarchive_dir }}/hadoop/etc/hadoop/hadoop-env.sh"
     regexp: '^export JAVA_HOME='
     line: 'export JAVA_HOME={{ java_home }}'
     state: present
@@ -117,12 +117,6 @@
   template:
     src: hdfs-site.xml.j2
     dest: "{{ hadoop_hdfs_conf_dir }}/hdfs-site.xml"
-    mode: 0640
-
-- name: Create/copy the workers configuration file.
-  template:
-    src: workers.j2
-    dest: "{{ hadoop_hdfs_conf_dir }}/workers"
     mode: 0640
 
 - name: Create/copy the hosts configuration file.

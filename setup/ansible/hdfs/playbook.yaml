@@ -1,3 +1,8 @@
+- name: Gather facts about ALL hosts
+  hosts: all
+  tags:
+    info_gathering
+
 - name: Install ZooKeeper
   hosts: zookeepers
   roles:
