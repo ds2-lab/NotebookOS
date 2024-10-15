@@ -7,7 +7,7 @@
   hosts: namenode, datanode
   become: true
   roles:
-    - common
+    - install-hadoop-hdfs
 
 - name: Start Hadoop HDFS NameNode
   hosts: namenode

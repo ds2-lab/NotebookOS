@@ -7,7 +7,8 @@ ansible_ssh_private_key_file: <path to ssh key>
 hadoop_user: "hadoop"
 hadoop_password: "12345"
 hadoop_version: "3.3.6"
-hadoop_install_dir: /opt/hadoop
+hadoop_hdfs_home_dir: /opt/hadoop
+hadoop_hdfs_conf_dir: "{{ hadoop_hdfs_home_dir }}/etc/hadoop"
 java_home: /usr/lib/jvm/java-8-openjdk-amd64
 hadoop_config_src: "{{ go_install_parent_dir }}/go/pkg/distributed-notebook/hdfs_configuration/*"
 hadoop_env_src: "{{ go_install_parent_dir }}/pkg/distributed-notebook/setup/hadoop-env"
@@ -15,6 +16,9 @@ hdfs_dfs_replication: 1
 hdfs_dfs_datanode_data_dir: "file:///home/hadoop/hadoopdata/hdfs/datanode"
 hdfs_dfs_namenode_name_dir: "file:///home/hadoop/hadoopdata/hdfs/namenode"
 hdfs_dfs_journalnode_edits_dir: "/var/lib/hadoop/journal"
+hdfs_hadoop_heapsize_max: ''
+hdfs_hadoop_heapsize_min: ''
+hadoop_hdfs_log_dir: /var/logs/hadoop
 
 #############
 # Zookeeper #

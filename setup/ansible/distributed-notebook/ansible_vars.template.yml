@@ -58,7 +58,7 @@ python_virtual_env_dir: "/home/{{ remote_username }}/distributed-notebook-python
 hadoop_user: "hadoop"
 hadoop_password: "12345"
 hadoop_version: "3.3.6"
-hadoop_install_dir: "/home/hadoop"
+hadoop_hdfs_home_dir: "/home/hadoop"
 hadoop_key_path: "/home/hadoop/.ssh/hadoop.key"
 hadoop_config_src: "{{ go_install_parent_dir }}/pkg/distributed-notebook/hdfs_configuration/*"
 hadoop_env_src: "{{ go_install_parent_dir }}/pkg/distributed-notebook/setup/hadoop-env"
