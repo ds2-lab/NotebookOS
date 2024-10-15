@@ -2,7 +2,7 @@
 # Variables listed here are applicable to all host groups
 
 # SSH and Top-Level Variables
-remote_user: <user>
+remote_username: "ubuntu"
 remote_user: "{{ remote_username }}"
 ansible_ssh_private_key_file: <path to ssh key>
 private_key_to_upload: <path to private ssh key that can be copied to remote VMs so they can SSH between each other>

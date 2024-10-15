@@ -1,2 +1,6 @@
 vms.yml
 all.yml
+all.yaml
+vms.yaml
+ansible_vars.yaml
+ansible_vars.yml
