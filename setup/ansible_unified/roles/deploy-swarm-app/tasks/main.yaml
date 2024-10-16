@@ -13,9 +13,21 @@
 - name: Pull the latest code changes before installing Docker Swarm app
   git:
     repo: "{{ git_repo_url }}"
-    dest: "{{ gopath }}/pkg/distributed-notebook"
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}"
     version: "{{ gitbranch }}"
     update: yes
+  become: true
+
+- name: "Recursively set owner and group for all files in a the repo to {{ remote_username }}"
+  hosts: webservers
+  tasks:
+    - name: Change ownership of files recursively in /path/to/directory
+      file:
+        path: "{{ gopath }}/pkg/{{ git_repo_name }}"
+        recurse: yes
+        owner: "{{ remote_username }}"
+        group: "{{ remote_username }}"
+      become: yes
 
 - name: "Deploy the {{ distributed_jupyter_notebook_docker_stack_name }} Docker Swarm stack"
   community.docker.docker_stack:
