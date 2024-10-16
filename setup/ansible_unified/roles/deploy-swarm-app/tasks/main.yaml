@@ -10,12 +10,13 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
-- name: Pull the latest code changes before installing Docker Swarm app
+- name: Pull the latest code changes before installing Docker Swarm app, discarding any local changes.
   git:
     repo: "{{ git_repo_url }}"
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}"
     version: "{{ gitbranch }}"
     update: yes
+    force: yes
   become: true
 
 - name: "Recursively set owner and group for all files in the local repo to {{ remote_username }}"
