@@ -38,27 +38,28 @@ const (
 	KernelSMRPort        = "SMR_PORT"
 	KernelSMRPortDefault = 8080
 
-	DockerKernelName          = "kernel-%s"
-	VarContainerImage         = "{image}"
-	VarConnectionFile         = "{connection_file}"
-	VarContainerName          = "{container_name}"
-	VarContainerNewName       = "{container_new_name}"
-	VarContainerNetwork       = "{network_name}"
-	VarStorageVolume          = "{storage}"
-	VarConfigFile             = "{config_file}"
-	VarKernelId               = "{kernel_id}"
-	VarSessionId              = "{session_id}"
-	VarSpecCpu                = "{spec_cpu}"
-	VarSpecMemory             = "{spec_memory}"
-	VarSpecGpu                = "{spec_gpu}"
-	VarSpecVram               = "{spec_vram}"
-	VarDebugPort              = "{kernel_debug_port}"
-	VarKernelDebugPyPort      = "{kernel_debugpy_port}"
-	VarMaybeFlags             = "{maybe_flags}"
-	VarMaybeGdbFlag           = "{maybe_gdb}"
-	VarMaybeSimCheckPtLatency = "{maybe_sim_checkpoint_latency}"
-	HostMountDir              = "{host_mount_dir}"
-	TargetMountDir            = "{target_mount_dir}"
+	DockerKernelName                  = "kernel-%s"
+	VarContainerImage                 = "{image}"
+	VarConnectionFile                 = "{connection_file}"
+	VarContainerName                  = "{container_name}"
+	VarContainerNewName               = "{container_new_name}"
+	VarContainerNetwork               = "{network_name}"
+	VarStorageVolume                  = "{storage}"
+	VarConfigFile                     = "{config_file}"
+	VarKernelId                       = "{kernel_id}"
+	VarSessionId                      = "{session_id}"
+	VarSpecCpu                        = "{spec_cpu}"
+	VarSpecMemory                     = "{spec_memory}"
+	VarSpecGpu                        = "{spec_gpu}"
+	VarSpecVram                       = "{spec_vram}"
+	VarDebugPort                      = "{kernel_debug_port}"
+	VarKernelDebugPyPort              = "{kernel_debugpy_port}"
+	VarMaybeFlags                     = "{maybe_flags}"
+	VarMaybeGdbFlag                   = "{maybe_gdb}"
+	VarMaybeSimCheckPtLatency         = "{maybe_sim_checkpoint_latency}"
+	VarMaybeDockerSwarmNodeConstraint = "{docker_swarm_node_constraint}"
+	HostMountDir                      = "{host_mount_dir}"
+	TargetMountDir                    = "{target_mount_dir}"
 
 	dockerErrorPrefix = "docker: Error response from daemon: "
 )
@@ -68,7 +69,7 @@ var (
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
-	dockerMaybeFlags  = "{maybe_gdb}{maybe_sim_checkpoint_latency}"
+	dockerMaybeFlags  = "{maybe_gdb}{maybe_sim_checkpoint_latency}{docker_swarm_node_constraint}"
 	dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SPEC_VRAM={spec_vram} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker {maybe_flags} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
@@ -97,6 +98,13 @@ type DockerInvoker struct {
 	containerMetricsProvider     metrics.ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
 	simulateCheckpointingLatency bool                             // simulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of performing checkpointing after a migration (read) and after executing code (write).
 	runKernelsInGdb              bool                             // If true, then the kernels will be run in GDB.
+
+	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
+	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
+	//
+	// When in Docker Swarm, we add a constraint when invoking kernel replicas to ensure
+	// that they are scheduled onto our node.
+	isInDockerSwarm bool
 }
 
 type DockerInvokerOptions struct {
@@ -120,6 +128,13 @@ type DockerInvokerOptions struct {
 	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
 	// performing checkpointing after a migration (read) and after executing code (write).
 	SimulateCheckpointingLatency bool
+
+	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
+	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
+	//
+	// When in Docker Swarm, we add a constraint when invoking kernel replicas to ensure
+	// that they are scheduled onto our node.
+	IsInDockerSwarm bool
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider metrics.ContainerMetricsProvider) *DockerInvoker {
@@ -147,6 +162,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		runKernelsInGdb:              opts.RunKernelsInGdb,
 		containerMetricsProvider:     containerMetricsProvider,
 		simulateCheckpointingLatency: opts.SimulateCheckpointingLatency,
+		isInDockerSwarm:              opts.IsInDockerSwarm,
 	}
 
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
@@ -167,6 +183,14 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		maybeFlagCmd = strings.TrimSpace(maybeFlagCmd)
 	} else {
 		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeSimCheckPtLatency, "")
+	}
+
+	if invoker.isInDockerSwarm {
+		schedulingConstraint := fmt.Sprintf(" -e constraint:node==%s", "")
+		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeDockerSwarmNodeConstraint, schedulingConstraint)
+		maybeFlagCmd = strings.TrimSpace(maybeFlagCmd)
+	} else {
+		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeDockerSwarmNodeConstraint, "")
 	}
 
 	maybeFlagCmd = strings.TrimSpace(maybeFlagCmd)
