@@ -26,6 +26,10 @@
     group: "{{ remote_username }}"
   become: yes
 
+- name: Print the name of the Docker Swarm stack to be created
+  debug:
+    msg: "Creating Docker Swarm stack: '{{ distributed_jupyter_notebook_docker_stack_name }}'"
+
 - name: "Deploy the {{ distributed_jupyter_notebook_docker_stack_name }} Docker Swarm stack"
   community.docker.docker_stack:
     name: "{{ distributed_jupyter_notebook_docker_stack_name }}"
