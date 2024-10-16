@@ -45,7 +45,7 @@ func NewDockerComposeCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
 
 	scheduler, err := NewDockerScheduler(gatewayDaemon, dockerCluster, placer, hostSpec, opts)
 	if err != nil {
-		dockerCluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
+		dockerCluster.log.Error("Failed to create Docker Compose Scheduler: %v", err)
 		panic(err)
 	}
 
