@@ -88,18 +88,18 @@
     msg: "desired_node_count: {{ desired_node_count }}"
   when: inventory_hostname in groups['docker-swarm-manager'][0]
 
-#- name: Pause for 10 seconds so nodes can join Docker Swarm cluster
-#  ansible.builtin.pause:
-#    seconds: 10
+- name: Pause for 10 seconds so nodes can join Docker Swarm cluster
+  ansible.builtin.pause:
+    seconds: 10
 
-- name: Wait for Docker Swarm cluster size to reach the desired number of nodes
-  become: true
-  command: echo "$(docker node ls -q)" && docker node ls -q | wc -l
-  register: node_count
-  until: (node_count.stdout | int) >= (desired_node_count | int)
-  retries: 10  # Number of retries before giving up
-  delay: 10    # Time to wait between retries in seconds
-  when: inventory_hostname in groups['docker-swarm-manager'][0]
+#- name: Wait for Docker Swarm cluster size to reach the desired number of nodes
+#  become: true
+#  command: echo "$(docker node ls -q | wc -l)"; docker node ls -q | wc -l
+#  register: node_count
+#  until: (node_count.stdout | int) >= (desired_node_count | int)
+#  retries: 10  # Number of retries before giving up
+#  delay: 10    # Time to wait between retries in seconds
+#  when: inventory_hostname in groups['docker-swarm-manager'][0]
 
 - name: Label each Docker Swarm node with a 'node-name' label using the associated property from the inventory file
   become: true
