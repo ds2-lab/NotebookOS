@@ -37,7 +37,7 @@ pattern_ingester:
 
 schema_config:
   configs:
-    - from: 2024-09-25
+    - from: 2024-10-01
       store: tsdb
       object_store: filesystem
       schema: v13
