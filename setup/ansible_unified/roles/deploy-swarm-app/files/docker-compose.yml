@@ -46,9 +46,9 @@ services:
     environment:
       - KERNEL_TEMP_BASE=/kernel_base
       - KERNEL_IMAGE=scusemua/jupyter-debug:latest
-      - HOST_MOUNT_DIR=/home/$USER/kernel_base
+      - HOST_MOUNT_DIR=/home/ubuntu/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
-      - STORAGE=/home/$USER/kernel_storage
+      - STORAGE=/home/ubuntu/kernel_storage
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
     image: scusemua/daemon:latest
@@ -57,8 +57,7 @@ services:
       component: "local_daemon"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/$USER/kernel_base:/kernel_base
-      - storage:/home/$USER/kernel_storage
+      - /home/ubuntu/kernel_base:/kernel_base
       - ./local_daemon/daemon.yml:/daemon.yml
     depends_on:
       - gateway

@@ -52,7 +52,7 @@ services:
       - KERNEL_IMAGE={{ docker_username }}/jupyter-debug:latest
       - HOST_MOUNT_DIR=/home/{{ remote_username }}/{{ kernel_base_directory }}
       - TARGET_MOUNT_DIR=/{{ kernel_base_directory }}
-      - STORAGE=/home/$USER/kernel_storage
+      - STORAGE=/home/{{ remote_username }}/kernel_storage
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     image: {{ docker_username }}/daemon:latest
     labels:
@@ -62,7 +62,7 @@ services:
       logging_jobname: "local_daemon"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/$USER/kernel_base:/kernel_base
+      - /home/{{ remote_username }}/kernel_base:/kernel_base
       - ./local_daemon/daemon.yml:/daemon.yml
     depends_on:
       - gateway
