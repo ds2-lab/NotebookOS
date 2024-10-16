@@ -88,9 +88,32 @@
     msg: "desired_node_count: {{ desired_node_count }}"
   when: inventory_hostname in groups['docker-swarm-manager'][0]
 
-- name: Pause for 10 seconds so nodes can join Docker Swarm cluster
-  ansible.builtin.pause:
-    seconds: 10
+- name: Create Cluster Gateway's runtime state directory if it doesn't already exist
+  file:
+    path: "{{ gateway_runtime_state_directory }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0777'
+  become: true
+
+- name: Create kernel storage directory if it doesn't already exist
+  file:
+    path: "{{ kernel_storage_directory }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0777'
+  become: true
+
+- name: Create kernel base directory if it doesn't already exist
+  file:
+    path: "{{ kernel_base_directory }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0777'
+  become: true
 
 #- name: Wait for Docker Swarm cluster size to reach the desired number of nodes
 #  become: true
@@ -101,8 +124,8 @@
 #  delay: 10    # Time to wait between retries in seconds
 #  when: inventory_hostname in groups['docker-swarm-manager'][0]
 
-- name: Label each Docker Swarm node with a 'node-name' label using the associated property from the inventory file
-  become: true
-  command: docker node update --label-add node-name={{ item.swarm_node_name }} {{ item.inventory_hostname }}
-  loop: "{{ groups['docker-swarm-worker'] | map('extract', hostvars) | list }}"
-  when: item.swarm_node_name is defined and
+#- name: Label each Docker Swarm node with a 'node-name' label using the associated property from the inventory file
+#  become: true
+#  command: docker node update --label-add node-name={{ item.swarm_node_name }} {{ item.inventory_hostname }}
+#  loop: "{{ groups['docker-swarm-worker'] | map('extract', hostvars) | list }}"
+#  when: item.swarm_node_name is defined and
