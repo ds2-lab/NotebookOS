@@ -39,7 +39,7 @@
   vars:
     ansible_remote_tmp: "{{ tmp_dir }}"
 
-- name: Update package index
+- name: Update package index while installing protoc
   apt:
     update_cache: yes
   when: ansible_distribution == 'Ubuntu' and protoc_installed.rc != 0

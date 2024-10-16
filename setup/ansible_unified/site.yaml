@@ -69,3 +69,15 @@
     - start_hdfs_datanode
     - start_component
     - hdfs_datanode
+
+- name: Create the Docker Swarm cluster
+  hosts: docker-swarm
+  roles:
+    - docker-swarm
+  tags:
+    - docker
+    - docker swarm
+    - swarm
+    - docker-swarm
+    - start_component
+    - install_docker_swarm_cluster

@@ -29,3 +29,11 @@
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
     mode: 0640
+
+- name: Create the docker-compose.yml file for the single-node deployment in the setup directory.
+  template:
+    src: docker-compose-wsl2.yml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/docker compose (single-node)/docker-compose.yml"
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: 0640

@@ -20,6 +20,7 @@
   import_tasks: task_lists/ansible_install_docker.yml
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
     ansible_python_interpreter: /usr/bin/local/python3.12
   tags:
     - docker

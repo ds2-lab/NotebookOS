@@ -37,5 +37,12 @@ is used to format the HDFS NameNode.
 
 ## Ansible Playbooks
 
-The `setup/ansible` directory contains a number of Ansible playbooks provided to automate the deployment of a multi-node 
-deployment of the `distributed-notebook` cluster. For details, see the `README` file in the `setup/ansible` directory.
+The `setup/ansible_unified` directory contains a number of Ansible playbooks provided to automate the deployment of a 
+single- or multi-node deployment of the `distributed-notebook` cluster. 
+
+For details, see the `README` file in the `setup/ansible_unified`directory.
+
+## Docker Compose (Single-Node)
+
+The `setup/docker compose (single-node)` directory contains a self-contained `docker compose` application suitable for 
+deploying the Distributed Jupyter Notebook Cluster on a single node.

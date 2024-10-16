@@ -10,8 +10,8 @@
     ansible_python_interpreter: "{{ python_dir }}/python"
 
   tasks:
-    - name: Install the packaging module.
-      shell: "{{ ansible_python_interpreter }} -m pip install --user packaging"
+    - name: Install the packaging and request modules.
+      shell: "{{ ansible_python_interpreter }} -m pip install --user packaging requests"
 
     - name: Ensure the virtualenv package is installed
       pip:
@@ -27,6 +27,13 @@
     - name: Upgrade pip in the virtual environment
       pip:
         name: pip
+        virtualenv_python: "{{ ansible_python_interpreter }}"
+        virtualenv: "{{ python_virtual_env_dir }}"
+        state: latest
+
+    - name: Install requests in the virtual environment
+      pip:
+        name: requests
         virtualenv_python: "{{ ansible_python_interpreter }}"
         virtualenv: "{{ python_virtual_env_dir }}"
         state: latest

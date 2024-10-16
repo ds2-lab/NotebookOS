@@ -1,0 +1,7 @@
+# The 'advertise address' is an externally reachable address advertised to other nodes.
+# This port is used with the 'advertise address', which is set to the "ansible_nodename" of the first manager node.
+# Only used when swarm is initialised or joined. Because of this, it's not considered for idempotency checking.
+docker_swarm_advertise_address_port: 2377
+
+# The maximum amount of time in seconds to wait on a response from the API.
+docker_swarm_api_response_timeout: 60
