@@ -114,18 +114,3 @@
     group: "{{ remote_username }}"
     mode: '0777'
   become: true
-
-#- name: Wait for Docker Swarm cluster size to reach the desired number of nodes
-#  become: true
-#  command: echo "$(docker node ls -q | wc -l)"; docker node ls -q | wc -l
-#  register: node_count
-#  until: (node_count.stdout | int) >= (desired_node_count | int)
-#  retries: 10  # Number of retries before giving up
-#  delay: 10    # Time to wait between retries in seconds
-#  when: inventory_hostname in groups['docker-swarm-manager'][0]
-
-#- name: Label each Docker Swarm node with a 'node-name' label using the associated property from the inventory file
-#  become: true
-#  command: docker node update --label-add node-name={{ item.swarm_node_name }} {{ item.inventory_hostname }}
-#  loop: "{{ groups['docker-swarm-worker'] | map('extract', hostvars) | list }}"
-#  when: item.swarm_node_name is defined and
