@@ -1,20 +1,5 @@
 version: '3.8'
 services:
-#  docker-hoster:
-#    build:
-#      context: ../..
-#      dockerfile: deploy/docker/hoster/Dockerfile
-#    image: scusemua/docker-hoster:latest
-#    labels:
-#      app: "distributed_cluster"
-#    container_name: 'docker-hoster'
-#    restart: always
-#    volumes:
-#      - /var/run/docker.sock:/tmp/docker.sock
-#      - /etc/hosts:/tmp/hosts
-#    extra_hosts:
-#      - "host.docker.internal:host-gateway"
-
   jupyter:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
@@ -28,7 +13,9 @@ services:
       - "8888:8888"
     depends_on:
       - gateway
-    restart: always
+    deploy:
+      restart_policy:
+        condition: any
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -43,7 +30,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
-    restart: always
+    deploy:
+      restart_policy:
+        condition: any
     depends_on:
       - prometheus
     ports:
@@ -74,12 +63,15 @@ services:
     depends_on:
       - gateway
       - prometheus
-    restart: always
     deploy:
-      replicas: 4
+      restart_policy:
+        condition: any
+      mode: global
+      placement:
+        max_replicas_per_node: 1
     extra_hosts:
       - "host.docker.internal:host-gateway"
-  
+
   prometheus:
     ports:
       - "8500:8500"
@@ -91,8 +83,9 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.listen-address=0.0.0.0:8500
     image: prom/prometheus:main
-    container_name: prometheus
-    restart: unless-stopped
+    deploy:
+      restart_policy:
+        condition: on-failure
     user: 0:0
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -118,12 +111,9 @@ services:
       - loki
 
   grafana:
-    platform: linux/amd64
     image: grafana/grafana-enterprise:latest
-    container_name: grafana
     ports:
       - "3000:3000"
-    restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=scusemua
       - GF_SECURITY_ADMIN_PASSWORD=grafana
@@ -131,9 +121,12 @@ services:
       - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
       - grafana_data:/var/lib/grafana
+    deploy:
+      restart_policy:
+        condition: on-failure
 
 volumes:
-  storage:
   coredumps_volume:
   prometheus_data:
   grafana_data:
+  loki_data:
