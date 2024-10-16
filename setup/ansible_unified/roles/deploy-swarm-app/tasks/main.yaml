@@ -10,6 +10,13 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
+- name: Pull the latest code changes
+  git:
+    repo: "{{ git_repo_url }}"
+    dest: "{{ repo_dest }}"
+    version: "{{ gitbranch }}"
+    update: yes
+
 - name: "Deploy the {{ distributed_jupyter_notebook_docker_stack_name }} Docker Swarm stack"
   community.docker.docker_stack:
     name: "{{ distributed_jupyter_notebook_docker_stack_name }}"

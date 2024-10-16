@@ -83,7 +83,6 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.listen-address=0.0.0.0:8500
     image: prom/prometheus:main
-    container_name: prometheus
     deploy:
       restart_policy:
         condition: on-failure
@@ -113,7 +112,6 @@ services:
 
   grafana:
     image: grafana/grafana-enterprise:latest
-    container_name: grafana
     ports:
       - "3000:3000"
     environment:
