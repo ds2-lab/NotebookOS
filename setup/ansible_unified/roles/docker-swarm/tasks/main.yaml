@@ -89,7 +89,6 @@
 
 - name: Label each Docker Swarm node with a 'node-name' label using the associated property from the inventory file
   become: true
-  command: docker node update --label-add node-name={{ swarm_node_name }} {{ inventory_hostname }}
-  when: swarm_node_name is defined
-  vars:
-    swarm_node_name: "{{ hostvars[inventory_hostname].swarm_node_name }}"
+  command: docker node update --label-add node-name={{ item.swarm_node_name }} {{ item.inventory_hostname }}
+  loop: "{{ groups['docker-swarm-worker'] | map('extract', hostvars) | list }}"
+  when: item.swarm_node_name is defined and inventory_hostname in groups['docker-swarm-manager'][0]
