@@ -1,13 +1,16 @@
 - name: daemon reload
   systemd:
     daemon_reload: yes
+  become: true
 
 - name: datanode start
   systemd:
     state: started
     name: hdfs-datanode.service
+  become: true
 
 - name: datanode enable
   systemd:
     name: hdfs-datanode.service
     enabled: yes
+  become: true

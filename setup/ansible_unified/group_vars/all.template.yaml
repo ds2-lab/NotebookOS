@@ -8,6 +8,11 @@ ansible_ssh_private_key_file: <path to ssh key>
 private_key_to_upload: <path to private ssh key that can be copied to remote VMs so they can SSH between each other>
 public_key_to_upload: <path to public key of the private_key_to_upload>
 
+# Filesystem
+gateway_runtime_state_directory: "/home/{{ remote_username }}/gateway_runtime_state"
+kernel_storage_directory: "/home/{{ remote_username }}/kernel_storage"
+kernel_base_directory: "/home/{{ remote_username }}/kernel_base"
+
 # Hadoop HDFS
 hadoop_user: "hadoop"
 hadoop_password: "12345"

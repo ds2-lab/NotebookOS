@@ -32,6 +32,7 @@
 
 - name: Execute ansible_build_smr.yml
   import_playbook: ansible_build_smr.yml
+
 #
 #- name: Execute ansible_install_hadoop_hdfs.yml
 #  import_playbook: hdfs/ansible_install_hadoop_hdfs.yml

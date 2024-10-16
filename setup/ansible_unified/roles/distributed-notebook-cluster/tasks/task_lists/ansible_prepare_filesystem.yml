@@ -1,0 +1,31 @@
+- name: Create Cluster Gateway's runtime state directory
+  file:
+    path: "{{ gateway_runtime_state_directory }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0777'
+
+- name: Create kernel storage directory.
+  file:
+    path: "{{ kernel_storage_directory }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0777'
+
+- name: Create kernel base directory.
+  file:
+    path: "{{ kernel_base_directory }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0777'
+
+- name: Create the docker-compose.yml file for the single-node deployment.
+  template:
+    src: docker-compose-wsl2.yml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/deploy/docker-WSL2/docker-compose.yml"
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: 0640

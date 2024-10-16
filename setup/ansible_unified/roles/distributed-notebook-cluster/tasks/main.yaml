@@ -58,3 +58,6 @@
   import_tasks: task_lists/ansible_build_smr.yml
   tags:
     - build-smr
+
+- name: Execute ansible_prepare_filesystem.yml
+  import_tasks: task_lists/ansible_prepare_filesystem.yml
