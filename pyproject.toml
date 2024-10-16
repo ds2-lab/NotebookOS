@@ -28,7 +28,10 @@ dependencies = [
     "fabric",
     "ipykernel>=6.29.5",
     "prometheus-client>=0.20.0",
-    "jupyter_server>=2.14.2"
+    "jupyter_server>=2.14.2",
+    "requests",
+    "docker",
+    "jsondiff"
 ]
 
 readme = "README.md"

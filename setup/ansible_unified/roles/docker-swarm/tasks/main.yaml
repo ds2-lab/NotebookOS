@@ -1,29 +1,29 @@
-- name: Ensure the requests Python module is installed
-  pip:
-    name: requests
-    virtualenv: "{{ python_virtual_env_dir }}"
-  environment:
-    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
-  vars:
-    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
-
-- name: Ensure the docker Python module is installed
-  pip:
-    name: docker
-    virtualenv: "{{ python_virtual_env_dir }}"
-  environment:
-    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
-  vars:
-    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
-
-- name: Ensure the jsondiff Python module is installed
-  pip:
-    name: jsondiff
-    virtualenv: "{{ python_virtual_env_dir }}"
-  environment:
-    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
-  vars:
-    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+#- name: Ensure the requests Python module is installed
+#  pip:
+#    name: requests
+#    virtualenv: "{{ python_virtual_env_dir }}"
+#  environment:
+#    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+#  vars:
+#    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+#
+#- name: Ensure the docker Python module is installed
+#  pip:
+#    name: docker
+#    virtualenv: "{{ python_virtual_env_dir }}"
+#  environment:
+#    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+#  vars:
+#    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+#
+#- name: Ensure the jsondiff Python module is installed
+#  pip:
+#    name: jsondiff
+#    virtualenv: "{{ python_virtual_env_dir }}"
+#  environment:
+#    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+#  vars:
+#    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
 #- name: Ensure the docker-compose Python module is installed
 #  pip:
@@ -96,4 +96,4 @@
   become: true
   command: docker node update --label-add node-name={{ item.swarm_node_name }} {{ item.inventory_hostname }}
   loop: "{{ groups['docker-swarm-worker'] | map('extract', hostvars) | list }}"
-  when: item.swarm_node_name is defined and inventory_hostname in groups['docker-swarm-manager'][0]
+  when: item.swarm_node_name is defined and
