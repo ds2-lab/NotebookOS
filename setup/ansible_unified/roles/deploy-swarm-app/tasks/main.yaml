@@ -10,10 +10,10 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
-- name: Pull the latest code changes
+- name: Pull the latest code changes before installing Docker Swarm app
   git:
     repo: "{{ git_repo_url }}"
-    dest: "{{ repo_dest }}"
+    dest: "{{ gopath }}/pkg/distributed-notebook"
     version: "{{ gitbranch }}"
     update: yes
 
