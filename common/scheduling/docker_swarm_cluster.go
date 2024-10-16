@@ -7,7 +7,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"log"
-	"os/exec"
 	"strings"
 )
 
@@ -151,6 +150,7 @@ func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDone
 		c.log.Debug("Scaling-out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d.",
 			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len())
 
+		numDisabledHostsUsed := 0
 		if c.DisabledHosts.Len() > 0 {
 			enabledHosts := make([]*Host, 0)
 			// First, check if we have any disabled nodes. If we do, then we'll just re-enable them.
@@ -170,6 +170,7 @@ func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDone
 				c.NewHostAddedOrConnected(host)
 				enabledHosts = append(enabledHosts, host)
 				numNewNodesRequired -= 1
+				numDisabledHostsUsed += 1
 
 				// If we have already satisfied the scale-out requirement, then we'll stop iterating.
 				if numNewNodesRequired == 0 {
@@ -196,27 +197,14 @@ func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDone
 			// value can be used to calculate how many disabled hosts we must have used
 			// in order to satisfy the scale-out request.
 			c.log.Debug("Satisfied scale-out request to %d nodes exclusively using %d disabled nodes.",
-				targetScale, targetScale-int32(currentScale))
+				targetScale, numDisabledHostsUsed)
 			coreLogicDoneChan <- struct{}{}
 			return
 		}
 
-		app := "docker"
-		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetScale)
-		args := strings.Split(argString, " ")
-
-		cmd := exec.Command(app, args...)
-		stdout, err := cmd.CombinedOutput()
-
-		if err != nil {
-			c.log.Error("Failed to scale-out to %d node because: %v", targetScale, err)
-			c.log.Error("Output from failed attempt at scaling-out to %d nodes:\n%s", targetScale, string(stdout))
-			coreLogicDoneChan <- err
-		} else {
-			c.log.Debug("Output from scaling-out to %d nodes:\n%s", targetScale, string(stdout))
-
-			coreLogicDoneChan <- struct{}{}
-		}
+		c.log.Error("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.", targetScale)
+		c.log.Error("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.", numDisabledHostsUsed, targetScale-int32(currentScale))
+		coreLogicDoneChan <- fmt.Errorf("cannot scale-out; adding additional nodes is not supported by docker swarm clusters")
 	}
 }
 
