@@ -26,6 +26,14 @@
     group: "{{ remote_username }}"
   become: yes
 
+- name: Create the docker-compose.yml file for the Docker Swarm app using the template.
+  template:
+    src: docker-compose-swarm.yml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/docker-compose.yml"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
 - name: Print the name of the Docker Swarm stack to be created
   debug:
     msg: "Creating Docker Swarm stack: '{{ distributed_jupyter_notebook_docker_stack_name }}'"

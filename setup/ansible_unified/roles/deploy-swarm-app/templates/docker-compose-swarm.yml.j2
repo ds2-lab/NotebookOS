@@ -4,7 +4,7 @@ services:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: scusemua/jupyter-debug:python3.12.6
+    image: {{ docker_username }}/jupyter-debug:python3.12.6
     labels:
       app: "distributed_cluster"
       component: "jupyter_server"
@@ -23,7 +23,7 @@ services:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: scusemua/gateway:latest
+    image: {{ docker_username }}/gateway:latest
     labels:
       app: "distributed_cluster"
       component: "cluster_gateway"
@@ -45,13 +45,13 @@ services:
   daemon:
     environment:
       - KERNEL_TEMP_BASE=/kernel_base
-      - KERNEL_IMAGE=scusemua/jupyter-debug:latest
+      - KERNEL_IMAGE={{ docker_username }}/jupyter-debug:latest
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=/home/$USER/kernel_storage
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: scusemua/daemon:latest
+    image: {{ docker_username }}/daemon:latest
     labels:
       app: "distributed_cluster"
       component: "local_daemon"
@@ -71,7 +71,7 @@ services:
         max_replicas_per_node: 1
     extra_hosts:
       - "host.docker.internal:host-gateway"
-  
+
   prometheus:
     ports:
       - "8500:8500"
@@ -82,7 +82,7 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.listen-address=0.0.0.0:8500
-    image: prom/prometheus:main
+    image: {{ prometheus_docker_image_name }}:{{ prometheus_docker_image_tag }}
     deploy:
       restart_policy:
         condition: on-failure
@@ -91,7 +91,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   loki:
-    image: grafana/loki:3.2.0
+    image: {{ loki_docker_image_name }}:{{ loki_docker_image_tag }}
     command: -config.file=/etc/loki/loki-config.yaml
     ports:
       - "3100:3100"
@@ -100,7 +100,7 @@ services:
       - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
 
   promtail:
-    image: grafana/promtail:3.2.0
+    image: {{ promtail_docker_image_name }}:{{ promtail_docker_image_tag }}
     volumes:
       - /var/log:/var/log
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
@@ -111,12 +111,12 @@ services:
       - loki
 
   grafana:
-    image: grafana/grafana-enterprise:latest
+    image: {{ grafana_docker_image_name }}:{{ grafana_docker_image_tag }}
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=scusemua
-      - GF_SECURITY_ADMIN_PASSWORD=grafana
+      - GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}
+      - GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}
     volumes:
       - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
