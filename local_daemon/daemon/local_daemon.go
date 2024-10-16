@@ -1366,7 +1366,7 @@ func (d *SchedulerDaemonImpl) DockerComposeMode() bool {
 // We could technically be running within a Docker container that is managed/orchestrated
 // by Kubernetes. In this case, DockerSwarmMode also returns false.
 func (d *SchedulerDaemonImpl) DockerSwarmMode() bool {
-	return d.deploymentMode == types.DockerComposeMode
+	return d.deploymentMode == types.DockerSwarmMode
 }
 
 // DockerMode returns true if we're running in either "docker swarm" or "docker compose".
