@@ -78,6 +78,15 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
+- name: Wait for Docker Swarm cluster size to reach the desired number of nodes
+  become: true
+  command: docker node ls -q | wc -l
+  register: node_count
+  until: node_count.stdout | int >= desired_node_count
+  retries: 10  # Number of retries before giving up
+  delay: 10    # Time to wait between retries in seconds
+  when: inventory_hostname in groups['docker-swarm-manager'][0]
+
 - name: Label each Docker Swarm node with a 'node-name' label using the associated property from the inventory file
   become: true
   command: docker node update --label-add node-name={{ swarm_node_name }} {{ inventory_hostname }}
