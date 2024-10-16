@@ -78,6 +78,11 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
+- name: Set desired_node_count variable
+  set_fact:
+    desired_node_count: "{{ groups['docker-swarm-worker'] | length }}"
+  when: inventory_hostname in groups['docker-swarm-manager'][0]
+
 - name: Wait for Docker Swarm cluster size to reach the desired number of nodes
   become: true
   command: docker node ls -q | wc -l
