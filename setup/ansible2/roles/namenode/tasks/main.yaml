@@ -15,7 +15,7 @@
   become_user: "{{ hadoop_user }}"
 
 - name: Copy the NameNode's SSH keys to the DataNodes
-  shell: "cat /home/{{ hadoop_user }}/.ssh/hadoop.key.pub | ssh {{ remote_username }}@{{ item }} -i /home/{{ remote_username }}/.ssh/id_rsa 'cat >> ~/.ssh/authorized_keys'"
+  shell: "cat /home/{{ hadoop_user }}/.ssh/hadoop.key.pub | ssh -o StrictHostKeyChecking=no {{ remote_username }}@{{ item }} -i /home/{{ remote_username }}/.ssh/id_rsa 'cat >> ~/.ssh/authorized_keys'"
   when: "'namenode' in group_names"
   with_items: "{{groups['datanode']}}"
   become: true
