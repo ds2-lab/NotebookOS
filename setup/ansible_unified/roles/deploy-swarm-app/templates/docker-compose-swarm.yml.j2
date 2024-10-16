@@ -71,8 +71,6 @@ services:
       restart_policy:
         condition: any
       mode: global
-      placement:
-        max_replicas_per_node: 1
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
