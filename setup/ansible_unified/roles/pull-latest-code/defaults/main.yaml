@@ -1,0 +1,2 @@
+---
+repo_dest: "{{ gopath }}/pkg/distributed-notebook"

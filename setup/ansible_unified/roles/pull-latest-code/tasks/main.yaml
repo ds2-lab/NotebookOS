@@ -1,0 +1,7 @@
+---
+- name: Pull the latest changes if the repository already exists
+  git:
+    repo: "{{ git_repo_url }}"
+    dest: "{{ repo_dest }}"
+    version: "{{ gitbranch }}"
+    update: yes

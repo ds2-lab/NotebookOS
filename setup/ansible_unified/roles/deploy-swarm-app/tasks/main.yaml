@@ -15,7 +15,7 @@
     name: "{{ distributed_jupyter_notebook_docker_stack_name }}"
     state: present
     compose:
-      - "{{ playbook_dir }}/roles/deploy-swarm-app/files/docker-compose.yml"
+      - "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/docker-compose.yml"
   delegate_to: "{{ groups['docker-swarm-manager'][0] }}"
   become: true
   when: "deploy_distributed_jupyter_notebook_app == true"

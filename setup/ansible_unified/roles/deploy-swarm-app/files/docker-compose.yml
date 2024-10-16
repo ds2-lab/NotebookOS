@@ -103,7 +103,6 @@ services:
       - loki
 
   grafana:
-    platform: linux/amd64
     image: grafana/grafana-enterprise:latest
     container_name: grafana
     ports:
