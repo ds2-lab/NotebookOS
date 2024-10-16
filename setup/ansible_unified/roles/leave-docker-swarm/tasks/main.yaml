@@ -1,0 +1,5 @@
+- name: Leave the Docker Swarm cluster
+  docker_swarm:
+    state: absent
+    force: true
+  ignore_errors: true

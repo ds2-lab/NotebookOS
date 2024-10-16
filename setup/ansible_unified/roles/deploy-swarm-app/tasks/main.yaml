@@ -1,0 +1,25 @@
+# This playbook is used to deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
+---
+
+- name: Ensure the jsondiff Python module is installed
+  pip:
+    name: jsondiff
+    virtualenv: "{{ python_virtual_env_dir }}"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: "Deploy the {{ distributed_jupyter_notebook_docker_stack_name }} Docker Swarm stack"
+  community.docker.docker_stack:
+    name: "{{ distributed_jupyter_notebook_docker_stack_name }}"
+    state: present
+    compose:
+      - "{{ playbook_dir }}/roles/deploy-swarm-app/files/docker-compose.yml"
+  delegate_to: "{{ groups['docker-swarm-manager'][0] }}"
+  become: true
+  when: "deploy_distributed_jupyter_notebook_app == true"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"

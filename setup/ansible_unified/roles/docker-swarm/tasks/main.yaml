@@ -16,6 +16,15 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
+- name: Ensure the jsondiff Python module is installed
+  pip:
+    name: jsondiff
+    virtualenv: "{{ python_virtual_env_dir }}"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
 #- name: Ensure the docker-compose Python module is installed
 #  pip:
 #    name: docker-compose

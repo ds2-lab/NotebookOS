@@ -1,0 +1,124 @@
+version: '3.8'
+services:
+  jupyter:
+    environment:
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - USING_WSL2=1
+    image: scusemua/jupyter-debug:python3.12.6
+    labels:
+      app: "distributed_cluster"
+      component: "jupyter_server"
+    command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
+    ports:
+      - "8888:8888"
+    depends_on:
+      - gateway
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  gateway:
+    environment:
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - USING_WSL2=1
+    image: scusemua/gateway:latest
+    labels:
+      app: "distributed_cluster"
+      component: "cluster_gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./gateway/gateway.yml:/gateway.yml
+    restart: always
+    depends_on:
+      - prometheus
+    ports:
+      - "8079:8079"
+      - "9996:9996"
+      - "8081:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  daemon:
+    environment:
+      - KERNEL_TEMP_BASE=/kernel_base
+      - KERNEL_IMAGE=scusemua/jupyter-debug:latest
+      - HOST_MOUNT_DIR=/home/$USER/kernel_base
+      - TARGET_MOUNT_DIR=/kernel_base
+      - STORAGE=/home/$USER/kernel_storage
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - USING_WSL2=1
+    image: scusemua/daemon:latest
+    labels:
+      app: "distributed_cluster"
+      component: "local_daemon"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/$USER/kernel_base:/kernel_base
+      - storage:/home/$USER/kernel_storage
+      - ./local_daemon/daemon.yml:/daemon.yml
+    depends_on:
+      - gateway
+      - prometheus
+    restart: always
+    deploy:
+      replicas: 4
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  
+  prometheus:
+    ports:
+      - "8500:8500"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus/data
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.listen-address=0.0.0.0:8500
+    image: prom/prometheus:main
+    container_name: prometheus
+    restart: unless-stopped
+    user: 0:0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  loki:
+    image: grafana/loki:3.2.0
+    command: -config.file=/etc/loki/loki-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
+
+  promtail:
+    image: grafana/promtail:3.2.0
+    volumes:
+      - /var/log:/var/log
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail/config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  grafana:
+    platform: linux/amd64
+    image: grafana/grafana-enterprise:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=scusemua
+      - GF_SECURITY_ADMIN_PASSWORD=grafana
+    volumes:
+      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  storage:
+  coredumps_volume:
+  prometheus_data:
+  grafana_data:
