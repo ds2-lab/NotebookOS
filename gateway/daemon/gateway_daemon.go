@@ -357,12 +357,13 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	case "":
 		{
 			clusterGateway.log.Info("No 'deployment_mode' specified. Running in default mode: LOCAL mode.")
-			clusterGateway.deploymentMode = types.LocalMode
+			break
 		}
 	case "local":
 		{
 			clusterGateway.log.Info("Running in LOCAL mode.")
 			clusterGateway.deploymentMode = types.LocalMode
+			break
 		}
 	case "docker":
 		{
@@ -385,6 +386,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			}
 
 			clusterGateway.dockerApiClient = apiClient
+			break
 		}
 	case "docker-swarm":
 		{
@@ -397,11 +399,13 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			}
 
 			clusterGateway.dockerApiClient = apiClient
+			break
 		}
 	case "kubernetes":
 		{
 			clusterGateway.log.Info("Running in KUBERNETES mode.")
 			clusterGateway.deploymentMode = types.KubernetesMode
+			break
 		}
 	default:
 		{
@@ -431,6 +435,11 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	} else if clusterGateway.DockerMode() {
 		clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
 		clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+	} else if clusterGateway.DockerSwarmMode() {
+		clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
+		clusterGateway.cluster = scheduling.NewDockerSwarmCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+	} else {
+		log.Fatalf(utils.RedStyle.Render("Unknown or unsupported deployment mode: \"%s\". Cannot create appropriate scheduling.Cluster."), clusterGateway.deploymentMode)
 	}
 
 	clusterGateway.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
