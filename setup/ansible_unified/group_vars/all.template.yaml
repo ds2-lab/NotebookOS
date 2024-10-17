@@ -73,7 +73,7 @@ dashboard_backend_websocket_proxy_port: 8077
 ##################################################################
 # Filesystem
 ##################################################################
-gateway_runtime_state_directory: "/home/{{ remote_username }}/gateway_runtime_state"
+gateway_runtime_state_directory: "/home/{{ remote_username }}/gateway-runtime-state"
 kernel_storage_directory: "/home/{{ remote_username }}/kernel_storage"
 kernel_base_directory: "/home/{{ remote_username }}/kernel_base"
 

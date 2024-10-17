@@ -54,7 +54,7 @@
 - name: Create the gateway.yml file for the Cluster Gateway component using the associated template.
   template:
     src: gateway.yml.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/gateway.yml"
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/gateway/gateway.yml"
     mode: 0640
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
@@ -62,7 +62,7 @@
 - name: Create the daemon.yml file for the Local Daemon service using the associated template.
   template:
     src: daemon.yml.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/daemon.yml"
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/local_daemon/daemon.yml"
     mode: 0640
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
