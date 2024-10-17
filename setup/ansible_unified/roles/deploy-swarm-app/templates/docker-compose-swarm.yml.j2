@@ -3,7 +3,7 @@ services:
   jupyter:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
-      - USING_WSL2=1
+      - USING_WSL2=0
     image: {{ docker_username }}/jupyter-debug:python3.12.6
     labels:
       app: "distributed_cluster"
@@ -12,7 +12,10 @@ services:
       logging_jobname: "local_daemon"
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
     ports:
-      - "8888:8888"
+      - target: 8888
+        published: 8888
+        protocol: tcp
+        mode: host
     depends_on:
       - gateway
     deploy:
@@ -25,7 +28,7 @@ services:
   gateway:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
-      - USING_WSL2=1
+      - USING_WSL2=0
     image: {{ docker_username }}/gateway:latest
     labels:
       app: "distributed_cluster"
@@ -42,9 +45,18 @@ services:
     depends_on:
       - prometheus
     ports:
-      - "{{ gateway_dashboard_grpc_port }}:{{ gateway_dashboard_grpc_port }}"
-      - "{{ distributed_notebook_debug_port }}:{{ distributed_notebook_debug_port }}"
-      - "{{ gateway_provisioner_port }}:{{ gateway_provisioner_port }}"
+      - target: {{ gateway_dashboard_grpc_port }}
+        published: {{ gateway_dashboard_grpc_port }}
+        protocol: tcp
+        mode: host
+      - target: {{ distributed_notebook_debug_port }}
+        published: {{ distributed_notebook_debug_port }}
+        protocol: tcp
+        mode: host
+      - target: {{ gateway_provisioner_port }}
+        published: {{ gateway_provisioner_port }}
+        protocol: tcp
+        mode: host
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -79,7 +91,10 @@ services:
 
   prometheus:
     ports:
-      - "8500:8500"
+      - target: 8500
+        published: 8500
+        protocol: tcp
+        mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./prometheus:/etc/prometheus
@@ -102,7 +117,10 @@ services:
     deploy:
       endpoint_mode: dnsrr
     ports:
-      - "3100:3100"
+      - target: 3100
+        published: 3100
+        protocol: tcp
+        mode: host
     volumes:
       - loki_data:/loki
       - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
@@ -123,7 +141,10 @@ services:
   grafana:
     image: {{ grafana_docker_image_name }}:{{ grafana_docker_image_tag }}
     ports:
-      - "3000:3000"
+      - target: 3000
+        published: 3000
+        protocol: tcp
+        mode: host
     environment:
       - GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}
       - GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}
@@ -139,7 +160,10 @@ services:
   dashboard_backend:
     image: scusemua/distributed-notebook-dashboard-backend:latest
     ports:
-    - "{{ dashboard_backend_server_port }}:{{ dashboard_backend_server_port }}"
+      - target: {{ dashboard_backend_server_port }}
+        published: {{ dashboard_backend_server_port }}
+        protocol: tcp
+        mode: host
     environment:
     - DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}
     deploy:
@@ -156,7 +180,10 @@ services:
     environment:
     - PORT="{{ dashboard_frontend_server_port }}"
     ports:
-    - "{{ dashboard_frontend_server_port }}:{{ dashboard_frontend_server_port }}"
+      - target: {{ dashboard_frontend_server_port }}
+        published: {{ dashboard_frontend_server_port }}
+        protocol: tcp
+        mode: host
     deploy:
       restart_policy:
         condition: on-failure
