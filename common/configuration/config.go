@@ -3,6 +3,7 @@ package configuration
 // CommonOptions includes all configuration parameters that are common to both the Cluster Gateway
 // and the Local Daemon components.
 type CommonOptions struct {
+	GpusPerHost                        int    `name:"gpus-per-host"                     json:"gpus-per-host"                    yaml:"gpus-per-host" description:"The number of actual GPUs that are available for use on each node/host."`
 	DeploymentMode                     string `name:"deployment_mode"                  json:"deployment_mode"                   yaml:"deployment_mode"                     description:"Options are 'docker-compose', 'docker-swarm', and 'kubernetes'."`
 	UsingWSL                           bool   `name:"using-wsl"                        json:"using-wsl"                         yaml:"using-wsl"                           description:"Flag indicating whether we're running within WSL2 (Windows Subsystem for Linux). Requires additional networking configuring for the Docker containers."`
 	DockerNetworkName                  string `name:"docker_network_name"              json:"docker_network_name"               yaml:"docker_network_name"                 description:"The name of the Docker network that the container is running within. Only used in Docker mode."`

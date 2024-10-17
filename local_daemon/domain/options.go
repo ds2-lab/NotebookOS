@@ -56,7 +56,6 @@ type SchedulerDaemonOptions struct {
 
 	// If the scheduler serves jupyter notebook directly, set this to true.
 	DirectServer      bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
-	NumGPUs           int64  `name:"max-actual-gpu-per-node" json:"max-actual-gpu-per-node" yaml:"max-actual-gpu-per-node" description:"The total number of GPUs that should be available on each node."`
 	DockerStorageBase string `name:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
 	RunKernelsInGdb   bool   `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
 }

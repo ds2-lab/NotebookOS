@@ -3,7 +3,6 @@ package domain
 import (
 	"encoding/json"
 	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/zhangjyr/distributed-notebook/common/configuration"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
@@ -39,7 +38,6 @@ func (k MetadataKey) String() string {
 
 type ClusterDaemonOptions struct {
 	scheduling.ClusterSchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
-	configuration.CommonOptions        `yaml:",inline" json:"common_options"`
 
 	LocalDaemonServiceName        string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
 	LocalDaemonServicePort        int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`

@@ -59,13 +59,21 @@
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 
+- name: Create the daemon.yml file for the Local Daemon service using the associated template.
+  template:
+    src: local_daemon/daemon.yml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/local_daemon/daemon.yml"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
 - name: Print the name of the Docker Swarm stack to be created
   debug:
-    msg: "Creating Docker Swarm stack: '{{ distributed_jupyter_notebook_docker_stack_name }}'"
+    msg: "Creating Docker Swarm stack: '{{ distributed_notebook_docker_stack_name }}'"
 
-- name: "Deploy the {{ distributed_jupyter_notebook_docker_stack_name }} Docker Swarm stack"
+- name: "Deploy the {{ distributed_notebook_docker_stack_name }} Docker Swarm stack"
   community.docker.docker_stack:
-    name: "{{ distributed_jupyter_notebook_docker_stack_name }}"
+    name: "{{ distributed_notebook_docker_stack_name }}"
     state: present
     compose:
       - "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/docker-compose.yml"

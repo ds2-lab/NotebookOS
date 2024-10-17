@@ -1,4 +1,3 @@
-kernel-registry-port: 8075
 local-daemon-service-port: 8075
 scheduler-http-port: 8078
 distributed-cluster-service-port: 8079
@@ -26,7 +25,6 @@ local-daemon-service-name: local-daemon-network
 global-daemon-service-name: daemon-network
 ipython-config-path: /home/jovyan/.ipython/profile_default/ipython_config.json
 kube-namespace: default
-max-actual-gpu-per-node: 8
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter

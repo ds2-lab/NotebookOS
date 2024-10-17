@@ -1,8 +1,33 @@
 ---
 # Variables listed here are applicable to all host groups
 
+##################################################################
+# Distributed Notebook Application/Cluster
+##################################################################
+distributed_notebook_docker_stack_name: distributed_notebook
 deploy_distributed_jupyter_notebook_app: true
-distributed_jupyter_notebook_docker_stack_name: distributed_notebook
+distributed_notebook_smr_port: 8080
+distributed_notebook_kernel_docker_image_name: scusemua/jupyter
+distributed_notebook_kernel_docker_image_tag: latest
+distributed_notebook_num_replicas: 3
+distributed_notebook_scheduling_policy: static
+distributed_notebook_predictive_autoscaling_enabled: true
+distributed_notebook_debug_mode: true
+distributed_notebook_debug_port: 9996
+distributed_notebook_prometheus_interval: 15
+distributed_notebook_prometheus_port: 8089
+distributed_notebook_message_acknowledgements_enabled: false
+distributed_notebook_simulate_checkpointing_latency: true
+distributed_notebook_gpu_poll_interval: 5
+distributed_notebook_num_resend_attempts: 1
+
+distributed-notebook-gpus-per-host: 8
+distributed-notebook-scaling-buffer-size: 3
+distributed-notebook-subscribed-ratio-update-interval: 1
+distributed-notebook-subscribed-scaling-factor: 1.05
+distributed-notebook-subscribed-scaling-interval: 30
+distributed-notebook-subscribed-scaling-limit: 1.1
+distributed-notebook-subscribed-scaling-in-limit: 2
 
 ##################################################################
 # SSH and Top-Level Variables
@@ -18,9 +43,11 @@ public_key_to_upload: <path to public key of the private_key_to_upload>
 ##################################################################
 gateway_dashboard_grpc_port: 8079
 gateway_debug_logging_enabled: true
-gateway_num_replicas: 3
-gateway_smr_port: 8080
 gateway_max_subscribed_ratio: 7.0
+
+gateway-provisioner-port: 8081
+gateway-port: 8080
+local-daemon-kernel-registry-port: 8075
 
 ##################################################################
 # Dashboard Backend Configuration
@@ -60,7 +87,6 @@ hadoop_hdfs_log_dir: /var/log/hadoop
 hadoop_hdfs_root_logger: DEBUG,RFA
 hadoop_unarchive_dir: /opt
 
-
 ##################################################################
 # Git Configuration & Repo Configuration
 ##################################################################
@@ -95,7 +121,7 @@ gopy_image_name: "scusemua/gopy"
 gopy_image_tag: "latest"
 
 ###################################################################
-# Golang
+# Golang (protoc)
 ###################################################################
 protoc_gen_go: "google.golang.org/protobuf/cmd/protoc-gen-go@latest"
 protoc_gen_go_grpc: "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest"

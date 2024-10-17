@@ -2,6 +2,7 @@ package scheduling
 
 import (
 	"encoding/json"
+	"github.com/zhangjyr/distributed-notebook/common/configuration"
 	"log"
 	"math"
 	"strings"
@@ -13,7 +14,7 @@ const (
 )
 
 type ClusterSchedulerOptions struct {
-	GpusPerHost                   int     `name:"gpus-per-host"                     json:"gpus-per-host"                    yaml:"gpus-per-host" description:"The number of actual GPUs that are available for use on each node/host."`
+	configuration.CommonOptions   `yaml:",inline" name:"common_options" json:"common_options"`
 	VirtualGpusPerHost            int     `name:"num-virtual-gpus-per-node"         json:"num-virtual-gpus-per-node"        yaml:"num-virtual-gpus-per-node"                        description:"The number of virtual GPUs per host."`
 	SubscribedRatioUpdateInterval float64 `name:"subscribed-ratio-update-interval"  json:"subscribed-ratio-update-interval" yaml:"subscribed-ratio-update-interval"                        description:"The interval to update the subscribed ratio."`
 	ScalingFactor                 float64 `name:"scaling-factor"                    json:"scaling-factor"                   yaml:"scaling-factor"                        description:"Defines how many hosts the Cluster will provision based on busy Resources"`

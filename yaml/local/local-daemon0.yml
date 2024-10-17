@@ -22,7 +22,6 @@ local-daemon-service-port: 28075
 ipython-config-path: /home/jovyan/.ipython/profile_default/ipython_config.json
 smr-port: 28080
 kube-namespace: default
-max-actual-gpu-per-node: 8
 starting-resource-port: 29007
 num-resource-ports: 256
 use-stateful-set: false
