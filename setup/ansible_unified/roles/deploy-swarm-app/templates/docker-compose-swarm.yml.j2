@@ -178,6 +178,7 @@ services:
   dashboard_frontend:
     image: scusemua/distributed-notebook-dashboard-frontend:latest
     environment:
+    - HOST="0.0.0.0"
     - PORT="{{ dashboard_frontend_server_port }}"
     ports:
       - target: {{ dashboard_frontend_server_port }}
