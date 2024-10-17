@@ -1,9 +1,8 @@
-version: '3.8'
 services:
   jupyter:
     environment:
-      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
-      - USING_WSL2=0
+      - "DOCKER_NETWORK_NAME=distributed_cluster_default"
+      - "USING_WSL2=0"
     image: {{ docker_username }}/jupyter-debug:python3.12.6
     labels:
       app: "distributed_cluster"
@@ -27,8 +26,8 @@ services:
 
   gateway:
     environment:
-      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
-      - USING_WSL2=0
+      - "DOCKER_NETWORK_NAME=distributed_cluster_default"
+      - "USING_WSL2=0"
     image: {{ docker_username }}/gateway:latest
     labels:
       app: "distributed_cluster"
@@ -62,12 +61,12 @@ services:
 
   daemon:
     environment:
-      - KERNEL_TEMP_BASE=/{{ kernel_base_directory }}
-      - KERNEL_IMAGE={{ docker_username }}/jupyter-debug:latest
-      - HOST_MOUNT_DIR=/home/{{ remote_username }}/{{ kernel_base_directory }}
-      - TARGET_MOUNT_DIR=/{{ kernel_base_directory }}
-      - STORAGE=/home/{{ remote_username }}/kernel_storage
-      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - "KERNEL_TEMP_BASE=/{{ kernel_base_directory }}"
+      - "KERNEL_IMAGE={{ docker_username }}/jupyter-debug:latest"
+      - "HOST_MOUNT_DIR=/home/{{ remote_username }}/{{ kernel_base_directory }}"
+      - "TARGET_MOUNT_DIR=/{{ kernel_base_directory }}"
+      - "STORAGE=/home/{{ remote_username }}/kernel_storage"
+      - "DOCKER_NETWORK_NAME=distributed_cluster_default"
     image: {{ docker_username }}/daemon:latest
     labels:
       app: "distributed_cluster"
@@ -146,8 +145,8 @@ services:
         protocol: tcp
         mode: host
     environment:
-      - GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}
-      - GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}
+      - "GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}"
+      - "GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}"
     volumes:
       - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
@@ -165,7 +164,7 @@ services:
         protocol: tcp
         mode: host
     environment:
-    - DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}
+    - "DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}"
     deploy:
       restart_policy:
         condition: on-failure
@@ -178,8 +177,8 @@ services:
   dashboard_frontend:
     image: scusemua/distributed-notebook-dashboard-frontend:latest
     environment:
-    - HOST="0.0.0.0"
-    - PORT="{{ dashboard_frontend_server_port }}"
+    - "HOST=0.0.0.0"
+    - "PORT={{ dashboard_frontend_server_port }}"
     ports:
       - target: {{ dashboard_frontend_server_port }}
         published: {{ dashboard_frontend_server_port }}
