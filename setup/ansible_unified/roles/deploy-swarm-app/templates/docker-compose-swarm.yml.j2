@@ -127,6 +127,20 @@ services:
       restart_policy:
         condition: on-failure
 
+  dashboard_backend:
+    image: scusemua/distributed-notebook-dashboard-backend:latest
+    ports: 9000
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  dashboard_frontend:
+    image: scusemua/distributed-notebook-dashboard-frontend:latest
+    ports: 8001
+    deploy:
+      restart_policy:
+        condition: on-failure
+
 volumes:
   coredumps_volume:
   prometheus_data:
