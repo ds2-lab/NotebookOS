@@ -144,7 +144,7 @@ services:
   dashboard_frontend:
     image: scusemua/distributed-notebook-dashboard-frontend:latest
     environment:
-    - PORT: "{{ dashboard_frontend_server_port }}"
+    - PORT="{{ dashboard_frontend_server_port }}"
     ports:
     - "{{ dashboard_frontend_server_port }}:{{ dashboard_frontend_server_port }}"
     deploy:
