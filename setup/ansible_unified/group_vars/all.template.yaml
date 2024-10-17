@@ -21,15 +21,15 @@ distributed_notebook_gpu_poll_interval: 5
 distributed_notebook_num_resend_attempts: 1
 distributed_notebook_run_kernels_in_gdb: false
 
-distributed-notebook-smr-port: 8080
-distributed-notebook-max-subscribed-ratio: 7.0
-distributed-notebook-gpus-per-host: 8
-distributed-notebook-scaling-buffer-size: 3
-distributed-notebook-subscribed-ratio-update-interval: 1
-distributed-notebook-subscribed-scaling-factor: 1.05
-distributed-notebook-subscribed-scaling-interval: 30
-distributed-notebook-subscribed-scaling-limit: 1.1
-distributed-notebook-subscribed-scaling-in-limit: 2
+distributed_notebook_smr_port: 8080
+distributed_notebook_max_subscribed_ratio: 7.0
+distributed_notebook_gpus_per_host: 8
+distributed_notebook_scaling_buffer_size: 3
+distributed_notebook_subscribed_ratio_update_interval: 1
+distributed_notebook_subscribed_scaling_factor: 1.05
+distributed_notebook_subscribed_scaling_interval: 30
+distributed_notebook_subscribed_scaling_limit: 1.1
+distributed_notebook_subscribed_scaling_in_limit: 2
 
 ##################################################################
 # SSH and Top-Level Variables
@@ -46,14 +46,14 @@ public_key_to_upload: <path to public key of the private_key_to_upload>
 gateway_dashboard_grpc_port: 8079
 gateway_debug_logging_enabled: true
 
-gateway-provisioner-port: 8081
-gateway-port: 8080
+gateway_provisioner_port: 8081
+gateway_port: 8080
 
 ##################################################################
 # Local Daemon
 ##################################################################
-local-daemon-kernel-registry-port: 8075
-local-daemon-port: 8080
+local_daemon_kernel_registry_port: 8075
+local_daemon_port: 8080
 
 local_daemon_debug_logging_enabled: true
 
