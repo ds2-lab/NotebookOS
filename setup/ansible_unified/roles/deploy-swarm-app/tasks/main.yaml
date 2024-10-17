@@ -37,7 +37,7 @@
 
 - name: Create the config-docker.yaml file for the Dashboard Backend component using the associated template.
   template:
-    src: dashboard/dashboard_backend_config.yaml.j2
+    src: ./dashboard/dashboard_backend_config.yaml.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/dashboard_backend/config-docker.yaml"
     mode: 0640
     owner: "{{ remote_username }}"
@@ -45,7 +45,7 @@
 
 - name: Create the workload-presets-file.yaml file for the Dashboard Backend component using the associated template.
   template:
-    src: dashboard/dashboard_workload_presets.yaml.j2
+    src: ./dashboard/dashboard_workload_presets.yaml.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/dashboard_backend/workload-presets-file.yaml"
     mode: 0640
     owner: "{{ remote_username }}"
@@ -53,7 +53,7 @@
 
 - name: Create the gateway.yml file for the Cluster Gateway component using the associated template.
   template:
-    src: gateway/gateway.yml.j2
+    src: gateway.yml.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/gateway/gateway.yml"
     mode: 0640
     owner: "{{ remote_username }}"
@@ -61,7 +61,7 @@
 
 - name: Create the daemon.yml file for the Local Daemon service using the associated template.
   template:
-    src: local_daemon/daemon.yml.j2
+    src: daemon.yml.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible_unified/roles/deploy-swarm-app/files/local_daemon/daemon.yml"
     mode: 0640
     owner: "{{ remote_username }}"
