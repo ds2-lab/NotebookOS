@@ -6,7 +6,6 @@
 ##################################################################
 distributed_notebook_docker_stack_name: distributed_notebook
 deploy_distributed_jupyter_notebook_app: true
-distributed_notebook_smr_port: 8080
 distributed_notebook_kernel_docker_image_name: scusemua/jupyter
 distributed_notebook_kernel_docker_image_tag: latest
 distributed_notebook_num_replicas: 3
@@ -20,7 +19,10 @@ distributed_notebook_message_acknowledgements_enabled: false
 distributed_notebook_simulate_checkpointing_latency: true
 distributed_notebook_gpu_poll_interval: 5
 distributed_notebook_num_resend_attempts: 1
+distributed_notebook_run_kernels_in_gdb: false
 
+distributed-notebook-smr-port: 8080
+distributed-notebook-max-subscribed-ratio: 7.0
 distributed-notebook-gpus-per-host: 8
 distributed-notebook-scaling-buffer-size: 3
 distributed-notebook-subscribed-ratio-update-interval: 1
@@ -43,11 +45,17 @@ public_key_to_upload: <path to public key of the private_key_to_upload>
 ##################################################################
 gateway_dashboard_grpc_port: 8079
 gateway_debug_logging_enabled: true
-gateway_max_subscribed_ratio: 7.0
 
 gateway-provisioner-port: 8081
 gateway-port: 8080
+
+##################################################################
+# Local Daemon
+##################################################################
 local-daemon-kernel-registry-port: 8075
+local-daemon-port: 8080
+
+local_daemon_debug_logging_enabled: true
 
 ##################################################################
 # Dashboard Backend Configuration

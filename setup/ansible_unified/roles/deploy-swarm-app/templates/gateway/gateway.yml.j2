@@ -13,12 +13,12 @@ hdfs-namenode-endpoint: host.docker.internal:10000
 debug: {{ gateway_debug_logging_enabled }}
 direct: false
 num-replicas: {{ distributed_notebook_num_replicas }}
-max-subscribed-ratio: {{ gateway_max_subscribed_ratio }}
+max-subscribed-ratio: {{ distributed-notebook-max-subscribed-ratio }}
 local-daemon-service-name: local-daemon-network
 global-daemon-service-name: daemon-network
 local-daemon-service-port: 8075
 ipython-config-path: /home/jovyan/.ipython/profile_default/ipython_config.json
-smr-port: {{ distributed_notebook_smr_port }}
+smr-port: {{ distributed-notebook-smr-port }}
 kube-namespace: default
 starting-resource-port: 9007
 num-resource-ports: 256
