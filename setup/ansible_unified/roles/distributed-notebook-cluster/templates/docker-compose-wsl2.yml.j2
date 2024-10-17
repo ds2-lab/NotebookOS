@@ -179,6 +179,8 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
+    volumes:
+      - ./dashboard-backend/config-docker.yaml:/etc/distributed-notebook-cluster/dashboard.yaml
 
   dashboard_frontend:
     image: scusemua/distributed-notebook-dashboard-frontend:latest

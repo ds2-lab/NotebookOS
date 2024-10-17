@@ -4,19 +4,47 @@
 deploy_distributed_jupyter_notebook_app: true
 distributed_jupyter_notebook_docker_stack_name: distributed_notebook
 
+##################################################################
 # SSH and Top-Level Variables
+##################################################################
 remote_username: "ubuntu"
 remote_user: "{{ remote_username }}"
 ansible_ssh_private_key_file: <path to ssh key>
 private_key_to_upload: <path to private ssh key that can be copied to remote VMs so they can SSH between each other>
 public_key_to_upload: <path to public key of the private_key_to_upload>
 
+##################################################################
+# Cluster Gateway
+##################################################################
+gateway_dashboard_grpc_port: 8079
+gateway_debug_logging_enabled: true
+gateway_num_replicas: 3
+gateway_smr_port: 8080
+gateway_max_subscribed_ratio: 7.0
+
+##################################################################
+# Dashboard Backend Configuration
+##################################################################
+dashboard_admin_username: admin
+dashboard_admin_password: 12345
+dashboard_token_valid_duration_sec: 3600
+dashboard_token_refresh_interval_sec: 5400
+dashboard_backend_config_directory: /etc/distributed-notebook-cluster
+gateway-address: gateway:8079
+dashboard_backend_server_port: 8000
+dashboard_backend_grpc_port: 8078
+dashboard_backend_websocket_proxy_port: 8077
+
+##################################################################
 # Filesystem
+##################################################################
 gateway_runtime_state_directory: "/home/{{ remote_username }}/gateway_runtime_state"
 kernel_storage_directory: "/home/{{ remote_username }}/kernel_storage"
 kernel_base_directory: "/home/{{ remote_username }}/kernel_base"
 
+##################################################################
 # Hadoop HDFS
+##################################################################
 hadoop_user: "hadoop"
 hadoop_password: "12345"
 hadoop_version: "3.3.6"s
@@ -32,60 +60,81 @@ hadoop_hdfs_log_dir: /var/log/hadoop
 hadoop_hdfs_root_logger: DEBUG,RFA
 hadoop_unarchive_dir: /opt
 
+
+##################################################################
 # Git Configuration & Repo Configuration
+##################################################################
 git_repo_name: "distributed-notebook"
 gitbranch: <branch of repo to use>
 git_username: scusemua # change this to your own username if you created a fork of the repo
 git_personal_access_token: < github personal access token with read access to the repo's code >
 git_repo_url: "https://{{git_username}}:{{git_personal_access_token}}@github.com/{{git_username}}/{{git_repo_name}}.git"
 
+##################################################################
 # Protoc
+##################################################################
 protoc_install_path: /home/{{ remote_user}}/.local/
 protoc_version: 27.2
 protoc_release_url: "https://github.com/protocolbuffers/protobuf/releases/download/v{{ protoc_version }}/protoc-{{ protoc_version }}-linux-x86_64.zip"
 
+##################################################################
 # Golang (General)
+##################################################################
 target_go_version: "1.21.5"
 go_download_url: "https://go.dev/dl/go{{ target_go_version }}.linux-amd64.tar.gz"
 go_install_parent_dir: "/home/{{ remote_user }}/"
 gopath: "{{ go_install_parent_dir }}/go"
 
+##################################################################
 # Golang (Gopy)
+##################################################################
 gopy_bin_path: "{{ gopath }}/gopy"
 gopy_build_dir: "{{ gopath }}/pkg/gopy"
 gopy_source_bin: "{{ gopy_build_dir }}/gopy"
 gopy_image_name: "scusemua/gopy"
 gopy_image_tag: "latest"
 
-# Golang (protoc)
+###################################################################
+# Golang
+###################################################################
 protoc_gen_go: "google.golang.org/protobuf/cmd/protoc-gen-go@latest"
 protoc_gen_go_grpc: "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest"
 
+##################################################################
 # Kind
+##################################################################
 kind_version: "v0.22.0"
 
+##################################################################
 # Miscellaneous
+##################################################################
 tmp_dir: "/tmp"
 profile_file: "/home/{{ remote_user }}/.profile"  # Update this if using a different profile file
 
+##################################################################
 # Helm
+##################################################################
 helm_install_script_url: "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3"
 helm_script: "{{ tmp_dir }}/get_helm.sh"
 helm_bin_path: "/usr/local/bin/helm"
 
+##################################################################
 # Kubectl
+##################################################################
 kubectl_url: "https://dl.k8s.io/release"
 kubectl_bin_path: "/usr/bin/kubectl"
 
+##################################################################
 # Python
+##################################################################
 python_version: "3.12.6"
 python_short_version: "3.12"
 python_build_dir: "/home/ubuntu"
 python_virtual_env_dir: "/home/{{ remote_username }}/distributed-notebook-python-venv"
 
-#############
-# ZooKeeper #
-#############
+##################################################################
+# ZooKeeper
+##################################################################
 
 # Version of Zookeeper to install and use.
 zookeeper_version: 3.9.2

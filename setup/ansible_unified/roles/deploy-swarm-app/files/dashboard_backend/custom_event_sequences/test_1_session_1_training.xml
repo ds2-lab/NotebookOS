@@ -1,0 +1,25 @@
+<mxfile host="Electron" modified="2024-05-06T17:02:19.365Z" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.2.5 Chrome/120.0.6099.109 Electron/28.1.0 Safari/537.36" etag="Bo7y6l7kYpGpgHPQpdAA" version="24.2.5" type="device">
+    <diagram name="Page-1" id="YmsQlEEc9Dw5snyWCTs7">
+        <mxGraphModel dx="1838" dy="573" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+            <root>
+                <mxCell id="0" />
+                <mxCell id="1" parent="0" />
+                <object label="Sess1" Session="Session1" id="hIC3Be14Shi7eZ4HLFUz-2">
+                    <mxCell style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" parent="1" vertex="1">
+                        <mxGeometry width="20" height="40" as="geometry" />
+                    </mxCell>
+                </object>
+                <object label="Sess1" Session="Session1" CPU="75" GPU="95" id="hIC3Be14Shi7eZ4HLFUz-3">
+                    <mxCell style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+                        <mxGeometry x="20" width="20" height="40" as="geometry" />
+                    </mxCell>
+                </object>
+                <object label="Sess1" Session="Session1" id="hIC3Be14Shi7eZ4HLFUz-4">
+                    <mxCell style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" parent="1" vertex="1">
+                        <mxGeometry x="40" width="40" height="40" as="geometry" />
+                    </mxCell>
+                </object>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

@@ -1,0 +1,18 @@
+in-cluster: false
+spoof-nodes: false
+spoof-kernels: false
+spoof-specs: false
+workload-presets-file: "{{ dashboard_backend_config_directory }}/workload-presets-file.yaml"
+gateway-address: "gateway:{{ gateway_dashboard_grpc_port }}"
+server-port: {{ dashboard_backend_server_port }}
+cluster-dashboard-handler-port: {{ dashboard_backend_grpc_port }}
+websocket-proxy-port: {{ dashboard_backend_websocket_proxy_port }}
+expected-origin-port: 8001
+admin_username: '"{{ dashboard_admin_username }}"'
+admin_password: '"{{ dashboard_admin_password }}"'
+
+# How long JWT tokens are valid
+token_valid_duration_sec: {{ dashboard_token_valid_duration_sec }}
+
+# How long users have to refresh their tokens
+token_refresh_interval_sec: {{ dashboard_token_refresh_interval_sec }}
