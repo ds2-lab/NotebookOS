@@ -10,6 +10,8 @@ services:
         published: 8888
         protocol: tcp
         mode: host
+    networks:
+    - traefik-public
     depends_on:
       - gateway
     deploy:
@@ -38,6 +40,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
+    networks:
+    - traefik-public
     deploy:
       restart_policy:
         condition: any
@@ -75,6 +79,8 @@ services:
       - "STORAGE=/home/{{ remote_username }}/kernel_storage"
       - "DOCKER_NETWORK_NAME=distributed_cluster_default"
     image: {{ docker_username }}/daemon:latest
+    networks:
+    - traefik-public
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/{{ remote_username }}/kernel_base:/kernel_base
@@ -106,6 +112,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./prometheus:/etc/prometheus
       - prometheus_data:/prometheus/data
+    networks:
+    - traefik-public
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.listen-address=0.0.0.0:8500
@@ -128,6 +136,8 @@ services:
   loki:
     image: {{ loki_docker_image_name }}:{{ loki_docker_image_tag }}
     command: -config.file=/etc/loki/loki-config.yaml
+    networks:
+    - traefik-public
     deploy:
       endpoint_mode: dnsrr
       labels:
@@ -148,6 +158,8 @@ services:
 
   promtail:
     image: {{ promtail_docker_image_name }}:{{ promtail_docker_image_tag }}
+    networks:
+    - traefik-public
     volumes:
       - /var/log:/var/log
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
@@ -163,6 +175,8 @@ services:
 
   grafana:
     image: {{ grafana_docker_image_name }}:{{ grafana_docker_image_tag }}
+    networks:
+    - traefik-public
     ports:
       - target: 3000
         published: 3000
@@ -189,6 +203,8 @@ services:
 
   dashboard:
     image: scusemua/distributed-notebook-dashboard-backend:latest
+    networks:
+    - traefik-public
     ports:
       - target: {{ dashboard_backend_server_port }}
         published: {{ dashboard_backend_server_port }}
