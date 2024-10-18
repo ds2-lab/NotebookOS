@@ -34,7 +34,7 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=traefik-public"
-        - "traefik.http.services.traefik-public.loadbalancer.server.port=8054"
+        - "traefik.http.services.api.loadbalancer.server.port=8054"
         - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/api`)"
 
 # volumes:
