@@ -20,20 +20,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Mount the volume to store the certificates
       - traefik-public-certificates:/certificates
-    environment:
-      - "USERNAME: {{ traefik_username }}"
-      - "HASHED_PASSWORD: {{ hashed_password }}"
-      - "EMAIL: {{ traefik_email }}"
-      - "DOMAIN: {{ traefik_domain }}"
     command:
       # Enable Docker in Traefik, so that it reads labels from Docker services
-      - --providers.docker
+      - --providers.swarm.endpoint=unix:///var/run/docker.sock
       # Add a constraint to only use services with the label "traefik.constraint-label=traefik-public"
       - --providers.docker.constraints=Label(`traefik.constraint-label`, `traefik-public`)
       # Do not expose all Docker services, only the ones explicitly exposed
       - --providers.docker.exposedbydefault=false
-      # Enable Docker Swarm mode
-      - --providers.docker.swarmmode
       # Create an entrypoint "http" listening on address 80
       - --entrypoints.http.address=:80
       # Create an entrypoint "https" listening on address 80

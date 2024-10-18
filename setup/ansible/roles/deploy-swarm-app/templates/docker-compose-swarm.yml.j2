@@ -10,6 +10,7 @@ services:
       logging: "promtail"
       logging_jobname: "jupyter"
       traefik.enable: "true"
+      traefik.constraint-label: "traefik-public"
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
     ports:
       - target: 8888
@@ -36,6 +37,7 @@ services:
       logging: "promtail"
       logging_jobname: "gateway"
       traefik.enable: "true"
+      traefik.constraint-label: "traefik-public"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
@@ -76,6 +78,7 @@ services:
       logging: "promtail"
       logging_jobname: "local_daemon"
       traefik.enable: "true"
+      traefik.constraint-label: "traefik-public"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/{{ remote_username }}/kernel_base:/kernel_base
@@ -107,6 +110,7 @@ services:
     image: {{ prometheus_docker_image_name }}:{{ prometheus_docker_image_tag }}
     labels:
       traefik.enable: "true"
+      traefik.constraint-label: "traefik-public"
     deploy:
       restart_policy:
         condition: on-failure
@@ -151,6 +155,7 @@ services:
         mode: host
     labels:
       traefik.enable: "true"
+      traefik.constraint-label: "traefik-public"
     environment:
       - "GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}"
       - "GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}"
@@ -172,6 +177,7 @@ services:
         mode: host
     labels:
       traefik.enable: "true"
+      traefik.constraint-label: "traefik-public"
     environment:
     - "DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}"
     deploy:
