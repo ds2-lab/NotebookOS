@@ -233,3 +233,9 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+
+networks:
+  # Use the previously created public network "traefik-public", shared with other
+  # services that need to be publicly available via this Traefik
+  traefik-public:
+    external: true
