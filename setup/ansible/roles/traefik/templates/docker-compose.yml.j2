@@ -22,7 +22,7 @@ services:
       - traefik-public-certificates:/certificates
     command:
       # Enable Docker in Traefik, so that it reads labels from Docker services
-      - --providers.docker
+      - --providers.swarm.endpoint=unix:///var/run/docker.sock
       # Add a constraint to only use services with the label "traefik.constraint-label=traefik-public"
       - --providers.docker.constraints=Label(`traefik.constraint-label`, `traefik-public`)
       # Do not expose all Docker services, only the ones explicitly exposed
@@ -43,6 +43,7 @@ services:
       - --log
       # Enable the Dashboard and API
       - --api
+      - --api.dashboard=true
     deploy:
       mode: global
       placement:
