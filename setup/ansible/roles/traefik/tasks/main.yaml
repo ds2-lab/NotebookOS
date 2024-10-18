@@ -1,4 +1,4 @@
-- name: Create the docker-compose.yml file for the Docker Swarm app using the associated template.
+- name: Create the docker-compose.yml file for the Docker Swarm app using the associated template
   template:
     src: docker-compose.yml.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/traefik/files/docker-compose.yml"
