@@ -79,7 +79,7 @@
     state: directory
     owner: "{{ hadoop_user }}"
     group: "{{ hadoop_user }}"
-    recurse: true
+    recurse: yes
     mode: 0700
   become: true
 

@@ -2,10 +2,10 @@
 # This playbook first removes the Docker Swarm stack corresponding to the distributed notebook cluster.
 # Once removed, the playbook will recreate the stack.
 
-- name: Redeploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
+- name: Remove the Distributed Jupyter Notebook stack on the Docker Swarm cluster
   hosts: docker-swarm-manager
   roles:
-    - deploy-swarm-app
+    - remove-swarm-app
   tags:
     - docker
     - swarm
