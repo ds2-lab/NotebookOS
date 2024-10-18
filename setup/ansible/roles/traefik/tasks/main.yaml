@@ -19,8 +19,8 @@
   debug:
     msg: "hostvars['swarm-leader'].ansible_hostname: {{ hostvars['swarm-leader'].ansible_hostname }}"
 
-- name: Add Traefik label for main node
-  shell: "docker node update --label-add traefik-public.traefik-public-certificates=true {{ hostvars['swarm-leader'].ansible_nodename }}"
+#- name: Add Traefik label for main node
+#  shell: "docker node update --label-add traefik-public.traefik-public-certificates=true {{ hostvars['swarm-leader'].ansible_nodename }}"
 
 - name: Create Traefik network
   docker_network:
@@ -45,27 +45,3 @@
     DOMAIN: "{{ hostvars['swarm-leader'].ansible_hostname }}"
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
-
-#- name: "Deploy the Traefik Docker Swarm stack"
-#  community.docker.docker_stack:
-#    name: "{{ traefik_docker_swarm_stack_name }}"
-#    state: present
-#    compose:
-#      - "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/traefik/files/docker-compose.yml"
-#  delegate_to: "{{ groups['docker-swarm-manager'][0] }}"
-#  become: true
-#  when: "deploy_distributed_jupyter_notebook_app == true"
-#  environment:
-#    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
-#  vars:
-#    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
-
-#- name: Deploy traefik
-#  shell: 'docker stack deploy -c traefik/docker-compose.yml traefik'
-#  environment:
-#    - USERNAME: '{{ traefik_username }}'
-#    - HASHED_PASSWORD: '{{ hashed_password }}'
-#    - EMAIL: '{{ traefik_email }}'
-#    - DOMAIN: '{{ traefik_domain }}'
-#  args:
-#    chdir: $HOME
