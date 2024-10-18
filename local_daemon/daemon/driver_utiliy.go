@@ -101,7 +101,7 @@ func getNameOfDockerContainer() string {
 		return types.DockerNode
 	}
 
-	globalLogger.Info("Retrieved value for HOSTNAME environment variable: \"$s\"", hostnameEnv)
+	globalLogger.Info("Retrieved value for HOSTNAME environment variable: \"%s\"", hostnameEnv)
 
 	// We will use this command to retrieve the name of this Docker container.
 	unformattedCommand := "docker inspect {container_hostname_env} --format='{{.Name}}'"
