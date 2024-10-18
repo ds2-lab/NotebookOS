@@ -80,6 +80,17 @@
     - start_component
     - install_docker_swarm_cluster
 
+- name: Deploy Traefik on the Docker Swarm cluster
+  hosts: docker-swarm-manager
+  roles:
+    - traefik
+  tags:
+    - docker
+    - swarm
+    - traefik
+    - start_component
+    - install_traefik
+
 - name: Deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
   hosts: docker-swarm-manager
   roles:
