@@ -1,0 +1,61 @@
+services:
+  traefik:
+    image: traefik:v3.2
+    hostname: '{{.Node.Hostname}}'
+    ports:
+      # listen on host ports without ingress network
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
+    networks:
+      - proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    environment:
+      - "USERNAME: {{ traefik_username }}"
+      - "HASHED_PASSWORD: {{ hashed_password }}"
+      - "EMAIL: {{ traefik_email }}"
+      - "DOMAIN: {{ traefik_domain }}"
+    command:
+      - --api.dashboard=true
+      - --log.level=INFO
+      - --accesslog=true
+      - --providers.swarm.exposedByDefault=false
+      - --providers.swarm.network=proxy
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entryPoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.asDefault=true
+      - --entrypoints.websecure.http.tls.certresolver=myresolver
+      - --certificatesresolvers.myresolver.acme.email=mail@example.com
+      - --certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.myresolver.acme.tlschallenge=true
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.role==manager
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.mydashboard.rule=Host(`traefik.example.com`)
+        - traefik.http.routers.mydashboard.service=api@internal
+        - traefik.http.routers.mydashboard.middlewares=myauth
+        - traefik.http.services.mydashboard.loadbalancer.server.port=1337
+        - traefik.http.middlewares.myauth.basicauth.users=test:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/
+
+networks:
+  proxy:
+    name: proxy
+    driver: overlay
+    attachable: true
+
+volumes:
+  letsencrypt:
+    name: letsencrypt

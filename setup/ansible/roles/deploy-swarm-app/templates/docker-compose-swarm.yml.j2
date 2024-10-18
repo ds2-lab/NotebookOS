@@ -9,6 +9,7 @@ services:
       component: "jupyter_server"
       logging: "promtail"
       logging_jobname: "jupyter"
+      traefik.enable: "true"
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
     ports:
       - target: 8888
@@ -34,6 +35,7 @@ services:
       component: "cluster_gateway"
       logging: "promtail"
       logging_jobname: "gateway"
+      traefik.enable: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
@@ -73,6 +75,7 @@ services:
       component: "local_daemon"
       logging: "promtail"
       logging_jobname: "local_daemon"
+      traefik.enable: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/{{ remote_username }}/kernel_base:/kernel_base
@@ -102,6 +105,8 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.listen-address=0.0.0.0:8500
     image: {{ prometheus_docker_image_name }}:{{ prometheus_docker_image_tag }}
+    labels:
+      traefik.enable: "true"
     deploy:
       restart_policy:
         condition: on-failure
@@ -144,6 +149,8 @@ services:
         published: 3000
         protocol: tcp
         mode: host
+    labels:
+      traefik.enable: "true"
     environment:
       - "GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}"
       - "GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}"
@@ -163,6 +170,8 @@ services:
         published: {{ dashboard_backend_server_port }}
         protocol: tcp
         mode: host
+    labels:
+      traefik.enable: "true"
     environment:
     - "DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}"
     deploy:
@@ -173,21 +182,6 @@ services:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
       - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml
       - ./dashboard_backend/custom_event_sequences:{{ dashboard_backend_config_directory }}/custom_event_sequences
-
-  # dashboard_frontend:
-  #  image: scusemua/distributed-notebook-dashboard-frontend:latest
-  #  environment:
-  #  - "HOST=0.0.0.0"
-  #  - "PORT={{ dashboard_frontend_server_port }}"
-  #  ports:
-  #    - target: {{ dashboard_frontend_server_port }}
-  #      published: {{ dashboard_frontend_server_port }}
-  #      protocol: tcp
-  #      mode: host
-  #  deploy:
-  #    restart_policy:
-  #      condition: on-failure
-  #    endpoint_mode: dnsrr
 
 volumes:
   coredumps_volume:

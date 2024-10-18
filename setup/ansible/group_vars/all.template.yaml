@@ -32,6 +32,15 @@ distributed_notebook_subscribed_scaling_limit: 1.1
 distributed_notebook_subscribed_scaling_in_limit: 2
 
 ##################################################################
+# Traefik
+##################################################################
+traefik_username: admin
+traefik_password: 123456
+traefik_email: your_email@provider.com
+traefik_domain: traefik_domain
+traefik_docker_swarm_stack_name: distributed_notebook_traefik
+
+##################################################################
 # SSH and Top-Level Variables
 ##################################################################
 remote_username: "ubuntu"

@@ -1,0 +1,12 @@
+---
+
+- name: Deploy the Traefik stack on the Docker Swarm cluster
+  hosts: docker-swarm-manager
+  roles:
+    - traefik
+  tags:
+    - docker
+    - swarm
+    - traefik
+    - install_traefik
+    - start_component
