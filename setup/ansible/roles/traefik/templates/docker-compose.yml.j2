@@ -23,6 +23,8 @@ services:
       - "--log"
       # Enable the Dashboard and API
       - "--api"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
       # Use the traefik-public network
       - "--providers.docker.network=traefik-public"
       - "--log.level=debug"
