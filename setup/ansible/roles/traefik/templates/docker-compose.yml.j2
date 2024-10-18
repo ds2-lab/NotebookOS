@@ -11,8 +11,8 @@ services:
         published: 443
         protocol: tcp
         mode: host
-      - target: 8080
-        published: 8080
+      - target: 8054
+        published: 8054
         protocol: tcp
         mode: host
     networks:
@@ -90,7 +90,7 @@ services:
         # Enable HTTP Basic auth, using the middleware created above
         - traefik.http.routers.traefik-public-https.middlewares=admin-auth
         # Define the port inside of the Docker service to use
-        - traefik.http.services.traefik-public.loadbalancer.server.port=8080
+        - traefik.http.services.traefik-public.loadbalancer.server.port=8054
         - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`);PathPrefix(`/api`)"
 
 # volumes:
