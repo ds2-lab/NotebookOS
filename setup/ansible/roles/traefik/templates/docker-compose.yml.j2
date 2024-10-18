@@ -1,7 +1,6 @@
 services:
   traefik:
     image: traefik:v3.2
-    hostname: '{{.Node.Hostname}}'
     ports:
       # listen on host ports without ingress network
       - target: 80
