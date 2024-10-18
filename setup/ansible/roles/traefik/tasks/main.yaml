@@ -24,7 +24,7 @@
 
 - name: Create Traefik network
   docker_network:
-    name: traefik_public
+    name: traefik-public
     driver: overlay
     scope: swarm
     state: present
