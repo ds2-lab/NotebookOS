@@ -1,7 +1,7 @@
 package scheduling
 
 const (
-	// MillicpusPerHost is the number of CPU resources available on each host for
+	// MillicpusPerHost is the number of CPU Resources available on each host for
 	// allocation to kernel replicas in millicpus (1/1000th of a vCPU).
 	MillicpusPerHost = 8000
 

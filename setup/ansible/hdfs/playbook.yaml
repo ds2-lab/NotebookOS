@@ -1,0 +1,69 @@
+- name: Gather facts about the HDFS NameNodes
+  hosts: namenode
+  tags:
+    - info_gathering
+    - hdfs_namenode
+
+- name: Gather facts about the HDFS DataNodes
+  hosts: datanode
+  tags:
+    - info_gathering
+    - hdfs_datanode
+
+#- name: Gather facts about the HDFS JournalNodes
+#  hosts: journalnode
+#  tags:
+#    - info_gathering
+#    - hdfs_journalnode
+
+- name: Gather facts about the ZooKeeper nodes
+  hosts: zookeepers
+  tags:
+    - info_gathering
+    - hdfs_zookeeper
+
+- name: Install ZooKeeper
+  hosts: zookeepers
+  roles:
+    - zookeepers
+  tags:
+    - install_zookeeper
+    - hdfs_zookeeper
+    - install_component
+
+- name: Install Hadoop HDFS
+  hosts: namenode, datanode
+  become: true
+  roles:
+    - install-hadoop-hdfs
+  tags:
+    - install_hadoop_hdfs
+    - hdfs_namenode
+    - hdfs_datanode
+
+#- name: Start Hadoop HDFS JournalNodes
+#  hosts: journalnode
+#  roles:
+#    - journalnode
+#  tags:
+#    - start_hdfs_journalnode
+#    - start_component
+#    - hdfs_journalnode
+
+- name: Start Hadoop HDFS NameNode
+  hosts: namenode
+  roles:
+    - namenode
+  tags:
+    - start_hdfs_namenode
+    - start_component
+    - hdfs_namenode
+
+- name: Start Hadoop HDFS DataNodes
+  hosts: datanode
+  roles:
+    - datanode
+  tags:
+    - start_hdfs_datanode
+    - start_component
+    - hdfs_datanode

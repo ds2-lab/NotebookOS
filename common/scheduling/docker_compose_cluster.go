@@ -45,7 +45,7 @@ func NewDockerComposeCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
 
 	scheduler, err := NewDockerScheduler(gatewayDaemon, dockerCluster, placer, hostSpec, opts)
 	if err != nil {
-		dockerCluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
+		dockerCluster.log.Error("Failed to create Docker Compose Scheduler: %v", err)
 		panic(err)
 	}
 
@@ -97,7 +97,9 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 
 	c.onHostRemoved(host)
 
-	c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
+	if c.clusterMetricsProvider != nil {
+		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
+	}
 
 	return nil
 }
@@ -130,7 +132,10 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 		panic(err)
 	}
 	c.hosts.Store(id, disabledHost)
-	c.clusterMetricsProvider.GetNumDisabledHostsGauge().Sub(1)
+
+	if c.clusterMetricsProvider != nil {
+		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Sub(1)
+	}
 
 	return nil
 }
@@ -145,6 +150,7 @@ func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDo
 		c.log.Debug("Scaling-out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d.",
 			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len())
 
+		numDisabledHostsUsed := 0
 		if c.DisabledHosts.Len() > 0 {
 			enabledHosts := make([]*Host, 0)
 			// First, check if we have any disabled nodes. If we do, then we'll just re-enable them.
@@ -164,6 +170,7 @@ func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDo
 				c.NewHostAddedOrConnected(host)
 				enabledHosts = append(enabledHosts, host)
 				numNewNodesRequired -= 1
+				numDisabledHostsUsed += 1
 
 				// If we have already satisfied the scale-out requirement, then we'll stop iterating.
 				if numNewNodesRequired == 0 {
@@ -190,7 +197,7 @@ func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDo
 			// value can be used to calculate how many disabled hosts we must have used
 			// in order to satisfy the scale-out request.
 			c.log.Debug("Satisfied scale-out request to %d nodes exclusively using %d disabled nodes.",
-				targetScale, targetScale-int32(currentScale))
+				targetScale, numDisabledHostsUsed)
 			coreLogicDoneChan <- struct{}{}
 			return
 		}
@@ -258,6 +265,8 @@ func (c *DockerComposeCluster) unsafeGetTargetedScaleInCommand(targetScale int32
 		}
 
 		coreLogicDoneChan <- struct{}{}
+
+		return
 	}, nil
 }
 

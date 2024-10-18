@@ -1,0 +1,72 @@
+- block:
+    - name: Stop the Hadoop HDFS NameNode service and disable the Hadoop HDFS NameNode service
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      with_items:
+        - hdfs-namenode.service
+      when: (ansible_default_ipv4.address in groups['namenode'])
+
+    - name: Remove the Hadoop HDFS NameNode service
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - /etc/systemd/system/hdfs-namenode.service
+      when: (ansible_default_ipv4.address in groups['namenode'])
+
+    - name: Stop the Hadoop HDFS DataNode service and disable the Hadoop HDFS DataNode service
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      with_items:
+        - hdfs-datanode.service
+      when: (ansible_default_ipv4.address in groups['datanode'])
+
+    - name: Remove the Hadoop HDFS DataNode service
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - /etc/systemd/system/hdfs-datanode.service
+      when: (ansible_default_ipv4.address in groups['datanode'])
+
+    - name: Stop the Hadoop HDFS JournalNode service and disable the Hadoop HDFS JournalNode service
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      with_items:
+        - hdfs-journalnode.service
+      when: (ansible_default_ipv4.address in groups['journalnode'])
+
+    - name: Remove the Hadoop HDFS JournalNode service
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - /etc/systemd/system/hdfs-journalnode.service
+      when: (ansible_default_ipv4.address in groups['journalnode'])
+  ignore_errors: yes
+
+- name: Remove the HDFS tar.gz and Hadoop Home Files
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - '{{ hadoop_hdfs_home_dir }}'
+    - '/var/lib/hadoop'
+
+- name: Remove the unused hosts from host file
+  template:
+    src: hosts.j2
+    dest: /etc/hosts
+    mode: 0640
+
+- name: Remove HDFS entries from DNS configuration
+  lineinfile:
+    path: /etc/resolv.conf
+    line: 'nameserver {{ dns_server }}'
+    state: absent

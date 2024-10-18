@@ -1,0 +1,91 @@
+# This Playbook deploys the entire distributed-notebook cluster.
+
+- name: Install distributed-notebook Dependencies on All Nodes
+  hosts: vms
+  tags:
+    - install_component
+    - distributed_notebook
+  roles:
+    - distributed-notebook-cluster
+
+- name: Gather facts about the HDFS NameNodes
+  hosts: namenode
+  tags:
+    - info_gathering
+    - hdfs_namenode
+
+- name: Gather facts about the HDFS DataNodes
+  hosts: datanode
+  tags:
+    - info_gathering
+    - hdfs_datanode
+
+- name: Install ZooKeeper
+  hosts: zookeepers
+  roles:
+    - zookeepers
+  tags:
+    - install_zookeeper
+    - hdfs_zookeeper
+    - install_component
+
+- name: Gather facts about the ZooKeeper nodes if we didn't run the Install ZooKeeper tasks
+  hosts: zookeepers
+  tags:
+    - info_gathering
+    - hdfs_zookeeper
+  tasks:
+    - name: Gather facts from ZooKeeper servers
+      ansible.builtin.setup:
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['zookeepers'] }}"
+      when: zookeeper_installed is undefined
+
+- name: Install Hadoop HDFS
+  hosts: namenode, datanode
+  become: true
+  roles:
+    - install-hadoop-hdfs
+  tags:
+    - install_hadoop_hdfs
+    - hdfs_namenode
+    - hdfs_datanode
+
+- name: Start Hadoop HDFS NameNode
+  hosts: namenode
+  roles:
+    - namenode
+  tags:
+    - start_hdfs_namenode
+    - start_component
+    - hdfs_namenode
+
+- name: Start Hadoop HDFS DataNodes
+  hosts: datanode
+  roles:
+    - datanode
+  tags:
+    - start_hdfs_datanode
+    - start_component
+    - hdfs_datanode
+
+- name: Create the Docker Swarm cluster
+  hosts: docker-swarm
+  roles:
+    - docker-swarm
+  tags:
+    - docker
+    - swarm
+    - start_component
+    - install_docker_swarm_cluster
+
+- name: Deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
+  hosts: docker-swarm-manager
+  roles:
+    - deploy-swarm-app
+  tags:
+    - docker
+    - swarm
+    - start_component
+    - install_distributed_jupyter_notebook_app

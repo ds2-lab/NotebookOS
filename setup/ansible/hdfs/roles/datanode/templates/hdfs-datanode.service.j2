@@ -1,0 +1,14 @@
+[Unit]
+Description=Hadoop HDFS DataNode Service
+After=syslog.target network.target remote-fs.target nss-lookup.target network-online.target
+Requires=network-online.target
+
+[Service]
+ExecStart=/opt/hadoop/bin/hdfs --daemon start datanode
+ExecStop=/opt/hadoop/bin/hdfs --daemon stop datanode
+Restart=on-failure
+RemainAfterExit=yes
+User=hadoop
+
+[Install]
+WantedBy=multi-user.target

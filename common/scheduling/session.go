@@ -10,7 +10,6 @@ import (
 	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
-	"log"
 	"math"
 	"sync"
 	"time"
@@ -26,7 +25,7 @@ const (
 )
 
 var (
-	ErrInvalidTransition           = errors.New("invalid session state transition requested")
+	ErrInvalidStateTransition      = errors.New("invalid session state transition requested")
 	ErrInvalidExplanationRequested = errors.New("invalid explanation requested")
 	ErrInvalidContainer            = errors.New("the specified or provided container is invalid")
 	ErrMissingTrainingContainer    = errors.New("session is training, but its \"training container\" is nil")
@@ -191,34 +190,19 @@ func (s *Session) AddReplica(container *Container) error {
 	}
 
 	// Ensure we don't already have a replica with this SMR Node ID.
-	if _, loaded := s.containers[container.ReplicaID()]; loaded {
+	if existingContainer, loaded := s.containers[container.ReplicaID()]; loaded {
+		s.log.Error("Cannot add/register scheduling.Container for replica %d of kernel \"%s\" with associated scheduling.Session; "+
+			"session already has container for replica %d registered...", container.ReplicaID(), s.id, container.ReplicaID())
+		s.log.Error("Existing scheduling.Container for replica %d of kernel \"%s\": %s", container.ReplicaID(), s.id, existingContainer.String())
 		return fmt.Errorf("%w: session already has container for replica %d registered", ErrInvalidContainer, container.ReplicaID())
 	}
 
 	s.containers[container.ReplicaID()] = container
 
-	//for _, replica := range s.containers {
-	//	if replica.ReplicaID() == container.ReplicaID() {
-	//		return fmt.Errorf("%w: session already has container for replica %d registered", ErrInvalidContainer, container.ReplicaID())
-	//	}
-	//}
-
-	//s.containers = append(s.containers, container)
+	s.log.Debug("Successfully added/registered scheduling.Container for replica %d of kernel \"%s\" with associated scheduling.Session",
+		container.ReplicaID(), s.id)
 
 	return nil
-}
-
-// unsafeRemoveReplica removes the specified Container from the Session's replicas.
-//
-// unsafeRemoveReplica does not perform any sort of safety or validity checks, and no locks are acquired.
-//
-// Important: unsafeRemoveReplica must be called from a context in which the Session's mutex has already been acquired.
-func (s *Session) unsafeRemoveReplica(container *Container) {
-	if container == nil {
-		log.Fatalf("Cannot remove nil Container from Session %s", s.id)
-	}
-
-	delete(s.containers, container.ReplicaID())
 }
 
 // RemoveReplica removes the specified Container from the Session's replicas.
@@ -228,19 +212,7 @@ func (s *Session) unsafeRemoveReplica(container *Container) {
 //
 // Note: this method is thread-safe.
 func (s *Session) RemoveReplica(container *Container) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	replicaId := container.ReplicaID()
-	if _, loaded := s.containers[replicaId]; !loaded {
-		s.log.Error("Cannot remove replica %d from Session %s. No replica found with specified SMR node ID.",
-			replicaId, s.id)
-		return fmt.Errorf("%w: session %s does not have a replica with ID=%d",
-			ErrReplicaNotFound, s.id, replicaId)
-	}
-
-	s.unsafeRemoveReplica(container)
-	return nil
+	return s.RemoveReplicaById(container.ReplicaID())
 }
 
 // RemoveReplicaById removes the Container with the specified SMR node ID from the Session's replicas.
@@ -253,22 +225,23 @@ func (s *Session) RemoveReplicaById(replicaId int32) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var targetContainer *Container
-	for _, container := range s.containers {
-		if container.ReplicaID() == replicaId {
-			targetContainer = container
-			break
-		}
-	}
-
-	if targetContainer == nil {
+	// Check first to see if we have a replica with that ID registered already.
+	// If not, we'll return an error.
+	var (
+		loaded bool
+	)
+	if _, loaded = s.containers[replicaId]; !loaded {
 		s.log.Error("Cannot remove replica %d from Session %s. No replica found with specified SMR node ID.",
 			replicaId, s.id)
 		return fmt.Errorf("%w: session %s does not have a replica with ID=%d",
 			ErrReplicaNotFound, s.id, replicaId)
 	}
 
-	s.unsafeRemoveReplica(targetContainer)
+	delete(s.containers, replicaId)
+
+	s.log.Debug("Removed/unregistered scheduling.Container for replica %d with scheduling.Session \"%s\"",
+		replicaId, s.id)
+
 	return nil
 }
 
@@ -284,6 +257,17 @@ func (s *Session) Context() context.Context {
 	return s.ctx
 }
 
+// GetReplicaContainer returns the Container with the given replica ID (i.e., SMR node ID).
+//
+// If the Session does not presently have a Container with the specified ID, then nil is returned along with false.
+func (s *Session) GetReplicaContainer(replicaId int32) (*Container, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	container, loaded := s.containers[replicaId]
+	return container, loaded
+}
+
 // SetContext sets the Session's context.Context.
 //
 // Note: this method is thread-safe.
@@ -292,11 +276,6 @@ func (s *Session) SetContext(ctx context.Context) {
 	defer s.mu.Unlock()
 
 	s.ctx = ctx
-}
-
-// GetCluster returns the Cluster in which this Session exists.
-func (s *Session) GetCluster() Cluster {
-	return s.cluster
 }
 
 // ResourceUtilization returns the current ResourceUtilization of the Session.
@@ -334,7 +313,7 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 
 	if s.IsTraining() {
 		s.log.Error("Session cannot transition to state \"%s\" -- Session is already training!", SessionStateExpectingTraining)
-		err := fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, s.sessionState, SessionStateExpectingTraining)
+		err := fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidStateTransition, s.sessionState, SessionStateExpectingTraining)
 		return promise.Resolved(s.instance, err)
 	}
 
@@ -350,7 +329,7 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 //
 // Note: this method is thread-safe.
 //
-// In the Local Daemon, this won't be called, as the Local Daemon does not track resources in this way.
+// In the Local Daemon, this won't be called, as the Local Daemon does not track Resources in this way.
 //
 // In the Cluster Gateway, this is called in the SessionStartedTraining method of the KernelReplicaClient.
 // The KernelReplicaClient's SessionStartedTraining method is called in the handleSmrLeadTaskMessage method
@@ -578,7 +557,7 @@ func (s *Session) IsTraining() bool {
 
 func (s *Session) transition(targetState SessionState) error {
 	if s.IsStopped() {
-		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, s.sessionState, targetState)
+		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidStateTransition, s.sessionState, targetState)
 	}
 
 	// Some bookkeeping about state transitions, like how long we were in the previous state,

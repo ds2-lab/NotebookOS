@@ -1,0 +1,87 @@
+- name: Build gRPC bindings.
+  shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-grpc"
+  args:
+    chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+
+- name: Ensure the requests package is installed
+  shell: ". {{ profile_file}} && {{ python_virtual_env_dir }}/bin/pip3 install requests"
+  args:
+    chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
+  register: install_result
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+
+- name: Check if gopy binary already exists before trying to build SMR
+  stat:
+    path: "{{ gopy_bin_path }}"
+  register: gopy_bin_exists
+
+- name: Build gopy if binary does not exist before trying to build SMR
+  shell: ". {{ profile_file }} && go build ."
+  args:
+    chdir: "{{ gopy_build_dir }}"
+  when: not gopy_bin_exists.stat.exists
+
+- name: Verify gopy binary was created after build before trying to build SMR
+  stat:
+    path: "{{ gopy_source_bin }}"
+  register: gopy_build_result
+  when: not gopy_bin_exists.stat.exists
+
+- name: Fail if gopy binary was not built successfully before trying to build SMR
+  fail:
+    msg: "[ERROR] gopy binary was not created in {{ gopy_build_dir }}."
+  when:
+    - not gopy_bin_exists.stat.exists
+    - gopy_build_result.stat.exists == false
+
+- name: Copy gopy binary to the go/bin before trying to build SMR
+  copy:
+    src: "{{ gopy_source_bin }}"
+    dest: "{{ gopy_bin_path }}"
+    mode: '0755'
+    remote_src: yes
+  when: gopy_build_result.stat is not defined or gopy_build_result.stat.exists == true
+
+- name: "Pull the {{ gopy_image_name }}/{{ gopy_image_tag }} Docker image"
+  docker_image:
+    name: "{{ gopy_image_name }}"  # The name of the Docker image (e.g., nginx, ubuntu)
+    tag: "{{ gopy_image_tag | default('latest') }}"  # The tag of the image, defaults to 'latest'
+    source: pull  # Ensures that the image is pulled from the Docker registry
+  register: docker_image_result
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+
+- name: Print Docker image pull result
+  debug:
+    msg: "Pulled Docker image {{ gopy_image_name }}:{{ gopy_image_tag | default('latest') }} successfully"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+
+- name: Build in the SMR directory
+  shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-linux-amd64"
+  args:
+    chdir: "{{ gopath }}/pkg/{{ git_repo_name }}/smr"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+
+- name: Build in the root directory
+  shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-smr-linux-amd64"
+  args:
+    chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"

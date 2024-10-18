@@ -3,13 +3,13 @@ package domain
 import (
 	"encoding/json"
 	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/zhangjyr/distributed-notebook/common/configuration"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"log"
+	"strings"
 )
 
 const (
@@ -37,8 +37,7 @@ func (k MetadataKey) String() string {
 }
 
 type ClusterDaemonOptions struct {
-	scheduling.ClusterSchedulerOptions `yaml:",inline"`
-	configuration.CommonOptions        `yaml:",inline"`
+	scheduling.ClusterSchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
 
 	LocalDaemonServiceName        string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
 	LocalDaemonServicePort        int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
@@ -49,6 +48,21 @@ type ClusterDaemonOptions struct {
 	NotebookImageName             string `name:"notebook-image-name"              json:"notebook-image-name"               yaml:"notebook-image-name"                 description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
 	NotebookImageTag              string `name:"notebook-image-tag"               json:"notebook-image-tag"                yaml:"notebook-image-tag"                  description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`  // Tag to use for the jupyter notebook/kernel image
 	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
+}
+
+// PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
+func (o *ClusterDaemonOptions) PrettyString(indentSize int) string {
+	indentBuilder := strings.Builder{}
+	for i := 0; i < indentSize; i++ {
+		indentBuilder.WriteString(" ")
+	}
+
+	m, err := json.MarshalIndent(o, "", indentBuilder.String())
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
 }
 
 // ValidateClusterDaemonOptions ensures that the values of certain configuration parameters are consistent with respect
@@ -112,30 +126,53 @@ func (o *ClusterDaemonOptions) String() string {
 }
 
 type ClusterGatewayOptions struct {
-	config.LoggerOptions   `yaml:",inline"`
-	jupyter.ConnectionInfo `yaml:",inline"`
-	ClusterDaemonOptions   `yaml:",inline"`
+	config.LoggerOptions   `yaml:",inline" json:"logger_options"`
+	jupyter.ConnectionInfo `yaml:",inline" json:"connection_info"`
+	ClusterDaemonOptions   `yaml:",inline" json:"cluster_daemon_options"`
 
-	Port            int    `name:"port" usage:"Port the gRPC service listen on."`
-	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers."`
-	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
-	Consuladdr      string `name:"consul" description:"Consul agent address."`
-	// DriverGRPCPort  int    `name:"driver-grpc-port" usage:"Port for the gRPC service that the workload driver connects to"`
+	Port            int    `name:"port" usage:"Port the gRPC service listen on." json:"port"`
+	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers." json:"provisioner_port"`
+	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address." json:"jaeger_addr"`
+	ConsulAddr      string `name:"consul" description:"Consul agent address." json:"consul_addr"`
 }
 
-type AddReplicaOperation interface {
+func (opts *ClusterGatewayOptions) String() string {
+	m, err := json.Marshal(opts)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+// PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
+func (opts *ClusterGatewayOptions) PrettyString(indentSize int) string {
+	indentBuilder := strings.Builder{}
+	for i := 0; i < indentSize; i++ {
+		indentBuilder.WriteString(" ")
+	}
+
+	m, err := json.MarshalIndent(opts, "", indentBuilder.String())
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+type AbstractAddReplicaOperation interface {
 	KernelReplicaClient() *client.DistributedKernelClient // KernelReplicaClient returns the client.DistributedKernelClient of the kernel for which we're migrating a replica.
 	KernelId() string                                     // KernelId returns the ID of the associated kernel.
 	ReplicaRegistered() bool                              // ReplicaRegistered returns true if the new replica has already registered with the Gateway; otherwise, return false.
 	OperationID() string                                  // OperationID returns the unique identifier of the migration operation.
 	PersistentID() string                                 // PersistentID returns the persistent ID of the replica.
-	PodName() (string, bool)                              // PodName returns the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
+	PodOrContainerName() (string, bool)                   // PodOrContainerName returns the name of the newly-created Pod that will host the migrated replica. Also returns a flag indicating whether the new pod is available. If false, then the returned name is invalid.
 	PodStarted() bool                                     // PodStarted returns true if the new Pod has started.
 	ReplicaPodHostname() string                           // ReplicaPodHostname returns the IP address of the new replica.
 	ReplicaId() int32                                     // ReplicaId returns the SMR node ID to use for the new replica.
 	KernelSpec() *proto.KernelReplicaSpec                 // KernelSpec returns the *gateway.KernelReplicaSpec for the new replica that is created during the migration.
 	SetReplicaRegistered()                                // SetReplicaRegistered records that the new replica for this migration operation has registered with the Gateway. Will panic if we've already recorded that the new replica has registered. This also sends a notification on the replicaRegisteredChannel.
-	SetPodName(string)                                    // SetPodName sets the name of the newly-created Pod that will host the migrated replica. This also records that this operation's new pod has started.
+	SetContainerName(string)                              // SetContainerName sets the name of the newly-created Pod or Container that will host the migrated replica. This also records that this operation's new pod has started.
 	SetReplicaHostname(hostname string)                   // SetReplicaHostname sets the IP address of the new replica.
 	SetReplicaJoinedSMR()                                 // SetReplicaJoinedSMR records that the new replica has joined its SMR cluster. This also sends a notification on the ReplicaJoinedSmrChannel. NOTE: This does NOT mark the associated replica as ready. That must be done separately.
 	Completed() bool                                      // Completed return true if the operation has completed successfully. This is the inverse of `AddReplicaOperation::IsActive`.

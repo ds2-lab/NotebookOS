@@ -28,7 +28,6 @@ data:
     ipython-config-path: {{ .Values.common.ipython_config_path }}
     smr-port: {{ .Values.smr.port }}
     kube-namespace: {{ .Values.namespace }}
-    max-actual-gpu-per-node: {{ .Values.gateway.scheduler.max_actual_gpu_per_node }}
     starting-resource-port: {{ .Values.local_daemon.network.jupyter.starting_resource_port }}
     num-resource-ports: {{ mul (div .Values.gateway.scheduler.max_actual_gpu_per_node .Values.gateway.scheduler.gpu_allocation_granularity) 2 }}
     use-stateful-set: {{ .Values.common.use_stateful_set }}

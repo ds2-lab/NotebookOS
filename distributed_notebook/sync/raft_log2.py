@@ -589,6 +589,11 @@ class RaftLog(object):
             # It will sleep until the discardAt time expires, at which point a decision needs to be made.
             # If a decision was already made for that election, then the `decide_election` function will simply return.
             asyncio.run_coroutine_threadsafe(decide_election(), self._future_io_loop)
+        else:
+            self.logger.debug(f"No future returned after registering \"{proposal.election_proposal_key}\" proposal "
+                              f"from node {proposal.proposer_id} with election for term "
+                              f"{self._current_election.term_number}. "
+                              f"Must not have been the first proposal for that election.")
 
         self.logger.debug(
             f"Received {self._current_election.num_proposals_received} proposal(s) and discarded {self._current_election.num_discarded_proposals} proposal(s) so far during term {self._current_election.term_number}.")
@@ -1548,7 +1553,15 @@ class RaftLog(object):
         await self._serialize_and_append_value(value)
 
     async def add_node(self, node_id, address):
-        """Add a node to the etcd-raft cluster."""
+        """
+        Add a node to the etcd-raft cluster.
+
+        NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
+
+        Args:
+            node_id: the ID of the node being added.
+            address: the IP address of the node being added.
+        """
         self.logger.info("Adding node %d at addr %s to the SMR cluster." % (node_id, address))
         future, resolve = self._get_callback(future_name=f"add_node[{node_id}]")
         self.logger.info(">> CALLING INTO GO CODE (_log_node.AddNode)")

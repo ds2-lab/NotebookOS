@@ -494,21 +494,21 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 // https://openkruise.io/docs/user-manuals/cloneset/#selective-pod-deletion
 //
 // Currently unusued. We can modify the CloneSet directly.
-// func (c *BasicKubeClient) addKruiseDeleteLabelToPod(podName string, podNamespace string) error {
+// func (c *BasicKubeClient) addKruiseDeleteLabelToPod(podOrContainerName string, podNamespace string) error {
 // 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 // 		payload := `{"metadata": {"labels": {"apps.kruise.io/specified-delete": "true"}}}`
-// 		_, updateErr := c.kubeClientset.CoreV1().Pods(podNamespace).Patch(context.Background(), podName, types.MergePatchType, []byte(payload), metav1.PatchOptions{})
+// 		_, updateErr := c.kubeClientset.CoreV1().Pods(podNamespace).Patch(context.Background(), podOrContainerName, types.MergePatchType, []byte(payload), metav1.PatchOptions{})
 // 		if updateErr != nil {
-// 			c.log.Error("Error when updating labels for Pod \"%s\": %v", podName, updateErr)
-// 			return errors.Wrapf(updateErr, fmt.Sprintf("Failed to add deletion label to Pod \"%s\".", podName))
+// 			c.log.Error("Error when updating labels for Pod \"%s\": %v", podOrContainerName, updateErr)
+// 			return errors.Wrapf(updateErr, fmt.Sprintf("Failed to add deletion label to Pod \"%s\".", podOrContainerName))
 // 		}
 
-// 		c.log.Debug("Pod %s labelled successfully.", podName)
+// 		c.log.Debug("Pod %s labelled successfully.", podOrContainerName)
 // 		return nil
 // 	})
 
 // 	if retryErr != nil {
-// 		c.log.Error("Failed to update metadata labels for old Pod %s/%s", podNamespace, podName)
+// 		c.log.Error("Failed to update metadata labels for old Pod %s/%s", podNamespace, podOrContainerName)
 // 		return retryErr
 // 	}
 
@@ -534,7 +534,7 @@ func (c *BasicKubeClient) RegisterChannel(kernelId string, startedChan chan stri
 //
 // Parameters:
 // - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale-out.
-// - podStartedChannel (chan string): Used to notify waiting goroutines that the Pod has started.
+// - podOrContainerStartedChannel (chan string): Used to notify waiting goroutines that the Pod has started.
 func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()

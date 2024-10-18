@@ -1,0 +1,88 @@
+- name: Check if Python {{ python_version }} is installed
+  shell: . {{ profile_file }} && python3.12 --version
+  register: python_check
+  failed_when: "'Python ' + python_version not in python_check.stdout"
+  ignore_errors: true
+
+- name: Check if the installed Python version is {{ python_version }}
+  debug:
+    msg: "Installed Python version: {{ python_check.stdout }}; desired Python version: {{ python_version }}"
+  when: python_check.rc == 0
+
+- name: Ensure required packages are installed for building Python
+  apt:
+    name:
+      - build-essential
+      - zlib1g-dev
+      - libncurses5-dev
+      - libgdbm-dev
+      - libnss3-dev
+      - libssl-dev
+      - libreadline-dev
+      - libffi-dev
+      - libsqlite3-dev
+      - wget
+      - libbz2-dev
+    state: present
+    update_cache: yes
+  when: python_check.rc != 0 or python_check.failed == true
+  become: true
+
+- name: Download Python source code
+  get_url:
+    url: "https://www.python.org/ftp/python/{{ python_version }}/Python-{{ python_version }}.tgz"
+    dest: "{{ tmp_dir }}/Python-{{ python_version }}.tgz"
+  when: python_check.rc != 0 or python_check.failed == true
+
+- name: Extract the Python source tarball
+  unarchive:
+    src: "{{ tmp_dir }}/Python-{{ python_version }}.tgz"
+    dest: "{{ python_build_dir }}"
+    remote_src: yes
+  when: python_check.rc != 0 or python_check.failed == true
+
+- name: Configure Python build
+  command: ./configure --enable-optimizations --with-pydebug --enable-shared --with-ensurepip=install
+  args:
+    chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
+  when: python_check.rc != 0 or python_check.failed == true
+
+- name: Build Python from source (this may take some time)
+  command: make -j {{ ansible_processor_vcpus }} EXTRA_CFLAGS="-DPy_REF_DEBUG"
+  args:
+    chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
+  when: python_check.rc != 0 or python_check.failed == true
+
+- name: "Copy Python libpython{{ python_short_version}}d.so shared object files to /usr/lib/"
+  copy:
+    src: "{{ python_build_dir }}/Python-{{ python_version }}/libpython3.12d.so"
+    dest: "/usr/lib/libpython3.12d.so"
+    mode: '0755'
+    remote_src: yes
+  become: true
+  when: python_check.rc != 0 or python_check.failed == true
+
+- name: "Copy Python libpython{{ python_short_version}}d.so.1.0 shared object files to /usr/lib/"
+  copy:
+    src: "{{ python_build_dir }}/Python-{{ python_version }}/libpython3.12d.so.1.0"
+    dest: "/usr/lib/libpython3.12d.so.1.0"
+    mode: '0755'
+    remote_src: yes
+  become: true
+  when: python_check.rc != 0 or python_check.failed == true
+
+- name: "Alt-install specified version of Python"
+  command: make altinstall
+  args:
+    chdir: "{{ python_build_dir }}/Python-{{ python_version }}"
+  become: true
+  when: python_check.rc != 0 or python_check.failed == true
+
+- name: Ensure LD_LIBRARY_PATH is set in profile file
+  lineinfile:
+    path: /home/ubuntu/.profile
+    create: yes
+    line: 'export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"'
+    state: present
+    insertafter: EOF
+  become: false

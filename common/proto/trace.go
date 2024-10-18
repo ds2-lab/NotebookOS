@@ -2,6 +2,7 @@ package proto
 
 import (
 	"encoding/json"
+	"github.com/google/uuid"
 	"github.com/mason-leap-lab/go-utils/logger"
 )
 
@@ -45,9 +46,11 @@ func NewRequestTrace() *RequestTrace {
 		ReplyReceivedByGateway:         DefaultTraceTimingValue,
 		ReplySentByLocalDaemon:         DefaultTraceTimingValue,
 		ReplyReceivedByLocalDaemon:     DefaultTraceTimingValue,
+		RequestTraceUuid:               uuid.NewString(),
 	}
 }
 
+// Clone creates a copy of RequestTrace with a DIFFERENT UUID.
 func (x *RequestTrace) Clone() *RequestTrace {
 	return &RequestTrace{
 		MessageId:                      x.MessageId,
@@ -64,6 +67,7 @@ func (x *RequestTrace) Clone() *RequestTrace {
 		ReplySentByLocalDaemon:         x.ReplySentByLocalDaemon,
 		ReplyReceivedByGateway:         x.ReplyReceivedByGateway,
 		ReplySentByGateway:             x.ReplySentByGateway,
+		RequestTraceUuid:               uuid.NewString(),
 	}
 }
 

@@ -270,7 +270,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 
 	daemon.resourceManager = scheduling.NewResourceManager(&types.Float64Spec{
-		GPUs:      float64(schedulerDaemonOptions.NumGPUs),
+		GPUs:      float64(schedulerDaemonOptions.GpusPerHost),
 		VRam:      scheduling.VramPerHostGb,
 		Millicpus: scheduling.MillicpusPerHost,
 		MemoryMb:  scheduling.MemoryMbPerHost})
@@ -750,12 +750,13 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			UsingWSL:                     d.usingWSL,
 			RunKernelsInGdb:              d.runKernelsInGdb,
 			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
+			IsInDockerSwarm:              d.DockerSwarmMode(),
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
-		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id, true,
+		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id,
 			d.numResendAttempts, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName,
 			d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "",
 			d.id, nil, metrics.LocalDaemon, false, false, d.DebugMode,
@@ -863,108 +864,48 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	// TODO: Figure out a better way to handle this. As of right now, we really cannot recover from this.
 	var response *proto.KernelRegistrationNotificationResponse
 	for response == nil && numTries < maxNumTries {
-		notificationContext, cancel := context.WithTimeout(ctx, time.Second*30)
+		response, err = d.provisioner.NotifyKernelRegistered(context.Background(), kernelRegistrationNotification)
+		if err != nil {
+			d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
+				kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
 
-		respChan := make(chan interface{}, 1)
-		go func(reqContext context.Context) {
-			response, err = d.provisioner.NotifyKernelRegistered(reqContext, kernelRegistrationNotification)
-			if err != nil {
-				respChan <- err
-			} else {
-				respChan <- response
-			}
-		}(notificationContext)
-
-		select {
-		case <-notificationContext.Done(): // Timed out.
-			{
-				err = notificationContext.Err()
-				if err != nil {
-					d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
-						kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
-
-					if statusError, ok := status.FromError(err); ok {
-						d.log.Error("Received gRPC error with statusError code %d: %s.",
-							statusError.Code(), statusError.Message())
-						details := statusError.Details()
-						if len(details) > 0 {
-							d.log.Error("Additional details associated with gRPC error: %v", details)
-						}
-					}
-
-					grpcConnState := d.provisionerClientConnectionGRPC.GetState()
-					d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
-
-					if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
-						d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
-						d.provisionerClientConnectionGRPC.Connect()
-					}
+			// Convert the golang error to a gRPC Status struct for additional information.
+			if statusError, ok := status.FromError(err); ok {
+				d.log.Error("Received gRPC error with statusError code %d: %s.",
+					statusError.Code(), statusError.Message())
+				details := statusError.Details()
+				if len(details) > 0 {
+					d.log.Error("Additional details associated with gRPC error: %v", details)
 				}
-
-				cancel()
-				numTries += 1
-
-				if numTries < maxNumTries {
-					time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
-				}
-
-				continue // Try again.
 			}
-		case v := <-respChan: // Got a response. Could be an error.
-			{
-				switch v.(type) {
-				case error: // Error.
-					{
-						err = v.(error)
-						if err != nil {
-							d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
-								kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
-						}
 
-						if statusError, ok := status.FromError(err); ok {
-							d.log.Error("Received gRPC error with statusError code %d: %s.",
-								statusError.Code(), statusError.Message())
-							details := statusError.Details()
-							if len(details) > 0 {
-								d.log.Error("Additional details associated with gRPC error: %v", details)
-							}
-						}
+			// Attempt to re-establish connection with Cluster Gateway.
+			grpcConnState := d.provisionerClientConnectionGRPC.GetState()
+			d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
+			if grpcConnState != connectivity.Ready {
+				d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
+				d.provisionerClientConnectionGRPC.Connect()
+			}
 
-						grpcConnState := d.provisionerClientConnectionGRPC.GetState()
-						d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
+			numTries += 1
 
-						if d.provisionerClientConnectionGRPC.GetState() != connectivity.Ready {
-							d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
-							d.provisionerClientConnectionGRPC.Connect()
-						}
-
-						cancel()
-						numTries += 1
-
-						if numTries < maxNumTries {
-							time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
-						}
-
-						continue // Try again.
-					}
-				case *proto.KernelRegistrationNotificationResponse: // Actual response.
-					{
-						response = v.(*proto.KernelRegistrationNotificationResponse)
-						break
-					}
-				} // switch v.(type)
-			} // case v := <-respChan
-		} // select
-
-		cancel()
-	} // for response == nil && numTries < maxNumTries
+			// If we're not done (i.e., if this loop will execute again because we've not exhausted our attempts),
+			// then we'll sleep. If we've already exhausted our attempts, then there's no point in sleeping again.
+			if numTries < maxNumTries {
+				time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
+			}
+		} else {
+			break
+		}
+	}
 
 	if response == nil {
 		d.log.Error("Failed to notify Gateway of kernel registration after %d attempts.", maxNumTries)
 		panic(domain.ErrKernelRegistrationNotificationFailure)
 	}
 
-	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.", response.Id, response.Replicas)
+	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.",
+		response.Id, response.Replicas)
 
 	if response.ResourceSpec == nil {
 		errorMessage := fmt.Sprintf("ResourceSpec for kernel %s is nil.", kernel.ID())
@@ -1337,6 +1278,9 @@ func (d *SchedulerDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Re
 	return proto.VOID, nil
 }
 
+// AddReplica prompts the SchedulerDaemonImpl to send an "add_replica_request" CONTROL message to the specified kernel.
+//
+// NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
 func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
 	kernelId := req.KernelId
 	hostname := req.Hostname
@@ -1381,6 +1325,11 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 	return proto.VOID, nil
 }
 
+// smrNodeAddedCallback is a callback passed to the KernelReplicaClient of a kernel such that, when the kernel
+// client receives an "smr_node_added" IOPub message, it will call the smrNodeAddedCallback method so that
+// the Local Daemon can notify the Cluster Gateway.
+//
+// NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
 func (d *SchedulerDaemonImpl) smrNodeAddedCallback(readyMessage *jupyter.MessageSMRNodeUpdated) {
 	if readyMessage.Success {
 		d.log.Debug("Replica %d of kernel %s has successfully joined its SMR cluster.", readyMessage.NodeID, readyMessage.KernelId)
@@ -1418,7 +1367,7 @@ func (d *SchedulerDaemonImpl) DockerComposeMode() bool {
 // We could technically be running within a Docker container that is managed/orchestrated
 // by Kubernetes. In this case, DockerSwarmMode also returns false.
 func (d *SchedulerDaemonImpl) DockerSwarmMode() bool {
-	return d.deploymentMode == types.DockerComposeMode
+	return d.deploymentMode == types.DockerSwarmMode
 }
 
 // DockerMode returns true if we're running in either "docker swarm" or "docker compose".
@@ -1427,7 +1376,7 @@ func (d *SchedulerDaemonImpl) DockerSwarmMode() bool {
 // We could technically be running within a Docker container that is managed/orchestrated
 // by Kubernetes. In this case, this function would return false.
 func (d *SchedulerDaemonImpl) DockerMode() bool {
-	return d.DockerComposeMode() || d.DockerComposeMode()
+	return d.DockerComposeMode() || d.DockerSwarmMode()
 }
 
 // KubernetesMode returns true if we're running in Kubernetes.
@@ -1543,6 +1492,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			UsingWSL:                     d.usingWSL,
 			RunKernelsInGdb:              d.runKernelsInGdb,
 			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
+			IsInDockerSwarm:              d.DockerSwarmMode(),
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.
@@ -1594,7 +1544,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, invocationError
 	}
 
-	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, true, d.numResendAttempts,
+	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, d.numResendAttempts,
 		listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
 		d.MessageAcknowledgementsEnabled, "", d.id, nil, metrics.LocalDaemon, false,
 		false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)

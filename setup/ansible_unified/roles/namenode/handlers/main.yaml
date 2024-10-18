@@ -1,0 +1,17 @@
+- name: daemon reload
+  systemd:
+    daemon_reload: yes
+  become: true
+
+- name: namenode start
+  systemd:
+    state: started
+    enabled: yes
+    name: hdfs-namenode.service
+  become: true
+
+- name: namenode restart
+  systemd:
+    state: restarted
+    name: hdfs-namenode.service
+  become: true

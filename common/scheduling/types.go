@@ -20,7 +20,6 @@ type AbstractSession interface {
 	ID() string
 	Context() context.Context
 	SetContext(ctx context.Context)
-	GetCluster() Cluster
 	ResourceUtilization() *ResourceUtilization
 	SetResourceUtilization(util *ResourceUtilization)
 	KernelSpec() *proto.KernelSpec

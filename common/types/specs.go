@@ -75,6 +75,7 @@ func ToDecimalSpec(spec Spec) *DecimalSpec {
 		Millicpus: decimal.NewFromFloat(spec.CPU()),
 		MemoryMb:  decimal.NewFromFloat(spec.MemoryMB()),
 		GPUs:      decimal.NewFromFloat(spec.GPU()),
+		VRam:      decimal.NewFromFloat(spec.VRAM()),
 	}
 }
 
@@ -147,6 +148,7 @@ func (d *DecimalSpec) CloneDecimalSpec() *DecimalSpec {
 		GPUs:      d.GPUs.Copy(),
 		Millicpus: d.Millicpus.Copy(),
 		MemoryMb:  d.MemoryMb.Copy(),
+		VRam:      d.VRam.Copy(),
 	}
 }
 

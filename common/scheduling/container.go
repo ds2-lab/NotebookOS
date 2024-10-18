@@ -110,7 +110,7 @@ func (c *Container) GetClient() KernelReplica {
 	return c.KernelReplica
 }
 
-// OutstandingResources returns the resources required by the Container to begin training.
+// OutstandingResources returns the Resources required by the Container to begin training.
 func (c *Container) OutstandingResources() types.Spec {
 	return c.outstandingResources
 }
@@ -144,7 +144,8 @@ func (c *Container) KernelID() string {
 }
 
 func (c *Container) String() string {
-	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d]", c.id, c.KernelReplica.ReplicaID())
+	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,State=%v,StartedAt=%v,Host=%v]",
+		c.id, c.KernelReplica.ReplicaID(), c.containerState, c.startedAt, c.host)
 }
 
 func (c *Container) Session() *Session {
@@ -238,7 +239,7 @@ func (c *Container) IsTraining() bool {
 
 func (c *Container) transition(targetState ContainerState) error {
 	if c.IsStopped() {
-		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidTransition, c.containerState, targetState)
+		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidStateTransition, c.containerState, targetState)
 	}
 
 	c.containerState = targetState
@@ -301,7 +302,7 @@ func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, s
 		return err
 	}
 
-	c.log.Debug("Training stopping after %v. Outputting resources before training officially stops.", time.Since(c.trainingStartedAt))
+	c.log.Debug("Training stopping after %v. Outputting Resources before training officially stops.", time.Since(c.trainingStartedAt))
 	c.log.Debug("Outstanding CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 		c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU(), c.outstandingResources.VRAM())
 	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
@@ -324,7 +325,7 @@ func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, s
 		if err != nil {
 			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
 		} else {
-			c.log.Debug("Training stopped. Outputting resources now that training has officially stopped.")
+			c.log.Debug("Training stopped. Outputting Resources now that training has officially stopped.")
 			c.log.Debug("Outstanding CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 				c.outstandingResources.CPU(), c.outstandingResources.MemoryMB(), c.outstandingResources.GPU(), c.outstandingResources.VRAM())
 			c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
@@ -343,6 +344,16 @@ func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, s
 
 // ContainedStopped should be called when the Container is stopped, such as when its Session is stopped.
 func (c *Container) ContainedStopped() error {
+	//
+	// IMPORTANT
+	// If I change the order of anything here, then I will need to update DistributedKernelClient::RemoveReplica,
+	// as I manually call Host::ContainerRemoved from DistributedKernelClient::RemoveReplica if
+	// Container::ContainerStopped returns either an ErrInvalidStateTransition error or an ErrNilHost error.
+	//
+	// (ErrInvalidStateTransition is returned by Container::transition in the event that an illegal transition
+	// is attempted, and ErrNilHost is returned directly by ContainedStopped if the Container's host field is nil.)
+	//
+
 	if err := c.transition(ContainerStateStopped); err != nil {
 		c.log.Error("Failed to transition Container to state %v because: %v", ContainerStateStopped, err)
 		return err
@@ -358,6 +369,8 @@ func (c *Container) ContainedStopped() error {
 		c.log.Error("Failed to cleanly stop Container due to error during removal-from-host: %v", err)
 		return err
 	}
+
+	c.log.Debug("scheduling.Container for replica %d of kernel %s has stopped.", c.ReplicaID(), c.id)
 
 	return nil
 }

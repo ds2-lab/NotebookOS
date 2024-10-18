@@ -7,6 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"google.golang.org/grpc/connectivity"
 	"log"
 	"math"
 	"sort"
@@ -39,7 +40,7 @@ var (
 // ErrorCallback defines a function to be called if a Host appears to be dead.
 type ErrorCallback func(localDaemonId string, nodeName string, errorName string, errorMessage string) error
 
-// ResourceSpec defines the resources available on a particular Host.
+// ResourceSpec defines the Resources available on a particular Host.
 type ResourceSpec struct {
 	CPUs     float64 `json:"cpus"`
 	MemoryGB float64 `json:"memory_gb"`
@@ -181,7 +182,7 @@ type Host struct {
 
 	latestGpuInfo          *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
 	syncMutex              sync.Mutex                           // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
-	schedulingMutex        sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating resources on the Host.
+	schedulingMutex        sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating Resources on the Host.
 	meta                   hashmap.HashMap[string, interface{}] // meta is a map of metadata.
 	conn                   *grpc.ClientConn                     // conn is the gRPC connection to the Host.
 	Addr                   string                               // Addr is the Host's address.
@@ -192,13 +193,13 @@ type Host struct {
 	containers             hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
 	trainingContainers     []*Container                         // trainingContainers are the actively-training kernel replicas.
 	seenSessions           []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec           types.ValidatableResourceSpec        // resourceSpec is the spec describing the total resources available on the Host, not impacted by allocations.
+	resourceSpec           *types.DecimalSpec                   // resourceSpec is the spec describing the total Resources available on the Host, not impacted by allocations.
 	lastReschedule         types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
 	errorCallback          ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
 	pendingContainers      types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
 	enabled                bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels.
 	CreatedAt              time.Time                            // CreatedAt is the time at which the Host was created.
-	resourcesWrapper       *resourcesWrapper                    // resourcesWrapper wraps all the Host's resources.
+	resourcesWrapper       *ResourcesWrapper                    // resourcesWrapper wraps all the Host's Resources.
 	LastRemoteSync         time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 	IsContainedWithinIndex bool                                 // IsContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
 
@@ -212,7 +213,7 @@ type Host struct {
 	// Cached penalties
 	sip             cache.InlineCache // Scale-in penalty.
 	sipSession      *Session          // Scale-in penalty session.
-	subscribedRatio types.StatFloat64
+	subscribedRatio decimal.Decimal
 	penaltyList     cache.InlineCache
 	penalties       []cachedPenalty
 	penaltyValidity bool
@@ -220,11 +221,11 @@ type Host struct {
 }
 
 // NewHost creates and returns a new *Host.
+//
+// If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
+// call NewHostWithConn instead.
 func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, cluster Cluster,
-	metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
-
-	// Create gRPC client.
-	localGatewayClient := proto.NewLocalGatewayClient(conn)
+	metricsProvider metrics.ClusterMetricsProvider, localGatewayClient proto.LocalGatewayClient, errorCallback ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
 	confirmedId, err := localGatewayClient.SetID(context.Background(), &proto.HostId{Id: id})
@@ -250,7 +251,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		return nil, err
 	}
 
-	// Create the ResourceSpec defining the resources available on the Host.
+	// Create the ResourceSpec defining the Resources available on the Host.
 	resourceSpec := &types.DecimalSpec{
 		GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
 		Millicpus: decimal.NewFromFloat(float64(millicpus)),
@@ -267,7 +268,6 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		resourceSpec:                    resourceSpec,
 		Cluster:                         cluster,
 		metricsProvider:                 metricsProvider,
-		conn:                            conn,
 		log:                             config.GetLogger(fmt.Sprintf("Host %s ", id)),
 		containers:                      hashmap.NewCornelkMap[string, *Container](5),
 		trainingContainers:              make([]*Container, 0, int(resourceSpec.GPU())),
@@ -280,16 +280,53 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		OversubscriptionQuerierFunction: cluster.GetOversubscriptionFactor,
 	}
 
-	host.resourcesWrapper = newResourcesWrapper(resourceSpec)
+	host.resourcesWrapper = NewResourcesWrapper(resourceSpec)
 
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
 	host.sip.Validator = GetClockTimeCacheValidator()
 	host.penaltyList.Producer = cache.FormalizeChainedICProducer(host.updatePenaltyList)
 	host.penaltyList.Validator = host.validatePenaltyList
 
-	host.subscribedRatio.Store(0)
+	host.subscribedRatio = decimal.Zero
 
 	return host, nil
+}
+
+// NewHostWithConn creates and returns a new *Host.
+func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, cluster Cluster,
+	metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
+
+	// Create gRPC client.
+	localGatewayClient := proto.NewLocalGatewayClient(conn)
+
+	host, err := NewHost(id, addr, millicpus, memMb, vramGb, cluster, metricsProvider, localGatewayClient, errorCallback)
+	if err != nil {
+		return nil, err
+	}
+
+	// Populate the conn field "retroactively".
+	host.conn = conn
+
+	return host, nil
+}
+
+// RecomputeSubscribedRatio forces the Host to recompute its subscription ratio.
+// The new value is returned.
+func (h *Host) RecomputeSubscribedRatio() decimal.Decimal {
+	if h.resourceSpec.GPU() == 0 {
+		h.subscribedRatio = decimal.Zero.Copy()
+		return h.subscribedRatio
+	}
+
+	var divisor decimal.Decimal
+	if h.Cluster.NumReplicas() == 0 {
+		divisor = decimal.NewFromFloat(1.0)
+	} else {
+		divisor = h.Cluster.NumReplicasAsDecimal()
+	}
+	h.subscribedRatio = h.PlacedGPUs().Div(h.resourceSpec.GPUs).Div(divisor)
+
+	return h.subscribedRatio
 }
 
 func (h *Host) LockScheduling() {
@@ -323,7 +360,7 @@ func (h *Host) LastResourcesSnapshot() types.HostResourceSnapshot[types.Arbitrar
 
 // SubscribedRatio returns the current subscription ratio of the Host.
 func (h *Host) SubscribedRatio() float64 {
-	return h.subscribedRatio.Load()
+	return h.subscribedRatio.InexactFloat64()
 }
 
 // ToVirtualDockerNode converts a Host struct to a proto.VirtualDockerNode struct and
@@ -377,7 +414,7 @@ func (h *Host) SynchronizeResourceInformation() error {
 
 	snapshot, err := h.LocalGatewayClient.ResourcesSnapshot(ctx, &proto.Void{})
 	if err != nil {
-		h.log.Error("Failed to retrieve Resource Snapshot from remote node %s (ID=%s) because: %v",
+		h.log.Error(utils.OrangeStyle.Render("Failed to retrieve Resource Snapshot from remote node %s (ID=%s) because: %v"),
 			h.NodeName, h.ID, err)
 		return err
 	}
@@ -387,10 +424,17 @@ func (h *Host) SynchronizeResourceInformation() error {
 
 	err = unsafeApplyResourceSnapshotToHost[*proto.ResourcesSnapshot](h, snapshot)
 	if err != nil {
+		h.log.Error(utils.OrangeStyle.Render("Failed to apply retrieved Resource Snapshot from remote node %s (ID=%s) because: %v"),
+			h.NodeName, h.ID, err)
 		return err
 	}
 
-	h.metricsProvider.GetHostRemoteSyncLatencyMicrosecondsHistogram().Observe(float64(time.Since(st).Microseconds()))
+	if h.metricsProvider != nil {
+		h.metricsProvider.GetHostRemoteSyncLatencyMicrosecondsHistogram().Observe(float64(time.Since(st).Microseconds()))
+	}
+
+	h.RecomputeSubscribedRatio()
+
 	h.LastRemoteSync = time.Now()
 	return nil
 }
@@ -475,9 +519,22 @@ func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
 	return willOversubscribeCpu || willOversubscribeMemory || willOversubscribeGpu
 }
 
+// CanServeContainerWithError returns nil if the target Host can serve the resource request.
+//
+// This method only checks against the Host's "spec" (i.e., the total Resources available on the Host,
+// not taking into account current resource allocations).
+func (h *Host) CanServeContainerWithError(resourceRequest types.Spec) (bool, error) {
+	err := h.resourcesWrapper.specResources.ValidateWithError(resourceRequest)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
 // CanServeContainer returns a boolean indicating whether this Host could serve a kernel replica with the given
 // resource requirements / resource request. This method only checks against the Host's "spec" (i.e., the total
-// resources available on the Host, not taking into account current resource allocations).
+// Resources available on the Host, not taking into account current resource allocations).
 //
 // CanServeContainer returns true when the Host could serve the hypothetical kernel and false when the Host could not.
 func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
@@ -485,10 +542,10 @@ func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
 }
 
 // CanCommitResources returns a boolean indicating whether this Host could commit the specified resource request
-// to a kernel scheduled onto the Host right now. Commiting resource requires having sufficiently many idle resources
+// to a kernel scheduled onto the Host right now. Commiting resource requires having sufficiently many idle Resources
 // available.
 //
-// CanCommitResources returns true if the Host could commit/reserve the given resources right now.
+// CanCommitResources returns true if the Host could commit/reserve the given Resources right now.
 // Otherwise, CanCommitResources returns false.
 func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 	return h.resourcesWrapper.idleResources.Validate(types.ToDecimalSpec(resourceRequest))
@@ -544,11 +601,10 @@ func (h *Host) ContainerScheduled(container *Container) error {
 		return err
 	}
 
-	//h.pendingCPUs.Add(container.OutstandingResources().CPU())
-	//h.pendingMemoryMb.Add(container.OutstandingResources().MemoryMB())
-	//h.pendingGPUs.Add(container.OutstandingResources().GPU())
-
 	h.log.Debug("Container %s was scheduled onto Host %s.", container.String(), h.ID)
+
+	h.RecomputeSubscribedRatio()
+
 	return nil
 }
 
@@ -612,6 +668,8 @@ func (h *Host) ContainerRemoved(container *Container) error {
 	}
 
 	h.log.Debug("Container %s was removed from Host %s.", container.String(), h.ID)
+
+	h.RecomputeSubscribedRatio()
 
 	return nil
 }
@@ -776,8 +834,12 @@ func (h *Host) String() string {
 	return fmt.Sprintf("Host[ID=%s,Name=%s,Addr=%s,Spec=%s]", h.ID, h.NodeName, h.Addr, h.resourceSpec.String())
 }
 
-func (h *Host) Conn() *grpc.ClientConn {
-	return h.conn
+func (h *Host) GetConnectionState() connectivity.State {
+	if h.conn == nil {
+		return -1
+	}
+
+	return h.conn.GetState()
 }
 
 func (h *Host) Stats() HostStatistics {
@@ -789,7 +851,7 @@ func (h *Host) LastReschedule() types.StatFloat64Field {
 	return &h.lastReschedule
 }
 
-// TimeSinceLastSynchronizationWithRemote returns a time.Duration indicating how long it has been since its resources
+// TimeSinceLastSynchronizationWithRemote returns a time.Duration indicating how long it has been since its Resources
 // were refreshed and synchronized from the actual remote Host that this Host struct represents.
 func (h *Host) TimeSinceLastSynchronizationWithRemote() time.Duration {
 	return time.Since(h.LastRemoteSync)
@@ -861,9 +923,15 @@ func (h *Host) PendingVRAM() float64 { return h.resourcesWrapper.pendingResource
 
 func (h *Host) CommittedVRAM() float64 { return h.resourcesWrapper.committedResources.VRAM() }
 
-// ResourceSpec the types.Spec defining the resources available on the Host.
+// ResourceSpec the types.Spec defining the Resources available on the Host.
 func (h *Host) ResourceSpec() types.ValidatableResourceSpec {
 	return h.resourceSpec
+}
+
+// CurrentResourcesToString calls the String method on the ResourcesWrapper of the Host and returns the value
+// generated by that String method.
+func (h *Host) CurrentResourcesToString() string {
+	return h.resourcesWrapper.String()
 }
 
 // IdleResources returns a types.Spec encapsulating the IdleResources on the Host.
@@ -876,7 +944,7 @@ func (h *Host) PendingResources() types.Spec {
 	return h.resourcesWrapper.pendingResources.ToDecimalSpec()
 }
 
-// CommittedResources returns a types.Spec encapsulating the idle resources on the Host.
+// CommittedResources returns a types.Spec encapsulating the idle Resources on the Host.
 func (h *Host) CommittedResources() types.Spec {
 	return h.resourcesWrapper.committedResources.ToDecimalSpec()
 }

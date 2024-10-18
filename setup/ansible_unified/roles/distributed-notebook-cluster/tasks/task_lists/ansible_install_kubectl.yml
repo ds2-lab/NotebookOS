@@ -1,0 +1,49 @@
+- name: Check if kubectl is already installed
+  command: kubectl version --client --output=json
+  register: kubectl_already_installed
+  ignore_errors: true
+
+- name: Download kubectl binary if not installed
+  get_url:
+    url: "{{ kubectl_url }}/{{ lookup('url', kubectl_url + '/stable.txt') }}/bin/linux/amd64/kubectl"
+    dest: "{{ tmp_dir }}/kubectl"
+    mode: '0755'
+  when: kubectl_already_installed.failed
+
+- name: Download kubectl checksum
+  get_url:
+    url: "{{ kubectl_url }}/{{ lookup('url', kubectl_url + '/stable.txt') }}/bin/linux/amd64/kubectl.sha256"
+    dest: "{{ tmp_dir }}/kubectl.sha256"
+  when: kubectl_already_installed.failed
+
+- name: Validate kubectl binary checksum
+  shell: 'echo "$(cat {{ tmp_dir }}/kubectl.sha256)  {{ tmp_dir }}/kubectl" | sha256sum --check'
+  register: kubectl_checksum
+  failed_when: "'kubectl: OK' not in kubectl_checksum.stdout"
+  when: kubectl_already_installed.failed
+
+- name: Fail task if checksum validation fails
+  fail:
+    msg: "[ERROR] Failed to install kubectl. Installed binary did not validate."
+  when:
+    - kubectl_already_installed.failed
+    - kubectl_checksum.failed
+
+- name: Move kubectl to /usr/bin if checksum is valid
+  command: mv {{ tmp_dir }}/kubectl {{ kubectl_bin_path }}
+  when:
+    - kubectl_already_installed.failed
+    - kubectl_checksum.failed == false
+  become: true
+
+- name: Ensure kubectl binary is executable
+  file:
+    path: "{{ kubectl_bin_path }}"
+    mode: '0755'
+  become: true
+
+- name: Display kubectl version
+  command: kubectl version --client --output=json
+  when:
+    - kubectl_already_installed.failed
+    - kubectl_checksum.failed == false

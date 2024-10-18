@@ -1,0 +1,13 @@
+---
+
+# This playbook is used to deploy the Docker Swarm cluster (but not the Docker Swarm app).
+
+- name: Create the Docker Swarm cluster
+  hosts: docker-swarm
+  roles:
+    - docker-swarm
+  tags:
+    - docker
+    - swarm
+    - start_component
+    - install_docker_swarm_cluster

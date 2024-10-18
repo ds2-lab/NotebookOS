@@ -23,27 +23,30 @@ type RequestLog struct {
 	mu  sync.Mutex
 	log logger.Logger
 
-	// EntriesByRequestId is a map from RequestID to RequestLogEntry.
-	EntriesByRequestId hashmap.HashMap[string, *RequestLogEntry]
-
 	// EntriesByJupyterMsgId is a map from Jupyter Message ID to RequestLogEntry.
-	EntriesByJupyterMsgId hashmap.HashMap[string, *RequestLogEntry]
-
-	// RequestsPeKernel is a map from kernel ID to an inner map.
-	// The inner mapping is from Jupyter Message ID to RequestLogEntry.
-	RequestsPerKernel hashmap.HashMap[string, hashmap.HashMap[string, *RequestLogEntry]]
+	EntriesByJupyterMsgId hashmap.HashMap[string, *RequestLogEntryWrapper]
 }
 
 // NewRequestLog creates and initializes a new RequestLog struct and returns a pointer to it.
 func NewRequestLog() *RequestLog {
 	requestLog := &RequestLog{
-		EntriesByRequestId:    hashmap.NewCornelkMap[string, *RequestLogEntry](64),
-		EntriesByJupyterMsgId: hashmap.NewCornelkMap[string, *RequestLogEntry](64),
-		RequestsPerKernel:     hashmap.NewCornelkMap[string, hashmap.HashMap[string, *RequestLogEntry]](64),
+		EntriesByJupyterMsgId: hashmap.NewCornelkMap[string, *RequestLogEntryWrapper](64),
 	}
 	config.InitLogger(&requestLog.log, requestLog)
 
 	return requestLog
+}
+
+func (l *RequestLog) Lock() {
+	l.mu.Lock()
+}
+
+func (l *RequestLog) Unlock() {
+	l.mu.Unlock()
+}
+
+func (l *RequestLog) TryLock() bool {
+	return l.mu.TryLock()
 }
 
 // Len returns the number of entries in the RequestLog.
@@ -74,48 +77,53 @@ func (l *RequestLog) unsafeLen() int {
 }
 
 // AddEntry adds a RequestLogEntry to the RequestLog for the specified JupyterMessage.
-func (l *RequestLog) AddEntry(msg *types.JupyterMessage, socket *types.Socket, trace *proto.RequestTrace) error {
+func (l *RequestLog) AddEntry(msg *types.JupyterMessage, messageType types.MessageType, trace *proto.RequestTrace) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	msgId := msg.JupyterMessageId()
-	entry := &RequestLogEntry{
-		RequestId:          msg.RequestId,
-		JupyterMessageId:   msgId,
-		JupyterMessageType: msg.JupyterMessageType(),
-		RequestTrace:       trace,
-		MessageType:        socket.Type,
-		KernelId:           msg.DestinationId,
-	}
 
-	if _, loaded := l.EntriesByJupyterMsgId.LoadOrStore(msgId, entry); loaded {
-		return fmt.Errorf("%w: entry already exists for request with jupyter message ID \"%s\"",
-			ErrRequestLogEntryExists, msgId)
-	}
-
-	if msg.RequestId != "" {
-		if _, loaded := l.EntriesByRequestId.LoadOrStore(msg.RequestId, entry); loaded {
-			return fmt.Errorf("%w: entry already exists for request with request ID \"%s\"",
-				ErrRequestLogEntryExists, msg.RequestId)
+	var (
+		wrapper  *RequestLogEntryWrapper
+		existing *RequestLogEntry
+		loaded   bool
+	)
+	if wrapper, loaded = l.EntriesByJupyterMsgId.Load(msgId); !loaded {
+		wrapper = &RequestLogEntryWrapper{
+			EntriesByNodeId:    hashmap.NewCornelkMap[int32, *RequestLogEntry](3),
+			RequestId:          msg.RequestId,
+			JupyterMessageId:   msg.JupyterMessageId(),
+			JupyterMessageType: msg.JupyterMessageType(),
+			MessageType:        messageType,
+			KernelId:           msg.DestinationId,
 		}
 	}
 
-	var (
-		requestsForKernel hashmap.HashMap[string, *RequestLogEntry] // Jupyter Message ID to RequestLogEntry.
-		loaded            bool
-	)
-	requestsForKernel, loaded = l.RequestsPerKernel.Load(msg.DestinationId)
-	if !loaded {
-		requestsForKernel = hashmap.NewCornelkMap[string, *RequestLogEntry](64)
-		l.RequestsPerKernel.Store(msg.DestinationId, requestsForKernel)
+	entry := NewRequestLogEntry(msg, messageType, trace)
+	if existing, loaded = wrapper.EntriesByNodeId.LoadOrStore(trace.ReplicaId, entry); loaded {
+		if existing.RequestTrace.RequestTraceUuid == trace.RequestTraceUuid && trace.ReplicaId != -1 {
+			// If the existing trace is an old one with replica -1, and we now have the same trace updated
+			// with its replica ID, overwrite it.
+			wrapper.EntriesByNodeId.Store(trace.ReplicaId, entry)
+		} else {
+			return fmt.Errorf("already have an entry for message \"%s\" for replica %d", msgId, trace.ReplicaId)
+		}
 	}
 
-	if _, loaded := requestsForKernel.LoadOrStore(msgId, entry); loaded {
-		return fmt.Errorf("%w: entry for request with jupyter message ID \"%s\" already registered under kernel \"%s\"",
-			ErrRequestLogEntryExists, msgId, msg.DestinationId)
-	}
+	l.EntriesByJupyterMsgId.Store(msgId, wrapper)
 
 	return nil
+}
+
+// RequestLogEntryWrapper is an entry for a single message in the
+// RequestLog, broken up into separate individual entries by SMR node ID.
+type RequestLogEntryWrapper struct {
+	EntriesByNodeId    hashmap.HashMap[int32, *RequestLogEntry]
+	RequestId          string
+	JupyterMessageId   string
+	JupyterMessageType string
+	MessageType        types.MessageType
+	KernelId           string
 }
 
 // RequestLogEntry is an entry for a single message in the RequestLog.
@@ -127,4 +135,16 @@ type RequestLogEntry struct {
 	KernelId           string
 
 	RequestTrace *proto.RequestTrace
+}
+
+// NewRequestLogEntry creates a new RequestLogEntry struct and returns a pointer to it.
+func NewRequestLogEntry(msg *types.JupyterMessage, messageType types.MessageType, trace *proto.RequestTrace) *RequestLogEntry {
+	return &RequestLogEntry{
+		RequestId:          msg.RequestId,
+		JupyterMessageId:   msg.JupyterMessageId(),
+		JupyterMessageType: msg.JupyterMessageType(),
+		RequestTrace:       trace,
+		MessageType:        messageType,
+		KernelId:           msg.DestinationId,
+	}
 }

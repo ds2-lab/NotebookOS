@@ -100,20 +100,6 @@ func (mr *MockAbstractSessionMockRecorder) Explain(key any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Explain", reflect.TypeOf((*MockAbstractSession)(nil).Explain), key)
 }
 
-// GetCluster mocks base method.
-func (m *MockAbstractSession) GetCluster() scheduling.Cluster {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCluster")
-	ret0, _ := ret[0].(scheduling.Cluster)
-	return ret0
-}
-
-// GetCluster indicates an expected call of GetCluster.
-func (mr *MockAbstractSessionMockRecorder) GetCluster() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCluster", reflect.TypeOf((*MockAbstractSession)(nil).GetCluster))
-}
-
 // GetState mocks base method.
 func (m *MockAbstractSession) GetState() scheduling.SessionState {
 	m.ctrl.T.Helper()

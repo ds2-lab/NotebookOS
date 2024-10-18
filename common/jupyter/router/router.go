@@ -102,9 +102,9 @@ func (g *Router) ConnectionInfo() *types.ConnectionInfo {
 	return g.server.Meta
 }
 
-func (g *Router) RequestLog() *metrics.RequestLog {
-	return g.server.RequestLog
-}
+//func (g *Router) RequestLog() *metrics.RequestLog {
+//	return g.server.RequestLog
+//}
 
 // String returns the information for logging.
 func (g *Router) String() string {

@@ -1,0 +1,64 @@
+- name: Execute ansible_install_git.yml
+  import_tasks: task_lists/ansible_install_git.yml
+  tags:
+    - git
+    - install
+
+- name: Execute ansible_install_golang.yml
+  import_tasks: task_lists/ansible_install_golang.yml
+  tags:
+    - golang
+    - install
+
+- name: Execute ansible_install_python.yml
+  import_tasks: task_lists/ansible_install_python.yml
+  tags:
+    - python
+    - install
+
+- name: Execute ansible_install_docker.yml
+  import_tasks: task_lists/ansible_install_docker.yml
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: /usr/bin/local/python3.12
+  tags:
+    - docker
+    - install
+
+- name: Execute ansible_install_helm.yml
+  import_tasks: task_lists/ansible_install_helm.yml
+  tags:
+    - helm
+    - install
+
+- name: Execute ansible_install_kubectl.yml
+  import_tasks: task_lists/ansible_install_kubectl.yml
+  tags:
+    - kubectl
+    - install
+
+- name: Execute ansible_install_protoc.yml
+  import_tasks: task_lists/ansible_install_protoc.yml
+  tags:
+    - protoc
+    - install
+
+- name: Execute ansible_clone_repo.yml
+  import_tasks: task_lists/ansible_clone_repo.yml
+  tags:
+    - clone-repo
+
+- name: Execute ansible_install_python_module.yml
+  import_tasks: task_lists/ansible_install_python_module.yml
+  tags:
+    - python-module
+    - install
+
+- name: Execute ansible_build_smr.yml
+  import_tasks: task_lists/ansible_build_smr.yml
+  tags:
+    - build-smr
+
+- name: Execute ansible_prepare_filesystem.yml
+  import_tasks: task_lists/ansible_prepare_filesystem.yml

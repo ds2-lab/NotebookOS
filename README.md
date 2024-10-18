@@ -1,5 +1,10 @@
 # distributed_notebook
 
+## System Installation
+
+For instructions concerning the setup and installation of `distributed-notebook` on either a single machine or on a 
+cluster, please refer to the `setup` directory.
+
 ## Demo
 
     python3 -m distributed_notebook.demo distributed_notebook/demo/script/script.py distributed_notebook/demo/script/script2.py

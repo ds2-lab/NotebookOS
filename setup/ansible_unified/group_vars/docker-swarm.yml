@@ -1,0 +1,38 @@
+# The 'advertise address' is an externally reachable address advertised to other nodes.
+# This port is used with the 'advertise address', which is set to the "ansible_nodename" of the first manager node.
+# Only used when swarm is initialised or joined. Because of this, it's not considered for idempotency checking.
+docker_swarm_advertise_address_port: 2377
+
+# The maximum amount of time in seconds to wait on a response from the API.
+docker_swarm_api_response_timeout: 60
+
+# The Docker user with all the images to use in the Docker Swarm application
+docker_username: scusemua
+
+###########
+# Grafana #
+###########
+
+# The admin username for Grafana
+grafana_admin_username: scusemua
+grafana_admin_password: password
+grafana_docker_image_name: grafana/grafana-enterprise
+grafana_docker_image_tag: latest
+
+########
+# Loki #
+########
+loki_docker_image_name: grafana/loki
+loki_docker_image_tag: 3.2.0
+
+############
+# Promtail #
+############
+promtail_docker_image_name: grafana/promtail
+promtail_docker_image_tag: 3.2.0
+
+##############
+# Prometheus #
+##############
+prometheus_docker_image_name: prom/prometheus
+prometheus_docker_image_tag: main

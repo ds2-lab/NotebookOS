@@ -195,6 +195,15 @@ func (s *Socket) InitPendingReq() {
 	}
 }
 
+type SocketProvider interface {
+	HB() *Socket
+	Control() *Socket
+	Shell() *Socket
+	Stdin() *Socket
+	IO() *Socket
+	All() [5]*Socket
+}
+
 type JupyterSocket struct {
 	HB      *Socket
 	Control *Socket

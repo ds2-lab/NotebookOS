@@ -1,0 +1,196 @@
+services:
+  jupyter:
+    environment:
+      - "DOCKER_NETWORK_NAME=distributed_cluster_default"
+      - "USING_WSL2=0"
+    image: {{ docker_username }}/jupyter-debug:python3.12.6
+    labels:
+      app: "distributed_cluster"
+      component: "jupyter_server"
+      logging: "promtail"
+      logging_jobname: "local_daemon"
+    command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
+    ports:
+      - target: 8888
+        published: 8888
+        protocol: tcp
+        mode: host
+    depends_on:
+      - gateway
+    deploy:
+      restart_policy:
+        condition: any
+      endpoint_mode: dnsrr
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  gateway:
+    environment:
+      - "DOCKER_NETWORK_NAME=distributed_cluster_default"
+      - "USING_WSL2=0"
+    image: {{ docker_username }}/gateway:latest
+    labels:
+      app: "distributed_cluster"
+      component: "cluster_gateway"
+      logging: "promtail"
+      logging_jobname: "local_daemon"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./gateway/gateway.yml:/gateway.yml
+    deploy:
+      restart_policy:
+        condition: any
+      endpoint_mode: dnsrr
+    depends_on:
+      - prometheus
+    ports:
+      - target: {{ gateway_dashboard_grpc_port }}
+        published: {{ gateway_dashboard_grpc_port }}
+        protocol: tcp
+        mode: host
+      - target: {{ distributed_notebook_debug_port }}
+        published: {{ distributed_notebook_debug_port }}
+        protocol: tcp
+        mode: host
+      - target: {{ gateway_provisioner_port }}
+        published: {{ gateway_provisioner_port }}
+        protocol: tcp
+        mode: host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  daemon:
+    environment:
+      - "KERNEL_TEMP_BASE=/{{ kernel_base_directory }}"
+      - "KERNEL_IMAGE={{ docker_username }}/jupyter-debug:latest"
+      - "HOST_MOUNT_DIR=/home/{{ remote_username }}/{{ kernel_base_directory }}"
+      - "TARGET_MOUNT_DIR=/{{ kernel_base_directory }}"
+      - "STORAGE=/home/{{ remote_username }}/kernel_storage"
+      - "DOCKER_NETWORK_NAME=distributed_cluster_default"
+    image: {{ docker_username }}/daemon:latest
+    labels:
+      app: "distributed_cluster"
+      component: "local_daemon"
+      logging: "promtail"
+      logging_jobname: "local_daemon"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/{{ remote_username }}/kernel_base:/kernel_base
+      - ./local_daemon/daemon.yml:/daemon.yml
+    depends_on:
+      - gateway
+      - prometheus
+    deploy:
+      restart_policy:
+        condition: any
+      mode: global
+      endpoint_mode: dnsrr
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  prometheus:
+    ports:
+      - target: 8500
+        published: 8500
+        protocol: tcp
+        mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus/data
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.listen-address=0.0.0.0:8500
+    image: {{ prometheus_docker_image_name }}:{{ prometheus_docker_image_tag }}
+    deploy:
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: dnsrr
+    user: 0:0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  loki:
+    image: {{ loki_docker_image_name }}:{{ loki_docker_image_tag }}
+    command: -config.file=/etc/loki/loki-config.yaml
+    deploy:
+      endpoint_mode: dnsrr
+    ports:
+      - target: 3100
+        published: 3100
+        protocol: tcp
+        mode: host
+    volumes:
+      - loki_data:/loki
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
+
+  promtail:
+    image: {{ promtail_docker_image_name }}:{{ promtail_docker_image_tag }}
+    volumes:
+      - /var/log:/var/log
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail/config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    deploy:
+      endpoint_mode: dnsrr
+    depends_on:
+      - loki
+
+  grafana:
+    image: {{ grafana_docker_image_name }}:{{ grafana_docker_image_tag }}
+    ports:
+      - target: 3000
+        published: 3000
+        protocol: tcp
+        mode: host
+    environment:
+      - "GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}"
+      - "GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}"
+    volumes:
+      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+      - grafana_data:/var/lib/grafana
+    deploy:
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: dnsrr
+
+  dashboard_backend:
+    image: scusemua/distributed-notebook-dashboard-backend:latest
+    ports:
+      - target: {{ dashboard_backend_server_port }}
+        published: {{ dashboard_backend_server_port }}
+        protocol: tcp
+        mode: host
+    environment:
+    - "DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}"
+    deploy:
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: dnsrr
+    volumes:
+      - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
+      - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml
+      - ./dashboard_backend/custom_event_sequences:{{ dashboard_backend_config_directory }}/custom_event_sequences
+
+  dashboard_frontend:
+    image: scusemua/distributed-notebook-dashboard-frontend:latest
+    environment:
+    - "HOST=0.0.0.0"
+    - "PORT={{ dashboard_frontend_server_port }}"
+    ports:
+      - target: {{ dashboard_frontend_server_port }}
+        published: {{ dashboard_frontend_server_port }}
+        protocol: tcp
+        mode: host
+    deploy:
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: dnsrr
+
+volumes:
+  coredumps_volume:
+  prometheus_data:
+  grafana_data:
+  loki_data:

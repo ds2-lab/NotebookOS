@@ -1,0 +1,6 @@
+hdfs_ansible_vars.yml
+ansible_vars.yml
+inventory.ini
+inventory_file.ini
+artifacts
+env

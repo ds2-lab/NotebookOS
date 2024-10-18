@@ -693,6 +693,8 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: float = time.time() * 1.0e3
 
         if not self.session:
+            self.log.error(f"Received SHELL message, but our Session is None...")
+            self.log.error(f"Will be discarding SHELL message: {msg}")
             return
 
         # flush control queue before handling shell requests
@@ -762,7 +764,9 @@ class DistributedKernel(IPythonKernel):
         # self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
         msg_id: str = msg["header"]["msg_id"]
         msg_type: str = msg["header"]["msg_type"]
+        self.log.debug("==============================================================================================")
         self.log.debug(f"Received SHELL message {msg_id} of type \"{msg_type}\": {msg}")
+        self.log.debug("==============================================================================================")
         sys.stderr.flush()
         sys.stdout.flush()
         self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg,
@@ -914,7 +918,10 @@ class DistributedKernel(IPythonKernel):
         header: dict = msg["header"]
         msg_type: str = header["msg_type"]
         msg_id: str = header["msg_id"]
+
+        self.log.debug("==============================================================================================")
         self.log.debug(f"Received control message {msg_id} of type \"{msg_type}\"")
+        self.log.debug("==============================================================================================")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1809,10 +1816,10 @@ class DistributedKernel(IPythonKernel):
         Returns:
             The first buffers frame, extracted and decoded, or an empty dictionary.
         """
-        self.log.debug(f"Buffers is a list of length {len(buffers)} for \"{msg_type}\" message \"{msg_id}\".")
+        # self.log.debug(f"Buffers is a list of length {len(buffers)} for \"{msg_type}\" message \"{msg_id}\".")
         if len(buffers) > 0:
             first_buffers_frame = buffers[0]
-            self.log.debug(f"First buffers frame of \"{msg_type}\" message \"{msg_id}\": {str(first_buffers_frame)}")
+            # self.log.debug(f"First buffers frame of \"{msg_type}\" message \"{msg_id}\": {str(first_buffers_frame)}")
         else:
             return {}
 
@@ -1826,8 +1833,8 @@ class DistributedKernel(IPythonKernel):
 
         try:
             buffers_decoded = json.loads(first_buffers_frame)
-            self.log.debug(f"Successfully decoded buffers \"{msg_type}\" message \"{msg_id}\" "
-                           f"using JSON (type={type(buffers_decoded).__name__}): {buffers_decoded}")
+            # self.log.debug(f"Successfully decoded buffers \"{msg_type}\" message \"{msg_id}\" "
+            #                f"using JSON (type={type(buffers_decoded).__name__}): {buffers_decoded}")
             return buffers_decoded
         except json.decoder.JSONDecodeError as ex:
             self.log.warning(
@@ -1856,15 +1863,15 @@ class DistributedKernel(IPythonKernel):
         msg_header: dict[str, Any] = msg.get('header', {})
         msg_type: str = msg_header.get('msg_type', "N/A")
         msg_id: str = msg_header.get('msg_id', "N/A")
-        self.log.debug(f"Extracting buffers from \"{msg_type}\" message \"{msg_id}\" with {len(msg)} frames now...")
+        # self.log.debug(f"Extracting buffers from \"{msg_type}\" message \"{msg_id}\" with {len(msg)} frames now...")
 
         if "buffers" in msg:
-            self.log.debug(f"Found buffers frame in \"{msg_type}\" message \"{msg_id}\".")
+            # self.log.debug(f"Found buffers frame in \"{msg_type}\" message \"{msg_id}\".")
             buffers = msg["buffers"]
         else:
-            frame_names: str = ", ".join(list(msg.keys()))
-            self.log.warning(f"No buffers frame found in \"{msg_type}\" message \"{msg_id}\". "
-                             f"Message only has the following frames: {frame_names}")
+            # frame_names: str = ", ".join(list(msg.keys()))
+            # self.log.warning(f"No buffers frame found in \"{msg_type}\" message \"{msg_id}\". "
+            #                  f"Message only has the following frames: {frame_names}")
             buffers = []
 
         request_trace_frame: dict[str, Any] = self.decode_request_trace_from_buffers(buffers, msg_id=msg_id,
@@ -1874,24 +1881,24 @@ class DistributedKernel(IPythonKernel):
 
             if received_at > 0:
                 received_at = int(math.floor(received_at))
-                self.log.debug(f"Updating \"requestReceivedByKernelReplica\" field in RequestTrace found in "
-                               f"buffers of \"{msg_type}\" message \"{msg_id}\" with value {received_at} now.")
+                # self.log.debug(f"Updating \"requestReceivedByKernelReplica\" field in RequestTrace found in "
+                #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value {received_at} now.")
                 request_trace["requestReceivedByKernelReplica"] = received_at
             else:
                 reply_sent_by_kernel_replica: int = int(math.floor((time.time() * 1.0e3)))
-                self.log.debug(f"Updating \"replySentByKernelReplica\" field in RequestTrace found in "
-                               f"buffers of \"{msg_type}\" message \"{msg_id}\" with value "
-                               f"{reply_sent_by_kernel_replica} now.")
+                # self.log.debug(f"Updating \"replySentByKernelReplica\" field in RequestTrace found in "
+                #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value "
+                #                f"{reply_sent_by_kernel_replica} now.")
                 request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
 
             request_trace["replicaId"] = self.smr_node_id
 
             buffers[0] = json.dumps(request_trace_frame).encode('utf-8')
-            self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")
+            # self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")
             msg["buffers"] = buffers
             return buffers
-        else:
-            self.log.warning(f"Could not find \"request_trace\" entry in request_trace_frame: {request_trace_frame}")
+        # else:
+        #     self.log.warning(f"Could not find \"request_trace\" entry in request_trace_frame: {request_trace_frame}")
 
         return None
 

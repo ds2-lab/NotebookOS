@@ -10,12 +10,9 @@ setuptools.setup(
     # packages=['distributed_notebook.demo', 'distributed_notebook.sync', 'distributed_notebook.kernel', 'distributed_notebook.smr'],
     description='Distributed notebook for Jupyter',
     long_description=readme,
-    author='Tianium',
-    author_email='jzhang33@gmu.edu',
-    url='https://github.com/zhangjyr/distributed_notebook',
-    install_requires=[
-        'jupyter_client', 'IPython', 'ipykernel'
-    ],
+    author='Benjamin Carver',
+    author_email='bcarver2@gmu.edu',
+    url='https://github.com/scusemua/distributed_notebook',
     classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: MIT License',

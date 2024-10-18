@@ -1,8 +1,11 @@
 package scheduling
 
 import (
+	"encoding/json"
+	"github.com/zhangjyr/distributed-notebook/common/configuration"
 	"log"
 	"math"
+	"strings"
 )
 
 const (
@@ -11,12 +14,12 @@ const (
 )
 
 type ClusterSchedulerOptions struct {
-	GpusPerHost                   int     `name:"gpus-per-host"                     json:"gpus-per-host"                    yaml:"gpus-per-host" description:"The number of actual GPUs that are available for use on each node/host."`
+	configuration.CommonOptions   `yaml:",inline" name:"common_options" json:"common_options"`
 	VirtualGpusPerHost            int     `name:"num-virtual-gpus-per-node"         json:"num-virtual-gpus-per-node"        yaml:"num-virtual-gpus-per-node"                        description:"The number of virtual GPUs per host."`
 	SubscribedRatioUpdateInterval float64 `name:"subscribed-ratio-update-interval"  json:"subscribed-ratio-update-interval" yaml:"subscribed-ratio-update-interval"                        description:"The interval to update the subscribed ratio."`
-	ScalingFactor                 float64 `name:"scaling-factor"                    json:"scaling-factor"                   yaml:"scaling-factor"                        description:"Defines how many hosts the Cluster will provision based on busy resources"`
+	ScalingFactor                 float64 `name:"scaling-factor"                    json:"scaling-factor"                   yaml:"scaling-factor"                        description:"Defines how many hosts the Cluster will provision based on busy Resources"`
 	ScalingInterval               int     `name:"scaling-interval"                  json:"scaling-interval"                 yaml:"scaling-interval"                        description:"Interval to call validateCapacity, 0 to disable routing scaling."`
-	ScalingLimit                  float64 `name:"scaling-limit"                     json:"scaling-limit"                    yaml:"scaling-limit"                        description:"Defines how many hosts the Cluster will provision at maximum based on busy resources"`
+	ScalingLimit                  float64 `name:"scaling-limit"                     json:"scaling-limit"                    yaml:"scaling-limit"                        description:"Defines how many hosts the Cluster will provision at maximum based on busy Resources"`
 	MaximumHostsToReleaseAtOnce   int     `name:"scaling-in-limit"                  json:"scaling-in-limit"                 yaml:"scaling-in-limit"                        description:"Sort of the inverse of the ScalingLimit parameter (maybe?)"`
 	PredictiveAutoscalingEnabled  bool    `name:"predictive_autoscaling"            json:"predictive_autoscaling"           yaml:"predictive_autoscaling"                        description:"If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the Cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation."`
 	ScalingBufferSize             int     `name:"scaling-buffer-size"               json:"scaling-buffer-size"              yaml:"scaling-buffer-size"                        description:"Buffer size is how many extra hosts we provision so that we can quickly scale if needed."`
@@ -28,6 +31,30 @@ type ClusterSchedulerOptions struct {
 	ExecutionTimeSamplingWindow   int64   `name:"execution-time-sampling-window"    json:"execution-time-sampling-window"   yaml:"execution-time-sampling-window"                        description:"Window size for moving average of training time. Specify a negative value to compute the average as the average of ALL execution times."`
 	MigrationTimeSamplingWindow   int64   `name:"migration-time-sampling-window"    json:"migration-time-sampling-window"   yaml:"migration-time-sampling-window"                        description:"Window size for moving average of migration time. Specify a negative value to compute the average as the average of ALL migration times."`
 	SchedulerHttpPort             int     `name:"scheduler-http-port"               json:"scheduler-http-port"              yaml:"scheduler-http-port"                        description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
+}
+
+// PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
+func (opts *ClusterSchedulerOptions) PrettyString(indentSize int) string {
+	indentBuilder := strings.Builder{}
+	for i := 0; i < indentSize; i++ {
+		indentBuilder.WriteString(" ")
+	}
+
+	m, err := json.MarshalIndent(opts, "", indentBuilder.String())
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+func (opts *ClusterSchedulerOptions) String() string {
+	m, err := json.Marshal(opts)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
 }
 
 // ValidateClusterSchedulerOptions ensures that the values of certain configuration parameters are consistent with

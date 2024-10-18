@@ -1,0 +1,39 @@
+- name: Install helm
+  hosts: vms
+  remote_user: "{{ remote_username }}"
+  become: true       # Run tasks as root
+  gather_facts: true
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+
+  tasks:
+    - name: Check if Helm is already installed
+      command: helm version
+      register: helm_installed
+      ignore_errors: true
+
+    - name: Download Helm install script if not installed
+      get_url:
+        url: "{{ helm_install_script_url }}"
+        dest: "{{ helm_script }}"
+        mode: '0700'
+      when: helm_installed.failed
+
+    - name: Run Helm installation script
+      shell: /bin/bash {{ helm_script }}
+      when: helm_installed.failed
+
+    - name: Verify Helm installation
+      command: helm version
+      register: helm_check
+      failed_when: helm_check.failed
+
+    - name: Fail task if Helm installation failed
+      fail:
+        msg: "[ERROR] Helm installation failed."
+      when: helm_check.failed
+
+    - name: Display success message if Helm is installed
+      debug:
+        msg: "Successfully installed Helm."
+      when: helm_check.changed

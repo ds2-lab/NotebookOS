@@ -1,0 +1,6 @@
+---
+- hosts: vms
+  become: yes
+
+  roles:
+    - pull-latest-code

@@ -77,7 +77,6 @@ type KernelReplicaClient struct {
 	shell                            *types.Socket                                  // Listener.
 	iopub                            *types.Socket                                  // Listener.
 	numResendAttempts                int                                            // Number of times to try resending a message before giving up.
-	addSourceKernelFrames            bool                                           // If true, then the SUB-type ZMQ socket, which is used as part of the Jupyter IOPub Socket, will set its subscription option to the KernelReplicaClient's kernel ID.
 	shellListenPort                  int                                            // Port that the KernelReplicaClient::shell socket listens on.
 	iopubListenPort                  int                                            // Port that the KernelReplicaClient::iopub socket listens on.
 	podOrContainerName               string                                         // Name of the Pod or Container housing the associated distributed kernel replica container.
@@ -130,7 +129,7 @@ type KernelReplicaClient struct {
 // If the proto.KernelReplicaSpec argument is nil, or the proto.KernelSpec field of the proto.KernelReplicaSpec
 // argument is nil, then NewKernelReplicaClient will panic.
 func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *types.ConnectionInfo, componentId string,
-	addSourceKernelFrames bool, numResendAttempts int, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
+	numResendAttempts int, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool,
 	persistentId string, hostId string, host *scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
 	debugMode bool, messagingMetricsProvider metrics.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
@@ -153,7 +152,6 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		persistentId:                         persistentId,
 		replicaId:                            spec.ReplicaId,
 		spec:                                 spec.Kernel,
-		addSourceKernelFrames:                addSourceKernelFrames,
 		shellListenPort:                      shellListenPort,
 		messagingMetricsProvider:             messagingMetricsProvider,
 		iopubListenPort:                      iopubListenPort,
@@ -1219,6 +1217,11 @@ func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames *
 // 	return types.ErrStopPropagation
 // }
 
+// handleIOKernelSMRNodeAdded is the handler for "smr_node_added" IOPub messages.
+//
+// NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called, as "smr_node_added" are
+// currently not sent. (Specifically, we don't use the "add_replica_request" CONTROL message at the moment, so none
+// of this ever happens.)
 func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames *types.JupyterFrames, _ *types.JupyterMessage) error {
 	var nodeAddedMessage types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
