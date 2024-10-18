@@ -77,7 +77,7 @@ services:
         # Uses the environment variable DOMAIN
         - traefik.http.routers.traefik-public-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)
         - traefik.http.routers.traefik-public-http.entrypoints=http
-        - traefik.http.routers.traefik-public-http.middlewares=https-redirect
+        # - traefik.http.routers.traefik-public-http.middlewares=https-redirect
         # traefik-https the actual router using HTTPS
         # Uses the environment variable DOMAIN
         # - traefik.http.routers.traefik-public-https.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)
@@ -91,7 +91,7 @@ services:
         - traefik.http.routers.traefik-public-https.middlewares=admin-auth
         # Define the port inside of the Docker service to use
         - traefik.http.services.traefik-public.loadbalancer.server.port=8054
-        - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`);PathPrefix(`/api`)"
+        - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/traefik-api`)"
 
 # volumes:
   # Create a volume to store the certificates, there is a constraint to make sure
