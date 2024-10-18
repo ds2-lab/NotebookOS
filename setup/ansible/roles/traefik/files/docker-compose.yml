@@ -86,7 +86,7 @@ services:
         # Define the port inside of the Docker service to use
         - traefik.http.services.traefik-public.loadbalancer.server.port=8080
 
-volumes:
+#volumes:
   # Create a volume to store the certificates, there is a constraint to make sure
   # Traefik is always deployed to the same Docker node with the same volume containing
   # the HTTPS certificates

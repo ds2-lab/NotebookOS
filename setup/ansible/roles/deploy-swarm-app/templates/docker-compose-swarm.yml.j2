@@ -5,11 +5,8 @@ services:
       - "USING_WSL2=0"
     image: {{ docker_username }}/jupyter-debug:latest
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
-    ports:
-      - target: 8888
-        published: 8888
-        protocol: tcp
-        mode: host
+    expose:
+    - "8888"
     networks:
     - traefik-public
     depends_on:
@@ -54,19 +51,10 @@ services:
         - "traefik.http.services.gateway.loadbalancer.server.port={{ distributed_notebook_debug_port }}"
     depends_on:
       - prometheus
-    ports:
-      - target: {{ gateway_dashboard_grpc_port }}
-        published: {{ gateway_dashboard_grpc_port }}
-        protocol: tcp
-        mode: host
-      - target: {{ distributed_notebook_debug_port }}
-        published: {{ distributed_notebook_debug_port }}
-        protocol: tcp
-        mode: host
-      - target: {{ gateway_provisioner_port }}
-        published: {{ gateway_provisioner_port }}
-        protocol: tcp
-        mode: host
+    expose:
+    - "{{ gateway_dashboard_grpc_port }}"
+    - "{{ distributed_notebook_debug_port }}"
+    - "{{ gateway_provisioner_port }}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -103,11 +91,8 @@ services:
       - "host.docker.internal:host-gateway"
 
   prometheus:
-    ports:
-      - target: 8500
-        published: 8500
-        protocol: tcp
-        mode: host
+    expose:
+    - "8500"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./prometheus:/etc/prometheus
@@ -147,11 +132,8 @@ services:
         - "traefik.http.routers.loki.entrypoints=http"
         - "traefik.http.routers.loki.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/loki`)"
         - "traefik.http.routers.loki.service=loki"
-    ports:
-      - target: 3100
-        published: 3100
-        protocol: tcp
-        mode: host
+    expose:
+    - "3100"
     volumes:
       - loki_data:/loki
       - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
@@ -177,11 +159,8 @@ services:
     image: {{ grafana_docker_image_name }}:{{ grafana_docker_image_tag }}
     networks:
     - traefik-public
-    ports:
-      - target: 3000
-        published: 3000
-        protocol: tcp
-        mode: host
+    expose:
+    - "3000"
     environment:
       - "GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}"
       - "GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}"
@@ -205,11 +184,8 @@ services:
     image: scusemua/distributed-notebook-dashboard-backend:latest
     networks:
     - traefik-public
-    ports:
-      - target: {{ dashboard_backend_server_port }}
-        published: {{ dashboard_backend_server_port }}
-        protocol: tcp
-        mode: host
+    expose:
+    - "{{ dashboard_backend_server_port }}"
     environment:
     - "DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}"
     deploy:
