@@ -46,7 +46,7 @@ services:
         - "app=distributed_cluster"
         - "component=cluster_gateway"
         - "logging=promtail"
-        "- logging_jobname=gateway"
+        - "logging_jobname=gateway"
     depends_on:
       - prometheus
     ports:
