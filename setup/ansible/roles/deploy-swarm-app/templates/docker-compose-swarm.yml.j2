@@ -4,13 +4,6 @@ services:
       - "DOCKER_NETWORK_NAME=distributed_cluster_default"
       - "USING_WSL2=0"
     image: {{ docker_username }}/jupyter-debug:latest
-    labels:
-      app: "distributed_cluster"
-      component: "jupyter_server"
-      logging: "promtail"
-      logging_jobname: "jupyter"
-      traefik.enable: "true"
-      traefik.constraint-label: "traefik-public"
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
     ports:
       - target: 8888
@@ -23,6 +16,15 @@ services:
       restart_policy:
         condition: any
       endpoint_mode: dnsrr
+      labels:
+        - "app=distributed_cluster"
+        - "component=jupyter_server"
+        - "logging=promtail"
+        - "logging_jobname=jupyter"
+        - "traefik.enable=true"
+        - "traefik.constraint-label=traefik-public"
+        - "traefik.http.services.jupyter.loadbalancer.server.port=8888"
+        - "traefik.http.routers.jupyter.entrypoints=web,websecure"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -31,13 +33,6 @@ services:
       - "DOCKER_NETWORK_NAME=distributed_cluster_default"
       - "USING_WSL2=0"
     image: {{ docker_username }}/gateway:latest
-    labels:
-      app: "distributed_cluster"
-      component: "cluster_gateway"
-      logging: "promtail"
-      logging_jobname: "gateway"
-      traefik.enable: "true"
-      traefik.constraint-label: "traefik-public"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
@@ -45,6 +40,11 @@ services:
       restart_policy:
         condition: any
       endpoint_mode: dnsrr
+      labels:
+        - "app=distributed_cluster"
+        - "component=cluster_gateway"
+        - "logging=promtail"
+        "- logging_jobname=gateway"
     depends_on:
       - prometheus
     ports:
@@ -72,13 +72,6 @@ services:
       - "STORAGE=/home/{{ remote_username }}/kernel_storage"
       - "DOCKER_NETWORK_NAME=distributed_cluster_default"
     image: {{ docker_username }}/daemon:latest
-    labels:
-      app: "distributed_cluster"
-      component: "local_daemon"
-      logging: "promtail"
-      logging_jobname: "local_daemon"
-      traefik.enable: "true"
-      traefik.constraint-label: "traefik-public"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/{{ remote_username }}/kernel_base:/kernel_base
@@ -91,6 +84,11 @@ services:
         condition: any
       mode: global
       endpoint_mode: dnsrr
+      labels:
+        - "app=distributed_cluster"
+        - "component=local_daemon"
+        - "logging=promtail"
+        - "logging_jobname=local_daemon"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -108,13 +106,15 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.listen-address=0.0.0.0:8500
     image: {{ prometheus_docker_image_name }}:{{ prometheus_docker_image_tag }}
-    labels:
-      traefik.enable: "true"
-      traefik.constraint-label: "traefik-public"
     deploy:
       restart_policy:
         condition: on-failure
       endpoint_mode: dnsrr
+      labels:
+        - "traefik.enable=true"
+        - "traefik.constraint-label=traefik-public"
+        - "traefik.http.services.prometheus.loadbalancer.server.port=8500"
+        - "traefik.http.routers.prometheus.entrypoints=web,websecure"
     user: 0:0
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -124,6 +124,11 @@ services:
     command: -config.file=/etc/loki/loki-config.yaml
     deploy:
       endpoint_mode: dnsrr
+      labels:
+        - "traefik.enable=true"
+        - "traefik.constraint-label=traefik-public"
+        - "traefik.http.services.loki.loadbalancer.server.port=8500"
+        - "traefik.http.routers.loki.entrypoints=web,websecure"
     ports:
       - target: 3100
         published: 3100
@@ -153,9 +158,6 @@ services:
         published: 3000
         protocol: tcp
         mode: host
-    labels:
-      traefik.enable: "true"
-      traefik.constraint-label: "traefik-public"
     environment:
       - "GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}"
       - "GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}"
@@ -167,23 +169,30 @@ services:
       restart_policy:
         condition: on-failure
       endpoint_mode: dnsrr
+      labels:
+        - "traefik.enable=true"
+        - "traefik.constraint-label=traefik-public"
+        - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+        - "traefik.http.routers.grafana.entrypoints=web,websecure"
 
-  dashboard_backend:
+  dashboard:
     image: scusemua/distributed-notebook-dashboard-backend:latest
     ports:
       - target: {{ dashboard_backend_server_port }}
         published: {{ dashboard_backend_server_port }}
         protocol: tcp
         mode: host
-    labels:
-      traefik.enable: "true"
-      traefik.constraint-label: "traefik-public"
     environment:
     - "DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}"
     deploy:
       restart_policy:
         condition: on-failure
       endpoint_mode: dnsrr
+      labels:
+        - "traefik.enable=true"
+        - "traefik.constraint-label=traefik-public"
+        - "traefik.http.services.dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
+        - "traefik.http.routers.dashboard.entrypoints=web,websecure"
     volumes:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
       - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml
