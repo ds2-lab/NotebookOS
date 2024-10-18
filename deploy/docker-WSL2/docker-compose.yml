@@ -173,19 +173,19 @@ services:
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
       - grafana_data:/var/lib/grafana
 
-  dashboard_backend:
-    image: scusemua/distributed-notebook-dashboard-backend:latest
-    ports:
-      - "9000:9000"
-    restart: unless-stopped
-    volumes:
-      - ./dashboard-backend/config-docker.yaml:/etc/distributed-notebook-cluster/dashboard.yaml
-
-  dashboard_frontend:
-    image: scusemua/distributed-notebook-dashboard-frontend:latest
-    ports:
-      - "8001:8001"
-    restart: unless-stopped
+#  dashboard_backend:
+#    image: scusemua/distributed-notebook-dashboard-backend:latest
+#    ports:
+#      - "9000:9000"
+#    restart: unless-stopped
+#    volumes:
+#      - ./dashboard-backend/config-docker.yaml:/etc/distributed-notebook-cluster/dashboard.yaml
+#
+#  dashboard_frontend:
+#    image: scusemua/distributed-notebook-dashboard-frontend:latest
+#    ports:
+#      - "8001:8001"
+#    restart: unless-stopped
 
 volumes:
   coredumps_volume:

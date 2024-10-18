@@ -8,9 +8,12 @@ jupyter-server-address: jupyter:8888
 server-port: {{ dashboard_backend_server_port }}
 cluster-dashboard-handler-port: {{ dashboard_backend_grpc_port }}
 websocket-proxy-port: {{ dashboard_backend_websocket_proxy_port }}
-expected-origin-port: 8001
 admin_username: '"{{ dashboard_admin_username }}"'
 admin_password: '"{{ dashboard_admin_password }}"'
+
+# Used by the WebSocket connection upgrader.
+expected-origin-port: {{ dashboard_backend_server_port }}
+expected_websocket_origins: "http://localhost,http://127.0.0.1"
 
 # How long JWT tokens are valid
 token_valid_duration_sec: {{ dashboard_token_valid_duration_sec }}
