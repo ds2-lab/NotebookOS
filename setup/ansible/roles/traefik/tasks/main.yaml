@@ -23,22 +23,20 @@
   shell: "docker node update --label-add traefik-public.traefik-public-certificates=true {{ hostvars['swarm-leader'].ansible_nodename }}"
 
 - name: Create Traefik network
-  shell: 'docker network create --driver=overlay traefik-public > create_traefik_network.txt'
-  args:
-    chdir: $HOME
-    creates: create_traefik_network.txt
-
-- name: Create the Traefik network within Docker
-  shell: 'docker network create --driver=overlay traefik-public > create_traefik_network.txt'
-  args:
-    chdir: $HOME
-    creates: create_traefik_network.txt
+  docker_network:
+    name: traefik_public
+    driver: overlay
+    scope: swarm
+    state: present
+  become: true
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
 - name: "Deploy the Traefik Docker Swarm stack"
   shell: "docker stack deploy -c '{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/traefik/files/docker-compose.yml' {{ traefik_docker_swarm_stack_name }}"
-  delegate_to: "{{ groups['docker-swarm-manager'][0] }}"
   become: true
-  when: "deploy_distributed_jupyter_notebook_app == true"
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
     USERNAME: "{{ traefik_username }}"

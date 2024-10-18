@@ -12,8 +12,12 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
-- name: Remove the Traefik network from Docker
-  shell: 'docker network rm traefik-public'
-  args:
-    chdir: $HOME
-    creates: create_traefik_network.txt
+- name: Delete the Traefik network, disconnecting all containers
+  docker_network:
+    name: traefik-public
+    state: absent
+    force: yes
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
