@@ -47,6 +47,7 @@ services:
         - "component=cluster_gateway"
         - "logging=promtail"
         - "logging_jobname=gateway"
+        - "traefik.http.services.gateway.loadbalancer.server.port={{ distributed_notebook_debug_port }}"
     depends_on:
       - prometheus
     ports:
@@ -91,6 +92,7 @@ services:
         - "component=local_daemon"
         - "logging=promtail"
         - "logging_jobname=local_daemon"
+        - "traefik.http.services.daemon.loadbalancer.server.port=8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -154,6 +156,8 @@ services:
     command: -config.file=/etc/promtail/config.yml
     deploy:
       endpoint_mode: dnsrr
+      labels:
+        - "traefik.http.services.promtail.loadbalancer.server.port=9080"
     depends_on:
       - loki
 
