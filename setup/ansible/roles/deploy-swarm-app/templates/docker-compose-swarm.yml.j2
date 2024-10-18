@@ -3,12 +3,12 @@ services:
     environment:
       - "DOCKER_NETWORK_NAME=distributed_cluster_default"
       - "USING_WSL2=0"
-    image: {{ docker_username }}/jupyter-debug:python3.12.6
+    image: {{ docker_username }}/jupyter-debug:latest
     labels:
       app: "distributed_cluster"
       component: "jupyter_server"
       logging: "promtail"
-      logging_jobname: "local_daemon"
+      logging_jobname: "jupyter"
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
     ports:
       - target: 8888
@@ -33,7 +33,7 @@ services:
       app: "distributed_cluster"
       component: "cluster_gateway"
       logging: "promtail"
-      logging_jobname: "local_daemon"
+      logging_jobname: "gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml

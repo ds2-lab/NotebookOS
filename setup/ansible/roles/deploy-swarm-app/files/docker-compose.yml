@@ -4,10 +4,12 @@ services:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: scusemua/jupyter-debug:python3.12.6
+    image: scusemua/jupyter-debug:latest
     labels:
       app: "distributed_cluster"
       component: "jupyter_server"
+      logging: "promtail"
+      logging_jobname: "jupyter"
     command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
     ports:
       - "8888:8888"
@@ -27,6 +29,8 @@ services:
     labels:
       app: "distributed_cluster"
       component: "cluster_gateway"
+      logging: "promtail"
+      logging_jobname: "gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
@@ -55,6 +59,8 @@ services:
     labels:
       app: "distributed_cluster"
       component: "local_daemon"
+      logging: "promtail"
+      logging_jobname: "local_daemon"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/ubuntu/kernel_base:/kernel_base
