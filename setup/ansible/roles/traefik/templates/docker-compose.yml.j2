@@ -28,6 +28,8 @@ services:
       # Use the traefik-public network
       - "--providers.docker.network=traefik-public"
       - "--log.level=debug"
+    environment:
+    - "TRAEFIK_API_INSECURE=true"
     deploy:
       mode: global
       placement:
@@ -37,6 +39,8 @@ services:
         - "traefik.enable=true"
         - "traefik.docker.network=traefik-public"
         - "traefik.http.services.api.loadbalancer.server.port=8054"
+        - "traefik.http.routers.api.service=api@internal"
+        - "traefik.http.routers.api.entrypoints=http"
         - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/api`)"
 
 # volumes:
