@@ -1,14 +1,13 @@
 - name: Print auto-selected 'advertise address' for Docker Swarm cluster
   debug:
-    # msg: "Docker Swarm 'advertise' address: {{ hostvars[groups['docker-swarm-manager'][0]].ansible_default_ipv4.address|default(hostvars[groups['docker-swarm-manager'][0]].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
-    msg: "Docker Swarm 'advertise' address: {{ hostvars['swarm-leader'].ansible_host }}"
+    msg: "Docker Swarm 'advertise' address: {{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
 
 - name: Initialize Docker Swarm cluster with first manager node
   docker_swarm:
     state: present
     advertise_addr: "{{ hostvars['swarm-leader'].ansible_host }}"
   register: swarm_output
-  when: inventory_hostname in groups['docker-swarm-manager'][0]
+  when: inventory_hostname in 'swarm-leader'
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
   vars:
@@ -16,16 +15,17 @@
 
 - name: Print swarm facts
   debug:
-    msg: "hostvars[groups['docker-swarm-manager'][0]]['swarm_output']: {{ hostvars[groups['docker-swarm-manager'][0]]['swarm_output'] }}"
+    msg: "hostvars['swarm-leader']['swarm_output']: {{ hostvars['swarm-leader']['swarm_output'] }}"
 
 - name: Add any additional manager nodes to the Docker Swarm cluster
   docker_swarm:
     state: join
     timeout: "{{ docker_swarm_api_response_timeout }}"
-    advertise_addr: "{{ hostvars[groups['docker-swarm-manager'][0]].ansible_default_ipv4.address|default(hostvars[groups['docker-swarm-manager'][0]].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
-    join_token: "{{ hostvars[groups['docker-swarm-manager'][0]]['swarm_output']['swarm_facts']['JoinTokens']['Manager']}}"
-    remote_addrs: "{{ hostvars[groups['docker-swarm-manager'][0]].ansible_default_ipv4.address|default(hostvars[groups['docker-swarm-manager'][0]].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
-  when: inventory_hostname in groups['docker-swarm-manager'] and inventory_hostname not in groups['docker-swarm-manager'][0]
+    advertise_addr: "{{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+    join_token: "{{ hostvars['swarm-leader']['swarm_output']['swarm_facts']['JoinTokens']['Manager']}}"
+    remote_addrs: "{{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+    listen_addr: "{{ }}:{{ docker_swarm_advertise_address_port }}"
+  when: inventory_hostname in groups['docker-swarm-manager'] and inventory_hostname not in 'swarm-leader'
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
   vars:
@@ -35,9 +35,9 @@
   docker_swarm:
     state: join
     timeout: "{{ docker_swarm_api_response_timeout }}"
-    advertise_addr: "{{ hostvars[groups['docker-swarm-manager'][0]].ansible_default_ipv4.address|default(hostvars[groups['docker-swarm-manager'][0]].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
-    join_token: "{{ hostvars[groups['docker-swarm-manager'][0]]['swarm_output']['swarm_facts']['JoinTokens']['Worker'] }}"
-    remote_addrs: "{{ hostvars[groups['docker-swarm-manager'][0]].ansible_default_ipv4.address|default(hostvars[groups['docker-swarm-manager'][0]].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+    advertise_addr: "{{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+    join_token: "{{ hostvars['swarm-leader']['swarm_output']['swarm_facts']['JoinTokens']['Worker'] }}"
+    remote_addrs: "{{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
   when: inventory_hostname in groups['docker-swarm-worker']
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
@@ -47,12 +47,12 @@
 - name: Set desired_node_count variable
   set_fact:
     desired_node_count: "{{ groups['docker-swarm'] | length }}"
-  when: inventory_hostname in groups['docker-swarm-manager'][0]
+  when: inventory_hostname in 'swarm-leader'
 
 - name: Print the value of the desired_node_count variable
   debug:
     msg: "desired_node_count: {{ desired_node_count }}"
-  when: inventory_hostname in groups['docker-swarm-manager'][0]
+  when: inventory_hostname in 'swarm-leader'
 
 - name: Create Cluster Gateway's runtime state directory if it doesn't already exist
   file:

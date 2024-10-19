@@ -26,7 +26,7 @@
   docker_network:
     name: traefik-public
     driver: overlay
-    attachable: true 
+    attachable: true
     scope: swarm
     state: present
   become: true
