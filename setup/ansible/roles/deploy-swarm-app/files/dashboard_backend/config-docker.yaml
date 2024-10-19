@@ -3,13 +3,16 @@ spoof-nodes: false
 spoof-kernels: false
 spoof-specs: false
 server-port: 8000
-workload-presets-file: "configs/workload-presets-file.yaml"
+workload-presets-file: "/etc/distributed-notebook-cluster/workload-presets-file.yaml"
 gateway-address: gateway:8079
 cluster-dashboard-handler-port: 8078
 websocket-proxy-port: 8077
-expected-origin-port: 8001
 admin_username: "scusemua"
 admin_password: "123456"
+
+# Used by the WebSocket connection upgrader.
+expected-origin-port: 8000
+expected_websocket_origins: "http://localhost,http://127.0.0.1"
 
 # How long JWT tokens are valid
 token_valid_duration_sec: 3600
