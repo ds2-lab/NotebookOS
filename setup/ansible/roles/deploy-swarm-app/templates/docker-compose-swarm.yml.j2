@@ -27,6 +27,8 @@ services:
 
         - "traefik.http.routers.jupyter-http.entryPoints=http"
         - "traefik.http.routers.jupyter-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/jupyter`)"
+        - "traefik.http.middlewares.jupyter-strip.stripprefix.prefixes=/jupyter"
+        - "traefik.http.routers.jupyter-http.middlewares=jupyter-strip"
 
         - "traefik.http.services.jupyter.loadbalancer.server.port=8888"
         - "traefik.http.routers.jupyter-http.service=jupyter"
@@ -59,6 +61,8 @@ services:
 
         - "traefik.http.routers.gateway-http.entryPoints=http"
         - "traefik.http.routers.gateway-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/gateway`)"
+        - "traefik.http.middlewares.gateway-strip.stripprefix.prefixes=/gateway"
+        - "traefik.http.routers.gateway-http.middlewares=gateway-strip"
 
         - "traefik.http.services.gateway.loadbalancer.server.port={{ distributed_notebook_debug_port }}"
         - "traefik.http.routers.gateway-http.service=gateway"
@@ -126,6 +130,8 @@ services:
 
         - "traefik.http.routers.prometheus-http.entryPoints=http"
         - "traefik.http.routers.prometheus-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/prometheus`)"
+        - "traefik.http.middlewares.prometheus-strip.stripprefix.prefixes=/prometheus"
+        - "traefik.http.routers.prometheus-http.middlewares=prometheus-strip"
 
         - "traefik.http.services.prometheus.loadbalancer.server.port=8500"
         - "traefik.http.routers.prometheus-http.service=prometheus"
@@ -147,6 +153,8 @@ services:
 
         - "traefik.http.routers.loki-http.entryPoints=http"
         - "traefik.http.routers.loki-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/loki`)"
+        - "traefik.http.middlewares.loki-strip.stripprefix.prefixes=/loki"
+        - "traefik.http.routers.loki-http.middlewares=loki-strip"
 
         - "traefik.http.services.loki.loadbalancer.server.port=3100"
         - "traefik.http.routers.loki-http.service=loki"
@@ -197,6 +205,8 @@ services:
 
         - "traefik.http.routers.grafana-http.entryPoints=http"
         - "traefik.http.routers.grafana-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/grafana`)"
+        - "traefik.http.middlewares.grafana-strip.stripprefix.prefixes=/grafana"
+        - "traefik.http.routers.grafana-http.middlewares=grafana-strip"
 
         - "traefik.http.services.grafana.loadbalancer.server.port=3000"
         - "traefik.http.routers.grafana-http.service=grafana"
@@ -219,10 +229,14 @@ services:
         - "traefik.constraint-label=traefik-public"
 
         - "traefik.http.routers.distributed-notebook-dashboard-http.entryPoints=http"
-        - "traefik.http.routers.distributed-notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/distributed-notebook-dashboard`)"
-
-        - "traefik.http.services.distributed-notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
+        - "traefik.http.routers.distributed-notebook-dashboard-http.rule=PathPrefix(`/distributed-notebook-dashboard`)"
         - "traefik.http.routers.distributed-notebook-dashboard-http.service=distributed-notebook-dashboard"
+        - "traefik.http.services.distributed-notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
+        - "traefik.http.middlewares.distributed-notebook-dashboard-strip.stripprefix.prefixes=/distributed-notebook-dashboard"
+        - "traefik.http.routers.distributed-notebook-dashboard-http.middlewares=distributed-notebook-dashboard-strip"
+        - "traefik.http.middlewares.distributed-notebook-dashboard-strip.stripprefix.forceslash=false"
+        # - "traefik.http.routers.distributed-notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/distributed-notebook-dashboard`)"
+
     volumes:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
       - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml

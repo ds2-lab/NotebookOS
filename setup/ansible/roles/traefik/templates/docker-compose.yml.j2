@@ -64,12 +64,12 @@ services:
         - "traefik.http.routers.traefik-api-internal-http.entrypoints=traefik-admin-dashboard"
 
          # Define the port inside of the Docker service to use
-        # - "traefik.http.services.traefik-api-internal-svc.loadbalancer.server.port=1337"
+        - "traefik.http.services.traefik-api-internal-svc.loadbalancer.server.port=1337"
 
-        - "traefik.http.routers.traefik-public-http.middlewares=admin-auth"
-        - "traefik.http.routers.traefik-public-http.service=api@internal"
-        - "traefik.http.routers.traefik-public-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
-        - "traefik.http.routers.traefik-public-http.entrypoints=http"
+        # - "traefik.http.routers.traefik-public-http.middlewares=admin-auth"
+        # - "traefik.http.routers.traefik-public-http.service=api@internal"
+        # - "traefik.http.routers.traefik-public-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
+        # - "traefik.http.routers.traefik-public-http.entrypoints=http"
 
         # Define the port inside of the Docker service to use
         # - "traefik.http.services.traefik-public-svc.loadbalancer.server.port=1338"
