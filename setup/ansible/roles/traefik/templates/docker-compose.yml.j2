@@ -47,6 +47,7 @@ services:
       - "--api"
       - "--api.dashboard=true"
       - "--api.insecure=true"
+      - "--api.debug=true"
       # Use the traefik-public network
       - "--providers.docker.network=traefik-public"
       - "--log.level=debug"
