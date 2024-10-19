@@ -41,7 +41,7 @@ services:
         - "traefik.http.services.api.loadbalancer.server.port=8054"
         - "traefik.http.routers.api.service=api@internal"
         - "traefik.http.routers.api.entrypoints=http"
-        - "traefik.http.routers.api.rule=Host(`traefik.localhost`)"
+        - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
         # - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/api`)"
 
 # volumes:
