@@ -2,9 +2,30 @@ services:
   traefik:
     image: traefik:v3.2
     ports:
-      # listen on host ports without ingress network
-      - "80:80"
-      - "8054:8054"
+      # Host mode is essential to work with IPv6
+      # Listen on port 80, default for HTTP, necessary to redirect to HTTPS
+      - target: 80
+        published: 80
+        mode: host
+        protocol: tcp
+      # Listen on port 443, default for HTTPS
+      - target: 443
+        published: 443
+        mode: host
+        protocol: tcp
+
+      # portainer
+      - '9001:9001'
+      # elasticsearch / kibana
+      - '9002:9002'
+      # traefik ui
+      - '9004:9004'
+
+      # phpmyadmin
+      - '9005:9005'
+
+      # mailhog
+      - '8025:8025'
     networks:
       - traefik-public
     volumes:
@@ -15,6 +36,7 @@ services:
       - "--providers.swarm.endpoint=unix:///var/run/docker.sock"
       # Do not expose all Docker services, only the ones explicitly exposed
       - "--providers.docker.exposedbydefault=false"
+      - "--providers.swarm.network=traefik-public"
       # Create an entrypoint "http" listening on address 80
       - "--entryPoints.http.address=:80"
       # Enable the access log, with HTTP requests
@@ -28,6 +50,12 @@ services:
       # Use the traefik-public network
       - "--providers.docker.network=traefik-public"
       - "--log.level=debug"
+
+      # SMDM entrypoints additional services
+      - "--entryPoints.dashboard.address=:8000"
+      - "--entryPoints.traefik-ui.address=:9004"
+      - "--entryPoints.gateway.address=:{{ distributed_notebook_debug_port }}"
+      - "--entryPoints.jupyter.address=:8888"
     environment:
     - "TRAEFIK_API_INSECURE=true"
     deploy:
@@ -38,10 +66,15 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=traefik-public"
-        - "traefik.http.services.api.loadbalancer.server.port=8054"
+        - "traefik.http.middlewares.admin-auth.basicauth.users=${USERNAME?Variable not set}:${HASHED_PASSWORD?Variable not set}"
+        - "traefik.http.routers.traefik-public-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
+        - "traefik.http.routers.traefik-public-http.entrypoints=traefik-ui"
+        - "traefik.http.services.traefik-public.loadbalancer.server.port=8080"
         - "traefik.http.routers.api.service=api@internal"
-        - "traefik.http.routers.api.entrypoints=http"
         - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
+        - "traefik.constraint-label=traefik-public"
+          # Add a constraint to only use services with the label "traefik.constraint-label=traefik-public"
+          - "--providers.swarm.constraints=Label(`traefik.constraint-label`, `traefik-public`)"
         # - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/api`)"
 
 # volumes:
