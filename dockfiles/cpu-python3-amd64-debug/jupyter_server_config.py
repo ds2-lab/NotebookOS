@@ -199,7 +199,7 @@ c.ServerApp.allow_origin = '*'
 #                         Leading and trailing slashes can be omitted,
 #                         and will automatically be added.
 #  Default: '/'
-# c.ServerApp.base_url = '/'
+#  c.ServerApp.base_url = '/'
 
 # Specify what command to use to invoke a web
 #                        browser when starting the server. If not specified, the

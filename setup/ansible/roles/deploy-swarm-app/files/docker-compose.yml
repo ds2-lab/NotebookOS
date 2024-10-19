@@ -10,7 +10,7 @@ services:
       logging: "promtail"
       logging_jobname: "jupyter"
       traefik.enable: "true"
-    command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
+    command: start-notebook.sh --NotebookApp.token='' --ServerApp.base_url="/jupyter" --log-level=DEBUG
     ports:
       - "8888:8888"
     depends_on:

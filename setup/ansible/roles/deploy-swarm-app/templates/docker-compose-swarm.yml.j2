@@ -4,7 +4,7 @@ services:
       - "DOCKER_NETWORK_NAME=distributed_cluster_default"
       - "USING_WSL2=0"
     image: {{ docker_username }}/jupyter-debug:latest
-    command: start-notebook.sh --NotebookApp.token='' --log-level=DEBUG
+    command: start-notebook.sh --NotebookApp.token='' --ServerApp.base_url="/jupyter" --log-level=DEBUG
     expose:
     - "8888"
     networks:
