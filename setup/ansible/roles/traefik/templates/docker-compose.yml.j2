@@ -50,6 +50,8 @@ services:
       # Use the traefik-public network
       - "--providers.docker.network=traefik-public"
       - "--log.level=debug"
+      # Add a constraint to only use services with the label "traefik.constraint-label=traefik-public"
+      - "--providers.swarm.constraints=Label(`traefik.constraint-label`, `traefik-public`)"
 
       # SMDM entrypoints additional services
       - "--entryPoints.dashboard.address=:8000"
@@ -73,8 +75,6 @@ services:
         - "traefik.http.routers.api.service=api@internal"
         - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
         - "traefik.constraint-label=traefik-public"
-          # Add a constraint to only use services with the label "traefik.constraint-label=traefik-public"
-          - "--providers.swarm.constraints=Label(`traefik.constraint-label`, `traefik-public`)"
         # - "traefik.http.routers.api.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/api`)"
 
 # volumes:
