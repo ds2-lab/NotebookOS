@@ -211,7 +211,7 @@ services:
         - "traefik.http.services.grafana.loadbalancer.server.port=3000"
         - "traefik.http.routers.grafana-http.service=grafana"
 
-  notebook-dashboard:
+  notebook_dashboard:
     image: scusemua/distributed-notebook-dashboard-backend:latest
     networks:
     - traefik-public
@@ -228,13 +228,12 @@ services:
         - "traefik.docker.network=traefik-public"
         - "traefik.constraint-label=traefik-public"
 
-        - "traefik.http.routers.distributed-notebook-dashboard-http.entryPoints=http"
-        - "traefik.http.routers.distributed-notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/notebook-dashboard`)"
-        - "traefik.http.routers.distributed-notebook-dashboard-http.service=notebook-dashboard"
-        - "traefik.http.services.distributed-notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
-        - "traefik.http.middlewares.distributed-notebook-dashboard-strip.stripprefix.prefixes=/notebook-dashboard"
-        - "traefik.http.routers.distributed-notebook-dashboard-http.middlewares=notebook-dashboard-strip"
-        # - "traefik.http.routers.distributed-notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/notebook-dashboard`)"
+        - "traefik.http.routers.notebook-dashboard-http.entryPoints=http"
+        - "traefik.http.routers.notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/notebook-dashboard`)"
+        - "traefik.http.routers.notebook-dashboard-http.service=notebook_dashboard"
+        - "traefik.http.services.notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
+        - "traefik.http.middlewares.notebook-dashboard-strip.stripprefix.prefixes=/notebook-dashboard"
+        - "traefik.http.routers.notebook-dashboard-http.middlewares=notebook-dashboard-strip"
 
     volumes:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
