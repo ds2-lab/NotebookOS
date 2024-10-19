@@ -14,7 +14,7 @@ services:
         mode: host
         protocol: tcp
       # traefik ui
-      - "'{{ traefik_ui_port }}:{{ traefik_ui_port }}'"
+      - "{{ traefik_ui_port }}:{{ traefik_ui_port }}"
     networks:
       - traefik-public
     volumes:
