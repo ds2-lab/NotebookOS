@@ -20,13 +20,15 @@ services:
         - "component=jupyter_server"
         - "logging=promtail"
         - "logging_jobname=jupyter"
+
         - "traefik.enable=true"
-        - "traefik.constraint-label=traefik-public"
-        - "traefik.http.services.jupyter.loadbalancer.server.port=8888"
-        - "traefik.http.routers.jupyter.entryPoints=http"
         - "traefik.docker.network=traefik-public"
-        - "traefik.http.routers.jupyter.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/jupyter`)"
-        - "traefik.http.routers.jupyter.service=jupyter"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.jupyter-http.entryPoints=http"
+        - "traefik.http.routers.jupyter-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/jupyter`)"
+
+        - "traefik.http.services.jupyter.loadbalancer.server.port=8888"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -49,7 +51,14 @@ services:
         - "component=cluster_gateway"
         - "logging=promtail"
         - "logging_jobname=gateway"
+
+        - "traefik.enable=true"
         - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.gateway-http.entryPoints=http"
+        - "traefik.http.routers.gateway-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/gateway`)"
+
         - "traefik.http.services.gateway.loadbalancer.server.port={{ distributed_notebook_debug_port }}"
     depends_on:
       - prometheus
@@ -88,7 +97,6 @@ services:
         - "component=local_daemon"
         - "logging=promtail"
         - "logging_jobname=local_daemon"
-        - "traefik.http.services.daemon.loadbalancer.server.port=8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -111,12 +119,13 @@ services:
       endpoint_mode: dnsrr
       labels:
         - "traefik.enable=true"
-        - "traefik.constraint-label=traefik-public"
         - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.prometheus-http.entryPoints=http"
+        - "traefik.http.routers.prometheus-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/prometheus`)"
+
         - "traefik.http.services.prometheus.loadbalancer.server.port=8500"
-        - "traefik.http.routers.prometheus.entryPoints=http"
-        - "traefik.http.routers.prometheus.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/prometheus`)"
-        - "traefik.http.routers.prometheus.service=prometheus"
     user: 0:0
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -130,12 +139,13 @@ services:
       endpoint_mode: dnsrr
       labels:
         - "traefik.enable=true"
-        - "traefik.constraint-label=traefik-public"
-        - "traefik.http.services.loki.loadbalancer.server.port=8500"
-        - "traefik.http.routers.loki.entryPoints=http"
         - "traefik.docker.network=traefik-public"
-        - "traefik.http.routers.loki.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/loki`)"
-        - "traefik.http.routers.loki.service=loki"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.loki-http.entryPoints=http"
+        - "traefik.http.routers.loki-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/loki`)"
+
+        - "traefik.http.services.loki.loadbalancer.server.port=3100"
     expose:
     - "3100"
     volumes:
@@ -178,14 +188,15 @@ services:
       endpoint_mode: dnsrr
       labels:
         - "traefik.enable=true"
-        - "traefik.constraint-label=traefik-public"
-        - "traefik.http.services.grafana.loadbalancer.server.port=3000"
-        - "traefik.http.routers.grafana.entryPoints=http"
         - "traefik.docker.network=traefik-public"
-        - "traefik.http.routers.grafana.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/grafana`)"
-        - "traefik.http.routers.grafana.service=grafana"
+        - "traefik.constraint-label=traefik-public"
 
-  dashboard:
+        - "traefik.http.routers.grafana-http.entryPoints=http"
+        - "traefik.http.routers.grafana-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/grafana`)"
+
+        - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  distributed-notebook-dashboard:
     image: scusemua/distributed-notebook-dashboard-backend:latest
     networks:
     - traefik-public
@@ -199,12 +210,13 @@ services:
       endpoint_mode: dnsrr
       labels:
         - "traefik.enable=true"
-        - "traefik.constraint-label=traefik-public"
-        - "traefik.http.services.dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
-        - "traefik.http.routers.dashboard.entryPoints=http"
         - "traefik.docker.network=traefik-public"
-        - "traefik.http.routers.dashboard.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/dashboard`)"
-        - "traefik.http.routers.dashboard.service=dashboard"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.distributed-notebook-dashboard-http.entryPoints=http"
+        - "traefik.http.routers.distributed-notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/distributed-notebook-dashboard`)"
+
+        - "traefik.http.services.distributed-notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
     volumes:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
       - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml

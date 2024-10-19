@@ -14,7 +14,7 @@ services:
         mode: host
         protocol: tcp
       # traefik ui
-      - "{{ traefik_ui_port }}:{{ traefik_ui_port }}"
+      - "'{{ traefik_ui_port }}:{{ traefik_ui_port }}'"
     networks:
       - traefik-public
     volumes:
@@ -30,9 +30,6 @@ services:
       - "--providers.swarm.network=traefik-public"
       - "--providers.swarm.constraints=Label(`traefik.constraint-label`, `traefik-public`)"
 
-      # Create an entrypoint "http" listening on address 80
-      - "--entryPoints.http.address=:80"
-
       # Enable the access log, with HTTP requests
       - "--accesslog"
       # Enable the Traefik log, for configurations and errors
@@ -45,8 +42,8 @@ services:
       - "--api.insecure=true"
       - "--api.debug=true"
 
-      # SMDM entrypoints additional services
-      - "--entryPoints.traefik-dashboard.address=:{{ traefik_ui_port }}"
+      - "--entryPoints.http.address=:80"
+      - "--entryPoints.traefik-admin-dashboard.address=:{{ traefik_ui_port }}"
     environment:
     - "TRAEFIK_API_INSECURE=true"
     deploy:
@@ -59,14 +56,19 @@ services:
         - "traefik.docker.network=traefik-public"
         - "traefik.constraint-label=traefik-public"
 
-        - "traefik.http.middlewares.admin-auth.basicauth.users=${USERNAME?Variable not set}:${HASHED_PASSWORD?Variable not set}"
+        # - "traefik.http.middlewares.admin-auth.basicauth.users=${USERNAME?Variable not set}:${HASHED_PASSWORD?Variable not set}"
         # - "traefik.http.routers.traefik-public-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
 
-        - "traefik.http.routers.traefik-dashboard.middlewares=admin-auth"
-        - "traefik.http.routers.traefik-dashboard.service=api@internal"
-        - "traefik.http.routers.traefik-dashboard.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
-        - "traefik.http.routers.traefik-dashboard.loadbalancer.server.port={{ traefik_ui_port }}"
-        - "traefik.http.routers.traefik-dashboard.entrypoints=traefik-dashboard"
+        # - "traefik.http.routers.traefik-http-public.middlewares=admin-auth"
+
+        - "traefik.http.routers.api-internal.service=api@internal"
+        - "traefik.http.routers.api-internal.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`traefik-dashboard`)"
+        - "traefik.http.routers.api-internal.middlewares=admin-auth"
+
+        - "traefik.http.routers.traefik-http-public.service=api@internal"
+        - "traefik.http.routers.traefik-http-public.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
+        - "traefik.http.routers.traefik-http-public.loadbalancer.server.port={{ traefik_ui_port }}"
+        - "traefik.http.routers.traefik-http-public.entrypoints=traefik-admin-dashboard"
 
 # volumes:
   # Create a volume to store the certificates, there is a constraint to make sure
