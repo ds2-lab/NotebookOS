@@ -211,7 +211,7 @@ services:
         - "traefik.http.services.grafana.loadbalancer.server.port=3000"
         - "traefik.http.routers.grafana-http.service=grafana"
 
-  distributed-notebook-dashboard:
+  notebook-dashboard:
     image: scusemua/distributed-notebook-dashboard-backend:latest
     networks:
     - traefik-public
@@ -229,13 +229,12 @@ services:
         - "traefik.constraint-label=traefik-public"
 
         - "traefik.http.routers.distributed-notebook-dashboard-http.entryPoints=http"
-        - "traefik.http.routers.distributed-notebook-dashboard-http.rule=PathPrefix(`/distributed-notebook-dashboard`)"
-        - "traefik.http.routers.distributed-notebook-dashboard-http.service=distributed-notebook-dashboard"
+        - "traefik.http.routers.distributed-notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/notebook-dashboard`)"
+        - "traefik.http.routers.distributed-notebook-dashboard-http.service=notebook-dashboard"
         - "traefik.http.services.distributed-notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
-        - "traefik.http.middlewares.distributed-notebook-dashboard-strip.stripprefix.prefixes=/distributed-notebook-dashboard"
-        - "traefik.http.routers.distributed-notebook-dashboard-http.middlewares=distributed-notebook-dashboard-strip"
-        - "traefik.http.middlewares.distributed-notebook-dashboard-strip.stripprefix.forceslash=false"
-        # - "traefik.http.routers.distributed-notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/distributed-notebook-dashboard`)"
+        - "traefik.http.middlewares.distributed-notebook-dashboard-strip.stripprefix.prefixes=/notebook-dashboard"
+        - "traefik.http.routers.distributed-notebook-dashboard-http.middlewares=notebook-dashboard-strip"
+        # - "traefik.http.routers.distributed-notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/notebook-dashboard`)"
 
     volumes:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
