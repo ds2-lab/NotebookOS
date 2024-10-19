@@ -63,7 +63,8 @@ services:
         - "traefik.http.routers.traefik-api-internal-http.middlewares=admin-auth"
         - "traefik.http.routers.traefik-api-internal-http.entrypoints=traefik-admin-dashboard"
 
-        - "traefik.http.services.traefik-api-internal-svc.loadbalancer.server.port=1337"
+         # Define the port inside of the Docker service to use
+        # - "traefik.http.services.traefik-api-internal-svc.loadbalancer.server.port=1337"
 
         - "traefik.http.routers.traefik-public-http.middlewares=admin-auth"
         - "traefik.http.routers.traefik-public-http.service=api@internal"
@@ -71,7 +72,7 @@ services:
         - "traefik.http.routers.traefik-public-http.entrypoints=http"
 
         # Define the port inside of the Docker service to use
-        - "traefik.http.services.traefik-public-svc.loadbalancer.server.port=1338"
+        # - "traefik.http.services.traefik-public-svc.loadbalancer.server.port=1338"
 
 # volumes:
   # Create a volume to store the certificates, there is a constraint to make sure

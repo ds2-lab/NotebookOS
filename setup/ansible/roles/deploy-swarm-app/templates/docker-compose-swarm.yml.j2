@@ -29,6 +29,7 @@ services:
         - "traefik.http.routers.jupyter-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/jupyter`)"
 
         - "traefik.http.services.jupyter.loadbalancer.server.port=8888"
+        - "traefik.http.routers.jupyter-http.service=jupyter"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -60,6 +61,7 @@ services:
         - "traefik.http.routers.gateway-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/gateway`)"
 
         - "traefik.http.services.gateway.loadbalancer.server.port={{ distributed_notebook_debug_port }}"
+        - "traefik.http.routers.gateway-http.service=gateway"
     depends_on:
       - prometheus
     expose:
@@ -126,6 +128,7 @@ services:
         - "traefik.http.routers.prometheus-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/prometheus`)"
 
         - "traefik.http.services.prometheus.loadbalancer.server.port=8500"
+        - "traefik.http.routers.prometheus-http.service=prometheus"
     user: 0:0
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -146,6 +149,7 @@ services:
         - "traefik.http.routers.loki-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/loki`)"
 
         - "traefik.http.services.loki.loadbalancer.server.port=3100"
+        - "traefik.http.routers.loki-http.service=loki"
     expose:
     - "3100"
     volumes:
@@ -195,6 +199,7 @@ services:
         - "traefik.http.routers.grafana-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/grafana`)"
 
         - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+        - "traefik.http.routers.grafana-http.service=grafana"
 
   distributed-notebook-dashboard:
     image: scusemua/distributed-notebook-dashboard-backend:latest
@@ -217,6 +222,7 @@ services:
         - "traefik.http.routers.distributed-notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/distributed-notebook-dashboard`)"
 
         - "traefik.http.services.distributed-notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
+        - "traefik.http.routers.distributed-notebook-dashboard-http.service=distributed-notebook-dashboard"
     volumes:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
       - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml
