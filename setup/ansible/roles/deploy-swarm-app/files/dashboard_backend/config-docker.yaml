@@ -9,6 +9,7 @@ cluster-dashboard-handler-port: 8078
 websocket-proxy-port: 8077
 admin_username: "scusemua"
 admin_password: "123456"
+base-listen-prefix: "/"
 
 # Used by the WebSocket connection upgrader.
 expected-origin-port: 8000
