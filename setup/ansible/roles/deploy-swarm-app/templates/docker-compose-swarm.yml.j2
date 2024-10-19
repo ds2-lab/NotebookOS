@@ -211,7 +211,7 @@ services:
         - "traefik.http.services.grafana.loadbalancer.server.port=3000"
         - "traefik.http.routers.grafana-http.service=grafana"
 
-  notebook_dashboard:
+  notebook-dashboard:
     image: scusemua/distributed-notebook-dashboard-backend:latest
     networks:
     - traefik-public
@@ -230,7 +230,7 @@ services:
 
         - "traefik.http.routers.notebook-dashboard-http.entryPoints=http"
         - "traefik.http.routers.notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/notebook-dashboard`)"
-        - "traefik.http.routers.notebook-dashboard-http.service=notebook_dashboard"
+        - "traefik.http.routers.notebook-dashboard-http.service=notebook-dashboard"
         - "traefik.http.services.notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
         - "traefik.http.middlewares.notebook-dashboard-strip.stripprefix.prefixes=/notebook-dashboard"
         - "traefik.http.routers.notebook-dashboard-http.middlewares=notebook-dashboard-strip"
