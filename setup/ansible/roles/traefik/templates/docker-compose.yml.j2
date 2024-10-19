@@ -56,19 +56,22 @@ services:
         - "traefik.docker.network=traefik-public"
         - "traefik.constraint-label=traefik-public"
 
-        # - "traefik.http.middlewares.admin-auth.basicauth.users=${USERNAME?Variable not set}:${HASHED_PASSWORD?Variable not set}"
-        # - "traefik.http.routers.traefik-public-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
+        - "traefik.http.middlewares.admin-auth.basicauth.users=${USERNAME?Variable not set}:${HASHED_PASSWORD?Variable not set}"
 
-        # - "traefik.http.routers.traefik-http-public.middlewares=admin-auth"
+        - "traefik.http.routers.traefik-api-internal-http.service=api@internal"
+        - "traefik.http.routers.traefik-api-internal-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
+        - "traefik.http.routers.traefik-api-internal-http.middlewares=admin-auth"
+        - "traefik.http.routers.traefik-api-internal-http.entrypoints=traefik-admin-dashboard"
 
-        - "traefik.http.routers.api-internal.service=api@internal"
-        - "traefik.http.routers.api-internal.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`traefik-dashboard`)"
-        - "traefik.http.routers.api-internal.middlewares=admin-auth"
+        - "traefik.http.services.traefik-api-internal-svc.loadbalancer.server.port=1337"
 
-        - "traefik.http.routers.traefik-http-public.service=api@internal"
-        - "traefik.http.routers.traefik-http-public.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
-        - "traefik.http.routers.traefik-http-public.loadbalancer.server.port={{ traefik_ui_port }}"
-        - "traefik.http.routers.traefik-http-public.entrypoints=traefik-admin-dashboard"
+        - "traefik.http.routers.traefik-public-http.middlewares=admin-auth"
+        - "traefik.http.routers.traefik-public-http.service=api@internal"
+        - "traefik.http.routers.traefik-public-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
+        - "traefik.http.routers.traefik-public-http.entrypoints=http"
+
+        # Define the port inside of the Docker service to use
+        - "traefik.http.services.traefik-public-svc.loadbalancer.server.port=1338"
 
 # volumes:
   # Create a volume to store the certificates, there is a constraint to make sure
