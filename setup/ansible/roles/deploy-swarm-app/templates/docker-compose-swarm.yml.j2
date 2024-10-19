@@ -112,9 +112,9 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.constraint-label=traefik-public"
+        - "traefik.docker.network=traefik-public"
         - "traefik.http.services.prometheus.loadbalancer.server.port=8500"
         - "traefik.http.routers.prometheus.entryPoints=http"
-        - "traefik.docker.network=traefik-public"
         - "traefik.http.routers.prometheus.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/prometheus`)"
         - "traefik.http.routers.prometheus.service=prometheus"
     user: 0:0

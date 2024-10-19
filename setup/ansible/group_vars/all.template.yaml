@@ -38,6 +38,7 @@ traefik_username: admin
 traefik_password: 123456
 traefik_email: your_email@provider.com
 traefik_docker_swarm_stack_name: distributed_notebook_traefik
+traefik_ui_port: 8054
 
 ##################################################################
 # SSH and Top-Level Variables
