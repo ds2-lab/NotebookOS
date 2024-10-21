@@ -3,7 +3,7 @@
 # Once removed, the playbook will recreate the stack.
 
 - name: Remove the Traefik stack on the Docker Swarm cluster
-  hosts: docker-swarm-manager
+  hosts: swarm-leader
   roles:
     - remove-traefik
   tags:
@@ -13,7 +13,7 @@
     - reinstall_traefik
 
 - name: Redeploy the Traefik stack on the Docker Swarm cluster
-  hosts: docker-swarm-manager
+  hosts: swarm-leader
   roles:
     - traefik
   tags:
