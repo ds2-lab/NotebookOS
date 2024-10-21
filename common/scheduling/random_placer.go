@@ -176,10 +176,6 @@ func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
 		}
 	}
 
-	if len(hosts) == 0 {
-		panic("Shouldn't have failed (debugging)")
-	}
-
 	return hosts
 }
 
