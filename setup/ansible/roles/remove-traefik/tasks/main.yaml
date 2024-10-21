@@ -6,18 +6,9 @@
     name: "{{ traefik_docker_swarm_stack_name }}"
     state: absent
   delegate_to: "{{ groups['docker-swarm-manager'][0] }}"
+  when: inventory_hostname in 'swarm-leader'
   become: true
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
-
-#- name: Delete the Traefik network, disconnecting all containers
-#  docker_network:
-#    name: traefik-public
-#    state: absent
-#    force: yes
-#  environment:
-#    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
-#  vars:
-#    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
