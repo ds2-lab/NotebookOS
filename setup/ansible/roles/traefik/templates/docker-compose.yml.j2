@@ -52,6 +52,7 @@ services:
       placement:
         constraints:
           - node.role==manager
+          - node.labels.swarm_role=swarm-leader
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=traefik-public"

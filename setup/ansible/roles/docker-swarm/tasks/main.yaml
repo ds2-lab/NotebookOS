@@ -40,6 +40,17 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
+- name: Label the first Manager node as the Swarm Leader
+  docker_node:
+    hostname: ""
+    labels:
+      swarm_role: swarm-leader
+  when: inventory_hostname in 'swarm-leader'
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
 - name: Print the swarm leader's output on each host
   debug:
     msg: "Swarm Output of Swarm Leader: {{ hostvars['swarm-leader']['swarm_output'] }}"
