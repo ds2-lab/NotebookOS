@@ -77,7 +77,7 @@ type BaseCluster struct {
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
-func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metrics.ClusterMetricsProvider) *BaseCluster {
+func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metrics.ClusterMetricsProvider, loggerPrefix string) *BaseCluster {
 	cluster := &BaseCluster{
 		gpusPerHost:              opts.GpusPerHost,
 		numReplicas:              opts.NumReplicas,
@@ -89,7 +89,12 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		validateCapacityInterval: time.Second * time.Duration(opts.ScalingInterval),
 	}
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
-	config.InitLogger(&cluster.log, cluster)
+
+	if loggerPrefix == "" {
+		config.InitLogger(&cluster.log, cluster)
+	} else {
+		config.InitLogger(&cluster.log, loggerPrefix)
+	}
 
 	if clusterMetricsProvider == nil {
 		cluster.log.Warn("Cluster Metrics Provider is nil.")
@@ -712,7 +717,8 @@ func (c *BaseCluster) NewHostAddedOrConnected(host *Host) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
-	c.log.Debug("Host %s has just connected to the Cluster or is being re-enabled.", host.ID)
+	c.log.Debug("Host %s has just connected to the Cluster or is being re-enabled. Resource spec: %s.",
+		host.ID, host.ResourceSpec().String())
 
 	c.hostMutex.Lock()
 	// The host mutex is already locked if we're performing a scaling operation.

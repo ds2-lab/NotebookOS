@@ -19,7 +19,7 @@ type KubernetesCluster struct {
 func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, hostSpec types.Spec,
 	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *KubernetesCluster {
 
-	baseCluster := newBaseCluster(opts, clusterMetricsProvider)
+	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "KubernetesCluster")
 	kubernetesCluster := &KubernetesCluster{
 		BaseCluster: baseCluster,
 	}
