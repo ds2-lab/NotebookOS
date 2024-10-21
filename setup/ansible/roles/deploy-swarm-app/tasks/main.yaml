@@ -28,7 +28,7 @@
     group: "{{ remote_username }}"
   become: true
 
-- name: Create the docker-compose.yml file for the Docker Swarm app using the associated template.
+- name: Create the docker-compose.yml file for the distributed-notebook Docker Swarm stack using the associated template.
   template:
     src: docker-compose-swarm.yml.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-swarm-app/files/docker-compose.yml"

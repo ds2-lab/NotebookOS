@@ -1,6 +1,15 @@
+- name: Leave current Docker Swarm
+  docker_swarm:
+    state: absent
+    force: true
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
 - name: Print auto-selected 'advertise address' for Docker Swarm cluster
   debug:
-    msg: "Docker Swarm 'advertise' address: {{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+    msg: "Docker Swarm 'advertise' address for node {{ inventory_hostname }}: {{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
 
 - name: Initialize Docker Swarm cluster with first manager node
   docker_swarm:
@@ -13,9 +22,13 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
-- name: Print swarm facts
+- name: Print the swarm leader's output on each host
   debug:
-    msg: "hostvars['swarm-leader']['swarm_output']: {{ hostvars['swarm-leader']['swarm_output'] }}"
+    msg: "Swarm Output of Swarm Leader: {{ hostvars['swarm-leader']['swarm_output'] }}"
+
+- name: Print the swarm leader's IPv4 on each host
+  debug:
+    msg: "IPv4 of Swarm Leader: {{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
 
 - name: Add any additional manager nodes to the Docker Swarm cluster
   docker_swarm:
@@ -24,7 +37,6 @@
     advertise_addr: "{{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
     join_token: "{{ hostvars['swarm-leader']['swarm_output']['swarm_facts']['JoinTokens']['Manager']}}"
     remote_addrs: "{{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
-    listen_addr: "{{ }}:{{ docker_swarm_advertise_address_port }}"
   when: inventory_hostname in groups['docker-swarm-manager'] and inventory_hostname not in 'swarm-leader'
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
