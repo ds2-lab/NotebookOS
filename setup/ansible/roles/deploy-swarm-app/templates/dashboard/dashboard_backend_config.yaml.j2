@@ -10,7 +10,10 @@ cluster-dashboard-handler-port: {{ dashboard_backend_grpc_port }}
 websocket-proxy-port: {{ dashboard_backend_websocket_proxy_port }}
 admin_username: '{{ dashboard_admin_username }}'
 admin_password: '{{ dashboard_admin_password }}'
-base-listen-prefix: "/notebook-dashboard"
+base-url: "/notebook-dashboard"
+
+# Defined separately from the base-url.
+prometheus-endpoint: "/prometheus"
 
 # Used by the WebSocket connection upgrader.
 expected-origin-port: {{ dashboard_backend_server_port }}
