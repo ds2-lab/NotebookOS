@@ -25,9 +25,8 @@ services:
 
         - "traefik.http.routers.jupyter-http.entryPoints=http"
         - "traefik.http.routers.jupyter-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/jupyter`)"
-        # - "traefik.http.middlewares.jupyter-strip.stripprefix.prefixes=/jupyter"
-        # - "traefik.http.middlewares.jupyter-add.addprefix.prefixes=/jupyter"
-        # - "traefik.http.routers.jupyter-http.middlewares=jupyter-strip,jupyter-add"
+        - "traefik.http.middlewares.jupyter-strip.stripprefix.prefixes=/jupyter"
+        - "traefik.http.routers.jupyter-http.middlewares=jupyter-strip"
 
         - "traefik.http.services.jupyter.loadbalancer.server.port=8888"
         - "traefik.http.routers.jupyter-http.service=jupyter"

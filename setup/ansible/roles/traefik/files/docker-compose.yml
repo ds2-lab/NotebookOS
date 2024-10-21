@@ -48,9 +48,7 @@ services:
       placement:
         constraints:
           - node.role==manager
-          # Make the traefik service run only on the node with this label
-          # as the node with it has the volume for the certificates
-          # - node.labels.traefik-public.traefik-public-certificates == true
+          - node.labels==swarm_role=swarm-leader
       labels:
         # Enable Traefik for this service, to make it available in the public network
         - traefik.enable=true
