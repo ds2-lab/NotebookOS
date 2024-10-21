@@ -240,6 +240,7 @@ services:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
       - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml
       - ./dashboard_backend/custom_event_sequences:{{ dashboard_backend_config_directory }}/custom_event_sequences
+      - ./dashboard_backend/.env:/go/.env
 
 volumes:
   coredumps_volume:

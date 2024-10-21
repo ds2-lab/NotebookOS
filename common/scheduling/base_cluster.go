@@ -717,8 +717,7 @@ func (c *BaseCluster) NewHostAddedOrConnected(host *Host) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
-	c.log.Debug("Host %s has just connected to the Cluster or is being re-enabled. Resource spec: %s.",
-		host.ID, host.ResourceSpec().String())
+	c.log.Debug("Host %s has just connected to the Cluster or is being re-enabled", host.ID)
 
 	c.hostMutex.Lock()
 	// The host mutex is already locked if we're performing a scaling operation.

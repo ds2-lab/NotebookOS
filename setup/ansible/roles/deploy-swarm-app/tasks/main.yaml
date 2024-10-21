@@ -54,7 +54,7 @@
 
 - name: Create the .production.env file for the Dashboard Backend component using the associated template.
   template:
-    src: dashboard_env.j2
+    src: ./dashboard/dashboard_env.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-swarm-app/files/dashboard_backend/.env"
     mode: 0640
     owner: "{{ remote_username }}"
