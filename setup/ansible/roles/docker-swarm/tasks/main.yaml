@@ -40,9 +40,13 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
+- name: Print ansible_nodename for Docker Swarm nodes
+  debug:
+    msg: "hostvars[inventory_hostname].ansible_nodename: {{ hostvars[inventory_hostname].ansible_nodename }}"
+
 - name: Label the first Manager node as the Swarm Leader
   docker_node:
-    hostname: ""
+    hostname: "{{ hostvars[inventory_hostname].ansible_nodename }}"
     labels:
       swarm_role: swarm-leader
   when: inventory_hostname in 'swarm-leader'
