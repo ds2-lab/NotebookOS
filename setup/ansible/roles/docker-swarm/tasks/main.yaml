@@ -7,6 +7,24 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
+- name: Pull the latest code changes before installing Docker Swarm app, discarding any local changes.
+  git:
+    repo: "{{ git_repo_url }}"
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}"
+    version: "{{ gitbranch }}"
+    update: yes
+    force: yes
+  become: true
+
+- name: Recursively change ownership of the go directory
+  ansible.builtin.file:
+    path: "{{ go_install_parent_dir }}/go/{{ git_repo_name }}"
+    state: directory
+    recurse: yes
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+  become: true
+
 - name: Print auto-selected 'advertise address' for Docker Swarm cluster
   debug:
     msg: "Docker Swarm 'advertise' address for node {{ inventory_hostname }}: {{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"

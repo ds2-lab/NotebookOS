@@ -19,9 +19,6 @@
   debug:
     msg: "hostvars['swarm-leader'].ansible_hostname: {{ hostvars['swarm-leader'].ansible_hostname }}"
 
-#- name: Add Traefik label for main node
-#  shell: "docker node update --label-add traefik-public.traefik-public-certificates=true {{ hostvars['swarm-leader'].ansible_nodename }}"
-
 - name: Create Traefik network
   docker_network:
     name: traefik-public

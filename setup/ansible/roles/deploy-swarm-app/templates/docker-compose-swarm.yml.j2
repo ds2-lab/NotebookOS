@@ -5,8 +5,6 @@ services:
       - "USING_WSL2=0"
     image: {{ docker_username }}/jupyter-debug:latest
     command: start-notebook.sh --NotebookApp.token='' --ServerApp.base_url="/jupyter" --log-level=DEBUG
-    expose:
-    - "8888"
     networks:
     - traefik-public
     depends_on:
@@ -69,10 +67,6 @@ services:
         - "traefik.http.routers.gateway-http.service=gateway"
     depends_on:
       - prometheus
-    expose:
-    - "{{ gateway_dashboard_grpc_port }}"
-    - "{{ distributed_notebook_debug_port }}"
-    - "{{ gateway_provisioner_port }}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -108,8 +102,6 @@ services:
       - "host.docker.internal:host-gateway"
 
   prometheus:
-    expose:
-    - "8500"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./prometheus:/etc/prometheus
@@ -159,8 +151,6 @@ services:
 
         - "traefik.http.services.loki.loadbalancer.server.port=3100"
         - "traefik.http.routers.loki-http.service=loki"
-    expose:
-    - "3100"
     volumes:
       - loki_data:/loki
       - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
@@ -186,8 +176,6 @@ services:
     image: {{ grafana_docker_image_name }}:{{ grafana_docker_image_tag }}
     networks:
     - traefik-public
-    expose:
-    - "3000"
     environment:
       - "GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}"
       - "GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}"
@@ -216,8 +204,6 @@ services:
     image: scusemua/distributed-notebook-dashboard-backend:latest
     networks:
     - traefik-public
-    expose:
-    - "{{ dashboard_backend_server_port }}"
     environment:
     - "DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}"
     deploy:
