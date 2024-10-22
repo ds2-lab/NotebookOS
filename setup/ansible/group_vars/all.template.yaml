@@ -58,6 +58,10 @@ gateway_debug_logging_enabled: true
 gateway_provisioner_port: 8081
 gateway_port: 8080
 
+gateway_docker_username: scusemua
+gateway_docker_image_name: gateway
+gateway_docker_image_tag: latest
+
 ##################################################################
 # Local Daemon
 ##################################################################
@@ -65,6 +69,18 @@ local_daemon_kernel_registry_port: 8075
 local_daemon_port: 8080
 
 local_daemon_debug_logging_enabled: true
+
+local_daemon_docker_username: scusemua
+local_daemon_docker_image_name: daemon
+local_daemon_docker_image_tag: latest
+
+##################################################################
+# Jupyter Server
+##################################################################
+
+jupyter_server_docker_username: scusemua
+jupyter_server_docker_image_name: jupyter-debug
+jupyter_server_docker_image_tag: latest
 
 ##################################################################
 # Dashboard Backend Configuration
@@ -78,6 +94,9 @@ gateway-address: gateway:8079
 dashboard_backend_server_port: 8000
 dashboard_backend_grpc_port: 8078
 dashboard_backend_websocket_proxy_port: 8077
+dashboard_backend_docker_username: scusemua
+dashboard_backend_docker_image_name: distributed-notebook-dashboard-backend
+dashboard_backend_docker_image_tag: latest
 
 ##################################################################
 # Filesystem

@@ -1,0 +1,5 @@
+---
+- hosts: docker-swarm
+
+  roles:
+    - pull-docker-images

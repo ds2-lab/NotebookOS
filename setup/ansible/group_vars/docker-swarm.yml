@@ -6,9 +6,6 @@ docker_swarm_advertise_address_port: 2377
 # The maximum amount of time in seconds to wait on a response from the API.
 docker_swarm_api_response_timeout: 60
 
-# The Docker user with all the images to use in the Docker Swarm application
-docker_username: scusemua
-
 ###########
 # Grafana #
 ###########
