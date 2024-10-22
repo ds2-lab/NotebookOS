@@ -28,4 +28,3 @@
     name: "{{ jupyter_server_docker_username }}/{{ jupyter_server_docker_image_name }}"
     pull: always
     tag: "{{ jupyter_server_docker_image_tag }}"
-  when: jupyter_server_docker_username/jupyter_server_docker_image_name not in distributed_notebook_kernel_docker_image_name or jupyter_server_docker_image_tag not in distributed_notebook_kernel_docker_image_tag
