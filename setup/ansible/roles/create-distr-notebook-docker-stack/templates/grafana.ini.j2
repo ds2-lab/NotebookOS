@@ -24,7 +24,11 @@ enabled = false
 [server]
 # This configuration is based on the documentation available at the link below:
 # https://grafana.com/tutorials/run-grafana-behind-a-proxy/
+
+protocol = http
+enforce_domain = false
+serve_from_sub_path = true
 domain = "{{ hostvars['swarm-leader'].ansible_host }}"
 http_port = 3000
-root_url = "{{ hostvars['swarm-leader'].ansible_host }}/grafana"
+root_url = "http://{{ hostvars['swarm-leader'].ansible_host }}/grafana/"
 router_logging = true
