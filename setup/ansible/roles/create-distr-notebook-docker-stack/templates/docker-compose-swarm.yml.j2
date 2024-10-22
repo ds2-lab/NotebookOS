@@ -173,7 +173,6 @@ services:
 
   grafana:
     image: {{ grafana_docker_image_name }}:{{ grafana_docker_image_tag }}
-    user: {{ remote_username }}
     networks:
     - traefik-public
     environment:
