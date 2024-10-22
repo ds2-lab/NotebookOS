@@ -7,9 +7,15 @@ workload-presets-file: "/etc/distributed-notebook-cluster/workload-presets-file.
 gateway-address: gateway:8079
 cluster-dashboard-handler-port: 8078
 websocket-proxy-port: 8077
-admin_username: "scusemua"
-admin_password: "123456"
+admin_username: "admin"
+admin_password: "12345"
 base-url: "/notebook-dashboard"
+
+# The address of the Jupyter Server.
+jupyter-server-address: jupyter:8888
+
+# The base path that the Jupyter Server is listening on.
+jupyter-server-base-path: /jupyter
 
 # Used by the WebSocket connection upgrader.
 expected-origin-port: 8000

@@ -40,7 +40,7 @@
   template:
     src: grafana.ini.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/create-distr-notebook-docker-stack/files/grafana/grafana.ini"
-    mode: 0640
+    mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 

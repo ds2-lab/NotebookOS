@@ -4,13 +4,18 @@ spoof-kernels: false
 spoof-specs: false
 workload-presets-file: "{{ dashboard_backend_config_directory }}/workload-presets-file.yaml"
 gateway-address: "gateway:{{ gateway_dashboard_grpc_port }}"
-jupyter-server-address: jupyter:8888/jupyter
 server-port: {{ dashboard_backend_server_port }}
 cluster-dashboard-handler-port: {{ dashboard_backend_grpc_port }}
 websocket-proxy-port: {{ dashboard_backend_websocket_proxy_port }}
 admin_username: '{{ dashboard_admin_username }}'
 admin_password: '{{ dashboard_admin_password }}'
 base-url: "/notebook-dashboard"
+
+# The address of the Jupyter Server.
+jupyter-server-address: jupyter:8888
+
+# The base path that the Jupyter Server is listening on.
+jupyter-server-base-path: /jupyter
 
 # Defined separately from the base-url.
 prometheus-endpoint: "/prometheus"
