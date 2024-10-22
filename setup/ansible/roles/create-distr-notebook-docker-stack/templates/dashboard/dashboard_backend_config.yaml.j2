@@ -22,7 +22,8 @@ prometheus-endpoint: "/prometheus"
 
 # Used by the WebSocket connection upgrader.
 expected-origin-port: {{ dashboard_backend_server_port }}
-expected_websocket_origins: "http://localhost,http://127.0.0.1"
+expected_websocket_origins: ""
+# http://localhost,http://127.0.0.1
 
 # How long JWT tokens are valid
 token_valid_duration_sec: {{ dashboard_token_valid_duration_sec }}

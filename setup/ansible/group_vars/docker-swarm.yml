@@ -11,8 +11,8 @@ docker_swarm_api_response_timeout: 60
 ###########
 
 # The admin username for Grafana
-grafana_admin_username: scusemua
-grafana_admin_password: password
+grafana_admin_username: grafana
+grafana_admin_password: 12345
 grafana_docker_image_name: grafana/grafana-enterprise
 grafana_docker_image_tag: latest
 
