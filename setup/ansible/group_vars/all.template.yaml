@@ -83,6 +83,12 @@ jupyter_server_docker_image_name: jupyter-debug
 jupyter_server_docker_image_tag: latest
 
 ##################################################################
+# Grafana
+##################################################################
+grafana_admin_username: grafana
+grafana_admin_password: 12345
+
+##################################################################
 # Dashboard Backend Configuration
 ##################################################################
 dashboard_admin_username: admin
