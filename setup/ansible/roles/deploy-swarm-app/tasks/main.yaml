@@ -36,6 +36,14 @@
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 
+- name: Create the grafana.ini configuration file using the associated template.
+  template:
+    src: grafana.ini.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-swarm-app/files/grafana/grafana.ini"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
 - name: Create the config-docker.yaml file for the Dashboard Backend component using the associated template.
   template:
     src: ./dashboard/dashboard_backend_config.yaml.j2
