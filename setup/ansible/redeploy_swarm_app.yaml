@@ -15,7 +15,7 @@
 - name: Redeploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
   hosts: swarm-leader
   roles:
-    - deploy-swarm-app
+    - create-distr-notebook-docker-stack
   tags:
     - docker
     - swarm

@@ -6,7 +6,7 @@
     - install_component
     - distributed_notebook
   roles:
-    - distributed-notebook-cluster
+    - install-distributed-notebook-cluster-dependencies
 
 - name: Gather facts about the HDFS NameNodes
   hosts: namenode
@@ -73,7 +73,7 @@
 - name: Create the Docker Swarm cluster
   hosts: docker-swarm
   roles:
-    - docker-swarm
+    - create-docker-swarm
   tags:
     - docker
     - swarm
@@ -94,7 +94,7 @@
 - name: Deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
   hosts: docker-swarm-manager
   roles:
-    - deploy-swarm-app
+    - create-distr-notebook-docker-stack
   tags:
     - docker
     - swarm

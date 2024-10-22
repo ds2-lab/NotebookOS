@@ -3,7 +3,7 @@
 - name: Deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
   hosts: docker-swarm-manager
   roles:
-    - deploy-swarm-app
+    - create-distr-notebook-docker-stack
   tags:
     - docker
     - swarm
