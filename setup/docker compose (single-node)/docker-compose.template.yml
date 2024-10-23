@@ -82,7 +82,7 @@ services:
   daemon:
     platform: linux/amd64
     environment:
-      - KERNEL_TEMP_BASE=/kernel_base
+      - KERNEL_TEMP_BASE_IN_CONTAINER=/kernel_base
       - KERNEL_IMAGE=scusemua/jupyter-debug:latest
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base

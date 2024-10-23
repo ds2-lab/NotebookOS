@@ -140,7 +140,7 @@ dashboard_backend_docker_image_tag: latest
 ##################################################################
 gateway_runtime_state_directory: "/home/{{ remote_username }}/gateway-runtime-state"
 kernel_storage_directory: "/home/{{ remote_username }}/kernel_storage"
-kernel_base_directory: "/home/{{ remote_username }}/kernel_base"
+kernel_base_directory_name: "kernel_base"
 
 ##################################################################
 # Hadoop HDFS

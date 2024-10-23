@@ -26,7 +26,13 @@ const (
 	DockerNetworkNameEnv     = "DOCKER_NETWORK_NAME"
 	DockerNetworkNameDefault = "distributed_cluster_default"
 
-	DockerTempBase        = "KERNEL_TEMP_BASE"
+	HostMountDirectory        = "HOST_MOUNT_DIR"
+	HostMountDirectoryDefault = "/home/ubuntu/kernel_base"
+
+	TargetMountDirectory        = "TARGET_MOUNT_DIR"
+	TargetMountDirectoryDefault = "/kernel_base"
+
+	DockerTempBase        = "KERNEL_TEMP_BASE_IN_CONTAINER"
 	DockerTempBaseDefault = ""
 
 	DockerImageName        = "KERNEL_IMAGE"
@@ -84,6 +90,8 @@ type DockerInvoker struct {
 	connInfo                     *jupyter.ConnectionInfo
 	opts                         *DockerInvokerOptions
 	tempBase                     string
+	hostMountDir                 string
+	targetMountDir               string
 	invokerCmd                   string                           // Command used to create the Docker container.
 	containerName                string                           // Name of the launched container; this is the empty string before the container is launched.
 	dockerNetworkName            string                           // The name of the Docker network that the Local Daemon container is running within.
@@ -153,6 +161,8 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		connInfo:                     connInfo,
 		opts:                         opts,
 		tempBase:                     utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
+		hostMountDir:                 utils.GetEnv(HostMountDirectory, HostMountDirectoryDefault),
+		targetMountDir:               utils.GetEnv(TargetMountDirectory, TargetMountDirectoryDefault),
 		smrPort:                      smrPort,
 		hdfsNameNodeEndpoint:         opts.HdfsNameNodeEndpoint,
 		id:                           uuid.NewString(),
@@ -255,11 +265,11 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 		return nil, ivk.reportLaunchError(err)
 	}
 
-	hostMountDir := os.Getenv("HOST_MOUNT_DIR")
-	targetMountDir := os.Getenv("TARGET_MOUNT_DIR")
+	//hostMountDir := os.Getenv("HOST_MOUNT_DIR")
+	//targetMountDir := os.Getenv("TARGET_MOUNT_DIR")
 
-	ivk.log.Debug("hostMountDir = \"%v\"\n", hostMountDir)
-	ivk.log.Debug("targetMountDir = \"%v\"\n", hostMountDir)
+	ivk.log.Debug("hostMountDir = \"%v\"\n", ivk.hostMountDir)
+	ivk.log.Debug("targetMountDir = \"%v\"\n", ivk.hostMountDir)
 	ivk.log.Debug("kernel debug port = %d", ivk.kernelDebugPort)
 
 	ivk.log.Debug("Prepared connection info: %v\n", connectionInfo)
@@ -288,17 +298,17 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	ivk.log.Debug("filepath.Base(connectionFile)=\"%v\"\n", filepath.Base(connectionFile))
 	ivk.log.Debug("filepath.Base(configFile)=\"%v\"\n", filepath.Base(configFile))
 
-	ivk.log.Debug("{hostMountDir}/{connectionFile}\"%v\"\n", hostMountDir+"/"+filepath.Base(connectionFile))
-	ivk.log.Debug("{hostMountDir}/{configFile}=\"%v\"\n", hostMountDir+"/"+filepath.Base(configFile))
+	ivk.log.Debug("{hostMountDir}/{connectionFile}\"%v\"\n", ivk.hostMountDir+"/"+filepath.Base(connectionFile))
+	ivk.log.Debug("{hostMountDir}/{configFile}=\"%v\"\n", ivk.hostMountDir+"/"+filepath.Base(configFile))
 
-	ivk.log.Debug("{targetMountDir}/{connectionFile}\"%v\"\n", targetMountDir+"/"+filepath.Base(connectionFile))
-	ivk.log.Debug("{targetMountDir}/{configFile}=\"%v\"\n", targetMountDir+"/"+filepath.Base(configFile))
+	ivk.log.Debug("{targetMountDir}/{connectionFile}\"%v\"\n", ivk.targetMountDir+"/"+filepath.Base(connectionFile))
+	ivk.log.Debug("{targetMountDir}/{configFile}=\"%v\"\n", ivk.targetMountDir+"/"+filepath.Base(configFile))
 
 	ivk.containerName = kernelName
 	connectionInfo.IP = ivk.containerName // Overwrite IP with container name
 	cmd := strings.ReplaceAll(ivk.invokerCmd, VarContainerName, ivk.containerName)
-	cmd = strings.ReplaceAll(cmd, TargetMountDir, targetMountDir)
-	cmd = strings.ReplaceAll(cmd, HostMountDir, hostMountDir)
+	cmd = strings.ReplaceAll(cmd, TargetMountDir, ivk.targetMountDir)
+	cmd = strings.ReplaceAll(cmd, HostMountDir, ivk.hostMountDir)
 	cmd = strings.ReplaceAll(cmd, VarConnectionFile, filepath.Base(connectionFile))
 	cmd = strings.ReplaceAll(cmd, VarConfigFile, filepath.Base(configFile))
 	cmd = strings.ReplaceAll(cmd, VarKernelId, spec.Kernel.Id)

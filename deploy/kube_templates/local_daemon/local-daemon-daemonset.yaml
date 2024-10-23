@@ -32,7 +32,7 @@ spec:
               value: scusemua/jupyter:latest
             - name: KERNEL_NETWORK
               value: local_daemon_default
-            - name: KERNEL_TEMP_BASE
+            - name: KERNEL_TEMP_BASE_IN_CONTAINER
               value: /kernel_base
             - name: STORAGE
               value: /kernel_storage

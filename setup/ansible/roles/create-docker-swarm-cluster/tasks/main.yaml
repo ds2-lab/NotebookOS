@@ -119,7 +119,7 @@
 
 - name: Create kernel base directory if it doesn't already exist
   file:
-    path: "{{ kernel_base_directory }}"
+    path: "/home/{{ remote_username }}/{{ kernel_base_directory }}"
     state: directory
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"

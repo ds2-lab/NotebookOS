@@ -71,10 +71,10 @@ services:
 
   daemon:
     environment:
-      - "KERNEL_TEMP_BASE={{ kernel_base_directory }}"
+      - "KERNEL_TEMP_BASE_IN_CONTAINER=/{{ kernel_base_directory }}"
       - "KERNEL_IMAGE={{ distributed_notebook_kernel_docker_image_name }}:{{ distributed_notebook_kernel_docker_image_tag }}"
-      - "HOST_MOUNT_DIR={{ kernel_base_directory }}"
-      - "TARGET_MOUNT_DIR={{ kernel_base_directory }}"
+      - "HOST_MOUNT_DIR=/home/{{ remote_username }}/{{ kernel_base_directory }}"
+      - "TARGET_MOUNT_DIR=/{{ kernel_base_directory }}"
       - "STORAGE=/home/{{ remote_username }}/kernel_storage"
       - "DOCKER_NETWORK_NAME=distributed_cluster_default"
     image: {{ local_daemon_docker_username }}/{{ local_daemon_docker_image_name }}:{{ local_daemon_docker_image_tag }}
