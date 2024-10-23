@@ -482,10 +482,12 @@ func (c *BaseCluster) unregisterActiveScaleOp(force bool) bool {
 			c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, c.activeScaleOperation.Status)
 	}
 
+	previouslyActiveScaleOperation := c.activeScaleOperation
 	c.activeScaleOperation = nil
-
-	c.log.Debug("Unregistered %v %s %s now.", c.activeScaleOperation.Status, c.activeScaleOperation.OperationType,
-		c.activeScaleOperation.OperationId)
+	c.log.Debug("Unregistered %v %s %s now.",
+		previouslyActiveScaleOperation.Status,
+		previouslyActiveScaleOperation.OperationType,
+		previouslyActiveScaleOperation.OperationId)
 
 	return true
 }
