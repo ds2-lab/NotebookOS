@@ -11,3 +11,7 @@
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Reset the permissions on /var/run/docker.sock so that we can mount it to the Local Daemon containers
+  shell: chmod -R 660 /var/run/docker.sock
+  become: true

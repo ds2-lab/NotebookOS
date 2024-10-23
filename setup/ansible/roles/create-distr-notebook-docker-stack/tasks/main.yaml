@@ -89,6 +89,10 @@
   debug:
     msg: "Creating Docker Swarm stack: '{{ distributed_notebook_docker_stack_name }}'"
 
+- name: Open up the permissions on /var/run/docker.sock so that we can mount it to the Local Daemon containers
+  shell: chmod -R 777 /var/run/docker.sock
+  become: true
+
 - name: "Deploy the {{ distributed_notebook_docker_stack_name }} Docker Swarm stack"
   community.docker.docker_stack:
     name: "{{ distributed_notebook_docker_stack_name }}"
