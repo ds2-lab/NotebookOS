@@ -21,7 +21,9 @@ jupyter-server-base-path: /jupyter
 prometheus-endpoint: "/prometheus"
 
 # Used by the WebSocket connection upgrader.
-expected-origin-port: {{ dashboard_backend_server_port }}
+# Specifying a negative port will indicate to the server than the expected
+# origin should not contain a port.
+expected-origin-port: -1
 expected_websocket_origins: "http://{{ hostvars['swarm-leader'].ansible_host }}"
 
 # How long JWT tokens are valid
