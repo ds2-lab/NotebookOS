@@ -5,7 +5,6 @@
   community.docker.docker_stack:
     name: "{{ traefik_docker_swarm_stack_name }}"
     state: absent
-  delegate_to: "{{ groups['docker_swarm_manager'][0] }}"
   when: inventory_hostname in 'swarm-leader'
   become: true
   environment:

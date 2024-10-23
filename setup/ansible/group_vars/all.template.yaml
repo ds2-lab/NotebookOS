@@ -43,7 +43,7 @@ docker_swarm_api_response_timeout: 60
 # Traefik
 ##################################################################
 traefik_username: admin
-traefik_password: 123456
+traefik_password: 12345
 traefik_email: your_email@provider.com
 traefik_docker_swarm_stack_name: distributed_notebook_traefik
 traefik_ui_port: 8054

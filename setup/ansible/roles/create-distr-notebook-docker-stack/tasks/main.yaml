@@ -92,8 +92,8 @@
     compose:
       - "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/create-distr-notebook-docker-stack/files/docker-compose.yml"
   become: true
+  become_user: "{{ remote_username }}"
   when: "deploy_distributed_jupyter_notebook_app == true and inventory_hostname in 'swarm-leader'"
-  delegate_to: "{{ hostvars['swarm-leader'].ansible_host }}"
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
   vars:
