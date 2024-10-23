@@ -222,9 +222,6 @@ services:
         - "traefik.http.routers.notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/notebook-dashboard`)"
         - "traefik.http.routers.notebook-dashboard-http.service=notebook-dashboard"
         - "traefik.http.services.notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
-        # - "traefik.http.middlewares.notebook-dashboard-strip.stripprefix.prefixes=/notebook-dashboard"
-        # - "traefik.http.middlewares.notebook-dashboard-add.addprefix.prefixes=/notebook-dashboard"
-        # - "traefik.http.routers.notebook-dashboard-http.middlewares=notebook-dashboard-strip,notebook-dashboard-add"
     volumes:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
       - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml

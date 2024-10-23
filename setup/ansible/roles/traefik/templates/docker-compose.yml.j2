@@ -42,6 +42,7 @@ services:
       - "--api.insecure=true"
       - "--api.debug=true"
 
+      - "--entryPoints.ws.address=:80"
       - "--entryPoints.http.address=:80"
       - "--entryPoints.traefik-admin-dashboard.address=:{{ traefik_ui_port }}"
     environment:
@@ -67,14 +68,6 @@ services:
 
          # Define the port inside of the Docker service to use
         - "traefik.http.services.traefik-api-internal-svc.loadbalancer.server.port=1337"
-
-        # - "traefik.http.routers.traefik-public-http.middlewares=admin-auth"
-        # - "traefik.http.routers.traefik-public-http.service=api@internal"
-        # - "traefik.http.routers.traefik-public-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`)"
-        # - "traefik.http.routers.traefik-public-http.entrypoints=http"
-
-        # Define the port inside of the Docker service to use
-        # - "traefik.http.services.traefik-public-svc.loadbalancer.server.port=1338"
 
 # volumes:
   # Create a volume to store the certificates, there is a constraint to make sure
