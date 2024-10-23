@@ -172,7 +172,7 @@ git_repo_url: "https://{{git_username}}:{{git_personal_access_token}}@github.com
 ##################################################################
 # Protoc
 ##################################################################
-protoc_install_path: /home/{{ remote_user}}/.local/
+protoc_install_path: /home/{{ remote_username}}/.local/
 protoc_version: 27.2
 protoc_release_url: "https://github.com/protocolbuffers/protobuf/releases/download/v{{ protoc_version }}/protoc-{{ protoc_version }}-linux-x86_64.zip"
 
@@ -181,7 +181,7 @@ protoc_release_url: "https://github.com/protocolbuffers/protobuf/releases/downlo
 ##################################################################
 target_go_version: "1.21.5"
 go_download_url: "https://go.dev/dl/go{{ target_go_version }}.linux-amd64.tar.gz"
-go_install_parent_dir: "/home/{{ remote_user }}/"
+go_install_parent_dir: "/home/{{ remote_username }}/"
 gopath: "{{ go_install_parent_dir }}/go"
 
 ##################################################################
@@ -208,7 +208,7 @@ kind_version: "v0.22.0"
 # Miscellaneous
 ##################################################################
 tmp_dir: "/tmp"
-profile_file: "/home/{{ remote_user }}/.profile"  # Update this if using a different profile file
+profile_file: "/home/{{ remote_username }}/.profile"  # Update this if using a different profile file
 
 ##################################################################
 # Helm
