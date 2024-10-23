@@ -13,7 +13,7 @@
     - reinstall_distributed_jupyter_notebook_app
 
 - name: Pull all the latest Docker images for Dashboard Backend, Cluster Gateway, Local Daemon, Jupyter Server, and Kernel Replicas
-  hosts: docker-swarm
+  hosts: docker_swarm
   roles:
     - pull-docker-images
   tags:

@@ -71,7 +71,7 @@
     - hdfs_datanode
 
 - name: Create the Docker Swarm cluster
-  hosts: docker-swarm
+  hosts: docker_swarm
   roles:
     - create-docker-swarm-cluster
   tags:
@@ -92,7 +92,7 @@
     - install_traefik
 
 - name: Deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
-  hosts: docker-swarm-manager
+  hosts: docker_swarm_manager
   roles:
     - create-distr-notebook-docker-stack
   tags:

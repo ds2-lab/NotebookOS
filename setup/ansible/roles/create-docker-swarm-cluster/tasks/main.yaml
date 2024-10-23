@@ -70,7 +70,7 @@
     advertise_addr: "{{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
     join_token: "{{ hostvars['swarm-leader']['swarm_output']['swarm_facts']['JoinTokens']['Manager']}}"
     remote_addrs: "{{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
-  when: inventory_hostname in groups['docker-swarm-manager'] and inventory_hostname not in 'swarm-leader'
+  when: inventory_hostname in groups['docker_swarm_manager'] and inventory_hostname not in 'swarm-leader'
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
   vars:
@@ -83,7 +83,7 @@
     advertise_addr: "{{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
     join_token: "{{ hostvars['swarm-leader']['swarm_output']['swarm_facts']['JoinTokens']['Worker'] }}"
     remote_addrs: "{{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
-  when: inventory_hostname in groups['docker-swarm-worker']
+  when: inventory_hostname in groups['docker_swarm_worker']
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
   vars:
@@ -91,7 +91,7 @@
 
 - name: Set desired_node_count variable
   set_fact:
-    desired_node_count: "{{ groups['docker-swarm'] | length }}"
+    desired_node_count: "{{ groups['docker_swarm'] | length }}"
   when: inventory_hostname in 'swarm-leader'
 
 - name: Print the value of the desired_node_count variable

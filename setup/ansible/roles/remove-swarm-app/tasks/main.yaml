@@ -5,7 +5,7 @@
   community.docker.docker_stack:
     name: "{{ distributed_notebook_docker_stack_name }}"
     state: absent
-  delegate_to: "{{ groups['docker-swarm-manager'][0] }}"
+  delegate_to: "{{ groups['docker_swarm_manager'][0] }}"
   become: true
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"

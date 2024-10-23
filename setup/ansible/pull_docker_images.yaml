@@ -1,5 +1,5 @@
 ---
-- hosts: docker-swarm
+- hosts: docker_swarm
 
   roles:
     - pull-docker-images

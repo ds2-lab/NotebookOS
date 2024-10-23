@@ -3,7 +3,7 @@
 # This playbook is used to create the Docker Swarm cluster.
 
 - name: Create the Docker Swarm cluster
-  hosts: docker-swarm
+  hosts: docker_swarm
   roles:
     - create-docker-swarm-cluster
   tags:
