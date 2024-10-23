@@ -93,7 +93,7 @@ jupyter_server_docker_image_tag: latest
 ##################################################################
 # Grafana
 ##################################################################
-grafana_admin_username: grafana
+grafana_admin_username: admin
 grafana_admin_password: 12345
 grafana_logs_dir: /var/lib/grafana/logs
 grafana_data_dir: /var/lib/grafana/data
