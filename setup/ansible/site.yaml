@@ -92,7 +92,7 @@
     - install_traefik
 
 - name: Deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
-  hosts: docker_swarm_manager
+  hosts: docker_swarm
   roles:
     - create-distr-notebook-docker-stack
   tags:

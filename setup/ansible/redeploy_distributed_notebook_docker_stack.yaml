@@ -22,7 +22,7 @@
     - docker-images
 
 - name: Redeploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
-  hosts: swarm-leader
+  hosts: docker_swarm
   roles:
     - create-distr-notebook-docker-stack
   tags:
