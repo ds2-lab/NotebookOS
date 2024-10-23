@@ -42,7 +42,6 @@ services:
       - "--api.insecure=true"
       - "--api.debug=true"
 
-      - "--entryPoints.ws.address=:80"
       - "--entryPoints.http.address=:80"
       - "--entryPoints.traefik-admin-dashboard.address=:{{ traefik_ui_port }}"
     environment:
