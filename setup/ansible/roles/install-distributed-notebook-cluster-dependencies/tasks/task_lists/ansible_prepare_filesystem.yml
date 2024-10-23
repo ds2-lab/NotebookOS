@@ -16,7 +16,7 @@
 
 - name: Create kernel base directory.
   file:
-    path: "/home/{{ remote_username }}/{{ kernel_base_directory }}"
+    path: "/home/{{ remote_username }}/{{ kernel_base_directory_name }}"
     state: directory
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"

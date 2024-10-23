@@ -82,10 +82,10 @@ services:
   daemon:
     platform: linux/amd64
     environment:
-      - KERNEL_TEMP_BASE_IN_CONTAINER=/{{ kernel_base_directory }}
+      - KERNEL_TEMP_BASE_IN_CONTAINER=/{{ kernel_base_directory_name }}
       - KERNEL_IMAGE={{ docker_username }}/jupyter-debug:latest
-      - HOST_MOUNT_DIR=/home/{{ remote_username }}/{{ kernel_base_directory }}
-      - TARGET_MOUNT_DIR=/{{ kernel_base_directory }}
+      - HOST_MOUNT_DIR=/home/{{ remote_username }}/{{ kernel_base_directory_name }}
+      - TARGET_MOUNT_DIR=/{{ kernel_base_directory_name }}
       - STORAGE=/home/{{ remote_username }}/{{ kernel_storage_directory }}
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
@@ -97,7 +97,7 @@ services:
       logging_jobname: "local_daemon"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/{{ remote_username }}/{{ kernel_base_directory }}:/{{ kernel_base_directory }}
+      - /home/{{ remote_username }}/{{ kernel_base_directory_name }}:/{{ kernel_base_directory_name }}
       - /home/{{ remote_username }}/go/pkg/distributed-notebook/deploy/docker-WSL2/local_daemon/daemon.yml:/daemon.yml
     depends_on:
       - gateway
