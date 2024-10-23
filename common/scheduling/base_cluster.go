@@ -463,7 +463,7 @@ func (c *BaseCluster) registerScaleOperation(operationId string, targetClusterSi
 //
 // If there is an active ScaleOperation, and that ScaleOperation has finished (either successfully or in an error state),
 // then unregisterActiveScaleOp returns true.
-func (c *BaseCluster) unregisterActiveScaleOp() bool {
+func (c *BaseCluster) unregisterActiveScaleOp(force bool) bool {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -472,14 +472,21 @@ func (c *BaseCluster) unregisterActiveScaleOp() bool {
 		return false
 	}
 
-	if !c.activeScaleOperation.IsComplete() {
+	// If force is true, then we'll unregister it anyway.
+	if !c.activeScaleOperation.IsComplete() && !force {
 		c.log.Error("Cannot unregister active %s %s, as the operation is incomplete: %v",
 			c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, c.activeScaleOperation)
 		return false
+	} else if c.activeScaleOperation.IsComplete() && force {
+		c.log.Warn("Forcibly unregistering in-progress %s %s (state=%v)",
+			c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, c.activeScaleOperation.Status)
 	}
 
-	c.log.Debug("Unregistered completed %s %s now.", c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId)
 	c.activeScaleOperation = nil
+
+	c.log.Debug("Unregistered %v %s %s now.", c.activeScaleOperation.Status, c.activeScaleOperation.OperationType,
+		c.activeScaleOperation.OperationId)
+
 	return true
 }
 
@@ -586,11 +593,17 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	if err != nil {
 		c.log.Debug("Scale-out from %d nodes to %d nodes failed because: %v",
 			scaleOp.InitialScale, scaleOp.TargetScale, err)
+
+		// Unregister the failed scale-out operation.
+		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
+			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		}
+
 		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
-	if unregistered := c.unregisterActiveScaleOp(); !unregistered {
+	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
 
@@ -633,11 +646,17 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	if err != nil {
 		c.log.Debug("Scale-in from %d nodes down to %d nodes failed because: %v",
 			scaleOp.InitialScale, scaleOp.TargetScale, err)
+
+		// Unregister the failed scale-in operation.
+		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
+			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		}
+
 		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-in from %d nodes down to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
-	if unregistered := c.unregisterActiveScaleOp(); !unregistered {
+	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
 	return promise.Resolved(result)
@@ -685,11 +704,17 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	if err != nil {
 		c.log.Debug("Scale-in from %d nodes down to %d nodes failed because: %v",
 			scaleOp.InitialScale, scaleOp.TargetScale, err)
+
+		// Unregister the failed scale-in operation.
+		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
+			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		}
+
 		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-in from %d nodes to %d nodes has succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
-	if unregistered := c.unregisterActiveScaleOp(); !unregistered {
+	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
 
