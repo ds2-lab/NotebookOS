@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -93,6 +94,18 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 	if loggerPrefix == "" {
 		config.InitLogger(&cluster.log, cluster)
 	} else {
+		// Make sure that the prefix ends with a space so that there's a space between the prefix
+		// and the beginning of log messages. Without the space, the log messages would look like:
+		//
+		// "DockerComposeClusterHello, world"
+		//
+		// instead of
+		//
+		// "DockerComposeCluster Hello, world"
+		if !strings.HasSuffix(loggerPrefix, " ") {
+			loggerPrefix = loggerPrefix + " "
+		}
+
 		config.InitLogger(&cluster.log, loggerPrefix)
 	}
 
