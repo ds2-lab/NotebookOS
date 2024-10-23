@@ -44,7 +44,7 @@ deployment_mode: "docker-swarm"
 debug_mode: true
 debug_port: 9996
 using-wsl: true 
-docker_network_name: distributed_cluster_default
+docker_network_name: traefik-public
 execution-time-sampling-window: 10
 migration-time-sampling-window: 10
 prometheus_interval: 15

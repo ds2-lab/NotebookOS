@@ -1,7 +1,7 @@
 services:
   jupyter:
     environment:
-      - "DOCKER_NETWORK_NAME=distributed_cluster_default"
+      - "DOCKER_NETWORK_NAME=traefik-public"
       - "USING_WSL2=0"
     image: {{ jupyter_server_docker_username }}/{{ jupyter_server_docker_image_name }}:{{ jupyter_server_docker_image_tag }}
     command: start-notebook.sh --NotebookApp.token='' --ServerApp.base_url="/jupyter" --log-level=DEBUG
@@ -35,7 +35,7 @@ services:
 
   gateway:
     environment:
-      - "DOCKER_NETWORK_NAME=distributed_cluster_default"
+      - "DOCKER_NETWORK_NAME=traefik-public"
       - "USING_WSL2=0"
     image: {{ gateway_docker_username }}/{{ gateway_docker_image_name }}:{{ gateway_docker_image_tag }}
     volumes:
@@ -76,7 +76,7 @@ services:
       - "HOST_MOUNT_DIR=/home/{{ remote_username }}/{{ kernel_base_directory_name }}"
       - "TARGET_MOUNT_DIR=/{{ kernel_base_directory_name }}"
       - "STORAGE=/home/{{ remote_username }}/kernel_storage"
-      - "DOCKER_NETWORK_NAME=distributed_cluster_default"
+      - "DOCKER_NETWORK_NAME=traefik-public"
     image: {{ local_daemon_docker_username }}/{{ local_daemon_docker_image_name }}:{{ local_daemon_docker_image_tag }}
     networks:
     - traefik-public

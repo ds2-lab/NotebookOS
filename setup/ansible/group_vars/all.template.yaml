@@ -6,7 +6,7 @@
 ##################################################################
 distributed_notebook_docker_stack_name: distributed_notebook
 deploy_distributed_jupyter_notebook_app: true
-distributed_notebook_kernel_docker_image_name: scusemua/jupyter
+distributed_notebook_kernel_docker_image_name: scusemua/jupyter-debug
 distributed_notebook_kernel_docker_image_tag: latest
 distributed_notebook_num_replicas: 3
 distributed_notebook_scheduling_policy: static
