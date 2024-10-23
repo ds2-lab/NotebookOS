@@ -73,6 +73,10 @@
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 
+- name: Print daemon.yml path
+  debug:
+    msg: "Path for daemon.yml: {{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/create-distr-notebook-docker-stack/files/local_daemon/daemon.yml"
+
 - name: Create the daemon.yml file for the Local Daemon service using the associated template.
   template:
     src: daemon.yml.j2
