@@ -31,6 +31,14 @@ distributed_notebook_subscribed_scaling_interval: 30
 distributed_notebook_subscribed_scaling_limit: 1.1
 distributed_notebook_subscribed_scaling_in_limit: 2
 
+# The 'advertise address' is an externally reachable address advertised to other nodes.
+# This port is used with the 'advertise address', which is set to the "ansible_nodename" of the first manager node.
+# Only used when swarm is initialised or joined. Because of this, it's not considered for idempotency checking.
+docker_swarm_advertise_address_port: 2377
+
+# The maximum amount of time in seconds to wait on a response from the API.
+docker_swarm_api_response_timeout: 60
+
 ##################################################################
 # Traefik
 ##################################################################
@@ -90,6 +98,26 @@ grafana_admin_password: 12345
 grafana_logs_dir: /var/lib/grafana/logs
 grafana_data_dir: /var/lib/grafana/data
 grafana_plugins_dir: /var/lib/grafana/plugins
+grafana_docker_image_name: grafana/grafana-enterprise
+grafana_docker_image_tag: latest
+
+########
+# Loki #
+########
+loki_docker_image_name: grafana/loki
+loki_docker_image_tag: 3.2.0
+
+############
+# Promtail #
+############
+promtail_docker_image_name: grafana/promtail
+promtail_docker_image_tag: 3.2.0
+
+##############
+# Prometheus #
+##############
+prometheus_docker_image_name: prom/prometheus
+prometheus_docker_image_tag: main
 
 ##################################################################
 # Dashboard Backend Configuration
