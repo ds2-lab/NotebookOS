@@ -1,0 +1,5 @@
+- name: Restart the Docker daemon by restarting the Docker service
+  ansible.builtin.service:
+    name: docker
+    state: restarted
+  become: true

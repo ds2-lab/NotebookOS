@@ -1,0 +1,1 @@
+docker_config_file_path: /etc/docker/daemon.json
