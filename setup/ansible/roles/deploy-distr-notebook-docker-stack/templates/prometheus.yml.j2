@@ -50,20 +50,13 @@ scrape_configs:
       - host: "unix:///var/run/docker.sock"
         role: 'tasks'  # Discover containers
     relabel_configs:
-      # Only keep containers that should be running.
-      - source_labels: [__meta_dockerswarm_task_desired_state]
-        regex: running
-        action: keep
-      - source_labels: [__meta_docker_container_label_component]
-        regex: kernel_replica
-        action: keep
-      - source_labels: [__meta_docker_container_label_app]
-        regex: distributed_cluster
+      - source_labels: [__meta_dockerswarm_container_label_app]
+        regex: 'kernel_replica|distributed_cluster'
         action: keep
       - source_labels: [__meta_dockerswarm_network_name]
-        regex: traefik-public
+        regex: 'traefik-public'
         action: keep
-      - source_labels: [__address__, __meta_dockerswarm_service_label_prometheus_metrics_port]
+      - source_labels: [__address__, __meta_dockerswarm_container_label_prometheus_metrics_port]
         regex: '(.*):(\d+);(\d+)'
         target_label: __address__
         replacement: "$1:$3"
