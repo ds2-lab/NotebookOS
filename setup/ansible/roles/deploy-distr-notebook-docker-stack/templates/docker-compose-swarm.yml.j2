@@ -53,6 +53,7 @@ services:
       - "component=cluster_gateway"
       - "logging=promtail"
       - "logging_jobname=cluster_gateway"
+      - "prometheus.metrics.port={{ distributed_notebook_prometheus_port }}"
     deploy:
       restart_policy:
         condition: any
@@ -62,7 +63,6 @@ services:
         - "component=cluster_gateway"
         - "logging=promtail"
         - "logging_jobname=gateway"
-        - "prometheus.metrics.port={{ distributed_notebook_prometheus_port }}"
 
         - "traefik.enable=true"
         - "traefik.docker.network=traefik-public"
@@ -103,6 +103,7 @@ services:
       - "component=local_daemon"
       - "logging=promtail"
       - "logging_jobname=local_daemon"
+      - "prometheus.metrics.port={{ distributed_notebook_prometheus_port }}"
     deploy:
       restart_policy:
         condition: any
@@ -113,7 +114,6 @@ services:
         - "component=local_daemon"
         - "logging=promtail"
         - "logging_jobname=local_daemon"
-        - "prometheus.metrics.port={{ distributed_notebook_prometheus_port }}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
