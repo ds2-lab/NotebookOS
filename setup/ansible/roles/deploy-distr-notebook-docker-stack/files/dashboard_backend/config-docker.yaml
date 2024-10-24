@@ -11,6 +11,9 @@ admin_username: "admin"
 admin_password: "12345"
 base-url: "/notebook-dashboard"
 
+# Defined separately from the base-url.
+prometheus-endpoint: "/metrics"
+
 # The address of the Jupyter Server.
 jupyter-server-address: jupyter:8888
 

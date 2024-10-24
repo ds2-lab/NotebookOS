@@ -14,7 +14,7 @@ scrape_configs:
     honor_timestamps: true
     scrape_interval: 5s
     scrape_timeout: 5s
-    metrics_path: /prometheus
+    metrics_path: /metrics
     scheme: http
     static_configs:
       - targets:

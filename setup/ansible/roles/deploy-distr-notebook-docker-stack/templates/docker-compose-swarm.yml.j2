@@ -144,8 +144,8 @@ services:
 
         - "traefik.http.routers.prometheus-http.entryPoints=http"
         - "traefik.http.routers.prometheus-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/prometheus`)"
-        - "traefik.http.middlewares.prometheus-strip.stripprefix.prefixes=/prometheus"
-        - "traefik.http.routers.prometheus-http.middlewares=prometheus-strip"
+        # - "traefik.http.middlewares.prometheus-strip.stripprefix.prefixes=/prometheus"
+        # - "traefik.http.routers.prometheus-http.middlewares=prometheus-strip"
 
         - "traefik.http.services.prometheus.loadbalancer.server.port=8500"
         - "traefik.http.routers.prometheus-http.service=prometheus"
