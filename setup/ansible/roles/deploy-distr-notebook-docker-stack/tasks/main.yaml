@@ -51,6 +51,10 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  tags:
+    - config
+    - prometheus
+    - update-prometheus-config
 
 - name: Create the config-docker.yaml file for the Dashboard Backend component using the associated template.
   template:

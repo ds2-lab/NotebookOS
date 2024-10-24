@@ -33,6 +33,13 @@
 - name: Gather facts on HDFS nodes
   gather_facts: true
   hosts: hadoop_hdfs
+    - gather_facts
+
+- name: Gather facts on Swarm nodes
+  gather_facts: true
+  hosts: docker_swarm
+  tags:
+    - gather_facts
 
 - name: Redeploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
   hosts: docker_swarm
