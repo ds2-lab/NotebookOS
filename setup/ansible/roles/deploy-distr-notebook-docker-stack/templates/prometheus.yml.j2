@@ -56,6 +56,9 @@ scrape_configs:
       - source_labels: [__meta_dockerswarm_network_name]
         regex: 'traefik-public'
         action: keep
+      - source_labels: [__meta_dockerswarm_container_label_prometheus_metrics_provider]
+        regex: 'true'
+        action: keep
       - source_labels: [__address__, __meta_dockerswarm_container_label_prometheus_metrics_port]
         regex: '(.*):(\d+);(\d+)'
         target_label: __address__
