@@ -121,7 +121,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./prometheus:/etc/prometheus
-      - prometheus_data:/prometheus/data
+      - prometheus_data:/prometheus
     networks:
     - traefik-public
     command:

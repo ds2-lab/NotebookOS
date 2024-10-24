@@ -35,6 +35,18 @@ scrape_configs:
         target_label: __address__
         replacement: $1:9323
 
+  # Scraping ZooKeeper on the Docker Swarm hosts (bare-metal)
+  - job_name: 'zookeeper'
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+{% for host in groups['docker_swarm'] %}
+          - {{ hostvars[host].ansible_default_ipv4.address|default(hostvars[host].ansible_all_ipv4_addresses[0]) }}:7000
+{% endfor %}
+        labels:
+          job: 'zookeeper'
+          instance: 'zookeeper-swarm-node'
+
   # Scrape Docker Swarm services via service discovery
   - job_name: 'docker-swarm'
     dockerswarm_sd_configs:
