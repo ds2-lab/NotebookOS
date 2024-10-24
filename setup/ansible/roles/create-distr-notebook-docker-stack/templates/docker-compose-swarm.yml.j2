@@ -9,11 +9,16 @@ services:
     - traefik-public
     depends_on:
       - gateway
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=jupyter_server"
+      - "logging=promtail"
+      - "logging_jobname=jupyter"
     deploy:
       restart_policy:
         condition: any
       endpoint_mode: dnsrr
-      labels:
+      labels: # Service labels
         - "app=distributed_cluster"
         - "component=jupyter_server"
         - "logging=promtail"
@@ -43,6 +48,11 @@ services:
       - ./gateway/gateway.yml:/gateway.yml
     networks:
     - traefik-public
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=cluster_gateway"
+      - "logging=promtail"
+      - "logging_jobname=cluster_gateway"
     deploy:
       restart_policy:
         condition: any
@@ -87,6 +97,11 @@ services:
     depends_on:
       - gateway
       - prometheus
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=local_daemon"
+      - "logging=promtail"
+      - "logging_jobname=local_daemon"
     deploy:
       restart_policy:
         condition: any
@@ -208,11 +223,20 @@ services:
     - traefik-public
     environment:
     - "DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}"
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=notebook_dashboard"
+      - "logging=promtail"
+      - "logging_jobname=notebook_dashboard"
     deploy:
       restart_policy:
         condition: on-failure
       endpoint_mode: dnsrr
       labels:
+        - "app=distributed_cluster"
+        - "component=notebook_dashboard"
+        - "logging=promtail"
+        - "logging_jobname=notebook_dashboard"
         - "traefik.enable=true"
         - "traefik.docker.network=traefik-public"
         - "traefik.constraint-label=traefik-public"
