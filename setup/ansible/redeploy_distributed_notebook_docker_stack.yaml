@@ -5,12 +5,21 @@
 - name: Remove the Distributed Jupyter Notebook stack on the Docker Swarm cluster
   hosts: swarm-leader
   roles:
-    - remove-swarm-app
+    - remove-distr-notebook-docker-stack
   tags:
     - docker
     - swarm
     - restart_component
     - reinstall_distributed_jupyter_notebook_app
+
+- name: Remove any remaining kernel replica Docker containers
+  hosts: docker_swarm
+  roles:
+    - remove-kernel-replica-containers
+  tags:
+    - docker
+    - swarm
+    - kernel_replica
 
 - name: Pull all the latest Docker images for Dashboard Backend, Cluster Gateway, Local Daemon, Jupyter Server, and Kernel Replicas
   hosts: docker_swarm
@@ -24,7 +33,7 @@
 - name: Redeploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
   hosts: docker_swarm
   roles:
-    - create-distr-notebook-docker-stack
+    - deploy-distr-notebook-docker-stack
   tags:
     - docker
     - swarm

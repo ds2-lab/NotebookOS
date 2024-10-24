@@ -73,7 +73,7 @@
 - name: Create the Docker Swarm cluster
   hosts: docker_swarm
   roles:
-    - create-docker-swarm-cluster
+    - initialize-docker-swarm-cluster
   tags:
     - docker
     - swarm
@@ -83,7 +83,7 @@
 - name: Deploy Traefik on the Docker Swarm cluster
   hosts: swarm-leader
   roles:
-    - traefik
+    - deploy-traefik-docker-stack
   tags:
     - docker
     - swarm
@@ -94,7 +94,7 @@
 - name: Deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
   hosts: docker_swarm
   roles:
-    - create-distr-notebook-docker-stack
+    - deploy-distr-notebook-docker-stack
   tags:
     - docker
     - swarm

@@ -5,7 +5,7 @@
 - name: Remove the Traefik stack on the Docker Swarm cluster
   hosts: swarm-leader
   roles:
-    - remove-traefik
+    - remove-traefik-docker-stack
   tags:
     - docker
     - swarm
@@ -15,7 +15,7 @@
 - name: Redeploy the Traefik stack on the Docker Swarm cluster
   hosts: swarm-leader
   roles:
-    - traefik
+    - deploy-traefik-docker-stack
   tags:
     - docker
     - swarm

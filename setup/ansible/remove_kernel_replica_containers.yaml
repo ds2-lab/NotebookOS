@@ -1,0 +1,8 @@
+- name: Remove any remaining kernel replica Docker containers
+  hosts: docker_swarm
+  roles:
+    - remove-kernel-replica-containers
+  tags:
+    - docker
+    - swarm
+    - kernel_replica
