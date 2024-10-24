@@ -10,10 +10,13 @@
     force: yes
   become: true
 
+- name: Print the remote username
+  debug:
+    msg: "Remote username: {{ remote_username }}"
+
 - name: Recursively change ownership of the go directory
   ansible.builtin.file:
     path: "{{ go_install_parent_dir }}/go/{{ git_repo_name }}"
-    state: directory
     recurse: yes
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
