@@ -181,6 +181,7 @@ services:
     command: -config.file=/etc/promtail/config.yml
     deploy:
       endpoint_mode: dnsrr
+      mode: global
       labels:
         - "traefik.http.services.promtail.loadbalancer.server.port=9080"
     depends_on:

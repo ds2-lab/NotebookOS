@@ -30,6 +30,10 @@
     - swarm
     - docker-images
 
+- name: Gather facts on HDFS nodes
+  gather_facts: true
+  hosts: hadoop_hdfs
+
 - name: Redeploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
   hosts: docker_swarm
   roles:
