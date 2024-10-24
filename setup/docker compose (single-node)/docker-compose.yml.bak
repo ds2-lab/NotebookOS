@@ -104,7 +104,7 @@ services:
       - ./prometheus:/etc/prometheus
       - prometheus_data:/prometheus/data
     image: busybox:latest
-    command: ["/bin/chmod","-R","777", "/prometheus"]
+    command: ["/bin/chmod","-R","777", "/metrics"]
     container_name: prometheus-data-permission-fix
     user: 0:0
 
