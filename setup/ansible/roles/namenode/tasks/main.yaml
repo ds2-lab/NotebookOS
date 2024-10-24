@@ -22,7 +22,7 @@
 
 - name: Format the Hadoop HDFS filesystem
   shell:
-    cmd: "Y | {{hadoop_hdfs_home_dir}}/bin/hdfs namenode -format hdfs://{{ hostvars['namenode'].ansible_nodename }}:8999"
+    cmd: "Y | {{hadoop_hdfs_home_dir}}/bin/hdfs namenode -format hdfs://{{ hostvars['namenode'].ansible_nodename }}:{{ hadoop_namenode_port }}"
   when: "'namenode' in group_names"
   register: format_filesystem_result
   failed_when: "'FAILED' in format_filesystem_result.stderr"
@@ -59,6 +59,6 @@
 - name: Wait for the ports to be ready after the Hadoop HDFS NameNode has started
   wait_for:
     host: '{{ ansible_default_ipv4.address }}'
-    port: 8999
+    port: "{{ hadoop_namenode_port }}"
     delay: 10
   when: "'namenode' in group_names"

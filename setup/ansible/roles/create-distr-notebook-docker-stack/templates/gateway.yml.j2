@@ -9,7 +9,7 @@ stdin-port: 9003
 iopub-port: 9004
 iosub-port: 9005
 ack-port: 9006
-hdfs-namenode-endpoint: host.docker.internal:10000
+hdfs-namenode-endpoint: {{ hostvars['namenode1'].ansible_host }}:{{ hadoop_namenode_port }}
 debug: {{ gateway_debug_logging_enabled }}
 direct: false
 num-replicas: {{ distributed_notebook_num_replicas }}
