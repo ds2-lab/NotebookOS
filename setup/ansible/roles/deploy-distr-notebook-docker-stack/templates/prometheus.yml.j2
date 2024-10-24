@@ -15,22 +15,21 @@ scrape_configs:
     scrape_interval: 5s
     static_configs:
       targets: ['localhost:9090']
+
   # Create a job for Docker daemons.
-  #
-  # This example requires Docker daemons to be configured to expose
-  # Prometheus metrics, as documented here:
-  # https://docs.docker.com/config/daemon/prometheus/
-  #
-  # We attempt to supply this configuration in the 'configure-docker-daemon' Ansible role.
-  - job_name: "docker"
+  - job_name: 'docker'
     dockerswarm_sd_configs:
-      - host: unix:///var/run/docker.sock # You can also use http/https to connect to the Docker daemon.
+      - host: unix:///var/run/docker.sock
         role: nodes
     relabel_configs:
       # Fetch metrics on port 9323.
       - source_labels: [__meta_dockerswarm_node_address]
         target_label: __address__
         replacement: $1:9323
+      # Set hostname as instance label
+      - source_labels: [__meta_dockerswarm_node_hostname]
+        target_label: instance
+
   # Scraping ZooKeeper on the Docker Swarm hosts (bare-metal)
   - job_name: 'zookeeper'
     scrape_interval: 10s
@@ -42,29 +41,29 @@ scrape_configs:
         labels:
           job: 'zookeeper'
           instance: 'zookeeper-swarm-node'
+
   # Scrape Docker Swarm services via service discovery
   - job_name: 'docker-swarm'
     dockerswarm_sd_configs:
-      - host: "tcp://{{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:2375"
+        # We could use HTTP/HTTPS/TCP instead, if desired, by passing the following "host" parameter:
+        # "tcp://{{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:2375"
+      - host: "unix:///var/run/docker.sock"
         role: 'tasks'  # Discover containers
-        port: 9090
     relabel_configs:
       - source_labels: [__meta_dockerswarm_service]
         target_label: service
-      - source_labels: [__meta_dockerswarm_network]
-        target_label: traefik-public
+      - source_labels: [__meta_dockerswarm_network_name]
+        regex: traefik-public
+        action: keep
+      - source_labels: [__meta_dockerswarm_service_label_prometheus_metrics_port]
+        action: keep
       - source_labels: [__meta_dockerswarm_task_name]
         target_label: task
       - source_labels: [__meta_dockerswarm_task_container_id]
         target_label: container_id
       - source_labels: [__meta_dockerswarm_node_hostname]
         target_label: instance
-      - source_labels:
-          - __address__
-          - __meta_dockerswarm_service_label_prometheus_metrics_port
+      - source_labels: [__address__, __meta_dockerswarm_service_label_prometheus_metrics_port]
         regex: '(.*):(\d+);(\d+)'
         target_label: __address__
         replacement: "$1:$3"
-      - source_labels: [__meta_dockerswarm_network_name]
-        regex: traefik-public
-        action: keep
