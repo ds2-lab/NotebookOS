@@ -1,4 +1,4 @@
-- name: Create the daemon.json Docker configuration file.
+- name: Create the daemon.json Docker configuration file
   template:
     src: docker-daemon.json.j2
     dest: "{{ docker_config_file_path }}"
