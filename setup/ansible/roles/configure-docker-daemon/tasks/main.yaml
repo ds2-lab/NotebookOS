@@ -1,6 +1,6 @@
 - name: Create the daemon.json Docker configuration file.
   template:
-    src: cat /etc/passwd | grep -i docker
+    src: docker-daemon.json.j2
     dest: "{{ docker_config_file_path }}"
     mode: 0777
     owner: "{{ remote_username }}"
