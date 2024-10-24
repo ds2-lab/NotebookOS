@@ -184,7 +184,7 @@ c.ServerApp.allow_origin = '*'
 # "
 #          Require authentication to access prometheus metrics.
 #  Default: True
-# c.ServerApp.authenticate_prometheus = True
+c.ServerApp.authenticate_prometheus = False
 
 # The authorizer class to use.
 #  Default: 'jupyter_server.auth.authorizer.AllowAllAuthorizer'

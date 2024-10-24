@@ -14,6 +14,8 @@ services:
       - "component=jupyter_server"
       - "logging=promtail"
       - "logging_jobname=jupyter"
+      - "prometheus-metrics-provider=true"
+      - "prometheus.metrics.port=8888"
     deploy:
       restart_policy:
         condition: any
