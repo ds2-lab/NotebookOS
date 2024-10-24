@@ -44,6 +44,14 @@
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 
+- name: Create the prometheus.yml configuration file using the associated template.
+  template:
+    src: prometheus.yml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/prometheus/prometheus.yml"
+    mode: 0777
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
 - name: Create the config-docker.yaml file for the Dashboard Backend component using the associated template.
   template:
     src: ./dashboard/dashboard_backend_config.yaml.j2

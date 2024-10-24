@@ -751,6 +751,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			RunKernelsInGdb:              d.runKernelsInGdb,
 			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
 			IsInDockerSwarm:              d.DockerSwarmMode(),
+			PrometheusMetricsPort:        d.prometheusPort,
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1493,6 +1494,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			RunKernelsInGdb:              d.runKernelsInGdb,
 			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
 			IsInDockerSwarm:              d.DockerSwarmMode(),
+			PrometheusMetricsPort:        d.prometheusPort,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.
