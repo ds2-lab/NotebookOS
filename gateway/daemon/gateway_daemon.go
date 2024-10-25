@@ -908,6 +908,11 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 						registered.ID,
 						registered.NodeName))
 
+				// TODO: We could conceivably just register the Host as a new Local Daemon, despite the fact
+				// 		 that the Host thinks it already exists. We may have to re-contact the Host through the
+				//	     SetID procedure, though. We'll at least have to re-create the Host struct, as it was only
+				//		 populated with some of the required fields.
+
 				return nil, scheduling.ErrRestorationFailed
 			}
 		} else {
