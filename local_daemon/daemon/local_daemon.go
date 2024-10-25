@@ -9,6 +9,7 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/zhangjyr/distributed-notebook/common/consul"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -64,6 +65,8 @@ var (
 
 	ErrExistingReplicaAlreadyRunning = status.Error(codes.Internal, "an existing replica of the target kernel is already running on this node")
 	ErrNilArgument                   = status.Error(codes.InvalidArgument, "one or more of the required arguments was nil")
+
+	errConcurrentConnectionAttempt = errors.New("another goroutine is already attempting to connect to the Cluster Gateway")
 )
 
 // enqueuedExecuteRequestMessage encapsulates an "execute_request" *jupyter.JupyterMessage and a chan interface{}
@@ -84,6 +87,17 @@ type SchedulerDaemonImpl struct {
 	// Options
 	id       string
 	nodeName string
+
+	tracer       opentracing.Tracer
+	consulClient *consul.Client
+
+	// The gRPC server used by the Local Daemon and Cluster Gateway.
+	grpcServer *grpc.Server
+	listener   net.Listener
+
+	// connectingToGateway indicates whether the scheduler is actively trying to connect to the Cluster Gateway.
+	// If its value is > 0, then it is. If its value is 0, then it is not.
+	connectingToGateway atomic.Int32
 
 	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
 	// as the request history.
@@ -643,20 +657,53 @@ func (d *SchedulerDaemonImpl) StartKernel(ctx context.Context, in *proto.KernelS
 	})
 }
 
-// connectToGateway connects to the Cluster Gateway.
-func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize LocalDaemonFinalizer, tracer opentracing.Tracer) (*grpc.Server, net.Listener, error) {
+// initializeConsulAndTracer creates the Consul client and Tracer.
+func (d *SchedulerDaemonImpl) initializeConsulAndTracer() {
 	tracer, consulClient := CreateConsulAndTracer(d.localDaemonOptions)
-	gOpts := GetGrpcOptions(tracer)
 
-	srv := grpc.NewServer(gOpts...)
-	proto.RegisterLocalGatewayServer(srv, d)
-	proto.RegisterKernelErrorReporterServer(srv, d)
+	d.tracer = tracer
+	d.consulClient = consulClient
+}
 
-	// Initialize gRPC listener
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", d.localDaemonOptions.Port))
+// connectToGateway connects to the Cluster Gateway.
+func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize LocalDaemonFinalizer) error {
+	if !d.connectingToGateway.CompareAndSwap(0, 1) {
+		d.log.Warn("Another goroutine is already attempting to connect to the Cluster Gateway.")
+		return errConcurrentConnectionAttempt
+	}
+
+	if d.tracer == nil {
+		d.log.Debug("Initializing ConsulClient and Tracer.")
+		d.initializeConsulAndTracer()
+	}
+
+	if d.grpcServer != nil {
+		d.log.Warn("Found existing gRPC server. Shutting it down.")
+		d.grpcServer.Stop()
+		d.grpcServer = nil
+	}
+
+	var err error
+	if d.provisioner != nil {
+		d.log.Warn("Found existing provisioner. Shutting it down.")
+		err = d.provisioner.(*Provisioner).Close()
+		if err != nil {
+			d.log.Error("Error while shutting down existing Provisioner: %v", err)
+		}
+
+		d.provisioner = nil
+	}
+
+	gOpts := GetGrpcOptions(d.tracer)
+	d.grpcServer = grpc.NewServer(gOpts...)
+	proto.RegisterLocalGatewayServer(d.grpcServer, d)
+	proto.RegisterKernelErrorReporterServer(d.grpcServer, d)
+
+	// Initialize gRPC listener.
+	d.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", d.localDaemonOptions.Port))
 	if err != nil {
 		d.log.Error("Failed to listen: %v", err)
-		return nil, nil, err
+		return err
 	}
 
 	start := time.Now()
@@ -682,32 +729,34 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 
 	// Initialize connection to the provisioner
 	if !connectedToProvisioner {
-		return nil, nil, err
+		return err
 	}
 
 	if provConn == nil {
-		return nil, nil, fmt.Errorf("provisioner connection is nil")
+		return fmt.Errorf("provisioner connection is nil")
 	}
 
 	// Initialize provisioner and wait for ready
 	provisioner, grpcClientConn, err := NewProvisioner(provConn)
 	if err != nil {
 		d.log.Error("Failed to initialize the provisioner: %v", err)
-		return nil, nil, err
+		return err
 	}
 
 	errorChan := make(chan interface{}, 1)
+
 	// Wait for reverse connection
 	go func() {
 		defer finalize(true)
-		if err := srv.Serve(provisioner); err != nil {
-			d.log.Error("Failed to serve provisioner: %v", err)
+		if err := d.grpcServer.Serve(provisioner); err != nil {
+			d.log.Error("Error while serving provisioner gRPC server: %v", err)
 			errorChan <- err
 		}
 
 		errorChan <- struct{}{}
 	}()
 
+	// TODO: Add timeout option here.
 	select {
 	case <-provisioner.Ready():
 		{
@@ -716,28 +765,37 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 	case v := <-errorChan:
 		{
 			if err, ok := v.(error); ok {
-				return nil, nil, err
+				return err
 			}
 		}
 	}
+
 	if err := provisioner.Validate(); err != nil {
 		d.log.Error("Failed to validate the provisioner: %v", err)
-		return nil, nil, err
+		return err
 	}
 	d.SetProvisioner(provisioner, grpcClientConn)
 	d.log.Debug("Scheduler connected to %v", provConn.RemoteAddr())
 
-	// Register services in consul
-	if consulClient != nil {
-		err = consulClient.Register(ServiceName, uuid.New().String(), "", d.localDaemonOptions.Port)
+	// Register services in consulClient
+	if d.consulClient != nil {
+		err = d.consulClient.Register(ServiceName, uuid.New().String(), "", d.localDaemonOptions.Port)
 		if err != nil {
-			d.log.Error("Failed to register in consul: %v", err)
-			return nil, nil, err
+			d.log.Error("Failed to register in consulClient: %v", err)
+			return err
 		}
-		d.log.Debug("Successfully registered in consul")
+		d.log.Debug("Successfully registered in consulClient")
 	}
 
-	return srv, lis, nil
+	// Start gRPC server
+	go func() {
+		defer finalize(true)
+		if err := d.grpcServer.Serve(d.listener); err != nil {
+			d.log.Error("Error while serving gRPC server: %v", err)
+		}
+	}()
+
+	return nil
 }
 
 // Register a Kernel that has started running on the same node as we are.
@@ -968,6 +1026,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	var response *proto.KernelRegistrationNotificationResponse
 	for response == nil && numTries < maxNumTries {
 		response, err = d.provisioner.NotifyKernelRegistered(context.Background(), kernelRegistrationNotification)
+
 		if err != nil {
 			d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
 				kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
@@ -987,7 +1046,15 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
 			if grpcConnState != connectivity.Ready {
 				d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
-				d.provisionerClientConnectionGRPC.Connect()
+
+				// TODO: This will cause SetID to be called. We may need to wait to try again until that process
+				// finishes. We also need to implement that process.
+				err = d.connectToGateway(d.localDaemonOptions.ProvisionerAddr, func(v bool) {
+					d.log.Error("The finalize function passed to connectToGateway when registerKernelReplica fails to notify the provisioner was called with argument %v", v)
+				})
+				if err != nil {
+					log.Fatalf(utils.RedStyle.Render("Failed to re-establish connectivity with the Cluster Gateway: %v"), err)
+				}
 			}
 
 			numTries += 1

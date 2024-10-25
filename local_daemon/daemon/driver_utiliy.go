@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/opentracing/opentracing-go"
@@ -57,10 +56,10 @@ func CreateConsulAndTracer(options *domain.LocalDaemonOptions) (opentracing.Trac
 		}
 		globalLogger.Info("Jaeger agent initialized")
 
-		globalLogger.Info("Initializing consul agent [host: %v]...", options.ConsulAddr)
+		globalLogger.Info("Initializing consulClient agent [host: %v]...", options.ConsulAddr)
 		consulClient, err = consul.NewClient(options.ConsulAddr)
 		if err != nil {
-			log.Fatalf("Got error while initializing consul agent: %v", err)
+			log.Fatalf("Got error while initializing consulClient agent: %v", err)
 		}
 		globalLogger.Info("Consul agent initialized")
 	}
@@ -155,23 +154,12 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 
 	globalLogger.Debug("Local Daemon Options:\n%s", options.PrettyString(2))
 
-	tracer, consulClient := CreateConsulAndTracer(options)
-
 	// Initialize grpc server
 	scheduler := New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port, devicePluginServer, nodeName)
 
-	srv, lis, err := scheduler.connectToGateway(options.ProvisionerAddr, finalize, tracer)
+	err := scheduler.connectToGateway(options.ProvisionerAddr, finalize)
 	if err != nil {
 		log.Fatalf(utils.RedStyle.Render("Failed to connect to Cluster Gateway: %v\n"), err)
-	}
-
-	// Register services in consul
-	if consulClient != nil {
-		err = consulClient.Register(ServiceName, uuid.New().String(), "", options.Port)
-		if err != nil {
-			log.Fatalf("Failed to register in consul: %v", err)
-		}
-		globalLogger.Info("Successfully registered in consul")
 	}
 
 	// Start detecting stop signals
@@ -180,20 +168,12 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 		s := <-sig
 
 		globalLogger.Warn("Received signal: \"%v\". Shutting down...", s.String())
-		srv.Stop()
+		scheduler.grpcServer.Stop()
 		err := scheduler.Close()
 		if err != nil {
 			globalLogger.Error("Error while closing scheduler: %v", err)
 		}
 		done.Done()
-	}()
-
-	// Start gRPC server
-	go func() {
-		defer finalize(true)
-		if err := srv.Serve(lis); err != nil {
-			log.Fatalf("Failed to serve: %v", err)
-		}
 	}()
 
 	// Start daemon
@@ -236,7 +216,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	}()
 
 	closeConnections := func() {
-		err := lis.Close()
+		err := scheduler.listener.Close()
 		if err != nil {
 			globalLogger.Error("Error while closing listener: %v", err)
 		}
