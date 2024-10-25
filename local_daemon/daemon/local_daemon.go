@@ -77,6 +77,12 @@ type enqueuedExecuteRequestMessage struct {
 	Kernel        *client.KernelReplicaClient
 }
 
+type GRPCServerWrapper struct {
+	*grpc.Server
+	Id                   string
+	PurposefullyShutdown bool
+}
+
 // SchedulerDaemonImpl is the daemon that proxy requests to kernel replicas on local-host.
 //
 // WIP: Replica membership change.
@@ -92,7 +98,7 @@ type SchedulerDaemonImpl struct {
 	consulClient *consul.Client
 
 	// The gRPC server used by the Local Daemon and Cluster Gateway.
-	grpcServer *grpc.Server
+	grpcServer *GRPCServerWrapper
 	listener   net.Listener
 
 	// connectingToGateway indicates whether the scheduler is actively trying to connect to the Cluster Gateway.
@@ -694,6 +700,7 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 
 	if d.grpcServer != nil {
 		d.log.Warn("Found existing gRPC server. Shutting it down.")
+		d.grpcServer.PurposefullyShutdown = true
 		d.grpcServer.Stop()
 		d.grpcServer = nil
 	}
@@ -710,7 +717,11 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 	}
 
 	gOpts := GetGrpcOptions(d.tracer)
-	d.grpcServer = grpc.NewServer(gOpts...)
+	d.grpcServer = &GRPCServerWrapper{
+		Server:               grpc.NewServer(gOpts...),
+		Id:                   uuid.NewString(),
+		PurposefullyShutdown: false,
+	}
 	proto.RegisterLocalGatewayServer(d.grpcServer, d)
 	proto.RegisterKernelErrorReporterServer(d.grpcServer, d)
 
@@ -762,8 +773,31 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 
 	// Wait for reverse connection
 	go func() {
-		defer finalize(true)
-		if err := d.grpcServer.Serve(provisioner); err != nil {
+		currentServer := d.grpcServer
+		defer func(currentRpcServer *GRPCServerWrapper) {
+			// If the server was purposefully shutdown, then we shouldn't terminate.
+			// That is, if we shut it down because we're attempting to reconnect to the Cluster Gateway,
+			// then we shouldn't panic/kill the entire Local Daemon process. We're intentionally shutting
+			// down the Provisioner. It's fine.
+			//
+			// If on the other hand, we did NOT manually/explicitly shut down the provisioner ourselves,
+			// then indeed we should probably panic.
+			//
+			// Alternatively, we could try to initiate a reconnection attempt here, but for now, we'll just
+			// call finalize like always.
+			shouldTerminate := !currentRpcServer.PurposefullyShutdown
+
+			d.log.Warn("Finalizer for gRPC serving thread called. Something must have happened to the server. "+
+				"Purposefully shutdown: %v", currentRpcServer.PurposefullyShutdown)
+
+			finalize(shouldTerminate)
+
+			// Not sure when the arguments are evaluated for a deferred function,
+			// so I'm passing a local variable that's already been initialized when
+			// the correct gRPC server struct.
+		}(currentServer)
+
+		if err := currentServer.Serve(provisioner); err != nil {
 			d.log.Error("Error while serving provisioner gRPC server: %v", err)
 			errorChan <- err
 		}

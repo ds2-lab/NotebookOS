@@ -94,6 +94,7 @@ func main() {
 
 func finalize(fix bool) {
 	if !fix {
+		logger.Warn("Finalize called, but `fix` is false, so we'll just return (rather than terminate the process).")
 		return
 	}
 
