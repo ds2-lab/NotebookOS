@@ -8,6 +8,8 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime/debug"
+	"runtime/pprof"
 	"sync"
 	"syscall"
 
@@ -103,11 +105,20 @@ func finalize(fix bool, identity string, distributedCluster *daemon.DistributedC
 	log.Printf("[WARNING] Finalize called with fix=%v and identity=\"%s\"\n", fix, identity)
 
 	if err := recover(); err != nil {
-		logger.Error("%v", err)
+		logger.Error("Called recover() and retrieved the following error: %v", err)
 
 		if distributedCluster != nil {
 			distributedCluster.HandlePanic(identity, err)
 		}
+	}
+
+	logger.Error("Stack trace of CURRENT goroutine:")
+	debug.PrintStack()
+
+	logger.Error("Stack traces of ALL active goroutines:")
+	err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+	if err != nil {
+		logger.Error("Failed to output call stacks of all active goroutines: %v", err)
 	}
 
 	sig <- syscall.SIGINT

@@ -725,13 +725,39 @@ func (d *SchedulerDaemonImpl) initializeConsulAndTracer() {
 // This is thread-safe. If another thread is already executing connectToGateway when the current thread calls
 // connectToGateway, then the current thread will return immediately.
 func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize LocalDaemonFinalizer) error {
+	// We use this finalize function to ensure we don't needlessly terminate the Local Daemon process/container
+	// when we're purposefully reconnecting to the Cluster Gateway (as doing so necessarily requires that we
+	// shutdown the existing gRPC server and whatnot, and ordinarily that causes use to panic).
+	wrappedFinalizeFunction := func(currentRpcServer *GRPCServerWrapper) {
+		// If the server was purposefully shutdown, then we shouldn't terminate.
+		// That is, if we shut it down because we're attempting to reconnect to the Cluster Gateway,
+		// then we shouldn't panic/kill the entire Local Daemon process. We're intentionally shutting
+		// down the Provisioner. It's fine.
+		//
+		// If on the other hand, we did NOT manually/explicitly shut down the provisioner ourselves,
+		// then indeed we should probably panic.
+		//
+		// Alternatively, we could try to initiate a reconnection attempt here, but for now, we'll just
+		// call finalize like always.
+		shouldTerminate := !currentRpcServer.PurposefullyShutdown
+
+		d.log.Warn("Finalizer for gRPC serving thread called. Something must have happened to the server. "+
+			"Purposefully shutdown: %v", currentRpcServer.PurposefullyShutdown)
+
+		finalize(shouldTerminate)
+
+		// Not sure when the arguments are evaluated for a deferred function,
+		// so I'm passing a local variable that's already been initialized when
+		// the correct gRPC server struct.
+	}
+
 	// Make sure nobody else is already trying to connect. Don't want to execute this method non-atomically.
 	if !d.connectingToGateway.CompareAndSwap(0, 1) {
 		d.log.Warn("Another goroutine is already attempting to connect to the Cluster Gateway.")
 		return errConcurrentConnectionAttempt
 	}
 
-	// Make sure to swap the connectingToGateway flag back to 0 once we're done, regardless of whether or not
+	// Make sure to swap the connectingToGateway flag back to 0 once we're done, regardless of whether
 	// we successfully reconnected to the Cluster Gateway.
 	defer func() {
 		swapped := d.connectingToGateway.CompareAndSwap(1, 0)
@@ -823,30 +849,9 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 	// Wait for reverse connection
 	go func() {
 		currentServer := d.grpcServer
-		defer func(currentRpcServer *GRPCServerWrapper) {
-			// If the server was purposefully shutdown, then we shouldn't terminate.
-			// That is, if we shut it down because we're attempting to reconnect to the Cluster Gateway,
-			// then we shouldn't panic/kill the entire Local Daemon process. We're intentionally shutting
-			// down the Provisioner. It's fine.
-			//
-			// If on the other hand, we did NOT manually/explicitly shut down the provisioner ourselves,
-			// then indeed we should probably panic.
-			//
-			// Alternatively, we could try to initiate a reconnection attempt here, but for now, we'll just
-			// call finalize like always.
-			shouldTerminate := !currentRpcServer.PurposefullyShutdown
+		defer wrappedFinalizeFunction(currentServer)
 
-			d.log.Warn("Finalizer for gRPC serving thread called. Something must have happened to the server. "+
-				"Purposefully shutdown: %v", currentRpcServer.PurposefullyShutdown)
-
-			finalize(shouldTerminate)
-
-			// Not sure when the arguments are evaluated for a deferred function,
-			// so I'm passing a local variable that's already been initialized when
-			// the correct gRPC server struct.
-		}(currentServer)
-
-		if err := currentServer.Serve(provisioner); err != nil {
+		if err := d.grpcServer.Serve(provisioner); err != nil {
 			d.log.Error("Error while serving provisioner gRPC server: %v", err)
 			errorChan <- err
 		}
@@ -887,8 +892,12 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 
 	// Start gRPC server
 	go func() {
-		defer finalize(true)
+		// We don't want to panic if we're purposefully shutting down the old gRPC server.
+		currentServer := d.grpcServer
+		defer wrappedFinalizeFunction(currentServer)
+
 		if err := d.grpcServer.Serve(d.listener); err != nil {
+			// This error may be because we're reconnecting to the Cluster Gateway.
 			d.log.Error("Error while serving gRPC server: %v", err)
 		}
 	}()
@@ -1267,8 +1276,8 @@ func (d *SchedulerDaemonImpl) ReconnectToGateway(_ context.Context, in *proto.Re
 
 	go func() {
 		if in.Delay {
-			// Sleep for 5 seconds so that the gRPC handler can return.
-			for i := 5; i > 0; i-- {
+			// Sleep for 3 seconds so that the gRPC handler can return.
+			for i := 3; i > 0; i-- {
 				d.log.Warn("Forcibly terminating and then reestablishing connection with Cluster Gateway in %d seconds...", i)
 				time.Sleep(time.Second)
 			}

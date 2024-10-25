@@ -145,9 +145,9 @@ func (g *Router) Start() error {
 	<-g.server.Ctx.Done()
 
 	// Close all the sockets.
-	for _, socket := range g.server.Sockets.All {
+	for idx, socket := range g.server.Sockets.All {
 		if socket == nil {
-			g.server.Log.Warn("Router found nil socket when attempting to close all sockets...")
+			g.server.Log.Warn("Router found nil socket (socket #%d) when attempting to close all sockets...", idx)
 			continue
 		}
 		if socket.Socket != nil {

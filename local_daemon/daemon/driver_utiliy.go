@@ -281,7 +281,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 
 	// Start device plugin.
 	go func() {
-		// If we're in local mode, then this will return immediately, but we don't want to shutdown the program (which is what finalize will do).
+		// If we're in local mode, then this will return immediately, but we don't want to shut down the program (which is what finalize will do).
 		// The same holds true if we're running in Docker mode (as opposed to Kubernetes mode).
 		if options.DeploymentMode == string(types.KubernetesMode) {
 			defer finalize(true)
