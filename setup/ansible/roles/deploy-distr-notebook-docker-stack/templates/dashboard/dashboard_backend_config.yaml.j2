@@ -12,7 +12,7 @@ admin_password: '{{ dashboard_admin_password }}'
 base-url: "/notebook-dashboard"
 
 # The address of the Jupyter Server.
-jupyter-server-address: jupyter:8888
+jupyter-server-address: {{ hostvars['swarm-leader'].ansible_host }}/jupyter
 
 # The base path that the Jupyter Server is listening on.
 jupyter-server-base-path: /jupyter
