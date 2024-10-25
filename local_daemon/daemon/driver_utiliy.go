@@ -88,22 +88,22 @@ func GetGrpcOptions(tracer opentracing.Tracer) []grpc.ServerOption {
 	return gOpts
 }
 
-// getNameOfDockerContainerNonJson attempts to retrieve the name of the Docker container using the command:
-// docker inspect {container_hostname_env} --format=json
-func getNameOfDockerContainerNonJson() (string, error) {
-	hostnameEnv := os.Getenv("HOSTNAME")
+// getNameOrIdOfDockerContainerNonJson retrieves the container name or full container ID without
+// specifying the format to be JSON for the docker command used to retrieve the desired value.
+//
+// Node that the hostnameEnv is probably the beginning of the docker container ID, but not necessarily
+// the full container ID.
+func getNameOrIdOfDockerContainerNonJson(hostnameEnv string, getName bool) (string, error) {
+	// We will use this command to retrieve the name of this Docker container.
+	unformattedCommand := "docker inspect {container_hostname_env} --format='{{.{target_field}}}'"
+	formattedCommand := strings.ReplaceAll(unformattedCommand, "{container_hostname_env}", hostnameEnv)
 
-	if len(hostnameEnv) == 0 {
-		globalLogger.Error("Could not retrieve valid value from HOSTNAME environment variable.")
-		globalLogger.Error("Returning default value for NodeName: \"%s\"", types.DockerNode)
-		return types.DockerNode, errHostnameUnavailable
+	if getName {
+		formattedCommand = strings.ReplaceAll(unformattedCommand, "{target_field}", "Name")
+	} else {
+		formattedCommand = strings.ReplaceAll(unformattedCommand, "{target_field}", "Id")
 	}
 
-	globalLogger.Info("Retrieved value for HOSTNAME environment variable: \"%s\"", hostnameEnv)
-
-	// We will use this command to retrieve the name of this Docker container.
-	unformattedCommand := "docker inspect {container_hostname_env} --format='{{.Name}}'"
-	formattedCommand := strings.ReplaceAll(unformattedCommand, "{container_hostname_env}", hostnameEnv)
 	argv := strings.Split(formattedCommand, " ")
 
 	globalLogger.Info("Executing shell command: %s", utils.LightBlueStyle.Render(formattedCommand))
@@ -141,6 +141,32 @@ func getNameOfDockerContainerNonJson() (string, error) {
 	return containerName, nil
 }
 
+// getNameOfDockerContainerNonJson attempts to retrieve the name and full ID of the Docker container using the command:
+// docker inspect {container_hostname_env} --format=json
+func getNameAndIdOfDockerContainerNonJson() (string, string, error) {
+	hostnameEnv := os.Getenv("HOSTNAME")
+
+	if len(hostnameEnv) == 0 {
+		globalLogger.Error("Could not retrieve valid value from HOSTNAME environment variable.")
+		globalLogger.Error("Returning default value for NodeName: \"%s\"", types.DockerNode)
+		return types.DockerNode, "", errHostnameUnavailable
+	}
+
+	globalLogger.Info("Retrieved value for HOSTNAME environment variable: \"%s\"", hostnameEnv)
+
+	containerName, err := getNameOrIdOfDockerContainerNonJson(hostnameEnv, true)
+	if err != nil {
+		return types.DockerNode, "", err
+	}
+
+	containerId, err := getNameOrIdOfDockerContainerNonJson(hostnameEnv, false)
+	if err != nil {
+		return containerName, "", err
+	}
+
+	return containerName, containerId, nil
+}
+
 func getNameAndIdOfDockerContainer() (string, string, error) {
 	hostnameEnv := os.Getenv("HOSTNAME")
 
@@ -174,21 +200,21 @@ func getNameAndIdOfDockerContainer() (string, string, error) {
 		return types.DockerNode, "", err
 	}
 
-	var outputMap map[string]interface{}
+	var outputMap []map[string]interface{}
 	err := json.Unmarshal(stdoutBuffer.Bytes(), &outputMap)
-	if err != nil {
+	if err != nil || len(outputMap) == 0 {
 		globalLogger.Error("Failed to unmarshal JSON output of `docker inspect` command: %v", err)
 
 		// We ~might~ be able to get the container name if we go about it a little differently...
 		// Probably not, but it is worth a try.
-		var containerName string
-		containerName, err = getNameOfDockerContainerNonJson()
+		var containerName, containerId string
+		containerName, containerId, err = getNameAndIdOfDockerContainerNonJson()
 
-		return containerName, "", err
+		return containerName, containerId, err
 	}
 
-	containerName := outputMap["Name"].(string)
-	containerId := outputMap["Id"].(string)
+	containerName := outputMap[0]["Name"].(string)
+	containerId := outputMap[0]["Id"].(string)
 
 	if strings.HasPrefix(containerName, "'") {
 		containerName = containerName[1:]
@@ -203,6 +229,7 @@ func getNameAndIdOfDockerContainer() (string, string, error) {
 	}
 
 	globalLogger.Info("Resolved container name: \"%s\"", containerName)
+	globalLogger.Info("Resolved container ID: \"%s\"", containerId)
 	return containerName, containerId, nil
 }
 

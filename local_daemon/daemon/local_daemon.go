@@ -497,7 +497,7 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 	}
 
 	// If we don't have an ID yet...
-	if d.hasId() {
+	if !d.hasId() {
 		// Make sure we received a valid ID.
 		if !isValidId(in.Id) {
 			log.Fatalf(utils.RedStyle.Render("Received empty ID, and our current ID is also empty...\n"))
