@@ -14,7 +14,7 @@ scrape_configs:
   - job_name: 'prometheus'
     scrape_interval: 5s
     static_configs:
-      - targets: ['prometheus:9090']
+      - targets: ['prometheus:8500']
 
   # Create a job for Docker daemons.
   - job_name: 'docker'
@@ -63,3 +63,8 @@ scrape_configs:
         regex: '(.*):(\d+);(\d+)'
         target_label: __address__
         replacement: "$1:$3"
+      - source_labels: [__address__, __meta_dockerswarm_container_label_prometheus_metrics_basepath]
+        regex: '(.+);(.+)'
+        target_label: __address__
+        replacement: '$1$2'
+        action: replace
