@@ -877,7 +877,9 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 			// Sanity check.
 			if host == nil {
-				log.Fatalf(utils.RedStyle.Render("We're supposed to restore a Local Daemon, but the host with which we would perform the restoration is nil...\n"))
+				errorMessage := "We're supposed to restore a Local Daemon, but the host with which we would perform the restoration is nil...\n"
+				d.notifyDashboardOfError("Failed to Re-Register Local Daemon", errorMessage)
+				log.Fatalf(utils.RedStyle.Render(errorMessage))
 			}
 
 			// Restore the Local Daemon.
@@ -922,14 +924,20 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	if host == nil {
-		log.Fatalf(utils.RedStyle.Render("Newly-connected host from addr=%s is nil.\n"), incoming.RemoteAddr().String())
+		log.Fatalf(utils.RedStyle.Render("Newly-connected host from addr=%s is nil.\n"),
+			incoming.RemoteAddr().String())
 	}
 
-	d.log.Info("Incoming host scheduler %s (node = %s) connected", host.ID, host.NodeName)
+	if !host.ProperlyInitialized {
+		log.Fatalf(utils.RedStyle.Render("Newly-connected Host %s (ID=%s) was NOT properly initialized..."),
+			host.NodeName, host.ID)
+	}
+
+	d.log.Info("Incoming Local Daemon %s (ID=%s) connected", host.NodeName, host.ID)
 
 	d.cluster.NewHostAddedOrConnected(host)
 
-	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the Cluster Gateway.", host.ID, host.NodeName))
+	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s (ID=%s) has connected to the Cluster Gateway.", host.NodeName, host.ID))
 
 	return conn, nil
 }

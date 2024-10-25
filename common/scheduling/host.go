@@ -202,6 +202,7 @@ type Host struct {
 	resourcesWrapper       *ResourcesWrapper                    // resourcesWrapper wraps all the Host's Resources.
 	LastRemoteSync         time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 	IsContainedWithinIndex bool                                 // IsContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
+	ProperlyInitialized    bool                                 // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
 
 	// lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
 	lastSnapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
@@ -220,6 +221,50 @@ type Host struct {
 	idx             int
 }
 
+// newHostForRestoration creates and returns a new Host to be used only for restoring an existing Host.
+// That is, newHostForRestoration should never be used to create a *Host struct for non-restorative purposes.
+//
+// Restoration occurs when a Local Daemon that was already connected to the Cluster Gateway reconnects, such as
+// after suffering from a network partition/lost connection.
+//
+// newHostForRestoration always returns a non-nil error. It either returns an error returned by the network
+// call to retrieve the latest GPU info from the remote host, or it returns an ErrRestoreRequired error
+// to ensure that the Cluster Gateway knows to use the returned Host to restore an existing Host.
+func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirmedId *proto.HostId, millicpus int32, memMb int32, vramGb float64) (*Host, error) {
+	gpuInfoResp, gpuFetchError := localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
+	if gpuFetchError != nil {
+		log.Printf(utils.RedStyle.Render("[ERROR] Failed to fetch latest GPU information from "+
+			"existing+reconnecting Local Daemon %s (ID=%s)\n"), confirmedId.NodeName, confirmedId.Id)
+		return nil, gpuFetchError
+	}
+
+	// Create the ResourceSpec defining the Resources available on the Host.
+	resourceSpec := &types.DecimalSpec{
+		GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
+		Millicpus: decimal.NewFromFloat(float64(millicpus)),
+		MemoryMb:  decimal.NewFromFloat(float64(memMb)),
+		VRam:      decimal.NewFromFloat(vramGb),
+	}
+
+	// Create a Host struct populated with a few key fields.
+	// This Host will be used to "restore" the existing Host struct.
+	// That is, the existing Host struct will replace its values for these fields
+	// with the values of this new Host struct.
+	//
+	// The most important is probably the LocalGatewayClient, as that ensures that the
+	// existing Host struct has a new, valid connection to the remote Local Daemon.
+	host := &Host{
+		ID:                  confirmedId.Id,
+		resourceSpec:        resourceSpec,
+		NodeName:            confirmedId.NodeName,
+		latestGpuInfo:       gpuInfoResp,
+		LocalGatewayClient:  localGatewayClient,
+		ProperlyInitialized: false,
+	}
+
+	return host, ErrRestoreRequired
+}
+
 // NewHost creates and returns a new *Host.
 //
 // If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
@@ -230,58 +275,36 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
 	confirmedId, err := localGatewayClient.SetID(context.Background(), &proto.HostId{Id: id})
 
-	// Validate the response if there's no explicit error.
-	if err == nil {
-		if confirmedId.NodeName == "" {
-			err = ErrNodeNameUnspecified
-		} else if confirmedId.Id != id {
-			// The ID we passed does not equal the ID we received back.
-			// Replace the ID we were going to use with the ID we received.
-			id = confirmedId.Id
-
-			// If the node already exists, then we need to restore it, rather than create an entirely new node.
-			if confirmedId.Existing {
-				err = ErrRestoreRequired
-
-				var gpuInfoResp *proto.GpuInfo
-				gpuInfoResp, err = localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
-				if err != nil {
-					return nil, err
-				}
-
-				// Create the ResourceSpec defining the Resources available on the Host.
-				resourceSpec := &types.DecimalSpec{
-					GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
-					Millicpus: decimal.NewFromFloat(float64(millicpus)),
-					MemoryMb:  decimal.NewFromFloat(float64(memMb)),
-					VRam:      decimal.NewFromFloat(vramGb),
-				}
-
-				// Create a Host struct populated with a few key fields.
-				// This Host will be used to "restore" the existing Host struct.
-				// That is, the existing Host struct will replace its values for these fields
-				// with the values of this new Host struct.
-				//
-				// The most important is probably the LocalGatewayClient, as that ensures that the
-				// existing Host struct has a new, valid connection to the remote Local Daemon.
-				host := &Host{
-					ID:                 confirmedId.Id,
-					resourceSpec:       resourceSpec,
-					NodeName:           confirmedId.NodeName,
-					latestGpuInfo:      gpuInfoResp,
-					LocalGatewayClient: localGatewayClient,
-				}
-
-				return host, err
-			}
-		}
-	}
-
 	// If error is now non-nil, either because there was an explicit error or because the response was invalid,
 	// then the host scheduler creation failed, and we return nil and the error.
 	if err != nil {
+		log.Printf(utils.OrangeStyle.Render("Error while creating new Host with ID=\"%s\": %v\n"), id, err)
 		return nil, err
 	}
+
+	// Validate the response if there's no explicit error.
+	if confirmedId.NodeName == "" {
+		return nil, ErrNodeNameUnspecified
+	}
+
+	// If the ID we received back is different, then this is most likely a host that already exists.
+	if confirmedId.Id != id {
+		log.Printf("[INFO] Confirmed ID and specified ID for new Host differ. "+
+			"Confirmed ID: \"%s\". Specified ID: \"%s\".\n", confirmedId.Id, id)
+
+		// The ID we passed does not equal the ID we received back.
+		// Replace the ID we were going to use with the ID we received.
+		id = confirmedId.Id
+	}
+
+	// If the node already exists, then we need to restore it, rather than create an entirely new node.
+	if confirmedId.Existing {
+		log.Printf("[INFO] New Local Daemon connection is actually from an existing Local Daemon "+
+			"(%s, ID=%s) that is reconnecting.\n", confirmedId.NodeName, confirmedId.Id)
+		return newHostForRestoration(localGatewayClient, confirmedId, millicpus, memMb, vramGb)
+	}
+
+	log.Printf("Registering brand new Local Daemon %s (ID=%s).", confirmedId.NodeName, confirmedId.Id)
 
 	// Get the initial GPU info. If this fails, the creation of a new host scheduler fails.
 	gpuInfoResp, err := localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
@@ -316,6 +339,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		enabled:                         true,
 		CreatedAt:                       time.Now(),
 		OversubscriptionQuerierFunction: cluster.GetOversubscriptionFactor,
+		ProperlyInitialized:             true,
 	}
 
 	host.resourcesWrapper = NewResourcesWrapper(resourceSpec)
@@ -901,6 +925,11 @@ func (h *Host) SetMeta(key HostMetaKey, value interface{}) {
 
 // GetMeta return the metadata of the host.
 func (h *Host) GetMeta(key HostMetaKey) interface{} {
+	if h.meta == nil {
+		log.Printf(utils.OrangeStyle.Render("[WARNING] Cannot retrieve metadata \"%s\" -- metadata dictionary is nil..."), key)
+		return nil
+	}
+
 	if value, ok := h.meta.Load(string(key)); ok {
 		return value
 	}

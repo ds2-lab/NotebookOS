@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"log"
 	"net"
 	"os"
@@ -191,7 +192,8 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	go func() {
 		defer finalize(true, "Provisioner Server", distributedCluster)
 		if err := provisioner.Serve(lisHost); err != nil {
-			log.Fatalf("Error on serving host scheduler connections: %v", err)
+			globalLogger.Error(utils.RedStyle.Render("Error on serving host scheduler connections: %v"), err)
+			panic(err)
 		}
 	}()
 
@@ -199,7 +201,8 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	go func() {
 		defer finalize(true, "Distributed internalCluster Server", distributedCluster)
 		if err := distributedClusterRpcServer.Serve(distributedClusterServiceListener); err != nil {
-			log.Fatalf("Error on serving distributed cluster connections: %v", err)
+			globalLogger.Error(utils.RedStyle.Render("Error on serving distributed cluster connections: %v"), err)
+			panic(err)
 		}
 	}()
 
@@ -207,7 +210,8 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	go func() {
 		defer finalize(true, "internalCluster Gateway Daemon", distributedCluster)
 		if err := srv.Start(); err != nil {
-			log.Fatalf("Error during daemon serving: %v", err)
+			globalLogger.Error(utils.RedStyle.Render("Error during daemon serving: %v"), err)
+			panic(err)
 		}
 	}()
 
