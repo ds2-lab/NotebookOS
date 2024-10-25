@@ -1,9 +1,0 @@
-- name: Instruct the Docker Swarm worker nodes to leave the cluster
-  hosts: docker-swarm-worker
-  roles:
-    - leave-docker-swarm
-
-- name: Instruct the Docker Swarm manager nodes to leave the cluster
-  hosts: docker-swarm-manager
-  roles:
-    - leave-docker-swarm

@@ -1,0 +1,30 @@
+---
+- name: Pull the dashboard backend Docker image
+  community.docker.docker_image_pull:
+    name: "{{ dashboard_backend_docker_username }}/{{ dashboard_backend_docker_image_name }}"
+    pull: always
+    tag: "{{ dashboard_backend_docker_image_tag }}"
+
+- name: Pull the Gateway Docker image
+  community.docker.docker_image_pull:
+    name: "{{ gateway_docker_username }}/{{ gateway_docker_image_name }}"
+    pull: always
+    tag: "{{ gateway_docker_image_tag }}"
+
+- name: Pull the Local Daemon Docker image
+  community.docker.docker_image_pull:
+    name: "{{ local_daemon_docker_username }}/{{ local_daemon_docker_image_name }}"
+    pull: always
+    tag: "{{ local_daemon_docker_image_tag }}"
+
+- name: Pull the Jupyter Server Docker image
+  community.docker.docker_image_pull:
+    name: "{{ jupyter_server_docker_username }}/{{ jupyter_server_docker_image_name }}"
+    pull: always
+    tag: "{{ jupyter_server_docker_image_tag }}"
+
+- name: Pull the kernel Docker image
+  community.docker.docker_image_pull:
+    name: "{{ jupyter_server_docker_username }}/{{ jupyter_server_docker_image_name }}"
+    pull: always
+    tag: "{{ jupyter_server_docker_image_tag }}"

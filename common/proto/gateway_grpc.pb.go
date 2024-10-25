@@ -375,28 +375,29 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	DistributedCluster_InducePanic_FullMethodName                = "/gateway.DistributedCluster/InducePanic"
-	DistributedCluster_ClusterAge_FullMethodName                 = "/gateway.DistributedCluster/ClusterAge"
-	DistributedCluster_SpoofNotifications_FullMethodName         = "/gateway.DistributedCluster/SpoofNotifications"
-	DistributedCluster_Ping_FullMethodName                       = "/gateway.DistributedCluster/Ping"
-	DistributedCluster_PingKernel_FullMethodName                 = "/gateway.DistributedCluster/PingKernel"
-	DistributedCluster_ListKernels_FullMethodName                = "/gateway.DistributedCluster/ListKernels"
-	DistributedCluster_SetTotalVirtualGPUs_FullMethodName        = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
-	DistributedCluster_GetClusterActualGpuInfo_FullMethodName    = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
-	DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName   = "/gateway.DistributedCluster/GetClusterVirtualGpuInfo"
-	DistributedCluster_MigrateKernelReplica_FullMethodName       = "/gateway.DistributedCluster/MigrateKernelReplica"
-	DistributedCluster_FailNextExecution_FullMethodName          = "/gateway.DistributedCluster/FailNextExecution"
-	DistributedCluster_RegisterDashboard_FullMethodName          = "/gateway.DistributedCluster/RegisterDashboard"
-	DistributedCluster_GetVirtualDockerNodes_FullMethodName      = "/gateway.DistributedCluster/GetVirtualDockerNodes"
-	DistributedCluster_GetDockerSwarmNodes_FullMethodName        = "/gateway.DistributedCluster/GetDockerSwarmNodes"
-	DistributedCluster_GetNumNodes_FullMethodName                = "/gateway.DistributedCluster/GetNumNodes"
-	DistributedCluster_SetNumClusterNodes_FullMethodName         = "/gateway.DistributedCluster/SetNumClusterNodes"
-	DistributedCluster_AddClusterNodes_FullMethodName            = "/gateway.DistributedCluster/AddClusterNodes"
-	DistributedCluster_RemoveSpecificClusterNodes_FullMethodName = "/gateway.DistributedCluster/RemoveSpecificClusterNodes"
-	DistributedCluster_RemoveClusterNodes_FullMethodName         = "/gateway.DistributedCluster/RemoveClusterNodes"
-	DistributedCluster_ModifyClusterNodes_FullMethodName         = "/gateway.DistributedCluster/ModifyClusterNodes"
-	DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName      = "/gateway.DistributedCluster/GetLocalDaemonNodeIDs"
-	DistributedCluster_QueryMessage_FullMethodName               = "/gateway.DistributedCluster/QueryMessage"
+	DistributedCluster_InducePanic_FullMethodName                 = "/gateway.DistributedCluster/InducePanic"
+	DistributedCluster_ClusterAge_FullMethodName                  = "/gateway.DistributedCluster/ClusterAge"
+	DistributedCluster_SpoofNotifications_FullMethodName          = "/gateway.DistributedCluster/SpoofNotifications"
+	DistributedCluster_Ping_FullMethodName                        = "/gateway.DistributedCluster/Ping"
+	DistributedCluster_PingKernel_FullMethodName                  = "/gateway.DistributedCluster/PingKernel"
+	DistributedCluster_ListKernels_FullMethodName                 = "/gateway.DistributedCluster/ListKernels"
+	DistributedCluster_SetTotalVirtualGPUs_FullMethodName         = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
+	DistributedCluster_GetClusterActualGpuInfo_FullMethodName     = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
+	DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName    = "/gateway.DistributedCluster/GetClusterVirtualGpuInfo"
+	DistributedCluster_MigrateKernelReplica_FullMethodName        = "/gateway.DistributedCluster/MigrateKernelReplica"
+	DistributedCluster_FailNextExecution_FullMethodName           = "/gateway.DistributedCluster/FailNextExecution"
+	DistributedCluster_RegisterDashboard_FullMethodName           = "/gateway.DistributedCluster/RegisterDashboard"
+	DistributedCluster_GetVirtualDockerNodes_FullMethodName       = "/gateway.DistributedCluster/GetVirtualDockerNodes"
+	DistributedCluster_GetDockerSwarmNodes_FullMethodName         = "/gateway.DistributedCluster/GetDockerSwarmNodes"
+	DistributedCluster_GetNumNodes_FullMethodName                 = "/gateway.DistributedCluster/GetNumNodes"
+	DistributedCluster_SetNumClusterNodes_FullMethodName          = "/gateway.DistributedCluster/SetNumClusterNodes"
+	DistributedCluster_AddClusterNodes_FullMethodName             = "/gateway.DistributedCluster/AddClusterNodes"
+	DistributedCluster_RemoveSpecificClusterNodes_FullMethodName  = "/gateway.DistributedCluster/RemoveSpecificClusterNodes"
+	DistributedCluster_RemoveClusterNodes_FullMethodName          = "/gateway.DistributedCluster/RemoveClusterNodes"
+	DistributedCluster_ModifyClusterNodes_FullMethodName          = "/gateway.DistributedCluster/ModifyClusterNodes"
+	DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName       = "/gateway.DistributedCluster/GetLocalDaemonNodeIDs"
+	DistributedCluster_QueryMessage_FullMethodName                = "/gateway.DistributedCluster/QueryMessage"
+	DistributedCluster_ForceLocalDaemonToReconnect_FullMethodName = "/gateway.DistributedCluster/ForceLocalDaemonToReconnect"
 )
 
 // DistributedClusterClient is the client API for DistributedCluster service.
@@ -482,6 +483,9 @@ type DistributedClusterClient interface {
 	// QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
 	// and what the status of that message is (i.e., sent, response received, etc.)
 	QueryMessage(ctx context.Context, in *QueryMessageRequest, opts ...grpc.CallOption) (*QueryMessageResponse, error)
+	// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+	// This is mostly used for testing/debugging the reconnection process.
+	ForceLocalDaemonToReconnect(ctx context.Context, in *ForceLocalDaemonToReconnectRequest, opts ...grpc.CallOption) (*Void, error)
 }
 
 type distributedClusterClient struct {
@@ -712,6 +716,16 @@ func (c *distributedClusterClient) QueryMessage(ctx context.Context, in *QueryMe
 	return out, nil
 }
 
+func (c *distributedClusterClient) ForceLocalDaemonToReconnect(ctx context.Context, in *ForceLocalDaemonToReconnectRequest, opts ...grpc.CallOption) (*Void, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Void)
+	err := c.cc.Invoke(ctx, DistributedCluster_ForceLocalDaemonToReconnect_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DistributedClusterServer is the server API for DistributedCluster service.
 // All implementations must embed UnimplementedDistributedClusterServer
 // for forward compatibility.
@@ -795,6 +809,9 @@ type DistributedClusterServer interface {
 	// QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
 	// and what the status of that message is (i.e., sent, response received, etc.)
 	QueryMessage(context.Context, *QueryMessageRequest) (*QueryMessageResponse, error)
+	// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+	// This is mostly used for testing/debugging the reconnection process.
+	ForceLocalDaemonToReconnect(context.Context, *ForceLocalDaemonToReconnectRequest) (*Void, error)
 	mustEmbedUnimplementedDistributedClusterServer()
 }
 
@@ -870,6 +887,9 @@ func (UnimplementedDistributedClusterServer) GetLocalDaemonNodeIDs(context.Conte
 }
 func (UnimplementedDistributedClusterServer) QueryMessage(context.Context, *QueryMessageRequest) (*QueryMessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method QueryMessage not implemented")
+}
+func (UnimplementedDistributedClusterServer) ForceLocalDaemonToReconnect(context.Context, *ForceLocalDaemonToReconnectRequest) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ForceLocalDaemonToReconnect not implemented")
 }
 func (UnimplementedDistributedClusterServer) mustEmbedUnimplementedDistributedClusterServer() {}
 func (UnimplementedDistributedClusterServer) testEmbeddedByValue()                            {}
@@ -1288,6 +1308,24 @@ func _DistributedCluster_QueryMessage_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DistributedCluster_ForceLocalDaemonToReconnect_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForceLocalDaemonToReconnectRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).ForceLocalDaemonToReconnect(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_ForceLocalDaemonToReconnect_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).ForceLocalDaemonToReconnect(ctx, req.(*ForceLocalDaemonToReconnectRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DistributedCluster_ServiceDesc is the grpc.ServiceDesc for DistributedCluster service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1382,6 +1420,10 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "QueryMessage",
 			Handler:    _DistributedCluster_QueryMessage_Handler,
+		},
+		{
+			MethodName: "ForceLocalDaemonToReconnect",
+			Handler:    _DistributedCluster_ForceLocalDaemonToReconnect_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -1633,6 +1675,7 @@ const (
 	LocalGateway_SetTotalVirtualGPUs_FullMethodName      = "/gateway.LocalGateway/SetTotalVirtualGPUs"
 	LocalGateway_GetVirtualGpuAllocations_FullMethodName = "/gateway.LocalGateway/GetVirtualGpuAllocations"
 	LocalGateway_YieldNextExecution_FullMethodName       = "/gateway.LocalGateway/YieldNextExecution"
+	LocalGateway_ReconnectToGateway_FullMethodName       = "/gateway.LocalGateway/ReconnectToGateway"
 )
 
 // LocalGatewayClient is the client API for LocalGateway service.
@@ -1687,6 +1730,11 @@ type LocalGatewayClient interface {
 	// Ensure that the next 'execute_request' for the specified kernel fails.
 	// This is to be used exclusively for testing/debugging purposes.
 	YieldNextExecution(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*Void, error)
+	// ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
+	//
+	// The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
+	// to avoid causing the ReconnectToGateway to encounter an error.
+	ReconnectToGateway(ctx context.Context, in *ReconnectToGatewayRequest, opts ...grpc.CallOption) (*Void, error)
 }
 
 type localGatewayClient struct {
@@ -1877,6 +1925,16 @@ func (c *localGatewayClient) YieldNextExecution(ctx context.Context, in *KernelI
 	return out, nil
 }
 
+func (c *localGatewayClient) ReconnectToGateway(ctx context.Context, in *ReconnectToGatewayRequest, opts ...grpc.CallOption) (*Void, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Void)
+	err := c.cc.Invoke(ctx, LocalGateway_ReconnectToGateway_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalGatewayServer is the server API for LocalGateway service.
 // All implementations must embed UnimplementedLocalGatewayServer
 // for forward compatibility.
@@ -1929,6 +1987,11 @@ type LocalGatewayServer interface {
 	// Ensure that the next 'execute_request' for the specified kernel fails.
 	// This is to be used exclusively for testing/debugging purposes.
 	YieldNextExecution(context.Context, *KernelId) (*Void, error)
+	// ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
+	//
+	// The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
+	// to avoid causing the ReconnectToGateway to encounter an error.
+	ReconnectToGateway(context.Context, *ReconnectToGatewayRequest) (*Void, error)
 	mustEmbedUnimplementedLocalGatewayServer()
 }
 
@@ -1992,6 +2055,9 @@ func (UnimplementedLocalGatewayServer) GetVirtualGpuAllocations(context.Context,
 }
 func (UnimplementedLocalGatewayServer) YieldNextExecution(context.Context, *KernelId) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method YieldNextExecution not implemented")
+}
+func (UnimplementedLocalGatewayServer) ReconnectToGateway(context.Context, *ReconnectToGatewayRequest) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReconnectToGateway not implemented")
 }
 func (UnimplementedLocalGatewayServer) mustEmbedUnimplementedLocalGatewayServer() {}
 func (UnimplementedLocalGatewayServer) testEmbeddedByValue()                      {}
@@ -2338,6 +2404,24 @@ func _LocalGateway_YieldNextExecution_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalGateway_ReconnectToGateway_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReconnectToGatewayRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).ReconnectToGateway(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalGateway_ReconnectToGateway_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).ReconnectToGateway(ctx, req.(*ReconnectToGatewayRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalGateway_ServiceDesc is the grpc.ServiceDesc for LocalGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2416,6 +2500,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "YieldNextExecution",
 			Handler:    _LocalGateway_YieldNextExecution_Handler,
+		},
+		{
+			MethodName: "ReconnectToGateway",
+			Handler:    _LocalGateway_ReconnectToGateway_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -1,0 +1,24 @@
+---
+
+- name: Pull all the latest Docker images for Dashboard Backend, Cluster Gateway, Local Daemon, Jupyter Server, and Kernel Replicas
+  hosts: docker_swarm
+  roles:
+    - pull-docker-images
+  tags:
+    - docker
+    - swarm
+    - docker-images
+
+- name: Gather facts on HDFS nodes
+  gather_facts: true
+  hosts: hadoop_hdfs
+
+- name: Deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
+  hosts: docker_swarm
+  roles:
+    - deploy-distr-notebook-docker-stack
+  tags:
+    - docker
+    - swarm
+    - start_component
+    - install_distributed_jupyter_notebook_app

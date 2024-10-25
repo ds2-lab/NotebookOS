@@ -1,0 +1,96 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [ ]
+      scheme: http
+      timeout: 10s
+      api_version: v2
+
+scrape_configs:
+  # Scraping Prometheus' own metrics
+  - job_name: 'prometheus'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['localhost:8500']
+
+  # Create a job for Docker daemons.
+  #
+  # This example requires Docker daemons to be configured to expose
+  # Prometheus metrics, as documented here:
+  # https://docs.docker.com/config/daemon/prometheus/
+  #
+  # We attempt to supply this configuration in the 'configure-docker-daemon' Ansible role.
+  - job_name: "docker"
+    dockerswarm_sd_configs:
+      - host: unix:///var/run/docker.sock # You can also use http/https to connect to the Docker daemon.
+        role: nodes
+    relabel_configs:
+      # Fetch metrics on port 9323.
+      - source_labels: [__meta_dockerswarm_node_address]
+        target_label: __address__
+        replacement: $1:9323
+
+  # Scraping ZooKeeper on the Docker Swarm hosts (bare-metal)
+  - job_name: 'zookeeper'
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - <host-ip-1>:7000
+          - <host-ip-2>:7000
+          - <host-ip-3>:7000
+        labels:
+          job: 'zookeeper'
+          instance: 'zookeeper-swarm-node'
+
+  # Scrape Docker Swarm services via service discovery
+  - job_name: 'docker-swarm'
+    dockerswarm_sd_configs:
+      - host: 'tcp://<swarm-manager-ip>:2375'  # Replace with the IP of your Docker Swarm manager
+        role: 'tasks'  # Discover containers
+        port: 9090
+    relabel_configs:
+      - source_labels: ['__meta_dockerswarm_service']
+        target_label: 'service'
+      - source_labels: ['__meta_dockerswarm_network']
+        target_label: 'traefik-public'
+      - source_labels: ['__meta_dockerswarm_task_name']
+        target_label: 'task'
+      - source_labels: ['__meta_dockerswarm_task_container_id']
+        target_label: 'container_id'
+      - source_labels: [__address__, __meta_dockerswarm_service_label_prometheus_metrics_port]
+        regex: '(.*):(\d+);(\d+)'
+        target_label: __address__
+        replacement: "$1:$3"
+      - source_labels: [__address__, __meta_dockerswarm_container_label_prometheus_metrics_basepath]
+        regex: '(.+);(.+)'
+        target_label: __address__
+        replacement: '$1$2'
+        action: replace
+
+  # Scraping Docker containers (like node exporters)
+  - job_name: 'docker-containers'
+    docker_sd_configs:
+      - host: 'unix:///var/run/docker.sock'
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_service_name]
+        target_label: 'service'
+      - source_labels: [__meta_docker_container_network_mode]
+        action: keep
+        regex: 'overlay'  # Keep only containers that are on the overlay network
+      - source_labels: [__meta_docker_container_label_component]
+        regex: kernel_replica
+        action: keep
+      - source_labels: [__meta_docker_container_label_app]
+        regex: distributed_cluster
+        action: keep
+      - source_labels: [__address__]
+        action: replace
+        regex: ([^:]+):.*
+        replacement: $1:8089
+        target_label: __address__

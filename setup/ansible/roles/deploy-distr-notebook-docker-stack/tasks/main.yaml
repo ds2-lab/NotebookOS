@@ -1,0 +1,123 @@
+# This playbook is used to deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
+---
+
+- name: Pull the latest code changes before installing Docker Swarm app, discarding any local changes.
+  git:
+    repo: "{{ git_repo_url }}"
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}"
+    version: "{{ gitbranch }}"
+    update: yes
+    force: yes
+  become: true
+
+- name: Print the remote username
+  debug:
+    msg: "Remote username: {{ remote_username }}"
+
+- name: Recursively change ownership of the go directory
+  ansible.builtin.file:
+    path: "{{ go_install_parent_dir }}/go/{{ git_repo_name }}"
+    recurse: yes
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+  become: true
+
+#- name: "Run the id command to get the UID of the {{ remote_username }} user"
+#  command: "id {{ remote_username }} -u"
+#  register: remote_username_uid_cmd
+
+- name: Create the docker-compose.yml file for the distributed-notebook Docker Swarm stack using the associated template.
+  template:
+    src: docker-compose-swarm.yml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/docker-compose.yml"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+  # vars:
+  #  remote_username_uid: "{{ remote_username_uid_cmd.stdout | string }}"
+
+- name: Create the grafana.ini configuration file using the associated template.
+  template:
+    src: grafana.ini.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/grafana/grafana.ini"
+    mode: 0777
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
+- name: Create the prometheus.yml configuration file using the associated template.
+  template:
+    src: prometheus.yml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/prometheus/prometheus.yml"
+    mode: 0777
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+  tags:
+    - config
+    - prometheus
+    - update-prometheus-config
+
+- name: Create the config-docker.yaml file for the Dashboard Backend component using the associated template.
+  template:
+    src: ./dashboard/dashboard_backend_config.yaml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/config-docker.yaml"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
+- name: Create the workload-presets-file.yaml file for the Dashboard Backend component using the associated template.
+  template:
+    src: ./dashboard/dashboard_workload_presets.yaml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload-presets-file.yaml"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
+- name: Create the .env file for the Dashboard Backend component using the associated template.
+  template:
+    src: ./dashboard/dashboard_env.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/.env"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
+- name: Create the gateway.yml file for the Cluster Gateway component using the associated template.
+  template:
+    src: gateway.yml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/gateway/gateway.yml"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
+- name: Print daemon.yml path
+  debug:
+    msg: "Path for daemon.yml: {{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/local_daemon/daemon.yml"
+
+- name: Create the daemon.yml file for the Local Daemon service using the associated template.
+  template:
+    src: daemon.yml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/local_daemon/daemon.yml"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
+- name: Print the name of the Docker Swarm stack to be created
+  debug:
+    msg: "Creating Docker Swarm stack: '{{ distributed_notebook_docker_stack_name }}'"
+
+- name: Open up the permissions on /var/run/docker.sock so that we can mount it to the Local Daemon containers
+  shell: chmod -R 777 /var/run/docker.sock
+  become: true
+
+- name: "Deploy the {{ distributed_notebook_docker_stack_name }} Docker Swarm stack"
+  community.docker.docker_stack:
+    name: "{{ distributed_notebook_docker_stack_name }}"
+    state: present
+    compose:
+      - "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/docker-compose.yml"
+  become: true
+  become_user: "{{ remote_username }}"
+  when: "deploy_distributed_jupyter_notebook_app == true and inventory_hostname in 'swarm-leader'"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"

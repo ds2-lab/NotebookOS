@@ -26,7 +26,13 @@ const (
 	DockerNetworkNameEnv     = "DOCKER_NETWORK_NAME"
 	DockerNetworkNameDefault = "distributed_cluster_default"
 
-	DockerTempBase        = "KERNEL_TEMP_BASE"
+	HostMountDirectory        = "HOST_MOUNT_DIR"
+	HostMountDirectoryDefault = "/home/ubuntu/kernel_base"
+
+	TargetMountDirectory        = "TARGET_MOUNT_DIR"
+	TargetMountDirectoryDefault = "/kernel_base"
+
+	DockerTempBase        = "KERNEL_TEMP_BASE_IN_CONTAINER"
 	DockerTempBaseDefault = ""
 
 	DockerImageName        = "KERNEL_IMAGE"
@@ -53,6 +59,7 @@ const (
 	VarSpecGpu                        = "{spec_gpu}"
 	VarSpecVram                       = "{spec_vram}"
 	VarDebugPort                      = "{kernel_debug_port}"
+	VarPrometheusMetricsPort          = "{prometheus_metrics_port}"
 	VarKernelDebugPyPort              = "{kernel_debugpy_port}"
 	VarMaybeFlags                     = "{maybe_flags}"
 	VarMaybeGdbFlag                   = "{maybe_gdb}"
@@ -70,7 +77,7 @@ var (
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
 	dockerMaybeFlags  = "{maybe_gdb}{maybe_sim_checkpoint_latency}{docker_swarm_node_constraint}"
-	dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SPEC_VRAM={spec_vram} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker {maybe_flags} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster {image}"
+	dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e PROMETHEUS_METRICS_PORT={prometheus_metrics_port} -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SPEC_VRAM={spec_vram} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker {maybe_flags} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label prometheus.metrics.port={prometheus_metrics_port} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
 
@@ -84,6 +91,8 @@ type DockerInvoker struct {
 	connInfo                     *jupyter.ConnectionInfo
 	opts                         *DockerInvokerOptions
 	tempBase                     string
+	hostMountDir                 string
+	targetMountDir               string
 	invokerCmd                   string                           // Command used to create the Docker container.
 	containerName                string                           // Name of the launched container; this is the empty string before the container is launched.
 	dockerNetworkName            string                           // The name of the Docker network that the Local Daemon container is running within.
@@ -135,6 +144,9 @@ type DockerInvokerOptions struct {
 	// When in Docker Swarm, we add a constraint when invoking kernel replicas to ensure
 	// that they are scheduled onto our node.
 	IsInDockerSwarm bool
+
+	// PrometheusMetricsPort is the port that the container should serve prometheus metrics on.
+	PrometheusMetricsPort int
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider metrics.ContainerMetricsProvider) *DockerInvoker {
@@ -153,6 +165,8 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		connInfo:                     connInfo,
 		opts:                         opts,
 		tempBase:                     utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
+		hostMountDir:                 utils.GetEnv(HostMountDirectory, HostMountDirectoryDefault),
+		targetMountDir:               utils.GetEnv(TargetMountDirectory, TargetMountDirectoryDefault),
 		smrPort:                      smrPort,
 		hdfsNameNodeEndpoint:         opts.HdfsNameNodeEndpoint,
 		id:                           uuid.NewString(),
@@ -169,6 +183,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkNameEnv, DockerNetworkNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarStorageVolume, utils.GetEnv(DockerStorageVolume, DockerStorageVolumeDefault))
+	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarPrometheusMetricsPort, fmt.Sprintf("%d", opts.PrometheusMetricsPort))
 
 	maybeFlagCmd := dockerMaybeFlags
 	if invoker.runKernelsInGdb {
@@ -255,11 +270,11 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 		return nil, ivk.reportLaunchError(err)
 	}
 
-	hostMountDir := os.Getenv("HOST_MOUNT_DIR")
-	targetMountDir := os.Getenv("TARGET_MOUNT_DIR")
+	//hostMountDir := os.Getenv("HOST_MOUNT_DIR")
+	//targetMountDir := os.Getenv("TARGET_MOUNT_DIR")
 
-	ivk.log.Debug("hostMountDir = \"%v\"\n", hostMountDir)
-	ivk.log.Debug("targetMountDir = \"%v\"\n", hostMountDir)
+	ivk.log.Debug("hostMountDir = \"%v\"\n", ivk.hostMountDir)
+	ivk.log.Debug("targetMountDir = \"%v\"\n", ivk.hostMountDir)
 	ivk.log.Debug("kernel debug port = %d", ivk.kernelDebugPort)
 
 	ivk.log.Debug("Prepared connection info: %v\n", connectionInfo)
@@ -288,17 +303,17 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	ivk.log.Debug("filepath.Base(connectionFile)=\"%v\"\n", filepath.Base(connectionFile))
 	ivk.log.Debug("filepath.Base(configFile)=\"%v\"\n", filepath.Base(configFile))
 
-	ivk.log.Debug("{hostMountDir}/{connectionFile}\"%v\"\n", hostMountDir+"/"+filepath.Base(connectionFile))
-	ivk.log.Debug("{hostMountDir}/{configFile}=\"%v\"\n", hostMountDir+"/"+filepath.Base(configFile))
+	ivk.log.Debug("{hostMountDir}/{connectionFile}\"%v\"\n", ivk.hostMountDir+"/"+filepath.Base(connectionFile))
+	ivk.log.Debug("{hostMountDir}/{configFile}=\"%v\"\n", ivk.hostMountDir+"/"+filepath.Base(configFile))
 
-	ivk.log.Debug("{targetMountDir}/{connectionFile}\"%v\"\n", targetMountDir+"/"+filepath.Base(connectionFile))
-	ivk.log.Debug("{targetMountDir}/{configFile}=\"%v\"\n", targetMountDir+"/"+filepath.Base(configFile))
+	ivk.log.Debug("{targetMountDir}/{connectionFile}\"%v\"\n", ivk.targetMountDir+"/"+filepath.Base(connectionFile))
+	ivk.log.Debug("{targetMountDir}/{configFile}=\"%v\"\n", ivk.targetMountDir+"/"+filepath.Base(configFile))
 
 	ivk.containerName = kernelName
 	connectionInfo.IP = ivk.containerName // Overwrite IP with container name
 	cmd := strings.ReplaceAll(ivk.invokerCmd, VarContainerName, ivk.containerName)
-	cmd = strings.ReplaceAll(cmd, TargetMountDir, targetMountDir)
-	cmd = strings.ReplaceAll(cmd, HostMountDir, hostMountDir)
+	cmd = strings.ReplaceAll(cmd, TargetMountDir, ivk.targetMountDir)
+	cmd = strings.ReplaceAll(cmd, HostMountDir, ivk.hostMountDir)
 	cmd = strings.ReplaceAll(cmd, VarConnectionFile, filepath.Base(connectionFile))
 	cmd = strings.ReplaceAll(cmd, VarConfigFile, filepath.Base(configFile))
 	cmd = strings.ReplaceAll(cmd, VarKernelId, spec.Kernel.Id)

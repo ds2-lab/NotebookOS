@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -77,7 +78,7 @@ type BaseCluster struct {
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
-func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metrics.ClusterMetricsProvider) *BaseCluster {
+func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metrics.ClusterMetricsProvider, loggerPrefix string) *BaseCluster {
 	cluster := &BaseCluster{
 		gpusPerHost:              opts.GpusPerHost,
 		numReplicas:              opts.NumReplicas,
@@ -89,7 +90,24 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		validateCapacityInterval: time.Second * time.Duration(opts.ScalingInterval),
 	}
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
-	config.InitLogger(&cluster.log, cluster)
+
+	if loggerPrefix == "" {
+		config.InitLogger(&cluster.log, cluster)
+	} else {
+		// Make sure that the prefix ends with a space so that there's a space between the prefix
+		// and the beginning of log messages. Without the space, the log messages would look like:
+		//
+		// "DockerComposeClusterHello, world"
+		//
+		// instead of
+		//
+		// "DockerComposeCluster Hello, world"
+		if !strings.HasSuffix(loggerPrefix, " ") {
+			loggerPrefix = loggerPrefix + " "
+		}
+
+		config.InitLogger(&cluster.log, loggerPrefix)
+	}
 
 	if clusterMetricsProvider == nil {
 		cluster.log.Warn("Cluster Metrics Provider is nil.")
@@ -445,7 +463,7 @@ func (c *BaseCluster) registerScaleOperation(operationId string, targetClusterSi
 //
 // If there is an active ScaleOperation, and that ScaleOperation has finished (either successfully or in an error state),
 // then unregisterActiveScaleOp returns true.
-func (c *BaseCluster) unregisterActiveScaleOp() bool {
+func (c *BaseCluster) unregisterActiveScaleOp(force bool) bool {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
@@ -454,14 +472,23 @@ func (c *BaseCluster) unregisterActiveScaleOp() bool {
 		return false
 	}
 
-	if !c.activeScaleOperation.IsComplete() {
+	// If force is true, then we'll unregister it anyway.
+	if !c.activeScaleOperation.IsComplete() && !force {
 		c.log.Error("Cannot unregister active %s %s, as the operation is incomplete: %v",
 			c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, c.activeScaleOperation)
 		return false
+	} else if c.activeScaleOperation.IsComplete() && force {
+		c.log.Warn("Forcibly unregistering in-progress %s %s (state=%v)",
+			c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId, c.activeScaleOperation.Status)
 	}
 
-	c.log.Debug("Unregistered completed %s %s now.", c.activeScaleOperation.OperationType, c.activeScaleOperation.OperationId)
+	previouslyActiveScaleOperation := c.activeScaleOperation
 	c.activeScaleOperation = nil
+	c.log.Debug("Unregistered %v %s %s now.",
+		previouslyActiveScaleOperation.Status,
+		previouslyActiveScaleOperation.OperationType,
+		previouslyActiveScaleOperation.OperationId)
+
 	return true
 }
 
@@ -568,11 +595,17 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	if err != nil {
 		c.log.Debug("Scale-out from %d nodes to %d nodes failed because: %v",
 			scaleOp.InitialScale, scaleOp.TargetScale, err)
+
+		// Unregister the failed scale-out operation.
+		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
+			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		}
+
 		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
-	if unregistered := c.unregisterActiveScaleOp(); !unregistered {
+	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
 
@@ -615,11 +648,17 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	if err != nil {
 		c.log.Debug("Scale-in from %d nodes down to %d nodes failed because: %v",
 			scaleOp.InitialScale, scaleOp.TargetScale, err)
+
+		// Unregister the failed scale-in operation.
+		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
+			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		}
+
 		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-in from %d nodes down to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
-	if unregistered := c.unregisterActiveScaleOp(); !unregistered {
+	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
 	return promise.Resolved(result)
@@ -667,11 +706,17 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	if err != nil {
 		c.log.Debug("Scale-in from %d nodes down to %d nodes failed because: %v",
 			scaleOp.InitialScale, scaleOp.TargetScale, err)
+
+		// Unregister the failed scale-in operation.
+		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
+			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		}
+
 		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-in from %d nodes to %d nodes has succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
-	if unregistered := c.unregisterActiveScaleOp(); !unregistered {
+	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
 
@@ -712,7 +757,7 @@ func (c *BaseCluster) NewHostAddedOrConnected(host *Host) {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
-	c.log.Debug("Host %s has just connected to the Cluster or is being re-enabled.", host.ID)
+	c.log.Debug("Host %s has just connected to the Cluster or is being re-enabled", host.ID)
 
 	c.hostMutex.Lock()
 	// The host mutex is already locked if we're performing a scaling operation.

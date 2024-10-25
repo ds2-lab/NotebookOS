@@ -75,7 +75,7 @@ services:
   daemon:
     platform: linux/amd64
     environment:
-      - KERNEL_TEMP_BASE=/kernel_base
+      - KERNEL_TEMP_BASE_IN_CONTAINER=/kernel_base
       - KERNEL_IMAGE=scusemua/jupyter-debug:latest
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
@@ -104,7 +104,7 @@ services:
       - ./prometheus:/etc/prometheus
       - prometheus_data:/prometheus/data
     image: busybox:latest
-    command: ["/bin/chmod","-R","777", "/prometheus"]
+    command: ["/bin/chmod","-R","777", "/metrics"]
     container_name: prometheus-data-permission-fix
     user: 0:0
 

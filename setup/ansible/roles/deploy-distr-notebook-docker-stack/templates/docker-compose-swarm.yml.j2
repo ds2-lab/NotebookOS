@@ -1,0 +1,278 @@
+services:
+  jupyter:
+    environment:
+      - "DOCKER_NETWORK_NAME=traefik-public"
+      - "USING_WSL2=0"
+    image: {{ jupyter_server_docker_username }}/{{ jupyter_server_docker_image_name }}:{{ jupyter_server_docker_image_tag }}
+    command: start-notebook.sh --NotebookApp.token='' --ServerApp.base_url="/jupyter" --log-level=DEBUG
+    networks:
+    - traefik-public
+    depends_on:
+      - gateway
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=jupyter_server"
+      - "logging=promtail"
+      - "logging_jobname=jupyter"
+      - "prometheus-metrics-provider=true"
+      - "prometheus.metrics.port=8888"
+      - "prometheus.metrics.basepath=/jupyter"
+    deploy:
+      restart_policy:
+        condition: any
+      endpoint_mode: dnsrr
+      labels: # Service labels
+        - "app=distributed_cluster"
+        - "component=jupyter_server"
+        - "logging=promtail"
+        - "logging_jobname=jupyter"
+
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.jupyter-http.entryPoints=http"
+        - "traefik.http.routers.jupyter-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/jupyter`)"
+
+        - "traefik.http.services.jupyter.loadbalancer.server.port=8888"
+        - "traefik.http.routers.jupyter-http.service=jupyter"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  gateway:
+    environment:
+      - "DOCKER_NETWORK_NAME=traefik-public"
+      - "USING_WSL2=0"
+    image: {{ gateway_docker_username }}/{{ gateway_docker_image_name }}:{{ gateway_docker_image_tag }}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./gateway/gateway.yml:/gateway.yml
+    networks:
+    - traefik-public
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=cluster_gateway"
+      - "logging=promtail"
+      - "logging_jobname=cluster_gateway"
+      - "prometheus.metrics.port={{ distributed_notebook_prometheus_port }}"
+      - "prometheus-metrics-provider=true"
+    deploy:
+      restart_policy:
+        condition: any
+      endpoint_mode: dnsrr
+      labels:
+        - "app=distributed_cluster"
+        - "component=cluster_gateway"
+        - "logging=promtail"
+        - "logging_jobname=gateway"
+
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.gateway-http.entryPoints=http"
+        - "traefik.http.routers.gateway-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/gateway`)"
+        - "traefik.http.middlewares.gateway-strip.stripprefix.prefixes=/gateway"
+        - "traefik.http.routers.gateway-http.middlewares=gateway-strip"
+
+        - "traefik.http.services.gateway.loadbalancer.server.port={{ distributed_notebook_debug_port }}"
+        - "traefik.http.routers.gateway-http.service=gateway"
+    depends_on:
+      - prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  daemon:
+    environment:
+      - "KERNEL_TEMP_BASE_IN_CONTAINER=/{{ kernel_base_directory_name }}"
+      - "KERNEL_IMAGE={{ distributed_notebook_kernel_docker_image_name }}:{{ distributed_notebook_kernel_docker_image_tag }}"
+      - "HOST_MOUNT_DIR=/home/{{ remote_username }}/{{ kernel_base_directory_name }}"
+      - "TARGET_MOUNT_DIR=/{{ kernel_base_directory_name }}"
+      - "STORAGE=/home/{{ remote_username }}/kernel_storage"
+      - "DOCKER_NETWORK_NAME=traefik-public"
+    image: {{ local_daemon_docker_username }}/{{ local_daemon_docker_image_name }}:{{ local_daemon_docker_image_tag }}
+    networks:
+    - traefik-public
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/{{ remote_username }}/kernel_base:/kernel_base
+      - ./local_daemon/daemon.yml:/daemon.yml
+    depends_on:
+      - gateway
+      - prometheus
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=local_daemon"
+      - "logging=promtail"
+      - "logging_jobname=local_daemon"
+      - "prometheus.metrics.port={{ distributed_notebook_prometheus_port }}"
+      - "prometheus-metrics-provider=true"
+    deploy:
+      restart_policy:
+        condition: any
+      mode: global
+      endpoint_mode: dnsrr
+      labels:
+        - "app=distributed_cluster"
+        - "component=local_daemon"
+        - "logging=promtail"
+        - "logging_jobname=local_daemon"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  prometheus:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    networks:
+    - traefik-public
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.listen-address=0.0.0.0:8500"
+      # - "--web.external-url=http://{{ hostvars['swarm-leader'].ansible_host }}/prometheus"
+      # - "--web.route-prefix=/"
+      # - "--web.enable-admin-api"
+    image: {{ prometheus_docker_image_name }}:{{ prometheus_docker_image_tag }}
+    deploy:
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: dnsrr
+      placement:
+        constraints:
+          - node.role==manager
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.prometheus-http.entryPoints=http"
+        - "traefik.http.routers.prometheus-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/prometheus`)"
+        - "traefik.http.middlewares.prometheus-strip.stripprefix.prefixes=/prometheus"
+        - "traefik.http.routers.prometheus-http.middlewares=prometheus-strip"
+
+        - "traefik.http.services.prometheus.loadbalancer.server.port=8500"
+        - "traefik.http.routers.prometheus-http.service=prometheus"
+    user: 0:0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  loki:
+    image: {{ loki_docker_image_name }}:{{ loki_docker_image_tag }}
+    command: -config.file=/etc/loki/loki-config.yaml
+    networks:
+    - traefik-public
+    deploy:
+      endpoint_mode: dnsrr
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.loki-http.entryPoints=http"
+        - "traefik.http.routers.loki-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/loki`)"
+        - "traefik.http.middlewares.loki-strip.stripprefix.prefixes=/loki"
+        - "traefik.http.routers.loki-http.middlewares=loki-strip"
+
+        - "traefik.http.services.loki.loadbalancer.server.port=3100"
+        - "traefik.http.routers.loki-http.service=loki"
+    volumes:
+      - loki_data:/loki
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
+
+  promtail:
+    image: {{ promtail_docker_image_name }}:{{ promtail_docker_image_tag }}
+    networks:
+    - traefik-public
+    volumes:
+      - /var/log:/var/log
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail/config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    deploy:
+      endpoint_mode: dnsrr
+      mode: global
+      labels:
+        - "traefik.http.services.promtail.loadbalancer.server.port=9080"
+    depends_on:
+      - loki
+
+  grafana:
+    image: {{ grafana_docker_image_name }}:{{ grafana_docker_image_tag }}
+    networks:
+    - traefik-public
+    environment:
+      - "GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}"
+      - "GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}"
+      - "GF_PATHS_LOGS={{ grafana_logs_dir }}"
+      - "GF_PATHS_PLUGINS={{ grafana_plugins_dir }}"
+      - "GF_PATHS_DATA={{ grafana_data_dir }}"
+    volumes:
+      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+      - grafana_data:/var/lib/grafana
+    deploy:
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: dnsrr
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.grafana-http.entryPoints=http"
+        - "traefik.http.routers.grafana-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/grafana`)"
+        # - "traefik.http.middlewares.grafana-strip.stripprefix.prefixes=/grafana"
+        # - "traefik.http.routers.grafana-http.middlewares=grafana-strip"
+
+        - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+        - "traefik.http.routers.grafana-http.service=grafana"
+
+  notebook-dashboard:
+    image: "{{ dashboard_backend_docker_username }}/{{ dashboard_backend_docker_image_name }}:{{ dashboard_backend_docker_image_tag }}"
+    networks:
+    - traefik-public
+    environment:
+    - "DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}"
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=notebook_dashboard"
+      - "logging=promtail"
+      - "logging_jobname=notebook_dashboard"
+      - "prometheus.metrics.port={{ distributed_notebook_prometheus_port }}"
+    deploy:
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: dnsrr
+      labels:
+        - "app=distributed_cluster"
+        - "component=notebook_dashboard"
+        - "logging=promtail"
+        - "logging_jobname=notebook_dashboard"
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+        - "prometheus-metrics-provider=true"
+
+        - "traefik.http.routers.notebook-dashboard-http.entryPoints=http"
+        - "traefik.http.routers.notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/notebook-dashboard`)"
+        - "traefik.http.routers.notebook-dashboard-http.service=notebook-dashboard"
+        - "traefik.http.services.notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
+    volumes:
+      - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
+      - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml
+      - ./dashboard_backend/custom_event_sequences:{{ dashboard_backend_config_directory }}/custom_event_sequences
+      - ./dashboard_backend/.env:/go/.env
+
+volumes:
+  coredumps_volume:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+
+networks:
+  # Use the previously created public network "traefik-public", shared with other
+  # services that need to be publicly available via this Traefik
+  traefik-public:
+    external: true

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/opentracing/opentracing-go"
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/zhangjyr/distributed-notebook/common/consul"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -63,6 +65,8 @@ var (
 
 	ErrExistingReplicaAlreadyRunning = status.Error(codes.Internal, "an existing replica of the target kernel is already running on this node")
 	ErrNilArgument                   = status.Error(codes.InvalidArgument, "one or more of the required arguments was nil")
+
+	errConcurrentConnectionAttempt = errors.New("another goroutine is already attempting to connect to the Cluster Gateway")
 )
 
 // enqueuedExecuteRequestMessage encapsulates an "execute_request" *jupyter.JupyterMessage and a chan interface{}
@@ -83,6 +87,17 @@ type SchedulerDaemonImpl struct {
 	// Options
 	id       string
 	nodeName string
+
+	tracer       opentracing.Tracer
+	consulClient *consul.Client
+
+	// The gRPC server used by the Local Daemon and Cluster Gateway.
+	grpcServer *grpc.Server
+	listener   net.Listener
+
+	// connectingToGateway indicates whether the scheduler is actively trying to connect to the Cluster Gateway.
+	// If its value is > 0, then it is. If its value is 0, then it is not.
+	connectingToGateway atomic.Int32
 
 	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
 	// as the request history.
@@ -187,6 +202,9 @@ type SchedulerDaemonImpl struct {
 	// kernelErrorReporterServerPort is the port on which the proto.KernelErrorReporterServer gRPC service is listening.
 	kernelErrorReporterServerPort int
 
+	// localDaemonOptions is the options struct that the Local Daemon was created with.
+	localDaemonOptions *domain.LocalDaemonOptions
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -214,7 +232,7 @@ type KernelRegistrationClient struct {
 	conn net.Conn
 }
 
-func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *domain.SchedulerDaemonOptions, kernelRegistryPort int, kernelErrorReporterServerPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...domain.SchedulerDaemonConfig) *SchedulerDaemonImpl {
+func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.LocalDaemonOptions, kernelRegistryPort int, kernelErrorReporterServerPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...domain.SchedulerDaemonConfig) *SchedulerDaemonImpl {
 	ip := os.Getenv("POD_IP")
 
 	daemon := &SchedulerDaemonImpl{
@@ -230,22 +248,23 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		cleaned:                            make(chan struct{}),
 		kernelRegistryPort:                 kernelRegistryPort,
 		kernelErrorReporterServerPort:      kernelErrorReporterServerPort,
-		smrPort:                            schedulerDaemonOptions.SMRPort,
+		localDaemonOptions:                 localDaemonOptions,
+		smrPort:                            localDaemonOptions.SMRPort,
 		virtualGpuPluginServer:             virtualGpuPluginServer,
-		deploymentMode:                     types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
-		hdfsNameNodeEndpoint:               schedulerDaemonOptions.HdfsNameNodeEndpoint,
-		dockerStorageBase:                  schedulerDaemonOptions.DockerStorageBase,
-		usingWSL:                           schedulerDaemonOptions.UsingWSL,
-		DebugMode:                          schedulerDaemonOptions.CommonOptions.DebugMode,
-		prometheusInterval:                 time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
-		prometheusPort:                     schedulerDaemonOptions.PrometheusPort,
-		numResendAttempts:                  schedulerDaemonOptions.NumResendAttempts,
-		runKernelsInGdb:                    schedulerDaemonOptions.RunKernelsInGdb,
+		deploymentMode:                     types.DeploymentMode(localDaemonOptions.DeploymentMode),
+		hdfsNameNodeEndpoint:               localDaemonOptions.HdfsNameNodeEndpoint,
+		dockerStorageBase:                  localDaemonOptions.DockerStorageBase,
+		usingWSL:                           localDaemonOptions.UsingWSL,
+		DebugMode:                          localDaemonOptions.CommonOptions.DebugMode,
+		prometheusInterval:                 time.Second * time.Duration(localDaemonOptions.PrometheusInterval),
+		prometheusPort:                     localDaemonOptions.PrometheusPort,
+		numResendAttempts:                  localDaemonOptions.NumResendAttempts,
+		runKernelsInGdb:                    localDaemonOptions.RunKernelsInGdb,
 		outgoingExecuteRequestQueue:        hashmap.NewCornelkMap[string, chan *enqueuedExecuteRequestMessage](128),
 		outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
 		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
-		MessageAcknowledgementsEnabled:     schedulerDaemonOptions.MessageAcknowledgementsEnabled,
-		SimulateCheckpointingLatency:       schedulerDaemonOptions.SimulateCheckpointingLatency,
+		MessageAcknowledgementsEnabled:     localDaemonOptions.MessageAcknowledgementsEnabled,
+		SimulateCheckpointingLatency:       localDaemonOptions.SimulateCheckpointingLatency,
 	}
 
 	for _, configFunc := range configs {
@@ -270,7 +289,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 
 	daemon.resourceManager = scheduling.NewResourceManager(&types.Float64Spec{
-		GPUs:      float64(schedulerDaemonOptions.GpusPerHost),
+		GPUs:      float64(localDaemonOptions.GpusPerHost),
 		VRam:      scheduling.VramPerHostGb,
 		Millicpus: scheduling.MillicpusPerHost,
 		MemoryMb:  scheduling.MemoryMbPerHost})
@@ -294,11 +313,11 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		}
 	}
 
-	if len(schedulerDaemonOptions.HdfsNameNodeEndpoint) == 0 {
+	if len(localDaemonOptions.HdfsNameNodeEndpoint) == 0 {
 		panic("HDFS NameNode endpoint is empty.")
 	}
 
-	switch schedulerDaemonOptions.SchedulingPolicy {
+	switch localDaemonOptions.SchedulingPolicy {
 	case "default":
 		{
 			daemon.schedulingPolicy = "default"
@@ -325,11 +344,11 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		}
 	default:
 		{
-			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", schedulerDaemonOptions.SchedulingPolicy))
+			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", localDaemonOptions.SchedulingPolicy))
 		}
 	}
 
-	switch schedulerDaemonOptions.DeploymentMode {
+	switch localDaemonOptions.DeploymentMode {
 	case "":
 		{
 			daemon.log.Info("No 'deployment_mode' specified. Running in default mode: LOCAL mode.")
@@ -365,7 +384,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		}
 	default:
 		{
-			daemon.log.Error("Unknown/unsupported deployment mode: \"%s\"", schedulerDaemonOptions.DeploymentMode)
+			daemon.log.Error("Unknown/unsupported deployment mode: \"%s\"", localDaemonOptions.DeploymentMode)
 			daemon.log.Error("The supported deployment modes are: ")
 			daemon.log.Error("- \"kubernetes\"")
 			daemon.log.Error("- \"docker-swarm\"")
@@ -376,19 +395,19 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 
 	daemon.log.Debug("Connection options: %v", daemon.connectionOptions)
 
-	if !schedulerDaemonOptions.IsLocalMode() && len(nodeName) == 0 {
+	if !localDaemonOptions.IsLocalMode() && len(nodeName) == 0 {
 		panic("Node name is empty.")
 	}
 
-	if schedulerDaemonOptions.IsLocalMode() && len(nodeName) == 0 {
+	if localDaemonOptions.IsLocalMode() && len(nodeName) == 0 {
 		daemon.nodeName = types.LocalNode
 	}
 
-	if schedulerDaemonOptions.IsDockerComposeMode() && len(nodeName) == 0 {
+	if localDaemonOptions.IsDockerComposeMode() && len(nodeName) == 0 {
 		daemon.nodeName = types.VirtualDockerNode
 	}
 
-	if schedulerDaemonOptions.IsDockerSwarmMode() && len(nodeName) == 0 {
+	if localDaemonOptions.IsDockerSwarmMode() && len(nodeName) == 0 {
 		// Eventually, Docker Swarm mode will only support "Docker Nodes", which correspond to real machines or VMs.
 		// Virtual Docker Nodes will only be used in Docker Compose mode.
 		daemon.nodeName = types.VirtualDockerNode // types.DockerNode
@@ -638,6 +657,149 @@ func (d *SchedulerDaemonImpl) StartKernel(ctx context.Context, in *proto.KernelS
 	})
 }
 
+// initializeConsulAndTracer creates the Consul client and Tracer.
+func (d *SchedulerDaemonImpl) initializeConsulAndTracer() {
+	tracer, consulClient := CreateConsulAndTracer(d.localDaemonOptions)
+
+	d.tracer = tracer
+	d.consulClient = consulClient
+}
+
+// connectToGateway connects to the Cluster Gateway.
+func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize LocalDaemonFinalizer) error {
+	if !d.connectingToGateway.CompareAndSwap(0, 1) {
+		d.log.Warn("Another goroutine is already attempting to connect to the Cluster Gateway.")
+		return errConcurrentConnectionAttempt
+	}
+
+	d.log.Debug("Connecting to Cluster Gateway at \"%s\"", gatewayAddress)
+
+	if d.tracer == nil {
+		d.log.Debug("Initializing ConsulClient and Tracer.")
+		d.initializeConsulAndTracer()
+	}
+
+	if d.grpcServer != nil {
+		d.log.Warn("Found existing gRPC server. Shutting it down.")
+		d.grpcServer.Stop()
+		d.grpcServer = nil
+	}
+
+	var err error
+	if d.provisioner != nil {
+		d.log.Warn("Found existing provisioner. Shutting it down.")
+		err = d.provisioner.(*Provisioner).Close()
+		if err != nil {
+			d.log.Error("Error while shutting down existing Provisioner: %v", err)
+		}
+
+		d.provisioner = nil
+	}
+
+	gOpts := GetGrpcOptions(d.tracer)
+	d.grpcServer = grpc.NewServer(gOpts...)
+	proto.RegisterLocalGatewayServer(d.grpcServer, d)
+	proto.RegisterKernelErrorReporterServer(d.grpcServer, d)
+
+	// Initialize gRPC listener.
+	d.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", d.localDaemonOptions.Port))
+	if err != nil {
+		d.log.Error("Failed to listen: %v", err)
+		return err
+	}
+
+	start := time.Now()
+	var (
+		connectedToProvisioner = false
+		numAttempts            = 1
+		provConn               net.Conn
+	)
+	for !connectedToProvisioner && time.Since(start) < (time.Minute*1) {
+		globalLogger.Info("Attempt #%d to connect to Provisioner (Gateway) at %s. Connection timeout: %v.",
+			numAttempts, gatewayAddress, connectionTimeout)
+		provConn, err = net.DialTimeout("tcp", gatewayAddress, connectionTimeout)
+
+		if err != nil {
+			globalLogger.Warn("Failed to connect to provisioner at %s on attempt #%d: %v",
+				gatewayAddress, numAttempts, err)
+			numAttempts += 1
+			time.Sleep(time.Second * 3)
+		} else {
+			connectedToProvisioner = true
+		}
+	}
+
+	// Initialize connection to the provisioner
+	if !connectedToProvisioner {
+		return err
+	}
+
+	if provConn == nil {
+		return fmt.Errorf("provisioner connection is nil")
+	}
+
+	// Initialize provisioner and wait for ready
+	provisioner, grpcClientConn, err := NewProvisioner(provConn)
+	if err != nil {
+		d.log.Error("Failed to initialize the provisioner: %v", err)
+		return err
+	}
+
+	errorChan := make(chan interface{}, 1)
+
+	// Wait for reverse connection
+	go func() {
+		defer finalize(true)
+		if err := d.grpcServer.Serve(provisioner); err != nil {
+			d.log.Error("Error while serving provisioner gRPC server: %v", err)
+			errorChan <- err
+		}
+
+		errorChan <- struct{}{}
+	}()
+
+	// TODO: Add timeout option here.
+	select {
+	case <-provisioner.Ready():
+		{
+			break
+		}
+	case v := <-errorChan:
+		{
+			if err, ok := v.(error); ok {
+				return err
+			}
+		}
+	}
+
+	if err := provisioner.Validate(); err != nil {
+		d.log.Error("Failed to validate the provisioner: %v", err)
+		return err
+	}
+	d.SetProvisioner(provisioner, grpcClientConn)
+	d.log.Debug("Scheduler connected to %v", provConn.RemoteAddr())
+
+	// Register services in consulClient
+	if d.consulClient != nil {
+		err = d.consulClient.Register(ServiceName, uuid.New().String(), "", d.localDaemonOptions.Port)
+		if err != nil {
+			d.log.Error("Failed to register in consulClient: %v", err)
+			return err
+		}
+		d.log.Debug("Successfully registered in consulClient")
+	}
+
+	// Start gRPC server
+	go func() {
+		defer finalize(true)
+		if err := d.grpcServer.Serve(d.listener); err != nil {
+			d.log.Error("Error while serving gRPC server: %v", err)
+		}
+	}()
+
+	return nil
+}
+
 // Register a Kernel that has started running on the same node as we are.
 // This method must be thread-safe.
 func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelRegistrationClient *KernelRegistrationClient) {
@@ -751,6 +913,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			RunKernelsInGdb:              d.runKernelsInGdb,
 			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
 			IsInDockerSwarm:              d.DockerSwarmMode(),
+			PrometheusMetricsPort:        d.prometheusPort,
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -865,6 +1028,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	var response *proto.KernelRegistrationNotificationResponse
 	for response == nil && numTries < maxNumTries {
 		response, err = d.provisioner.NotifyKernelRegistered(context.Background(), kernelRegistrationNotification)
+
 		if err != nil {
 			d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
 				kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
@@ -884,7 +1048,15 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 			d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
 			if grpcConnState != connectivity.Ready {
 				d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
-				d.provisionerClientConnectionGRPC.Connect()
+
+				// TODO: This will cause SetID to be called. We may need to wait to try again until that process
+				// finishes. We also need to implement that process.
+				err = d.connectToGateway(d.localDaemonOptions.ProvisionerAddr, func(v bool) {
+					d.log.Error("The finalize function passed to connectToGateway when registerKernelReplica fails to notify the provisioner was called with argument %v", v)
+				})
+				if err != nil {
+					log.Fatalf(utils.RedStyle.Render("Failed to re-establish connectivity with the Cluster Gateway: %v"), err)
+				}
 			}
 
 			numTries += 1
@@ -984,6 +1156,37 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
 	// TODO: Is this still needed?
 	// time.Sleep(time.Second * 1)
+}
+
+// ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
+//
+// The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
+// to avoid causing the ReconnectToGateway to encounter an error.
+func (d *SchedulerDaemonImpl) ReconnectToGateway(_ context.Context, in *proto.ReconnectToGatewayRequest) (*proto.Void, error) {
+	if in.Delay {
+		d.log.Warn("We've been instructed to reconnect to the Cluster Gateway. Will initiate procedure after returning from ReconnectToGateway gRPC handler.")
+	} else {
+		d.log.Warn("We've been instructed to reconnect to the Cluster Gateway immediately.")
+	}
+
+	go func() {
+		if in.Delay {
+			// Sleep for 5 seconds so that the gRPC handler can return.
+			for i := 5; i > 0; i-- {
+				d.log.Warn("Forcibly terminating and then reestablishing connection with Cluster Gateway in %d seconds...", i)
+				time.Sleep(time.Second)
+			}
+		}
+
+		err := d.connectToGateway(d.localDaemonOptions.ProvisionerAddr, func(v bool) {
+			d.log.Error(utils.RedStyle.Render("The finalize function passed to ReconnectToGateway->connectToGateway was called with argument %v"), v)
+		})
+		if err != nil {
+			d.log.Error(utils.RedStyle.Render("Failed to reconnect to Cluster Gateway after explicit instruction to do so: %v"), err)
+		}
+	}()
+
+	return proto.VOID, nil
 }
 
 // notifyClusterGatewayAndPanic attempts to notify the internalCluster Gateway of a fatal error and then panics.
@@ -1493,6 +1696,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			RunKernelsInGdb:              d.runKernelsInGdb,
 			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
 			IsInDockerSwarm:              d.DockerSwarmMode(),
+			PrometheusMetricsPort:        d.prometheusPort,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.

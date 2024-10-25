@@ -1,0 +1,45 @@
+- name: Create the docker-compose.yml file for the Traefik Docker Swarm stack using the associated template
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/traefik/files/docker-compose.yml"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+  become: true
+
+- name: Hash the configured Traefik password
+  shell: 'openssl passwd -apr1 {{ traefik_password }}'
+  register: hashed_password_raw
+
+- name: Save the hashed Traefik password
+  set_fact:
+    hashed_password: '{{ hashed_password_raw.stdout_lines[0] }}'
+
+- name: "Print debug info"
+  debug:
+    msg: "hostvars['swarm-leader'].ansible_hostname: {{ hostvars['swarm-leader'].ansible_hostname }}"
+
+- name: Create Traefik network
+  docker_network:
+    name: traefik-public
+    driver: overlay
+    attachable: true
+    scope: swarm
+    state: present
+  become: true
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: "Deploy the Traefik Docker Swarm stack"
+  shell: "docker stack deploy -c '{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/traefik/files/docker-compose.yml' {{ traefik_docker_swarm_stack_name }}"
+  become: true
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+    USERNAME: "{{ traefik_username }}"
+    HASHED_PASSWORD: "{{ hashed_password }}"
+    EMAIL: "{{ traefik_email }}"
+    DOMAIN: "{{ hostvars['swarm-leader'].ansible_hostname }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"

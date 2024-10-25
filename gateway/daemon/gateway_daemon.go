@@ -353,6 +353,15 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
+	// Create the internalCluster Scheduler.
+	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
+	clusterGateway.hostSpec = &types.DecimalSpec{
+		GPUs:      decimal.NewFromFloat(float64(clusterSchedulerOptions.GpusPerHost)),
+		VRam:      decimal.NewFromFloat(scheduling.VramPerHostGb),
+		Millicpus: decimal.NewFromFloat(scheduling.MillicpusPerHost),
+		MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
+	}
+
 	switch clusterDaemonOptions.DeploymentMode {
 	case "":
 		{
@@ -386,6 +395,9 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			}
 
 			clusterGateway.dockerApiClient = apiClient
+
+			clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
+			clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 			break
 		}
 	case "docker-swarm":
@@ -399,12 +411,22 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			}
 
 			clusterGateway.dockerApiClient = apiClient
+
+			clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
+			clusterGateway.cluster = scheduling.NewDockerSwarmCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+
 			break
 		}
 	case "kubernetes":
 		{
 			clusterGateway.log.Info("Running in KUBERNETES mode.")
 			clusterGateway.deploymentMode = types.KubernetesMode
+
+			clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
+			clusterGateway.containerWatcher = clusterGateway.kubeClient
+
+			clusterGateway.cluster = scheduling.NewKubernetesCluster(clusterGateway, clusterGateway.kubeClient, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+
 			break
 		}
 	default:
@@ -417,29 +439,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.log.Error("- \"local\"")
 			os.Exit(1)
 		}
-	}
-
-	// Create the internalCluster Scheduler.
-	clusterSchedulerOptions := clusterDaemonOptions.ClusterSchedulerOptions
-	clusterGateway.hostSpec = &types.DecimalSpec{
-		GPUs:      decimal.NewFromFloat(float64(clusterSchedulerOptions.GpusPerHost)),
-		VRam:      decimal.NewFromFloat(scheduling.VramPerHostGb),
-		Millicpus: decimal.NewFromFloat(scheduling.MillicpusPerHost),
-		MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
-	}
-	if clusterGateway.KubernetesMode() {
-		clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
-		clusterGateway.containerWatcher = clusterGateway.kubeClient
-
-		clusterGateway.cluster = scheduling.NewKubernetesCluster(clusterGateway, clusterGateway.kubeClient, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
-	} else if clusterGateway.DockerMode() {
-		clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
-		clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
-	} else if clusterGateway.DockerSwarmMode() {
-		clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
-		clusterGateway.cluster = scheduling.NewDockerSwarmCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
-	} else {
-		log.Fatalf(utils.RedStyle.Render("Unknown or unsupported deployment mode: \"%s\". Cannot create appropriate scheduling.Cluster."), clusterGateway.deploymentMode)
 	}
 
 	clusterGateway.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
@@ -1950,6 +1949,28 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	waitGroup.Notify()
 	return response, nil
+}
+
+// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+// This is mostly used for testing/debugging the reconnection process.
+func (d *ClusterGatewayImpl) ForceLocalDaemonToReconnect(ctx context.Context, in *proto.ForceLocalDaemonToReconnectRequest) (*proto.Void, error) {
+	daemonId := in.LocalDaemonId
+
+	host, ok := d.cluster.GetHost(daemonId)
+	if !ok {
+		return nil, scheduling.ErrHostNotFound
+	}
+
+	_, err := host.ReconnectToGateway(context.Background(), &proto.ReconnectToGatewayRequest{
+		Delay: in.Delay,
+	})
+
+	if err != nil {
+		d.log.Error("Error while instruction Local Daemon %s to reconnect to us: %v", daemonId, err)
+		return nil, err
+	}
+
+	return &proto.Void{}, nil
 }
 
 // QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components

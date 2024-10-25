@@ -1,0 +1,126 @@
+- name: Leave current Docker Swarm
+  docker_swarm:
+    state: absent
+    force: true
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Pull the latest code changes before installing Docker Swarm app, discarding any local changes.
+  git:
+    repo: "{{ git_repo_url }}"
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}"
+    version: "{{ gitbranch }}"
+    update: yes
+    force: yes
+  become: true
+
+- name: Recursively change ownership of the go directory
+  ansible.builtin.file:
+    path: "{{ go_install_parent_dir }}/go/{{ git_repo_name }}"
+    recurse: yes
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+  become: true
+
+- name: Print auto-selected 'advertise address' for Docker Swarm cluster
+  debug:
+    msg: "Docker Swarm 'advertise' address for node {{ inventory_hostname }}: {{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+
+- name: Initialize Docker Swarm cluster with first manager node
+  docker_swarm:
+    state: present
+    advertise_addr: "{{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+  register: swarm_output
+  when: inventory_hostname in 'swarm-leader'
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Print ansible_nodename for Docker Swarm nodes
+  debug:
+    msg: "hostvars[inventory_hostname].ansible_nodename: {{ hostvars[inventory_hostname].ansible_nodename }}"
+
+- name: Label the first Manager node as the Swarm Leader
+  docker_node:
+    hostname: "{{ hostvars[inventory_hostname].ansible_nodename }}"
+    labels:
+      swarm_role: swarm-leader
+  when: inventory_hostname in 'swarm-leader'
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Print the swarm leader's output on each host
+  debug:
+    msg: "Swarm Output of Swarm Leader: {{ hostvars['swarm-leader']['swarm_output'] }}"
+
+- name: Print the swarm leader's IPv4 on each host
+  debug:
+    msg: "IPv4 of Swarm Leader: {{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+
+- name: Add any additional manager nodes to the Docker Swarm cluster
+  docker_swarm:
+    state: join
+    timeout: "{{ docker_swarm_api_response_timeout }}"
+    advertise_addr: "{{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+    join_token: "{{ hostvars['swarm-leader']['swarm_output']['swarm_facts']['JoinTokens']['Manager']}}"
+    remote_addrs: "{{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+  when: inventory_hostname in groups['docker_swarm_manager'] and inventory_hostname not in 'swarm-leader'
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Add worker node to Docker Swarm cluster
+  docker_swarm:
+    state: join
+    timeout: "{{ docker_swarm_api_response_timeout }}"
+    advertise_addr: "{{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+    join_token: "{{ hostvars['swarm-leader']['swarm_output']['swarm_facts']['JoinTokens']['Worker'] }}"
+    remote_addrs: "{{ hostvars['swarm-leader'].ansible_default_ipv4.address|default(hostvars['swarm-leader'].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
+  when: inventory_hostname in groups['docker_swarm_worker']
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Set desired_node_count variable
+  set_fact:
+    desired_node_count: "{{ groups['docker_swarm'] | length }}"
+  when: inventory_hostname in 'swarm-leader'
+
+- name: Print the value of the desired_node_count variable
+  debug:
+    msg: "desired_node_count: {{ desired_node_count }}"
+  when: inventory_hostname in 'swarm-leader'
+
+- name: Create Cluster Gateway's runtime state directory if it doesn't already exist
+  file:
+    path: "{{ gateway_runtime_state_directory }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0777'
+  become: true
+
+- name: Create kernel storage directory if it doesn't already exist
+  file:
+    path: "{{ kernel_storage_directory }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0777'
+  become: true
+
+- name: Create kernel base directory if it doesn't already exist
+  file:
+    path: "/home/{{ remote_username }}/{{ kernel_base_directory_name }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0777'
+  become: true

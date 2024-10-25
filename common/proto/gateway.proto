@@ -137,6 +137,19 @@ service DistributedCluster {
   // QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
   // and what the status of that message is (i.e., sent, response received, etc.)
   rpc QueryMessage(QueryMessageRequest) returns (QueryMessageResponse) {}
+
+  // ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+  // This is mostly used for testing/debugging the reconnection process.
+  rpc ForceLocalDaemonToReconnect(ForceLocalDaemonToReconnectRequest) returns (Void) {}
+}
+
+// ForceLocalDaemonToReconnectRequest is sent as an argument for the ForceLocalDaemonToReconnect RPC.
+message ForceLocalDaemonToReconnectRequest {
+  // LocalDaemonId is the node ID of the local daemon that should be instructed to reconnect to the Cluster Gateway.
+  string localDaemonId = 1;
+  // If true, then wait until after returning from the ReconnectToGateway gRPC call to initiate the reconnection
+  // procedure (which necessarily terminates the existing connection).
+  bool delay = 2;
 }
 
 // QueryMessageRequest is passed to the MessageExists gRPC function.
@@ -546,6 +559,19 @@ service LocalGateway {
   // Ensure that the next 'execute_request' for the specified kernel fails.
   // This is to be used exclusively for testing/debugging purposes.
   rpc YieldNextExecution(KernelId) returns (Void) {}
+
+  // ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
+  //
+  // The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
+  // to avoid causing the ReconnectToGateway to encounter an error.
+  rpc ReconnectToGateway(ReconnectToGatewayRequest) returns (Void) {}
+}
+
+// ReconnectToGatewayRequest is sent as an argument to the ReconnectToGateway gRPC call.
+message ReconnectToGatewayRequest {
+  // If true, then wait until after returning from the ReconnectToGateway gRPC call to initiate the reconnection
+  // procedure (which necessarily terminates the existing connection).
+  bool delay = 1;
 }
 
 // NodeResourcesSnapshot encodes a snapshot of the current resource quantities on a particular node.

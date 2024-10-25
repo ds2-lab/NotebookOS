@@ -285,3 +285,9 @@ func (dc *DistributedCluster) ModifyClusterNodes(ctx context.Context, in *proto.
 func (dc *DistributedCluster) QueryMessage(ctx context.Context, in *proto.QueryMessageRequest) (*proto.QueryMessageResponse, error) {
 	return dc.gatewayDaemon.QueryMessage(ctx, in)
 }
+
+// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+// This is mostly used for testing/debugging the reconnection process.
+func (dc *DistributedCluster) ForceLocalDaemonToReconnect(ctx context.Context, in *proto.ForceLocalDaemonToReconnectRequest) (*proto.Void, error) {
+	return dc.gatewayDaemon.ForceLocalDaemonToReconnect(ctx, in)
+}

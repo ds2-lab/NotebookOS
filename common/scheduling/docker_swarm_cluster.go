@@ -29,7 +29,7 @@ type DockerSwarmCluster struct {
 func NewDockerSwarmCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
 	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *DockerSwarmCluster {
 
-	baseCluster := newBaseCluster(opts, clusterMetricsProvider)
+	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerSwarmCluster")
 
 	dockerCluster := &DockerSwarmCluster{
 		BaseCluster:   baseCluster,

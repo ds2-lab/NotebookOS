@@ -306,7 +306,7 @@ func (m *basePrometheusManager) initializeHttpServer() {
 	m.engine.Use(cors.Default())
 
 	m.engine.GET("/variables/:variable_name", m.HandleVariablesRequest)
-	m.engine.GET("/prometheus", m.HandleRequest)
+	m.engine.GET("/metrics", m.HandleRequest)
 
 	address := fmt.Sprintf("0.0.0.0:%d", m.port)
 	m.httpServer = &http.Server{

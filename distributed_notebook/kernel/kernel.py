@@ -435,7 +435,16 @@ class DistributedKernel(IPythonKernel):
         # TODO: Remove this after finish debugging the ACK stuff.
         # self.auth = None
 
-        self.prometheus_server, self.prometheus_thread = start_http_server(8089)
+        prometheus_port_str: str | int = os.environ.get("PROMETHEUS_METRICS_PORT", 8089)
+
+        try:
+            self.prometheus_port: int = int(prometheus_port_str)
+        except ValueError as ex:
+            self.log.error(f"Failed to parse \"PROMETHEUS_METRICS_PORT\" environment variable value \"{prometheus_port_str}\": {ex}")
+            self.log.error("Will use default prometheus metrics port of 8089.")
+            self.prometheus_port: int = 8089
+
+        self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
 
     def __init_tcp_server(self):
         self.local_tcp_server_queue: Queue = Queue()

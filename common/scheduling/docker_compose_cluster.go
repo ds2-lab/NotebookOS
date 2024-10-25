@@ -29,7 +29,7 @@ type DockerComposeCluster struct {
 func NewDockerComposeCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
 	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *DockerComposeCluster {
 
-	baseCluster := newBaseCluster(opts, clusterMetricsProvider)
+	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerComposeCluster")
 
 	dockerCluster := &DockerComposeCluster{
 		BaseCluster:   baseCluster,
