@@ -1951,6 +1951,28 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	return response, nil
 }
 
+// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+// This is mostly used for testing/debugging the reconnection process.
+func (d *ClusterGatewayImpl) ForceLocalDaemonToReconnect(ctx context.Context, in *proto.ForceLocalDaemonToReconnectRequest) (*proto.Void, error) {
+	daemonId := in.LocalDaemonId
+
+	host, ok := d.cluster.GetHost(daemonId)
+	if !ok {
+		return nil, scheduling.ErrHostNotFound
+	}
+
+	_, err := host.ReconnectToGateway(context.Background(), &proto.ReconnectToGatewayRequest{
+		Delay: in.Delay,
+	})
+
+	if err != nil {
+		d.log.Error("Error while instruction Local Daemon %s to reconnect to us: %v", daemonId, err)
+		return nil, err
+	}
+
+	return &proto.Void{}, nil
+}
+
 // QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
 // and what the status of that message is (i.e., sent, response received, etc.)
 func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMessageRequest) (*proto.QueryMessageResponse, error) {

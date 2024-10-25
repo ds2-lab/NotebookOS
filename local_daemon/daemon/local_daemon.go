@@ -672,6 +672,8 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 		return errConcurrentConnectionAttempt
 	}
 
+	d.log.Debug("Connecting to Cluster Gateway at \"%s\"", gatewayAddress)
+
 	if d.tracer == nil {
 		d.log.Debug("Initializing ConsulClient and Tracer.")
 		d.initializeConsulAndTracer()
@@ -1154,6 +1156,37 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
 	// TODO: Is this still needed?
 	// time.Sleep(time.Second * 1)
+}
+
+// ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
+//
+// The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
+// to avoid causing the ReconnectToGateway to encounter an error.
+func (d *SchedulerDaemonImpl) ReconnectToGateway(_ context.Context, in *proto.ReconnectToGatewayRequest) (*proto.Void, error) {
+	if in.Delay {
+		d.log.Warn("We've been instructed to reconnect to the Cluster Gateway. Will initiate procedure after returning from ReconnectToGateway gRPC handler.")
+	} else {
+		d.log.Warn("We've been instructed to reconnect to the Cluster Gateway immediately.")
+	}
+
+	go func() {
+		if in.Delay {
+			// Sleep for 5 seconds so that the gRPC handler can return.
+			for i := 5; i > 0; i-- {
+				d.log.Warn("Forcibly terminating and then reestablishing connection with Cluster Gateway in %d seconds...", i)
+				time.Sleep(time.Second)
+			}
+		}
+
+		err := d.connectToGateway(d.localDaemonOptions.ProvisionerAddr, func(v bool) {
+			d.log.Error(utils.RedStyle.Render("The finalize function passed to ReconnectToGateway->connectToGateway was called with argument %v"), v)
+		})
+		if err != nil {
+			d.log.Error(utils.RedStyle.Render("Failed to reconnect to Cluster Gateway after explicit instruction to do so: %v"), err)
+		}
+	}()
+
+	return proto.VOID, nil
 }
 
 // notifyClusterGatewayAndPanic attempts to notify the internalCluster Gateway of a fatal error and then panics.

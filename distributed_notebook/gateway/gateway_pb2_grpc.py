@@ -492,6 +492,11 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.QueryMessageRequest.SerializeToString,
                 response_deserializer=gateway__pb2.QueryMessageResponse.FromString,
                 _registered_method=True)
+        self.ForceLocalDaemonToReconnect = channel.unary_unary(
+                '/gateway.DistributedCluster/ForceLocalDaemonToReconnect',
+                request_serializer=gateway__pb2.ForceLocalDaemonToReconnectRequest.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
 
 
 class DistributedClusterServicer(object):
@@ -685,6 +690,14 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ForceLocalDaemonToReconnect(self, request, context):
+        """ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+        This is mostly used for testing/debugging the reconnection process.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DistributedClusterServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -797,6 +810,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.QueryMessage,
                     request_deserializer=gateway__pb2.QueryMessageRequest.FromString,
                     response_serializer=gateway__pb2.QueryMessageResponse.SerializeToString,
+            ),
+            'ForceLocalDaemonToReconnect': grpc.unary_unary_rpc_method_handler(
+                    servicer.ForceLocalDaemonToReconnect,
+                    request_deserializer=gateway__pb2.ForceLocalDaemonToReconnectRequest.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1405,6 +1423,33 @@ class DistributedCluster(object):
             metadata,
             _registered_method=True)
 
+    @staticmethod
+    def ForceLocalDaemonToReconnect(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/ForceLocalDaemonToReconnect',
+            gateway__pb2.ForceLocalDaemonToReconnectRequest.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
 
 class ClusterDashboardStub(object):
     """gRPC service provided by the Dashboard and "used" by the Cluster Gateway
@@ -1675,6 +1720,11 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.KernelId.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 _registered_method=True)
+        self.ReconnectToGateway = channel.unary_unary(
+                '/gateway.LocalGateway/ReconnectToGateway',
+                request_serializer=gateway__pb2.ReconnectToGatewayRequest.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
 
 
 class LocalGatewayServicer(object):
@@ -1817,6 +1867,16 @@ class LocalGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ReconnectToGateway(self, request, context):
+        """ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
+
+        The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
+        to avoid causing the ReconnectToGateway to encounter an error.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_LocalGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -1908,6 +1968,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
             'YieldNextExecution': grpc.unary_unary_rpc_method_handler(
                     servicer.YieldNextExecution,
                     request_deserializer=gateway__pb2.KernelId.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'ReconnectToGateway': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReconnectToGateway,
+                    request_deserializer=gateway__pb2.ReconnectToGatewayRequest.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
@@ -2397,6 +2462,33 @@ class LocalGateway(object):
             target,
             '/gateway.LocalGateway/YieldNextExecution',
             gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReconnectToGateway(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.LocalGateway/ReconnectToGateway',
+            gateway__pb2.ReconnectToGatewayRequest.SerializeToString,
             gateway__pb2.Void.FromString,
             options,
             channel_credentials,
