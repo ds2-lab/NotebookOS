@@ -129,9 +129,6 @@ services:
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--web.listen-address=0.0.0.0:8500"
-      # - "--web.external-url=http://{{ hostvars['swarm-leader'].ansible_host }}/prometheus"
-      # - "--web.route-prefix=/"
-      # - "--web.enable-admin-api"
     image: {{ prometheus_docker_image_name }}:{{ prometheus_docker_image_tag }}
     deploy:
       restart_policy:
@@ -147,8 +144,8 @@ services:
 
         - "traefik.http.routers.prometheus-http.entryPoints=http"
         - "traefik.http.routers.prometheus-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/prometheus`)"
-        # - "traefik.http.middlewares.prometheus-strip.stripprefix.prefixes=/prometheus"
-        # - "traefik.http.routers.prometheus-http.middlewares=prometheus-strip"
+        - "traefik.http.middlewares.prometheus-strip.stripprefix.prefixes=/prometheus"
+        - "traefik.http.routers.prometheus-http.middlewares=prometheus-strip"
 
         - "traefik.http.services.prometheus.loadbalancer.server.port=8500"
         - "traefik.http.routers.prometheus-http.service=prometheus"
