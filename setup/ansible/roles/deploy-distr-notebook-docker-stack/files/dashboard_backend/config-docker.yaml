@@ -15,7 +15,10 @@ base-url: "/notebook-dashboard"
 prometheus-endpoint: "/metrics"
 
 # The address of the Jupyter Server.
-jupyter-server-address: jupyter:8888
+frontend-jupyter-server-address: {{ hostvars['swarm-leader'].ansible_host }}/jupyter
+
+# The address of the Jupyter Server to use internally.
+internal-jupyter-server-address: jupyter:8888
 
 # The base path that the Jupyter Server is listening on.
 jupyter-server-base-path: /jupyter
